@@ -1,0 +1,6 @@
+model_runs/
+**.pyc
+.vscode/
+Experiments/**/*.mp4
+demo/**/*.mp4
+**.cdf
