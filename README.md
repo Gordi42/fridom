@@ -19,6 +19,9 @@ Install other packages
 Upgrade nbformat
 ```pip install --upgrade nbformat```
 
+## Gallery
+https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc78bdd6b
+
 
 ## Author
     * Silvano Rosenau
@@ -28,5 +31,5 @@ Upgrade nbformat
 
 [MIT](LICENSE.txt)
 
-## Video
-![](media/fridom_title.mp4)
+
+
