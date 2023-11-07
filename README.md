@@ -27,7 +27,3 @@ Upgrade nbformat
 
 
 [MIT](LICENSE.txt)
-
-## test video
-
-![](media/fridom_title.mp4)
