@@ -22,3 +22,7 @@ Upgrade nbformat
 
 ## Author
     * Silvano Rosenau
+
+## License
+
+[MIT](LICENSE.txt)
