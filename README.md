@@ -1,4 +1,4 @@
-![](Experiments/ShallowWater/FridomAnimation/fridom-title.png)
+[![](Experiments/ShallowWater/FridomAnimation/fridom-title.png)](https://www.youtube.com/watch?v=Fotni4P2ZQs)
 
 # Framework for Idealized Ocean Models (FRIDOM)
 
@@ -25,4 +25,9 @@ Upgrade nbformat
 
 ## License
 
+
 [MIT](LICENSE.txt)
+
+## test video
+
+<video src='https://www.youtube.com/watch?v=Fotni4P2ZQs' width=180/>
