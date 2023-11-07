@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from fridom.Framework.Animation import ModelPlotterBase
-from fridom.ShallowWaterFD.Plot import Plot
+from fridom.ShallowWater.Plot import Plot
 
 
 class ModelPlotter(ModelPlotterBase):

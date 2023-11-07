@@ -1,5 +1,5 @@
 from fridom.Framework.BoundaryConditions import *
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
+from fridom.ShallowWater.ModelSettings import ModelSettings
 
 class UBoundary(BoundaryConditions):
     """

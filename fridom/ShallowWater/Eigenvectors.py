@@ -1,6 +1,6 @@
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
-from fridom.ShallowWaterFD.Grid import Grid
-from fridom.ShallowWaterFD.State import State
+from fridom.ShallowWater.ModelSettings import ModelSettings
+from fridom.ShallowWater.Grid import Grid
+from fridom.ShallowWater.State import State
 
 
 class VecQ(State):

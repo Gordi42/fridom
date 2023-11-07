@@ -2,10 +2,10 @@ import numpy as np
 from IPython.display import Video
 from tqdm import tqdm
 
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
-from fridom.ShallowWaterFD.Grid import Grid
-from fridom.ShallowWaterFD.State import State
-from fridom.ShallowWaterFD.Source import Source
+from fridom.ShallowWater.ModelSettings import ModelSettings
+from fridom.ShallowWater.Grid import Grid
+from fridom.ShallowWater.State import State
+from fridom.ShallowWater.Source import Source
 from fridom.Framework.NetCDFWriter import NetCDFWriter
 from fridom.Framework.ModelBase import ModelBase
 from fridom.Framework.Animation import LiveAnimation, VideoAnimation

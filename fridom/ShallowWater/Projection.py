@@ -2,10 +2,10 @@ from fridom.Framework.ProjectionBase import GeostrophicSpectralBase, Projection,
 from fridom.Framework.OptimalBalanceBase import OptimalBalanceBase
 from fridom.Framework.NNMDBase import NNMDBase
 
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
-from fridom.ShallowWaterFD.Grid import Grid
-from fridom.ShallowWaterFD.Eigenvectors import VecP, VecQ
-from fridom.ShallowWaterFD.State import State
+from fridom.ShallowWater.ModelSettings import ModelSettings
+from fridom.ShallowWater.Grid import Grid
+from fridom.ShallowWater.Eigenvectors import VecP, VecQ
+from fridom.ShallowWater.State import State
 
 
 class GeostrophicSpectral(GeostrophicSpectralBase):
@@ -44,7 +44,7 @@ class GeostrophicTimeAverage(GeostrophicTimeAverageBase):
                                         the inertial period.
             backward_forward  (bool)  : Whether to use backward-forward averaging.
         """
-        from fridom.ShallowWaterFD.Model import Model
+        from fridom.ShallowWater.Model import Model
         super().__init__(mset, grid, Model, n_ave, 
                          equidistant_chunks, max_period, backward_forward)
         return
@@ -57,11 +57,11 @@ class OptimalBalance(OptimalBalanceBase):
                  enable_backward_friction=False, 
                  max_it=3, stop_criterion=1e-9,
                  return_details=False) -> None:
-        from fridom.ShallowWaterFD.Model import Model
+        from fridom.ShallowWater.Model import Model
         super().__init__(mset, grid, Model, base_proj, ramp_period, ramp_type, enable_forward_friction, enable_backward_friction, max_it, stop_criterion, return_details)
 
 class NNMD(NNMDBase):
     def __init__(self, mset: ModelSettings, grid: Grid, 
                  order=3, enable_dealiasing=True) -> None:
-        from fridom.ShallowWaterFD.Model import Model
+        from fridom.ShallowWater.Model import Model
         super().__init__(mset, grid, Model, State, VecQ, VecP, order, enable_dealiasing)

@@ -1,6 +1,6 @@
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
-from fridom.ShallowWaterFD.Grid import Grid
-from fridom.ShallowWaterFD.BoundaryConditions import UBoundary, VBoundary, HBoundary
+from fridom.ShallowWater.ModelSettings import ModelSettings
+from fridom.ShallowWater.Grid import Grid
+from fridom.ShallowWater.BoundaryConditions import UBoundary, VBoundary, HBoundary
 from fridom.Framework.FieldVariable import FieldVariable
 from fridom.Framework.StateBase import StateBase
 

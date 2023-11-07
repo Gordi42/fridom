@@ -1,7 +1,7 @@
 import numpy
 
 from fridom.Framework.GridBase import GridBase
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
+from fridom.ShallowWater.ModelSettings import ModelSettings
 
 class Grid(GridBase):
     """

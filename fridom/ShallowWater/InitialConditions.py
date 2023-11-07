@@ -1,11 +1,11 @@
 import numpy 
 
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
-from fridom.ShallowWaterFD.Grid import Grid
-from fridom.ShallowWaterFD.State import State
+from fridom.ShallowWater.ModelSettings import ModelSettings
+from fridom.ShallowWater.Grid import Grid
+from fridom.ShallowWater.State import State
 from fridom.Framework.FieldVariable import FieldVariable
-from fridom.ShallowWaterFD.Eigenvectors import VecQ, VecP, VecQAnalytical
-from fridom.ShallowWaterFD.Projection import GeostrophicSpectral, DivergenceSpectral
+from fridom.ShallowWater.Eigenvectors import VecQ, VecP, VecQAnalytical
+from fridom.ShallowWater.Projection import GeostrophicSpectral, DivergenceSpectral
 
 
 class Jet(State):

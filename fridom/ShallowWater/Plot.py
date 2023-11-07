@@ -3,8 +3,8 @@ import numpy as np
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 
-from fridom.ShallowWaterFD.ModelSettings import ModelSettings
-from fridom.ShallowWaterFD.Grid import Grid
+from fridom.ShallowWater.ModelSettings import ModelSettings
+from fridom.ShallowWater.Grid import Grid
 from fridom.Framework.FieldVariable import FieldVariable
 
 
