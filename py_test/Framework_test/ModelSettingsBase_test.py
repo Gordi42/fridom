@@ -4,7 +4,7 @@ import numpy as np
 import sys
 sys.path.append('../..')
 
-from FIDOM.Framework.ModelSettingsBase import ModelSettingsBase
+from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 
 class TestModelSettingsBase(unittest.TestCase):
     """

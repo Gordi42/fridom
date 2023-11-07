@@ -4,3 +4,4 @@ model_runs/
 Experiments/**/*.mp4
 demo/**/*.mp4
 **.cdf
+**fridom.png

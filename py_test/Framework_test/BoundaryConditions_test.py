@@ -4,9 +4,9 @@ import numpy as np
 import sys
 sys.path.append('../..')
 
-from FIDOM.Framework.ModelSettingsBase import ModelSettingsBase
-from FIDOM.Framework.GridBase import GridBase
-from FIDOM.Framework.BoundaryConditions import *
+from fridom.Framework.ModelSettingsBase import ModelSettingsBase
+from fridom.Framework.GridBase import GridBase
+from fridom.Framework.BoundaryConditions import *
 
 class TestPeriodicBoundary(unittest.TestCase):
     """

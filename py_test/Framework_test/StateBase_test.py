@@ -4,11 +4,11 @@ import cupy
 import os, sys
 sys.path.append("../..")
 
-from FIDOM.Framework.ModelSettingsBase import ModelSettingsBase
-from FIDOM.Framework.GridBase import GridBase
-from FIDOM.Framework.BoundaryConditions import *
-from FIDOM.Framework.FieldVariable import FieldVariable
-from FIDOM.Framework.StateBase import StateBase
+from fridom.Framework.ModelSettingsBase import ModelSettingsBase
+from fridom.Framework.GridBase import GridBase
+from fridom.Framework.BoundaryConditions import *
+from fridom.Framework.FieldVariable import FieldVariable
+from fridom.Framework.StateBase import StateBase
 
 class StateBaseTest(unittest.TestCase):
     def setUp(self):
