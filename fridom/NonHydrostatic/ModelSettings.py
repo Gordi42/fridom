@@ -50,6 +50,15 @@ class ModelSettings(ModelSettingsBase):
         enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
 
+        enable_live_anim  (bool): Enable live animation.
+        live_plot_interval(int) : Live plot interval.
+        live_plotter      (cls) : Live plotter class.
+        enable_vid_anim   (bool): Enable mp4 animation.
+        vid_anim_interval (int) : Video animation interval.
+        vid_anim_filename (str) : Video animation filename.
+        vid_plotter       (cls) : Video plotter class.
+        vid_fps           (int) : Video frames per second.
+
         pressure_solver (str)   : Choose from "Spectral" or "CG".
         max_cg_iter (int)       : Maximum number of CG iterations.
         cg_tol (float)          : CG tolerance.
@@ -62,8 +71,6 @@ class ModelSettings(ModelSettingsBase):
             dtype (np.dtype)   : Data type for real.         
             ctype (np.dtype)   : Data type for complex.
         """
-        super().__init__(n_dims=3, dtype=dtype, ctype=ctype)
-        self.model_name = "NonHydrostatic"
 
         # physical parameters
         self.f0   = dtype(1)
@@ -93,29 +100,23 @@ class ModelSettings(ModelSettingsBase):
         self.enable_biharmonic = False   # Enable biharmonic friction and mixing
         self.enable_harmonic   = False   # Enable harmonic friction and mixing
 
-        # Plotting and Animation
-        self.enable_live_anim  = False   # Enable live animation
-        self.live_plot_interval= 50      # Live plot interval
-        self.live_plotter      = None    # Live plotter object
-        self.enable_vid_anim   = False   # Enable mp4 animation
-        self.vid_anim_interval = 50      # Video animation interval
-        self.vid_anim_filename = "output.mp4" # Video animation filename
-        self.vid_plotter       = None    # Video plotter object
-        self.vid_fps           = 30      # Video frames per second
-
         # Pressure solver
         self.pressure_solver   = "Spectral" # Choose from "Spectral" or "CG"
-        self.max_cg_iter       = max(self.N)
+        self.max_cg_iter       = None
         self.cg_tol            = 1e-10      # Conjugate gradient tolerance
 
-        # Set attributes from keyword arguments
-        for key, value in kwargs.items():
-            # Check if attribute exists
-            if not hasattr(self, key):
-                raise AttributeError(
-                    "ModelSettings has no attribute '{}'".format(key)
-                    )
-            setattr(self, key, value)
+        # init function must be called after all new variables are set
+        super().__init__(n_dims=3, dtype=dtype, ctype=ctype, **kwargs)
+
+        # Some parameters would be overwritten by the init function
+        # so we set them again here
+        self.model_name = "NonHydrostatic"
+        if "max_cg_iter" in kwargs:
+            self.max_cg_iter   = kwargs["max_cg_iter"]
+        else:
+            self.max_cg_iter       = max(self.N)
+        return
+
 
     def scale_biharmonic(self):
         """

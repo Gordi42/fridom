@@ -24,41 +24,66 @@ class NetCDFWriter:
         close    : Close the NetCDF file.
     """
 
-    def __init__(self, mset: ModelSettingsBase, grid:GridBase,
-                 var_names:list,
-                 var_long_names:list,
-                 var_unit_names:list) -> None:
+    def __init__(self, mset: ModelSettingsBase, grid:GridBase) -> None:
         """
         Constructor.
         """
-        self.cp = grid.cp
-        # create snapshot folder if it doesn't exist
-        if not os.path.exists("snapshots"):
-            os.makedirs("snapshots")
+        self.grid = grid
+        self.mset = mset
+        self.var_names      = None
+        self.var_long_names = None
+        self.var_unit_names = None
         self.filename = os.path.join("snapshots", mset.snap_filename)
+        self.is_active = False
+        return
 
-        # binary file names
+    def set_var_names(self, 
+                      var_names:list, 
+                      var_long_names:list, 
+                      var_unit_names:list):
+        """
+        Prepare the NetCDF file for writing by giving information about the
+        variable names and units. This function should be called
+        before the model is started.
+        """
+        self.var_names      = var_names
+        self.var_long_names = var_long_names
+        self.var_unit_names = var_unit_names
         name = self.filename.split(".")[0]
         self.binary_files = [name + "_" + var_name + "_bin.npy" for var_name in var_names]
+        return
 
-        # delete old binary files
-        for binary_file in self.binary_files:
-            if os.path.exists(binary_file):
-                os.remove(binary_file)
+    def start(self):
+        """
+        Start the parallel writer process.
+        """
+        # only start if snapshots are enabled
+        if self.mset.enable_snap:
+            # create snapshot folder if it doesn't exist
+            if not os.path.exists("snapshots"):
+                os.makedirs("snapshots")
 
-        # snap slice
-        self.snap_slice = mset.snap_slice
-        sel = self.snap_slice
+            # delete old binary files
+            for binary_file in self.binary_files:
+                if os.path.exists(binary_file):
+                    os.remove(binary_file)
 
-        # launch parallel writer
-        get = lambda x: x.get() if mset.gpu else x
-        x = [get(xi[sel[i]]) for i, xi in enumerate(grid.x)]
-        self.input_queue = mp.Queue()
-        self.parallel_writer = mp.Process(
-            target=parallel_writer, args=(
-                mset, x, self.filename, self.input_queue, 
-                var_names, var_long_names, var_unit_names, self.binary_files))
-        self.parallel_writer.start()
+            # snap slice
+            sel = self.mset.snap_slice
+
+            # launch parallel writer
+            get = lambda x: x.get() if self.mset.gpu else x
+            x = [get(xi[sel[i]]) for i, xi in enumerate(self.grid.x)]
+            self.input_queue = mp.Queue()
+            self.parallel_writer = mp.Process(
+                target=parallel_writer, args=(
+                    self.mset, x, self.filename, self.input_queue, 
+                    self.var_names, self.var_long_names, self.var_unit_names, 
+                    self.binary_files))
+            self.parallel_writer.start()
+
+            self.is_active = True
+        return
 
 
     def write_cdf(self, variables, time):
@@ -66,8 +91,7 @@ class NetCDFWriter:
         Write data to binary files and add them to the NetCDF file.
 
         Args:
-            z (State):      State object.
-            p (np.ndarray): Pressure.
+            variables (list): List of variables to write.
             time (float):   Current model time.
         """
         # wait until all binary files are deleted
@@ -76,9 +100,10 @@ class NetCDFWriter:
                 pass
 
         # write data to binary file
+        cp = self.grid.cp
         binary_files = self.binary_files
         for name, var in zip(binary_files, variables):
-            self.cp.save(name, var[self.snap_slice])
+            cp.save(name, var[self.mset.snap_slice])
 
         # add binary file to cdf file
         self.input_queue.put(time)
@@ -89,8 +114,10 @@ class NetCDFWriter:
         """
         Close the NetCDF file.
         """
-        self.input_queue.put("STOP")
-        self.parallel_writer.join()
+        if self.is_active:
+            self.input_queue.put("STOP")
+            self.parallel_writer.join()
+        self.is_active = False
         return
 
 

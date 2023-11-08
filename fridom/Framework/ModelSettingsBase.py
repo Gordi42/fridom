@@ -30,9 +30,26 @@ class ModelSettingsBase:
         enable_snap (bool)      : Enable writing snapshots.
         enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
+
+        enable_live_anim  (bool): Enable live animation.
+        live_plot_interval(int) : Live plot interval.
+        live_plotter      (cls) : Live plotter class.
+        enable_vid_anim   (bool): Enable mp4 animation.
+        vid_anim_interval (int) : Video animation interval.
+        vid_anim_filename (str) : Video animation filename.
+        vid_plotter       (cls) : Video plotter class.
+        vid_fps           (int) : Video frames per second.
+
+    Methods:
+        copy           : Return a copy of the model settings.
+        print_verbose  : Print function for verbose output.
+        __str__        : String representation of the model settings.
+        __repr__       : String representation of the model settings (for 
+                         IPython).
     """
 
-    def __init__(self, n_dims:int, dtype=np.float64, ctype=np.complex128):
+    def __init__(self, n_dims:int, dtype=np.float64, ctype=np.complex128,
+                 **kwargs):
         """
         Constructor.
 
@@ -80,6 +97,16 @@ class ModelSettingsBase:
         self.snap_filename = "snap.cdf"
         self.snap_slice    = tuple([slice(None)] * self.n_dims)
 
+        # Plotting and Animation
+        self.enable_live_anim  = False   # Enable live animation
+        self.live_plot_interval= 50      # Live plot interval
+        self.live_plotter      = None    # Live plotter object
+        self.enable_vid_anim   = False   # Enable mp4 animation
+        self.vid_anim_interval = 50      # Video animation interval
+        self.vid_anim_filename = "output.mp4" # Video animation filename
+        self.vid_plotter       = None    # Video plotter object
+        self.vid_fps           = 30      # Video frames per second
+
         # ------------------------------------------------------------------
         #   SWITCHES
         # ------------------------------------------------------------------
@@ -89,6 +116,15 @@ class ModelSettingsBase:
         self.enable_snap       = False   # Enable writing snapshots
         self.enable_diag       = False   # Enable diagnostic output
         self.enable_verbose    = False   # Enable verbose output
+
+        # Set attributes from keyword arguments
+        for key, value in kwargs.items():
+            # Check if attribute exists
+            if not hasattr(self, key):
+                raise AttributeError(
+                    "ModelSettings has no attribute '{}'".format(key)
+                    )
+            setattr(self, key, value)
 
     def copy(self):
         """

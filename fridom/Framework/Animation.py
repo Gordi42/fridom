@@ -32,12 +32,11 @@ class LiveAnimation:
 
 
 class VideoAnimation:
+    """
+    Class for parallel animated plotting of the model.
+    """
     def __init__(self, live_plotter:ModelPlotterBase, filename:str, fps:int,
                  max_jobs=0.4) -> None:
-        """
-        Class for parallel animated plotting of the model.
-        """
-
         """
         Constructor of the parallel animated model.
 

@@ -35,6 +35,14 @@ class Grid(GridBase):
         N = mset.N
         y = self.x[1]
 
+        # constants for finite difference operators
+        self.dx1 = mset.dtype(1) / mset.dx
+        self.dy1 = mset.dtype(1) / mset.dy
+        self.dx2 = self.dx1**2
+        self.dy2 = self.dy1**2
+        self.half = mset.dtype(0.5)
+        self.quarter = mset.dtype(0.25)
+
         # buoyancy frequency squared
         self.f_array  = cp.zeros((1,N[1]), dtype=dtype)
         self.f_array[:] = mset.f0 + mset.beta * y[None,:]

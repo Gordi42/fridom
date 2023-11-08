@@ -1,16 +1,10 @@
-import numpy as np
-from IPython.display import Video
-from tqdm import tqdm
-
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.NonHydrostatic.BoundaryConditions import PBoundary
 from fridom.NonHydrostatic.Source import Source
 from fridom.Framework.FieldVariable import FieldVariable
-from fridom.Framework.NetCDFWriter import NetCDFWriter
 from fridom.Framework.ModelBase import ModelBase
-from fridom.Framework.Animation import LiveAnimation, VideoAnimation
 
 
 class Model(ModelBase):
@@ -49,11 +43,10 @@ class Model(ModelBase):
             mset (ModelSettings)    : Model settings.
             grid (Grid)             : Grid.
         """
-        super().__init__(mset, grid)
+        super().__init__(mset, grid, State)
         self.mset = mset
 
-        # Model state variables
-        self.z = State(mset, grid)
+        # Add pressure and divergence variables
         self.p = FieldVariable(mset, grid, 
                     name="Pressure p", bc=PBoundary(mset))
         self.div = FieldVariable(mset, grid,
@@ -63,44 +56,23 @@ class Model(ModelBase):
         self.source = Source(mset, grid) if mset.enable_source else None
 
 
-        # time stepping variables
-        self.dz = [State(mset, grid) for _ in range(mset.time_levels)]
-        self.pointer = np.arange(mset.time_levels, dtype=np.int32)
-        self.coeff_AB = np.zeros(mset.time_levels, dtype=mset.dtype)
-
         # Timer
-        self.timer.add_component("Diagnose")
-        self.timer.add_component("Write Snapshot")
         self.timer.add_component("Linear Tendency")
         self.timer.add_component("Nonlinear Tendency")
         self.timer.add_component("Harmonic Tendency")
         self.timer.add_component("Biharmonic Tendency")
         self.timer.add_component("Source Tendency")
-        self.timer.add_component("Adam Bashforth Stepping")
         self.timer.add_component("Pressure Solve")
         self.timer.add_component("Pressure Gradient")
-        self.timer.add_component("Live Plotting")
-        self.timer.add_component("Video Writer")
 
         # netcdf writer
-        self.writer = None
-        if mset.enable_snap:
-            var_names = ["u", "v", "w", "b", "p"]
-            var_long_names = ["Velocity u", "Velocity v", "Velocity w", 
-                              "Buoyancy b", "Pressure p"]
-            var_unit_names = ["m/s", "m/s", "m/s", "m/s^2", "m^2/s^2"]
-            self.writer = NetCDFWriter(mset, grid, var_names, var_long_names, 
-                                       var_unit_names)
+        var_names = ["u", "v", "w", "b", "p"]
+        var_long_names = ["Velocity u", "Velocity v", "Velocity w", 
+                            "Buoyancy b", "Pressure p"]
+        var_unit_names = ["m/s", "m/s", "m/s", "m/s^2", "m^2/s^2"]
+        self.writer.set_var_names(var_names, var_long_names, var_unit_names)
 
-        # live animation
-        self.live_animation = None
-        self.set_live_animation(mset.live_plotter)
-
-        # vid animation
-        self.vid_animation = None
-        self.set_vid_animation(mset.vid_plotter)
-
-        # constants
+        # constants [TODO] move to grid
         self.dx1 = mset.dtype(1) / mset.dx
         self.dy1 = mset.dtype(1) / mset.dy
         self.dz1 = mset.dtype(1) / mset.dz
@@ -120,99 +92,43 @@ class Model(ModelBase):
                 "Unknown pressure solver: {}".format(mset.pressure_solver))
         return
 
-
     # ============================================================
-    #   RUN MODEL
-    # ============================================================
-
-    def run(self, steps=None, runlen=None) -> None:
-        """
-        Run the model for a given number of steps or a given time.
-
-        Args:
-            steps (int)     : Number of steps to run.
-            runlen (float)  : Time to run. (preferred over steps)
-        """
-        # check if steps or runlen is given
-        if runlen is not None:
-            steps = runlen / self.mset.dt
-        
-        # progress bar
-        tq = tqdm if self.mset.enable_tqdm else lambda x: x
-
-        # start vid animation
-        if self.mset.enable_vid_anim:
-            self.vid_animation.start_writer()
-        
-        # main loop
-        self.timer.total.start()
-        for _ in tq(range(int(steps))):
-            self.step()
-        self.timer.total.stop()
-
-        # close netcdf writer
-        if self.mset.enable_snap:
-            self.writer.close()
-
-        # stop vid animation
-        if self.mset.enable_vid_anim:
-            self.vid_animation.stop_writer()
-
-        return
-
-    
-    # ============================================================
-    #   SINGLE TIME STEP
+    #   TOTAL TENDENCY
     # ============================================================
 
-    def step(self) -> None:
-        """
-        Update the model state by one time step.
-        """
-        self.update_pointer()
-        self.update_coeff_AB()
+    def total_tendency(self):
         
         start_timer = lambda x: self.timer.get(x).start()
         end_timer   = lambda x: self.timer.get(x).stop()
 
-        # diagnose
-        start_timer("Diagnose")
-        self.diagnose()
-        end_timer("Diagnose")
-
         # calculate linear tendency
         start_timer("Linear Tendency")
-        self.dz[self.pointer[0]] = self.linear_dz()
+        self.dz = self.linear_dz()
         end_timer("Linear Tendency")
 
         # calculate nonlinear tendency
         start_timer("Nonlinear Tendency")
         if self.mset.enable_nonlinear:
-            self.dz[self.pointer[0]] += self.nonlinear_dz() * self.mset.Ro
+            self.dz += self.nonlinear_dz() * self.mset.Ro
         end_timer("Nonlinear Tendency")
 
         # calculate harmonic tendency
         start_timer("Harmonic Tendency")
         if self.mset.enable_harmonic:
-            self.dz[self.pointer[0]] += self.harmonic_dz()
+            self.dz += self.harmonic_dz()
         end_timer("Harmonic Tendency")
 
         # calculate biharmonic tendency
         start_timer("Biharmonic Tendency")
         if self.mset.enable_biharmonic:
-            self.dz[self.pointer[0]] -= self.biharmonic_dz()
+            self.dz -= self.biharmonic_dz()
         end_timer("Biharmonic Tendency")
 
         # calculate source tendency
         start_timer("Source Tendency")
         if self.mset.enable_source:
-            self.dz[self.pointer[0]] += self.source_dz()
+            self.dz += self.source_dz()
         end_timer("Source Tendency")
-
-        # Adam Bashforth time stepping
-        start_timer("Adam Bashforth Stepping")
-        self.adam_bashforth()
-        end_timer("Adam Bashforth Stepping")
 
         # solve for pressure
         start_timer("Pressure Solve")
@@ -223,30 +139,6 @@ class Model(ModelBase):
         start_timer("Pressure Gradient")
         self.remove_pressure_gradient()
         end_timer("Pressure Gradient")
-
-        # write snapshot
-        start_timer("Write Snapshot")
-        if self.mset.enable_snap:
-            if (self.it % self.mset.snap_interval) == 0:
-                vars = [self.z.u, self.z.v, self.z.w, self.z.b, self.p]
-                self.writer.write_cdf(vars, self.time)
-        end_timer("Write Snapshot")
-
-        # live animation
-        start_timer("Live Plotting")
-        if self.mset.enable_live_anim:
-            if (self.it % self.mset.live_plot_interval) == 0:
-                self.live_animation.update(z=self.z, p=self.p, time=self.time)
-        end_timer("Live Plotting")
-
-        # vid animation
-        start_timer("Video Writer")
-        if self.mset.enable_vid_anim:
-            if (self.it % self.mset.vid_anim_interval) == 0:
-                self.vid_animation.update(z=self.z.cpu(), p=self.p.cpu(), time=self.time)
-        end_timer("Video Writer")
-
-        self.it += 1
         return
 
 
@@ -381,7 +273,6 @@ class Model(ModelBase):
         """
         dz = State(self.mset, self.grid)
         u = self.z.u; v = self.z.v; w = self.z.w; b = self.z.b
-        dx2 = self.mset.dx**2; dy2 = self.mset.dy**2; dz2 = self.mset.dz**2
         ah = self.mset.ah; av = self.mset.av; 
         kh = self.mset.kh; kv = self.mset.kv
 
@@ -532,9 +423,9 @@ class Model(ModelBase):
         Calculate divergence and solve for pressure.
         """
         cp = self.z.cp
-        u_pad = cp.pad(self.z.u, ((1,0), (0,0), (0,0)), 'wrap')
-        v_pad = cp.pad(self.z.v, ((0,0), (1,0), (0,0)), 'wrap')
-        w_pad = cp.pad(self.z.w, ((0,0), (0,0), (1,0)), 'wrap')
+        u_pad = cp.pad(self.dz.u, ((1,0), (0,0), (0,0)), 'wrap')
+        v_pad = cp.pad(self.dz.v, ((0,0), (1,0), (0,0)), 'wrap')
+        w_pad = cp.pad(self.dz.w, ((0,0), (0,0), (1,0)), 'wrap')
 
         # boundary conditions
         if not self.mset.periodic_bounds[0]:
@@ -554,7 +445,6 @@ class Model(ModelBase):
         self.div[:] = (u_pad[xc] - u_pad[xb])*self.dx1 + \
                       (v_pad[yc] - v_pad[yb])*self.dy1 + \
                       (w_pad[zc] - w_pad[zb])*self.dz1
-        self.div /= self.mset.dt
 
         # solve for pressure
         self.p[:] = self.solve_for_pressure(self.div, self.p)
@@ -575,58 +465,20 @@ class Model(ModelBase):
         zf = (c,c,f); zc = (c,c,c)
 
         # remove pressure gradient
-        dt = self.mset.dt
-        self.z.u -= (p_pad[xf] - p_pad[xc])*self.dx1 * dt
-        self.z.v -= (p_pad[yf] - p_pad[yc])*self.dy1 * dt
-        self.z.w -= (p_pad[zf] - p_pad[zc])*self.dz1 * dt / self.mset.dsqr
+        self.dz.u -= (p_pad[xf] - p_pad[xc])*self.dx1 
+        self.dz.v -= (p_pad[yf] - p_pad[yc])*self.dy1 
+        self.dz.w -= (p_pad[zf] - p_pad[zc])*self.dz1 / self.mset.dsqr
 
         # apply boundary conditions
         if not self.mset.periodic_bounds[0]:
-            self.z.u[-1,:,:] = 0
+            self.dz.u[-1,:,:] = 0
         if not self.mset.periodic_bounds[1]:
-            self.z.v[:,-1,:] = 0
+            self.dz.v[:,-1,:] = 0
         if not self.mset.periodic_bounds[2]:
-            self.z.w[:,:,-1] = 0
+            self.dz.w[:,:,-1] = 0
 
         return
 
-
-    # ============================================================
-    #   TIME STEPPING
-    # ============================================================
-
-    def adam_bashforth(self) -> None:
-        """
-        Perform Adam-Bashforth time stepping.
-        """
-        for i in range(self.mset.time_levels):
-            self.z += self.dz[self.pointer[i]] * self.mset.dt * self.coeff_AB[i]
-        return
-
-
-    def update_pointer(self) -> None:
-        """
-        Update pointer for Adam-Bashforth time stepping.
-        """
-        self.pointer = np.roll(self.pointer, 1)
-        return
-
-
-    def update_coeff_AB(self) -> None:
-        """
-        Upward ramping of Adam-Bashforth coefficients after restart.
-        """
-        # current time level (ctl)
-        # maximum ctl is the number of time levels - 1
-        ctl = min(self.it, self.mset.time_levels-1)
-
-        # list of Adam-Bashforth coefficients
-        coeffs = [self.mset.AB1, self.mset.AB2, self.mset.AB3, self.mset.AB4]
-
-        # choose Adam-Bashforth coefficients of current time level
-        self.coeff_AB[:]      = 0
-        self.coeff_AB[:ctl+1] = coeffs[ctl]
-        return
 
     # ============================================================
     #   OTHER METHODS
@@ -637,38 +489,29 @@ class Model(ModelBase):
         Reset the model (pointers, tendencies).
         """
         super().reset()
-        self.z = self.z*0
         self.p = self.p*0
-        self.dz = [dz*0 for dz in self.dz]
         return
 
 
-    def diagnose(self) -> None:
+    def diagnostics(self) -> None:
         """
         Print diagnostic information.
         """
-        if not self.mset.enable_diag:
-            return
-        if (self.it % self.mset.diag_interval) == 0:
-            out = "Diagnostic at t = {:.2f}\n".format(self.it * self.mset.dt)
-            out += "MKE = {:.2e},    ".format(self.z.mean_ekin())
-            out += "MPE = {:.2e},    ".format(self.z.mean_epot())
-            out += "MTE = {:.2e}\n".format(self.z.mean_etot())
-            out += "hor. CFL = {:.2f},           ".format(self.z.max_cfl_h())
-            out += "vert. CFL = {:.2f}".format(self.z.max_cfl_v())
-            print(out)
+        out = "Diagnostic at t = {:.2f}\n".format(self.it * self.mset.dt)
+        out += "MKE = {:.2e},    ".format(self.z.mean_ekin())
+        out += "MPE = {:.2e},    ".format(self.z.mean_epot())
+        out += "MTE = {:.2e}\n".format(self.z.mean_etot())
+        out += "hor. CFL = {:.2f},           ".format(self.z.max_cfl_h())
+        out += "vert. CFL = {:.2f}".format(self.z.max_cfl_v())
+        print(out)
         return
 
-    def set_live_animation(self, live_plotter):
-        if self.mset.enable_live_anim:
-            self.live_animation = LiveAnimation(live_plotter)
+    def get_writer_variables(self):
+        return [self.z.u, self.z.v, self.z.w, self.z.b, self.p]
+
+    def update_live_animation(self):
+        self.live_animation.update(z=self.z, p=self.p, time=self.time)
         return
-
-    def set_vid_animation(self, vid_plotter):
-        if self.mset.enable_vid_anim:
-            self.vid_animation = VideoAnimation(
-                vid_plotter, self.mset.vid_anim_filename, self.mset.vid_fps)
-
-    def show_video(self):
-        if self.mset.enable_vid_anim:
-            return Video(self.vid_animation.filename, width=600, embed=True) 
+    
+    def update_vid_animation(self):
+        self.vid_animation.update(z=self.z.cpu(), p=self.p.cpu(), time=self.time)

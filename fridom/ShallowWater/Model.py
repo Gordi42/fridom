@@ -1,39 +1,15 @@
-import numpy as np
-from IPython.display import Video
-from tqdm import tqdm
-
 from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
 from fridom.ShallowWater.Source import Source
-from fridom.Framework.NetCDFWriter import NetCDFWriter
 from fridom.Framework.ModelBase import ModelBase
-from fridom.Framework.Animation import LiveAnimation, VideoAnimation
 
 
 class Model(ModelBase):
     """
-    TODO
-
-    Attributes:
-        z (State)               : State variables (u,v,w,b).
-        p (FieldVariable)       : Pressure (p).
-        it (int)                : Iteration counter.
-        timer (TimingModule)    : Timer.
-        writer (NetCDFWriter)   : NetCDF writer.
-
-    Methods:
-        step()                  : Perform one time step.
-        run()                   : Run the model for a given number of steps.
-        reset()                 : Reset the model (pointers, tendencies)
-        diagnose()              : Print diagnostic information.
-        update_pointer()        : Update pointer for Adam-Bashforth time stepping.
-        update_coeff_AB()       : Update coeffs for Adam-Bashforth time stepping.
-        linear_dz()             : Calculate linear tendency.
-        nonlinear_dz()          : Calculate nonlinear tendency.
-        harmonic_dz()           : Calculate harmonic tendency.
-        biharmonic_dz()         : Calculate biharmonic tendency.
-        adam_bashforth()        : Perform Adam-Bashforth time stepping.
+    A scaled rotating shallow water model. The discretization is based on a
+    energy conserving finite difference scheme on a staggered Arakawa C-grid.
+    Based on Sadourny [1975].
     """
 
     def __init__(self, mset:ModelSettings, grid:Grid) -> None:
@@ -44,177 +20,70 @@ class Model(ModelBase):
             mset (ModelSettings)    : Model settings.
             grid (Grid)             : Grid.
         """
-        super().__init__(mset, grid)
+        super().__init__(mset, grid, State)
         self.mset = mset
-
-        # Model state variables
-        self.z = State(mset, grid)
         
         # source term
         self.source = Source(mset, grid) if mset.enable_source else None
 
-        # time stepping variables
-        self.dz = [State(mset, grid) for _ in range(mset.time_levels)]
-        self.pointer = np.arange(mset.time_levels, dtype=np.int32)
-        self.coeff_AB = np.zeros(mset.time_levels, dtype=mset.dtype)
-
         # Timer
-        self.timer.add_component("Diagnose")
-        self.timer.add_component("Write Snapshot")
         self.timer.add_component("Linear Tendency")
         self.timer.add_component("Nonlinear Tendency")
         self.timer.add_component("Harmonic Tendency")
         self.timer.add_component("Biharmonic Tendency")
         self.timer.add_component("Source Tendency")
-        self.timer.add_component("Adam Bashforth Stepping")
-        self.timer.add_component("Live Plotting")
-        self.timer.add_component("Video Writer")
 
         # netcdf writer
-        self.writer = None
-        if mset.enable_snap:
-            var_names = ["u", "v", "h"]
-            var_long_names = ["Velocity u", "Velocity v", "Layer thickness h"] 
-            var_unit_names = ["m/s", "m/s", "m"]
-            self.writer = NetCDFWriter(mset, grid, var_names, var_long_names, 
-                                       var_unit_names)
-
-        # live animation
-        self.live_animation = None
-        self.set_live_animation(mset.live_plotter)
-
-        # vid animation
-        self.vid_animation = None
-        self.set_vid_animation(mset.vid_plotter)
-
-        # constants
-        self.dx1 = mset.dtype(1) / mset.dx
-        self.dy1 = mset.dtype(1) / mset.dy
-        self.dx2 = self.dx1**2
-        self.dy2 = self.dy1**2
-        self.half = mset.dtype(0.5)
-        self.quarter = mset.dtype(0.25)
-        return
-
-
-    # ============================================================
-    #   RUN MODEL
-    # ============================================================
-
-    def run(self, steps=None, runlen=None) -> None:
-        """
-        Run the model for a given number of steps or a given time.
-
-        Args:
-            steps (int)     : Number of steps to run.
-            runlen (float)  : Time to run. (preferred over steps)
-        """
-        # check if steps or runlen is given
-        if runlen is not None:
-            steps = runlen / self.mset.dt
-        
-        # progress bar
-        tq = tqdm if self.mset.enable_tqdm else lambda x: x
-
-        # start vid animation
-        if self.mset.enable_vid_anim:
-            self.vid_animation.start_writer()
-        
-        # main loop
-        self.timer.total.start()
-        for _ in tq(range(int(steps))):
-            self.step()
-        self.timer.total.stop()
-
-        # close netcdf writer
-        if self.mset.enable_snap:
-            self.writer.close()
-
-        # stop vid animation
-        if self.mset.enable_vid_anim:
-            self.vid_animation.stop_writer()
+        var_names = ["u", "v", "h"]
+        var_long_names = ["Velocity u", "Velocity v", "Layer thickness h"] 
+        var_unit_names = ["m/s", "m/s", "m"]
+        self.writer.set_var_names(var_names, var_long_names, var_unit_names)
 
         return
 
-    
+
     # ============================================================
-    #   SINGLE TIME STEP
+    #   TOTAL TENDENCY
     # ============================================================
 
-    def step(self) -> None:
+    def total_tendency(self) -> None:
         """
-        Update the model state by one time step.
+        Calculate total tendency. (Righthand side of the PDE)
         """
-        self.update_pointer()
-        self.update_coeff_AB()
         
         start_timer = lambda x: self.timer.get(x).start()
         end_timer   = lambda x: self.timer.get(x).stop()
 
-        # diagnose
-        start_timer("Diagnose")
-        self.diagnose()
-        end_timer("Diagnose")
 
         # calculate linear tendency
         start_timer("Linear Tendency")
-        self.dz[self.pointer[0]] = self.linear_dz()
+        self.dz = self.linear_dz()
         end_timer("Linear Tendency")
 
         # calculate nonlinear tendency
         start_timer("Nonlinear Tendency")
         if self.mset.enable_nonlinear:
-            self.dz[self.pointer[0]] += self.nonlinear_dz() * self.mset.Ro
+            self.dz += self.nonlinear_tendency() * self.mset.Ro
         end_timer("Nonlinear Tendency")
 
         # calculate harmonic tendency
         start_timer("Harmonic Tendency")
         if self.mset.enable_harmonic:
-            self.dz[self.pointer[0]] += self.harmonic_dz()
+            self.dz += self.harmonic_dz()
         end_timer("Harmonic Tendency")
 
         # calculate biharmonic tendency
         start_timer("Biharmonic Tendency")
         if self.mset.enable_biharmonic:
-            self.dz[self.pointer[0]] -= self.biharmonic_dz()
+            self.dz -= self.biharmonic_dz()
         end_timer("Biharmonic Tendency")
 
         # calculate source tendency
         start_timer("Source Tendency")
         if self.mset.enable_source:
-            self.dz[self.pointer[0]] += self.source_dz()
+            self.dz += self.source_dz()
         end_timer("Source Tendency")
-
-        # Adam Bashforth time stepping
-        start_timer("Adam Bashforth Stepping")
-        self.adam_bashforth()
-        end_timer("Adam Bashforth Stepping")
-
-        # write snapshot
-        start_timer("Write Snapshot")
-        if self.mset.enable_snap:
-            if (self.it % self.mset.snap_interval) == 0:
-                vars = [self.z.u, self.z.v, self.z.h]
-                self.writer.write_cdf(vars, self.time)
-        end_timer("Write Snapshot")
-
-        # live animation
-        start_timer("Live Plotting")
-        if self.mset.enable_live_anim:
-            if (self.it % self.mset.live_plot_interval) == 0:
-                self.live_animation.update(z=self.z, time=self.time)
-        end_timer("Live Plotting")
-
-        # vid animation
-        start_timer("Video Writer")
-        if self.mset.enable_vid_anim:
-            if (self.it % self.mset.vid_anim_interval) == 0:
-                self.vid_animation.update(z=self.z.cpu(), time=self.time)
-        end_timer("Video Writer")
-
-        self.it += 1
         return
-
 
     # ============================================================
     #   TENDENCIES
@@ -230,8 +99,7 @@ class Model(ModelBase):
         dz = State(self.mset, self.grid)
         u = self.z.u; v = self.z.v; h = self.z.h
         f_cor = self.grid.f_array
-        cp = self.z.cp
-        dx1 = self.dx1; dy1 = self.dy1
+        dx1 = self.grid.dx1; dy1 = self.grid.dy1
         csqr = self.mset.csqr
 
         # Padding for averaging
@@ -243,7 +111,7 @@ class Model(ModelBase):
 
         # Slices
         f = slice(2,None); b = slice(None,-2); c = slice(1,-1)
-        q = self.quarter  # 0.25
+        q = self.grid.quarter  # 0.25
 
         # Coriolis tendency
         dz.u[:] = (vp[c,c] + vp[f,c] + vp[c,b] + vp[f,b]) * q * f_cor
@@ -264,7 +132,7 @@ class Model(ModelBase):
 
         return dz
 
-    def nonlinear_dz(self) -> State:
+    def nonlinear_tendency(self) -> State:
         """
         Calculate nonlinear tendency.
 
@@ -274,9 +142,9 @@ class Model(ModelBase):
         dz = State(self.mset, self.grid)
 
         # shorthand notation
-        dx1 = self.dx1; dy1 = self.dy1
+        dx1 = self.grid.dx1; dy1 = self.grid.dy1
         Ro  = self.mset.Ro
-        half = self.half; quar = self.quarter
+        half = self.grid.half; quar = self.grid.quarter
 
         # Slices
         c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
@@ -350,7 +218,7 @@ class Model(ModelBase):
         dz = State(self.mset, self.grid)
 
         # shorthand notation
-        dx2 = self.dx2; dy2 = self.dy2
+        dx2 = self.grid.dx2; dy2 = self.grid.dy2
         ahbi = self.mset.ahbi
         khbi = self.mset.khbi
 
@@ -408,55 +276,8 @@ class Model(ModelBase):
 
 
     # ============================================================
-    #   TIME STEPPING
-    # ============================================================
-
-    def adam_bashforth(self) -> None:
-        """
-        Perform Adam-Bashforth time stepping.
-        """
-        for i in range(self.mset.time_levels):
-            self.z += self.dz[self.pointer[i]] * self.mset.dt * self.coeff_AB[i]
-        return
-
-
-    def update_pointer(self) -> None:
-        """
-        Update pointer for Adam-Bashforth time stepping.
-        """
-        self.pointer = np.roll(self.pointer, 1)
-        return
-
-
-    def update_coeff_AB(self) -> None:
-        """
-        Upward ramping of Adam-Bashforth coefficients after restart.
-        """
-        # current time level (ctl)
-        # maximum ctl is the number of time levels - 1
-        ctl = min(self.it, self.mset.time_levels-1)
-
-        # list of Adam-Bashforth coefficients
-        coeffs = [self.mset.AB1, self.mset.AB2, self.mset.AB3, self.mset.AB4]
-
-        # choose Adam-Bashforth coefficients of current time level
-        self.coeff_AB[:]      = 0
-        self.coeff_AB[:ctl+1] = coeffs[ctl]
-        return
-
-    # ============================================================
     #   OTHER METHODS
     # ============================================================
-
-    def reset(self) -> None:
-        """
-        Reset the model (pointers, tendencies).
-        """
-        super().reset()
-        self.z = self.z*0
-        self.dz = [dz*0 for dz in self.dz]
-        return
-
 
     def diagnose(self) -> None:
         """
@@ -473,17 +294,11 @@ class Model(ModelBase):
             print(out)
         return
 
-    def set_live_animation(self, live_plotter):
-        if self.mset.enable_live_anim:
-            self.live_animation = LiveAnimation(live_plotter)
-        return
+    def get_writer_variables(self):
+        return [self.z.u, self.z.v, self.z.h]
 
-    def set_vid_animation(self, vid_plotter):
-        if self.mset.enable_vid_anim:
-            self.vid_animation = VideoAnimation(
-                vid_plotter, self.mset.vid_anim_filename, self.mset.vid_fps,
-                self.mset.vid_max_jobs)
+    def update_live_animation(self):
+        self.live_animation.update(z=self.z, time=self.time)
 
-    def show_video(self):
-        if self.mset.enable_vid_anim:
-            return Video(self.vid_animation.filename, width=600, embed=True) 
+    def update_vid_animation(self):
+        self.vid_animation.update(z=self.z.cpu(), time=self.time)
