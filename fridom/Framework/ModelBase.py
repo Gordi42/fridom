@@ -60,6 +60,7 @@ class ModelBase:
         """
         self.mset = mset
         self.grid = grid
+        cp = grid.cp
 
         # state variable
         self.z = State(mset, grid)
@@ -67,7 +68,11 @@ class ModelBase:
         # time stepping variables
         self.dz_list = [State(mset, grid) for _ in range(mset.time_levels)]
         self.pointer = np.arange(mset.time_levels, dtype=np.int32)
-        self.coeff_AB = np.zeros(mset.time_levels, dtype=mset.dtype)
+        self.coeffs = [
+            cp.asarray(mset.AB1), cp.asarray(mset.AB2),
+            cp.asarray(mset.AB3), cp.asarray(mset.AB4)
+        ]
+        self.coeff_AB = cp.zeros(mset.time_levels, dtype=mset.dtype)
 
         # Timer
         self.timer = TimingModule()
@@ -242,14 +247,15 @@ class ModelBase:
         """
         # current time level (ctl)
         # maximum ctl is the number of time levels - 1
+        cp = self.grid.cp
         ctl = min(self.it, self.mset.time_levels-1)
 
         # list of Adam-Bashforth coefficients
-        coeffs = [self.mset.AB1, self.mset.AB2, self.mset.AB3, self.mset.AB4]
+        coeffs = self.coeffs
 
         # choose Adam-Bashforth coefficients of current time level
         self.coeff_AB[:]      = 0
-        self.coeff_AB[:ctl+1] = coeffs[ctl]
+        self.coeff_AB[:ctl+1] = cp.asarray(coeffs[ctl])
         return
     
     # ============================================================
