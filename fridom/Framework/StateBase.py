@@ -40,7 +40,6 @@ class StateBase:
         self.is_spectral = is_spectral
         self.cp = grid.cp
         self.constructor = StateBase
-
         self.field_list = field_list
 
     def copy(self) -> Type["StateBase"]:
