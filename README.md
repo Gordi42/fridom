@@ -5,7 +5,9 @@
 FRIDOM is a modeling framework designed with a singular goal in mind: to provide a high-level interface for the development of idealized ocean models. FRIDOM leverages the power of CUDA arrays on GPU through CuPy, enabling the execution of models at medium resolutions, constrained only by your hardware capabilities, right within Jupyter Notebook.
 
 FRIDOM is designed to solve partial differential equations that are written in the form
+
 $$ \partial_t \mathbf{z} = \mathbf{f}(\mathbf{z}, t) $$
+
 where $\mathbf{z}$ is a state vector containing, for example, the velocity field and the pressure field, and $\mathbf{f}(\mathbf{z}, t)$ represents the tendency term. To create new custom models, one needs to create a class for the state vector and a function for the tendency term. In the base model, there are pre-implemented functions for handling standard tasks, such as time stepping, netCDF output writing, and creating animations. These functions can be overridden if needed.
 
 FRIDOM is restricted to models with structured grids in cartesian coordinates.
