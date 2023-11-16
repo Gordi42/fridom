@@ -1,5 +1,9 @@
 import numpy
-import cupy
+try :
+    import cupy
+except ImportError:
+    pass
+
 from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.BoundaryConditions import BoundaryConditions
