@@ -2,7 +2,7 @@ from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.NonHydrostatic.BoundaryConditions import PBoundary
-from fridom.NonHydrostatic.Source import Source
+from fridom.NonHydrostatic.Modules import *
 from fridom.Framework.FieldVariable import FieldVariable
 from fridom.Framework.ModelBase import ModelBase
 
@@ -18,6 +18,7 @@ class Model(ModelBase):
         it (int)                : Iteration counter.
         timer (TimingModule)    : Timer.
         writer (NetCDFWriter)   : NetCDF writer.
+        Modules:                : Modules of the model.
 
     Methods:
         step()                  : Perform one time step.
@@ -26,13 +27,7 @@ class Model(ModelBase):
         diagnose()              : Print diagnostic information.
         update_pointer()        : Update pointer for Adam-Bashforth time stepping.
         update_coeff_AB()       : Update coeffs for Adam-Bashforth time stepping.
-        linear_dz()             : Calculate linear tendency.
-        nonlinear_dz()          : Calculate nonlinear tendency.
-        harmonic_dz()           : Calculate harmonic tendency.
-        biharmonic_dz()         : Calculate biharmonic tendency.
-        solve_pressure()        : Solve for pressure.
         adam_bashforth()        : Perform Adam-Bashforth time stepping.
-        remove_pressure_gradient() : Remove pressure gradient.
     """
 
     def __init__(self, mset:ModelSettings, grid:Grid) -> None:
@@ -52,18 +47,17 @@ class Model(ModelBase):
         self.div = FieldVariable(mset, grid,
                     name="Divergence", bc=PBoundary(mset))
         
-        # source term
-        self.source = Source(mset, grid) if mset.enable_source else None
+        # Modules
+        self.linear_tendency     = LinearTendency(mset, grid, self.timer)
+        self.nonlinear_tendency  = NonlinearTendency(mset, grid, self.timer)
+        self.pressure_gradient   = PressureGradientTendency(mset, grid, self.timer)
+        self.pressure_solver     = PressureSolve(mset, grid, self.timer)
+        self.harmonic_friction   = HarmonicFriction(mset, grid, self.timer)
+        self.harmonic_mixing     = HarmonicMixing(mset, grid, self.timer)
+        self.biharmonic_friction = BiharmonicFriction(mset, grid, self.timer)
+        self.biharmonic_mixing   = BiharmonicMixing(mset, grid, self.timer)
+        self.source_tendency     = SourceTendency(mset, grid, self.timer)
 
-
-        # Timer
-        self.timer.add_component("Linear Tendency")
-        self.timer.add_component("Nonlinear Tendency")
-        self.timer.add_component("Harmonic Tendency")
-        self.timer.add_component("Biharmonic Tendency")
-        self.timer.add_component("Source Tendency")
-        self.timer.add_component("Pressure Solve")
-        self.timer.add_component("Pressure Gradient")
 
         # netcdf writer
         var_names = ["u", "v", "w", "b", "p"]
@@ -72,24 +66,6 @@ class Model(ModelBase):
         var_unit_names = ["m/s", "m/s", "m/s", "m/s^2", "m^2/s^2"]
         self.writer.set_var_names(var_names, var_long_names, var_unit_names)
 
-        # constants [TODO] move to grid
-        self.dx1 = mset.dtype(1) / mset.dx
-        self.dy1 = mset.dtype(1) / mset.dy
-        self.dz1 = mset.dtype(1) / mset.dz
-        self.dx2 = self.dx1**2
-        self.dy2 = self.dy1**2
-        self.dz2 = self.dz1**2
-        self.half = mset.dtype(0.5)
-        self.quarter = mset.dtype(0.25)
-
-        # pressure solver
-        if mset.pressure_solver == "CG":
-            self.solve_for_pressure = self.compile_pressure_cg()
-        elif mset.pressure_solver == "Spectral":
-            self.solve_for_pressure = self.compile_pressure_spectral()
-        else:
-            raise ValueError(
-                "Unknown pressure solver: {}".format(mset.pressure_solver))
         return
 
     # ============================================================
@@ -98,386 +74,31 @@ class Model(ModelBase):
 
     def total_tendency(self):
         
-        start_timer = lambda x: self.timer.get(x).start()
-        end_timer   = lambda x: self.timer.get(x).stop()
-
         # calculate linear tendency
-        start_timer("Linear Tendency")
-        self.dz = self.linear_dz()
-        end_timer("Linear Tendency")
+        self.linear_tendency(self.z, self.dz)
 
         # calculate nonlinear tendency
-        start_timer("Nonlinear Tendency")
         if self.mset.enable_nonlinear:
-            self.dz += self.nonlinear_dz() * self.mset.Ro
-        end_timer("Nonlinear Tendency")
+            self.nonlinear_tendency(self.z, self.dz)
 
-        # calculate harmonic tendency
-        start_timer("Harmonic Tendency")
+        # Friction And Mixing
         if self.mset.enable_harmonic:
-            self.dz += self.harmonic_dz()
-        end_timer("Harmonic Tendency")
+            self.harmonic_friction(self.z, self.dz)
+            self.harmonic_mixing(self.z, self.dz)
 
-        # calculate biharmonic tendency
-        start_timer("Biharmonic Tendency")
         if self.mset.enable_biharmonic:
-            self.dz -= self.biharmonic_dz()
-        end_timer("Biharmonic Tendency")
+            self.biharmonic_friction(self.z, self.dz)
+            self.biharmonic_mixing(self.z, self.dz)
 
-        # calculate source tendency
-        start_timer("Source Tendency")
         if self.mset.enable_source:
-            self.dz += self.source_dz()
-        end_timer("Source Tendency")
+            self.source_tendency(self.dz, self.time)
 
         # solve for pressure
-        start_timer("Pressure Solve")
-        self.solve_pressure()
-        end_timer("Pressure Solve")
+        self.pressure_solver(self.dz, self.p)
+        self.pressure_gradient(self.p, self.dz)
 
-        # remove pressure gradient
-        start_timer("Pressure Gradient")
-        self.remove_pressure_gradient()
-        end_timer("Pressure Gradient")
         return
 
-
-    # ============================================================
-    #   TENDENCIES
-    # ============================================================
-
-    def linear_dz(self) -> State:
-        """
-        Calculate linear tendency.
-
-        Returns:
-            dz (State)  : Linear tendency.
-        """
-        dz = State(self.mset, self.grid)
-        u = self.z.u; v = self.z.v; w = self.z.w; b = self.z.b
-        dsqr = self.mset.dsqr
-        f_cor = self.grid.f_array
-        N2 = self.grid.N2_array
-        cp = self.z.cp
-
-        # Padding for averaging
-        up = cp.pad(u, ((1,0), (0,1), (0,0)), 'wrap')
-        vp = cp.pad(v, ((0,1), (1,0), (0,0)), 'wrap')
-        wp = cp.pad(w, ((0,0), (0,0), (1,0)), 'wrap')
-        bp = cp.pad(b, ((0,0), (0,0), (0,1)), 'wrap')
-
-        # No boundary conditions required here
-
-        # Slices
-        f = slice(1,None); b = slice(None,-1)
-        q = self.quarter  # 0.25
-        h = self.half     # 0.5
-
-        # calculate u-tendency
-        dz.u[:] = (vp[f,f] + vp[f,b] + vp[b,f] + vp[b,b]) * q * f_cor
-
-        # calculate v-tendency
-        dz.v[:] = (up[f,f] + up[f,b] + up[b,f] + up[b,b]) * q * (-f_cor)
-
-        # calculate w-tendency
-        dz.w[:] = (bp[:,:,f] + bp[:,:,b]) * h / dsqr
-        
-        # apply boundary conditions
-        if not self.mset.periodic_bounds[0]:
-            dz.u[-1,:,:] = 0
-        if not self.mset.periodic_bounds[1]:
-            dz.v[:,-1,:] = 0
-        if not self.mset.periodic_bounds[2]:
-            dz.w[:,:,-1] = 0
-
-        # calculate b-tendency
-        dz.b[:] = - (wp[:,:,f] + wp[:,:,b]) * h * N2
-
-        return dz
-
-    def nonlinear_dz(self) -> State:
-        """
-        Calculate nonlinear tendency.
-
-        Returns:
-            dz (State)  : Nonlinear tendency.
-        """
-        dz = State(self.mset, self.grid)
-
-        # shorthand notation
-        dx1 = self.dx1; dy1 = self.dy1; dz1 = self.dz1
-        quarter = self.quarter
-
-        # Slices
-        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
-        xf = (f,c,c); xb = (b,c,c)
-        yf = (c,f,c); yb = (c,b,c)
-        zf = (c,c,f); zb = (c,c,b)
-        cc = (c,c,c)
-        
-        # Padding with periodic boundary conditions
-        periodic = lambda x: self.z.cp.pad(x, ((2,2), (2,2), (2,2)), 'wrap')
-        u  = periodic(self.z.u)
-        v  = periodic(self.z.v)
-        w  = periodic(self.z.w)
-        bu = periodic(self.z.b)
-
-        # boundary conditions
-        if not self.mset.periodic_bounds[0]:
-            u[:2,:,:]  = 0; v[:2,:,:]  = 0; w[:2,:,:]  = 0; bu[:2,:,:]  = 0
-            u[-2:,:,:] = 0; v[-2:,:,:] = 0; w[-2:,:,:] = 0; bu[-2:,:,:] = 0
-        if not self.mset.periodic_bounds[1]:
-            u[:,:2,:]  = 0; v[:,:2,:]  = 0; w[:,:2,:]  = 0; bu[:,:2,:]  = 0
-            u[:,-2:,:] = 0; v[:,-2:,:] = 0; w[:,-2:,:] = 0; bu[:,-2:,:] = 0
-        if not self.mset.periodic_bounds[2]:
-            u[:,:,:2]  = 0; v[:,:,:2]  = 0; w[:,:,:2]  = 0; bu[:,:,:2]  = 0
-            u[:,:,-2:] = 0; v[:,:,-2:] = 0; w[:,:,-2:] = 0; bu[:,:,-2:] = 0
-
-
-        # function to calculate nonlinear tendency
-        def flux_divergence(p, slice):
-            """
-            Calculate the flux divergence of a field p.
-
-            Args:
-                p (FieldVariable)   : Field variable.
-                slice (tuple)       : Slicing tuple for averaging.
-
-            Returns:
-                res (FieldVariable) : Flux divergence.
-            """
-            # flux in x-,y-,z-direction
-            fe = (u[cc] + u[slice]) * (p[cc] + p[xf]) * quarter
-            fn = (v[cc] + v[slice]) * (p[cc] + p[yf]) * quarter
-            ft = (w[cc] + w[slice]) * (p[cc] + p[zf]) * quarter
-
-            res = (fe[cc] - fe[xb])*dx1 + \
-                  (fn[cc] - fn[yb])*dy1 + \
-                  (ft[cc] - ft[zb])*dz1
-            return res
-
-        # calculate nonlinear tendency
-        dz.u[:] = flux_divergence(u, xf)
-        dz.v[:] = flux_divergence(v, yf)
-        dz.w[:] = flux_divergence(w, zf)
-        dz.b[:] = flux_divergence(bu, cc)
-
-        return dz * (-1)
-
-    def harmonic_dz(self) -> State:
-        """
-        Calculate tendency due to harmonic friction / mixing.
-
-        Returns:
-            dz (State)  : Harmonic tendency.
-        """
-        dz = State(self.mset, self.grid)
-        u = self.z.u; v = self.z.v; w = self.z.w; b = self.z.b
-        ah = self.mset.ah; av = self.mset.av; 
-        kh = self.mset.kh; kv = self.mset.kv
-
-        # [TODO] boundary conditions
-        dz.u = (u.diff_2(0) + u.diff_2(1))*ah + u.diff_2(2)*av
-        dz.v = (v.diff_2(0) + v.diff_2(1))*ah + v.diff_2(2)*av
-        dz.w = (w.diff_2(0) + w.diff_2(1))*ah + w.diff_2(2)*av
-        dz.b = (b.diff_2(0) + b.diff_2(1))*kh + b.diff_2(2)*kv
-
-        return dz
-    
-    def biharmonic_dz(self) -> State:
-        """
-        Calculate tendency due to biharmonic friction / mixing.
-
-        Returns:
-            dz (State)  : Biharmonic tendency.
-        """
-        dz = State(self.mset, self.grid)
-
-        # shorthand notation
-        dx2 = self.dx2; dy2 = self.dy2; dz2 = self.dz2
-        ahbi = self.mset.ahbi; avbi = self.mset.avbi; 
-        khbi = self.mset.khbi; kvbi = self.mset.kvbi
-
-        # Slices
-        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
-        xf = (f,c,c); xb = (b,c,c)
-        yf = (c,f,c); yb = (c,b,c)
-        zf = (c,c,f); zb = (c,c,b)
-        cc = (c,c,c)
-
-        def biharmonic_function(p, h_coeff, v_coeff):
-            """
-            Calculate biharmonic friction / mixing.
-
-            Args:
-                p (FieldVariable)   : Field variable.
-
-            Returns:
-                res (FieldVariable) : Biharmonic friction / mixing.
-            """
-            # Padding with periodic boundary conditions
-            p = self.z.cp.pad(p, ((2,2), (2,2), (2,2)), 'wrap')
-
-            # Apply boundary conditions
-            if not self.mset.periodic_bounds[0]:
-                p[:2,:,:]  = 0; p[-2:,:,:] = 0
-            if not self.mset.periodic_bounds[1]:
-                p[:,:2,:]  = 0; p[:,-2:,:] = 0
-            if not self.mset.periodic_bounds[2]:
-                p[:,:,:2]  = 0; p[:,:,-2:] = 0
-
-            # first two derivatives
-            tmp_h = (p[xf] - 2*p[cc] + p[xb])*dx2*h_coeff + \
-                    (p[yf] - 2*p[cc] + p[yb])*dy2*h_coeff
-            tmp_v = (p[zf] - 2*p[cc] + p[zb])*dz2*v_coeff
-
-            # last two derivatives
-            res = (tmp_h[xf] - 2*tmp_h[cc] + tmp_h[xb])*dx2 + \
-                  (tmp_h[yf] - 2*tmp_h[cc] + tmp_h[yb])*dy2 + \
-                  (tmp_v[zf] - 2*tmp_v[cc] + tmp_v[zb])*dz2
-            return res
-
-
-        # biharmonic friction / mixing
-        dz.u[:] = biharmonic_function(self.z.u, ahbi, avbi)
-        dz.v[:] = biharmonic_function(self.z.v, ahbi, avbi)
-        dz.w[:] = biharmonic_function(self.z.w, ahbi, avbi)
-        dz.b[:] = biharmonic_function(self.z.b, khbi, kvbi)
-
-        return dz
-
-    def source_dz(self) -> State:
-        """
-        Calculate tendency due to source term.
-
-        Returns:
-            dz (State)  : Source tendency.
-        """
-        self.source.update(self.time)
-        return self.source
-
-
-    # ============================================================
-    #   PRESSURE SOLVER
-    # ============================================================
-
-    def compile_pressure_cg(self):
-        """
-        Return a function that solves a divergence field for pressure 
-        with a conjugate gradient solver.
-        """
-        if self.mset.gpu:
-            from cupyx.scipy.sparse.linalg import cg, LinearOperator
-        else:
-            from scipy.sparse.linalg import cg, LinearOperator
-        
-        # shorthand notation
-        Nx  = self.mset.N[0]; Ny  = self.mset.N[1]; Nz  = self.mset.N[2]
-        dx2 = self.dx2;       dy2 = self.dy2;       dz2 = self.dz2
-        NxNyNz = self.mset.total_grid_points
-        dsqr   = self.mset.dsqr
-        cp     = self.z.cp
-        maxiter = self.mset.max_cg_iter
-        cg_tol  = self.mset.cg_tol
-        
-
-        # define linear operator
-        def laplace(p):
-            p = p.reshape(Nx,Ny,Nz)
-            p_pad = cp.pad(p, ((1,1),(1,1),(1,1)), "wrap")
-
-            f = slice(2,None); b = slice(None,-2); c = slice(1,-1)
-            xb = (b,c,c); xf = (f,c,c); xc = (c,c,c)
-            yb = (c,b,c); yf = (c,f,c); yc = (c,c,c)
-            zb = (c,c,b); zf = (c,c,f); zc = (c,c,c)
-
-            p_laplace = ((p_pad[xf] -2*p_pad[xc] + p_pad[xb]) * dx2 +
-                        (p_pad[yf] -2*p_pad[yc] + p_pad[yb]) * dy2 +
-                        (p_pad[zf] -2*p_pad[zc] + p_pad[zb]) * dz2 / dsqr )
-            return p_laplace.reshape(-1)
-
-        A = LinearOperator((NxNyNz, NxNyNz), matvec=laplace)
-
-        def solve_for_pressure(div, p0):
-            p, info = cg(A, div.reshape(-1), x0=p0.reshape(-1), 
-                         tol=cg_tol, maxiter=maxiter)
-            return p.reshape(Nx,Ny,Nz)
-
-        return solve_for_pressure
-
-
-    def compile_pressure_spectral(self):
-        """
-        Return a function that solves a divergence field for pressure 
-        in spectral space.
-        """
-        def solve_for_pressure(div, p0):
-            ps = div.fft() / (-self.grid.k2_hat)
-            ps[self.grid.k2_hat_zero] = 0
-            return ps.fft()
-        return solve_for_pressure
-
-
-    def solve_pressure(self) -> None:
-        """
-        Calculate divergence and solve for pressure.
-        """
-        cp = self.z.cp
-        u_pad = cp.pad(self.dz.u, ((1,0), (0,0), (0,0)), 'wrap')
-        v_pad = cp.pad(self.dz.v, ((0,0), (1,0), (0,0)), 'wrap')
-        w_pad = cp.pad(self.dz.w, ((0,0), (0,0), (1,0)), 'wrap')
-
-        # boundary conditions
-        if not self.mset.periodic_bounds[0]:
-            u_pad[0,:,:] = 0
-        if not self.mset.periodic_bounds[1]:
-            v_pad[:,0,:] = 0
-        if not self.mset.periodic_bounds[2]:
-            w_pad[:,:,0] = 0
-
-        # Slices
-        c = slice(1,None); b = slice(None,-1); n = slice(None)
-        xb = (b,n,n); xc = (c,n,n)
-        yb = (n,b,n); yc = (n,c,n)
-        zb = (n,n,b); zc = (n,n,c)
-
-        # calculate divergence
-        self.div[:] = (u_pad[xc] - u_pad[xb])*self.dx1 + \
-                      (v_pad[yc] - v_pad[yb])*self.dy1 + \
-                      (w_pad[zc] - w_pad[zb])*self.dz1
-
-        # solve for pressure
-        self.p[:] = self.solve_for_pressure(self.div, self.p)
-        return
-
-
-    def remove_pressure_gradient(self) -> None:
-        """
-        Remove pressure gradient from velocity.
-        """
-        cp = self.z.cp
-        p_pad = cp.pad(self.p, ((0,1), (0,1), (0,1)), 'wrap')
-
-        # Slices
-        c = slice(None,-1); f = slice(1,None)
-        xf = (f,c,c); xc = (c,c,c)
-        yf = (c,f,c); yc = (c,c,c)
-        zf = (c,c,f); zc = (c,c,c)
-
-        # remove pressure gradient
-        self.dz.u -= (p_pad[xf] - p_pad[xc])*self.dx1 
-        self.dz.v -= (p_pad[yf] - p_pad[yc])*self.dy1 
-        self.dz.w -= (p_pad[zf] - p_pad[zc])*self.dz1 / self.mset.dsqr
-
-        # apply boundary conditions
-        if not self.mset.periodic_bounds[0]:
-            self.dz.u[-1,:,:] = 0
-        if not self.mset.periodic_bounds[1]:
-            self.dz.v[:,-1,:] = 0
-        if not self.mset.periodic_bounds[2]:
-            self.dz.w[:,:,-1] = 0
-
-        return
 
 
     # ============================================================

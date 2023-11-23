@@ -1,0 +1,47 @@
+from fridom.NonHydrostatic.ModelSettings import ModelSettings
+from fridom.NonHydrostatic.Grid import Grid
+from fridom.NonHydrostatic.State import State
+from fridom.Framework.TimingModule import TimingModule
+
+
+class HarmonicMixing:
+    """
+    This class computes the harmonic mixing tendency of the model.
+    """
+
+    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
+        """
+        Constructor of the Harmonic mixing class.
+
+        mset (ModelSettings) : ModelSettings object.
+        grid (Grid)          : Grid object.
+        """
+        self.mset = mset
+        self.grid = grid
+        self.timer = timer
+
+        # add a timer
+        self.timer.add_component('Harmonic Mixing')
+
+    def __call__(self, z: State, dz:State):
+        """
+        Compute the harmonic mixing tendency of the model.
+
+        Args:
+            z (State)  : State object.
+            dz (State) : Tendency of the state.
+        """
+        # start the timer
+        self.timer.get("Harmonic Mixing").start()
+
+        # compute the harmonic friction tendency
+        b = z.b
+        kh = self.mset.kh; kv = self.mset.kv; 
+
+        # [TODO] boundary conditions
+        dz.b += (b.diff_2(0) + b.diff_2(1))*kh + b.diff_2(2)*kv
+
+        # stop the timer
+        self.timer.get("Harmonic Mixing").stop()
+
+        return 
