@@ -192,7 +192,7 @@ class Plot:
     #  Main Plotting functions
     # ========================================================================
 
-    def __call__(self, state=None, fig=None,
+    def __call__(self, state=None, fig=None, ax=None,
             cmin=None, cmax=None, vmax=None, cmap=None):
         """
         Plot a top view of the field.
@@ -221,7 +221,8 @@ class Plot:
             get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
             u = get(state.u); v = get(state.v)
         
-        ax = fig.add_subplot(111)
+        if ax is None:
+            ax = fig.add_subplot(111)
         im = PlotContainer.top_on_axis(
             ax, self.field, self.X, self.Y, cmin, cmax, cmap, vmax, u, v)
 

@@ -40,7 +40,7 @@ class State(StateBase):
 
         csqr = self.mset.csqr; Ro = self.mset.Ro
         h_full = csqr + Ro * self.h
-        ekin = 0.5 * Ro * h_full * (z.u**2 + z.v**2)
+        ekin = 0.5 * Ro**2 * h_full * (z.u**2 + z.v**2)
         return FieldVariable(self.mset, self.grid, is_spectral=False, 
                              name="Kinetic Energy", arr=ekin, 
                              bc=HBoundary(self.mset))
@@ -60,8 +60,8 @@ class State(StateBase):
             z = self.fft()
 
         csqr = self.mset.csqr; Ro = self.mset.Ro
-        h_full = csqr + Ro * self.h
-        epot = 0.5 * h_full * z.h
+        h_full = csqr + Ro * z.h
+        epot = 0.5 * h_full ** 2
 
         return FieldVariable(self.mset, self.grid, is_spectral=False,
                              name="Potential Energy", arr=epot, 

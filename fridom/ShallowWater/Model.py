@@ -279,7 +279,7 @@ class Model(ModelBase):
     #   OTHER METHODS
     # ============================================================
 
-    def diagnose(self) -> None:
+    def diagnostics(self) -> None:
         """
         Print diagnostic information.
         """
