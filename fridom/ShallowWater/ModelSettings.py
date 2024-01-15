@@ -34,6 +34,8 @@ class ModelSettings(ModelSettingsBase):
         diag_interval (int)    : Diagnostic interval.
         snap_filename (str)    : Snapshot filename.
 
+        solver (str)           : Solver name ("Spectral", "FD").
+
         enable_nonlinear (bool) : Enable nonlinear terms.
         enable_varying_f (bool) : Enable varying Coriolis parameter.
         enable_source (bool)    : Enable source terms.
@@ -53,8 +55,10 @@ class ModelSettings(ModelSettingsBase):
             ctype (np.dtype)   : Data type for complex.
         """
         super().__init__(n_dims=2, dtype=dtype, ctype=ctype)
-        self.model_name = "ShallowWaterFD"
+        self.model_name = "ShallowWater"
         self.L = [2*np.pi, 2*np.pi]
+
+        self._solver = "FD"
 
         # physical parameters
         self.csqr = dtype(1)
@@ -146,6 +150,25 @@ class ModelSettings(ModelSettingsBase):
     # ==================================================================
     #  GETTER AND SETTER FOR PRIVATE VARIABLES
     # ==================================================================
+    @property
+    def solver(self) -> str:
+        """Solver name."""
+        return self._solver
+    
+    @solver.setter
+    def solver(self, value: str):
+        options = ["FD", "Spectral"]
+        if value not in options:
+            raise ValueError(
+                "Invalid solver name '{}'. Options are: {}".format(
+                    value, options
+                    )
+                )
+        self._solver = value
+        if value == "Spectral":
+            print("WARNING: Spectral solver not fully implemented yet.")
+        return
+
     @property
     def N(self) -> list:
         """Grid points in each direction."""
