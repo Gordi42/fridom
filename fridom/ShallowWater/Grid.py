@@ -57,6 +57,14 @@ class Grid(GridBase):
         self.k2_hat_zero = (k2_hat == 0)
         k2_hat[self.k2_hat_zero] = 1
 
+        # dealiasing mask (2/3 rule)
+        kx_max = 2/3 * cp.max(self.K[0])
+        ky_max = 2/3 * cp.max(self.K[1])
+        kmax = (kx_max**2 + ky_max**2)**0.5
+        k = (self.K[0]**2 + self.K[1]**2) ** 0.5
+        self.dealias_mask = cp.ones_like(self.K[0])
+        self.dealias_mask[k > kmax] = 0
+
         # dispersion relation are computed on demand
         self._omega_analytical     = None
         self._omega_time_discrete  = None

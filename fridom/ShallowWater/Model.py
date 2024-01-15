@@ -2,6 +2,7 @@ from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
 from fridom.ShallowWater.Source import Source
+from fridom.ShallowWater.Modules import LinearTendency, NonlinearTendency
 from fridom.Framework.ModelBase import ModelBase
 
 
@@ -20,15 +21,21 @@ class Model(ModelBase):
             mset (ModelSettings)    : Model settings.
             grid (Grid)             : Grid.
         """
-        super().__init__(mset, grid, State)
+        if mset.solver == "FD":
+            is_spectral = False
+        elif mset.solver == "Spectral":
+            is_spectral = True
+        super().__init__(mset, grid, State, is_spectral=is_spectral)
         self.mset = mset
+
+        # Modules
+        self.linear_tendency = LinearTendency(mset, grid, self.timer)
+        self.nonlinear_tendency = NonlinearTendency(mset, grid, self.timer)
         
         # source term
         self.source = Source(mset, grid) if mset.enable_source else None
 
         # Timer
-        self.timer.add_component("Linear Tendency")
-        self.timer.add_component("Nonlinear Tendency")
         self.timer.add_component("Harmonic Tendency")
         self.timer.add_component("Biharmonic Tendency")
         self.timer.add_component("Source Tendency")
@@ -54,17 +61,9 @@ class Model(ModelBase):
         start_timer = lambda x: self.timer.get(x).start()
         end_timer   = lambda x: self.timer.get(x).stop()
 
-
-        # calculate linear tendency
-        start_timer("Linear Tendency")
-        self.dz = self.linear_dz()
-        end_timer("Linear Tendency")
-
-        # calculate nonlinear tendency
-        start_timer("Nonlinear Tendency")
+        self.linear_tendency(self.z, self.dz)
         if self.mset.enable_nonlinear:
-            self.dz += self.nonlinear_tendency() * self.mset.Ro
-        end_timer("Nonlinear Tendency")
+            self.nonlinear_tendency(self.z, self.dz)
 
         # calculate harmonic tendency
         start_timer("Harmonic Tendency")
@@ -88,105 +87,6 @@ class Model(ModelBase):
     # ============================================================
     #   TENDENCIES
     # ============================================================
-
-    def linear_dz(self) -> State:
-        """
-        Calculate linear tendency.
-
-        Returns:
-            dz (State)  : Linear tendency.
-        """
-        dz = State(self.mset, self.grid)
-        u = self.z.u; v = self.z.v; h = self.z.h
-        f_cor = self.grid.f_array
-        dx1 = self.grid.dx1; dy1 = self.grid.dy1
-        csqr = self.mset.csqr
-
-        # Padding for averaging
-        up = u.pad_raw(((1,1), (1,1)))
-        vp = v.pad_raw(((1,1), (1,1)))
-        hp = h.pad_raw(((1,1), (1,1)))
-
-        # No boundary conditions required here
-
-        # Slices
-        f = slice(2,None); b = slice(None,-2); c = slice(1,-1)
-        q = self.grid.quarter  # 0.25
-
-        # Coriolis tendency
-        dz.u[:] = (vp[c,c] + vp[f,c] + vp[c,b] + vp[f,b]) * q * f_cor
-        dz.v[:] = (up[c,c] + up[b,c] + up[c,f] + up[b,f]) * q * (-f_cor)
-
-        # Pressure gradient tendency
-        dz.u[:] -= (hp[f,c] - hp[c,c]) * dx1
-        dz.v[:] -= (hp[c,f] - hp[c,c]) * dy1
-
-        # Horizontal divergence tendency
-        dz.h[:] = -((up[c,c] - up[b,c])*dx1 + (vp[c,c] - vp[c,b])*dy1)*csqr
-
-        # apply boundary conditions
-        if not self.mset.periodic_bounds[0]:
-            dz.u[-1,:,:] = 0
-        if not self.mset.periodic_bounds[1]:
-            dz.v[:,-1,:] = 0
-
-        return dz
-
-    def nonlinear_tendency(self) -> State:
-        """
-        Calculate nonlinear tendency.
-
-        Returns:
-            dz (State)  : Nonlinear tendency.
-        """
-        dz = State(self.mset, self.grid)
-
-        # shorthand notation
-        dx1 = self.grid.dx1; dy1 = self.grid.dy1
-        Ro  = self.mset.Ro
-        half = self.grid.half; quar = self.grid.quarter
-
-        # Slices
-        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
-        xf = (f,c); xb = (b,c); xc = (c,c)
-        yf = (c,f); yb = (c,b); yc = (c,c)
-
-        # Padding
-        up = self.z.u.pad_raw(((2,2), (2,2)))
-        vp = self.z.v.pad_raw(((2,2), (2,2)))
-        hp = self.z.h.pad_raw(((2,2), (2,2)))
-
-        # Apply boundary conditions
-        if not self.mset.periodic_bounds[0]:
-            up[:2,:] = 0; up[-2:,:] = 0
-            vp[:2,:] = 0; vp[-2:,:] = 0
-            hp[:2,:] = 0; hp[-2:,:] = 0
-        if not self.mset.periodic_bounds[1]:
-            up[:,:2] = 0; up[:,-2:] = 0
-            vp[:,:2] = 0; vp[:,-2:] = 0
-            hp[:,:2] = 0; hp[:,-2:] = 0
-
-        # advection of layer thickness with flux divergence
-        fe = up[xc] * (hp[xf] + hp[xc]) * half
-        fn = vp[yc] * (hp[yf] + hp[yc]) * half
-
-        dz.h[:] = -(fe[xc] - fe[xb])*dx1 - (fn[yc] - fn[yb])*dy1
-
-        # advection of momentum with potential vorticity and kinetic energy
-        hf = Ro * hp + self.mset.csqr
-        q = (vp[xf] - vp[xc])*dx1 - (up[yf] - up[yc])*dy1
-        q /= (hf[c,c] + hf[f,c] + hf[c,f] + hf[f,f])*quar
-        k = (up[xc]**2 + up[xb]**2 + vp[yc]**2 + vp[yb]**2)*quar
-
-        fe = up[xc] * (hf[xf] + hf[xc]) * half
-        fn = vp[yc] * (hf[yf] + hf[yc]) * half
-
-        dz.u[:] = (q[yc] * (fn[xc] + fn[xf]) + q[yb] * (fn[c,b] + fn[f,b]))*quar  
-        dz.u[:] -= (k[xf] - k[xc])*dx1 
-
-        dz.v[:] = -(q[xc] * (fe[yc] + fe[yf]) + q[xb] * (fe[b,c] + fe[b,f]))*quar
-        dz.v[:] -= (k[yf] - k[yc])*dy1
-        return dz
 
 
     def harmonic_dz(self) -> State:
