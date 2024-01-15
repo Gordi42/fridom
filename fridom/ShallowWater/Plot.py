@@ -207,7 +207,7 @@ class Plot:
         """
 
         # update color settings if necessary
-        is_positive = np.all(self.field >= 0)
+        is_positive = np.all(self.field >= 0) if cmin is None else cmin >= 0
         cmap = PlotContainer.update_colormap(is_positive, cmap)
         cmin, cmax = PlotContainer.update_colorlimits(
             self.field, is_positive, cmin, cmax)
