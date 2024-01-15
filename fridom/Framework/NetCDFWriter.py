@@ -120,6 +120,14 @@ class NetCDFWriter:
         self.is_active = False
         return
 
+    def reset(self):
+        """
+        Reset the NetCDF file.
+        """
+        self.close()
+        self.start()
+        return
+
 
 
 def parallel_writer(mset:ModelSettingsBase, x_in, filename, input_queue, 
