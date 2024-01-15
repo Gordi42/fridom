@@ -32,14 +32,18 @@ class NNMDBase(Projection):
         if not mset.enable_nonlinear or mset.Ro == 0:
             print("WARNING: Model is linear.")
         # check if N and f are constant
-        if mset.enable_varying_f:
-            print("WARNING: f is varying. NNMD may not work properly.")
-        if mset.enable_varying_N:
-            print("WARNING: N is varying. NNMD may not work properly.")
-        if mset.enable_harmonic:
-            print("WARNING: Harmonic friction is not included in Eigenvectors.")
-        if mset.enable_biharmonic:
-            print("WARNING: Biharmonic friction is not included in Eigenvectors.")
+        if hasattr(mset, "enable_varying_f"):
+            if mset.enable_varying_f:
+                print("WARNING: f is varying. NNMD may not work properly.")
+        if hasattr(mset, "enable_varying_N"):
+            if mset.enable_varying_N:
+                print("WARNING: N is varying. NNMD may not work properly.")
+        if hasattr(mset, "enable_harmonic"):
+            if mset.enable_harmonic:
+                print("WARNING: Harmonic friction is not included in Eigenvectors.")
+        if hasattr(mset, "enable_biharmonic"):
+            if mset.enable_biharmonic:
+                print("WARNING: Biharmonic friction is not included in Eigenvectors.")
         if order > 4:
             raise ValueError("Order must be <= 4.")
         self.order = order
@@ -139,6 +143,8 @@ class NNMDBase(Projection):
         z1_hat = self.first_order(z0_hat)
         # calculate the second-order component
         z2_hat = self.second_order(z0_hat, z1_hat)
+        cp = z.cp
+        print(cp.max(z2_hat.fft().h))
 
         # power series
         Ro = self.mset.Ro
@@ -170,9 +176,9 @@ class NNMDBase(Projection):
         z1_hat = self.State(self.mset, self.grid, is_spectral=True)
 
         # calculate each mode separately
-        for proj, sign in zip([proj_p, proj_m], [1, -1]):
+        for proj, sign in zip([proj_p, proj_m], [-1, 1]):
             factor = sign * 1j * self.one_over_omega
-            z1_hat -= proj(non_z0_hat) * factor
+            z1_hat += proj(non_z0_hat) * factor
 
         return z1_hat
 
@@ -201,14 +207,14 @@ class NNMDBase(Projection):
         z2_hat = self.State(self.mset, self.grid, is_spectral=True)
 
         # calculate each mode separately
-        for proj, sign in zip([proj_p, proj_m], [1, -1]):
+        for proj, sign in zip([proj_p, proj_m], [-1, 1]):
             factor = sign * 1j * self.one_over_omega
             # calculate the slow tendency of z1 projected to the subspace
             dt_z1 = proj(dt_non_z0) * factor
             # calculate the nonlinear interaction between z0 and z1
-            non_z0_z1 = proj(self.non_linear_inter(z0_hat, proj(z1_hat)))
+            non_z0_z1 = proj(self.non_linear_inter(z0_hat, z1_hat))
             # calculate the second-order term
-            z2_hat = (dt_z1 - 2*non_z0_z1) * factor
+            z2_hat += (2*non_z0_z1 - dt_z1) * factor
 
         return z2_hat
 
@@ -272,8 +278,11 @@ class NNMDBase(Projection):
         # initialize the model
         model = self.model
         model.reset()
-        model.z = z_phys
-        z_nl = model.nonlinear_dz()
+        z_nl = z_phys * 0
+        model.nonlinear_tendency(z_phys, z_nl)
+
+        # divide by Ro
+        z_nl /= self.mset.Ro
 
         # transform back to spectral space if it was spectral
         z_nl = z_nl.fft() if spectral_transform else z_nl
