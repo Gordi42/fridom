@@ -47,7 +47,7 @@ conda install -c conda-forge cupy
 ```
 5. Install other packages
 ```sh
-pip install netCDF4 plotly=5.18.0 matplotlib tqdm scipy
+pip install netCDF4 plotly==5.18.0 matplotlib tqdm scipy imageio
 ```
 6. Upgrade nbformat
 ```sh
