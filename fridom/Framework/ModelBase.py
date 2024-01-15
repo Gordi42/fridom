@@ -49,7 +49,7 @@ class ModelBase:
         reset()                 : Reset the model (pointers, tendencies)
     """
 
-    def __init__(self, mset:ModelSettingsBase, grid:GridBase, State:StateBase) -> None:
+    def __init__(self, mset:ModelSettingsBase, grid:GridBase, State:StateBase, is_spectral=False) -> None:
         """
         Constructor.
 
@@ -63,10 +63,10 @@ class ModelBase:
         cp = grid.cp
 
         # state variable
-        self.z = State(mset, grid)
+        self.z = State(mset, grid, is_spectral=is_spectral)
 
         # time stepping variables
-        self.dz_list = [State(mset, grid) for _ in range(mset.time_levels)]
+        self.dz_list = [State(mset, grid, is_spectral=is_spectral) for _ in range(mset.time_levels)]
         self.pointer = np.arange(mset.time_levels, dtype=np.int32)
         self.coeffs = [
             cp.asarray(mset.AB1), cp.asarray(mset.AB2),
@@ -331,9 +331,9 @@ class ModelBase:
         """
         self.it = 0
         self.timer.reset()
-        self.z[:] *= 0
+        self.z *= 0
         for dz in self.dz_list:
-            dz[:] *= 0
+            dz *= 0
         self.writer.reset()
         # to implement in child class
         return
