@@ -89,9 +89,9 @@ class LinearTendencyFD:
 
         # apply boundary conditions
         if not self.mset.periodic_bounds[0]:
-            dz.u[-1,:,:] = 0
+            dz.u[-1,:] = 0
         if not self.mset.periodic_bounds[1]:
-            dz.v[:,-1,:] = 0
+            dz.v[:,-1] = 0
 
         return
 
