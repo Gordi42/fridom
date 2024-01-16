@@ -167,9 +167,23 @@ class State(StateBase):
         z_phy = self.fft() if self.is_spectral else self
         z_rot = State(self.mset, self.grid, is_spectral=False)
         z_rot.h[:] = self.cp.rot90(z_phy.h)
-        z_rot.u[:] = -self.cp.rot90(z_phy.v)
+        z_rot.u[:-1,:] = -self.cp.rot90(z_phy.v[:,:-1])
+        if self.mset.periodic_bounds[1]:
+            z_rot.u[-1,:] = -z_phy.v[:,-1]
         z_rot.v[:] = self.cp.rot90(z_phy.u)
-        return z_rot
+        return z_rot.fft() if self.is_spectral else z_rot
+
+    def rot180(self):
+        """
+        Rotate the state by 180 degrees. (mathematically positive direction)
+        """
+        rot90 = self.cp.rot90
+        z_phy = self.fft() if self.is_spectral else self
+        z_rot = State(self.mset, self.grid, is_spectral=False)
+        z_rot.h[:] = rot90(rot90(z_phy.h))
+        z_rot.u[:-1,:] = -rot90(rot90(z_phy.u[:-1,:]))
+        z_rot.v[:,:-1] = -rot90(rot90(z_phy.v[:,:-1]))
+        return z_rot.fft() if self.is_spectral else z_rot
 
 
     # ======================================================================
