@@ -157,6 +157,22 @@ class State(StateBase):
         return field
 
     # ======================================================================
+    #  SOME MATH FUNCTIONS
+    # ======================================================================
+
+    def rot90(self):
+        """
+        Rotate the state by 90 degrees. (mathematically positive direction)
+        """
+        z_phy = self.fft() if self.is_spectral else self
+        z_rot = State(self.mset, self.grid, is_spectral=False)
+        z_rot.h[:] = self.cp.rot90(z_phy.h)
+        z_rot.u[:] = -self.cp.rot90(z_phy.v)
+        z_rot.v[:] = self.cp.rot90(z_phy.u)
+        return z_rot
+
+
+    # ======================================================================
     #  CFL AND PECLET NUMBERS
     # ======================================================================
 
