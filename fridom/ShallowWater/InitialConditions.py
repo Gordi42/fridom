@@ -15,7 +15,8 @@ class Jet(State):
     at (1/4, 3/4)*Ly (opposing sign).
     """
     def __init__(self, mset:ModelSettings, grid:Grid, 
-                 wavenum=5, waveamp=0.1, geo_proj=True):
+                 wavenum=5, waveamp=0.1, jet_pos=(0.25, 0.75),
+                 geo_proj=True):
         """
         Constructor of the Barotropic Jet initial condition with 2 zonal jets.
 
@@ -32,15 +33,17 @@ class Jet(State):
         cp = self.cp
         PI = cp.pi
         x, y = tuple(grid.X)
+        x = x + 0.5*mset.dg[0]
+        y = y + 0.5*mset.dg[1]
         Lx, Ly = tuple(mset.L)
 
         # Construct the zonal jets
-        self.u[:]  = 2.5*( cp.exp(-((y - 0.75*Ly)/(0.04*PI))**2) - 
-                           cp.exp(-((y - 0.25*Ly)/(0.04*PI))**2) )
+        self.u[:]  = 2.5*( cp.exp(-((y - jet_pos[1]*Ly)/(0.04*PI))**2) - 
+                           cp.exp(-((y - jet_pos[0]*Ly)/(0.04*PI))**2) )
 
         # Construct the perturbation
         kx_p = 2*PI/Lx * wavenum
-        self.v[:]  = waveamp * cp.sin(kx_p*x)
+        self.h[:]  = waveamp * cp.sin(kx_p*x)
 
         if geo_proj:
             proj_geo = GeostrophicSpectral(mset, grid)
