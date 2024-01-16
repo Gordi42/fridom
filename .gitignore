@@ -2,6 +2,7 @@ model_runs/
 **.pyc
 .vscode/
 Experiments/**/*.mp4
+Experiments/**/*.png
 demo/**/*.mp4
 **.cdf
 **fridom.png
