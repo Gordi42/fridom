@@ -77,12 +77,12 @@ class NonlinearTendencyFD:
 
         # Apply boundary conditions
         if not self.mset.periodic_bounds[0]:
-            up[:2,:] = 0; up[-2:,:] = 0
+            up[:2,:] = 0; up[-3:,:] = 0
             vp[:2,:] = 0; vp[-2:,:] = 0
             hp[:2,:] = 0; hp[-2:,:] = 0
         if not self.mset.periodic_bounds[1]:
             up[:,:2] = 0; up[:,-2:] = 0
-            vp[:,:2] = 0; vp[:,-2:] = 0
+            vp[:,:2] = 0; vp[:,-3:] = 0
             hp[:,:2] = 0; hp[:,-2:] = 0
 
         # advection of layer thickness with flux divergence
@@ -94,6 +94,13 @@ class NonlinearTendencyFD:
         # advection of momentum with potential vorticity and kinetic energy
         hf = Ro * hp + self.mset.csqr
         q = (vp[xf] - vp[xc])*dx1 - (up[yf] - up[yc])*dy1
+        # apply boundary conditions to potential vorticity
+        if not self.mset.periodic_bounds[0]:
+            q[0,:] = -(up[2,c] - up[1,c])*dx1;
+            q[-1,:] = -(up[-1,c] - up[-2,c])*dx1
+        if not self.mset.periodic_bounds[1]:
+            q[:,0] = (vp[c,2] - vp[c,1])*dy1;
+            q[:,-1] = (vp[c,-1] - vp[c,-2])*dy1
         q /= (hf[c,c] + hf[f,c] + hf[c,f] + hf[f,f])*quar
         k = (up[xc]**2 + up[xb]**2 + vp[yc]**2 + vp[yb]**2)*quar
 
@@ -105,6 +112,12 @@ class NonlinearTendencyFD:
 
         dz.v[:] -= (q[xc] * (fe[yc] + fe[yf]) + q[xb] * (fe[b,c] + fe[b,f]))*quar*Ro
         dz.v[:] -= (k[yf] - k[yc])*dy1 * Ro
+
+        # apply boundary conditions
+        if not self.mset.periodic_bounds[0]:
+            dz.u[-1,:] = 0
+        if not self.mset.periodic_bounds[1]:
+            dz.v[:,-1] = 0
 
         return
 

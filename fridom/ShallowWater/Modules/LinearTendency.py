@@ -70,7 +70,12 @@ class LinearTendencyFD:
         vp = v.pad_raw(((1,1), (1,1)))
         hp = h.pad_raw(((1,1), (1,1)))
 
-        # No boundary conditions required here
+        if not self.mset.periodic_bounds[0]:
+            up[0,:] = 0; up[-2:,:] = 0
+            vp[0,:] = 0; vp[-1,:] = 0
+        if not self.mset.periodic_bounds[1]:
+            vp[:,0] = 0; vp[:,-2:] = 0
+            up[:,0] = 0; up[:,-1] = 0
 
         # Slices
         f = slice(2,None); b = slice(None,-2); c = slice(1,-1)
