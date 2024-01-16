@@ -75,84 +75,54 @@ class NNMDBase(Projection):
         Returns:
             z_bal  (State) : The balanced state.
         """
+        Ro = self.mset.Ro
+
+        was_spectral = z.is_spectral
+        # transform to spectral space if necessary
+        z_hat = z if z.is_spectral else z.fft()
+
+        # calculate the ZERO-order component
+        z0_hat = self.zero_order(z_hat)
         if self.order == 0:
-            return self.balance_zero_order(z)
-        elif self.order == 1:
-            return self.balance_first_order(z)
-        elif self.order == 2:
-            return self.balance_second_order(z)
-        else:
-            raise ValueError("Order must be <= 2.")
+            return z0_hat if was_spectral else z0_hat.fft()
+
+        # calculate the FIRST-order component
+        dT_z0_hat = self.derivative_zero_order(z0_hat)
+        z1_hat = self.first_order(z0_hat)
+        if self.order == 1:
+            z_bal_hat = z0_hat + Ro * z1_hat
+            return z_bal_hat if was_spectral else z_bal_hat.fft()
+
+        # calculate the SECOND-order component
+        dT_z1_hat = self.derivative_first_order(z0_hat, dT_z0_hat)
+        z2_hat = self.second_order(z0_hat, z1_hat, dT_z1_hat)
+        if self.order == 2:
+            z_bal_hat = z0_hat + Ro * z1_hat + Ro**2 * z2_hat
+            return z_bal_hat if was_spectral else z_bal_hat.fft()
+
+        # calculate the THIRD-order component
+        dT_z2_hat = self.derivative_second_order(z0_hat, z1_hat, 
+                                                 dT_z0_hat, dT_z1_hat)
+        z3_hat = self.third_order(z0_hat, z1_hat, z2_hat, dT_z2_hat)
+        if self.order == 3:
+            z_bal_hat = z0_hat + Ro * z1_hat + Ro**2 * z2_hat + Ro**3 * z3_hat
+            return z_bal_hat if was_spectral else z_bal_hat.fft()
 
 
-    def balance_zero_order(self, z: StateBase) -> StateBase:
-        """
-        Balance zero order term.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_bal  (State) : The balanced state.
-        """
-        return z.project(self.p0, self.q0)
+        raise ValueError("Order must be <= 2.")
     
-    def balance_first_order(self, z: StateBase) -> StateBase:
+    # ========================================================================
+    #  Calculation of the n-order term in the power series
+    # ========================================================================
+
+    def zero_order(self, z_hat: StateBase) -> StateBase:
         """
-        Balance up to first-order.
+        Calculate the zero-order term of the power series.
 
         Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_bal  (State) : The balanced state.
+            z_hat (State) : The zero-order term in spectral space.
         """
-        was_spectral = z.is_spectral
-
-        # transform to spectral space if necessary
-        z_hat = z if z.is_spectral else z.fft()
-
-        # calculate the zero-order component
-        z0_hat = self.balance_zero_order(z_hat)
-        # calculate the first-order component
-        z1_hat = self.first_order(z0_hat)
-
-        # power series
-        Ro = self.mset.Ro
-        z_bal_hat = z0_hat + Ro * z1_hat
-
-        return z_bal_hat if was_spectral else z_bal_hat.fft()
-
-    def balance_second_order(self, z: StateBase) -> StateBase:
-        """
-        Balance up to second order.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_bal  (State) : The balanced state.
-        """
-        was_spectral = z.is_spectral
-        # transform to spectral space if necessary
-        z_hat = z if z.is_spectral else z.fft()
-
-        # calculate the zero-order component
-        z0_hat = self.balance_zero_order(z_hat)
-        # calculate the first-order component
-        z1_hat = self.first_order(z0_hat)
-        # calculate the second-order component
-        z2_hat = self.second_order(z0_hat, z1_hat)
-        cp = z.cp
-        print(cp.max(z2_hat.fft().h))
-
-        # power series
-        Ro = self.mset.Ro
-        z_bal_hat = z0_hat + Ro * z1_hat + Ro**2 * z2_hat
-
-        return z_bal_hat if was_spectral else z_bal_hat.fft()
-
-
+        return self.proj_0(z_hat)
 
     
     def first_order(self, z0_hat: StateBase) -> StateBase:
@@ -162,61 +132,110 @@ class NNMDBase(Projection):
         Arguments:
             z0_hat (State) : The zero-order term in spectral space.
         """
-        # check if z0_hat is in spectral space
-        if not z0_hat.is_spectral:
-            raise ValueError("Input must be in spectral space.")
-
-        # short notation
-        proj_p = self.proj_p; proj_m = self.proj_m; proj_0 = self.proj_0
+        self.check_if_input_is_spectral(z0_hat)
 
         # calculate the nonlinear tendency of z0
-        non_z0_hat = self.non_linear(z0_hat)
+        interaction = self.non_linear(z0_hat)
 
-        # initialize the first-order term
-        z1_hat = self.State(self.mset, self.grid, is_spectral=True)
+        return self.solve_for_z(interaction)
 
-        # calculate each mode separately
-        for proj, sign in zip([proj_p, proj_m], [-1, 1]):
-            factor = sign * 1j * self.one_over_omega
-            z1_hat += proj(non_z0_hat) * factor
-
-        return z1_hat
-
-    def second_order(self, z0_hat: StateBase, z1_hat: StateBase) -> StateBase:
+    def second_order(self, z0_hat: StateBase, z1_hat: StateBase,
+                     dT_z1_hat: StateBase) -> StateBase:
         """
         Calculate the unscaled second order term of the power series.
 
         Arguments:
             z0_hat (State) : The zero-order term in spectral space.
             z1_hat (State) : The first-order term in spectral space.
+            dT_z1_hat (State) : The slow derivative of the first-order term in spectral space.
         """
-        # check if input is in spectral space
-        if not z0_hat.is_spectral:
-            raise ValueError("Input must be in spectral space.")
-        if not z1_hat.is_spectral:
-            raise ValueError("Input must be in spectral space.")
+        self.check_if_input_is_spectral(z0_hat, z1_hat, dT_z1_hat)
 
-        # short notation
-        proj_p = self.proj_p; proj_m = self.proj_m; proj_0 = self.proj_0
+        # calculate the nonlinear interaction terms
+        interaction = self.non_linear_inter(z0_hat, z1_hat)
 
-        # slow tendency of z0
-        dz0_hat = proj_0(self.non_linear(z0_hat))
-        dt_non_z0 = self.non_linear_inter(z0_hat, dz0_hat)*2
+        right_hand_side = 2 * interaction - dT_z1_hat
 
-        # initialize the second-order term
-        z2_hat = self.State(self.mset, self.grid, is_spectral=True)
+        return self.solve_for_z(right_hand_side)
+
+    def third_order(self, z0_hat: StateBase, z1_hat: StateBase,
+                    z2_hat: StateBase, dT_z2_hat: StateBase) -> StateBase:
+        """
+        Calculate the unscaled third order term of the power series.
+        """
+        self.check_if_input_is_spectral(z0_hat, z1_hat, z2_hat, dT_z2_hat)
+
+        # calculate the nonlinear interaction terms
+        interaction = 2*self.non_linear_inter(z0_hat, z2_hat) \
+                      + self.non_linear(z1_hat)
+        right_hand_side = interaction - dT_z2_hat
+        return self.solve_for_z(right_hand_side)
+
+    def solve_for_z(self, right_hand_side: StateBase) -> StateBase:
+        """
+        Solves the linear equation for z.
+        $$ 
+        i \omega^\pm \hat{z}^\pm = \hat{f}^\pm
+        $$
+
+        Arguments:
+            right_hand_side (State) : The right hand side of the equation (f).
+        """
+        # initialize the solution
+        z_hat = self.State(self.mset, self.grid, is_spectral=True)
 
         # calculate each mode separately
-        for proj, sign in zip([proj_p, proj_m], [-1, 1]):
+        for proj, sign in zip([self.proj_p, self.proj_m], [-1, 1]):
             factor = sign * 1j * self.one_over_omega
-            # calculate the slow tendency of z1 projected to the subspace
-            dt_z1 = proj(dt_non_z0) * factor
-            # calculate the nonlinear interaction between z0 and z1
-            non_z0_z1 = proj(self.non_linear_inter(z0_hat, z1_hat))
-            # calculate the second-order term
-            z2_hat += (2*non_z0_z1 - dt_z1) * factor
+            z_hat += proj(right_hand_side) * factor
+        return z_hat
 
-        return z2_hat
+    # ========================================================================
+    #  Slow derivative of the n-order term
+    # ========================================================================
+
+    def derivative_zero_order(self, z0_hat: StateBase) -> StateBase:
+        """
+        Calculates the slow derivative of the zero-order term.
+        """
+        self.check_if_input_is_spectral(z0_hat)
+
+        # calculate the slow tendency of z0
+        dT_z0_hat = self.proj_0(self.non_linear(z0_hat))
+
+        return dT_z0_hat
+
+    def derivative_first_order(self, z0_hat: StateBase, 
+                               dT_z0_hat: StateBase) -> StateBase:
+        """
+        Calculates the slow derivative of the first-order term.
+        """
+        self.check_if_input_is_spectral(z0_hat, dT_z0_hat)
+
+        # calculate the nonlinear interaction between z0 and dT_z0
+        interaction = self.non_linear_inter(z0_hat, dT_z0_hat) * 2
+
+        return self.solve_for_z(interaction)
+
+    def derivative_second_order(self, z0_hat: StateBase, z1_hat: StateBase,
+                                dT_z0_hat: StateBase, dT_z1_hat: StateBase) -> StateBase:
+        """
+        Calculates the slow derivative of the second-order term.
+        """
+        self.check_if_input_is_spectral(z0_hat, z1_hat, dT_z0_hat, dT_z1_hat)
+
+        dT_inter = self.derivative_inter(z0_hat, z1_hat, dT_z0_hat, dT_z1_hat)
+
+        # calculate second-order derivative of z0
+        dT_dT_z0_hat = 2 * self.proj_0(self.non_linear_inter(z0_hat, dT_z0_hat))
+
+        # calculate second-order derivative of z1
+        dT_dT_z1_hat_inter = self.derivative_inter(
+            z0_hat, dT_z0_hat, dT_z0_hat, dT_dT_z0_hat)
+
+        dT_dT_z1_hat = self.solve_for_z(dT_dT_z1_hat_inter)
+        return self.solve_for_z(2*dT_inter - dT_dT_z1_hat)
+
 
     def proj_p(self, z: StateBase) -> StateBase:
         """
@@ -254,6 +273,14 @@ class NNMDBase(Projection):
         """
         return z.project(self.p0, self.q0)
 
+    def check_if_input_is_spectral(self, *args):
+        """
+        Check if all input arguments are in spectral space.
+        """
+        for arg in args:
+            if not arg.is_spectral:
+                raise ValueError("Input must be in spectral space.")
+        return
 
 
 
@@ -287,6 +314,21 @@ class NNMDBase(Projection):
         # transform back to spectral space if it was spectral
         z_nl = z_nl.fft() if spectral_transform else z_nl
         return z_nl
+
+    def derivative_inter(self, z1_hat: StateBase, z2_hat: StateBase,
+                         dT_z1_hat: StateBase, dT_z2_hat: StateBase) -> StateBase:
+        """
+        Calculate the slow derivative of the nonlinear term between two states.
+        """
+        # check if all states are in spectral space
+        self.check_if_input_is_spectral(z1_hat, z2_hat, dT_z1_hat, dT_z2_hat)
+
+        dT_inter = self.non_linear_inter(z1_hat + z2_hat, dT_z1_hat + dT_z2_hat) \
+                   - self.non_linear_inter(z1_hat, dT_z1_hat) \
+                   - self.non_linear_inter(z2_hat, dT_z2_hat)
+
+        return dT_inter
+
     
 
     def non_linear_inter(self, z1: StateBase, z2: StateBase) -> StateBase:
