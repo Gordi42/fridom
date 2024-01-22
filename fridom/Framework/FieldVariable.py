@@ -375,6 +375,13 @@ class FieldVariable:
         except AttributeError:
             raise AttributeError(f"FieldVariable has no attribute {name}")
 
+    # For pickling
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     # ==================================================================
     #  ARITHMETIC OPERATIONS
