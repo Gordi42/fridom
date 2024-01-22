@@ -39,6 +39,10 @@ class DiagnoseImbalanceBase:
         self.z_fin_bal = None
         self.imbalance = None
 
+        # details of balancing
+        self.ini_bal_details = None
+        self.fin_bal_details = None
+
     def __call__(self, z:StateBase) -> float:
         verbose = self.mset.print_verbose
         model = self.model
@@ -47,7 +51,14 @@ class DiagnoseImbalanceBase:
         self.z_ini = z.copy() if self.store_details else None
         
         verbose("Running initial projection")
-        z_bal = self.proj_ini(z)
+        if hasattr(self.proj_ini, "return_details"):
+            orig_return_details = self.proj_ini.return_details
+            self.proj_ini.return_details = True
+            z_bal, details = self.proj_ini(z)
+            self.ini_bal_details = details
+            self.proj_ini.return_details = orig_return_details
+        else:
+            z_bal = self.proj_ini(z)
 
         self.z_ini_bal = z_bal.copy() if self.store_details else None
 
@@ -58,7 +69,14 @@ class DiagnoseImbalanceBase:
         self.z_fin = model.z.copy() if self.store_details else None
 
         verbose("Running final projection")
-        z_bal = self.proj_fin(model.z)
+        if hasattr(self.proj_fin, "return_details"):
+            orig_return_details = self.proj_fin.return_details
+            self.proj_fin.return_details = True
+            z_bal, details = self.proj_fin(model.z)
+            self.fin_bal_details = details
+            self.proj_fin.return_details = orig_return_details
+        else:
+            z_bal = self.proj_fin(model.z)
 
         self.z_fin_bal = z_bal.copy() if self.store_details else None
 
