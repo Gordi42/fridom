@@ -95,8 +95,8 @@ class OptimalBalanceBase(Projection):
         model.mset.enable_biharmonic = self.enable_forward_friction
         model.mset.enable_harmonic = self.enable_forward_friction
         # make sure that the parameters are positive
-        for par in [mset.ah, mset.kh, mset.ahbi, mset.khbi, mset.dt]:
-            par = np.abs(par)
+        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
+            setattr(mset, attr, np.abs(getattr(mset, attr)))
 
         # initialize the model
         model.z = z.copy()
@@ -125,8 +125,8 @@ class OptimalBalanceBase(Projection):
         model.mset.enable_biharmonic = self.enable_backward_friction
         model.mset.enable_harmonic = self.enable_backward_friction
         # make sure that the parameters are negative
-        for par in [mset.ah, mset.kh, mset.ahbi, mset.khbi, mset.dt]:
-            par = - np.abs(par)
+        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
+            setattr(mset, attr, - np.abs(getattr(mset, attr)))
 
         # initialize the model
         model.z = z.copy()
@@ -155,8 +155,8 @@ class OptimalBalanceBase(Projection):
         model.mset.enable_biharmonic = self.enable_forward_friction
         model.mset.enable_harmonic = self.enable_forward_friction
         # make sure that the parameters are positive
-        for par in [mset.ah, mset.kh, mset.ahbi, mset.khbi, mset.dt]:
-            par = np.abs(par)
+        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
+            setattr(mset, attr, np.abs(getattr(mset, attr)))
 
         # initialize the model
         model.z = z.copy()
@@ -185,8 +185,8 @@ class OptimalBalanceBase(Projection):
         model.mset.enable_biharmonic = self.enable_backward_friction
         model.mset.enable_harmonic = self.enable_backward_friction
         # make sure that the parameters are negative
-        for par in [mset.ah, mset.kh, mset.ahbi, mset.khbi, mset.dt]:
-            par = - np.abs(par)
+        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
+            setattr(mset, attr, -np.abs(getattr(mset, attr)))
 
         # initialize the model
         model.z = z.copy()
@@ -273,6 +273,6 @@ class OptimalBalanceBase(Projection):
                 break
 
         if self.return_details:
-            return z_res, iterations, errors
+            return z_res, (iterations, errors)
         else:
             return z_res
