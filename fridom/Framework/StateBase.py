@@ -122,7 +122,8 @@ class StateBase:
         Returns:
             norm (float)  : L2 norm of the state.
         """
-        return self.cp.mean(self.dot(self))
+        cell_volume = self.cp.prod(self.cp.array(self.mset.dg))
+        return self.cp.sqrt(self.cp.sum(self.dot(self)) * cell_volume)
 
     def norm_of_diff(self, other:Type["StateBase"]) -> float:
         """
