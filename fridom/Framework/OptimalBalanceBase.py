@@ -18,6 +18,7 @@ class OptimalBalanceBase(Projection):
                  ramp_type="exp",
                  enable_forward_friction=False,
                  enable_backward_friction=False,
+                 update_base_point=True,
                  max_it=3,
                  stop_criterion=1e-9,
                  return_details=False) -> None:
@@ -34,6 +35,10 @@ class OptimalBalanceBase(Projection):
             enable_forward_friction (bool) : Whether to enable forward friction.
             enable_backward_friction (bool): Whether to enable backward friction.
                                         (Backward friction has negative sign.)
+            update_base_point (bool)  : Whether to update the base point 
+                                        after each iteration. This has no effect
+                                        on OB. But it matters for OBTA. Should 
+                                        be True for OBTA.
             max_it     (int)          : Maximum number of iterations.
             stop_criterion (float)    : The stopping criterion.
         """
@@ -64,6 +69,7 @@ class OptimalBalanceBase(Projection):
         self.stop_criterion = stop_criterion
         self.enable_forward_friction  = enable_forward_friction
         self.enable_backward_friction = enable_backward_friction
+        self.update_base_point = update_base_point
 
         # save the rossby number
         self.rossby = float(mset.Ro)
@@ -271,6 +277,12 @@ class OptimalBalanceBase(Projection):
             if it > 0 and error > errors[it-1]:
                 verbose("WARNING: Error is increasing. Stopping iterations.")
                 break
+
+            # recalculate the base coordinate if needed
+            if self.update_base_point:
+                # check if it is not the last iteration
+                if it < self.max_it - 1:
+                    self.calc_base_coord(z_res)
 
         if self.return_details:
             return z_res, (iterations, errors)

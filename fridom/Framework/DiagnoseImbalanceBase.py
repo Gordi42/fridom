@@ -30,7 +30,7 @@ class DiagnoseImbalanceBase:
         self.proj_ini = proj
         self.proj_fin = proj2 if proj2 is not None else proj
         self.store_details = store_details
-        self.model = Model(mset, grid)
+        self.Model = Model
 
         # prepare results
         self.z_ini = None
@@ -43,10 +43,9 @@ class DiagnoseImbalanceBase:
         self.ini_bal_details = None
         self.fin_bal_details = None
 
-    def __call__(self, z:StateBase) -> float:
+    def __call__(self, z:StateBase, delete_grid=False) -> float:
         verbose = self.mset.print_verbose
-        model = self.model
-        model.reset()
+        model = self.Model(self.mset, self.grid)
 
         self.z_ini = z.copy() if self.store_details else None
         
@@ -82,4 +81,6 @@ class DiagnoseImbalanceBase:
 
         verbose("Calculating imbalance")
         self.imbalance = z_bal.norm_of_diff(model.z)
+        if delete_grid:
+            self.grid = None
         return self.imbalance

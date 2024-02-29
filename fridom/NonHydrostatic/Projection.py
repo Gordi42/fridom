@@ -55,10 +55,22 @@ class OptimalBalance(OptimalBalanceBase):
                  ramp_period=1, ramp_type="exp", 
                  enable_forward_friction=False, 
                  enable_backward_friction=False, 
+                 update_base_point=True,
                  max_it=3, stop_criterion=1e-9,
                  return_details=False) -> None:
         from fridom.NonHydrostatic.Model import Model
-        super().__init__(mset, grid, Model, base_proj, ramp_period, ramp_type, enable_forward_friction, enable_backward_friction, max_it, stop_criterion, return_details)
+        super().__init__(mset=mset, 
+                         grid=grid, 
+                         Model=Model, 
+                         base_proj=base_proj, 
+                         ramp_period=ramp_period, 
+                         ramp_type=ramp_type, 
+                         enable_forward_friction=enable_forward_friction, 
+                         enable_backward_friction=enable_backward_friction, 
+                         update_base_point=update_base_point,
+                         max_it=max_it, 
+                         stop_criterion=stop_criterion, 
+                         return_details=return_details)
 
 class NNMD(NNMDBase):
     def __init__(self, mset: ModelSettings, grid: Grid, 
