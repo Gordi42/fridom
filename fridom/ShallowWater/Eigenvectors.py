@@ -55,6 +55,14 @@ class VecQ(State):
             self.u[f2_hat==0] = 0
             self.v[f2_hat==0] = 0
 
+        # There seems to be a problem with the Nyquist frequency when the 
+        # number of grid points is even. In the fourier space both value, negative 
+        # k, and positive k, of the Nyquist frequency are stored in the same
+        # entry. 
+        if mset.N[0] % 2 == 0 or mset.N[1] % 2 == 0:
+            raise ValueError(
+                "Eigenvectors don't work with an even number of grid points.")
+
 
 
 class VecP(State):
