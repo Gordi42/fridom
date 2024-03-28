@@ -10,54 +10,53 @@ from fridom.NonHydrostatic.Projection import GeostrophicSpectral, DivergenceSpec
 
 class Jet(State):
     """
-    A shear flow setup with 4 zonal jets. The jet positions in the y-direction
-    are at (1/4, 3/4)*Ly (opposing) and in the z-direction at (0, 1/2)*Lz
-    (opposing).
+    Superposition of a zonal jet and a geostrophic perturbation.
+    Following the setup of Chouksey et al. 2022.
+    For very large jet_strengths, convective instabilities can occur.
     """
-
     def __init__(self, mset: ModelSettings, grid: Grid, 
-                 remove_divergence=True, geo_proj=True) -> None:
+                 jet_strength=1, jet_width=0.16,
+                 pert_strength=0.05, pert_wavenum=5,
+                 geo_proj=True):
         """
-        Constructor of the Jet initial condition with 4 zonal jets.
+        Constructor of the Instable Jet initial condition with 2 zonal jets.
 
         Arguments:
             mset              : The model settings.
             grid              : The grid.
-            remove_divergence : Whether to remove the divergence of 
-                                the initial condition. Default: True.
+            jet_strength      : The strength of the zonal jets.
+            jet_width         : The width of the zonal jets.
+            pert_strength     : The strength of the perturbation.
+            pert_wavenum      : The wavenumber of the perturbation.
             geo_proj          : Whether to project the initial condition
                                 to the geostrophic subspace. Default: True.
         """
         super().__init__(mset, grid)
-        # Shortcuts
-        cp   = self.cp
-        PI   = cp.pi
+        cp = self.cp
+
         X  = grid.X[0]; Y  = grid.X[1]; Z  = grid.X[2]
         Lx = mset.L[0]; Ly = mset.L[1]; Lz = mset.L[2]
 
-        # Construct the zonal jets
-        self.u[:] = 2*( cp.exp( -(Y-3*Ly/4.)**2/(Lx*0.04)**2 ) -
-                        cp.exp( -(Y-1*Ly/4.)**2/(Lx*0.04)**2 )  
-                      )*cp.cos(Z/Lz*2*PI)
+        # two opposite jets
+        self.u[:] = -cp.exp(-(Y-Ly/4)**2/(jet_width)**2)
+        self.u[:] += cp.exp(-(Y-3*Ly/4)**2/(jet_width)**2)
+        self.u[:] *= jet_strength * cp.cos(2*cp.pi*Z/Lz)
 
-        # Add perturbations
-        kx_p = 4*PI/Lx 
-        ky_p = 2*PI/Ly 
-        kz_p = 2*PI/Lz
-        self.v[:] += 0.5*cp.sin(kx_p*X)*cp.sin(ky_p*Y)*cp.cos(kz_p*Z)
-        
-        if remove_divergence:
-            proj_div = DivergenceSpectral(mset, grid)
-            z_div = proj_div(self)
-            self.u[:] -= z_div.u; self.v[:] -= z_div.v; 
-            self.w[:] -= z_div.w; self.b[:] -= z_div.b
+        # add a small perturbation
+        z_per = SingleWave(mset, grid, kx=pert_wavenum, ky=0, kz=0, s=0)
+        z_per /= cp.max(cp.sqrt(z_per.u**2 + z_per.v**2 + z_per.w**2))
+
+        self.u[:] += pert_strength * z_per.u
+        self.v[:] += pert_strength * z_per.v
+        self.w[:] += pert_strength * z_per.w
+        self.b[:] += pert_strength * z_per.b
 
         if geo_proj:
             proj_geo = GeostrophicSpectral(mset, grid)
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; 
             self.w[:] = z_geo.w; self.b[:] = z_geo.b
-        return 
+        return
 
 
 class BarotropicJet(State):
@@ -99,46 +98,6 @@ class BarotropicJet(State):
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; 
             self.w[:] = z_geo.w; self.b[:] = z_geo.b
-        return
-
-
-class BaroclinicJet(State):
-    """
-    Two zonal jets with a perturbation on top of it. The jet positions in the
-    z-direction are at (1/4, 3/4)*Lz (opposing sign).
-    """
-    def __init__(self, mset, grid, jet_strength=4, 
-                 pert_strength=0.1, pert_wavenum=4):
-        """
-        Constructor of the Baroclinic Jet initial condition with 2 zonal jets.
-
-        Arguments:
-            mset              : The model settings.
-            grid              : The grid.
-            jet_strength      : The strength of the zonal jets.
-            pert_strength     : The strength of the perturbation.
-            pert_wavenum      : The wavenumber of the perturbation.
-        """
-        super().__init__(mset, grid)
-        cp = self.cp
-
-        X  = grid.X[0]; Y  = grid.X[1]; Z  = grid.X[2]
-        Lx = mset.L[0]; Ly = mset.L[1]; Lz = mset.L[2]
-
-        # two opposite jets
-        self.u[:] = jet_strength * cp.cos(2*cp.pi*Z/Lz)
-        self.u[:] *= cp.exp(-(Y-Ly/2)**2/(2*(0.15*Ly)**2))
-        
-
-
-        # project onto geostrophic modes
-        geo_proj = GeostrophicSpectral(self.mset, self.grid)
-        z_geo = geo_proj(self)
-        self.u[:] = z_geo.u; self.v[:] = z_geo.v
-        self.w[:] = z_geo.w; self.b[:] = z_geo.b
-
-        # add a small perturbation
-        self.w[:] = pert_strength * cp.sin(pert_wavenum*2*cp.pi*X/Lx)
         return
 
 
@@ -207,7 +166,7 @@ class SingleWave(State):
         z = (q * g).fft()
 
         # Normalize the state
-        z /= cp.sqrt(z.norm_l2())
+        z /= z.norm_l2()
         
         # Set the state to itself
         self.u[:] = z.u; self.v[:] = z.v
