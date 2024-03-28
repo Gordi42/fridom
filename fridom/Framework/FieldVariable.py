@@ -249,7 +249,6 @@ class FieldVariable:
                          for i in range(self.mset.n_dims)])
 
         # compute the average
-        print(p_arr.shape)
         ave = 0.5*(p_arr[center] + p_arr[shifted])
         return FieldVariable(arr=ave, **self.get_kw())
         
