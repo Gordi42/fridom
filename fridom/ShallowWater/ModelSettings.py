@@ -57,6 +57,7 @@ class ModelSettings(ModelSettingsBase):
         super().__init__(n_dims=2, dtype=dtype, ctype=ctype)
         self.model_name = "ShallowWater"
         self.L = [2*np.pi, 2*np.pi]
+        self.N = [63, 63]
 
         self._solver = "FD"
 

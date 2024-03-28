@@ -238,17 +238,46 @@ class WavePackage(State):
 class Random(State):
     """
     Oceanic spectra with random phases.
+    Used in the OBTA paper.
     """
     def __init__(self, mset: ModelSettings, grid:Grid, 
-                 d=7, k0=6, seed=0) -> None:
+                 d=7, k0=6, seed=12345, amplitude_geostrophy=0.2, 
+                 amplitude_wave=0.1, wave_power_law=-2) -> None:
         super().__init__(mset, grid)
-        # set coefficients for power law
+        z_geo = GeostrophicSpectra(mset, grid, d, k0, seed=seed)
+        z_wav = WaveSpectra(mset, grid, wave_power_law, seed=seed)
+        z = z_geo * amplitude_geostrophy + z_wav * amplitude_wave
+        self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        return
+
+class RandomPhase(State):
+    """
+    Calculates a random phase field with a presribed spectral scaling for
+    the layer thickness h.
+    """
+    def __init__(self, mset: ModelSettings, grid:Grid, 
+                 spectral_function, random_type="normal",
+                 amplitude=1.0, seed=12345) -> None:
+        """
+        Arguments:
+            spectral_function (callable) : with interface spectral_function(K)
+            random_type (str)            : "uniform" or "normal"
+                => uniform: The phase is randomized by multiplying the complex 
+                            value e^ip to the state where p is uniformly
+                            distributed between 0 and 2pi.
+                => normal:  The phase is randomized by multiplying 
+                            (a + ib) to the state where a and b are
+                            normally distributed.
+            amplitude (float)             : The resulting height field is
+                                            normalized to this value.
+            seed (int)                    : The seed for the random phase
+        """
+        super().__init__(mset, grid)
+        # get the wavenumber
         cp = self.cp
         Kx, Ky = tuple(grid.K)
         K = cp.sqrt(Kx**2 + Ky**2)
-        
-        b = (7.+d)/4.
-        a = (4./7.)*b-1
+        k_hor = cp.sqrt(Kx**2 + Ky**2)
 
         # Define Function for random phase
         kx_flat = Kx.flatten(); ky_flat = Ky.flatten()
@@ -262,36 +291,85 @@ class Random(State):
 
         default_rng = cp.random.default_rng
 
-        def random_phase(seed):
-            r = kx_flat*0 + 0j
-            r[sort] = default_rng(seed).standard_normal(kx_flat.shape) + 1j*default_rng(2*seed).standard_normal(kx_flat.shape)
-            return r.reshape(K.shape)
+        if random_type == "uniform":
+            def random_phase(seed):
+                # random phase between 0 and 2pi
+                phase = default_rng(seed).uniform(0, 2*cp.pi, kx_flat.shape)
+                return cp.exp(1j*phase).reshape(K.shape)
 
-        k_hor = cp.sqrt(Kx**2 + Ky**2)
+        elif random_type == "normal":
+            def random_phase(seed):
+                r = kx_flat*0 + 0j
+                r[sort] = default_rng(seed).standard_normal(kx_flat.shape) + 1j*default_rng(2*seed).standard_normal(kx_flat.shape)
+                return r.reshape(K.shape)
+        else:
+            raise ValueError("Unknown random phase type")
+
         kx_max = 2./3.*cp.amax(cp.abs(k_hor))
-        large_k = (k_hor >= kx_max)
-        # create random geostrophic state
-        r =  random_phase(seed)
-        H0 = cp.where(large_k, 0, cp.sqrt( K**6/(K**2 + a*k0**2)**(2*b) )*r)
-        r =  random_phase(3*seed+2)
-        Hp = cp.where(large_k, 0, cp.sqrt( K**6/(K**2 + a*k0**2)**(2*b) )*r)
-        r =  random_phase(4*seed+3)
-        Hm = cp.where(large_k, 0, cp.sqrt( K**6/(K**2 + a*k0**2)**(2*b) )*r)
+        large_k = (k_hor >= kx_max*1.0)
+        spectra = cp.where(large_k, 0, spectral_function(K))
+        # divide by K 
+        spectra[K!=0] /= K[K!=0]
 
-        # project to eigenvectors
-
-        z0 = (VecQ(0, mset, grid) * H0).fft()
-        zp = (VecQ(1, mset, grid) * Hp).fft()
-        zm = (VecQ(-1, mset, grid) * Hm).fft()
+        z = State(mset, grid, is_spectral=True)
+        z.h[:] = cp.sqrt(spectra) * random_phase(seed)
+        z = z.fft()
 
         # normalize
-        for z in [z0, zp, zm]:
-            z.h[:] -= cp.mean(z.h)
-    
-        scal0 = 0.2/cp.amax(z0.h)
-        scalp = 0.02/cp.amax(zp.h)
-        scalm = 0.02/cp.amax(zm.h)
-
-        z = z0*scal0 + zp*scalp + zm*scalm
+        z.h[:] -= cp.mean(z.h)
+        scal = amplitude/cp.amax(z.h)
+        z *= scal
 
         self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        return
+
+class GeostrophicSpectra(State):
+    """
+    Oceanic spectra with random phases.
+    """
+    def __init__(self, mset: ModelSettings, grid:Grid, 
+                 d=7, k0=6, seed=12345, random_type="normal") -> None:
+        super().__init__(mset, grid)
+        # set coefficients for power law
+        cp = self.cp
+        
+        b = (7.+d)/4.
+        a = (4./7.)*b-1
+        def spectral_function(K):
+            return K**7/(K**2 + a*k0**2)**(2*b)
+
+        z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
+        geo_proj = GeostrophicSpectral(mset, grid)
+        z = geo_proj(z)
+        max_amp = cp.amax(cp.abs(z.h))
+        z /= max_amp
+
+        self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        return
+
+    
+
+class WaveSpectra(State):
+    """
+    Wave spectra with power law scaling of frequency.
+    """
+    def __init__(self, mset: ModelSettings, grid:Grid, 
+                 power_law=-2, seed=12345,
+                 random_type="normal") -> None:
+        super().__init__(mset, grid)
+        # get the wavenumber
+        cp = self.cp
+
+        def spectral_function(K):
+            spectra = cp.sqrt(mset.f0 ** 2 + mset.csqr * K ** 2)
+            spectra[spectra!=0] **= power_law
+            return spectra
+
+        z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
+        geo_proj = GeostrophicSpectral(mset, grid)
+        z = z - geo_proj(z)
+        max_amp = cp.amax(cp.abs(z.h))
+        z /= max_amp
+        
+        self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        return
