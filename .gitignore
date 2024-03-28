@@ -6,3 +6,6 @@ Experiments/**/*.png
 demo/**/*.mp4
 **.cdf
 **fridom.png
+**.pkl
+
+Experiments/ShallowWater/KelvinInbalance/
