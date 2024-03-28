@@ -1,7 +1,3 @@
-# Only import the most important classes here. 
-# More specific classes should be imported in the respective submodules.
-
-
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.Model import Model

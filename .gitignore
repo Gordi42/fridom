@@ -9,3 +9,4 @@ demo/**/*.mp4
 **.pkl
 
 Experiments/ShallowWater/KelvinInbalance/
+Experiments/NonHydrostatic/Testing/
