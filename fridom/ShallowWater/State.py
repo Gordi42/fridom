@@ -120,13 +120,11 @@ class State(StateBase):
             hor_vort (FieldVariable)  : Horizontal vorticity field.
         """
         # shortcuts
-        dx = self.mset.dx
-        dy = self.mset.dy
         u  = self.u
         v  = self.v
 
         # calculate the horizontal vorticity
-        vort = ((v.diff_forward(0)/dx -  u.diff_forward(1)/dy)
+        vort = ((v.diff_forward(0) -  u.diff_forward(1))
                 ).ave(-1, 0).ave(-1, 1)
 
         # Create the field variable
