@@ -94,6 +94,7 @@ class DivergenceSpectralBase(Projection):
     """
     Projection onto the divergence subspace using spectral discrete eigenvectors.
     """
+
     def __init__(self, mset: ModelSettingsBase, grid: GridBase,
                  VecQ, VecP) -> None:
         """
@@ -121,7 +122,7 @@ class GeostrophicTimeAverageBase(Projection):
     Geostrophic projection using time-averaging.
     """
     def __init__(self, mset: ModelSettingsBase, grid: GridBase, 
-                 Model:ModelBase,
+                 Model: ModelBase,
                  n_ave=4,
                  equidistant_chunks=True,
                  max_period=None,
