@@ -49,7 +49,7 @@ class Model(ModelBase):
         
         # Modules
         self.linear_tendency     = LinearTendency(mset, grid, self.timer)
-        self.nonlinear_tendency  = NonlinearTendency(mset, grid, self.timer)
+        self.advection           = mset.advection(mset, grid, self.timer)
         self.pressure_gradient   = PressureGradientTendency(mset, grid, self.timer)
         self.pressure_solver     = PressureSolve(mset, grid, self.timer)
         self.harmonic_friction   = HarmonicFriction(mset, grid, self.timer)
@@ -79,7 +79,7 @@ class Model(ModelBase):
 
         # calculate nonlinear tendency
         if self.mset.enable_nonlinear:
-            self.nonlinear_tendency(self.z, self.dz)
+            self.advection(self.z, self.dz)
 
         # Friction And Mixing
         if self.mset.enable_harmonic:

@@ -62,6 +62,7 @@ class ModelSettings(ModelSettingsBase):
         pressure_solver (str)   : Choose from "Spectral" or "CG".
         max_cg_iter (int)       : Maximum number of CG iterations.
         cg_tol (float)          : CG tolerance.
+        advection (AdvectionConstructor): Advection scheme.
     """
     def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):
         """
@@ -104,6 +105,11 @@ class ModelSettings(ModelSettingsBase):
         self.pressure_solver   = "Spectral" # Choose from "Spectral" or "CG"
         self.max_cg_iter       = None
         self.cg_tol            = 1e-10      # Conjugate gradient tolerance
+
+        # Advection
+        from fridom.NonHydrostatic.Modules.Advection \
+            .SecondOrderAdvection import SecondOrderAdvectionConstructor
+        self.advection = SecondOrderAdvectionConstructor()
 
         # init function must be called after all new variables are set
         super().__init__(n_dims=3, dtype=dtype, ctype=ctype, **kwargs)
@@ -155,6 +161,7 @@ class ModelSettings(ModelSettingsBase):
         res += "    pressure_solver = {}\n".format(self.pressure_solver)
         res += "    max_cg_iter     = {}\n".format(self.max_cg_iter)
         res += "    cg_tol          = {}\n".format(self.cg_tol)
+        res += "{}".format(self.advection)
         res += "  Switches:\n"
         res += "    enable_nonlinear  = {}\n".format(self.enable_nonlinear)
         res += "    enable_varying_N  = {}\n".format(self.enable_varying_N)
