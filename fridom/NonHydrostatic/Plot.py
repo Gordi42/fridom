@@ -518,7 +518,10 @@ class Plot:
         cmin, cmax = PlotContainer.update_colorlimits(
             self.field, is_positive, cmin, cmax)
 
-        fig, axs = plt.subplots(1, 3, figsize=(15,5), dpi=200)
+        if fig is None:
+            fig, axs = plt.subplots(1, 3, figsize=(15,5), dpi=200)
+        else:
+            axs = [fig.add_subplot(131 + i) for i in range(3)]
 
         if state is None:
             u = None; v = None; w = None
