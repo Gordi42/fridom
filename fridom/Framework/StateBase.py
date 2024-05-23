@@ -119,6 +119,9 @@ class StateBase:
         """
         Calculate the L2 norm of the state.
 
+        $$ ||z||_2 = \sqrt{ \sum_{i} \int z_i^2 dV } $$
+        where $z_i$ are the fields of the state.
+
         Returns:
             norm (float)  : L2 norm of the state.
         """
@@ -128,6 +131,7 @@ class StateBase:
     def norm_of_diff(self, other:Type["StateBase"]) -> float:
         """
         Calculate the norm of the difference between two states.
+        $$ 2 \frac{||z - z'||_2}{||z||_2 + ||z'||_2} $$
 
         Returns:
             norm (float)  : Norm of the difference between two states.
