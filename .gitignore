@@ -1,12 +1,3 @@
-model_runs/
 **.pyc
 .vscode/
-Experiments/**/*.mp4
-Experiments/**/*.png
-demo/**/*.mp4
-**.cdf
-**fridom.png
-**.pkl
-
-Experiments/ShallowWater/KelvinInbalance/
-Experiments/NonHydrostatic/Testing/
+testing/
