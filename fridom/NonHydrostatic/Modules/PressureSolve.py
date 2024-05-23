@@ -38,9 +38,6 @@ class PressureSolve:
             raise ValueError(
                 "Unknown pressure solver: {}".format(mset.pressure_solver))
 
-        # add a timer
-        self.timer.add_component('Pressure Solve')
-
     def __call__(self, dz:State, p:FieldVariable):
         """
         Solve for the pressure.

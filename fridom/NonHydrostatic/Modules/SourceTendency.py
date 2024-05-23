@@ -17,8 +17,6 @@ class SourceTendency:
         self.timer = timer
 
         self.z = None # to be set
-        # add a timer
-        self.timer.add_component('Source')
         return
 
     def __call__(self, dz: State, time: float):

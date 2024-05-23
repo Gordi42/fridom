@@ -23,9 +23,6 @@ class LinearTendency:
         self.quarter = mset.dtype(0.25)
         self.half = mset.dtype(0.5)
 
-        # add a timer for the linear tendency
-        self.timer.add_component('Linear Tendency')
-
     def __call__(self, z: State, dz: State) -> None:
         """
         Compute the linear tendency of the model.

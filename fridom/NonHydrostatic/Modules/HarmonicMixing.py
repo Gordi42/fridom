@@ -20,9 +20,6 @@ class HarmonicMixing:
         self.grid = grid
         self.timer = timer
 
-        # add a timer
-        self.timer.add_component('Harmonic Mixing')
-
     def __call__(self, z: State, dz:State):
         """
         Compute the harmonic mixing tendency of the model.

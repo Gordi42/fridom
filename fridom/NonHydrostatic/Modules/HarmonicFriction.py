@@ -20,9 +20,6 @@ class HarmonicFriction:
         self.grid = grid
         self.timer = timer
 
-        # add a timer
-        self.timer.add_component('Harmonic Friction')
-
     def __call__(self, z: State, dz:State):
         """
         Compute the harmonic friction tendency of the model.

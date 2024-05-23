@@ -24,9 +24,6 @@ class BiharmonicMixing:
         self.dy2 = mset.dtype(1.0) / mset.dy**2
         self.dz2 = mset.dtype(1.0) / mset.dz**2
 
-        # add a timer
-        self.timer.add_component('Biharmonic Mixing')
-
     def __call__(self, z: State, dz:State):
         """
         Compute the biharmonic mixing tendency of the model.

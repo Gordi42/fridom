@@ -112,6 +112,7 @@ class TimingModule:
     def get(self, name:str) -> TimingComponent:
         """
         Get the TimingComponent with the given name.
+        If the component is not found, add a new component with the given name.
 
         Arguments:
             name (str): name of the component to get
@@ -120,8 +121,9 @@ class TimingModule:
         for component in self.components:
             if component.name == name:
                 return component
-        # raise error if not found
-        raise RuntimeError(f"TimingComponent {name} not found.")
+        # if not found => add the component
+        self.add_component(name)
+        return self.get(name) # recursive call (should find the component now)
 
     def reset(self) -> None:
         """

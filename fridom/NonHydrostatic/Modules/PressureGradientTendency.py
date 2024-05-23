@@ -25,9 +25,6 @@ class PressureGradientTendency:
         self.dy1 = mset.dtype(1.0) / mset.dy
         self.dz1 = mset.dtype(1.0) / mset.dz
 
-        # add a timer
-        self.timer.add_component('Pressure Gradient')
-
     def __call__(self, p: FieldVariable, dz: State) -> None:
         """
         Compute the pressure gradient tendency of the model.
