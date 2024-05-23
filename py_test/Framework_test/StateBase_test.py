@@ -97,21 +97,39 @@ class StateBaseTest(unittest.TestCase):
     def test_norm_l2(self):
         state = StateBase(self.mset_1d, self.grid_1d, 
                           [self.zeros_p, self.ones_p])
+        # yields state = [(0, 1), (0, 1), (0, 1)]
+        # with l2 norm = sqrt((1+1+1) * 1/3) = 1
+        #                               ^^^
+        #                               dV
         self.assertEqual(state.norm_l2(), 1)
+
+        state2 = StateBase(self.mset_1d, self.grid_1d, 
+                           [self.ones_p, self.ones_p])
+        # yields state2 = [(1, 1), (1, 1), (1, 1)]
+        # with l2 norm = sqrt((2+2+2) * 1/3) = sqrt(2)
+        self.assertEqual(state2.norm_l2(), 2**(1/2))
 
     def test_norm_of_diff(self):
         state = StateBase(self.mset_1d, self.grid_1d, 
                           [self.zeros_p, self.ones_p])
         state2 = StateBase(self.mset_1d, self.grid_1d, 
                            [self.ones_p, self.ones_p])
-        cp = state.cp
 
-        # test norm of difference
+        # test norm of difference between two identical states
+        # should be 0
         norm = state.norm_of_diff(state)
         self.assertEqual(norm, 0)
 
+        # test norm of difference between two different states
+        # the l2 norm of state - state2 is:
+        # sqrt((1+1+1) * 1/3) = 1
+        self.assertEqual((state - state2).norm_l2(), 1)
+
+        # hence, the norm of the difference should be
+        # 2 * |z - z'|_2 / (|z|_2 + |z'|_2)
+        # 2 *    1       / ( 1    + 2**(1/2))
         norm = state.norm_of_diff(state2)
-        self.assertEqual(norm, 2/3)
+        self.assertEqual(norm, 2 / (1 + 2**(1/2)))
 
     def test_add(self):
         state = StateBase(self.mset_1d, self.grid_1d, 
