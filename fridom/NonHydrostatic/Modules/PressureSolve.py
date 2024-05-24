@@ -24,7 +24,7 @@ class PressureSolve:
 
         from fridom.NonHydrostatic.BoundaryConditions import PBoundary
         from fridom.Framework.FieldVariable import FieldVariable
-        self.div = FieldVariable(mset, grid,
+        self.div = FieldVariable(grid,
                     name="Divergence", bc=PBoundary(mset))
 
         self.dx1 = mset.dtype(1.0) / mset.dx

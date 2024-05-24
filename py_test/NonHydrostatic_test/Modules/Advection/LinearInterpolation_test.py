@@ -24,7 +24,7 @@ class LinearInterpolationTest(unittest.TestCase):
         )
         grid = Grid(mset)
         self.inter_nonper = LinearInterpolation(mset, grid)
-        self.field = FieldVariable(mset, grid)
+        self.field = FieldVariable(grid)
         self.field[:, 0, 0] = cupy.array([1, 2, 3])
         self.field[0, :, 0] = cupy.array([1, 2, 3])
         self.field[0, 0, :] = cupy.array([1, 2, 3])

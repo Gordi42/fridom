@@ -153,7 +153,7 @@ class SingleWave(State):
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
         from fridom.Framework.FieldVariable import FieldVariable
-        g = FieldVariable(mset, grid, is_spectral=True)
+        g = FieldVariable(grid, is_spectral=True)
         g[self.k_loc] = cp.exp(1j*phase)
 
         # Construct the eigenvector of the corresponding mode

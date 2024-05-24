@@ -48,9 +48,9 @@ class Model(ModelBase):
         self.mset = mset
 
         # Add pressure and divergence variables
-        self.p = FieldVariable(mset, grid, 
+        self.p = FieldVariable(grid, 
                     name="Pressure p", bc=PBoundary(mset))
-        self.div = FieldVariable(mset, grid,
+        self.div = FieldVariable(grid,
                     name="Divergence", bc=PBoundary(mset))
         
         # Modules

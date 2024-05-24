@@ -236,7 +236,7 @@ class LESFilter:
         H = self.mset.csqr + self.mset.Ro * z.h
 
         # ekin contribution
-        ek = FieldVariable(self.mset, self.grid, is_spectral=False,
+        ek = FieldVariable(self.grid, is_spectral=False,
                             name='Transfer to unresolved Ekin')
         ek[:] = -self.mset.Ro ** 3 * (
             (z.u**2 + z.v**2) * 0.5 * C_H + H * (z.u * C_U + z.v * C_V)
@@ -259,7 +259,7 @@ class LESFilter:
         H = self.mset.csqr + self.mset.Ro * z.h
 
         # epot contribution
-        ep = FieldVariable(self.mset, self.grid, is_spectral=False,
+        ep = FieldVariable(self.grid, is_spectral=False,
                             name='Transfer to unresolved Epot')
         ep[:] = -self.mset.Ro * (
             H * C_H 

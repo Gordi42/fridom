@@ -83,8 +83,8 @@ class State(StateBase):
         if field_list is None:
             bc = BoundaryConditions([Periodic(mset,0), Periodic(mset,1)])
             field_list = [
-                FieldVariable(mset, grid, name="Velocity: u", bc=bc),
-                FieldVariable(mset, grid, name="Velocity: v", bc=bc), ...]
+                FieldVariable(grid, name="Velocity: u", bc=bc),
+                FieldVariable(grid, name="Velocity: v", bc=bc), ...]
         super().__init__(grid, field_list)
         self.constructor = State
 ```

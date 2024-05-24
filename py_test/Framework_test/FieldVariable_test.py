@@ -45,7 +45,7 @@ class TestFieldVariable(unittest.TestCase):
                     cp = g.cp
                     arr = cp.ones(shape=tuple(m.N))
                     field = FieldVariable(
-                        m, g, is_spectral=spectral, name="Test", arr=arr)
+                        g, is_spectral=spectral, name="Test", arr=arr)
                     
                     dtype = m.ctype if spectral else m.dtype
                     self.assertEqual(field.arr.dtype, dtype)
@@ -70,7 +70,7 @@ class TestFieldVariable(unittest.TestCase):
                     cp = g.cp
                     arr = cp.zeros(shape=tuple(m.N))
                     field = FieldVariable(
-                        m, g, is_spectral=spectral, name="Test")
+                        g, is_spectral=spectral, name="Test")
                     
                     dtype = m.ctype if spectral else m.dtype
                     self.assertEqual(field.arr.dtype, dtype)
@@ -94,7 +94,7 @@ class TestFieldVariable(unittest.TestCase):
                     g = GridBase(m)
                     cp = g.cp
                     field = FieldVariable(
-                        m, g, is_spectral=spectral, name="Test")
+                        g, is_spectral=spectral, name="Test")
 
                     copy = field.copy()
                     # Test that the copy is not the same object
@@ -132,7 +132,7 @@ class TestFieldVariable(unittest.TestCase):
                     g = GridBase(m)
                     cp = g.cp
                     field = FieldVariable(
-                        m, g, is_spectral=False, name="Test", bc=boundary_conditions)
+                        g, is_spectral=False, name="Test", bc=boundary_conditions)
                     field.arr = cp.random.rand(*m.N)
 
                     field_hat = field.fft()
@@ -164,7 +164,7 @@ class TestFieldVariable(unittest.TestCase):
                 boundary_conditions = BoundaryConditions(bounds)
                 g = GridBase(m)
                 field = FieldVariable(
-                    m, g, is_spectral=False, name="Test", bc=boundary_conditions)
+                    g, is_spectral=False, name="Test", bc=boundary_conditions)
                 field.arr[:] = 1
 
                 fft = field.fft()
@@ -188,7 +188,7 @@ class TestFieldVariable(unittest.TestCase):
                     g = GridBase(m)
                     cp = g.cp
                     field = FieldVariable(
-                        m, g, is_spectral=spectral, name="Test")
+                        g, is_spectral=spectral, name="Test")
                     field.arr[:] = 2
 
                     sqrt = field.sqrt()
@@ -211,7 +211,7 @@ class TestFieldVariable(unittest.TestCase):
                     g = GridBase(m)
                     cp = g.cp
                     field = FieldVariable(
-                        m, g, is_spectral=spectral, name="Test")
+                        g, is_spectral=spectral, name="Test")
                     field.arr[:] = 2
 
                     norm = field.norm_l2()
@@ -230,7 +230,7 @@ class TestFieldVariable(unittest.TestCase):
             g = GridBase(m)
             cp = g.cp
             field = FieldVariable(
-                m, g, is_spectral=False, name="Test")
+                g, is_spectral=False, name="Test")
             field.arr[0,:,0] = cp.array([1,2,3])
 
             pad = field.pad_raw(pad_width=((0,0),(0,0),(0,0)))
@@ -263,7 +263,7 @@ class TestFieldVariable(unittest.TestCase):
                 g = GridBase(m)
                 cp = g.cp
                 field = FieldVariable(
-                    m, g, is_spectral=False, name="Test")
+                    g, is_spectral=False, name="Test")
                 field.arr[0,:,0] = cp.array([1,2,3])
 
                 ave = field.ave(axis=1, shift=shift)
@@ -290,7 +290,7 @@ class TestFieldVariable(unittest.TestCase):
                 g = GridBase(m)
                 cp = g.cp
                 field = FieldVariable(
-                    m, g, is_spectral=False, name="Test")
+                    g, is_spectral=False, name="Test")
                 field.arr[0,:,0] = cp.array([1,2,3])
 
                 diff = field.diff_forward(axis=1)
@@ -317,7 +317,7 @@ class TestFieldVariable(unittest.TestCase):
                 g = GridBase(m)
                 cp = g.cp
                 field = FieldVariable(
-                    m, g, is_spectral=False, name="Test")
+                    g, is_spectral=False, name="Test")
                 field.arr[0,:,0] = cp.array([1,2,3])
 
                 diff = field.diff_backward(axis=1)
@@ -341,7 +341,7 @@ class TestFieldVariable(unittest.TestCase):
             g = GridBase(m)
             cp = g.cp
             zeros = FieldVariable(
-                m, g, is_spectral=False, name="Test")
+                g, is_spectral=False, name="Test")
 
             # Test single index
             value = zeros[0,0,0]
@@ -364,7 +364,7 @@ class TestFieldVariable(unittest.TestCase):
             g = GridBase(m)
             cp = g.cp
             zeros = FieldVariable(
-                m, g, is_spectral=False, name="Test")
+                g, is_spectral=False, name="Test")
 
             # Test single index
             zeros[0,0,0] = 1
@@ -388,7 +388,7 @@ class TestFieldVariable(unittest.TestCase):
             g = GridBase(m)
             cp = g.cp
             ones = FieldVariable(
-                m, g, is_spectral=False, name="Test")
+                g, is_spectral=False, name="Test")
             ones[:] = 1
 
             # test sum
@@ -420,9 +420,9 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             zeros = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones[:] = 1
 
             # Test sum with scalar
@@ -450,7 +450,7 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             zeros = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
 
             # Test sum with scalar
             sum = 1 + zeros
@@ -474,9 +474,9 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             zeros = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones[:] = 1
 
             # Test subtraction with scalar
@@ -504,7 +504,7 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             zeros = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
 
             # Test subtraction with scalar
             sub = 1 - zeros
@@ -528,9 +528,9 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             zeros = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones[:] = 1
 
             # Test multiplication with scalar
@@ -558,9 +558,9 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             zeros = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones[:] = 1
 
             # Test multiplication with scalar
@@ -584,7 +584,7 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             ones = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones[:] = 1
 
             # Test division with scalar
@@ -612,7 +612,7 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             ones = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones[:] = 1
 
             # Test division with scalar
@@ -636,7 +636,7 @@ class TestFieldVariable(unittest.TestCase):
             grid = GridBase(m)
             cp = grid.cp
             ones = FieldVariable(
-                m, grid, is_spectral=False, name="Test")
+                grid, is_spectral=False, name="Test")
             ones[:] = 1
 
             # Test power with scalar

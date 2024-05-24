@@ -13,11 +13,11 @@ class State(StateBase):
             from fridom.ShallowWater.BoundaryConditions import \
                 UBoundary, VBoundary, HBoundary
             from fridom.Framework.FieldVariable import FieldVariable
-            u = FieldVariable(grid.mset, grid,
+            u = FieldVariable(grid,
                 name="Velocity u", is_spectral=is_spectral, bc=UBoundary(grid.mset))
-            v = FieldVariable(grid.mset, grid,
+            v = FieldVariable(grid,
                 name="Velocity v", is_spectral=is_spectral, bc=VBoundary(grid.mset))
-            h = FieldVariable(grid.mset, grid,
+            h = FieldVariable(grid,
                 name="Layer Thickness h", is_spectral=is_spectral, bc=HBoundary(grid.mset))
             field_list = [u, v, h]
         super().__init__(grid, field_list, is_spectral)
@@ -48,7 +48,7 @@ class State(StateBase):
         ekin = 0.5 * Ro**2 * h_full * (z.u**2 + z.v**2)
         from fridom.ShallowWater.BoundaryConditions import HBoundary
         from fridom.Framework.FieldVariable import FieldVariable
-        return FieldVariable(self.mset, self.grid, is_spectral=False, 
+        return FieldVariable(self.grid, is_spectral=False, 
                              name="Kinetic Energy", arr=ekin, 
                              bc=HBoundary(self.mset))
 
@@ -72,7 +72,7 @@ class State(StateBase):
 
         from fridom.ShallowWater.BoundaryConditions import HBoundary
         from fridom.Framework.FieldVariable import FieldVariable
-        return FieldVariable(self.mset, self.grid, is_spectral=False,
+        return FieldVariable(self.grid, is_spectral=False,
                              name="Potential Energy", arr=epot, 
                              bc=HBoundary(self.mset))
     
@@ -87,7 +87,7 @@ class State(StateBase):
         etot = (self.ekin() + self.epot()).arr
         from fridom.ShallowWater.BoundaryConditions import HBoundary
         from fridom.Framework.FieldVariable import FieldVariable
-        return FieldVariable(self.mset, self.grid, is_spectral=False,
+        return FieldVariable(self.grid, is_spectral=False,
                              name="Total Energy", arr=etot, 
                              bc=HBoundary(self.mset))
 
@@ -141,7 +141,7 @@ class State(StateBase):
         # Create the field variable
         from fridom.ShallowWater.BoundaryConditions import HBoundary
         from fridom.Framework.FieldVariable import FieldVariable
-        field = FieldVariable(self.mset, self.grid, is_spectral=False, 
+        field = FieldVariable(self.grid, is_spectral=False, 
                               name="Horizontal Vorticity", arr=vort, bc=HBoundary(self.mset))
         return field
 
@@ -165,7 +165,7 @@ class State(StateBase):
         # Create the field variable
         from fridom.ShallowWater.BoundaryConditions import HBoundary
         from fridom.Framework.FieldVariable import FieldVariable
-        field = FieldVariable(self.mset, self.grid, arr=pot_vort,
+        field = FieldVariable(self.grid, arr=pot_vort,
                               is_spectral=False, name="Potential Vorticity", bc=HBoundary(self.mset))
         return field
 

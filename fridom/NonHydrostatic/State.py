@@ -10,13 +10,13 @@ class State(StateBase):
             UBoundary, VBoundary, WBoundary, BBoundary
         from fridom.Framework.FieldVariable import FieldVariable
         if field_list is None:
-            u = FieldVariable(grid.mset, grid,
+            u = FieldVariable(grid,
                 name="Velocity u", is_spectral=is_spectral, bc=UBoundary(grid.mset))
-            v = FieldVariable(grid.mset, grid,
+            v = FieldVariable(grid,
                 name="Velocity v", is_spectral=is_spectral, bc=VBoundary(grid.mset))
-            w = FieldVariable(grid.mset, grid,
+            w = FieldVariable(grid,
                 name="Velocity w", is_spectral=is_spectral, bc=WBoundary(grid.mset))
-            b = FieldVariable(grid.mset, grid,
+            b = FieldVariable(grid,
                 name="Buoyancy b", is_spectral=is_spectral, bc=BBoundary(grid.mset))
             field_list = [u, v, w, b]
         super().__init__(grid, field_list, is_spectral)
@@ -43,7 +43,7 @@ class State(StateBase):
             z = self.fft()
         dsqr = self.mset.dsqr
         ekin = 0.5*(z.u**2 + z.v**2 + dsqr*z.w**2)
-        return FieldVariable(self.mset, self.grid, is_spectral=False, name="Kinetic Energy", arr=ekin, bc=TriplePeriodic(self.mset))
+        return FieldVariable(self.grid, is_spectral=False, name="Kinetic Energy", arr=ekin, bc=TriplePeriodic(self.mset))
 
     def epot(self) -> FieldVariable:
         """
@@ -61,7 +61,7 @@ class State(StateBase):
             z = self.fft()
         N0 = self.mset.N0
         epot = 0.5*(z.b**2 / (N0**2))
-        return FieldVariable(self.mset, self.grid, is_spectral=False,
+        return FieldVariable(self.grid, is_spectral=False,
                              name="Potential Energy", arr=epot, bc=TriplePeriodic(self.mset))
     
     def etot(self) -> FieldVariable:
@@ -75,7 +75,7 @@ class State(StateBase):
         from fridom.Framework.FieldVariable import FieldVariable
         from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         etot = (self.ekin() + self.epot()).arr
-        return FieldVariable(self.mset, self.grid, is_spectral=False,
+        return FieldVariable(self.grid, is_spectral=False,
                              name="Total Energy", arr=etot, bc=TriplePeriodic(self.mset))
 
     def mean_ekin(self) -> float:
@@ -130,7 +130,7 @@ class State(StateBase):
                 ).ave(-1, 0).ave(-1, 1)
 
         # Create the field variable
-        field = FieldVariable(self.mset, self.grid, is_spectral=False, 
+        field = FieldVariable(self.grid, is_spectral=False, 
                               name="Horizontal Vorticity", arr=vort, bc=TriplePeriodic(self.mset))
         return field
 
@@ -156,7 +156,7 @@ class State(StateBase):
                 ).ave(-1, 1).ave(-1, 2)
             
         # Create the field variable
-        field = FieldVariable(self.mset, self.grid, is_spectral=False, 
+        field = FieldVariable(self.grid, is_spectral=False, 
                               name="y,z - Vorticity", arr=vort, bc=TriplePeriodic(self.mset))
         return field
     
@@ -182,7 +182,7 @@ class State(StateBase):
                 ).ave(-1, 0).ave(-1, 2)
 
         # Create the field variable
-        field = FieldVariable(self.mset, self.grid, is_spectral=False, 
+        field = FieldVariable(self.grid, is_spectral=False, 
                               name="x,z - Vorticity", arr=vort, bc=TriplePeriodic(self.mset))
         return field
 
@@ -217,7 +217,7 @@ class State(StateBase):
                     buo_grad_x * ver_vort_x + buo_grad_y * ver_vort_y
 
         # Create the field variable
-        field = FieldVariable(self.mset, self.grid, arr=pot_vort,
+        field = FieldVariable(self.grid, arr=pot_vort,
                               is_spectral=False, name="Potential Vorticity", bc=TriplePeriodic(self.mset))
         return field
 
@@ -243,7 +243,7 @@ class State(StateBase):
         pot_vort = Ro * (f0/N0**2 * buo_grad_z + hor_vort)
 
         # Create the field variable
-        field = FieldVariable(self.mset, self.grid, arr=pot_vort,
+        field = FieldVariable(self.grid, arr=pot_vort,
                               is_spectral=False, name="Linear PV", bc=TriplePeriodic(self.mset))
         return field
 

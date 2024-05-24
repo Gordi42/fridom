@@ -1,5 +1,3 @@
-
-from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.BoundaryConditions import BoundaryConditions
 
@@ -25,7 +23,7 @@ class FieldVariable:
     #  CONSTRUCTORS
     # ==================================================================
 
-    def __init__(self, mset:ModelSettingsBase, grid:GridBase,
+    def __init__(self, grid:GridBase,
                  is_spectral=False, name="Unnamed", bc=BoundaryConditions,
                  arr=None) -> None:
         """
@@ -40,6 +38,7 @@ class FieldVariable:
             name (str)           : Name of the FieldVariable
             bc (Boundary Condition) : Boundary condition
         """
+        mset = grid.mset
         self.name = name
         self.mset = mset
         self.grid = grid
@@ -75,9 +74,9 @@ class FieldVariable:
         mset_cpu.gpu = False
         # transform grid to CPU
         grid_cpu = self.grid.cpu
+        grid_cpu.mset = mset_cpu
 
         kw = self.get_kw()
-        kw["mset"] = mset_cpu
         kw["grid"] = grid_cpu
 
         arr = self.arr.get() if self.mset.gpu else self.arr
@@ -93,7 +92,7 @@ class FieldVariable:
         Return a dictionary with the keyword arguments for the
         FieldVariable constructor
         """
-        return {"mset":self.mset, "grid":self.grid, "name":self.name,
+        return {"grid":self.grid, "name":self.name,
                 "is_spectral":self.is_spectral, "bc":self.bc}
 
     def fft(self) -> "FieldVariable":
@@ -496,4 +495,4 @@ class FieldVariable:
         return self.__str__()
 
 # remove symbols from the namespace
-del ModelSettingsBase, GridBase, BoundaryConditions
+del GridBase, BoundaryConditions

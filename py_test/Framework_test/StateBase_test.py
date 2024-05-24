@@ -18,7 +18,7 @@ class StateBaseTest(unittest.TestCase):
         bounds = [Periodic(mset, 0), Periodic(mset, 1)]
         self.grid = grid = GridBase(mset)
         bc = BoundaryConditions(bounds)
-        self.fields = [FieldVariable(mset, grid, is_spectral=False, bc=bc) 
+        self.fields = [FieldVariable(grid, is_spectral=False, bc=bc) 
                        for i in range(3)]
         
         self.mset_1d = mset_1d = ModelSettingsBase(1)
@@ -26,10 +26,10 @@ class StateBaseTest(unittest.TestCase):
         bounds = [Periodic(mset_1d, 0)]
         self.grid_1d = grid_1d = GridBase(mset_1d)
         bc = BoundaryConditions(bounds)
-        self.zeros_p = FieldVariable(mset_1d, grid_1d,
+        self.zeros_p = FieldVariable(grid_1d,
                                        is_spectral=False, bc=bc)
         self.ones_p = self.zeros_p + 1
-        self.zeros_s = FieldVariable(mset_1d, grid_1d,
+        self.zeros_s = FieldVariable(grid_1d,
                                         is_spectral=True, bc=bc)
         self.ones_s = self.zeros_s + 1
         self.imag_s = self.zeros_s + 1j
