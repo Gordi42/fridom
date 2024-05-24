@@ -1,11 +1,10 @@
-from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.StateBase import StateBase
 from fridom.Framework.ModelBase import ModelBase
 from fridom.Framework.ProjectionBase import Projection
 
 class DiagnoseImbalanceBase:
-    def __init__(self, mset:ModelSettingsBase, grid:GridBase,
+    def __init__(self, grid:GridBase,
                  Model:ModelBase,
                  diag_per:float,
                  proj:Projection,
@@ -24,7 +23,7 @@ class DiagnoseImbalanceBase:
             store_details (bool) : Whether to store the fields
         """
 
-        self.mset = mset
+        self.mset = grid.mset
         self.grid = grid
         self.diag_per = diag_per
         self.proj_ini = proj
@@ -86,4 +85,4 @@ class DiagnoseImbalanceBase:
         return self.imbalance
 
 # remove symbols from namespace
-del ModelSettingsBase, GridBase, StateBase, ModelBase, Projection
+del GridBase, StateBase, ModelBase, Projection
