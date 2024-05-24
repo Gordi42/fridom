@@ -53,15 +53,15 @@ class Model(ModelBase):
                     name="Divergence", bc=PBoundary(mset))
         
         # Modules
-        self.linear_tendency     = LinearTendency(mset, grid, self.timer)
+        self.linear_tendency     = LinearTendency(grid, self.timer)
         self.advection           = mset.advection(grid, self.timer)
-        self.pressure_gradient   = PressureGradientTendency(mset, grid, self.timer)
-        self.pressure_solver     = PressureSolve(mset, grid, self.timer)
-        self.harmonic_friction   = HarmonicFriction(mset, grid, self.timer)
-        self.harmonic_mixing     = HarmonicMixing(mset, grid, self.timer)
-        self.biharmonic_friction = BiharmonicFriction(mset, grid, self.timer)
-        self.biharmonic_mixing   = BiharmonicMixing(mset, grid, self.timer)
-        self.source_tendency     = SourceTendency(mset, grid, self.timer)
+        self.pressure_gradient   = PressureGradientTendency(grid, self.timer)
+        self.pressure_solver     = PressureSolve(grid, self.timer)
+        self.harmonic_friction   = HarmonicFriction(grid, self.timer)
+        self.harmonic_mixing     = HarmonicMixing(grid, self.timer)
+        self.biharmonic_friction = BiharmonicFriction(grid, self.timer)
+        self.biharmonic_mixing   = BiharmonicMixing(grid, self.timer)
+        self.source_tendency     = SourceTendency(grid, self.timer)
 
 
         # netcdf writer

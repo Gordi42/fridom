@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.Framework.TimingModule import TimingModule
@@ -9,13 +8,14 @@ class LinearTendency:
     This class computes the linear tendency of the model.
     """
 
-    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
+    def __init__(self, grid: Grid, timer: TimingModule):
         """
         Constructor of the LinearTendency class.
 
         mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         self.timer = timer
@@ -80,4 +80,4 @@ class LinearTendency:
         return
 
 # remove symbols from the namespace
-del ModelSettings, Grid, State, TimingModule
+del Grid, State, TimingModule

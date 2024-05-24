@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.Framework.TimingModule import TimingModule
@@ -11,13 +10,14 @@ class PressureSolve:
     solver.
     """
 
-    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
+    def __init__(self, grid: Grid, timer: TimingModule):
         """
         Constructor of the Spectral pressure solver class.
 
         mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         self.timer = timer
@@ -32,9 +32,9 @@ class PressureSolve:
         self.dz1 = mset.dtype(1.0) / mset.dz
 
         if mset.pressure_solver == "CG":
-            self.solve_for_pressure = CGSolver(mset, grid)
+            self.solve_for_pressure = CGSolver(grid)
         elif mset.pressure_solver == "Spectral":
-            self.solve_for_pressure = SpectralSolver(mset, grid)
+            self.solve_for_pressure = SpectralSolver(grid)
         else:
             raise ValueError(
                 "Unknown pressure solver: {}".format(mset.pressure_solver))
@@ -83,8 +83,8 @@ class PressureSolve:
 
 
 class SpectralSolver:
-    def __init__(self, mset: ModelSettings, grid:Grid):
-        self.mset = mset
+    def __init__(self, grid:Grid):
+        self.mset = grid.mset
         self.grid = grid
         return
 
@@ -96,7 +96,8 @@ class SpectralSolver:
 
 
 class CGSolver:
-    def __init__(self, mset: ModelSettings, grid:Grid):
+    def __init__(self, grid:Grid):
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
 
@@ -151,4 +152,4 @@ class CGSolver:
         return
 
 # remove symbols from namespace
-del ModelSettings, Grid, State, TimingModule, FieldVariable
+del Grid, State, TimingModule, FieldVariable

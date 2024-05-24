@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.Framework.TimingModule import TimingModule
@@ -11,7 +10,8 @@ class SourceTendency:
         update:     Function that is called every time step
                     to update the source term.
     """
-    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
+    def __init__(self, grid: Grid, timer: TimingModule):
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         self.timer = timer
@@ -42,4 +42,4 @@ class SourceTendency:
         return
 
 # remove symbols from namespace
-del ModelSettings, Grid, State, TimingModule
+del Grid, State, TimingModule

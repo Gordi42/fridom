@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.Framework.FieldVariable import FieldVariable
@@ -10,13 +9,14 @@ class PressureGradientTendency:
     This class computes the pressure gradient tendency of the model.
     """
 
-    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
+    def __init__(self, grid: Grid, timer: TimingModule):
         """
         Constructor.
 
         mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         self.timer = timer
@@ -63,4 +63,4 @@ class PressureGradientTendency:
         return
 
 # remove symbols from the namespace
-del ModelSettings, Grid, State, TimingModule, FieldVariable
+del Grid, State, TimingModule, FieldVariable
