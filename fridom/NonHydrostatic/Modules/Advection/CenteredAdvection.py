@@ -1,5 +1,4 @@
 from fridom.NonHydrostatic.Grid import Grid
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.Framework.TimingModule import TimingModule
 from fridom.NonHydrostatic.State import State
 
@@ -235,7 +234,7 @@ class CenteredAdvectionConstructor(AdvectionConstructor):
         """
         Create a new instance of the centered advection scheme.
         """
-        interpolation = self.interpolation_constructor(grid.mset, grid)
+        interpolation = self.interpolation_constructor(grid)
         return CenteredAdvection(grid, timer, interpolation)
 
     def __repr__(self):
@@ -245,5 +244,5 @@ class CenteredAdvectionConstructor(AdvectionConstructor):
         return res
 
 # remove symbols from the namespace
-del Grid, ModelSettings, TimingModule, State, InterpolationModule, \
+del Grid, TimingModule, State, InterpolationModule, \
     InterpolationConstructor, LIC, AdvectionModule, AdvectionConstructor

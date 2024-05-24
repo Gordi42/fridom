@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.Framework.FieldVariable import FieldVariable
 
@@ -20,8 +19,8 @@ class InterpolationModule:
     - the forward interpolation is marked with [f]
 
     """
-    def __init__(self, mset: ModelSettings, grid: Grid):
-        self.mset = mset
+    def __init__(self, grid: Grid):
+        self.mset = grid.mset
         self.grid = grid
 
     # ==============================
@@ -183,7 +182,7 @@ class InterpolationConstructor:
     All interpolation constructors should have a __call__ method that takes the 
     ModelSettings and Grid as parameters and returns the interpolation object.
     """
-    def __call__(self, mset: ModelSettings, grid: Grid) -> InterpolationModule:
+    def __call__(self, grid: Grid) -> InterpolationModule:
         raise NotImplementedError
 
     def __repr__(self) -> str:
@@ -191,4 +190,4 @@ class InterpolationConstructor:
 
 
 # remove symbols from the namespace
-del ModelSettings, Grid, FieldVariable
+del Grid, FieldVariable

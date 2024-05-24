@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.Framework.FieldVariable import FieldVariable
 
@@ -9,14 +8,15 @@ class PolynomialInterpolation(InterpolationModule):
     """
     This class provides the polynomial interpolation of fields forwards and backwards in x, y, and z directions.
     """
-    def __init__(self, mset: ModelSettings, grid: Grid, order: int):
-        super().__init__(mset, grid)
+    def __init__(self, grid: Grid, order: int):
+        super().__init__(grid)
         # order must be an odd number
         assert order % 2 == 1
 
         self.order = order
         self.padding = order // 2
         self.cp = grid.cp
+        mset = grid.mset
         self.half = mset.dtype(0.5)
         self.bcx = "wrap" if mset.periodic_bounds[0] else "constant"
         self.bcy = "wrap" if mset.periodic_bounds[1] else "constant"
@@ -172,12 +172,12 @@ class PolynomialInterpolationConstructor(InterpolationConstructor):
     def __init__(self, order: int = 1):
         self.order = order
 
-    def __call__(self, mset: ModelSettings, grid: Grid):
-        return PolynomialInterpolation(mset, grid, self.order)
+    def __call__(self, grid: Grid):
+        return PolynomialInterpolation(grid, self.order)
 
     def __repr__(self) -> str:
         return "polynomial interpolation of order {}".format(self.order)
 
 # remove symbols from the namespace
-del ModelSettings, Grid, FieldVariable, \
+del Grid, FieldVariable, \
     InterpolationModule, InterpolationConstructor
