@@ -110,7 +110,7 @@ class PolarizedWaveMaker(Source):
 
         # Construct the polarized wave
         from fridom.ShallowWater.InitialConditions import SingleWave
-        z = SingleWave(mset, grid, kx, ky, s)
+        z = SingleWave(grid, kx, ky, s)
         self.omega = z.omega.real
 
         # set mask

@@ -1,6 +1,5 @@
 import numpy as np
 
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 
@@ -11,7 +10,7 @@ class Jet(State):
     Following the setup of Chouksey et al. 2022.
     For very large jet_strengths, convective instabilities can occur.
     """
-    def __init__(self, mset: ModelSettings, grid: Grid, 
+    def __init__(self, grid: Grid, 
                  jet_strength=1, jet_width=0.16,
                  pert_strength=0.05, pert_wavenum=5,
                  geo_proj=True):
@@ -19,7 +18,6 @@ class Jet(State):
         Constructor of the Instable Jet initial condition with 2 zonal jets.
 
         Arguments:
-            mset              : The model settings.
             grid              : The grid.
             jet_strength      : The strength of the zonal jets.
             jet_width         : The width of the zonal jets.
@@ -30,6 +28,7 @@ class Jet(State):
         """
         super().__init__(grid)
         cp = self.cp
+        mset = grid.mset
 
         X  = grid.X[0]; Y  = grid.X[1]; Z  = grid.X[2]
         Lx = mset.L[0]; Ly = mset.L[1]; Lz = mset.L[2]
@@ -40,7 +39,7 @@ class Jet(State):
         self.u[:] *= jet_strength * cp.cos(2*cp.pi*Z/Lz)
 
         # add a small perturbation
-        z_per = SingleWave(mset, grid, kx=pert_wavenum, ky=0, kz=0, s=0)
+        z_per = SingleWave(grid, kx=pert_wavenum, ky=0, kz=0, s=0)
         z_per /= cp.max(cp.sqrt(z_per.u**2 + z_per.v**2 + z_per.w**2))
 
         self.u[:] += pert_strength * z_per.u
@@ -63,13 +62,12 @@ class BarotropicJet(State):
     on top of it. The jet positions in the y-direction are 
     at (1/4, 3/4)*Ly (opposing sign).
     """
-    def __init__(self, mset:ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  wavenum=5, waveamp=0.1, geo_proj=True):
         """
         Constructor of the Barotropic Jet initial condition with 2 zonal jets.
 
         Arguments:
-            mset              : The model settings.
             grid              : The grid.
             wavenum           : The wavenumber of the perturbation.
             waveamp           : The amplitude of the perturbation.
@@ -79,6 +77,7 @@ class BarotropicJet(State):
         super().__init__(grid)
         # Shortcuts
         cp = self.cp
+        mset = grid.mset
         PI = cp.pi
         x  = grid.X[0]; y  = grid.X[1]; z  = grid.X[2]
         Lx = mset.L[0]; Ly = mset.L[1]; Lz = mset.L[2]
@@ -117,13 +116,12 @@ class SingleWave(State):
                          (includes effects of time discretization)
                          (only for inertia-gravity modes).
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  kx=6, ky=0, kz=4, s=1, phase=0, use_discrete=True) -> None:
         """
         Constructor of the SingleWave initial condition.
 
         Arguments:
-            mset (ModelSettings)  : The model settings.
             grid (Grid)           : The grid.
             kx (float)            : The wavenumber in the x-direction.
             ky (float)            : The wavenumber in the y-direction.
@@ -237,14 +235,13 @@ class WavePackage(State):
                          (includes effects of time discretization)
                          (only for inertia-gravity modes).
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  kx=6, ky=0, kz=4, s=1, phase=0, 
                  mask_pos=(0.5, None, 0.5), mask_width=(0.2, None, 0.2)) -> None:
         """
         Constructor of the initial condition.
 
         Arguments:
-            mset (ModelSettings)  : The model settings.
             grid (Grid)           : The grid.
             kx (float)            : The wavenumber in the x-direction.
             ky (float)            : The wavenumber in the y-direction.
@@ -259,6 +256,7 @@ class WavePackage(State):
 
         # Shortcuts
         cp = self.cp
+        mset = grid.mset
 
         # Construct single wave
         z = SingleWave(mset, grid, kx, ky, kz, s, phase)
@@ -312,13 +310,12 @@ class VerticalMode(State):
                          (includes effects of time discretization)
                          (only for inertia-gravity modes).
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  kx=6, ky=0, kz=4, s=1, phase=0, use_discrete=True) -> None:
         """
         Constructor of the initial condition.
 
         Arguments:
-            mset (ModelSettings)  : The model settings.
             grid (Grid)           : The grid.
             kx (float)            : The wavenumber in the x-direction.
             ky (float)            : The wavenumber in the y-direction.
@@ -333,6 +330,7 @@ class VerticalMode(State):
 
         # Shortcuts
         cp = self.cp
+        mset = grid.mset
 
         # Note that the fourier transformation assumes that the first value
         # is at z=0 and the last value is at z=(H-\Delta z). However, due to
@@ -368,4 +366,4 @@ class VerticalMode(State):
         return
 
 # remove symbols from namespace
-del ModelSettings, Grid, State
+del Grid, State

@@ -1,6 +1,5 @@
 import numpy as np
 
-from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
 
@@ -11,14 +10,13 @@ class Jet(State):
     on top of it. The jet positions in the y-direction are 
     at (1/4, 3/4)*Ly (opposing sign).
     """
-    def __init__(self, mset:ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  wavenum=5, waveamp=0.1, jet_pos=(0.25, 0.75), jet_width=0.04,
                  geo_proj=True):
         """
         Constructor of the Barotropic Jet initial condition with 2 zonal jets.
 
         Arguments:
-            mset              : The model settings.
             grid              : The grid.
             wavenum           : The wavenumber of the perturbation.
             waveamp           : The amplitude of the perturbation.
@@ -28,6 +26,7 @@ class Jet(State):
         super().__init__(grid)
         # Shortcuts
         cp = self.cp
+        mset = grid.mset
         PI = cp.pi
         x, y = tuple(grid.X)
         x = x + 0.5*mset.dg[0]
@@ -66,13 +65,12 @@ class SingleWave(State):
                          (includes effects of time discretization)
                          (only for inertia-gravity modes).
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  kx=6, ky=4, s=1, phase=0, use_discrete=True) -> None:
         """
         Constructor of the SingleWave initial condition.
 
         Arguments:
-            mset (ModelSettings)  : The model settings.
             grid (Grid)           : The grid.
             kx (float)            : The wavenumber in the x-direction.
             ky (float)            : The wavenumber in the y-direction.
@@ -182,14 +180,13 @@ class WavePackage(State):
                          (includes effects of time discretization)
                          (only for inertia-gravity modes).
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  kx=6, ky=0, s=1, phase=0, 
                  mask_pos=(0.5, 0.5), mask_width=(0.2, 0.2)) -> None:
         """
         Constructor of the initial condition.
 
         Arguments:
-            mset (ModelSettings)  : The model settings.
             grid (Grid)           : The grid.
             kx (float)            : The wavenumber in the x-direction.
             ky (float)            : The wavenumber in the y-direction.
@@ -205,7 +202,7 @@ class WavePackage(State):
         cp = self.cp
 
         # Construct single wave
-        z = SingleWave(mset, grid, kx, ky, s, phase)
+        z = SingleWave(grid, kx, ky, s, phase)
 
         if not s == 0:
             self.omega = z.omega
@@ -242,12 +239,12 @@ class Random(State):
     Oceanic spectra with random phases.
     Used in the OBTA paper.
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  d=7, k0=6, seed=12345, amplitude_geostrophy=0.2, 
                  amplitude_wave=0.1, wave_power_law=-2) -> None:
         super().__init__(grid)
-        z_geo = GeostrophicSpectra(mset, grid, d, k0, seed=seed)
-        z_wav = WaveSpectra(mset, grid, wave_power_law, seed=seed)
+        z_geo = GeostrophicSpectra(grid, d, k0, seed=seed)
+        z_wav = WaveSpectra(grid, wave_power_law, seed=seed)
         z = z_geo * amplitude_geostrophy + z_wav * amplitude_wave
         self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
         return
@@ -257,7 +254,7 @@ class RandomPhase(State):
     Calculates a random phase field with a presribed spectral scaling for
     the layer thickness h.
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  spectral_function, random_type="normal",
                  amplitude=1.0, seed=12345) -> None:
         """
@@ -277,6 +274,7 @@ class RandomPhase(State):
         super().__init__(grid)
         # get the wavenumber
         cp = self.cp
+        mset = grid.mset
         Kx, Ky = tuple(grid.K)
         K = cp.sqrt(Kx**2 + Ky**2)
         k_hor = cp.sqrt(Kx**2 + Ky**2)
@@ -330,18 +328,19 @@ class GeostrophicSpectra(State):
     """
     Oceanic spectra with random phases.
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  d=7, k0=6, seed=12345, random_type="normal") -> None:
         super().__init__(grid)
         # set coefficients for power law
         cp = self.cp
+        mset = grid.mset
         
         b = (7.+d)/4.
         a = (4./7.)*b-1
         def spectral_function(K):
             return K**7/(K**2 + a*k0**2)**(2*b)
 
-        z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
+        z = RandomPhase(grid, spectral_function, random_type, 1.0, seed)
         from fridom.ShallowWater.Projection import GeostrophicSpectral
         geo_proj = GeostrophicSpectral(grid)
         z = geo_proj(z)
@@ -357,19 +356,20 @@ class WaveSpectra(State):
     """
     Wave spectra with power law scaling of frequency.
     """
-    def __init__(self, mset: ModelSettings, grid:Grid, 
+    def __init__(self, grid:Grid, 
                  power_law=-2, seed=12345,
                  random_type="normal") -> None:
         super().__init__(grid)
         # get the wavenumber
         cp = self.cp
+        mset = grid.mset
 
         def spectral_function(K):
             spectra = cp.sqrt(mset.f0 ** 2 + mset.csqr * K ** 2)
             spectra[spectra!=0] **= power_law
             return spectra
 
-        z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
+        z = RandomPhase(grid, spectral_function, random_type, 1.0, seed)
         from fridom.ShallowWater.Projection import GeostrophicSpectral
         geo_proj = GeostrophicSpectral(grid)
         z = z - geo_proj(z)
@@ -380,4 +380,4 @@ class WaveSpectra(State):
         return
 
 # remove symbols from namespace
-del ModelSettings, Grid, State
+del Grid, State

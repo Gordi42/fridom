@@ -113,7 +113,7 @@ class PolarizedWaveMaker(Source):
 
         # Construct the polarized wave
         from fridom.NonHydrostatic.InitialConditions import SingleWave
-        z = SingleWave(mset, grid, kx, ky, kz, s)
+        z = SingleWave(grid, kx, ky, kz, s)
         self.omega = z.omega.real
 
 

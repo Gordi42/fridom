@@ -92,10 +92,10 @@ class State(StateBase):
 ```python
 from fridom.Framework.ModelBase import ModelBase
 class Model(ModelBase):
-    def __init__(self, mset, grid):
+    def __init__(self, grid):
         """additional settings may be included in here, 
         for example for the netCDF output writer"""
-        super().__init__(mset, grid, State)
+        super().__init__(mset, State)
 
     def total_tendency(self):
         """Main function, solves right hand side of PDE"""
@@ -121,8 +121,8 @@ from fridom.ShallowWater.Plot import Plot
 mset = ModelSettings(
     Ro=0.5, N=[256,256], L=[6,6])       # create model settings
 grid = Grid(mset)                       # create grid
-model = Model(mset, grid)               # create model
-model.z = Jet(mset, grid)               # set initial conditions
+model = Model(grid)               # create model
+model.z = Jet(grid)               # set initial conditions
 model.run(runlen=2)                     # Run the model
 Plot(model.z.ekin())(model.z)           # plot top view of final kinetic energy
 ```
