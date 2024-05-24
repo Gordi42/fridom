@@ -18,17 +18,17 @@ class NetCDFWriter:
         close    : Close the NetCDF file.
     """
 
-    def __init__(self, mset: ModelSettingsBase, grid:GridBase) -> None:
+    def __init__(self, grid:GridBase) -> None:
         """
         Constructor.
         """
         self.grid = grid
-        self.mset = mset
+        self.mset = grid.mset
         self.var_names      = None
         self.var_long_names = None
         self.var_unit_names = None
         import os
-        self.filename = os.path.join("snapshots", mset.snap_filename)
+        self.filename = os.path.join("snapshots", grid.mset.snap_filename)
         self.is_active = False
         return
 

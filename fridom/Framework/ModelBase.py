@@ -80,7 +80,7 @@ class ModelBase:
 
         # NetCDF writer
         from fridom.Framework.NetCDFWriter import NetCDFWriter
-        self.writer = NetCDFWriter(mset, grid)
+        self.writer = NetCDFWriter(grid)
 
         # live animation
         self.live_animation = None
