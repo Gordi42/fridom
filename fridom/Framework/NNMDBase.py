@@ -9,7 +9,7 @@ class NNMDBase(Projection):
     """
     Nonlinear normal mode decomposition.
     """
-    def __init__(self, ModelSettingsBase, grid: GridBase,
+    def __init__(self, grid: GridBase,
                  Model: ModelBase, State: StateBase,
                  VecQ, VecP,
                  order=3,

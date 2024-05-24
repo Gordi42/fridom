@@ -1,6 +1,5 @@
 import numpy as np
 
-from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.StateBase import StateBase
 from fridom.Framework.ModelBase import ModelBase
@@ -11,7 +10,7 @@ class OptimalBalanceBase(Projection):
     """
     Nonlinear balancing using the optimal balance method.
     """
-    def __init__(self, mset: ModelSettingsBase, grid: GridBase,
+    def __init__(self, grid: GridBase,
                  Model: ModelBase,
                  base_proj:Projection,
                  ramp_period=1,
@@ -26,7 +25,6 @@ class OptimalBalanceBase(Projection):
         Nonlinear balancing using the optimal balance method.
 
         Arguments:
-            mset      (ModelSettings) : Model settings.
             grid      (Grid)          : The grid.
             base_proj  (Projection)   : The projection onto the base point.
             ramp_period (float)       : The ramping period (not scaled).
@@ -42,8 +40,8 @@ class OptimalBalanceBase(Projection):
             max_it     (int)          : Maximum number of iterations.
             stop_criterion (float)    : The stopping criterion.
         """
+        mset = grid.mset
         super().__init__(mset.copy(), grid)
-        mset = self.mset
 
         # check the model settings
         if not mset.enable_nonlinear or mset.Ro == 0:
@@ -290,4 +288,4 @@ class OptimalBalanceBase(Projection):
             return z_res
 
 # remove symbols from the namespace
-del ModelSettingsBase, GridBase, StateBase, ModelBase, Projection
+del GridBase, StateBase, ModelBase, Projection

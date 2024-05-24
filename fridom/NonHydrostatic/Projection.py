@@ -53,7 +53,7 @@ class GeostrophicTimeAverage(GeostrophicTimeAverageBase):
         return
 
 class OptimalBalance(OptimalBalanceBase):
-    def __init__(self, mset: ModelSettings, grid: Grid, 
+    def __init__(self, grid: Grid, 
                  base_proj: Projection, 
                  ramp_period=1, ramp_type="exp", 
                  enable_forward_friction=False, 
@@ -62,8 +62,7 @@ class OptimalBalance(OptimalBalanceBase):
                  max_it=3, stop_criterion=1e-9,
                  return_details=False) -> None:
         from fridom.NonHydrostatic.Model import Model
-        super().__init__(mset=mset, 
-                         grid=grid, 
+        super().__init__(grid=grid, 
                          Model=Model, 
                          base_proj=base_proj, 
                          ramp_period=ramp_period, 
@@ -76,7 +75,7 @@ class OptimalBalance(OptimalBalanceBase):
                          return_details=return_details)
 
 class NNMD(NNMDBase):
-    def __init__(self, ModelSettings, grid: Grid, 
+    def __init__(self, grid: Grid, 
                  order=3, enable_dealiasing=True) -> None:
         from fridom.NonHydrostatic.Model import Model
         from fridom.NonHydrostatic.State import State
