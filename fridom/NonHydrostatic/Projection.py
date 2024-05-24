@@ -4,30 +4,29 @@ from fridom.Framework.ProjectionBase import \
 from fridom.Framework.OptimalBalanceBase import OptimalBalanceBase
 from fridom.Framework.NNMDBase import NNMDBase
 
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 
 
 class GeostrophicSpectral(GeostrophicSpectralBase):
-    def __init__(self, mset: ModelSettings, grid: Grid) -> None:
+    def __init__(self, grid: Grid) -> None:
         from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
-        super().__init__(mset, grid, VecQ, VecP)
+        super().__init__(grid, VecQ, VecP)
 
 class WaveSpectral(WaveSpectralBase):
-    def __init__(self, mset: ModelSettings, grid: Grid) -> None:
+    def __init__(self, grid: Grid) -> None:
         from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
-        super().__init__(mset, grid, VecQ, VecP)
+        super().__init__(grid, VecQ, VecP)
 
 class DivergenceSpectral(DivergenceSpectralBase):
-    def __init__(self, mset: ModelSettings, grid: Grid) -> None:
+    def __init__(self, grid: Grid) -> None:
         from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
-        super().__init__(mset, grid, VecQ, VecP)
+        super().__init__(grid, VecQ, VecP)
 
 class GeostrophicTimeAverage(GeostrophicTimeAverageBase):
     """
     Geostrophic projection using time-averaging.
     """
-    def __init__(self, mset: ModelSettings, grid: Grid, 
+    def __init__(self, grid: Grid, 
                  n_ave=4,
                  equidistant_chunks=True,
                  max_period=None,
@@ -37,7 +36,6 @@ class GeostrophicTimeAverage(GeostrophicTimeAverageBase):
         Geostrophic projection using time-averaging.
 
         Arguments:
-            mset      (ModelSettings) : Model settings.
             grid      (Grid)          : The grid.
             n_ave             (int)   : Number of averages to perform.
             equidistant_chunks(bool)  : Whether to split the averaging periods 
@@ -48,7 +46,7 @@ class GeostrophicTimeAverage(GeostrophicTimeAverageBase):
             backward_forward  (bool)  : Whether to use backward-forward averaging.
         """
         from fridom.NonHydrostatic.Model import Model
-        super().__init__(mset, grid, Model, n_ave, 
+        super().__init__(grid, Model, n_ave, 
                          equidistant_chunks, max_period, backward_forward)
         return
 
@@ -83,6 +81,6 @@ class NNMD(NNMDBase):
         super().__init__(grid, Model, State, VecQ, VecP, order, enable_dealiasing)
 
 # remove symbols from namespace
-del ModelSettings, Grid, Projection, \
+del Grid, Projection, \
     GeostrophicSpectralBase, WaveSpectralBase, DivergenceSpectralBase, \
     GeostrophicTimeAverageBase, OptimalBalanceBase, NNMDBase

@@ -1,7 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
 
-from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.StateBase import StateBase
 from fridom.Framework.ModelBase import ModelBase
@@ -15,8 +14,8 @@ class Projection:
     Methods:
         project : Project a state to a subspace (e.g. geostrophic subspace).
     """
-    def __init__(self, mset:ModelSettingsBase, grid:GridBase) -> None:
-        self.mset = mset
+    def __init__(self, grid:GridBase) -> None:
+        self.mset = grid.mset
         self.grid = grid
 
     @abstractmethod
@@ -37,15 +36,15 @@ class GeostrophicSpectralBase(Projection):
     """
     Geostrophic projection using spectral discrete eigenvectors.
     """
-    def __init__(self, mset: ModelSettingsBase, grid:GridBase,
+    def __init__(self, grid:GridBase,
                  VecQ, VecP) -> None:
         """
         Constructor of the Projector using spectral eigenvectors.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
         # Construct the eigenvectors
-        self.q = VecQ(0, mset, grid)
-        self.p = VecP(0, mset, grid)
+        self.q = VecQ(0, grid.mset, grid)
+        self.p = VecP(0, grid.mset, grid)
         return
 
     def __call__(self, z: StateBase) -> StateBase:
@@ -65,16 +64,16 @@ class WaveSpectralBase(Projection):
     """
     Inertia-gravity wave projection using spectral discrete eigenvectors.
     """
-    def __init__(self, mset:ModelSettingsBase, grid:GridBase,
+    def __init__(self, grid:GridBase,
                  VecQ, VecP) -> None:
         """
         Constructor of the Projector using spectral eigenvectors.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
         # use that the projection on the positive and negative eigenspaces
         # are the same. Hence, we only need to construct one of them.
-        self.q = VecQ(1, mset, grid)
-        self.p = VecP(1, mset, grid)
+        self.q = VecQ(1, grid.mset, grid)
+        self.p = VecP(1, grid.mset, grid)
         return
 
     def __call__(self, z: StateBase) -> StateBase:
@@ -95,14 +94,14 @@ class DivergenceSpectralBase(Projection):
     Projection onto the divergence subspace using spectral discrete eigenvectors.
     """
 
-    def __init__(self, mset: ModelSettingsBase, grid: GridBase,
+    def __init__(self, grid: GridBase,
                  VecQ, VecP) -> None:
         """
         Constructor of the Projector using spectral eigenvectors.
         """
-        super().__init__(mset, grid)
-        self.q = VecQ("d", mset, grid)
-        self.p = VecP("d", mset, grid)
+        super().__init__(grid)
+        self.q = VecQ("d", grid.mset, grid)
+        self.p = VecP("d", grid.mset, grid)
 
     def __call__(self, z: StateBase) -> StateBase:
         """
@@ -121,7 +120,7 @@ class GeostrophicTimeAverageBase(Projection):
     """
     Geostrophic projection using time-averaging.
     """
-    def __init__(self, mset: ModelSettingsBase, grid: GridBase, 
+    def __init__(self, grid: GridBase, 
                  Model: ModelBase,
                  n_ave=4,
                  equidistant_chunks=True,
@@ -132,7 +131,6 @@ class GeostrophicTimeAverageBase(Projection):
         Geostrophic projection using time-averaging.
 
         Arguments:
-            mset      (ModelSettings) : Model settings.
             grid      (Grid)          : The grid.
             n_ave             (int)   : Number of averages to perform.
             equidistant_chunks(bool)  : Whether to split the averaging periods 
@@ -142,7 +140,7 @@ class GeostrophicTimeAverageBase(Projection):
                                         the inertial period.
             backward_forward  (bool)  : Whether to use backward-forward averaging.
         """
-        mset_new = mset.copy()
+        mset_new = grid.mset.copy()
 
         # disable all nonlinear terms
         mset_new.enable_nonlinear = False
@@ -217,4 +215,4 @@ class GeostrophicTimeAverageBase(Projection):
 
 
 # remove symbols from namespace
-del ABC, abstractmethod, ModelSettingsBase, GridBase, StateBase, ModelBase
+del ABC, abstractmethod, GridBase, StateBase, ModelBase

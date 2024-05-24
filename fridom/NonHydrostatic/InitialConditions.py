@@ -50,7 +50,7 @@ class Jet(State):
 
         if geo_proj:
             from fridom.NonHydrostatic.Projection import GeostrophicSpectral
-            proj_geo = GeostrophicSpectral(mset, grid)
+            proj_geo = GeostrophicSpectral(grid)
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; 
             self.w[:] = z_geo.w; self.b[:] = z_geo.b
@@ -93,7 +93,7 @@ class BarotropicJet(State):
 
         if geo_proj:
             from fridom.NonHydrostatic.Projection import GeostrophicSpectral
-            proj_geo = GeostrophicSpectral(mset, grid)
+            proj_geo = GeostrophicSpectral(grid)
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; 
             self.w[:] = z_geo.w; self.b[:] = z_geo.b

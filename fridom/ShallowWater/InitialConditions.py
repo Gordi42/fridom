@@ -44,7 +44,7 @@ class Jet(State):
 
         if geo_proj:
             from fridom.ShallowWater.Projection import GeostrophicSpectral
-            proj_geo = GeostrophicSpectral(mset, grid)
+            proj_geo = GeostrophicSpectral(grid)
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; self.h[:] = z_geo.h
         return
@@ -343,7 +343,7 @@ class GeostrophicSpectra(State):
 
         z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
         from fridom.ShallowWater.Projection import GeostrophicSpectral
-        geo_proj = GeostrophicSpectral(mset, grid)
+        geo_proj = GeostrophicSpectral(grid)
         z = geo_proj(z)
         max_amp = cp.amax(cp.abs(z.h))
         z /= max_amp
@@ -371,7 +371,7 @@ class WaveSpectra(State):
 
         z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
         from fridom.ShallowWater.Projection import GeostrophicSpectral
-        geo_proj = GeostrophicSpectral(mset, grid)
+        geo_proj = GeostrophicSpectral(grid)
         z = z - geo_proj(z)
         max_amp = cp.amax(cp.abs(z.h))
         z /= max_amp
