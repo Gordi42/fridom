@@ -17,13 +17,13 @@ class CenteredAdvection(AdvectionModule):
     difference scheme calculating the advection term as the flux divergence.
     """
     def __init__(self, 
-                 mset: ModelSettings, 
                  grid: Grid,
                  timer: TimingModule,
                  interpolation: InterpolationModule):
-        super().__init__(mset, grid, timer)
+        super().__init__(grid, timer)
         self.interpolation = interpolation
 
+        mset = grid.mset
         # grid spacing
         self.dx1 = mset.dtype(1.0) / mset.dx
         self.dy1 = mset.dtype(1.0) / mset.dy
@@ -91,7 +91,7 @@ class CenteredAdvection(AdvectionModule):
         fz = self.grid.cp.pad(fz, ((0,0), (0,0), (1,0)), bcz)
 
         # calculate the flux divergence => tendency term
-        du[:] -= self.flux_divergence(fx, fy, fz) * self.mset.Ro
+        du[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
 
         # -----------------------------------
         #  ADVECTION OF THE V-COMPONENT
@@ -125,7 +125,7 @@ class CenteredAdvection(AdvectionModule):
         fz = self.grid.cp.pad(fz, ((0,0), (0,0), (1,0)), bcz)
 
         # calculate the flux divergence => tendency term
-        dv[:] -= self.flux_divergence(fx, fy, fz) * self.mset.Ro
+        dv[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
 
         # -----------------------------------
         #  ADVECTION OF THE W-COMPONENT
@@ -159,7 +159,7 @@ class CenteredAdvection(AdvectionModule):
         fz = self.grid.cp.pad(fz, ((0,0), (0,0), (0,1)), bcz)
 
         # calculate the flux divergence => tendency term
-        dw[:] -= self.flux_divergence(fx, fy, fz) * self.mset.Ro
+        dw[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
 
         # -----------------------------------
         #  ADVECTION OF THE B-COMPONENT (buoyancy)
@@ -193,7 +193,7 @@ class CenteredAdvection(AdvectionModule):
         fz = self.grid.cp.pad(fz, ((0,0), (0,0), (1,0)), bcz)
 
         # calculate the flux divergence => tendency term
-        dz.b[:] -= self.flux_divergence(fx, fy, fz) * self.mset.Ro
+        dz.b[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
 
         return dz
 
@@ -230,14 +230,13 @@ class CenteredAdvectionConstructor(AdvectionConstructor):
         self.interpolation_constructor = interpolation_constructor
 
     def __call__(self, 
-                 mset: ModelSettings, 
                  grid: Grid,
                  timer: TimingModule) -> CenteredAdvection:
         """
         Create a new instance of the centered advection scheme.
         """
-        interpolation = self.interpolation_constructor(mset, grid)
-        return CenteredAdvection(mset, grid, timer, interpolation)
+        interpolation = self.interpolation_constructor(grid.mset, grid)
+        return CenteredAdvection(grid, timer, interpolation)
 
     def __repr__(self):
         res = "  Advection Scheme: \n"

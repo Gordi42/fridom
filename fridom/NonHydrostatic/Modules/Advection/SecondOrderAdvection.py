@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.Framework.TimingModule import TimingModule
@@ -14,9 +13,10 @@ class SecondOrderAdvection(AdvectionModule):
     but may be more efficient.
     """
 
-    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
-        super().__init__(mset, grid, timer)
+    def __init__(self, grid: Grid, timer: TimingModule):
+        super().__init__(grid, timer)
 
+        mset = grid.mset
         self.quarter = mset.dtype(0.25)
         self.dx1 = mset.dtype(1.0) / mset.dx
         self.dy1 = mset.dtype(1.0) / mset.dy
@@ -111,13 +111,12 @@ class SecondOrderAdvectionConstructor(AdvectionConstructor):
         pass
 
     def __call__(self, 
-                 mset: ModelSettings, 
                  grid: Grid,
                  timer: TimingModule) -> AdvectionModule:
         """
         This function returns the second order advection module.
         """
-        return SecondOrderAdvection(mset, grid, timer)
+        return SecondOrderAdvection(grid, timer)
 
     def __repr__(self) -> str:
         res = "  Advection Scheme: \n"
@@ -125,5 +124,5 @@ class SecondOrderAdvectionConstructor(AdvectionConstructor):
         return res
 
 # remove symbols from the namespace
-del ModelSettings, Grid, State, TimingModule, \
+del Grid, State, TimingModule, \
     AdvectionModule, AdvectionConstructor

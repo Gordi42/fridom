@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.Framework.TimingModule import TimingModule
@@ -9,11 +8,10 @@ class AdvectionModule:
     advection term of the state vector z.
     """
     def __init__(self, 
-                 mset: ModelSettings, 
                  grid: Grid,
                  timer: TimingModule):
-        self.mset = mset
         self.grid = grid
+        self.mset = grid.mset
         self.timer = timer
 
     def __call__(self, 
@@ -62,7 +60,6 @@ class AdvectionConstructor:
     """
 
     def __call__(self, 
-                 mset: ModelSettings, 
                  grid: Grid,
                  timer: TimingModule) -> AdvectionModule:
         """
@@ -75,4 +72,4 @@ class AdvectionConstructor:
 
 
 # remove symbols from the namespace
-del ModelSettings, Grid, State, TimingModule
+del Grid, State, TimingModule
