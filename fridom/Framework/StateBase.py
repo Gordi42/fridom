@@ -22,11 +22,11 @@ class StateBase:
     def __init__(self, grid:GridBase, 
                  field_list:list, is_spectral=False) -> None:
         """
-        Basic Constructor.
+        Base Constructor.
 
         Arguments:
-            mset (ModelSettings)  : Model settings.
             grid (Grid)           : Grid object.
+            field_list (list)     : List of FieldVariables.
             is_spectral (bool)    : State is in spectral space. (default: False)
         """
         self.mset = grid.mset

@@ -31,12 +31,11 @@ class FieldVariable:
         Else, creates a FieldVariable initialized with zeros.
 
         Arguments:
-            input_array (ndarray): The array to be wrapped
-            mset (ModelSettings) : ModelSettings object
             grid (Grid)          : Grid object
             is_spectral (bool)   : True if the FieldVariable is in spectral space
             name (str)           : Name of the FieldVariable
             bc (Boundary Condition) : Boundary condition
+            arr (ndarray)        : The array to be wrapped
         """
         mset = grid.mset
         self.name = name
