@@ -48,12 +48,12 @@ class NNMDBase(Projection):
         self.order = order
 
         # create the eigenvectors
-        self.q0 = VecQ(0, mset, grid)
-        self.p0 = VecP(0, mset, grid)
-        self.qp = VecQ(1, mset, grid)
-        self.pp = VecP(1, mset, grid)
-        self.qm = VecQ(-1, mset, grid)
-        self.pm = VecP(-1, mset, grid)
+        self.q0 = VecQ(0, grid)
+        self.p0 = VecP(0, grid)
+        self.qp = VecQ(1, grid)
+        self.pp = VecP(1, grid)
+        self.qm = VecQ(-1, grid)
+        self.pm = VecP(-1, grid)
 
         self.one_over_omega = 1 / self.grid.omega_space_discrete
         # set inf to zero

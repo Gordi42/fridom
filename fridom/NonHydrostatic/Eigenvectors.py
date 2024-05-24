@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 
@@ -9,7 +8,7 @@ class VecQ(State):
     See the documentation for more details.
     """
 
-    def __init__(self, s, mset:ModelSettings, grid:Grid) -> None:
+    def __init__(self, s, grid:Grid) -> None:
         """
         Constructor of the discrete eigenvectors of the System matrix.
         
@@ -19,12 +18,12 @@ class VecQ(State):
                     "d" => divergent,
                      1  => positive inertial-gravity,
                     -1  => negative inertial-gravity)
-            mset: The ModelSettings object.
             grid: The Grid object.
         """
         super().__init__(grid, is_spectral=True)
 
         # Shortcuts
+        mset = grid.mset
         cp = self.cp
         kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
         dx = mset.dx; dy = mset.dy; dz = mset.dz
@@ -92,7 +91,7 @@ class VecP(State):
     See the documentation for more details.
     """
 
-    def __init__(self, s, mset:ModelSettings, grid=Grid) -> None:
+    def __init__(self, s, grid=Grid) -> None:
         """
         Constructor of the projector on the discrete eigenvectors.
         
@@ -102,13 +101,13 @@ class VecP(State):
                     "d" => divergent,
                      1  => positive inertial-gravity,
                     -1  => negative inertial-gravity)
-            mset: The ModelSettings object.
             grid: The Grid object.
         """
         super().__init__(grid, is_spectral=True)
 
         # Shortcuts
         cp = self.cp
+        mset = grid.mset
         kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
         dx = mset.dx; dy = mset.dy; dz = mset.dz
         f0 = mset.f0; N0 = mset.N0; dsqr = mset.dsqr
@@ -132,7 +131,7 @@ class VecP(State):
         g = (kx**2 + ky**2 != 0)
 
         # Construct the eigenvector
-        q = VecQ(s, mset, grid)
+        q = VecQ(s, grid)
         self.u = q.u.copy(); self.v = q.v.copy() 
         self.w = q.w.copy(); self.b = q.b.copy()
 
@@ -186,7 +185,7 @@ class VecQAnalytical(State):
     Analytical eigenvectors of the System matrix.
     See the documentation for more details.
     """
-    def __init__(self, s, mset:ModelSettings, grid:Grid) -> None:
+    def __init__(self, s, grid:Grid) -> None:
         """
         Constructor of the analytical eigenvectors of the System matrix.
         
@@ -196,12 +195,12 @@ class VecQAnalytical(State):
                     "d" => divergent,
                      1  => positive inertial-gravity,
                     -1  => negative inertial-gravity)
-            mset: The ModelSettings object.
             grid: The Grid object.
         """
         super().__init__(grid, is_spectral=True)
 
         # Shortcuts
+        mset = grid.mset
         kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
         kh2 = kx**2 + ky**2
         f0 = mset.f0; N0 = mset.N0; dsqr = mset.dsqr
@@ -255,7 +254,7 @@ class VecPAnalytical(State):
     Projection vector on the analytical eigenvectors of the System matrix.
     See the documentation for more details.
     """
-    def __init__(self, s, mset:ModelSettings, grid=Grid) -> None:
+    def __init__(self, s, grid=Grid) -> None:
         """
         Constructor of the projector on the analytical eigenvectors.
         
@@ -265,12 +264,12 @@ class VecPAnalytical(State):
                     "d" => divergent,
                      1  => positive inertial-gravity,
                     -1  => negative inertial-gravity)
-            mset: The ModelSettings object.
             grid: The Grid object.
         """
         super().__init__(grid, is_spectral=True)
 
         # Shortcuts
+        mset = grid.mset
         kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
         kh2 = kx**2 + ky**2
         f0 = mset.f0; N0 = mset.N0; dsqr = mset.dsqr
@@ -283,7 +282,7 @@ class VecPAnalytical(State):
         g = (kh2 != 0)
 
         # Construct the eigenvector
-        q = VecQAnalytical(s, mset, grid)
+        q = VecQAnalytical(s, grid)
         self.u = q.u.copy(); self.v = q.v.copy() 
         self.w = q.w.copy(); self.b = q.b.copy()
 
@@ -320,4 +319,4 @@ class VecPAnalytical(State):
         self.b[mask] /= norm[mask]
 
 # remove symbols from namespace
-del ModelSettings, Grid, State
+del Grid, State

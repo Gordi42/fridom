@@ -129,8 +129,8 @@ class PolarizedWaveMaker(Source):
 
         # project again on wave mode
         from fridom.ShallowWater.Eigenvectors import VecQ, VecP
-        q = VecQ(s, mset, grid)
-        p = VecP(s, mset, grid)
+        q = VecQ(s, grid)
+        p = VecP(s, grid)
         z = z.fft()
         proj = z.dot(p)
         z_real = (q*proj).fft()

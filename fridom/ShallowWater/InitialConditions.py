@@ -106,10 +106,10 @@ class SingleWave(State):
         # Construct the eigenvector of the corresponding mode
         if use_discrete:
             from fridom.ShallowWater.Eigenvectors import VecQ
-            q = VecQ(s, mset, grid)
+            q = VecQ(s, grid)
         else:
             from fridom.ShallowWater.Eigenvectors import VecQAnalytical
-            q = VecQAnalytical(s, mset, grid)
+            q = VecQAnalytical(s, grid)
 
         # Construct the state
         z = (q * g).fft()
@@ -223,8 +223,8 @@ class WavePackage(State):
 
         # Project onto the mode again
         from fridom.ShallowWater.Eigenvectors import VecQ, VecP
-        q = VecQ(s, mset, grid)
-        p = VecP(s, mset, grid)
+        q = VecQ(s, grid)
+        p = VecP(s, grid)
 
         z = z.project(p, q)
 
