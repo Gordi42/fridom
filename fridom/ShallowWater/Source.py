@@ -1,6 +1,5 @@
 from abc import abstractmethod
 
-from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
 
@@ -12,8 +11,8 @@ class Source(State):
         update:     Function that is called every time step
                     to update the source term.
     """
-    def __init__(self, mset: ModelSettings, grid: Grid):
-        super().__init__(mset, grid)
+    def __init__(self, grid: Grid):
+        super().__init__(grid)
         return
 
     @abstractmethod
@@ -32,7 +31,7 @@ class WaveMaker(Source):
     """
     Class for the wavemaker source term.
     """
-    def __init__(self, mset: ModelSettings, grid: Grid,
+    def __init__(self, grid: Grid,
                  position: tuple, width: tuple, frequency: float,
                  amplitude: float):
         """
@@ -40,14 +39,13 @@ class WaveMaker(Source):
         Adds an unpolarized gaussian signal to the model.
 
         ## Arguments:
-            model_settings (ModelSettings):     object containing model settings
             grid (Grid):                        object containing grid information
             position (tuple):                   position of the source term
             width (tuple):                      width of the source term
             frequency (float):                  frequency of the source term
             amplitude (float):                  amplitude of the source term
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
 
         # shorthand
         cp = self.cp
@@ -84,14 +82,13 @@ class PolarizedWaveMaker(Source):
     """
     Class for the polarized wavemaker source term.
     """
-    def __init__(self, mset: ModelSettings, grid: Grid,
+    def __init__(self, grid: Grid,
                  kx=6, ky=0, s=1, amplitude=1,
                  mask_pos=(0.5, 0.5), mask_width=(0.2,0.2)) -> None:
         """
         Constructor of the SingleWave initial condition.
 
         Arguments:
-            mset (ModelSettings)  : The model settings.
             grid (Grid)           : The grid.
             kx (float)            : The wavenumber in the x-direction.
             ky (float)            : The wavenumber in the y-direction.
@@ -102,7 +99,7 @@ class PolarizedWaveMaker(Source):
             mask_pos (tuple)      : The position of the mask.
             mask_width (tuple)    : The width of the mask.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
 
         # Shortcuts
         cp = self.cp
@@ -161,4 +158,4 @@ class PolarizedWaveMaker(Source):
 
 
 # remove symbols from namespace
-del abstractmethod, ModelSettings, Grid, State
+del abstractmethod, Grid, State
