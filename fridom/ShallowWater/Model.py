@@ -1,4 +1,3 @@
-from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
 from fridom.Framework.ModelBase import ModelBase
@@ -11,20 +10,20 @@ class Model(ModelBase):
     Based on Sadourny [1975].
     """
 
-    def __init__(self, mset:ModelSettings, grid:Grid) -> None:
+    def __init__(self, grid:Grid) -> None:
         """
         Constructor.
 
         Args:
-            mset (ModelSettings)    : Model settings.
             grid (Grid)             : Grid.
         """
+        mset = grid.mset
         if mset.solver == "FD":
             is_spectral = False
         elif mset.solver == "Spectral":
             is_spectral = True
         from fridom.ShallowWater.State import State
-        super().__init__(mset, grid, State, is_spectral=is_spectral)
+        super().__init__(grid, State, is_spectral=is_spectral)
         self.mset = mset
 
         # Modules
@@ -207,4 +206,4 @@ class Model(ModelBase):
         self.vid_animation.update(z=self.z.cpu(), time=self.time)
 
 # remove symbols from namespace
-del ModelSettings, Grid, State, ModelBase
+del Grid, State, ModelBase

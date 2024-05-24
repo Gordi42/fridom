@@ -1,7 +1,6 @@
 from abc import abstractmethod
 import numpy as np
 
-from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.StateBase import StateBase
 
@@ -44,15 +43,15 @@ class ModelBase:
         reset()                 : Reset the model (pointers, tendencies)
     """
 
-    def __init__(self, mset:ModelSettingsBase, grid:GridBase, State:StateBase, is_spectral=False) -> None:
+    def __init__(self, grid:GridBase, State:StateBase, is_spectral=False) -> None:
         """
         Constructor.
 
         Args:
-            mset (ModelSettings)    : Model settings.
             grid (Grid)             : Grid.
             State (State)           : State class.
         """
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         cp = grid.cp
@@ -351,4 +350,4 @@ class ModelBase:
             return Video(self.vid_animation.filename, width=600, embed=True) 
 
 # remove symbols from namespace
-del abstractmethod, ModelSettingsBase, GridBase, StateBase
+del abstractmethod, GridBase, StateBase

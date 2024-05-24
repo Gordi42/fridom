@@ -1,4 +1,3 @@
-from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.Framework.ModelBase import ModelBase
 
@@ -26,12 +25,11 @@ class Model(ModelBase):
         adam_bashforth()        : Perform Adam-Bashforth time stepping.
     """
 
-    def __init__(self, mset:ModelSettings, grid:Grid) -> None:
+    def __init__(self, grid:Grid) -> None:
         """
         Constructor.
 
         Args:
-            mset (ModelSettings)    : Model settings.
             grid (Grid)             : Grid.
         """
         # import Modules
@@ -44,7 +42,8 @@ class Model(ModelBase):
             SourceTendency
         from fridom.Framework.FieldVariable import FieldVariable
 
-        super().__init__(mset, grid, State)
+        mset = grid.mset
+        super().__init__(grid, State)
         self.mset = mset
 
         # Add pressure and divergence variables
@@ -144,4 +143,4 @@ class Model(ModelBase):
         self.vid_animation.update(z=self.z.cpu(), p=self.p.cpu(), time=self.time)
 
 # remove symbols from namespace
-del ModelSettings, Grid, ModelBase
+del Grid, ModelBase
