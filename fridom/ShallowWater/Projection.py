@@ -76,12 +76,12 @@ class OptimalBalance(OptimalBalanceBase):
                          return_details=return_details)
 
 class NNMD(NNMDBase):
-    def __init__(self, mset: ModelSettings, grid: Grid, 
+    def __init__(self, ModelSettings, grid: Grid, 
                  order=3, enable_dealiasing=True) -> None:
         from fridom.ShallowWater.Model import Model
         from fridom.ShallowWater.Eigenvectors import VecP, VecQ
         from fridom.ShallowWater.State import State
-        super().__init__(mset, grid, Model, State, VecQ, VecP, order, enable_dealiasing)
+        super().__init__(grid, Model, State, VecQ, VecP, order, enable_dealiasing)
 
 # remove symbols from the namespace
 del GeostrophicSpectralBase, Projection, WaveSpectralBase, \

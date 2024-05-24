@@ -1,6 +1,5 @@
 import numpy as np
 
-from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.StateBase import StateBase
 from fridom.Framework.ModelBase import ModelBase
@@ -10,7 +9,7 @@ class NNMDBase(Projection):
     """
     Nonlinear normal mode decomposition.
     """
-    def __init__(self, mset: ModelSettingsBase, grid: GridBase,
+    def __init__(self, ModelSettingsBase, grid: GridBase,
                  Model: ModelBase, State: StateBase,
                  VecQ, VecP,
                  order=3,
@@ -19,13 +18,13 @@ class NNMDBase(Projection):
         Nonlinear balacing using Nonlinear Normal Mode Decomposition.
 
         Arguments:
-            mset      (ModelSettings) : Model settings.
             grid      (Grid)          : The grid.
             order     (int)           : The order up to which to perform the
                                         decomposition. Implemented are up to
                                         order 4.
             enable_dealiasing (bool)  : Whether to enable dealiasing.
         """
+        mset = grid.mset
         super().__init__(mset, grid)
 
         # check if model is nonlinear
@@ -385,4 +384,4 @@ class NNMDBase(Projection):
 
 
 # remove symbols from the namespace
-del ModelSettingsBase, GridBase, StateBase, ModelBase, Projection
+del GridBase, StateBase, ModelBase, Projection
