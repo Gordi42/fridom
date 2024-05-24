@@ -25,7 +25,7 @@ class Jet(State):
             geo_proj          : Whether to project the initial condition
                                 to the geostrophic subspace. Default: True.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
         # Shortcuts
         cp = self.cp
         PI = cp.pi
@@ -84,7 +84,7 @@ class SingleWave(State):
             use_discrete (bool)   : Whether to use the discrete eigenvectors
                                     or the analytical ones. Default: True.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
 
         # Shortcuts
         cp = self.cp
@@ -199,7 +199,7 @@ class WavePackage(State):
                                    -1 => negative inertia-gravity mode
             phase (real)          : The phase of the wave. (Default: 0)
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
 
         # Shortcuts
         cp = self.cp
@@ -245,7 +245,7 @@ class Random(State):
     def __init__(self, mset: ModelSettings, grid:Grid, 
                  d=7, k0=6, seed=12345, amplitude_geostrophy=0.2, 
                  amplitude_wave=0.1, wave_power_law=-2) -> None:
-        super().__init__(mset, grid)
+        super().__init__(grid)
         z_geo = GeostrophicSpectra(mset, grid, d, k0, seed=seed)
         z_wav = WaveSpectra(mset, grid, wave_power_law, seed=seed)
         z = z_geo * amplitude_geostrophy + z_wav * amplitude_wave
@@ -274,7 +274,7 @@ class RandomPhase(State):
                                             normalized to this value.
             seed (int)                    : The seed for the random phase
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
         # get the wavenumber
         cp = self.cp
         Kx, Ky = tuple(grid.K)
@@ -314,7 +314,7 @@ class RandomPhase(State):
         spectra[K!=0] /= K[K!=0]
 
         from fridom.ShallowWater.State import State
-        z = State(mset, grid, is_spectral=True)
+        z = State(grid, is_spectral=True)
         z.h[:] = cp.sqrt(spectra) * random_phase(seed)
         z = z.fft()
 
@@ -332,7 +332,7 @@ class GeostrophicSpectra(State):
     """
     def __init__(self, mset: ModelSettings, grid:Grid, 
                  d=7, k0=6, seed=12345, random_type="normal") -> None:
-        super().__init__(mset, grid)
+        super().__init__(grid)
         # set coefficients for power law
         cp = self.cp
         
@@ -360,7 +360,7 @@ class WaveSpectra(State):
     def __init__(self, mset: ModelSettings, grid:Grid, 
                  power_law=-2, seed=12345,
                  random_type="normal") -> None:
-        super().__init__(mset, grid)
+        super().__init__(grid)
         # get the wavenumber
         cp = self.cp
 

@@ -19,7 +19,7 @@ class StateBase:
     #  STATE CONSTRUCTORS
     # ======================================================================
 
-    def __init__(self, mset:ModelSettingsBase, grid:GridBase, 
+    def __init__(self, grid:GridBase, 
                  field_list:list, is_spectral=False) -> None:
         """
         Basic Constructor.
@@ -29,7 +29,7 @@ class StateBase:
             grid (Grid)           : Grid object.
             is_spectral (bool)    : State is in spectral space. (default: False)
         """
-        self.mset = mset
+        self.mset = grid.mset
         self.grid = grid
         self.is_spectral = is_spectral
         self.cp = grid.cp
@@ -41,7 +41,7 @@ class StateBase:
         Create a copy of the state.
         """
         fields = [field.copy() for field in self.field_list]
-        z = self.constructor(self.mset, self.grid, 
+        z = self.constructor(self.grid, 
                              field_list=fields, is_spectral=self.is_spectral)
         return z
 
@@ -50,9 +50,8 @@ class StateBase:
         Create a copy of the state on the CPU.
         """
         fields_cpu = [field.cpu() for field in self.field_list]
-        mset = fields_cpu[0].mset
         grid = fields_cpu[0].grid
-        z = self.constructor(mset, grid, field_list=fields_cpu,
+        z = self.constructor(grid, field_list=fields_cpu,
                                 is_spectral=self.is_spectral)
         return z
     
@@ -66,7 +65,7 @@ class StateBase:
         """
         fields_fft = [field.fft() for field in self.field_list]
         z = self.constructor(
-            self.mset, self.grid, field_list=fields_fft, 
+            self.grid, field_list=fields_fft, 
             is_spectral=not self.is_spectral)
         return z
 
@@ -145,7 +144,7 @@ class StateBase:
         else:
             sums = [field + other for field in self.field_list]
 
-        z = self.constructor(self.mset, self.grid, field_list=sums,
+        z = self.constructor(self.grid, field_list=sums,
                                 is_spectral=self.is_spectral)
         
         return z
@@ -162,7 +161,7 @@ class StateBase:
         else:
             diffs = [field - other for field in self.field_list]
 
-        z = self.constructor(self.mset, self.grid, field_list=diffs,
+        z = self.constructor(self.grid, field_list=diffs,
                                 is_spectral=self.is_spectral)
         return z
     
@@ -171,7 +170,7 @@ class StateBase:
         Subtract something from the state.
         """
         diffs = [other - field for field in self.field_list]
-        z = self.constructor(self.mset, self.grid, field_list=diffs,
+        z = self.constructor(self.grid, field_list=diffs,
                                 is_spectral=self.is_spectral)
         return z
         
@@ -184,7 +183,7 @@ class StateBase:
         else:
             prods = [field * other for field in self.field_list]
 
-        z = self.constructor(self.mset, self.grid, field_list=prods,
+        z = self.constructor(self.grid, field_list=prods,
                                 is_spectral=self.is_spectral)
         return z
     
@@ -200,7 +199,7 @@ class StateBase:
         else:
             quot = [field / other for field in self.field_list]
 
-        z = self.constructor(self.mset, self.grid, field_list=quot,
+        z = self.constructor(self.grid, field_list=quot,
                                 is_spectral=self.is_spectral)
         return z
 
@@ -209,7 +208,7 @@ class StateBase:
         Divide something by the state.
         """
         quot = [other / field for field in self.field_list]
-        z = self.constructor(self.mset, self.grid, field_list=quot,
+        z = self.constructor(self.grid, field_list=quot,
                                 is_spectral=self.is_spectral)
         return z
     
@@ -222,7 +221,7 @@ class StateBase:
         else:
             prods = [field ** other for field in self.field_list]
 
-        z = self.constructor(self.mset, self.grid, field_list=prods,
+        z = self.constructor(self.grid, field_list=prods,
                                 is_spectral=self.is_spectral)
         return z
 

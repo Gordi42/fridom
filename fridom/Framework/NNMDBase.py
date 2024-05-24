@@ -182,7 +182,7 @@ class NNMDBase(Projection):
             right_hand_side (State) : The right hand side of the equation (f).
         """
         # initialize the solution
-        z_hat = self.State(self.mset, self.grid, is_spectral=True)
+        z_hat = self.State(self.grid, is_spectral=True)
 
         # calculate each mode separately
         for proj, sign in zip([self.proj_p, self.proj_m], [-1, 1]):

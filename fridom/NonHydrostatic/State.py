@@ -5,21 +5,21 @@ from fridom.Framework.FieldVariable import FieldVariable
 
 
 class State(StateBase):
-    def __init__(self, mset: ModelSettings, grid: Grid, is_spectral=False, field_list=None) -> None:
+    def __init__(self, grid: Grid, is_spectral=False, field_list=None) -> None:
         from fridom.NonHydrostatic.BoundaryConditions import \
             UBoundary, VBoundary, WBoundary, BBoundary
         from fridom.Framework.FieldVariable import FieldVariable
         if field_list is None:
-            u = FieldVariable(mset, grid,
-                name="Velocity u", is_spectral=is_spectral, bc=UBoundary(mset))
-            v = FieldVariable(mset, grid,
-                name="Velocity v", is_spectral=is_spectral, bc=VBoundary(mset))
-            w = FieldVariable(mset, grid,
-                name="Velocity w", is_spectral=is_spectral, bc=WBoundary(mset))
-            b = FieldVariable(mset, grid,
-                name="Buoyancy b", is_spectral=is_spectral, bc=BBoundary(mset))
+            u = FieldVariable(grid.mset, grid,
+                name="Velocity u", is_spectral=is_spectral, bc=UBoundary(grid.mset))
+            v = FieldVariable(grid.mset, grid,
+                name="Velocity v", is_spectral=is_spectral, bc=VBoundary(grid.mset))
+            w = FieldVariable(grid.mset, grid,
+                name="Velocity w", is_spectral=is_spectral, bc=WBoundary(grid.mset))
+            b = FieldVariable(grid.mset, grid,
+                name="Buoyancy b", is_spectral=is_spectral, bc=BBoundary(grid.mset))
             field_list = [u, v, w, b]
-        super().__init__(mset, grid, field_list, is_spectral)
+        super().__init__(grid, field_list, is_spectral)
         self.constructor = State
         return
     

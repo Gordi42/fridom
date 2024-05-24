@@ -79,13 +79,13 @@ from fridom.Framework.StateBase import StateBase
 from fridom.Framework.FieldVariable import FieldVariable
 from fridom.Framework.BoundaryConditions import BoundaryConditions, Periodic
 class State(StateBase):
-    def __init__(self, mset, grid, field_list=None, **kwargs):
+    def __init__(self, grid, field_list=None, **kwargs):
         if field_list is None:
             bc = BoundaryConditions([Periodic(mset,0), Periodic(mset,1)])
             field_list = [
                 FieldVariable(mset, grid, name="Velocity: u", bc=bc),
                 FieldVariable(mset, grid, name="Velocity: v", bc=bc), ...]
-        super().__init__(mset, grid, field_list)
+        super().__init__(grid, field_list)
         self.constructor = State
 ```
 4. Create the model. The model must include the method ```total_tendency(self)``` which calculates the right hand side of the partial differential equation $\mathbf{f}(\mathbf{z},t)$.

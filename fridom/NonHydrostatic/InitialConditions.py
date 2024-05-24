@@ -28,7 +28,7 @@ class Jet(State):
             geo_proj          : Whether to project the initial condition
                                 to the geostrophic subspace. Default: True.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
         cp = self.cp
 
         X  = grid.X[0]; Y  = grid.X[1]; Z  = grid.X[2]
@@ -76,7 +76,7 @@ class BarotropicJet(State):
             geo_proj          : Whether to project the initial condition
                                 to the geostrophic subspace. Default: True.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
         # Shortcuts
         cp = self.cp
         PI = cp.pi
@@ -136,7 +136,7 @@ class SingleWave(State):
             use_discrete (bool)   : Whether to use the discrete eigenvectors
                                     or the analytical ones. Default: True.
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
 
         # Shortcuts
         cp = self.cp
@@ -255,7 +255,7 @@ class WavePackage(State):
                                    -1 => negative inertia-gravity mode
             phase (real)          : The phase of the wave. (Default: 0)
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
 
         # Shortcuts
         cp = self.cp
@@ -329,7 +329,7 @@ class VerticalMode(State):
                                    -1 => negative inertia-gravity mode
             phase (real)          : The phase of the wave. (Default: 0)
         """
-        super().__init__(mset, grid)
+        super().__init__(grid)
 
         # Shortcuts
         cp = self.cp

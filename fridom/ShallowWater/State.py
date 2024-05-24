@@ -6,7 +6,6 @@ from fridom.Framework.StateBase import StateBase
 
 class State(StateBase):
     def __init__(self, 
-                 mset: ModelSettings, 
                  grid: Grid, 
                  is_spectral=False, 
                  field_list=None) -> None:
@@ -14,15 +13,15 @@ class State(StateBase):
             from fridom.ShallowWater.BoundaryConditions import \
                 UBoundary, VBoundary, HBoundary
             from fridom.Framework.FieldVariable import FieldVariable
-            u = FieldVariable(mset, grid,
-                name="Velocity u", is_spectral=is_spectral, bc=UBoundary(mset))
-            v = FieldVariable(mset, grid,
-                name="Velocity v", is_spectral=is_spectral, bc=VBoundary(mset))
-            h = FieldVariable(mset, grid,
-                name="Layer Thickness h", is_spectral=is_spectral, bc=HBoundary(mset))
+            u = FieldVariable(grid.mset, grid,
+                name="Velocity u", is_spectral=is_spectral, bc=UBoundary(grid.mset))
+            v = FieldVariable(grid.mset, grid,
+                name="Velocity v", is_spectral=is_spectral, bc=VBoundary(grid.mset))
+            h = FieldVariable(grid.mset, grid,
+                name="Layer Thickness h", is_spectral=is_spectral, bc=HBoundary(grid.mset))
             field_list = [u, v, h]
-        super().__init__(mset, grid, field_list, is_spectral)
-        self.mset = mset
+        super().__init__(grid, field_list, is_spectral)
+        self.mset = grid.mset
         self.constructor = State
         return
     

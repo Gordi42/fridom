@@ -36,13 +36,13 @@ class StateBaseTest(unittest.TestCase):
 
 
     def test_init(self):
-        state = StateBase(self.mset, self.grid, self.fields)
+        state = StateBase(self.grid, self.fields)
         self.assertEqual(state.mset, self.mset)
         self.assertEqual(state.grid, self.grid)
         self.assertEqual(state.field_list, self.fields)
 
     def test_copy(self):
-        state = StateBase(self.mset, self.grid, self.fields)
+        state = StateBase(self.grid, self.fields)
         state2 = state.copy()
         self.assertEqual(state2.mset, self.mset)
         self.assertEqual(state2.grid, self.grid)
@@ -55,7 +55,7 @@ class StateBaseTest(unittest.TestCase):
         self.assertEqual(state.field_list[0][0,0], 0)
 
     def test_fft(self):
-        state = StateBase(self.mset, self.grid, self.fields)
+        state = StateBase(self.grid, self.fields)
         for field in state.field_list:
             field[:] = state.cp.random.rand(*field.shape)
         state_fft = state.fft()
@@ -75,10 +75,8 @@ class StateBaseTest(unittest.TestCase):
             self.assertTrue(cp.allclose(f1, f2))
 
     def test_dot(self):
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.zeros_p, self.ones_p])
-        state2 = StateBase(self.mset_1d, self.grid_1d, 
-                           [self.ones_p, self.ones_p])
+        state = StateBase(self.grid_1d, [self.zeros_p, self.ones_p])
+        state2 = StateBase(self.grid_1d, [self.ones_p, self.ones_p])
         cp = state.cp
 
         dot = state.dot(state2)
@@ -86,34 +84,28 @@ class StateBaseTest(unittest.TestCase):
         self.assertTrue(cp.allclose(dot[:], self.ones_p[:]))
 
         # test complex
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.ones_s, self.ones_s - 1j])
-        state2 = StateBase(self.mset_1d, self.grid_1d,
-                            [self.imag_s, self.ones_s])
+        state = StateBase(self.grid_1d, [self.ones_s, self.ones_s - 1j])
+        state2 = StateBase(self.grid_1d, [self.imag_s, self.ones_s])
 
         dot = state.dot(state2)
         self.assertTrue(cp.allclose(dot[:], self.ones_s[:]-2j))
 
     def test_norm_l2(self):
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.zeros_p, self.ones_p])
+        state = StateBase(self.grid_1d, [self.zeros_p, self.ones_p])
         # yields state = [(0, 1), (0, 1), (0, 1)]
         # with l2 norm = sqrt((1+1+1) * 1/3) = 1
         #                               ^^^
         #                               dV
         self.assertEqual(state.norm_l2(), 1)
 
-        state2 = StateBase(self.mset_1d, self.grid_1d, 
-                           [self.ones_p, self.ones_p])
+        state2 = StateBase(self.grid_1d, [self.ones_p, self.ones_p])
         # yields state2 = [(1, 1), (1, 1), (1, 1)]
         # with l2 norm = sqrt((2+2+2) * 1/3) = sqrt(2)
         self.assertEqual(state2.norm_l2(), 2**(1/2))
 
     def test_norm_of_diff(self):
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.zeros_p, self.ones_p])
-        state2 = StateBase(self.mset_1d, self.grid_1d, 
-                           [self.ones_p, self.ones_p])
+        state = StateBase(self.grid_1d, [self.zeros_p, self.ones_p])
+        state2 = StateBase(self.grid_1d, [self.ones_p, self.ones_p])
 
         # test norm of difference between two identical states
         # should be 0
@@ -132,10 +124,8 @@ class StateBaseTest(unittest.TestCase):
         self.assertEqual(norm, 2 / (1 + 2**(1/2)))
 
     def test_add(self):
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.zeros_p, self.ones_p])
-        state2 = StateBase(self.mset_1d, self.grid_1d, 
-                           [self.ones_p, self.ones_p])
+        state = StateBase(self.grid_1d, [self.zeros_p, self.ones_p])
+        state2 = StateBase(self.grid_1d, [self.ones_p, self.ones_p])
         cp = state.cp
 
         # add two states
@@ -169,10 +159,8 @@ class StateBaseTest(unittest.TestCase):
         self.assertTrue(cp.allclose(state3.field_list[1][:], 2*self.ones_p[:]))
 
     def test_sub(self):
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.zeros_p, self.ones_p])
-        state2 = StateBase(self.mset_1d, self.grid_1d, 
-                           [self.ones_p, self.ones_p])
+        state = StateBase(self.grid_1d, [self.zeros_p, self.ones_p])
+        state2 = StateBase(self.grid_1d, [self.ones_p, self.ones_p])
         cp = state.cp
 
         # sub two states
@@ -206,10 +194,8 @@ class StateBaseTest(unittest.TestCase):
         self.assertTrue(cp.allclose(state3.field_list[1][:], 0*self.ones_p[:]))
 
     def test_mul(self):
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.zeros_p, self.ones_p])
-        state2 = StateBase(self.mset_1d, self.grid_1d, 
-                           [self.ones_p, self.ones_p])
+        state = StateBase(self.grid_1d, [self.zeros_p, self.ones_p])
+        state2 = StateBase(self.grid_1d, [self.ones_p, self.ones_p])
         cp = state.cp
 
         # mul two states
@@ -243,10 +229,8 @@ class StateBaseTest(unittest.TestCase):
         self.assertTrue(cp.allclose(state3.field_list[1][:], 2*self.ones_p[:]))
 
     def test_truediv(self):
-        state = StateBase(self.mset_1d, self.grid_1d, 
-                          [self.zeros_p, self.ones_p])
-        state2 = StateBase(self.mset_1d, self.grid_1d, 
-                           [self.ones_p, self.ones_p])
+        state = StateBase(self.grid_1d, [self.zeros_p, self.ones_p])
+        state2 = StateBase(self.grid_1d, [self.ones_p, self.ones_p])
         cp = state.cp
 
         # div two states

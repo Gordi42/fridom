@@ -22,7 +22,7 @@ class VecQ(State):
             mset: The ModelSettings object.
             grid: The Grid object.
         """
-        super().__init__(mset, grid, is_spectral=True)
+        super().__init__(grid, is_spectral=True)
 
         # Shortcuts
         cp = self.cp
@@ -105,7 +105,7 @@ class VecP(State):
             mset: The ModelSettings object.
             grid: The Grid object.
         """
-        super().__init__(mset, grid, is_spectral=True)
+        super().__init__(grid, is_spectral=True)
 
         # Shortcuts
         cp = self.cp
@@ -199,7 +199,7 @@ class VecQAnalytical(State):
             mset: The ModelSettings object.
             grid: The Grid object.
         """
-        super().__init__(mset, grid, is_spectral=True)
+        super().__init__(grid, is_spectral=True)
 
         # Shortcuts
         kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
@@ -268,7 +268,7 @@ class VecPAnalytical(State):
             mset: The ModelSettings object.
             grid: The Grid object.
         """
-        super().__init__(mset, grid, is_spectral=True)
+        super().__init__(grid, is_spectral=True)
 
         # Shortcuts
         kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
