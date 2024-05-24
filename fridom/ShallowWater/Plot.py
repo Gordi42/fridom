@@ -1,7 +1,5 @@
 from typing import Any
 import numpy as np
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 
 from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
@@ -205,6 +203,7 @@ class Plot:
             vmax  : maximum velocity for the quiver plot
             cmap  : colormap to use
         """
+        import matplotlib.pyplot as plt
 
         # update color settings if necessary
         is_positive = np.all(self.field >= 0) if cmin is None else cmin >= 0
@@ -231,3 +230,6 @@ class Plot:
         cbar = plt.colorbar(im, shrink=0.9*shrink)
         cbar.set_label(self.name)
         return
+
+# remove symbols from namespace
+del Any, ModelSettings, Grid, FieldVariable

@@ -1,23 +1,26 @@
-from fridom.Framework.ProjectionBase import GeostrophicSpectralBase, Projection, WaveSpectralBase, DivergenceSpectralBase, GeostrophicTimeAverageBase
+from fridom.Framework.ProjectionBase import \
+    GeostrophicSpectralBase, Projection, WaveSpectralBase, \
+    DivergenceSpectralBase, GeostrophicTimeAverageBase
 from fridom.Framework.OptimalBalanceBase import OptimalBalanceBase
 from fridom.Framework.NNMDBase import NNMDBase
 
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
-from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
-from fridom.NonHydrostatic.State import State
 
 
 class GeostrophicSpectral(GeostrophicSpectralBase):
     def __init__(self, mset: ModelSettings, grid: Grid) -> None:
+        from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
         super().__init__(mset, grid, VecQ, VecP)
 
 class WaveSpectral(WaveSpectralBase):
     def __init__(self, mset: ModelSettings, grid: Grid) -> None:
+        from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
         super().__init__(mset, grid, VecQ, VecP)
 
 class DivergenceSpectral(DivergenceSpectralBase):
     def __init__(self, mset: ModelSettings, grid: Grid) -> None:
+        from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
         super().__init__(mset, grid, VecQ, VecP)
 
 class GeostrophicTimeAverage(GeostrophicTimeAverageBase):
@@ -76,4 +79,11 @@ class NNMD(NNMDBase):
     def __init__(self, mset: ModelSettings, grid: Grid, 
                  order=3, enable_dealiasing=True) -> None:
         from fridom.NonHydrostatic.Model import Model
+        from fridom.NonHydrostatic.State import State
+        from fridom.NonHydrostatic.Eigenvectors import VecP, VecQ
         super().__init__(mset, grid, Model, State, VecQ, VecP, order, enable_dealiasing)
+
+# remove symbols from namespace
+del ModelSettings, Grid, Projection, \
+    GeostrophicSpectralBase, WaveSpectralBase, DivergenceSpectralBase, \
+    GeostrophicTimeAverageBase, OptimalBalanceBase, NNMDBase

@@ -162,3 +162,6 @@ class NonlinearTendencySpectral:
         dz.v[:] -= ((zeta * u).fft() + 1j * Ky * ekin_hat ) * self.mset.Ro
 
         return
+
+# remove symbols from namespace
+del ModelSettings, Grid, State, TimingModule

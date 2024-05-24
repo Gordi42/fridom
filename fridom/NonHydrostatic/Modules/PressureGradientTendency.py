@@ -61,3 +61,6 @@ class PressureGradientTendency:
         # stop the timer
         self.timer.get("Pressure Gradient").stop()
         return
+
+# remove symbols from the namespace
+del ModelSettings, Grid, State, TimingModule, FieldVariable

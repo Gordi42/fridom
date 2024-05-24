@@ -1,11 +1,8 @@
-import numpy 
+import numpy as np
 
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
-from fridom.Framework.FieldVariable import FieldVariable
-from fridom.NonHydrostatic.Eigenvectors import VecQ, VecP, VecQAnalytical
-from fridom.NonHydrostatic.Projection import GeostrophicSpectral, DivergenceSpectral
 
 
 class Jet(State):
@@ -52,6 +49,7 @@ class Jet(State):
         self.b[:] += pert_strength * z_per.b
 
         if geo_proj:
+            from fridom.NonHydrostatic.Projection import GeostrophicSpectral
             proj_geo = GeostrophicSpectral(mset, grid)
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; 
@@ -94,6 +92,7 @@ class BarotropicJet(State):
         self.v[:]  = waveamp * cp.sin(kx_p*x)
 
         if geo_proj:
+            from fridom.NonHydrostatic.Projection import GeostrophicSpectral
             proj_geo = GeostrophicSpectral(mset, grid)
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; 
@@ -153,13 +152,16 @@ class SingleWave(State):
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
+        from fridom.Framework.FieldVariable import FieldVariable
         g = FieldVariable(mset, grid, is_spectral=True)
         g[self.k_loc] = cp.exp(1j*phase)
 
         # Construct the eigenvector of the corresponding mode
         if use_discrete:
+            from fridom.NonHydrostatic.Eigenvectors import VecQ
             q = VecQ(s, mset, grid)
         else:
+            from fridom.NonHydrostatic.Eigenvectors import VecQAnalytical
             q = VecQAnalytical(s, mset, grid)
 
         # Construct the state
@@ -194,18 +196,18 @@ class SingleWave(State):
 
             # Get the time stepping coefficients
             coeff = [self.mset.AB1, self.mset.AB2, self.mset.AB3, self.mset.AB4]
-            coeff = numpy.array(coeff[self.mset.time_levels-1])
+            coeff = np.array(coeff[self.mset.time_levels-1])
 
             # Construct the polynomial coefficients
             coeff = 1j * coeff * om.item() * self.mset.dt
             coeff[0] -= 1
-            coeff = numpy.pad(coeff, (1,0), 'constant', constant_values=(1,0))
+            coeff = np.pad(coeff, (1,0), 'constant', constant_values=(1,0))
             
             # Calculate the roots of the polynomial
-            roots = numpy.roots(coeff[::-1])[-1]
+            roots = np.roots(coeff[::-1])[-1]
 
             # Calculate the complex frequency
-            self.__omega = -1j * numpy.log(roots)/self.mset.dt
+            self.__omega = -1j * np.log(roots)/self.mset.dt
         return self.__omega
 
     @property
@@ -277,6 +279,7 @@ class WavePackage(State):
         z.b *= mask
 
         # Project onto the mode again
+        from fridom.NonHydrostatic.Eigenvectors import VecQ, VecP
         q = VecQ(s, mset, grid)
         p = VecP(s, mset, grid)
 
@@ -363,3 +366,6 @@ class VerticalMode(State):
         self.w[:] = z_sum.w; self.b[:] = z_sum.b
 
         return
+
+# remove symbols from namespace
+del ModelSettings, Grid, State

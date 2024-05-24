@@ -1,6 +1,4 @@
 import numpy as np
-import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
@@ -317,6 +315,7 @@ class Plot:
             fig     : plotly figure to add the trace to
             show    : whether to show the figure
         """
+        import plotly.graph_objects as go
         # get number of points to skip for a coarse resolution plot
         x_skip, y_skip, z_skip = PlotContainer.get_coarse_skips(
                 nx=40, ny=40, nz=40, shape=self.field.shape)
@@ -389,6 +388,7 @@ class Plot:
             vmax  : maximum velocity for the quiver plot
             cmap  : colormap to use
         """
+        import matplotlib.pyplot as plt
 
         ysel = PlotContainer.get_coord_index(yi, y, self.y)
 
@@ -421,47 +421,48 @@ class Plot:
 
     def side(self, state=None, x=0, xi=None, fig=None,
                 cmin=None, cmax=None, vmax=None, cmap=None):
-            """
-            Plot a side view of the field.
+        """
+        Plot a side view of the field.
     
-            Arguments:
-                state : model state to plot
-                x     : x coordinate of the section
-                xi    : x index of the section
-                fig   : matplotlib figure to plot on
-                cmin  : minimum value for the colormap
-                cmax  : maximum value for the colormap
-                vmax  : maximum velocity for the quiver plot
-                cmap  : colormap to use
-            """
-            xsel = PlotContainer.get_coord_index(xi, x, self.x)
+        Arguments:
+            state : model state to plot
+            x     : x coordinate of the section
+            xi    : x index of the section
+            fig   : matplotlib figure to plot on
+            cmin  : minimum value for the colormap
+            cmax  : maximum value for the colormap
+            vmax  : maximum velocity for the quiver plot
+            cmap  : colormap to use
+        """
+        import matplotlib.pyplot as plt
+        xsel = PlotContainer.get_coord_index(xi, x, self.x)
     
-            # update color settings if necessary
-            is_positive = np.all(self.field >= 0)
-            cmap = PlotContainer.update_colormap(is_positive, cmap)
-            cmin, cmax = PlotContainer.update_colorlimits(
-                self.field, is_positive, cmin, cmax)
+        # update color settings if necessary
+        is_positive = np.all(self.field >= 0)
+        cmap = PlotContainer.update_colormap(is_positive, cmap)
+        cmin, cmax = PlotContainer.update_colorlimits(
+            self.field, is_positive, cmin, cmax)
     
-            if fig is None:
-                fig = plt.figure(figsize=(5,5), dpi=200, tight_layout=True)
+        if fig is None:
+            fig = plt.figure(figsize=(5,5), dpi=200, tight_layout=True)
 
-            if state is None:
-                u = None; v = None; w = None
-            else:
-                get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
-                u = get(state.u); v = get(state.v); w = get(state.w)
+        if state is None:
+            u = None; v = None; w = None
+        else:
+            get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
+            u = get(state.u); v = get(state.v); w = get(state.w)
 
             
-            ax = fig.add_subplot(111)
-            im = PlotContainer.side_on_axis(
-                ax, self.field, self.X, self.Y, self.Z,
-                xsel, cmin, cmax, cmap, vmax, u, v, w)
+        ax = fig.add_subplot(111)
+        im = PlotContainer.side_on_axis(
+            ax, self.field, self.X, self.Y, self.Z,
+            xsel, cmin, cmax, cmap, vmax, u, v, w)
     
-            shrink = min(self.mset.L[2] / self.mset.L[1],1)
+        shrink = min(self.mset.L[2] / self.mset.L[1],1)
             
-            cbar = plt.colorbar(im, shrink=0.9*shrink)
-            cbar.set_label(self.name)
-            return
+        cbar = plt.colorbar(im, shrink=0.9*shrink)
+        cbar.set_label(self.name)
+        return
 
     def top(self, state=None, z=0, zi=None, fig=None,
             cmin=None, cmax=None, vmax=None, cmap=None):
@@ -478,6 +479,7 @@ class Plot:
             vmax  : maximum velocity for the quiver plot
             cmap  : colormap to use
         """
+        import matplotlib.pyplot as plt
         zsel = PlotContainer.get_coord_index(zi, z, self.z)
 
         # update color settings if necessary
@@ -508,6 +510,7 @@ class Plot:
 
     def sec(self, state=None, x=0, y=0, z=0, xi=None, yi=None, zi=None, fig=None,
             cmin=None, cmax=None, vmax=None, cmap=None, add_lines=True):
+        import matplotlib.pyplot as plt
 
         xsel = PlotContainer.get_coord_index(xi, x, self.x)
         ysel = PlotContainer.get_coord_index(yi, y, self.y)
@@ -564,3 +567,6 @@ class Plot:
             axs[2].plot(x[:, zsel], z[:, zsel], c="red", linewidth=0.5)
         return
 
+
+# remove symbols from namespace
+del ModelSettings, Grid, FieldVariable

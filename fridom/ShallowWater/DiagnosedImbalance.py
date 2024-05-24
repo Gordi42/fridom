@@ -12,3 +12,6 @@ class DiagnoseImbalance(DiagnoseImbalanceBase):
                  store_details=False) -> None:
         from fridom.ShallowWater.Model import Model
         super().__init__(mset, grid, Model, diag_per, proj, proj2, store_details)
+
+# remove symbols from namespace
+del ModelSettings, Grid, Projection, DiagnoseImbalanceBase

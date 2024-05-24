@@ -1,11 +1,8 @@
-import numpy 
+import numpy as np
 
 from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
-from fridom.Framework.FieldVariable import FieldVariable
-from fridom.ShallowWater.Eigenvectors import VecQ, VecP, VecQAnalytical
-from fridom.ShallowWater.Projection import GeostrophicSpectral, DivergenceSpectral
 
 
 class Jet(State):
@@ -46,6 +43,7 @@ class Jet(State):
         self.h[:]  = waveamp * cp.sin(kx_p*x)
 
         if geo_proj:
+            from fridom.ShallowWater.Projection import GeostrophicSpectral
             proj_geo = GeostrophicSpectral(mset, grid)
             z_geo = proj_geo(self)
             self.u[:] = z_geo.u; self.v[:] = z_geo.v; self.h[:] = z_geo.h
@@ -101,13 +99,16 @@ class SingleWave(State):
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
+        from fridom.Framework.FieldVariable import FieldVariable
         g = FieldVariable(mset, grid, is_spectral=True)
         g[self.k_loc] = cp.exp(1j*phase)
 
         # Construct the eigenvector of the corresponding mode
         if use_discrete:
+            from fridom.ShallowWater.Eigenvectors import VecQ
             q = VecQ(s, mset, grid)
         else:
+            from fridom.ShallowWater.Eigenvectors import VecQAnalytical
             q = VecQAnalytical(s, mset, grid)
 
         # Construct the state
@@ -141,18 +142,18 @@ class SingleWave(State):
 
             # Get the time stepping coefficients
             coeff = [self.mset.AB1, self.mset.AB2, self.mset.AB3, self.mset.AB4]
-            coeff = numpy.array(coeff[self.mset.time_levels-1])
+            coeff = np.array(coeff[self.mset.time_levels-1])
 
             # Construct the polynomial coefficients
             coeff = 1j * coeff * om.item() * self.mset.dt
             coeff[0] -= 1
-            coeff = numpy.pad(coeff, (1,0), 'constant', constant_values=(1,0))
+            coeff = np.pad(coeff, (1,0), 'constant', constant_values=(1,0))
             
             # Calculate the roots of the polynomial
-            roots = numpy.roots(coeff[::-1])[-1]
+            roots = np.roots(coeff[::-1])[-1]
 
             # Calculate the complex frequency
-            self.__omega = -1j * numpy.log(roots)/self.mset.dt
+            self.__omega = -1j * np.log(roots)/self.mset.dt
         return self.__omega
 
     @property
@@ -221,6 +222,7 @@ class WavePackage(State):
         z.h *= mask
 
         # Project onto the mode again
+        from fridom.ShallowWater.Eigenvectors import VecQ, VecP
         q = VecQ(s, mset, grid)
         p = VecP(s, mset, grid)
 
@@ -284,7 +286,7 @@ class RandomPhase(State):
         k_order = cp.max(cp.abs(cp.array([kx_flat, ky_flat])), axis=0)
         angle = cp.angle(kx_flat + 1j*ky_flat)
         if mset.gpu:
-            sort = numpy.lexsort((angle.get(), k_order.get()))
+            sort = np.lexsort((angle.get(), k_order.get()))
             sort = cp.array(sort)
         else:
             sort = cp.lexsort((angle, k_order))
@@ -311,6 +313,7 @@ class RandomPhase(State):
         # divide by K 
         spectra[K!=0] /= K[K!=0]
 
+        from fridom.ShallowWater.State import State
         z = State(mset, grid, is_spectral=True)
         z.h[:] = cp.sqrt(spectra) * random_phase(seed)
         z = z.fft()
@@ -339,6 +342,7 @@ class GeostrophicSpectra(State):
             return K**7/(K**2 + a*k0**2)**(2*b)
 
         z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
+        from fridom.ShallowWater.Projection import GeostrophicSpectral
         geo_proj = GeostrophicSpectral(mset, grid)
         z = geo_proj(z)
         max_amp = cp.amax(cp.abs(z.h))
@@ -366,6 +370,7 @@ class WaveSpectra(State):
             return spectra
 
         z = RandomPhase(mset, grid, spectral_function, random_type, 1.0, seed)
+        from fridom.ShallowWater.Projection import GeostrophicSpectral
         geo_proj = GeostrophicSpectral(mset, grid)
         z = z - geo_proj(z)
         max_amp = cp.amax(cp.abs(z.h))
@@ -373,3 +378,6 @@ class WaveSpectra(State):
         
         self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
         return
+
+# remove symbols from namespace
+del ModelSettings, Grid, State

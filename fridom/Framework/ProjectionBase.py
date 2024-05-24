@@ -216,4 +216,5 @@ class GeostrophicTimeAverageBase(Projection):
         return z_ave
 
 
-
+# remove symbols from namespace
+del ABC, abstractmethod, ModelSettingsBase, GridBase, StateBase, ModelBase

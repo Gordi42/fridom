@@ -318,3 +318,6 @@ class VecPAnalytical(State):
         self.v[mask] /= norm[mask]
         self.w[mask] /= norm[mask]
         self.b[mask] /= norm[mask]
+
+# remove symbols from namespace
+del ModelSettings, Grid, State

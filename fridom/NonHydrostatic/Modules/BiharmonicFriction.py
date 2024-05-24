@@ -89,3 +89,6 @@ class BiharmonicFriction:
         self.timer.get("Biharmonic Friction").stop()
 
         return 
+
+# remove symbols from the namespace
+del ModelSettings, Grid, State, TimingModule

@@ -1,9 +1,3 @@
-import numpy
-try:
-    import cupy
-except ImportError:
-    pass
-
 from typing import Type
 
 from fridom.Framework.ModelSettingsBase import ModelSettingsBase
@@ -231,3 +225,6 @@ class StateBase:
         z = self.constructor(self.mset, self.grid, field_list=prods,
                                 is_spectral=self.is_spectral)
         return z
+
+# remove symbols from namespace
+del Type, ModelSettingsBase, GridBase, FieldVariable

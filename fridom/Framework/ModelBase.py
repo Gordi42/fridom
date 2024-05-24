@@ -1,14 +1,9 @@
-import numpy as np
-from tqdm import tqdm
 from abc import abstractmethod
-from IPython.display import Video
+import numpy as np
 
 from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 from fridom.Framework.StateBase import StateBase
-from fridom.Framework.TimingModule import TimingModule
-from fridom.Framework.Animation import LiveAnimation, VideoAnimation
-from fridom.Framework.NetCDFWriter import NetCDFWriter
 
 
 class ModelBase:
@@ -67,7 +62,7 @@ class ModelBase:
 
         # time stepping variables
         self.dz_list = [State(mset, grid, is_spectral=is_spectral) for _ in range(mset.time_levels)]
-        self.pointer = np.arange(mset.time_levels, dtype=np.int32)
+        self.pointer = np.arange(mset.time_levels, dtype=cp.int32)
         self.coeffs = [
             cp.asarray(mset.AB1), cp.asarray(mset.AB2),
             cp.asarray(mset.AB3), cp.asarray(mset.AB4)
@@ -75,6 +70,7 @@ class ModelBase:
         self.coeff_AB = cp.zeros(mset.time_levels, dtype=mset.dtype)
 
         # Timer
+        from fridom.Framework.TimingModule import TimingModule
         self.timer = TimingModule()
         self.timer.add_component("Diagnostics")
         self.timer.add_component("Write Snapshot")
@@ -84,6 +80,7 @@ class ModelBase:
         self.timer.add_component("Time Stepping")
 
         # NetCDF writer
+        from fridom.Framework.NetCDFWriter import NetCDFWriter
         self.writer = NetCDFWriter(mset, grid)
 
         # live animation
@@ -116,6 +113,7 @@ class ModelBase:
             steps = runlen / self.mset.dt
         
         # progress bar
+        from tqdm import tqdm
         tq = tqdm if self.mset.enable_tqdm else lambda x: x
 
         # start netcdf writer
@@ -264,11 +262,13 @@ class ModelBase:
 
     def set_live_animation(self, live_plotter):
         if self.mset.enable_live_anim:
+            from fridom.Framework.Animation import LiveAnimation
             self.live_animation = LiveAnimation(live_plotter)
         return
 
     def set_vid_animation(self, vid_plotter):
         if self.mset.enable_vid_anim:
+            from fridom.Framework.Animation import VideoAnimation
             self.vid_animation = VideoAnimation(
                 vid_plotter, self.mset.vid_anim_filename, self.mset.vid_fps)
 
@@ -347,4 +347,8 @@ class ModelBase:
 
     def show_video(self):
         if self.mset.enable_vid_anim:
+            from IPython.display import Video
             return Video(self.vid_animation.filename, width=600, embed=True) 
+
+# remove symbols from namespace
+del abstractmethod, ModelSettingsBase, GridBase, StateBase

@@ -1,12 +1,14 @@
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
-from fridom.NonHydrostatic.BoundaryConditions import UBoundary, VBoundary, WBoundary, BBoundary, TriplePeriodic
-from fridom.Framework.FieldVariable import FieldVariable
 from fridom.Framework.StateBase import StateBase
+from fridom.Framework.FieldVariable import FieldVariable
 
 
 class State(StateBase):
     def __init__(self, mset: ModelSettings, grid: Grid, is_spectral=False, field_list=None) -> None:
+        from fridom.NonHydrostatic.BoundaryConditions import \
+            UBoundary, VBoundary, WBoundary, BBoundary
+        from fridom.Framework.FieldVariable import FieldVariable
         if field_list is None:
             u = FieldVariable(mset, grid,
                 name="Velocity u", is_spectral=is_spectral, bc=UBoundary(mset))
@@ -33,6 +35,8 @@ class State(StateBase):
         Returns:
             ekin (FieldVariable)  : Kinetic energy field.
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         # First transform to physical space if necessary
         z = self
         if self.is_spectral:
@@ -49,6 +53,8 @@ class State(StateBase):
         Returns:
             epot (FieldVariable)  : Potential energy field.
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         # First transform to physical space if necessary
         z = self
         if self.is_spectral:
@@ -66,6 +72,8 @@ class State(StateBase):
         Returns:
             etot (FieldVariable)  : Total energy field.
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         etot = (self.ekin() + self.epot()).arr
         return FieldVariable(self.mset, self.grid, is_spectral=False,
                              name="Total Energy", arr=etot, bc=TriplePeriodic(self.mset))
@@ -109,6 +117,8 @@ class State(StateBase):
         Returns:
             hor_vort (FieldVariable)  : Horizontal vorticity field.
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         # shortcuts
         dx = self.mset.dx
         dy = self.mset.dy
@@ -132,6 +142,8 @@ class State(StateBase):
         Returns:
             ver_vort_x (FieldVariable)  : Vertical vorticity field in y,z-plane.
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         # shortcuts
         dy   = self.mset.dy
         dz   = self.mset.dz
@@ -156,6 +168,8 @@ class State(StateBase):
         Returns:
             ver_vort_y (FieldVariable)  : Vertical vorticity field in x,z-plane.
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         # shortcuts
         dx   = self.mset.dx 
         dz   = self.mset.dz
@@ -180,6 +194,8 @@ class State(StateBase):
         Returns:
             pot_vort (FieldVariable)  : Scaled potential vorticity field.
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         # shortcuts
         f0 = self.mset.f0; N0 = self.mset.N0; 
         dx = self.mset.dx; dy = self.mset.dy; dz = self.mset.dz
@@ -210,6 +226,8 @@ class State(StateBase):
         Calculate the linearized scaled potential vorticity field.
         $ Q = Ro * (f/N0^2 \partial_z b + \zeta)$
         """
+        from fridom.Framework.FieldVariable import FieldVariable
+        from fridom.NonHydrostatic.BoundaryConditions import TriplePeriodic
         # shortcuts
         f0 = self.mset.f0; N0 = self.mset.N0;
         Ro = self.mset.Ro; dsqr = self.mset.dsqr
@@ -317,3 +335,5 @@ class State(StateBase):
         return
 
     
+# remove symbols from namespace
+del ModelSettings, Grid, FieldVariable, StateBase

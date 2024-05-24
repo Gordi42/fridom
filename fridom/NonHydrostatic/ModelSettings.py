@@ -213,3 +213,6 @@ class ModelSettings(ModelSettingsBase):
     def dz(self) -> float:
         """Grid spacing in z-direction."""
         return self.dg[2]
+
+# remove symbols from namespace
+del np, ModelSettingsBase

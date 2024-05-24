@@ -1,5 +1,4 @@
 import numpy as np
-import copy
 
 
 class ModelSettingsBase:
@@ -130,6 +129,7 @@ class ModelSettingsBase:
         """
         Return a copy of the model settings.
         """
+        import copy
         return copy.deepcopy(self)
 
     def print_verbose(self, *args, **kwargs):
@@ -233,5 +233,3 @@ class ModelSettingsBase:
         else:
             self.__gpu = value
         return
-
-

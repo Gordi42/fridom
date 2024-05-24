@@ -133,3 +133,6 @@ class LinearTendencySpectral:
         # Horizontal divergence tendency
         dz.h[:] = -1j * (Kx * z.u + Ky * z.v) * self.mset.csqr
         return
+
+# remove symbols from namespace
+del ModelSettings, Grid, State, TimingModule

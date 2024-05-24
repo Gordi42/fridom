@@ -193,3 +193,6 @@ class ModelSettings(ModelSettingsBase):
     def dy(self) -> float:
         """Grid spacing in y-direction."""
         return self.dg[1]
+
+# remove symbols from namespace
+del ModelSettingsBase

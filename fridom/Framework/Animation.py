@@ -1,9 +1,3 @@
-from IPython import display
-import imageio
-import os
-import multiprocessing as mp
-import numpy as np
-
 class ModelPlotterBase:
     def create_figure():
         return None
@@ -26,6 +20,7 @@ class LiveAnimation:
         # update the figure
         self.live_plotter.update_figure(fig=self.fig, **kwargs)
         # display the figure
+        from IPython import display
         display.display(self.fig)
         # clear the output when the next figure is ready
         display.clear_output(wait=True)
@@ -50,6 +45,7 @@ class VideoAnimation:
         self.fps = fps
 
         # create video folder if it does not exist
+        import os
         if not os.path.exists("videos"):
             os.makedirs("videos")
         filename = os.path.join("videos", filename)
@@ -63,6 +59,7 @@ class VideoAnimation:
         self.open_queues  = []       # Queues
 
         # use maximum of 40% the available threads
+        import multiprocessing as mp
         self.maximum_jobs = int(max_jobs*mp.cpu_count())
         return
 
@@ -70,6 +67,7 @@ class VideoAnimation:
         """
         Method to start the writer process.
         """
+        import imageio
         self.writer = imageio.get_writer(self.filename, fps=self.fps)
         return
 
@@ -95,6 +93,7 @@ class VideoAnimation:
             self.collect_figures()
 
         # create a new figure
+        import multiprocessing as mp
         q = mp.Queue()
         kw = kwargs.copy()
         kw["output_queue"] = q

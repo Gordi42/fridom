@@ -1,9 +1,5 @@
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
-from fridom.NonHydrostatic.State import State
-from fridom.NonHydrostatic.BoundaryConditions import PBoundary
-from fridom.NonHydrostatic.Modules import *
-from fridom.Framework.FieldVariable import FieldVariable
 from fridom.Framework.ModelBase import ModelBase
 
 
@@ -38,6 +34,16 @@ class Model(ModelBase):
             mset (ModelSettings)    : Model settings.
             grid (Grid)             : Grid.
         """
+        # import Modules
+        from fridom.NonHydrostatic.State import State
+        from fridom.NonHydrostatic.BoundaryConditions import PBoundary
+        from fridom.NonHydrostatic.Modules import \
+            LinearTendency, PressureGradientTendency, PressureSolve, \
+            HarmonicFriction, HarmonicMixing, \
+            BiharmonicFriction, BiharmonicMixing, \
+            SourceTendency
+        from fridom.Framework.FieldVariable import FieldVariable
+
         super().__init__(mset, grid, State)
         self.mset = mset
 
@@ -136,3 +142,6 @@ class Model(ModelBase):
     
     def update_vid_animation(self):
         self.vid_animation.update(z=self.z.cpu(), p=self.p.cpu(), time=self.time)
+
+# remove symbols from namespace
+del ModelSettings, Grid, ModelBase

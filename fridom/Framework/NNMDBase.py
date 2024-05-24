@@ -384,4 +384,5 @@ class NNMDBase(Projection):
         return dz.fft() if spectral_transform else dz
 
 
-        
+# remove symbols from the namespace
+del ModelSettingsBase, GridBase, StateBase, ModelBase, Projection

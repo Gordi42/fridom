@@ -42,3 +42,6 @@ class HarmonicMixing:
         self.timer.get("Harmonic Mixing").stop()
 
         return 
+
+# remove symbols from the namespace
+del ModelSettings, Grid, State, TimingModule

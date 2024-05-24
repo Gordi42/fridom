@@ -1,4 +1,4 @@
-import numpy
+import numpy as np
 
 from fridom.Framework.GridBase import GridBase
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
@@ -204,7 +204,7 @@ class Grid(GridBase):
                 # root finding only works on the CPU
                 if self.mset.gpu:
                     # convert to numpy array
-                    return numpy.roots(c.get())[-1]
+                    return np.roots(c.get())[-1]
                 else:
                     return cp.roots(c)[-1]
 
@@ -218,3 +218,6 @@ class Grid(GridBase):
             self._omega_time_discrete = res
 
         return self._omega_time_discrete
+
+# remove symbols from namespace
+del ModelSettings, GridBase

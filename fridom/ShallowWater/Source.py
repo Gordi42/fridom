@@ -3,8 +3,6 @@ from abc import abstractmethod
 from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
-from fridom.ShallowWater.Eigenvectors import VecQ, VecP
-from fridom.ShallowWater.InitialConditions import SingleWave
 
 class Source(State):
     """
@@ -111,6 +109,7 @@ class PolarizedWaveMaker(Source):
 
 
         # Construct the polarized wave
+        from fridom.ShallowWater.InitialConditions import SingleWave
         z = SingleWave(mset, grid, kx, ky, s)
         self.omega = z.omega.real
 
@@ -129,6 +128,7 @@ class PolarizedWaveMaker(Source):
         self.z_mask = z.copy()
 
         # project again on wave mode
+        from fridom.ShallowWater.Eigenvectors import VecQ, VecP
         q = VecQ(s, mset, grid)
         p = VecP(s, mset, grid)
         z = z.fft()
@@ -160,3 +160,5 @@ class PolarizedWaveMaker(Source):
         return
 
 
+# remove symbols from namespace
+del abstractmethod, ModelSettings, Grid, State

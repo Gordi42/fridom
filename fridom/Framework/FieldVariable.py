@@ -1,8 +1,3 @@
-import numpy
-try :
-    import cupy
-except ImportError:
-    pass
 
 from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
@@ -51,7 +46,7 @@ class FieldVariable:
         self.is_spectral = is_spectral
         self.bc = bc
 
-        cp = cupy if mset.gpu else numpy
+        cp = grid.cp
         self.cp = cp
         dtype = mset.ctype if is_spectral else mset.dtype
         if arr is None:
@@ -143,6 +138,7 @@ class FieldVariable:
         # normalize with respect to the number of grid points
         spectral /= spectral.size
         # check if domain was extended
+        import numpy
         fac = numpy.prod([1 if p else 2 for p in self.mset.periodic_bounds])
         spectral /= fac
 
@@ -498,3 +494,6 @@ class FieldVariable:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+# remove symbols from the namespace
+del ModelSettingsBase, GridBase, BoundaryConditions

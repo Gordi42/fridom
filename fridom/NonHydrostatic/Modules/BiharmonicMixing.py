@@ -87,3 +87,6 @@ class BiharmonicMixing:
         self.timer.get("Biharmonic Mixing").stop()
 
         return 
+
+# remove symbols from the namespace
+del ModelSettings, Grid, State, TimingModule

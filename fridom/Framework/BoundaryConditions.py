@@ -1,10 +1,5 @@
 from abc import abstractmethod
 from typing import TypeVar
-try:
-    import cupy as cp
-except ImportError:
-    pass
-import numpy as np
 
 from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 
@@ -25,7 +20,13 @@ class Periodic:
         """
         self.mset = mset
         self.axis = axis
-        self.cp = cp if mset.gpu else np
+        # numpy or cupy
+        import numpy
+        try:
+            import cupy
+            self.cp = cupy if mset.gpu else numpy
+        except ImportError:
+            self.cp = numpy
         return
 
     def pad_for_fft(self, p:ndarray) -> ndarray:
@@ -205,3 +206,6 @@ class BoundaryConditions:
         for b in self.bounds[::-1]:
             p = b.unpad_from_fft(p)
         return p
+
+# remove symbols from namespace
+del abstractmethod, TypeVar, ndarray, ModelSettingsBase

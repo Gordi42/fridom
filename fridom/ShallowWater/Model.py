@@ -1,8 +1,6 @@
 from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
-from fridom.ShallowWater.Source import Source
-from fridom.ShallowWater.Modules import LinearTendency, NonlinearTendency
 from fridom.Framework.ModelBase import ModelBase
 
 
@@ -25,14 +23,17 @@ class Model(ModelBase):
             is_spectral = False
         elif mset.solver == "Spectral":
             is_spectral = True
+        from fridom.ShallowWater.State import State
         super().__init__(mset, grid, State, is_spectral=is_spectral)
         self.mset = mset
 
         # Modules
+        from fridom.ShallowWater.Modules import LinearTendency, NonlinearTendency
         self.linear_tendency = LinearTendency(mset, grid, self.timer)
         self.nonlinear_tendency = NonlinearTendency(mset, grid, self.timer)
         
         # source term
+        from fridom.ShallowWater.Source import Source
         self.source = Source(mset, grid) if mset.enable_source else None
 
         # Timer
@@ -96,6 +97,7 @@ class Model(ModelBase):
         Returns:
             dz (State)  : Harmonic tendency.
         """
+        from fridom.ShallowWater.State import State
         dz = State(self.mset, self.grid)
         u = self.z.u; v = self.z.v; h = self.z.h
         ah = self.mset.ah
@@ -115,6 +117,7 @@ class Model(ModelBase):
         Returns:
             dz (State)  : Biharmonic tendency.
         """
+        from fridom.ShallowWater.State import State
         dz = State(self.mset, self.grid)
 
         # shorthand notation
@@ -202,3 +205,6 @@ class Model(ModelBase):
 
     def update_vid_animation(self):
         self.vid_animation.update(z=self.z.cpu(), time=self.time)
+
+# remove symbols from namespace
+del ModelSettings, Grid, State, ModelBase

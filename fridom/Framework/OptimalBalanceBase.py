@@ -288,3 +288,6 @@ class OptimalBalanceBase(Projection):
             return z_res, (iterations, errors)
         else:
             return z_res
+
+# remove symbols from the namespace
+del ModelSettingsBase, GridBase, StateBase, ModelBase, Projection

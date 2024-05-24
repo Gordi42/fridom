@@ -44,3 +44,6 @@ class HarmonicFriction:
         self.timer.get("Harmonic Friction").stop()
 
         return 
+
+# remove symbols from the namespace
+del ModelSettings, Grid, State, TimingModule

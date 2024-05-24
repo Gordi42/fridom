@@ -1,9 +1,3 @@
-import os
-import time as system_time
-import multiprocessing as mp
-from netCDF4 import Dataset
-import numpy
-
 from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 from fridom.Framework.GridBase import GridBase
 
@@ -33,6 +27,7 @@ class NetCDFWriter:
         self.var_names      = None
         self.var_long_names = None
         self.var_unit_names = None
+        import os
         self.filename = os.path.join("snapshots", mset.snap_filename)
         self.is_active = False
         return
@@ -59,6 +54,8 @@ class NetCDFWriter:
         """
         # only start if snapshots are enabled
         if self.mset.enable_snap:
+            import os
+            import multiprocessing as mp
             # create snapshot folder if it doesn't exist
             if not os.path.exists("snapshots"):
                 os.makedirs("snapshots")
@@ -95,6 +92,7 @@ class NetCDFWriter:
             time (float):   Current model time.
         """
         # wait until all binary files are deleted
+        import os
         for binary_file in self.binary_files:
             while os.path.exists(binary_file):
                 pass
@@ -146,6 +144,8 @@ def parallel_writer(mset:ModelSettingsBase, x_in, filename, input_queue,
         var_unit_names (list): Unit names of the variables.
         binary_files (list)  : Names of the binary files.
     """
+    import os, time as system_time, numpy
+    from netCDF4 import Dataset
     # check if file already exists
     if os.path.exists(filename):
         os.remove(filename)
@@ -236,5 +236,5 @@ def parallel_writer(mset:ModelSettingsBase, x_in, filename, input_queue,
     return
 
 
-
-
+# remove symbols from namespace
+del ModelSettingsBase, GridBase

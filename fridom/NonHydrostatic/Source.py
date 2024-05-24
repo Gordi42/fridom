@@ -2,10 +2,7 @@ from abc import abstractmethod
 
 from fridom.NonHydrostatic.ModelSettings import ModelSettings
 from fridom.NonHydrostatic.Grid import Grid
-from fridom.Framework.FieldVariable import FieldVariable
 from fridom.NonHydrostatic.State import State
-from fridom.NonHydrostatic.Eigenvectors import VecQ, VecP
-from fridom.NonHydrostatic.InitialConditions import SingleWave
 
 class Source(State):
     """
@@ -115,6 +112,7 @@ class PolarizedWaveMaker(Source):
 
 
         # Construct the polarized wave
+        from fridom.NonHydrostatic.InitialConditions import SingleWave
         z = SingleWave(mset, grid, kx, ky, kz, s)
         self.omega = z.omega.real
 
@@ -136,6 +134,7 @@ class PolarizedWaveMaker(Source):
         self.z_mask = z.copy()
 
         # project again on wave mode
+        from fridom.NonHydrostatic.Eigenvectors import VecQ, VecP
         q = VecQ(s, mset, grid)
         p = VecP(s, mset, grid)
         z = z.fft()
@@ -168,3 +167,6 @@ class PolarizedWaveMaker(Source):
         return
 
 
+# remove symbols from namespace
+del abstractmethod, ModelSettings, Grid, State
+    

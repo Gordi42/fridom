@@ -3,7 +3,6 @@ from fridom.NonHydrostatic.Grid import Grid
 from fridom.NonHydrostatic.State import State
 from fridom.Framework.TimingModule import TimingModule
 from fridom.Framework.FieldVariable import FieldVariable
-from fridom.NonHydrostatic.BoundaryConditions import PBoundary
 
 
 class PressureSolve:
@@ -23,6 +22,8 @@ class PressureSolve:
         self.grid = grid
         self.timer = timer
 
+        from fridom.NonHydrostatic.BoundaryConditions import PBoundary
+        from fridom.Framework.FieldVariable import FieldVariable
         self.div = FieldVariable(mset, grid,
                     name="Divergence", bc=PBoundary(mset))
 
@@ -148,3 +149,6 @@ class CGSolver:
         p[:], info = self.cg(self.A, div.reshape(-1), x0=p.reshape(-1),
                              tol=cg_tol, maxiter=maxiter)
         return
+
+# remove symbols from namespace
+del ModelSettings, Grid, State, TimingModule, FieldVariable

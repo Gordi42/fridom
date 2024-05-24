@@ -40,3 +40,6 @@ class SourceTendency:
         # stop the timer
         self.timer.get("Source").stop()
         return
+
+# remove symbols from namespace
+del ModelSettings, Grid, State, TimingModule

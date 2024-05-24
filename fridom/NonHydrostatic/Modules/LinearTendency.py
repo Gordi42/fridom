@@ -78,3 +78,6 @@ class LinearTendency:
         self.timer.get("Linear Tendency").stop()
 
         return
+
+# remove symbols from the namespace
+del ModelSettings, Grid, State, TimingModule

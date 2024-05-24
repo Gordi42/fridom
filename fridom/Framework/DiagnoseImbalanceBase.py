@@ -84,3 +84,6 @@ class DiagnoseImbalanceBase:
         if delete_grid:
             self.grid = None
         return self.imbalance
+
+# remove symbols from namespace
+del ModelSettingsBase, GridBase, StateBase, ModelBase, Projection

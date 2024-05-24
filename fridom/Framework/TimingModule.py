@@ -1,6 +1,3 @@
-from time import time
-
-
 class TimingComponent:
     """
     A class to keep track of the time spent in a particular component 
@@ -35,6 +32,7 @@ class TimingComponent:
             raise RuntimeError(f"TimingComponent {self.name} is already active.")
         # start the timer
         self.is_active = True
+        from time import time
         self.start_time = time()
         return
 
@@ -46,6 +44,7 @@ class TimingComponent:
         if not self.is_active:
             raise RuntimeError(f"TimingComponent {self.name} is not active.")
         # stop the timer
+        from time import time
         self.time += time() - self.start_time
         self.is_active = False
         return

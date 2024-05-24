@@ -1,4 +1,4 @@
-from fridom.ShallowWater.ModelSettings import ModelSettings
+from fridom.ShallowWater.ModelSettings import *
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.Model import Model
 from fridom.ShallowWater.State import State

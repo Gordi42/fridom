@@ -470,3 +470,6 @@ class LESFilter:
             etotl, etotl/etotf, etotc, etotc/etotf, etotr, etotr/etotf))
         print("====================================================================")
         return
+
+# remove symbols from namespace
+del ModelSettings, Grid, State, FieldVariable

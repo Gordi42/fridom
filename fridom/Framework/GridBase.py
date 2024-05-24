@@ -1,9 +1,3 @@
-import numpy
-try:
-    import cupy
-except ImportError:
-    pass
-
 from fridom.Framework.ModelSettingsBase import ModelSettingsBase
 
 class GridBase:
@@ -28,7 +22,12 @@ class GridBase:
         self.mset = mset
 
         # numpy or cupy
-        self.cp = cupy if mset.gpu else numpy
+        import numpy
+        try:
+            import cupy
+            self.cp = cupy if mset.gpu else numpy
+        except ImportError:
+            self.cp = numpy
 
         # shorthand notation
         n_dims = mset.n_dims
@@ -63,3 +62,6 @@ class GridBase:
                 mset_cpu.gpu = False
                 self._cpu = GridBase(mset_cpu)
         return self._cpu
+
+# remove symbols from namespace
+del ModelSettingsBase
