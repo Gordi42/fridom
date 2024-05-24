@@ -1,11 +1,10 @@
-from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
 from fridom.Framework.FieldVariable import FieldVariable
 
 
 class LESFilter:
-    def __init__(self, mset:ModelSettings, grid:Grid, kmax: float):
+    def __init__(self, grid:Grid, kmax: float):
         """
         Constructor for LESFilter class which is used to filter the variables
         of the shallow water model and to compute subgrid energy terms.
@@ -15,6 +14,7 @@ class LESFilter:
             grid (Grid)         : Grid object
             kmax (float)        : Filter width for LES filter (in wave numbers)
         """
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         self.kmax = kmax
@@ -472,4 +472,4 @@ class LESFilter:
         return
 
 # remove symbols from namespace
-del ModelSettings, Grid, State, FieldVariable
+del Grid, State, FieldVariable

@@ -4,21 +4,21 @@ from fridom.ShallowWater.State import State
 from fridom.Framework.TimingModule import TimingModule
 
 class NonlinearTendency:
-    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
+    def __init__(self, grid: Grid, timer: TimingModule):
         """
         Constructor of the NonlinearTendency class.
 
-        mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         self.timer = timer
 
         if mset.solver == "FD":
-            self.NonlinTend = NonlinearTendencyFD(mset, grid)
+            self.NonlinTend = NonlinearTendencyFD(grid)
         elif mset.solver == "Spectral":
-            self.NonlinTend = NonlinearTendencySpectral(mset, grid)
+            self.NonlinTend = NonlinearTendencySpectral(grid)
 
         # add a timer for the linear tendency
         self.timer.add_component('Nonlinear Tendency')
@@ -42,14 +42,13 @@ class NonlinearTendency:
 
 
 class NonlinearTendencyFD:
-    def __init__(self, mset: ModelSettings, grid: Grid):
+    def __init__(self, grid: Grid):
         """
         Solver for the nonlinear tendency with finite differences.
 
-        mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
-        self.mset = mset
+        self.mset = grid.mset
         self.grid = grid
 
     def __call__(self, z: State, dz: State) -> None:
@@ -123,14 +122,13 @@ class NonlinearTendencyFD:
 
 
 class NonlinearTendencySpectral:
-    def __init__(self, mset: ModelSettings, grid: Grid):
+    def __init__(self, grid: Grid):
         """
         Solver for the nonlinear tendency in spectral space.
 
-        mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
-        self.mset = mset
+        self.mset = grid.mset
         self.grid = grid
 
     def __call__(self, z: State, dz: State) -> None:
@@ -164,4 +162,4 @@ class NonlinearTendencySpectral:
         return
 
 # remove symbols from namespace
-del ModelSettings, Grid, State, TimingModule
+del Grid, State, TimingModule

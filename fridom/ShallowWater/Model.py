@@ -28,17 +28,12 @@ class Model(ModelBase):
 
         # Modules
         from fridom.ShallowWater.Modules import LinearTendency, NonlinearTendency
-        self.linear_tendency = LinearTendency(mset, grid, self.timer)
-        self.nonlinear_tendency = NonlinearTendency(mset, grid, self.timer)
+        self.linear_tendency = LinearTendency(grid, self.timer)
+        self.nonlinear_tendency = NonlinearTendency(grid, self.timer)
         
         # source term
         from fridom.ShallowWater.Source import Source
-        self.source = Source(mset, grid) if mset.enable_source else None
-
-        # Timer
-        self.timer.add_component("Harmonic Tendency")
-        self.timer.add_component("Biharmonic Tendency")
-        self.timer.add_component("Source Tendency")
+        self.source = Source(grid) if mset.enable_source else None
 
         # netcdf writer
         var_names = ["u", "v", "h"]

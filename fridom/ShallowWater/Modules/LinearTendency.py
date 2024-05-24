@@ -1,24 +1,23 @@
-from fridom.ShallowWater.ModelSettings import ModelSettings
 from fridom.ShallowWater.Grid import Grid
 from fridom.ShallowWater.State import State
 from fridom.Framework.TimingModule import TimingModule
 
 class LinearTendency:
-    def __init__(self, mset: ModelSettings, grid: Grid, timer: TimingModule):
+    def __init__(self, grid: Grid, timer: TimingModule):
         """
         Constructor of the LinearTendency class.
 
-        mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
+        mset = grid.mset
         self.mset = mset
         self.grid = grid
         self.timer = timer
 
         if mset.solver == "FD":
-            self.LinTend = LinearTendencyFD(mset, grid)
+            self.LinTend = LinearTendencyFD(grid)
         elif mset.solver == "Spectral":
-            self.LinTend = LinearTendencySpectral(mset, grid)
+            self.LinTend = LinearTendencySpectral(grid)
 
         # add a timer for the linear tendency
         self.timer.add_component('Linear Tendency')
@@ -42,14 +41,13 @@ class LinearTendency:
 
 
 class LinearTendencyFD:
-    def __init__(self, mset: ModelSettings, grid: Grid):
+    def __init__(self, grid: Grid):
         """
         Solver for the linear tendency with finite differences.
 
-        mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
-        self.mset = mset
+        self.mset = grid.mset
         self.grid = grid
 
     def __call__(self, z: State, dz: State) -> None:
@@ -102,14 +100,13 @@ class LinearTendencyFD:
 
 
 class LinearTendencySpectral:
-    def __init__(self, mset: ModelSettings, grid: Grid):
+    def __init__(self, grid: Grid):
         """
         Solver for the linear tendency in spectral space.
 
-        mset (ModelSettings) : ModelSettings object.
         grid (Grid)          : Grid object.
         """
-        self.mset = mset
+        self.mset = grid.mset
         self.grid = grid
 
     def __call__(self, z: State, dz: State) -> None:
@@ -135,4 +132,4 @@ class LinearTendencySpectral:
         return
 
 # remove symbols from namespace
-del ModelSettings, Grid, State, TimingModule
+del Grid, State, TimingModule
