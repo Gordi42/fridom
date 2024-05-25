@@ -22,5 +22,20 @@ class ModelStateBase:
         self.it = 0
         self.time = 0.0
 
+    def cpu(self) -> 'ModelStateBase':
+        """
+        If the model runs on the cpu, this function returns the object itself.
+        If the model runs on the gpu, this function creates a copy of the model
+        state on the cpu.
+        """
+        if self.z.grid.mset.gpu:
+            mz = ModelStateBase.__init__(self.z.grid, self.z.is_spectral)
+            mz.z = self.z.cpu()
+            mz.it = self.it
+            mz.time = self.time
+            return mz
+        else:
+            return self
+
 # remove symbols from the namespace
 del StateBase, GridBase

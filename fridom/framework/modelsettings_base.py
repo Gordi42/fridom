@@ -27,9 +27,6 @@ class ModelSettingsBase:
         enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
 
-        enable_live_anim  (bool): Enable live animation.
-        live_plot_interval(int) : Live plot interval.
-        live_plotter      (cls) : Live plotter class.
         enable_vid_anim   (bool): Enable mp4 animation.
         vid_anim_interval (int) : Video animation interval.
         vid_anim_filename (str) : Video animation filename.

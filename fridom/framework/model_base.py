@@ -18,8 +18,6 @@ class ModelBase:
         pointer (np.ndarray)    : Pointer for time stepping.
         coeff_AB (np.ndarray)   : Adam-Bashforth coefficients.
         timer (TimingModule)    : Timer.
-        live_animation (LiveAnimation) : Live animation.
-        vid_animation (VideoAnimation) : Video animation.
         it (int)                : Iteration counter.
         time (float)            : Model time.
         dz (State)              : Current tendency term.
@@ -33,10 +31,6 @@ class ModelBase:
         update_pointer()        : Update pointer for the time stepping.
         update_coeff_AB()       : Upward ramping of Adam-Bashforth coefficients  
                                   after restart.
-        set_live_animation()    : Prepare the live animation.
-        set_vid_animation()     : Prepare the video animation.
-        update_live_animation() : Update live animation.
-        update_vid_animation()  : Update video animation.
         diagnostics()           : Print diagnostics of the model.
         reset()                 : Reset the model (pointers, tendencies)
     """
@@ -74,22 +68,13 @@ class ModelBase:
         from fridom.framework.timing_module import TimingModule
         self.timer = TimingModule()
         self.timer.add_component("Diagnostics")
-        self.timer.add_component("Live Plotting")
-        self.timer.add_component("Video Writer")
         self.timer.add_component("Total Tendency")
         self.timer.add_component("Time Stepping")
 
         # Modules
-        self.tendency_modules = mset.tendency_modules
-        self.diagnostics_modules = mset.diagnostic_modules
-
-        # live animation
-        self.live_animation = None
-        self.set_live_animation(mset.live_plotter)
-
-        # video animation
-        self.vid_animation = None
-        self.set_vid_animation(mset.vid_plotter)
+        from copy import deepcopy
+        self.tendency_modules = deepcopy(mset.tendency_modules)
+        self.diagnostics_modules = deepcopy(mset.diagnostic_modules)
         return
 
     def start(self):
@@ -138,23 +123,14 @@ class ModelBase:
         # start the model
         self.start()
 
-        # start vid animation
-        if self.mset.enable_vid_anim:
-            self.vid_animation.start_writer()
-        
         # main loop
         self.timer.total.start()
         for _ in tq(range(int(steps))):
             self.step()
         self.timer.total.stop()
 
-        # stop vid animation
-        if self.mset.enable_vid_anim:
-            self.vid_animation.stop_writer()
-
         # stop the model
         self.stop()
-
 
         return
 
@@ -193,26 +169,12 @@ class ModelBase:
         self.time_stepping()
         end_timer("Time Stepping")
 
-        # live animation
-        start_timer("Live Plotting")
-        if self.mset.enable_live_anim:
-            if (self.it % self.mset.live_plot_interval) == 0:
-                self.update_live_animation()
-        end_timer("Live Plotting")
-
-        # vid animation
-        start_timer("Video Writer")
-        if self.mset.enable_vid_anim:
-            if (self.it % self.mset.vid_anim_interval) == 0:
-                self.update_vid_animation()
-        end_timer("Video Writer")
+        self.model_state.it += 1
+        self.model_state.time += self.mset.dt
 
         # loop over diagnostics modules
         for module in self.diagnostics_modules:
             module.update(self.model_state, self.dz)
-
-        self.model_state.it += 1
-        self.model_state.time += self.mset.dt
         return
 
 
@@ -278,36 +240,6 @@ class ModelBase:
         self.coeff_AB[:ctl+1] = cp.asarray(coeffs[ctl])
         return
     
-    # ============================================================
-    #   DIAGNOSTICS, OUTPUT, ETC.
-    # ============================================================
-
-    def set_live_animation(self, live_plotter):
-        if self.mset.enable_live_anim:
-            from fridom.framework.animation import LiveAnimation
-            self.live_animation = LiveAnimation(live_plotter)
-        return
-
-    def set_vid_animation(self, vid_plotter):
-        if self.mset.enable_vid_anim:
-            from fridom.framework.animation import VideoAnimation
-            self.vid_animation = VideoAnimation(
-                vid_plotter, self.mset.vid_anim_filename, self.mset.vid_fps)
-
-    def update_live_animation(self):
-        """
-        Update live animation. Should be overwritten in child class.
-        """
-        self.live_animation.update(time=self.time)
-        return
-
-    def update_vid_animation(self):
-        """
-        Update video animation. Should be overwritten in child class.
-        """
-        self.vid_animation.update(time=self.time)
-        return
-
     # ============================================================
     #   Getters and setters
     # ============================================================
@@ -386,10 +318,6 @@ class ModelBase:
         """
         return self.it * self.mset.dt
 
-    def show_video(self):
-        if self.mset.enable_vid_anim:
-            from IPython.display import Video
-            return Video(self.vid_animation.filename, width=600, embed=True) 
 
 # remove symbols from namespace
 del abstractmethod, GridBase, StateBase

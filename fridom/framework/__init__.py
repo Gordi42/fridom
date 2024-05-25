@@ -16,7 +16,6 @@ This module should mainly be used for developing new modules and models.
 ## Modules:
     - modules: Contains the base class for modules
     - projection: Contains functions for flow decomposition
-    - animation: Contains functions for animating the model
     - timing_module: Contains functions for timing the model (benchmarking)
 """
 
@@ -32,5 +31,4 @@ from .diagnose_imbalance_base import DiagnoseImbalanceBase
 # import modules:
 from . import modules
 from . import projection
-from . import animation
 from . import timing_module

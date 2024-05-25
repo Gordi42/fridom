@@ -189,11 +189,5 @@ class Model(ModelBase):
             print(out)
         return
 
-    def update_live_animation(self):
-        self.live_animation.update(z=self.z, time=self.time)
-
-    def update_vid_animation(self):
-        self.vid_animation.update(z=self.z.cpu(), time=self.time)
-
 # remove symbols from namespace
 del Grid, State, ModelBase

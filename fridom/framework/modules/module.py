@@ -178,7 +178,7 @@ class Module:
         self.start(grid=self.grid, timer=self.timer)
 
     def __repr__(self) -> str:
-        res = f"{self.name}:"
+        res = f"  {self.name}:"
         if not self.__enabled:
             res += " (disabled)"
         res += "\n"

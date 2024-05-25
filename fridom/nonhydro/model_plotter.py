@@ -1,6 +1,7 @@
 import numpy as np
 
-from fridom.framework.animation import ModelPlotterBase
+from fridom.framework.modules.animation.model_plotter import ModelPlotterBase
+from fridom.nonhydro.model_state import ModelState
 
 
 class ModelPlotter(ModelPlotterBase):
@@ -9,10 +10,10 @@ class ModelPlotter(ModelPlotterBase):
         fig = plt.figure(figsize=(5,5), dpi=200, tight_layout=True)
         return fig
 
-    def update_figure(fig, z, p, time, **kwargs):
+    def update_figure(fig, mz: ModelState):
         from fridom.nonhydro.plot import Plot
-        Plot(z.b).top(z, fig=fig)
-        fig.suptitle("Time: {:.2f} s".format(time))
+        Plot(mz.z.b).top(mz.z, fig=fig)
+        fig.suptitle("Time: {:.2f} s".format(mz.time))
         return
 
     def convert_to_img(fig):
@@ -21,4 +22,4 @@ class ModelPlotter(ModelPlotterBase):
         return img
 
 # remove symbols from namespace
-del ModelPlotterBase
+del ModelPlotterBase, ModelState

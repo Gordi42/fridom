@@ -137,7 +137,7 @@ class NetCDFWriter(Module):
         return []
 
     def __repr__(self) -> str:
-        res = "  {:}".format(super().__repr__())
+        res = super().__repr__()
         res += f"    filename: {self.filename}\n"
         res += f"    interval: {self.snap_interval}\n"
         if self.snap_slice is not None:

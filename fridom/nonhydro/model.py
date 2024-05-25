@@ -117,13 +117,6 @@ class Model(ModelBase):
         print(out)
         return
 
-    def update_live_animation(self):
-        self.live_animation.update(z=self.z, p=self.p, time=self.time)
-        return
-    
-    def update_vid_animation(self):
-        self.vid_animation.update(z=self.z.cpu(), p=self.p.cpu(), time=self.time)
-
 
     # ============================================================
     #  to be deleted once the modules are implemented
