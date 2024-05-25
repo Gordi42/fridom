@@ -18,7 +18,6 @@ class ModelBase:
         pointer (np.ndarray)    : Pointer for time stepping.
         coeff_AB (np.ndarray)   : Adam-Bashforth coefficients.
         timer (TimingModule)    : Timer.
-        writer (NetCDFWriter)   : NetCDF writer.
         live_animation (LiveAnimation) : Live animation.
         vid_animation (VideoAnimation) : Video animation.
         it (int)                : Iteration counter.
@@ -34,10 +33,8 @@ class ModelBase:
         update_pointer()        : Update pointer for the time stepping.
         update_coeff_AB()       : Upward ramping of Adam-Bashforth coefficients  
                                   after restart.
-        get_writer_variables()  : Get variables to write to NetCDF file.
         set_live_animation()    : Prepare the live animation.
         set_vid_animation()     : Prepare the video animation.
-        get_writer_variables()  : Get variables to write to NetCDF file.
         update_live_animation() : Update live animation.
         update_vid_animation()  : Update video animation.
         diagnostics()           : Print diagnostics of the model.
@@ -77,7 +74,6 @@ class ModelBase:
         from fridom.framework.timing_module import TimingModule
         self.timer = TimingModule()
         self.timer.add_component("Diagnostics")
-        self.timer.add_component("Write Snapshot")
         self.timer.add_component("Live Plotting")
         self.timer.add_component("Video Writer")
         self.timer.add_component("Total Tendency")
@@ -86,10 +82,6 @@ class ModelBase:
         # Modules
         self.tendency_modules = mset.tendency_modules
         self.diagnostics_modules = mset.diagnostic_modules
-
-        # NetCDF writer
-        from fridom.framework.netcdf_writer import NetCDFWriter
-        self.writer = NetCDFWriter(grid)
 
         # live animation
         self.live_animation = None
@@ -146,9 +138,6 @@ class ModelBase:
         # start the model
         self.start()
 
-        # start netcdf writer
-        self.writer.start()
-
         # start vid animation
         if self.mset.enable_vid_anim:
             self.vid_animation.start_writer()
@@ -158,9 +147,6 @@ class ModelBase:
         for _ in tq(range(int(steps))):
             self.step()
         self.timer.total.stop()
-
-        # close netcdf writer
-        self.writer.close()
 
         # stop vid animation
         if self.mset.enable_vid_anim:
@@ -207,14 +193,6 @@ class ModelBase:
         self.time_stepping()
         end_timer("Time Stepping")
 
-        # write snapshot
-        start_timer("Write Snapshot")
-        if self.mset.enable_snap:
-            if (self.it % self.mset.snap_interval) == 0:
-                vars = self.get_writer_variables()
-                self.writer.write_cdf(vars, self.time)
-        end_timer("Write Snapshot")
-
         # live animation
         start_timer("Live Plotting")
         if self.mset.enable_live_anim:
@@ -231,7 +209,7 @@ class ModelBase:
 
         # loop over diagnostics modules
         for module in self.diagnostics_modules:
-            module.update(mz=self.model_state, dz=self.dz)
+            module.update(self.model_state, self.dz)
 
         self.model_state.it += 1
         self.model_state.time += self.mset.dt
@@ -316,16 +294,6 @@ class ModelBase:
             self.vid_animation = VideoAnimation(
                 vid_plotter, self.mset.vid_anim_filename, self.mset.vid_fps)
 
-    def get_writer_variables(self):
-        """
-        Get variables to write to NetCDF file. Should be overwritten 
-        in child class.
-
-        Returns:
-            vars (list) : List of variables to write to NetCDF file.
-        """
-        return []
-
     def update_live_animation(self):
         """
         Update live animation. Should be overwritten in child class.
@@ -408,7 +376,6 @@ class ModelBase:
         self.z *= 0
         for dz in self.dz_list:
             dz *= 0
-        self.writer.reset()
         # to implement in child class
         return
 

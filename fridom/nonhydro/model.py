@@ -13,7 +13,6 @@ class Model(ModelBase):
         p (FieldVariable)       : Pressure (p).
         it (int)                : Iteration counter.
         timer (TimingModule)    : Timer.
-        writer (NetCDFWriter)   : NetCDF writer.
         Modules:                : Modules of the model.
 
     Methods:
@@ -56,13 +55,6 @@ class Model(ModelBase):
         self.biharmonic_mixing   = BiharmonicMixing(grid, self.timer)
         self.source_tendency     = SourceTendency(grid, self.timer)
 
-
-        # netcdf writer
-        var_names = ["u", "v", "w", "b", "p"]
-        var_long_names = ["Velocity u", "Velocity v", "Velocity w", 
-                            "Buoyancy b", "Pressure p"]
-        var_unit_names = ["m/s", "m/s", "m/s", "m/s^2", "m^2/s^2"]
-        self.writer.set_var_names(var_names, var_long_names, var_unit_names)
 
         return
 
@@ -124,9 +116,6 @@ class Model(ModelBase):
         out += "vert. CFL = {:.2f}".format(self.z.max_cfl_v())
         print(out)
         return
-
-    def get_writer_variables(self):
-        return [self.z.u, self.z.v, self.z.w, self.z.b, self.p]
 
     def update_live_animation(self):
         self.live_animation.update(z=self.z, p=self.p, time=self.time)

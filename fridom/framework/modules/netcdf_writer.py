@@ -27,7 +27,7 @@ class NetCDFWriter(Module):
         """
         # Args:
         - name (str)            : Name of the module.
-        - filename (str)        : Name of the NetCDF file. (without extension)
+        - filename (str)        : Name of the NetCDF file. 
         - snap_interval (int)   : Interval between snapshots.
         - snap_slice (tuple)    : Which part of the grid to save.
         - var_names (list)      : Names of the variables. (should be set by child)
@@ -36,8 +36,8 @@ class NetCDFWriter(Module):
         """
         import os
         filename = os.path.join("snapshots", filename)
-        name = filename.split(".")[0]
-        binary_files = [name + "_" + var_name + "_bin.npy" for var_name in var_names]
+        fname = filename.split(".")[0]
+        binary_files = [fname + "_" + var_name + "_bin.npy" for var_name in var_names]
         super().__init__(
             name = name,
             filename = filename,
@@ -100,11 +100,16 @@ class NetCDFWriter(Module):
             while os.path.exists(binary_file):
                 pass
 
+        # snap slice
+        sel = self.snap_slice
+        if sel is None:
+            sel = tuple([slice(None)]*len(self.grid.x))
+
         # write data to binary file
         cp = self.grid.cp
         binary_files = self.binary_files
         for name, var in zip(binary_files, self.get_variables(mz)):
-            cp.save(name, var[self.mset.snap_slice])
+            cp.save(name, var[sel])
 
         # add binary file to cdf file
         self.input_queue.put(mz.time)
@@ -130,6 +135,16 @@ class NetCDFWriter(Module):
         - List of Field Variables
         """
         return []
+
+    def __repr__(self) -> str:
+        res = "  {:}".format(super().__repr__())
+        res += f"    filename: {self.filename}\n"
+        res += f"    interval: {self.snap_interval}\n"
+        if self.snap_slice is not None:
+            res += f"    slice:  {self.snap_slice}\n"
+        res += f"    variables: {self.var_names}\n"
+        return res
+        
 
 
 def parallel_writer(mset:ModelSettingsBase, x_in, filename, input_queue, 

@@ -27,7 +27,6 @@ from .field_variable import FieldVariable
 from .state_base import StateBase
 from .model_state import ModelStateBase
 from .model_base import ModelBase
-from .netcdf_writer import NetCDFWriter
 from .diagnose_imbalance_base import DiagnoseImbalanceBase
 
 # import modules:

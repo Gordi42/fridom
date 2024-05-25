@@ -9,3 +9,4 @@ See fridom/framework/modules/__init__.py for more information.
 
 from .linear_tendency import LinearTendency, LinearTendencyFD, LinearTendencySpectral
 from .nonlinear_tendency import NonlinearTendency, NonlinearTendencyFD, NonlinearTendencySpectral
+from .netcdf_writer import NetCDFWriter

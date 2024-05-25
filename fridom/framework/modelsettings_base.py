@@ -21,12 +21,9 @@ class ModelSettingsBase:
         AB2 (np.ndarray)       : 2nd order Adams-Bashforth coefficients.
         AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
         AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
-        snap_interval (int)    : Snapshot interval.
         diag_interval (int)    : Diagnostic interval.
-        snap_filename (str)    : Snapshot filename.
 
         enable_tqdm (bool)      : Enable progress bar.
-        enable_snap (bool)      : Enable writing snapshots.
         enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
 
@@ -91,10 +88,7 @@ class ModelSettingsBase:
         self.AB4 = np.array([55/24, -59/24, 37/24, -3/8], dtype=dtype)
 
         # Inspector details
-        self.snap_interval = 500
         self.diag_interval = 200
-        self.snap_filename = "snap.cdf"
-        self.snap_slice    = tuple([slice(None)] * self.n_dims)
 
         # List of modules that calculate tendencies
         self.tendency_modules = []
@@ -117,7 +111,6 @@ class ModelSettingsBase:
 
         # Output
         self.enable_tqdm       = True    # Enable progress bar
-        self.enable_snap       = False   # Enable writing snapshots
         self.enable_diag       = False   # Enable diagnostic output
         self.enable_verbose    = False   # Enable verbose output
 
@@ -173,6 +166,12 @@ class ModelSettingsBase:
         res += "    dt  = {:.3f}".format(self.dt)
         res += "    eps = {:.3f}\n".format(self.eps)
         res += "    time_levels = {}\n".format(self.time_levels)
+        res += "-- TENDENCY MODULES ----------------------------\n"
+        for module in self.tendency_modules:
+            res += f"{module}"
+        res += "-- DIAGNOSTIC MODULES --------------------------\n"
+        for module in self.diagnostic_modules:
+            res += f"{module}"
         res += "------------------------------------------------\n"
         return res
 

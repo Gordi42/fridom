@@ -39,12 +39,6 @@ class Model(ModelBase):
         from fridom.shallowwater.source import Source
         self.source = Source(grid) if mset.enable_source else None
 
-        # netcdf writer
-        var_names = ["u", "v", "h"]
-        var_long_names = ["Velocity u", "Velocity v", "Layer thickness h"] 
-        var_unit_names = ["m/s", "m/s", "m"]
-        self.writer.set_var_names(var_names, var_long_names, var_unit_names)
-
         return
 
 
@@ -194,9 +188,6 @@ class Model(ModelBase):
             out += "CFL = {:.2f}".format(self.z.max_cfl())
             print(out)
         return
-
-    def get_writer_variables(self):
-        return [self.z.u, self.z.v, self.z.h]
 
     def update_live_animation(self):
         self.live_animation.update(z=self.z, time=self.time)

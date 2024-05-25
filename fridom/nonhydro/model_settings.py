@@ -35,9 +35,7 @@ class ModelSettings(ModelSettingsBase):
         AB2 (np.ndarray)       : 2nd order Adams-Bashforth coefficients.
         AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
         AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
-        snap_interval (int)    : Snapshot interval.
         diag_interval (int)    : Diagnostic interval.
-        snap_filename (str)    : Snapshot filename.
 
         enable_nonlinear (bool) : Enable nonlinear terms.
         enable_varying_N (bool) : Enable varying stratification.
@@ -46,7 +44,6 @@ class ModelSettings(ModelSettingsBase):
         enable_biharmonic (bool): Enable biharmonic friction and mixing.
         enable_harmonic (bool)  : Enable harmonic friction and mixing.
         enable_tqdm (bool)      : Enable progress bar.
-        enable_snap (bool)      : Enable writing snapshots.
         enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
 
