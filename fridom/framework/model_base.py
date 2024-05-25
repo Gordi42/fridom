@@ -3,6 +3,7 @@ import numpy as np
 
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
+from fridom.framework.model_state import ModelStateBase
 
 
 class ModelBase:
@@ -57,7 +58,8 @@ class ModelBase:
         cp = grid.cp
 
         # state variable
-        self.z = State(grid, is_spectral=is_spectral)
+        z = State(grid, is_spectral=is_spectral)
+        self.model_state = ModelStateBase(z, it=0, time=0)
 
         # time stepping variables
         self.dz_list = [State(grid, is_spectral=is_spectral) for _ in range(mset.time_levels)]
@@ -78,6 +80,10 @@ class ModelBase:
         self.timer.add_component("Total Tendency")
         self.timer.add_component("Time Stepping")
 
+        # Modules
+        self.tendency_modules = mset.tendency_modules
+        self.diagnostics_modules = mset.diagnostic_modules
+
         # NetCDF writer
         from fridom.framework.netcdf_writer import NetCDFWriter
         self.writer = NetCDFWriter(grid)
@@ -89,10 +95,29 @@ class ModelBase:
         # video animation
         self.vid_animation = None
         self.set_vid_animation(mset.vid_plotter)
-
-        # Iteration counter
-        self.it = 0
         return
+
+    def start(self):
+        """
+        Prepare the model for running.
+        """
+        # start all modules
+        for module in self.tendency_modules:
+            module.start(grid=self.grid, timer=self.timer)
+        for module in self.diagnostics_modules:
+            module.start(grid=self.grid, timer=self.timer)
+        return
+
+    def stop(self):
+        """
+        Finish the model run.
+        """
+        for module in self.tendency_modules:
+            module.stop()
+        for module in self.diagnostics_modules:
+            module.stop()
+        return
+        
 
 
     # ============================================================
@@ -115,6 +140,9 @@ class ModelBase:
         from tqdm import tqdm
         tq = tqdm if self.mset.enable_tqdm else lambda x: x
 
+        # start the model
+        self.start()
+
         # start netcdf writer
         self.writer.start()
 
@@ -134,6 +162,11 @@ class ModelBase:
         # stop vid animation
         if self.mset.enable_vid_anim:
             self.vid_animation.stop_writer()
+
+        # stop the model
+        self.stop()
+
+
         return
 
     # ============================================================
@@ -162,6 +195,10 @@ class ModelBase:
         self.total_tendency()
         end_timer("Total Tendency")
 
+        # loop over tendency modules
+        for module in self.tendency_modules:
+            module.update(mz=self.model_state, dz=self.dz)
+
         # Adam Bashforth time stepping
         start_timer("Time Stepping")
         self.time_stepping()
@@ -189,7 +226,12 @@ class ModelBase:
                 self.update_vid_animation()
         end_timer("Video Writer")
 
-        self.it += 1
+        # loop over diagnostics modules
+        for module in self.diagnostics_modules:
+            module.update(mz=self.model_state, dz=self.dz)
+
+        self.model_state.it += 1
+        self.model_state.time += self.mset.dt
         return
 
 
@@ -300,6 +342,21 @@ class ModelBase:
     # ============================================================
 
     @property
+    def z(self):
+        """
+        Returns the current state variable.
+        """
+        return self.model_state.z
+    
+    @z.setter
+    def z(self, value):
+        """
+        Set the current state variable.
+        """
+        self.model_state.z = value
+        return
+
+    @property
     def dz(self):
         """
         Returns a pointer on the current tendency term.
@@ -312,6 +369,21 @@ class ModelBase:
         Set the current tendency term.
         """
         self.dz_list[self.pointer[0]] = value
+        return
+
+    @property
+    def it(self):
+        """
+        Returns the current iteration counter.
+        """
+        return self.model_state.it
+    
+    @it.setter
+    def it(self, value):
+        """
+        Set the current iteration counter.
+        """
+        self.model_state.it = value
         return
 
     # ============================================================

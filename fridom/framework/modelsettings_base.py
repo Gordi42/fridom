@@ -96,6 +96,11 @@ class ModelSettingsBase:
         self.snap_filename = "snap.cdf"
         self.snap_slice    = tuple([slice(None)] * self.n_dims)
 
+        # List of modules that calculate tendencies
+        self.tendency_modules = []
+        # List of modules that do diagnostics
+        self.diagnostic_modules = []
+
         # Plotting and Animation
         self.enable_live_anim  = False   # Enable live animation
         self.live_plot_interval= 50      # Live plot interval

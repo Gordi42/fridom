@@ -123,7 +123,7 @@ class Module:
         return
 
     @stop_module
-    def stop() -> None:
+    def stop(self) -> None:
         """
         This method is called by the model when the module is stopped. Child
         classes that require a stop method (for example to close an output file)
