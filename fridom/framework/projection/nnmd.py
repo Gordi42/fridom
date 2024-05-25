@@ -3,7 +3,7 @@ import numpy as np
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
 from fridom.framework.model_base import ModelBase
-from fridom.framework.projection_base import Projection
+from fridom.framework.projection.projection import Projection
 
 class NNMDBase(Projection):
     """

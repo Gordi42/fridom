@@ -6,8 +6,9 @@ from fridom.framework.field_variable import FieldVariable
 from fridom.nonhydro.plot import Plot, PlotContainer
 from fridom.nonhydro.model_plotter import ModelPlotter
 
+# importing modules
 import fridom.nonhydro.initial_conditions
+import fridom.nonhydro.projection
 import fridom.nonhydro.source as source
 import fridom.nonhydro.eigenvectors as eigenvectors
-import fridom.nonhydro.projection as projection
 from fridom.nonhydro.diagnose_imbalance import DiagnoseImbalance

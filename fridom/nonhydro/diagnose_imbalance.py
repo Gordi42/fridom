@@ -1,5 +1,5 @@
 from fridom.nonhydro.grid import Grid
-from fridom.framework.projection_base import Projection
+from fridom.framework.projection.projection import Projection
 from fridom.framework.diagnose_imbalance_base import DiagnoseImbalanceBase
 
 

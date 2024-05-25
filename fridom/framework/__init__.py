@@ -7,8 +7,10 @@ from fridom.framework.grid_base import *
 from fridom.framework.model_base import *
 from fridom.framework.modelsettings_base import *
 from fridom.framework.netcdf_writer import *
-from fridom.framework.nnmd_base import *
-from fridom.framework.optimal_balance_base import *
-from fridom.framework.projection_base import *
+from fridom.framework.projection.nnmd import *
+from fridom.framework.projection.optimal_balance import *
 from fridom.framework.state_base import *
 from fridom.framework.timing_module import *
+
+# import modules:
+import fridom.framework.projection
