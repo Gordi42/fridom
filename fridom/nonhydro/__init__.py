@@ -6,7 +6,7 @@ from fridom.framework.field_variable import FieldVariable
 from fridom.nonhydro.plot import Plot, PlotContainer
 from fridom.nonhydro.model_plotter import ModelPlotter
 
-import fridom.nonhydro.initial_conditions as initial_conditions
+import fridom.nonhydro.initial_conditions
 import fridom.nonhydro.source as source
 import fridom.nonhydro.eigenvectors as eigenvectors
 import fridom.nonhydro.projection as projection

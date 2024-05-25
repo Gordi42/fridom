@@ -6,7 +6,7 @@ from fridom.framework.field_variable import FieldVariable
 from fridom.shallowwater.plot import Plot, PlotContainer
 from fridom.shallowwater.model_plotter import ModelPlotter
 
-import fridom.shallowwater.initial_conditions as initial_conditions
+import fridom.shallowwater.initial_conditions
 import fridom.shallowwater.source as source
 import fridom.shallowwater.eigenvectors as eigenvectors
 import fridom.shallowwater.projection as projection
