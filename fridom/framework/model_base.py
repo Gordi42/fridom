@@ -62,7 +62,7 @@ class ModelBase:
         cp = grid.cp
 
         # state variable
-        self.model_state = ModelStateBase(grid=grid, is_spectral=is_spectral)
+        self.model_state = ModelState(grid=grid, is_spectral=is_spectral)
 
         # time stepping variables
         self.dz_list = [State(grid, is_spectral=is_spectral) for _ in range(mset.time_levels)]

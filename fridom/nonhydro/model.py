@@ -35,23 +35,15 @@ class Model(ModelBase):
         """
         # import Modules
         from fridom.nonhydro.state import State
-        from fridom.nonhydro.boundary_conditions import PBoundary
         from fridom.nonhydro.modules import \
             LinearTendency, PressureGradientTendency, PressureSolve, \
             HarmonicFriction, HarmonicMixing, \
             BiharmonicFriction, BiharmonicMixing, \
             SourceTendency
-        from fridom.framework.field_variable import FieldVariable
 
         mset = grid.mset
         super().__init__(grid, State, ModelState)
         self.mset = mset
-
-        # Add pressure and divergence variables
-        self.p = FieldVariable(grid, 
-                    name="Pressure p", bc=PBoundary(mset))
-        self.div = FieldVariable(grid,
-                    name="Divergence", bc=PBoundary(mset))
         
         # Modules
         self.linear_tendency     = LinearTendency(grid, self.timer)
@@ -142,6 +134,28 @@ class Model(ModelBase):
     
     def update_vid_animation(self):
         self.vid_animation.update(z=self.z.cpu(), p=self.p.cpu(), time=self.time)
+
+
+    # ============================================================
+    #  to be deleted once the modules are implemented
+    # ============================================================
+    @property
+    def p(self):
+        return self.model_state.p
+    
+    @p.setter
+    def p(self, p):
+        self.model_state.p = p
+        return
+    
+    @property
+    def div(self):
+        return self.model_state.div
+    
+    @div.setter
+    def div(self, div):
+        self.model_state.div = div
+        return
 
 # remove symbols from namespace
 del Grid, ModelBase
