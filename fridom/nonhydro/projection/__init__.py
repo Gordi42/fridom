@@ -1,8 +1,24 @@
-from fridom.nonhydro.projection.divergence_spectral import DivergenceSpectral
-from fridom.nonhydro.projection.wave_spectral import WaveSpectral
-from fridom.nonhydro.projection.geostrophic_spectral import GeostrophicSpectral
-from fridom.nonhydro.projection \
-    .geostrophic_time_average import GeostrophicTimeAverage
+"""
+# Projection module for the nonhydrostatic model
+The projection routines are used for flow decomposition. E.g. to
+decompose the flow into geostrophic and ageostrophic components,
+or to decompose the flow into balanced and unbalanced components.
 
-from fridom.nonhydro.projection.nnmd import NNMD
-from fridom.nonhydro.projection.optimal_balance import OptimalBalance
+## Linear Projections:
+    - WaveSpectral          : Projection onto the linear wave mode
+    - GeostrophicSpectral   : Projection onto the geostrophic mode
+    - GeostrophicTimeAverage: Projection onto the geo. mode using a time average
+    - DivergenceSpectral    : Projection onto the divergence mode
+
+## Nonlinear Projections:
+    - OptimalBalance        : Balancing using the optimal balance method
+    - NNMD                  : Balancing using nonlinear normal mode decomposition
+"""
+
+from .divergence_spectral import DivergenceSpectral
+from .wave_spectral import WaveSpectral
+from .geostrophic_spectral import GeostrophicSpectral
+from .geostrophic_time_average import GeostrophicTimeAverage
+
+from .nnmd import NNMD
+from .optimal_balance import OptimalBalance

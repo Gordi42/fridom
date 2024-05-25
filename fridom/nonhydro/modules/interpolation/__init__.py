@@ -1,3 +1,9 @@
-from fridom.nonhydro.modules.interpolation.interpolation_module import *
-from fridom.nonhydro.modules.interpolation.linear_interpolation import *
-from fridom.nonhydro.modules.interpolation.polynomial_interpolation import *
+"""
+# Interpolation Module
+
+TODO: Add description
+"""
+
+from .interpolation_module import InterpolationConstructor, InterpolationModule
+from .linear_interpolation import LinearInterpolation, LinearInterpolationConstructor
+from .polynomial_interpolation import PolynomialInterpolation, PolynomialInterpolationConstructor
