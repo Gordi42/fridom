@@ -1,5 +1,6 @@
 from fridom.nonhydro.grid import Grid
 from fridom.framework.model_base import ModelBase
+from fridom.nonhydro.model_state import ModelState
 
 
 class Model(ModelBase):
@@ -43,7 +44,7 @@ class Model(ModelBase):
         from fridom.framework.field_variable import FieldVariable
 
         mset = grid.mset
-        super().__init__(grid, State)
+        super().__init__(grid, State, ModelState)
         self.mset = mset
 
         # Add pressure and divergence variables

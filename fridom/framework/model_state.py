@@ -1,4 +1,5 @@
 from fridom.framework.state_base import StateBase
+from fridom.framework.grid_base import GridBase
 
 class ModelStateBase:
     """
@@ -13,13 +14,13 @@ class ModelStateBase:
     - it (int)        : Time step
     - time (float)    : Model time
     """
-    def __init__(self, z: StateBase, it: int, time: float) -> None:
+    def __init__(self, grid: GridBase, is_spectral: bool) -> None:
         """
         The base constructor for the ModelStateBase class.
         """
-        self.z = z
-        self.it = it
-        self.time = time
+        self.z: StateBase = None
+        self.it = 0
+        self.time = 0.0
 
 # remove symbols from the namespace
-del StateBase
+del StateBase, GridBase

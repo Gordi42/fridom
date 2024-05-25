@@ -8,6 +8,7 @@ Prof. Carsten Eden ( https://github.com/ceden/ps3D ).
     Grid              : used to construct model, initial cond., etc.
     FieldVariable     : used to store scalar variables
     State             : stores u,v,w,b
+    ModelState        : contains the model state of the nonhydrostatic model
     Model             : the model itself
     Plot              : Plotting class
     PlotContainer     : Container for plotting routines
@@ -41,6 +42,7 @@ from .model_settings import ModelSettings
 from .grid import Grid
 from .model import Model
 from .state import State
+from .model_state import ModelState
 from .plot import Plot, PlotContainer
 from .model_plotter import ModelPlotter
 from .diagnose_imbalance import DiagnoseImbalance

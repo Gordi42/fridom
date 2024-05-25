@@ -1,6 +1,7 @@
 from fridom.shallowwater.grid import Grid
 from fridom.shallowwater.state import State
 from fridom.framework.model_base import ModelBase
+from fridom.shallowwater.model_state import ModelState
 
 
 class Model(ModelBase):
@@ -23,7 +24,10 @@ class Model(ModelBase):
         elif mset.solver == "Spectral":
             is_spectral = True
         from fridom.shallowwater.state import State
-        super().__init__(grid, State, is_spectral=is_spectral)
+        super().__init__(grid, 
+                         State, 
+                         ModelState,
+                         is_spectral=is_spectral)
         self.mset = mset
 
         # Modules

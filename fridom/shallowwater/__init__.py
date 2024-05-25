@@ -9,6 +9,7 @@ Based on Sadourny [1975].
     Grid              : used to construct model, initial cond., etc.
     FieldVariable     : used to store scalar variables
     State             : stores u,v,h
+    ModelState        : contains the model state of the shallow water model
     Model             : the model itself
     Plot              : Plotting class
     PlotContainer     : Container for plotting routines
@@ -41,6 +42,7 @@ sw.Plot(model.z.ekin())(model.z)
 from .model_settings import ModelSettings
 from .grid import Grid
 from .state import State
+from .model_state import ModelState
 from .model import Model
 from .plot import Plot, PlotContainer
 from .model_plotter import ModelPlotter

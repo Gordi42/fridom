@@ -44,7 +44,11 @@ class ModelBase:
         reset()                 : Reset the model (pointers, tendencies)
     """
 
-    def __init__(self, grid:GridBase, State:StateBase, is_spectral=False) -> None:
+    def __init__(self, 
+                 grid: GridBase, 
+                 State: StateBase,
+                 ModelState: ModelStateBase, 
+                 is_spectral=False) -> None:
         """
         Constructor.
 
@@ -58,8 +62,7 @@ class ModelBase:
         cp = grid.cp
 
         # state variable
-        z = State(grid, is_spectral=is_spectral)
-        self.model_state = ModelStateBase(z, it=0, time=0)
+        self.model_state = ModelStateBase(grid=grid, is_spectral=is_spectral)
 
         # time stepping variables
         self.dz_list = [State(grid, is_spectral=is_spectral) for _ in range(mset.time_levels)]
