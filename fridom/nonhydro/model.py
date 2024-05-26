@@ -34,8 +34,7 @@ class Model(ModelBase):
         # import Modules
         from fridom.nonhydro.state import State
         from fridom.nonhydro.modules import \
-            LinearTendency, PressureGradientTendency, PressureSolve, \
-            SourceTendency, TendencyDivergence
+            LinearTendency, PressureGradientTendency, TendencyDivergence
         from fridom.nonhydro.modules.pressure_solvers import SpectralPressureSolver
 
         mset = grid.mset
@@ -48,7 +47,6 @@ class Model(ModelBase):
         self.tendency_divergence = TendencyDivergence()
         self.pressure_gradient   = PressureGradientTendency()
         self.pressure_solver     = SpectralPressureSolver()
-        self.source_tendency     = SourceTendency(grid, self.timer)
 
         self.linear_tendency.start(grid=grid, timer=self.timer)
         self.tendency_divergence.start(grid=grid, timer=self.timer)
@@ -70,9 +68,6 @@ class Model(ModelBase):
         if self.mset.enable_nonlinear:
             self.advection(self.z, self.dz)
 
-        if self.mset.enable_source:
-            self.source_tendency(self.dz, self.time)
-
         # solve for pressure
         self.tendency_divergence.update(self.model_state, self.dz)
         self.pressure_solver.update(self.model_state, self.dz)
@@ -93,27 +88,6 @@ class Model(ModelBase):
         """
         super().reset()
         self.p = self.p*0
-        return
-
-    # ============================================================
-    #  to be deleted once the modules are implemented
-    # ============================================================
-    @property
-    def p(self):
-        return self.model_state.p
-    
-    @p.setter
-    def p(self, p):
-        self.model_state.p = p
-        return
-    
-    @property
-    def div(self):
-        return self.model_state.div
-    
-    @div.setter
-    def div(self, div):
-        self.model_state.div = div
         return
 
 # remove symbols from namespace
