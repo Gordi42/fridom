@@ -1,7 +1,5 @@
-from fridom.nonhydro.grid import Grid
 from fridom.nonhydro.state import State
 from fridom.nonhydro.model_state import ModelState
-from fridom.framework.timing_module import TimingModule
 from fridom.framework.modules.module import Module, update_module, start_module
 
 
@@ -74,4 +72,4 @@ class LinearTendency(Module):
         return res
 
 # remove symbols from the namespace
-del Grid, State, TimingModule, Module, update_module, start_module, ModelState
+del State, Module, update_module, start_module, ModelState
