@@ -15,8 +15,8 @@ class BiharmonicMixing(Module):
     def __init__(self, kh: float = 0, kv: float = 0):
         """
         ## Arguments:
-        - `kh`: Horizontal harmonic mixing coefficient.
-        - `kv`: Vertical harmonic mixing coefficient.
+        - `kh`: Horizontal biharmonic mixing coefficient.
+        - `kv`: Vertical biharmonic mixing coefficient.
         """
         super().__init__(name="Biharmonic Mixing", kh=kh, kv=kv)
 

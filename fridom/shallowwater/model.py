@@ -35,11 +35,6 @@ class Model(ModelBase):
         
         self.linear_tendency.start(grid=grid, timer=self.timer)
         self.advection.start(grid=grid, timer=self.timer)
-
-        # source term
-        from fridom.shallowwater.source import Source
-        self.source = Source(grid) if mset.enable_source else None
-
         return
 
 
@@ -51,124 +46,13 @@ class Model(ModelBase):
         """
         Calculate total tendency. (Righthand side of the PDE)
         """
-        
-        start_timer = lambda x: self.timer.get(x).start()
-        end_timer   = lambda x: self.timer.get(x).stop()
 
         self.linear_tendency.update(self.model_state, self.dz)
         if self.mset.enable_nonlinear:
             self.advection.update(self.model_state, self.dz)
 
-        # calculate harmonic tendency
-        start_timer("Harmonic Tendency")
-        if self.mset.enable_harmonic:
-            self.dz += self.harmonic_dz()
-        end_timer("Harmonic Tendency")
-
-        # calculate biharmonic tendency
-        start_timer("Biharmonic Tendency")
-        if self.mset.enable_biharmonic:
-            self.dz -= self.biharmonic_dz()
-        end_timer("Biharmonic Tendency")
-
-        # calculate source tendency
-        start_timer("Source Tendency")
-        if self.mset.enable_source:
-            self.dz += self.source_dz()
-        end_timer("Source Tendency")
         return
 
-    # ============================================================
-    #   TENDENCIES
-    # ============================================================
-
-
-    def harmonic_dz(self) -> State:
-        """
-        Calculate tendency due to harmonic friction / mixing.
-
-        Returns:
-            dz (State)  : Harmonic tendency.
-        """
-        from fridom.shallowwater.state import State
-        dz = State(self.mset, self.grid)
-        u = self.z.u; v = self.z.v; h = self.z.h
-        ah = self.mset.ah
-        kh = self.mset.kh
-
-        # [TODO] boundary conditions
-        dz.u = (u.diff_2(0) + u.diff_2(1))*ah 
-        dz.v = (v.diff_2(0) + v.diff_2(1))*ah 
-        dz.h = (h.diff_2(0) + h.diff_2(1))*kh 
-
-        return dz
-    
-    def biharmonic_dz(self) -> State:
-        """
-        Calculate tendency due to biharmonic friction / mixing.
-
-        Returns:
-            dz (State)  : Biharmonic tendency.
-        """
-        from fridom.shallowwater.state import State
-        dz = State(self.mset, self.grid)
-
-        # shorthand notation
-        dx2 = self.grid.dx2; dy2 = self.grid.dy2
-        ahbi = self.mset.ahbi
-        khbi = self.mset.khbi
-
-        # Slices
-        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
-        xf = (f,c); xb = (b,c)
-        yf = (c,f); yb = (c,b)
-        cc = (c,c)
-
-        def biharmonic_function(p, coeff):
-            """
-            Calculate biharmonic friction / mixing.
-
-            Args:
-                p (FieldVariable)   : Field variable.
-
-            Returns:
-                res (FieldVariable) : Biharmonic friction / mixing.
-            """
-            # Padding with periodic boundary conditions
-            p = self.z.cp.pad(p, ((2,2), (2,2)), 'wrap')
-
-            # Apply boundary conditions
-            if not self.mset.periodic_bounds[0]:
-                p[:2,:]  = 0; p[-2:,:] = 0
-            if not self.mset.periodic_bounds[1]:
-                p[:,:2]  = 0; p[:,-2:] = 0
-
-            # first two derivatives
-            tmp_h = (p[xf] - 2*p[cc] + p[xb])*dx2*coeff + \
-                    (p[yf] - 2*p[cc] + p[yb])*dy2*coeff
-
-            # last two derivatives
-            res = (tmp_h[xf] - 2*tmp_h[cc] + tmp_h[xb])*dx2 + \
-                  (tmp_h[yf] - 2*tmp_h[cc] + tmp_h[yb])*dy2
-            return res
-
-
-        # biharmonic friction / mixing
-        dz.u[:] = biharmonic_function(self.z.u, ahbi)
-        dz.v[:] = biharmonic_function(self.z.v, ahbi)
-        dz.h[:] = biharmonic_function(self.z.h, khbi)
-
-        return dz
-
-    def source_dz(self) -> State:
-        """
-        Calculate tendency due to source term.
-
-        Returns:
-            dz (State)  : Source tendency.
-        """
-        self.source.update(self.time)
-        return self.source
 
 
 # remove symbols from namespace

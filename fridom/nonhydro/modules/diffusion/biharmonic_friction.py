@@ -8,9 +8,9 @@ class BiharmonicFriction(Module):
     This class computes the biharmonic friction tendency of the model.
 
     Computes:
-    $ dz.u += ah \\nabla^4 u + kh \\partial_z^4 u $
-    $ dz.v += ah \\nabla^4 v + kh \\partial_z^4 v $
-    $ dz.w += ah \\nabla^4 w + kh \\partial_z^4 w $
+    $ dz.u -= ah \\nabla^4 u + kh \\partial_z^4 u $
+    $ dz.v -= ah \\nabla^4 v + kh \\partial_z^4 v $
+    $ dz.w -= ah \\nabla^4 w + kh \\partial_z^4 w $
     where:
     - `ah`: Horizontal biharmonic friction coefficient.
     - `av`: Vertical biharmonic friction coefficient.
