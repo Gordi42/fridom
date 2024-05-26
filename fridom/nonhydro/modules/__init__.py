@@ -3,10 +3,6 @@
 See fridom/framework/modules/__init__.py for more information.
 
 ## Available Modules:
-    - BiharmonicFriction: Tendency due to biharmonic friction
-    - BiharmonicMixing: Tendency due to biharmonic mixing
-    - HarmonicFriction: Tendency due to harmonic friction
-    - HarmonicMixing: Tendency due to harmonic mixing
     - LinearTendency: Linear tendency term
     - PressureGradientTendency: Pressure gradient tendency term
     - PressureSolve: Pressure solver
@@ -16,12 +12,9 @@ See fridom/framework/modules/__init__.py for more information.
     - animation: Contains animation modules
     - advection: Contains advection modules
     - interpolation: Contains interpolation modules
+    - diffusion: Contains diffusion modules
 """
 
-from .biharmonic_friction import BiharmonicFriction
-from .biharmonic_mixing import BiharmonicMixing
-from .harmonic_friction import HarmonicFriction
-from .harmonic_mixing import HarmonicMixing
 from .linear_tendency import LinearTendency
 from .pressure_gradient_tendency import PressureGradientTendency
 from .pressure_solve import PressureSolve
@@ -34,3 +27,4 @@ from fridom.framework.modules import animation
 
 from . import advection
 from . import interpolation
+from . import diffusion

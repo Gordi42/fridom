@@ -35,8 +35,6 @@ class Model(ModelBase):
         from fridom.nonhydro.state import State
         from fridom.nonhydro.modules import \
             LinearTendency, PressureGradientTendency, PressureSolve, \
-            HarmonicFriction, HarmonicMixing, \
-            BiharmonicFriction, BiharmonicMixing, \
             SourceTendency
 
         mset = grid.mset
@@ -49,10 +47,6 @@ class Model(ModelBase):
         self.advection           = mset.advection(grid, self.timer)
         self.pressure_gradient   = PressureGradientTendency(grid, self.timer)
         self.pressure_solver     = PressureSolve(grid, self.timer)
-        self.harmonic_friction   = HarmonicFriction(grid, self.timer)
-        self.harmonic_mixing     = HarmonicMixing(grid, self.timer)
-        self.biharmonic_friction = BiharmonicFriction(grid, self.timer)
-        self.biharmonic_mixing   = BiharmonicMixing(grid, self.timer)
         self.source_tendency     = SourceTendency(grid, self.timer)
 
 
@@ -70,15 +64,6 @@ class Model(ModelBase):
         # calculate nonlinear tendency
         if self.mset.enable_nonlinear:
             self.advection(self.z, self.dz)
-
-        # Friction And Mixing
-        if self.mset.enable_harmonic:
-            self.harmonic_friction(self.z, self.dz)
-            self.harmonic_mixing(self.z, self.dz)
-
-        if self.mset.enable_biharmonic:
-            self.biharmonic_friction(self.z, self.dz)
-            self.biharmonic_mixing(self.z, self.dz)
 
         if self.mset.enable_source:
             self.source_tendency(self.dz, self.time)
