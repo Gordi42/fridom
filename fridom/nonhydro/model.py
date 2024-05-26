@@ -19,7 +19,6 @@ class Model(ModelBase):
         step()                  : Perform one time step.
         run()                   : Run the model for a given number of steps.
         reset()                 : Reset the model (pointers, tendencies)
-        diagnose()              : Print diagnostic information.
         update_pointer()        : Update pointer for Adam-Bashforth time stepping.
         update_coeff_AB()       : Update coeffs for Adam-Bashforth time stepping.
         adam_bashforth()        : Perform Adam-Bashforth time stepping.
@@ -102,21 +101,6 @@ class Model(ModelBase):
         super().reset()
         self.p = self.p*0
         return
-
-
-    def diagnostics(self) -> None:
-        """
-        Print diagnostic information.
-        """
-        out = "Diagnostic at t = {:.2f}\n".format(self.it * self.mset.dt)
-        out += "MKE = {:.2e},    ".format(self.z.mean_ekin())
-        out += "MPE = {:.2e},    ".format(self.z.mean_epot())
-        out += "MTE = {:.2e}\n".format(self.z.mean_etot())
-        out += "hor. CFL = {:.2f},           ".format(self.z.max_cfl_h())
-        out += "vert. CFL = {:.2f}".format(self.z.max_cfl_v())
-        print(out)
-        return
-
 
     # ============================================================
     #  to be deleted once the modules are implemented

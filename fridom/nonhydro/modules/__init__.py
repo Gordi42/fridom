@@ -12,6 +12,7 @@ See fridom/framework/modules/__init__.py for more information.
     - PressureSolve: Pressure solver
     - SourceTendency: Source term tendency
     - NetCDFWriter: NetCDF writer module
+    - Diagnostics: Diagnostic module
     - animation: Contains animation modules
     - advection: Contains advection modules
     - interpolation: Contains interpolation modules
@@ -26,6 +27,7 @@ from .pressure_gradient_tendency import PressureGradientTendency
 from .pressure_solve import PressureSolve
 from .source_tendency import SourceTendency
 from .netcdf_writer import NetCDFWriter
+from .diagnostics import Diagnostics
 
 # move the animation module into the nonhydro namespace
 from fridom.framework.modules import animation

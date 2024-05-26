@@ -67,7 +67,6 @@ class ModelBase:
         # Timer
         from fridom.framework.timing_module import TimingModule
         self.timer = TimingModule()
-        self.timer.add_component("Diagnostics")
         self.timer.add_component("Total Tendency")
         self.timer.add_component("Time Stepping")
 
@@ -147,13 +146,6 @@ class ModelBase:
         
         start_timer = lambda x: self.timer.get(x).start()
         end_timer   = lambda x: self.timer.get(x).stop()
-
-        # Diagnostics
-        start_timer("Diagnostics")
-        if self.mset.enable_diag:
-            if (self.it % self.mset.diag_interval) == 0:
-                self.diagnostics()
-        end_timer("Diagnostics")
 
         # calculate tendency
         start_timer("Total Tendency")
@@ -292,12 +284,6 @@ class ModelBase:
     # ============================================================
     #   OTHER METHODS
     # ============================================================
-
-    def diagnostics(self):
-        """
-        Print diagnostics of the model, to be implemented in child class.
-        """
-        return
 
     def reset(self) -> None:
         """

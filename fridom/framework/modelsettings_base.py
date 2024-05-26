@@ -21,17 +21,9 @@ class ModelSettingsBase:
         AB2 (np.ndarray)       : 2nd order Adams-Bashforth coefficients.
         AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
         AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
-        diag_interval (int)    : Diagnostic interval.
 
         enable_tqdm (bool)      : Enable progress bar.
-        enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
-
-        enable_vid_anim   (bool): Enable mp4 animation.
-        vid_anim_interval (int) : Video animation interval.
-        vid_anim_filename (str) : Video animation filename.
-        vid_plotter       (cls) : Video plotter class.
-        vid_fps           (int) : Video frames per second.
 
     Methods:
         copy           : Return a copy of the model settings.
@@ -84,23 +76,10 @@ class ModelSettingsBase:
         self.AB3 = np.array([23/12, -4/3, 5/12], dtype=dtype)
         self.AB4 = np.array([55/24, -59/24, 37/24, -3/8], dtype=dtype)
 
-        # Inspector details
-        self.diag_interval = 200
-
         # List of modules that calculate tendencies
         self.tendency_modules = []
         # List of modules that do diagnostics
         self.diagnostic_modules = []
-
-        # Plotting and Animation
-        self.enable_live_anim  = False   # Enable live animation
-        self.live_plot_interval= 50      # Live plot interval
-        self.live_plotter      = None    # Live plotter object
-        self.enable_vid_anim   = False   # Enable mp4 animation
-        self.vid_anim_interval = 50      # Video animation interval
-        self.vid_anim_filename = "output.mp4" # Video animation filename
-        self.vid_plotter       = None    # Video plotter object
-        self.vid_fps           = 30      # Video frames per second
 
         # ------------------------------------------------------------------
         #   SWITCHES
@@ -108,7 +87,6 @@ class ModelSettingsBase:
 
         # Output
         self.enable_tqdm       = True    # Enable progress bar
-        self.enable_diag       = False   # Enable diagnostic output
         self.enable_verbose    = False   # Enable verbose output
 
         # Set attributes from keyword arguments

@@ -170,24 +170,5 @@ class Model(ModelBase):
         return self.source
 
 
-    # ============================================================
-    #   OTHER METHODS
-    # ============================================================
-
-    def diagnostics(self) -> None:
-        """
-        Print diagnostic information.
-        """
-        if not self.mset.enable_diag:
-            return
-        if (self.it % self.mset.diag_interval) == 0:
-            out = "Diagnostic at t = {:.2f}\n".format(self.it * self.mset.dt)
-            out += "MKE = {:.2e},    ".format(self.z.mean_ekin())
-            out += "MPE = {:.2e},    ".format(self.z.mean_epot())
-            out += "MTE = {:.2e}\n".format(self.z.mean_etot())
-            out += "CFL = {:.2f}".format(self.z.max_cfl())
-            print(out)
-        return
-
 # remove symbols from namespace
 del Grid, State, ModelBase

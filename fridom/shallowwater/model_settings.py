@@ -30,7 +30,6 @@ class ModelSettings(ModelSettingsBase):
         AB2 (np.ndarray)       : 2nd order Adams-Bashforth coefficients.
         AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
         AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
-        diag_interval (int)    : Diagnostic interval.
 
         solver (str)           : Solver name ("Spectral", "FD").
 
@@ -79,17 +78,6 @@ class ModelSettings(ModelSettingsBase):
         self.enable_source     = False   # Enable source terms
         self.enable_biharmonic = False   # Enable biharmonic friction and mixing
         self.enable_harmonic   = False   # Enable harmonic friction and mixing
-
-        # Plotting and Animation
-        self.enable_live_anim  = False   # Enable live animation
-        self.live_plot_interval= 50      # Live plot interval
-        self.live_plotter      = None    # Live plotter object
-        self.enable_vid_anim   = False   # Enable mp4 animation
-        self.vid_anim_interval = 50      # Video animation interval
-        self.vid_anim_filename = "output.mp4" # Video animation filename
-        self.vid_plotter       = None    # Video plotter object
-        self.vid_fps           = 30      # Video frames per second
-        self.vid_max_jobs      = 0.4     # Max number of jobs for video
 
         # Set attributes from keyword arguments
         for key, value in kwargs.items():

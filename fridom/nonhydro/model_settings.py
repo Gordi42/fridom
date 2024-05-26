@@ -35,7 +35,6 @@ class ModelSettings(ModelSettingsBase):
         AB2 (np.ndarray)       : 2nd order Adams-Bashforth coefficients.
         AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
         AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
-        diag_interval (int)    : Diagnostic interval.
 
         enable_nonlinear (bool) : Enable nonlinear terms.
         enable_varying_N (bool) : Enable varying stratification.
@@ -44,17 +43,7 @@ class ModelSettings(ModelSettingsBase):
         enable_biharmonic (bool): Enable biharmonic friction and mixing.
         enable_harmonic (bool)  : Enable harmonic friction and mixing.
         enable_tqdm (bool)      : Enable progress bar.
-        enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
-
-        enable_live_anim  (bool): Enable live animation.
-        live_plot_interval(int) : Live plot interval.
-        live_plotter      (cls) : Live plotter class.
-        enable_vid_anim   (bool): Enable mp4 animation.
-        vid_anim_interval (int) : Video animation interval.
-        vid_anim_filename (str) : Video animation filename.
-        vid_plotter       (cls) : Video plotter class.
-        vid_fps           (int) : Video frames per second.
 
         pressure_solver (str)   : Choose from "Spectral" or "CG".
         max_cg_iter (int)       : Maximum number of CG iterations.
