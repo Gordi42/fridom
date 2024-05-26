@@ -45,7 +45,8 @@ class Model(ModelBase):
         self.linear_tendency     = LinearTendency()
         self.linear_tendency.start(grid=grid, timer=self.timer)
         self.advection           = mset.advection(grid, self.timer)
-        self.pressure_gradient   = PressureGradientTendency(grid, self.timer)
+        self.pressure_gradient   = PressureGradientTendency()
+        self.pressure_gradient.start(grid=grid, timer=self.timer)
         self.pressure_solver     = PressureSolve(grid, self.timer)
         self.source_tendency     = SourceTendency(grid, self.timer)
 
@@ -70,7 +71,7 @@ class Model(ModelBase):
 
         # solve for pressure
         self.pressure_solver(self.dz, self.p)
-        self.pressure_gradient(self.p, self.dz)
+        self.pressure_gradient.update(self.model_state, self.dz)
 
         return
 

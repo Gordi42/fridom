@@ -1,43 +1,35 @@
-from fridom.nonhydro.grid import Grid
 from fridom.nonhydro.state import State
-from fridom.framework.field_variable import FieldVariable
-from fridom.framework.timing_module import TimingModule
+from fridom.nonhydro.model_state import ModelState
+from fridom.framework.modules.module import Module, update_module, start_module
 
 
-class PressureGradientTendency:
+class PressureGradientTendency(Module):
     """
     This class computes the pressure gradient tendency of the model.
     """
+    def __init__(self):
+        super().__init__(name="Pressure Gradient")
 
-    def __init__(self, grid: Grid, timer: TimingModule):
-        """
-        Constructor.
-
-        mset (ModelSettings) : ModelSettings object.
-        grid (Grid)          : Grid object.
-        """
-        mset = grid.mset
-        self.mset = mset
-        self.grid = grid
-        self.timer = timer
-
+    @start_module
+    def start(self):
+        # compute the grid spacing
+        mset = self.mset
         self.dx1 = mset.dtype(1.0) / mset.dx
         self.dy1 = mset.dtype(1.0) / mset.dy
         self.dz1 = mset.dtype(1.0) / mset.dz
+        return
 
-    def __call__(self, p: FieldVariable, dz: State) -> None:
+    @update_module
+    def update(self, mz: ModelState, dz: State) -> None:
         """
         Compute the pressure gradient tendency of the model.
 
         Args:
-            p (FieldVariable) : Pressure
-            dz (State)        : State tendency
+            mz (ModelState) : Model state.
+            dz (State)      : Tendency of the state.
         """
-        # start the timer
-        self.timer.get("Pressure Gradient").start()
-
         cp = dz.cp
-        p_pad = cp.pad(p, ((0,1), (0,1), (0,1)), 'wrap')
+        p_pad = cp.pad(mz.p, ((0,1), (0,1), (0,1)), 'wrap')
 
         # Slices
         c = slice(None,-1); f = slice(1,None)
@@ -57,10 +49,12 @@ class PressureGradientTendency:
             dz.v[:,-1,:] = 0
         if not self.mset.periodic_bounds[2]:
             dz.w[:,:,-1] = 0
-
-        # stop the timer
-        self.timer.get("Pressure Gradient").stop()
         return
 
+    def __repr__(self) -> str:
+        res = super().__repr__()
+        res += f"    discretization: Finite difference\n"
+        return res
+
 # remove symbols from the namespace
-del Grid, State, TimingModule, FieldVariable
+del State, ModelState, Module, update_module, start_module
