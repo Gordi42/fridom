@@ -147,8 +147,9 @@ class CGSolver:
         maxiter = self.mset.max_cg_iter
         cg_tol  = self.mset.cg_tol
 
-        p[:], info = self.cg(self.A, div.reshape(-1), x0=p.reshape(-1),
+        p_flat, info = self.cg(self.A, div.reshape(-1), x0=p.reshape(-1),
                              tol=cg_tol, maxiter=maxiter)
+        p[:] = p_flat.reshape(self.mset.N)
         return
 
 # remove symbols from namespace
