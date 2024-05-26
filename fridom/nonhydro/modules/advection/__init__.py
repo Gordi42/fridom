@@ -1,10 +1,11 @@
 """
 # Advection module
-Contains functions to calculate advection terms.
+Contains modules to calculate advection terms.
 
-TODO: Add more information here.
+## Modules:
+- CenteredAdvection: Centered advection scheme with modular interpolation.
+- SecondOrderAdvection: Second order advection scheme.
 """
 
-from .advection_module import AdvectionConstructor, AdvectionModule
-from .centered_advection import CenteredAdvection, CenteredAdvectionConstructor
-from .second_order_advection import SecondOrderAdvection, SecondOrderAdvectionConstructor
+from .centered_advection import CenteredAdvection
+from .second_order_advection import SecondOrderAdvection

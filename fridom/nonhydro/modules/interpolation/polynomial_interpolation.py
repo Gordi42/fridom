@@ -1,21 +1,28 @@
-from fridom.nonhydro.grid import Grid
 from fridom.framework.field_variable import FieldVariable
-
-from fridom.nonhydro.modules.interpolation.interpolation_module import InterpolationModule, InterpolationConstructor
+from fridom.framework.modules.module import start_module
+from .interpolation_module import InterpolationModule
 
 class PolynomialInterpolation(InterpolationModule):
     """
     This class provides the polynomial interpolation of fields forwards and backwards in x, y, and z directions.
     """
-    def __init__(self, grid: Grid, order: int):
-        super().__init__(grid)
+    def __init__(self, order: int = 1):
+        """
+        ## Arguments:
+        - order (int): Order of the polynomial interpolation.
+        """
         # order must be an odd number
         assert order % 2 == 1
+        super().__init__(name="linear interpolation", order=order)
 
-        self.order = order
+    @start_module
+    def start(self):
+        order = self.order
+        mset = self.grid.mset
+
         self.padding = order // 2
-        self.cp = grid.cp
-        mset = grid.mset
+        # prepare the boundary conditions
+        self.cp = self.grid.cp
         self.half = mset.dtype(0.5)
         self.bcx = "wrap" if mset.periodic_bounds[0] else "constant"
         self.bcy = "wrap" if mset.periodic_bounds[1] else "constant"
@@ -167,16 +174,9 @@ class PolynomialInterpolation(InterpolationModule):
             ((0, 0), (0, 0), (self.padding + 1, self.padding)), 
             self.bcz)
 
-class PolynomialInterpolationConstructor(InterpolationConstructor):
-    def __init__(self, order: int = 1):
-        self.order = order
-
-    def __call__(self, grid: Grid):
-        return PolynomialInterpolation(grid, self.order)
-
     def __repr__(self) -> str:
         return "polynomial interpolation of order {}".format(self.order)
 
+
 # remove symbols from the namespace
-del Grid, FieldVariable, \
-    InterpolationModule, InterpolationConstructor
+del FieldVariable, InterpolationModule, start_module

@@ -1,43 +1,41 @@
-from fridom.nonhydro.grid import Grid
 from fridom.nonhydro.state import State
-from fridom.framework.timing_module import TimingModule
+from fridom.nonhydro.model_state import ModelState
+from fridom.framework.modules.module import Module, start_module, update_module
 
-from fridom.nonhydro.modules.advection.advection_module import AdvectionModule, AdvectionConstructor
-
-
-class SecondOrderAdvection(AdvectionModule):
+class SecondOrderAdvection(Module):
     """
     This advection scheme is a second-order centered advection scheme.
     It is numerically the same as centered advection scheme + linear interpolation
     but may be more efficient.
     """
+    def __init__(self):
+        """
+        This advection scheme is a second-order centered advection scheme.
+        It is numerically the same as centered advection scheme + linear interpolation
+        but may be more efficient.
 
-    def __init__(self, grid: Grid, timer: TimingModule):
-        super().__init__(grid, timer)
+        ## Arguments:
+        - None
+        """
+        super().__init__(name="Second Order Advection")
 
-        mset = grid.mset
+    @start_module
+    def start(self):
+        mset = self.mset
         self.quarter = mset.dtype(0.25)
         self.dx1 = mset.dtype(1.0) / mset.dx
         self.dy1 = mset.dtype(1.0) / mset.dy
         self.dz1 = mset.dtype(1.0) / mset.dz
 
-    def __call__(self, 
-                 z: State, 
-                 dz: State,
-                 z_background: State = None) -> None:
+    @update_module
+    def update(self, mz: ModelState, dz: State) -> None:
         """
         Compute the advection term of the state vector z.
 
         Args:
-            z (State)  : State object.
-            dz (State) : Advection term of the state.
-            z_background (State) : Background state object (optional).
+            mz (ModelState) : Model state.
+            dz (State)      : Tendency of the state.
         """
-        # start the timer
-        self.timer.get("Nonlinear Tendency").start()
-
-        # compute the nonlinear tendency
-
         # shorthand notation
         dx1 = self.dx1; dy1 = self.dy1; dz1 = self.dz1
         quarter = self.quarter
@@ -50,11 +48,11 @@ class SecondOrderAdvection(AdvectionModule):
         cc = (c,c,c)
         
         # Padding with periodic boundary conditions
-        periodic = lambda x: z.cp.pad(x, ((2,2), (2,2), (2,2)), 'wrap')
-        u  = periodic(z.u)
-        v  = periodic(z.v)
-        w  = periodic(z.w)
-        bu = periodic(z.b)
+        periodic = lambda x: mz.z.cp.pad(x, ((2,2), (2,2), (2,2)), 'wrap')
+        u  = periodic(mz.z.u)
+        v  = periodic(mz.z.v)
+        w  = periodic(mz.z.w)
+        bu = periodic(mz.z.b)
 
         # boundary conditions
         if not self.mset.periodic_bounds[0]:
@@ -95,33 +93,12 @@ class SecondOrderAdvection(AdvectionModule):
         dz.v[:] -= flux_divergence(v, yf) * self.mset.Ro
         dz.w[:] -= flux_divergence(w, zf) * self.mset.Ro
         dz.b[:] -= flux_divergence(bu, cc) * self.mset.Ro
-
-        # stop the timer
-        self.timer.get("Nonlinear Tendency").stop()
-
         return 
 
-
-class SecondOrderAdvectionConstructor(AdvectionConstructor):
-    """
-    This class provides a constructor for the second order advection scheme.
-    """
-    def __init__(self):
-        pass
-
-    def __call__(self, 
-                 grid: Grid,
-                 timer: TimingModule) -> AdvectionModule:
-        """
-        This function returns the second order advection module.
-        """
-        return SecondOrderAdvection(grid, timer)
-
     def __repr__(self) -> str:
-        res = "  Advection Scheme: \n"
+        res = super().__repr__()
         res += "    scheme = Second Order Advection\n"
         return res
 
 # remove symbols from the namespace
-del Grid, State, TimingModule, \
-    AdvectionModule, AdvectionConstructor
+del State, ModelState, Module, update_module, start_module

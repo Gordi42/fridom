@@ -54,5 +54,4 @@ from fridom.framework.field_variable import FieldVariable
 from . import modules
 from . import projection
 from . import initial_conditions
-from . import source
 from . import eigenvectors

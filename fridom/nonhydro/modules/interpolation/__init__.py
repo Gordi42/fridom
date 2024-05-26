@@ -1,9 +1,12 @@
 """
 # Interpolation Module
 
-TODO: Add description
+## Modules
+- InterpolationModule: Base class for interpolation modules.
+- LinearInterpolation: Linear interpolation module.
+- PolynomialInterpolation: Polynomial interpolation module.
 """
 
-from .interpolation_module import InterpolationConstructor, InterpolationModule
-from .linear_interpolation import LinearInterpolation, LinearInterpolationConstructor
-from .polynomial_interpolation import PolynomialInterpolation, PolynomialInterpolationConstructor
+from .interpolation_module import InterpolationModule
+from .linear_interpolation import LinearInterpolation
+from .polynomial_interpolation import PolynomialInterpolation

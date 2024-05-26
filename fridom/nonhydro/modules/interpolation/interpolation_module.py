@@ -1,7 +1,8 @@
 from fridom.nonhydro.grid import Grid
 from fridom.framework.field_variable import FieldVariable
+from fridom.framework.modules.module import Module
 
-class InterpolationModule:
+class InterpolationModule(Module):
     """
     Base class for interpolation modules. This class defines the interface for
     interpolating fields forwards and backwards in x, y, and z directions.
@@ -19,9 +20,8 @@ class InterpolationModule:
     - the forward interpolation is marked with [f]
 
     """
-    def __init__(self, grid: Grid):
-        self.mset = grid.mset
-        self.grid = grid
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     # ==============================
     #   SYMMETRIC INTERPOLATION
@@ -176,18 +176,5 @@ class InterpolationModule:
         raise NotImplementedError
 
 
-class InterpolationConstructor:
-    """
-    This is an abstract base class for all interpolation constructors. 
-    All interpolation constructors should have a __call__ method that takes the 
-    ModelSettings and Grid as parameters and returns the interpolation object.
-    """
-    def __call__(self, grid: Grid) -> InterpolationModule:
-        raise NotImplementedError
-
-    def __repr__(self) -> str:
-        return "undefined"
-
-
 # remove symbols from the namespace
-del Grid, FieldVariable
+del Grid, FieldVariable, Module

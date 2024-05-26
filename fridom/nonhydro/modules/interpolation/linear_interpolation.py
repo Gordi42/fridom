@@ -1,16 +1,20 @@
 from fridom.nonhydro.grid import Grid
 from fridom.framework.field_variable import FieldVariable
-
-from fridom.nonhydro.modules.interpolation.interpolation_module import InterpolationModule, InterpolationConstructor
+from fridom.framework.modules.module import start_module
+from .interpolation_module import InterpolationModule
 
 class LinearInterpolation(InterpolationModule):
     """
     This class provides the linear interpolation of fields forwards and backwards in x, y, and z directions.
     """
-    def __init__(self, grid: Grid):
-        super().__init__(grid)
-        self.cp = grid.cp
-        mset = grid.mset
+    def __init__(self):
+        super().__init__(name="linear interpolation")
+
+    @start_module
+    def start(self):
+        self.cp = self.grid.cp
+        # prepare the boundary conditions
+        mset = self.grid.mset
         self.half = mset.dtype(0.5)
         self.bcx = "wrap" if mset.periodic_bounds[0] else "constant"
         self.bcy = "wrap" if mset.periodic_bounds[1] else "constant"
@@ -104,20 +108,9 @@ class LinearInterpolation(InterpolationModule):
         f_ext = self.cp.pad(f, ((0, 0), (0, 0), (1, 0)), mode=self.bcz)
         return (f_ext[:, :, :-1] + f_ext[:, :, 1:]) * self.half
 
-
-class LinearInterpolationConstructor(InterpolationConstructor):
-    """
-    The constructor for the linear interpolation scheme.
-    """
-    def __init__(self):
-        return
-
-    def __call__(self, grid: Grid) -> LinearInterpolation:
-        return LinearInterpolation(grid)
-
     def __repr__(self) -> str:
-        return "linear interpolation"
+        return self.name
+
 
 # remove symbols from the namespace
-del Grid, FieldVariable, \
-    InterpolationModule, InterpolationConstructor
+del Grid, FieldVariable, InterpolationModule, start_module

@@ -36,6 +36,7 @@ class Model(ModelBase):
         from fridom.nonhydro.modules import \
             LinearTendency, PressureGradientTendency, TendencyDivergence
         from fridom.nonhydro.modules.pressure_solvers import SpectralPressureSolver
+        from fridom.nonhydro.modules.advection import SecondOrderAdvection
 
         mset = grid.mset
         super().__init__(grid, State, ModelState)
@@ -43,12 +44,13 @@ class Model(ModelBase):
         
         # Modules
         self.linear_tendency     = LinearTendency()
-        self.advection           = mset.advection(grid, self.timer)
+        self.advection           = SecondOrderAdvection()
         self.tendency_divergence = TendencyDivergence()
         self.pressure_gradient   = PressureGradientTendency()
         self.pressure_solver     = SpectralPressureSolver()
 
         self.linear_tendency.start(grid=grid, timer=self.timer)
+        self.advection.start(grid=grid, timer=self.timer)
         self.tendency_divergence.start(grid=grid, timer=self.timer)
         self.pressure_gradient.start(grid=grid, timer=self.timer)
         self.pressure_solver.start(grid=grid, timer=self.timer)
@@ -66,7 +68,7 @@ class Model(ModelBase):
 
         # calculate nonlinear tendency
         if self.mset.enable_nonlinear:
-            self.advection(self.z, self.dz)
+            self.advection.update(self.model_state, self.dz)
 
         # solve for pressure
         self.tendency_divergence.update(self.model_state, self.dz)

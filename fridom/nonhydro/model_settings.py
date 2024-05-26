@@ -34,8 +34,6 @@ class ModelSettings(ModelSettingsBase):
         enable_source (bool)    : Enable source terms.
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
-
-        advection (AdvectionConstructor): Advection scheme.
     """
     def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):
         """
@@ -62,10 +60,6 @@ class ModelSettings(ModelSettingsBase):
         self.enable_varying_f  = False   # Enable varying Coriolis parameter
         self.enable_source     = False   # Enable source terms
 
-        # Advection
-        from fridom.nonhydro.modules.advection.second_order_advection import SecondOrderAdvectionConstructor
-        self.advection = SecondOrderAdvectionConstructor()
-
         # init function must be called after all new variables are set
         super().__init__(n_dims=3, dtype=dtype, ctype=ctype, **kwargs)
 
@@ -89,7 +83,6 @@ class ModelSettings(ModelSettingsBase):
         res += "    N0   = {:.3f}\n".format(self.N0)
         res += "    dsqr = {:.3f}\n".format(self.dsqr)
         res += "    Ro   = {:.3f}\n".format(self.Ro)
-        res += "{}".format(self.advection)
         res += "  Switches:\n"
         res += "    enable_nonlinear  = {}\n".format(self.enable_nonlinear)
         res += "    enable_varying_N  = {}\n".format(self.enable_varying_N)

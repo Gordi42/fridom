@@ -1,25 +1,34 @@
-from fridom.nonhydro.grid import Grid
-from fridom.framework.timing_module import TimingModule
 from fridom.nonhydro.state import State
+from fridom.nonhydro.model_state import ModelState
+from fridom.framework.modules.module import Module, start_module, update_module
 
-from fridom.nonhydro.modules.interpolation.interpolation_module import InterpolationModule, InterpolationConstructor
-from fridom.nonhydro.modules.interpolation.linear_interpolation import LinearInterpolationConstructor as LIC
-from fridom.nonhydro.modules.advection.advection_module import AdvectionModule, AdvectionConstructor
+from fridom.nonhydro.modules.interpolation \
+    .interpolation_module import InterpolationModule
+from fridom.nonhydro.modules.interpolation \
+    .linear_interpolation import LinearInterpolation
 
-class CenteredAdvection(AdvectionModule):
+class CenteredAdvection(Module):
     """
     Centered advection scheme.
     The advection term is computed by a centered finite
     difference scheme calculating the advection term as the flux divergence.
     """
-    def __init__(self, 
-                 grid: Grid,
-                 timer: TimingModule,
-                 interpolation: InterpolationModule):
-        super().__init__(grid, timer)
-        self.interpolation = interpolation
+    def __init__(self, interpolation: InterpolationModule = LinearInterpolation()):
+        """
+        Centered advection scheme.
+        The advection term is computed by a centered finite
+        difference scheme calculating the advection term as the flux divergence.
 
-        mset = grid.mset
+        ## Arguments:
+        - interpolation (InterpolationModule): Interpolation scheme.
+        """
+        super().__init__(name="Centered Advection", 
+                         interpolation=interpolation)
+
+
+    @start_module
+    def start(self):
+        mset = self.grid.mset
         # grid spacing
         self.dx1 = mset.dtype(1.0) / mset.dx
         self.dy1 = mset.dtype(1.0) / mset.dy
@@ -30,21 +39,22 @@ class CenteredAdvection(AdvectionModule):
         self.bcy = "wrap" if self.mset.periodic_bounds[1] else "constant"
         self.bcz = "wrap" if self.mset.periodic_bounds[2] else "constant"
 
-    def compute_advection(self, 
-                          z: State, 
-                          dz: State,
-                          z_background: State = None) -> None:
+        # initialize the interpolation scheme
+        self.interpolation.start(grid=self.grid, timer=None)
+        return
+        
+    @update_module
+    def update(self, mz: ModelState, dz: State) -> None:
         """
         Compute the advection term of the state vector z.
 
         Args:
-            z (State)  : State object.
-            dz (State) : Advection term of the state.
-            z_background (State) : Background state object (optional).
+            mz (ModelState) : Model state.
+            dz (State)      : Tendency of the state.
         """
-
         # calculate the full velocity field
-        zf = z if z_background is None else z + z_background
+        # in future, this enables the use of a background velocity field
+        zf = mz.z
 
         # shorthand notation
         inter = self.interpolation
@@ -52,7 +62,7 @@ class CenteredAdvection(AdvectionModule):
         inter_yf = inter.sym_yf; inter_yb = inter.sym_yb
         inter_zf = inter.sym_zf; inter_zb = inter.sym_zb
         uf = zf.u; vf = zf.v; wf = zf.w
-        u  = z.u;  v  = z.v;  w  = z.w
+        u  = mz.z.u;  v  = mz.z.v;  w  = mz.z.w
         du = dz.u; dv = dz.v; dw = dz.w
         bcx = self.bcx; bcy = self.bcy; bcz = self.bcz
 
@@ -179,9 +189,9 @@ class CenteredAdvection(AdvectionModule):
         #         -------> x                           -------> y
         
         # calculate the fluxes
-        fx = uf * inter_xf(z.b)  # flux in x-direction
-        fy = vf * inter_yf(z.b)  # flux in y-direction
-        fz = wf * inter_zf(z.b)  # flux in z-direction
+        fx = uf * inter_xf(mz.z.b)  # flux in x-direction
+        fy = vf * inter_yf(mz.z.b)  # flux in y-direction
+        fz = wf * inter_zf(mz.z.b)  # flux in z-direction
 
         # calculate boundary conditions
         fx = self.grid.cp.pad(fx, ((1,0), (0,0), (0,0)), bcx)
@@ -207,39 +217,12 @@ class CenteredAdvection(AdvectionModule):
 
         return divergence
 
-
-class CenteredAdvectionConstructor(AdvectionConstructor):
-    """
-    Constructor for the centered advection scheme.
-    """
-    def __init__(
-            self, 
-            interpolation_constructor: InterpolationConstructor = LIC()):
-        """
-        Constructor for the centered advection scheme.
-
-        Args:
-            interpolation_constructor (InterpolationConstructor) : 
-                Constructor for the interpolation scheme. 
-                Default is the linear interpolation scheme.
-        """
-        self.interpolation_constructor = interpolation_constructor
-
-    def __call__(self, 
-                 grid: Grid,
-                 timer: TimingModule) -> CenteredAdvection:
-        """
-        Create a new instance of the centered advection scheme.
-        """
-        interpolation = self.interpolation_constructor(grid)
-        return CenteredAdvection(grid, timer, interpolation)
-
     def __repr__(self):
-        res = "  Advection Scheme: \n"
+        res = super().__repr__()
         res += "    scheme = Centered Advection\n"
-        res += "    interpolation = {}\n".format(self.interpolation_constructor)
+        res += "    interpolation = {}\n".format(self.interpolation)
         return res
 
 # remove symbols from the namespace
-del Grid, TimingModule, State, InterpolationModule, \
-    InterpolationConstructor, LIC, AdvectionModule, AdvectionConstructor
+del State, InterpolationModule, LinearInterpolation, ModelState, \
+    Module, start_module, update_module
