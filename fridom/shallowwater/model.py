@@ -31,10 +31,15 @@ class Model(ModelBase):
         self.mset = mset
 
         # Modules
-        from fridom.shallowwater.modules import LinearTendency, NonlinearTendency
-        self.linear_tendency = LinearTendency(grid, self.timer)
-        self.nonlinear_tendency = NonlinearTendency(grid, self.timer)
+        from fridom.shallowwater.modules.advection import SadournyAdvection
+        from fridom.shallowwater.modules.linear_tendency import LinearTendency
+
+        self.linear_tendency = LinearTendency()
+        self.advection = SadournyAdvection()
         
+        self.linear_tendency.start(grid=grid, timer=self.timer)
+        self.advection.start(grid=grid, timer=self.timer)
+
         # source term
         from fridom.shallowwater.source import Source
         self.source = Source(grid) if mset.enable_source else None
@@ -54,9 +59,9 @@ class Model(ModelBase):
         start_timer = lambda x: self.timer.get(x).start()
         end_timer   = lambda x: self.timer.get(x).stop()
 
-        self.linear_tendency(self.z, self.dz)
+        self.linear_tendency.update(self.model_state, self.dz)
         if self.mset.enable_nonlinear:
-            self.nonlinear_tendency(self.z, self.dz)
+            self.advection.update(self.model_state, self.dz)
 
         # calculate harmonic tendency
         start_timer("Harmonic Tendency")

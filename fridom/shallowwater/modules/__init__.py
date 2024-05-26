@@ -3,17 +3,19 @@
 See fridom/framework/modules/__init__.py for more information.
 
 ## Available Modules:
-    - LinearTendency: Linear tendency term
     - NonlinearTendency: Nonlinear tendency term
     - NetCDFWriter: NetCDF writer module
     - Diagnostics: Diagnostic module
     - animation: Contains animation modules
+    - advection: Contains advection modules
+    - linear_tendency: Contains linear tendency modules
 """
 
-from .linear_tendency import LinearTendency, LinearTendencyFD, LinearTendencySpectral
-from .nonlinear_tendency import NonlinearTendency, NonlinearTendencyFD, NonlinearTendencySpectral
 from .netcdf_writer import NetCDFWriter
 from .diagnostics import Diagnostics
 
 # move the animation module into the nonhydro namespace
 from fridom.framework.modules import animation
+
+from . import linear_tendency
+from . import advection
