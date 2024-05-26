@@ -35,7 +35,8 @@ class Model(ModelBase):
         from fridom.nonhydro.state import State
         from fridom.nonhydro.modules import \
             LinearTendency, PressureGradientTendency, PressureSolve, \
-            SourceTendency
+            SourceTendency, TendencyDivergence
+        from fridom.nonhydro.modules.pressure_solvers import SpectralPressureSolver
 
         mset = grid.mset
         super().__init__(grid, State, ModelState)
@@ -43,13 +44,16 @@ class Model(ModelBase):
         
         # Modules
         self.linear_tendency     = LinearTendency()
-        self.linear_tendency.start(grid=grid, timer=self.timer)
         self.advection           = mset.advection(grid, self.timer)
+        self.tendency_divergence = TendencyDivergence()
         self.pressure_gradient   = PressureGradientTendency()
-        self.pressure_gradient.start(grid=grid, timer=self.timer)
-        self.pressure_solver     = PressureSolve(grid, self.timer)
+        self.pressure_solver     = SpectralPressureSolver()
         self.source_tendency     = SourceTendency(grid, self.timer)
 
+        self.linear_tendency.start(grid=grid, timer=self.timer)
+        self.tendency_divergence.start(grid=grid, timer=self.timer)
+        self.pressure_gradient.start(grid=grid, timer=self.timer)
+        self.pressure_solver.start(grid=grid, timer=self.timer)
 
         return
 
@@ -70,9 +74,11 @@ class Model(ModelBase):
             self.source_tendency(self.dz, self.time)
 
         # solve for pressure
-        self.pressure_solver(self.dz, self.p)
-        self.pressure_gradient.update(self.model_state, self.dz)
+        self.tendency_divergence.update(self.model_state, self.dz)
+        self.pressure_solver.update(self.model_state, self.dz)
 
+        # calculate pressure gradient tendency
+        self.pressure_gradient.update(self.model_state, self.dz)
         return
 
 

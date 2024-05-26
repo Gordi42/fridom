@@ -35,9 +35,6 @@ class ModelSettings(ModelSettingsBase):
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
 
-        pressure_solver (str)   : Choose from "Spectral" or "CG".
-        max_cg_iter (int)       : Maximum number of CG iterations.
-        cg_tol (float)          : CG tolerance.
         advection (AdvectionConstructor): Advection scheme.
     """
     def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):
@@ -65,11 +62,6 @@ class ModelSettings(ModelSettingsBase):
         self.enable_varying_f  = False   # Enable varying Coriolis parameter
         self.enable_source     = False   # Enable source terms
 
-        # Pressure solver
-        self.pressure_solver   = "Spectral" # Choose from "Spectral" or "CG"
-        self.max_cg_iter       = None
-        self.cg_tol            = 1e-10      # Conjugate gradient tolerance
-
         # Advection
         from fridom.nonhydro.modules.advection.second_order_advection import SecondOrderAdvectionConstructor
         self.advection = SecondOrderAdvectionConstructor()
@@ -80,10 +72,6 @@ class ModelSettings(ModelSettingsBase):
         # Some parameters would be overwritten by the init function
         # so we set them again here
         self.model_name = "NonHydrostatic"
-        if "max_cg_iter" in kwargs:
-            self.max_cg_iter   = kwargs["max_cg_iter"]
-        else:
-            self.max_cg_iter       = max(self.N)
         return
 
 
@@ -101,10 +89,6 @@ class ModelSettings(ModelSettingsBase):
         res += "    N0   = {:.3f}\n".format(self.N0)
         res += "    dsqr = {:.3f}\n".format(self.dsqr)
         res += "    Ro   = {:.3f}\n".format(self.Ro)
-        res += "  Pressure solver:\n"
-        res += "    pressure_solver = {}\n".format(self.pressure_solver)
-        res += "    max_cg_iter     = {}\n".format(self.max_cg_iter)
-        res += "    cg_tol          = {}\n".format(self.cg_tol)
         res += "{}".format(self.advection)
         res += "  Switches:\n"
         res += "    enable_nonlinear  = {}\n".format(self.enable_nonlinear)
