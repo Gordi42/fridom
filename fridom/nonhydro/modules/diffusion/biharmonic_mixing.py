@@ -1,44 +1,50 @@
-from fridom.nonhydro.grid import Grid
 from fridom.nonhydro.state import State
-from fridom.framework.timing_module import TimingModule
+from fridom.nonhydro.model_state import ModelState
+from fridom.framework.modules.module import Module, update_module, start_module
 
 
-class BiharmonicMixing:
+class BiharmonicMixing(Module):
     """
     This class computes the biharmonic mixing tendency of the model.
+
+    Computes:
+    $ dz.b += kh \\nabla^4 b + kv \\partial_z^4 b $
+    where:
+    - `kh`: Horizontal biharmonic mixing coefficient.
     """
-
-    def __init__(self, grid: Grid, timer: TimingModule):
+    def __init__(self, kh: float = 0, kv: float = 0):
         """
-        Constructor of the Biharmonic Mixing class.
-
-        mset (ModelSettings) : ModelSettings object.
-        grid (Grid)          : Grid object.
+        ## Arguments:
+        - `kh`: Horizontal harmonic mixing coefficient.
+        - `kv`: Vertical harmonic mixing coefficient.
         """
-        mset = grid.mset
-        self.mset = mset
-        self.grid = grid
-        self.timer = timer
+        super().__init__(name="Biharmonic Mixing", kh=kh, kv=kv)
 
+    @start_module
+    def start(self):
+        # cast the parameters to the correct data type
+        self.kh = self.mset.dtype(self.kh)
+        self.kv = self.mset.dtype(self.kv)
+
+        # compute the grid spacing
+        mset = self.mset
         self.dx2 = mset.dtype(1.0) / mset.dx**2
         self.dy2 = mset.dtype(1.0) / mset.dy**2
         self.dz2 = mset.dtype(1.0) / mset.dz**2
+        return
 
-    def __call__(self, z: State, dz:State):
+    @update_module
+    def update(self, mz: ModelState, dz: State) -> None:
         """
         Compute the biharmonic mixing tendency of the model.
 
         Args:
-            z (State)  : State object.
-            dz (State) : Tendency of the state.
+            mz (ModelState) : Model state.
+            dz (State)      : Tendency of the state.
         """
-        # start the timer
-        self.timer.get("Biharmonic Mixing").start()
-
-        # compute the biharmonic mixing tendency
         # shorthand notation
         dx2 = self.dx2; dy2 = self.dy2; dz2 = self.dz2
-        khbi = self.mset.khbi; kvbi = self.mset.kvbi; 
+        kh = self.kh; kv = self.kv
 
         # Slices
         c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
@@ -58,7 +64,7 @@ class BiharmonicMixing:
                 res (FieldVariable) : Biharmonic friction / mixing.
             """
             # Padding with periodic boundary conditions
-            p = z.cp.pad(p, ((2,2), (2,2), (2,2)), 'wrap')
+            p = self.grid.cp.pad(p, ((2,2), (2,2), (2,2)), 'wrap')
 
             # Apply boundary conditions
             if not self.mset.periodic_bounds[0]:
@@ -80,13 +86,14 @@ class BiharmonicMixing:
             return res
 
 
-        # biharmonic friction / mixing
-        dz.b[:] -= biharmonic_function(z.b, khbi, kvbi)
-
-        # stop the timer
-        self.timer.get("Biharmonic Mixing").stop()
-
+        # biharmonic mixing
+        dz.b[:] -= biharmonic_function(mz.z.b, kh, kv)
         return 
 
+    def __repr__(self) -> str:
+        res = super().__repr__()
+        res += f"    kh: {self.kh}\n    kv: {self.kv}"
+        return res
+
 # remove symbols from the namespace
-del Grid, State, TimingModule
+del State, ModelState, Module, update_module, start_module

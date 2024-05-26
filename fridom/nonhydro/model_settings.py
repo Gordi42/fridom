@@ -21,14 +21,6 @@ class ModelSettings(ModelSettingsBase):
         dy (dtype)             : Grid spacing in y-direction.
         dz (dtype)             : Grid spacing in z-direction.
         periodic_bounds (list) : List of bools for periodic boundaries.
-        ahbi (dtype)           : Hor. biharmonic friction coeff.
-        avbi (dtype)           : Ver. biharmonic friction coeff.
-        khbi (dtype)           : Hor. biharmonic mixing coeff.
-        kvbi (dtype)           : Ver. biharmonic mixing coeff.
-        ah (dtype)             : Hor. harmonic friction coeff.
-        av (dtype)             : Ver. harmonic friction coeff.
-        kh (dtype)             : Hor. harmonic mixing coeff.
-        kv (dtype)             : Ver. harmonic mixing coeff.
         dt (dtype)             : Time step size.
         eps (dtype)            : 2nd order bashforth correction.
         AB1 (np.ndarray)       : 1st order Adams-Bashforth coefficients.
@@ -40,8 +32,6 @@ class ModelSettings(ModelSettingsBase):
         enable_varying_N (bool) : Enable varying stratification.
         enable_varying_f (bool) : Enable varying Coriolis parameter.
         enable_source (bool)    : Enable source terms.
-        enable_biharmonic (bool): Enable biharmonic friction and mixing.
-        enable_harmonic (bool)  : Enable harmonic friction and mixing.
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
 
@@ -66,16 +56,6 @@ class ModelSettings(ModelSettingsBase):
         self.dsqr = dtype(0.2**2)
         self.Ro   = dtype(0.1)
 
-        # friction and mixing parameters
-        self.ahbi = dtype(0)
-        self.avbi = dtype(0)
-        self.khbi = dtype(0)
-        self.kvbi = dtype(0)
-        self.ah   = dtype(0)
-        self.av   = dtype(0)
-        self.kh   = dtype(0)
-        self.kv   = dtype(0)
-
         # ------------------------------------------------------------------
         #   SWITCHES
         
@@ -84,8 +64,6 @@ class ModelSettings(ModelSettingsBase):
         self.enable_varying_N  = False   # Enable varying stratification
         self.enable_varying_f  = False   # Enable varying Coriolis parameter
         self.enable_source     = False   # Enable source terms
-        self.enable_biharmonic = False   # Enable biharmonic friction and mixing
-        self.enable_harmonic   = False   # Enable harmonic friction and mixing
 
         # Pressure solver
         self.pressure_solver   = "Spectral" # Choose from "Spectral" or "CG"
@@ -109,16 +87,6 @@ class ModelSettings(ModelSettingsBase):
         return
 
 
-    def scale_biharmonic(self):
-        """
-        Scale biharmonic friction and mixing coefficients with grid spacing.
-        """
-        self.ahbi = self.dtype(self.Ro/2 * self.dx**4)
-        self.avbi = self.dtype(self.Ro/2 * self.dz**4)
-        self.khbi = self.dtype(self.Ro/2 * self.dx**4)
-        self.kvbi = self.dtype(self.Ro/2 * self.dz**4)
-        return
-
     def __str__(self) -> str:
         """
         String representation of the model settings.
@@ -133,15 +101,6 @@ class ModelSettings(ModelSettingsBase):
         res += "    N0   = {:.3f}\n".format(self.N0)
         res += "    dsqr = {:.3f}\n".format(self.dsqr)
         res += "    Ro   = {:.3f}\n".format(self.Ro)
-        res += "  Friction and mixing parameters:\n"
-        res += "    ahbi = {:.2e}".format(self.ahbi)
-        res += "    avbi = {:.2e}\n".format(self.avbi)
-        res += "    khbi = {:.2e}".format(self.khbi)
-        res += "    kvbi = {:.2e}\n".format(self.kvbi)
-        res += "    ah   = {:.2e}".format(self.ah)
-        res += "    av   = {:.2e}\n".format(self.av)
-        res += "    kh   = {:.2e}".format(self.kh)
-        res += "    kv   = {:.2e}\n".format(self.kv)
         res += "  Pressure solver:\n"
         res += "    pressure_solver = {}\n".format(self.pressure_solver)
         res += "    max_cg_iter     = {}\n".format(self.max_cg_iter)
@@ -152,8 +111,6 @@ class ModelSettings(ModelSettingsBase):
         res += "    enable_varying_N  = {}\n".format(self.enable_varying_N)
         res += "    enable_varying_f  = {}\n".format(self.enable_varying_f)
         res += "    enable_source     = {}\n".format(self.enable_source)
-        res += "    enable_biharmonic = {}\n".format(self.enable_biharmonic)
-        res += "    enable_harmonic   = {}\n".format(self.enable_harmonic)
         res += "================================================\n"
         return res
 

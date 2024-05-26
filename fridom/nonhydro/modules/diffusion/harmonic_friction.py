@@ -8,9 +8,9 @@ class HarmonicFriction(Module):
     This class computes the harmonic friction tendency of the model.
 
     Computes:
-    $ dz.u += ah \\nabla^2 u $
-    $ dz.v += ah \\nabla^2 v $
-    $ dz.w += ah \\nabla^2 w $
+    $ dz.u += ah \\nabla^2 u + kh \\partial_z^2 u $
+    $ dz.v += ah \\nabla^2 v + kh \\partial_z^2 v $
+    $ dz.w += ah \\nabla^2 w + kh \\partial_z^2 w $
     where:
     - `ah`: Horizontal harmonic friction coefficient.
     - `av`: Vertical harmonic friction coefficient.
@@ -37,7 +37,7 @@ class HarmonicFriction(Module):
 
         Args:
             mz (ModelState) : Model state.
-            dz (State)      : Linear tendency of the state.
+            dz (State)      : Tendency of the state.
         """
         # compute the harmonic friction tendency
         u = mz.z.u; v = mz.z.v; w = mz.z.w

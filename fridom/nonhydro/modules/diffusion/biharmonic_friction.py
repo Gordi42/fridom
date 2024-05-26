@@ -1,44 +1,53 @@
-from fridom.nonhydro.grid import Grid
 from fridom.nonhydro.state import State
-from fridom.framework.timing_module import TimingModule
+from fridom.nonhydro.model_state import ModelState
+from fridom.framework.modules.module import Module, update_module, start_module
 
 
-class BiharmonicFriction:
+class BiharmonicFriction(Module):
     """
     This class computes the biharmonic friction tendency of the model.
+
+    Computes:
+    $ dz.u += ah \\nabla^4 u + kh \\partial_z^4 u $
+    $ dz.v += ah \\nabla^4 v + kh \\partial_z^4 v $
+    $ dz.w += ah \\nabla^4 w + kh \\partial_z^4 w $
+    where:
+    - `ah`: Horizontal biharmonic friction coefficient.
+    - `av`: Vertical biharmonic friction coefficient.
     """
-
-    def __init__(self, grid: Grid, timer: TimingModule):
+    def __init__(self, ah: float = 0, av: float = 0):
         """
-        Constructor of the Biharmonic Friction class.
-
-        mset (ModelSettings) : ModelSettings object.
-        grid (Grid)          : Grid object.
+        ## Arguments:
+        - `ah`: Horizontal harmonic friction coefficient.
+        - `av`: Vertical harmonic friction coefficient.
         """
-        mset = grid.mset
-        self.mset = mset
-        self.grid = grid
-        self.timer = timer
+        super().__init__(name="Biharmonic Friction", ah=ah, av=av)
 
+    @start_module
+    def start(self):
+        # cast the parameters to the correct data type
+        self.ah = self.mset.dtype(self.ah)
+        self.av = self.mset.dtype(self.av)
+
+        # compute the grid spacing
+        mset = self.mset
         self.dx2 = mset.dtype(1.0) / mset.dx**2
         self.dy2 = mset.dtype(1.0) / mset.dy**2
         self.dz2 = mset.dtype(1.0) / mset.dz**2
+        return
 
-    def __call__(self, z: State, dz:State):
+    @update_module
+    def update(self, mz: ModelState, dz: State) -> None:
         """
         Compute the biharmonic friction tendency of the model.
 
         Args:
-            z (State)  : State object.
-            dz (State) : Tendency of the state.
+            mz (ModelState) : Model state.
+            dz (State)      : Tendency of the state.
         """
-        # start the timer
-        self.timer.get("Biharmonic Friction").start()
-
-        # compute the biharmonic friction tendency
         # shorthand notation
         dx2 = self.dx2; dy2 = self.dy2; dz2 = self.dz2
-        ahbi = self.mset.ahbi; avbi = self.mset.avbi; 
+        ah = self.ah; av = self.av
 
         # Slices
         c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
@@ -58,7 +67,7 @@ class BiharmonicFriction:
                 res (FieldVariable) : Biharmonic friction / mixing.
             """
             # Padding with periodic boundary conditions
-            p = z.cp.pad(p, ((2,2), (2,2), (2,2)), 'wrap')
+            p = self.grid.cp.pad(p, ((2,2), (2,2), (2,2)), 'wrap')
 
             # Apply boundary conditions
             if not self.mset.periodic_bounds[0]:
@@ -80,15 +89,16 @@ class BiharmonicFriction:
             return res
 
 
-        # biharmonic friction / mixing
-        dz.u[:] -= biharmonic_function(z.u, ahbi, avbi)
-        dz.v[:] -= biharmonic_function(z.v, ahbi, avbi)
-        dz.w[:] -= biharmonic_function(z.w, ahbi, avbi)
-
-        # stop the timer
-        self.timer.get("Biharmonic Friction").stop()
-
+        # biharmonic friction 
+        dz.u[:] -= biharmonic_function(mz.z.u, ah, av)
+        dz.v[:] -= biharmonic_function(mz.z.v, ah, av)
+        dz.w[:] -= biharmonic_function(mz.z.w, ah, av)
         return 
 
+    def __repr__(self) -> str:
+        res = super().__repr__()
+        res += f"    ah: {self.ah}\n    av: {self.av}"
+        return res
+
 # remove symbols from the namespace
-del Grid, State, TimingModule
+del State, ModelState, Module, update_module, start_module
