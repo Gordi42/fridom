@@ -31,7 +31,6 @@ class ModelBase:
         update_pointer()        : Update pointer for the time stepping.
         update_coeff_AB()       : Upward ramping of Adam-Bashforth coefficients  
                                   after restart.
-        diagnostics()           : Print diagnostics of the model.
         reset()                 : Reset the model (pointers, tendencies)
     """
 

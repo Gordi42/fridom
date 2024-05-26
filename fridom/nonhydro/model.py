@@ -44,7 +44,8 @@ class Model(ModelBase):
         self.mset = mset
         
         # Modules
-        self.linear_tendency     = LinearTendency(grid, self.timer)
+        self.linear_tendency     = LinearTendency()
+        self.linear_tendency.start(grid=grid, timer=self.timer)
         self.advection           = mset.advection(grid, self.timer)
         self.pressure_gradient   = PressureGradientTendency(grid, self.timer)
         self.pressure_solver     = PressureSolve(grid, self.timer)
@@ -64,7 +65,7 @@ class Model(ModelBase):
     def total_tendency(self):
         
         # calculate linear tendency
-        self.linear_tendency(self.z, self.dz)
+        self.linear_tendency.update(self.model_state, self.dz)
 
         # calculate nonlinear tendency
         if self.mset.enable_nonlinear:

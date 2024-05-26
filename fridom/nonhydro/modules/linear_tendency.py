@@ -1,45 +1,37 @@
 from fridom.nonhydro.grid import Grid
 from fridom.nonhydro.state import State
+from fridom.nonhydro.model_state import ModelState
 from fridom.framework.timing_module import TimingModule
+from fridom.framework.modules.module import Module, update_module, start_module
 
 
-class LinearTendency:
+class LinearTendency(Module):
     """
     This class computes the linear tendency of the model.
     """
+    def __init__(self):
+        super().__init__(name="Linear Tendency")
 
-    def __init__(self, grid: Grid, timer: TimingModule):
-        """
-        Constructor of the LinearTendency class.
+    @start_module
+    def start(self):
+        self.quarter = self.mset.dtype(0.25)
+        self.half = self.mset.dtype(0.5)
 
-        mset (ModelSettings) : ModelSettings object.
-        grid (Grid)          : Grid object.
-        """
-        mset = grid.mset
-        self.mset = mset
-        self.grid = grid
-        self.timer = timer
-
-        self.quarter = mset.dtype(0.25)
-        self.half = mset.dtype(0.5)
-
-    def __call__(self, z: State, dz: State) -> None:
+    @update_module
+    def update(self, mz: ModelState, dz: State) -> None:
         """
         Compute the linear tendency of the model.
 
         Args:
-            z (State)  : State object.
-            dz (State) : Linear tendency of the state.
+            mz (ModelState) : Model state.
+            dz (State)      : Linear tendency of the state.
         """
-        # start the timer
-        self.timer.get("Linear Tendency").start()
-
         # compute the linear tendency
-        u = z.u; v = z.v; w = z.w; b = z.b
+        u = mz.z.u; v = mz.z.v; w = mz.z.w; b = mz.z.b
         dsqr = self.mset.dsqr
         f_cor = self.grid.f_array
         N2 = self.grid.N2_array
-        cp = z.cp
+        cp = self.grid.cp
 
         # Padding for averaging
         up = cp.pad(u, ((1,0), (0,1), (0,0)), 'wrap')
@@ -74,10 +66,12 @@ class LinearTendency:
         # calculate b-tendency
         dz.b[:] = - (wp[:,:,f] + wp[:,:,b]) * h * N2
 
-        # stop the timer
-        self.timer.get("Linear Tendency").stop()
-
         return
 
+    def __repr__(self) -> str:
+        res = super().__repr__()
+        res += "    discretization: Finite Difference\n"
+        return res
+
 # remove symbols from the namespace
-del Grid, State, TimingModule
+del Grid, State, TimingModule, Module, update_module, start_module, ModelState
