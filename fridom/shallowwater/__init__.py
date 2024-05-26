@@ -17,9 +17,9 @@ Based on Sadourny [1975].
     DiagnoseImbalance : diagnostic tool for measuring imbalances
 
 ## Modules:
+    modules           : contains all the modules
     initial_conditions: contains initial conditions
     projection        : for flow decomposition
-    source            : contains source terms to force the model
     eigenvectors      : eigenvectors module
 
 ## Example:
@@ -55,5 +55,4 @@ from fridom.framework.field_variable import FieldVariable
 from . import modules
 from . import initial_conditions
 from . import projection
-from . import source
 from . import eigenvectors
