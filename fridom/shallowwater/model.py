@@ -19,15 +19,11 @@ class Model(ModelBase):
             grid (Grid)             : Grid.
         """
         mset = grid.mset
-        if mset.solver == "FD":
-            is_spectral = False
-        elif mset.solver == "Spectral":
-            is_spectral = True
         from fridom.shallowwater.state import State
         super().__init__(grid, 
                          State, 
                          ModelState,
-                         is_spectral=is_spectral)
+                         is_spectral=False)
         self.mset = mset
 
         # Modules

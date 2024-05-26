@@ -55,8 +55,6 @@ class ModelSettings(ModelSettingsBase):
         self.L = [2*np.pi, 2*np.pi]
         self.N = [63, 63]
 
-        self._solver = "FD"
-
         # physical parameters
         self.csqr = dtype(1)
         self.f0   = dtype(1)
@@ -136,25 +134,6 @@ class ModelSettings(ModelSettingsBase):
     # ==================================================================
     #  GETTER AND SETTER FOR PRIVATE VARIABLES
     # ==================================================================
-    @property
-    def solver(self) -> str:
-        """Solver name."""
-        return self._solver
-    
-    @solver.setter
-    def solver(self, value: str):
-        options = ["FD", "Spectral"]
-        if value not in options:
-            raise ValueError(
-                "Invalid solver name '{}'. Options are: {}".format(
-                    value, options
-                    )
-                )
-        self._solver = value
-        if value == "Spectral":
-            print("WARNING: Spectral solver not fully implemented yet.")
-        return
-
     @property
     def N(self) -> list:
         """Grid points in each direction."""
