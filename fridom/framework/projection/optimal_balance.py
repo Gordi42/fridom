@@ -2,7 +2,7 @@ import numpy as np
 
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_base import ModelBase
+from fridom.framework.model import Model
 from fridom.framework.projection.projection import Projection
 
 
@@ -11,7 +11,7 @@ class OptimalBalanceBase(Projection):
     Nonlinear balancing using the optimal balance method.
     """
     def __init__(self, grid: GridBase,
-                 Model: ModelBase,
+                 Model: Model,
                  base_proj:Projection,
                  ramp_period=1,
                  ramp_type="exp",
@@ -288,4 +288,4 @@ class OptimalBalanceBase(Projection):
             return z_res
 
 # remove symbols from the namespace
-del GridBase, StateBase, ModelBase, Projection
+del GridBase, StateBase, Model, Projection

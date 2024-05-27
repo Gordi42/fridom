@@ -2,7 +2,7 @@ import numpy as np
 
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_base import ModelBase
+from fridom.framework.model import Model
 from fridom.framework.projection.projection import Projection
 
 class GeostrophicTimeAverageBase(Projection):
@@ -10,7 +10,7 @@ class GeostrophicTimeAverageBase(Projection):
     Geostrophic projection using time-averaging.
     """
     def __init__(self, grid: GridBase, 
-                 Model: ModelBase,
+                 Model: Model,
                  n_ave=4,
                  equidistant_chunks=True,
                  max_period=None,
@@ -104,4 +104,4 @@ class GeostrophicTimeAverageBase(Projection):
 
 
 # remove symbols from namespace
-del GridBase, StateBase, ModelBase
+del GridBase, StateBase, Model

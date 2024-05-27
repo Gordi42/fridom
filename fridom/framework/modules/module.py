@@ -94,8 +94,9 @@ class Module:
         """
         Initialize the module with the given keyword arguments.
         Child classes should always call the parent constructor with
-        `super().__init__(name, **kwargs)`. Avoid giving the model settings or the grid
-        as arguments, as they are set by the model when the module is started.
+        `super().__init__(name, **kwargs)`. Avoid giving the model settings or 
+        the grid as arguments, as they are set by the model when the module 
+        is started.
         """
         # The module is enabled by default
         self.__enabled = True

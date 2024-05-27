@@ -40,7 +40,6 @@ nh.Plot(model.z.ekin()).top(model.z)
 # import all the classes and functions from the nonhydro module
 from .model_settings import ModelSettings
 from .grid import Grid
-from .model import Model
 from .state import State
 from .model_state import ModelState
 from .plot import Plot, PlotContainer
@@ -49,6 +48,9 @@ from .diagnose_imbalance import DiagnoseImbalance
 
 # move the field variable into the nonhydro namespace
 from fridom.framework.field_variable import FieldVariable
+
+# move the model from the framework into the nonhydro namespace
+from fridom.framework.model import Model
 
 # importing modules
 from . import modules

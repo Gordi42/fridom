@@ -1,11 +1,11 @@
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_base import ModelBase
+from fridom.framework.model import Model
 from fridom.framework.projection.projection import Projection
 
 class DiagnoseImbalanceBase:
     def __init__(self, grid:GridBase,
-                 Model:ModelBase,
+                 Model:Model,
                  diag_per:float,
                  proj:Projection,
                  proj2=None,
@@ -85,4 +85,4 @@ class DiagnoseImbalanceBase:
         return self.imbalance
 
 # remove symbols from namespace
-del GridBase, StateBase, ModelBase, Projection
+del GridBase, StateBase, Model, Projection

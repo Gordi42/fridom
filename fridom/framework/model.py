@@ -6,7 +6,7 @@ from fridom.framework.state_base import StateBase
 from fridom.framework.model_state import ModelStateBase
 
 
-class ModelBase:
+class Model:
     """
     Base class for the model.
 
@@ -32,17 +32,12 @@ class ModelBase:
         reset()                 : Reset the model (pointers, tendencies)
     """
 
-    def __init__(self, 
-                 grid: GridBase, 
-                 State: StateBase,
-                 ModelState: ModelStateBase, 
-                 is_spectral=False) -> None:
+    def __init__(self, grid: GridBase) -> None:
         """
         Constructor.
 
         Args:
             grid (Grid)             : Grid.
-            State (State)           : State class.
         """
         mset = grid.mset
         self.mset = mset
@@ -50,10 +45,10 @@ class ModelBase:
         cp = grid.cp
 
         # state variable
-        self.model_state = ModelState(grid=grid, is_spectral=is_spectral)
+        self.model_state = mset.model_state_constructor(grid)
 
         # time stepping variables
-        self.dz_list = [State(grid, is_spectral=is_spectral) for _ in range(mset.time_levels)]
+        self.dz_list = [mset.state_constructor(grid) for _ in range(mset.time_levels)]
         self.pointer = np.arange(mset.time_levels, dtype=cp.int32)
         self.coeffs = [
             cp.asarray(mset.AB1), cp.asarray(mset.AB2),

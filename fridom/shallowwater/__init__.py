@@ -43,13 +43,15 @@ from .model_settings import ModelSettings
 from .grid import Grid
 from .state import State
 from .model_state import ModelState
-from .model import Model
 from .plot import Plot, PlotContainer
 from .model_plotter import ModelPlotter
 from .diagnosed_imbalance import DiagnoseImbalance
 
-# move the field variable into the nonhydro namespace
+# move the field variable into the shallowwater namespace
 from fridom.framework.field_variable import FieldVariable
+
+# move the model from the framework into the shallowwater namespace
+from fridom.framework.model import Model
 
 # import modules
 from . import modules

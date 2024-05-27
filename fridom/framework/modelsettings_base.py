@@ -90,6 +90,13 @@ class ModelSettingsBase:
         self.enable_tqdm       = True    # Enable progress bar
         self.enable_verbose    = False   # Enable verbose output
 
+        # State Constructors
+        from fridom.framework.state_base import StateBase
+        self.state_constructor = lambda grid: StateBase(grid)
+        from fridom.framework.model_state import ModelStateBase
+        self.model_state_constructor = lambda grid: ModelStateBase(grid)
+
+
         # Set attributes from keyword arguments
         for key, value in kwargs.items():
             # Check if attribute exists

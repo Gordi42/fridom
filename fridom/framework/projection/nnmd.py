@@ -2,7 +2,7 @@ import numpy as np
 
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_base import ModelBase
+from fridom.framework.model import Model
 from fridom.framework.projection.projection import Projection
 
 class NNMDBase(Projection):
@@ -10,7 +10,7 @@ class NNMDBase(Projection):
     Nonlinear normal mode decomposition.
     """
     def __init__(self, grid: GridBase,
-                 Model: ModelBase, State: StateBase,
+                 Model: Model, State: StateBase,
                  VecQ, VecP,
                  order=3,
                  enable_dealiasing=True) -> None:
@@ -384,4 +384,4 @@ class NNMDBase(Projection):
 
 
 # remove symbols from the namespace
-del GridBase, StateBase, ModelBase, Projection
+del GridBase, StateBase, Model, Projection

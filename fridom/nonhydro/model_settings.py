@@ -67,6 +67,14 @@ class ModelSettings(ModelSettingsBase):
         # main tendency
         from fridom.nonhydro.modules.main_tendency import MainTendency
         self.tendencies = MainTendency()
+
+        # state constructor
+        from fridom.nonhydro.state import State
+        self.state_constructor = lambda grid: State(grid, is_spectral=False)
+
+        # model state constructor
+        from fridom.nonhydro.model_state import ModelState
+        self.model_state_constructor = lambda grid: ModelState(grid)
         return
 
 
