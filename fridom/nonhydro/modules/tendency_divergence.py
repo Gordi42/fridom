@@ -64,7 +64,7 @@ class TendencyDivergence(Module):
 
     def __repr__(self) -> str:
         res = super().__repr__()
-        res += "  discretization = Finite Difference\n"
+        res += "    discretization = Finite Difference\n"
         return res
 
 # remove symbols from the namespace

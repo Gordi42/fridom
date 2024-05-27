@@ -76,11 +76,11 @@ class ModelSettingsBase:
         self.AB3 = np.array([23/12, -4/3, 5/12], dtype=dtype)
         self.AB4 = np.array([55/24, -59/24, 37/24, -3/8], dtype=dtype)
 
-        from fridom.framework.modules.main_tendency import MainTendencyBase
+        from fridom.framework.modules.module_container import ModuleContainer
         # List of modules that calculate tendencies
-        self.main_tendency = MainTendencyBase()
+        self.tendencies = ModuleContainer(name="All Tendency Modules")
         # List of modules that do diagnostics
-        self.diagnostic_modules = []
+        self.diagnostics = ModuleContainer(name="All Diagnostic Modules")
 
         # ------------------------------------------------------------------
         #   SWITCHES
@@ -142,10 +142,8 @@ class ModelSettingsBase:
         res += "    dt  = {:.3f}".format(self.dt)
         res += "    eps = {:.3f}\n".format(self.eps)
         res += "    time_levels = {}\n".format(self.time_levels)
-        res += f"{self.main_tendency}"
-        res += "-- DIAGNOSTIC MODULES --------------------------\n"
-        for module in self.diagnostic_modules:
-            res += f"{module}"
+        res += f"{self.tendencies}"
+        res += f"{self.diagnostics}"
         res += "------------------------------------------------\n"
         return res
 

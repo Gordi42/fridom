@@ -2,9 +2,11 @@ from .module import Module, start_module, stop_module, update_module
 from fridom.framework.state_base import StateBase
 from fridom.framework.model_state import ModelStateBase
 
-class MainTendencyBase(Module):
-    def __init__(self, module_list=[]):
-        super().__init__(name="All Tendency Modules", module_list=module_list)
+class ModuleContainer(Module):
+    def __init__(self, name="Module Container", module_list: list = None):
+        if module_list is None:
+            module_list = []
+        super().__init__(name=name, module_list=module_list)
 
     @start_module
     def start(self) -> None:
@@ -39,7 +41,7 @@ class MainTendencyBase(Module):
             module.update(mz=mz, dz=dz)
         return
 
-    def add(self, module) -> None:
+    def add_module(self, module) -> None:
         """
         # Add a module to the list.
         ## Args:
@@ -66,7 +68,11 @@ class MainTendencyBase(Module):
         """
         # String representation of the module.
         """
-        res = f"-- TENDENCY MODULES: ---------------------------\n"
+        # format the title into a 48 character string of format
+        # "==================== TITLE ===================="
+        title = self.name.upper()
+        title = title.center(len(title)+2).center(48, "=")
+        res = f"{title}\n"
         for module in self.module_list:
             res += f"{module}"
         return res

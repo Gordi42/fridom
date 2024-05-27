@@ -1,4 +1,4 @@
-from fridom.framework.modules.main_tendency import MainTendencyBase
+from fridom.framework.modules.module_container import ModuleContainer
 from fridom.nonhydro.modules.linear_tendency import LinearTendency
 from fridom.nonhydro.modules.advection \
     .second_order_advection import SecondOrderAdvection
@@ -8,8 +8,9 @@ from fridom.nonhydro.modules \
 from fridom.nonhydro.modules.pressure_solvers \
     .spectral_pressure_solver import SpectralPressureSolver
 
-class MainTendency(MainTendencyBase):
+class MainTendency(ModuleContainer):
     def __init__(self,
+                 name="All Tendency Modules",
                  linear_tendency=LinearTendency(),
                  advection=SecondOrderAdvection(),
                  tendency_divergence=TendencyDivergence(),
@@ -22,20 +23,23 @@ class MainTendency(MainTendencyBase):
             pressure_solver,             # Always on element -2
             pressure_gradient_tendency,  # Always on element -1
         ]
-        super().__init__(module_list=module_list)
+        super().__init__(name=name, module_list=module_list)
         self.additional_modules = []
         return
 
-    def add(self, module):
+    def add_module(self, module):
         # add the module to the additional_modules list
         self.additional_modules.append(module)
         # update the module list
         # we need to make sure that the pressure solver and the pressure 
         # gradient tendency are always in the last two positions
-        module_list = [self.linear_tendency, self.advection]
+        module_list = []
+        module_list.append(self.linear_tendency)
+        module_list.append(self.advection)
         module_list += self.additional_modules
-        module_list += [self.tendency_divergence]
-        module_list += [self.pressure_solver, self.pressure_gradient_tendency]
+        module_list.append(self.tendency_divergence)
+        module_list.append(self.pressure_solver)
+        module_list.append(self.pressure_gradient_tendency)
         self.module_list = module_list
         return
 
@@ -89,5 +93,5 @@ class MainTendency(MainTendencyBase):
         return
 
 # remove symbols from the namespace
-del MainTendencyBase, LinearTendency, SecondOrderAdvection, \
+del ModuleContainer, LinearTendency, SecondOrderAdvection, \
     PressureGradientTendency, SpectralPressureSolver, TendencyDivergence

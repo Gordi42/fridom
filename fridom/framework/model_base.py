@@ -25,8 +25,6 @@ class ModelBase:
     Methods:
         run()                   : Run the model for a given number of steps.
         step()                  : Perform one time step.
-        total_tendency()        : Calculate the tendency.
-        nonlinear_tendency()    : Calculate nonlinear tendency.
         time_stepping()         : Perform Adam-Bashforth time stepping.
         update_pointer()        : Update pointer for the time stepping.
         update_coeff_AB()       : Upward ramping of Adam-Bashforth coefficients  
@@ -70,8 +68,8 @@ class ModelBase:
 
         # Modules
         from copy import deepcopy
-        self.main_tendency = deepcopy(mset.main_tendency)
-        self.diagnostics_modules = deepcopy(mset.diagnostic_modules)
+        self.tendencies  = deepcopy(mset.tendencies)
+        self.diagnostics = deepcopy(mset.diagnostics)
         return
 
     def start(self):
@@ -79,18 +77,16 @@ class ModelBase:
         Prepare the model for running.
         """
         # start all modules
-        self.main_tendency.start(grid=self.grid, timer=self.timer)
-        for module in self.diagnostics_modules:
-            module.start(grid=self.grid, timer=self.timer)
+        self.tendencies.start(grid=self.grid, timer=self.timer)
+        self.diagnostics.start(grid=self.grid, timer=self.timer)
         return
 
     def stop(self):
         """
         Finish the model run.
         """
-        self.main_tendency.stop()
-        for module in self.diagnostics_modules:
-            module.stop()
+        self.tendencies.stop()
+        self.diagnostics.stop()
         return
         
 
@@ -144,7 +140,7 @@ class ModelBase:
         end_timer   = lambda x: self.timer.get(x).stop()
 
         # calculate tendency
-        self.main_tendency.update(mz=self.model_state, dz=self.dz)
+        self.tendencies.update(mz=self.model_state, dz=self.dz)
 
         # Adam Bashforth time stepping
         start_timer("Time Stepping")
@@ -154,25 +150,10 @@ class ModelBase:
         self.model_state.it += 1
         self.model_state.time += self.mset.dt
 
-        # loop over diagnostics modules
-        for module in self.diagnostics_modules:
-            module.update(self.model_state, self.dz)
+        # make diagnostics
+        self.diagnostics.update(self.model_state, self.dz)
         return
 
-
-    # ============================================================
-    #   TENDENCIES
-    # ============================================================
-
-    def nonlinear_tendency(self) -> StateBase:
-        """
-        Calculate nonlinear tendency. Models do not have to implement this method. It is called in some balancing routines.
-
-        Returns:
-            dz (State)  : Nonlinear tendency.
-        """
-        # to implement in child class
-        return
 
     # ============================================================
     #   TIME STEPPING
@@ -269,6 +250,8 @@ class ModelBase:
         """
         Reset the model (pointers, tendencies).
         """
+        self.tendencies.reset()
+        self.diagnostics.reset()
         self.it = 0
         self.timer.reset()
         self.z *= 0

@@ -1,18 +1,19 @@
-from fridom.framework.modules.main_tendency import MainTendencyBase
+from fridom.framework.modules.module_container import ModuleContainer
 from fridom.shallowwater.modules.linear_tendency \
     .linear_tendency import LinearTendency
 from fridom.shallowwater.modules.advection \
     .sadourny_advection import SadournyAdvection
 
-class MainTendency(MainTendencyBase):
+class MainTendency(ModuleContainer):
     def __init__(self,
+                 name="All Tendency Modules",
                  linear_tendency=LinearTendency(),
                  advection=SadournyAdvection()):
         module_list = [
             linear_tendency,  # Always on element 0
             advection         # Always on element 1
         ]
-        super().__init__(module_list=[linear_tendency, advection])
+        super().__init__(name=name, module_list=module_list)
         self.additional_modules = []
         return
 
@@ -40,4 +41,4 @@ class MainTendency(MainTendencyBase):
         return
 
 # remove symbols from the namespace
-del MainTendencyBase, LinearTendency, SadournyAdvection
+del ModuleContainer, LinearTendency, SadournyAdvection

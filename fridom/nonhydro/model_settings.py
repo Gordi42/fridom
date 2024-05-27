@@ -66,7 +66,7 @@ class ModelSettings(ModelSettingsBase):
 
         # main tendency
         from fridom.nonhydro.modules.main_tendency import MainTendency
-        self.main_tendency = MainTendency()
+        self.tendencies = MainTendency()
         return
 
 

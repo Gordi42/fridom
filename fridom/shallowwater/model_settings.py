@@ -59,7 +59,7 @@ class ModelSettings(ModelSettingsBase):
 
         # main tendency
         from fridom.shallowwater.modules.main_tendency import MainTendency
-        self.main_tendency = MainTendency()
+        self.tendencies = MainTendency()
 
         # ------------------------------------------------------------------
         #   SWITCHES

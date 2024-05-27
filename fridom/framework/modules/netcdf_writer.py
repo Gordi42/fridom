@@ -86,7 +86,7 @@ class NetCDFWriter(Module):
         return
 
     @update_module
-    def update(self, mz: ModelStateBase, _dz: StateBase):
+    def update(self, mz: ModelStateBase, dz: StateBase):
         """
         Write data to binary files and add them to the NetCDF file.
         """
