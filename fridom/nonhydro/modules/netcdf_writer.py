@@ -1,6 +1,6 @@
 from fridom.framework.modules.netcdf_writer \
     import NetCDFWriter as NetCDFWriterBase
-from fridom.nonhydro.model_state import ModelState
+from fridom.framework.model_state import ModelState
 
 class NetCDFWriter(NetCDFWriterBase):
     def __init__(self, 
@@ -19,7 +19,7 @@ class NetCDFWriter(NetCDFWriterBase):
             var_names, var_long_names, var_unit_names)
 
     def get_variables(self, mz: ModelState):
-        return [mz.z.u, mz.z.v, mz.z.w, mz.z.b, mz.p]
+        return [mz.z.u, mz.z.v, mz.z.w, mz.z.b, mz.z_diag.p]
 
 # remove symbols from the namespace
 del NetCDFWriterBase, ModelState

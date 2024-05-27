@@ -1,4 +1,4 @@
-from fridom.framework.model_state import ModelStateBase
+from fridom.framework.model_state import ModelState
 
 class ModelPlotterBase:
     """
@@ -16,7 +16,7 @@ class ModelPlotterBase:
         """
         raise NotImplementedError
 
-    def update_figure(fig, mz: ModelStateBase) -> None:
+    def update_figure(fig, mz: ModelState) -> None:
         """
         This method should update the figure object with the
         given model state.
@@ -31,4 +31,4 @@ class ModelPlotterBase:
         raise NotImplementedError
 
 # remove symbols from namespace
-del ModelStateBase
+del ModelState

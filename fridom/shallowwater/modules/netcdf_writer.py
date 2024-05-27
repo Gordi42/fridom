@@ -1,6 +1,6 @@
 from fridom.framework.modules.netcdf_writer \
     import NetCDFWriter as NetCDFWriterBase
-from fridom.shallowwater.model_state import ModelState
+from fridom.framework.model_state import ModelState
 
 class NetCDFWriter(NetCDFWriterBase):
     def __init__(self, 

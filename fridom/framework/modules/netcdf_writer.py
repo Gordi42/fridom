@@ -1,5 +1,5 @@
-from fridom.framework.modelsettings_base import ModelSettingsBase
-from fridom.framework.model_state import ModelStateBase
+from fridom.framework.modelsettings import ModelSettingsBase
+from fridom.framework.model_state import ModelState
 from fridom.framework.state_base import StateBase
 from fridom.framework.modules.module import \
     Module, start_module, update_module, stop_module
@@ -86,7 +86,7 @@ class NetCDFWriter(Module):
         return
 
     @update_module
-    def update(self, mz: ModelStateBase, dz: StateBase):
+    def update(self, mz: ModelState, dz: StateBase):
         """
         Write data to binary files and add them to the NetCDF file.
         """
@@ -126,7 +126,7 @@ class NetCDFWriter(Module):
         self.is_active = False
         return
 
-    def get_variables(self, mz: ModelStateBase):
+    def get_variables(self, mz: ModelState):
         """
         This method should be overwritten by the user to return the variables
         that should be written to the NetCDF file.

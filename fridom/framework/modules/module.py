@@ -1,7 +1,7 @@
 from fridom.framework.grid_base import GridBase
-from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.modelsettings import ModelSettingsBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelStateBase
+from fridom.framework.model_state import ModelState
 from fridom.framework.timing_module import TimingModule
 
 from functools import wraps
@@ -54,7 +54,7 @@ class Module:
     argument which are stored as attributes. Always call the parent constructor 
     with `super().__init__(name, **kwargs)`. The name of the module is stored in
     the timing module and should not be too long.
-    2. `update(self, mz: ModelStateBase, dz: StateBase) -> None`: This method is
+    2. `update(self, mz: ModelState, dz: StateBase) -> None`: This method is
     called by the model at each time step. It can for example update the 
     tendency state `dz` based on the model state `mz`. Or write the model state
     to a file. Make sure to wrap the method with the `@update_module` decorator.
@@ -137,7 +137,7 @@ class Module:
         return
 
     @update_module
-    def update(self, mz: ModelStateBase, dz: StateBase) -> None:
+    def update(self, mz: ModelState, dz: StateBase) -> None:
         """
         This method is called by the model at each time step. Child classes
         should overwrite this method to implement the module's functionality.

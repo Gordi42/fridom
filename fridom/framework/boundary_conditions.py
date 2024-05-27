@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from typing import TypeVar
 
-from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.modelsettings import ModelSettingsBase
 
 ndarray = TypeVar('ndarray')
 

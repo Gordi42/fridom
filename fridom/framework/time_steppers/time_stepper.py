@@ -1,5 +1,5 @@
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelStateBase
+from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module
 
 
@@ -37,7 +37,7 @@ class TimeStepper(Module):
     def __init__(self, name, **kwargs) -> None:
         super().__init__(name, **kwargs)
 
-    def update(self, mz: ModelStateBase):
+    def update(self, mz: ModelState):
         raise NotImplementedError
 
     def update_tendency(self):

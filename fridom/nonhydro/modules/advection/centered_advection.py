@@ -1,5 +1,5 @@
 from fridom.nonhydro.state import State
-from fridom.nonhydro.model_state import ModelState
+from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, start_module, update_module
 
 from fridom.nonhydro.modules.interpolation \

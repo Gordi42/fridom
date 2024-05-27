@@ -4,7 +4,7 @@ import cupy
 import os, sys
 sys.path.append("../..")
 
-from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.modelsettings import ModelSettingsBase
 from fridom.framework.grid_base import GridBase
 from fridom.framework.boundary_conditions import *
 from fridom.framework.field_variable import FieldVariable

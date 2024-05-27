@@ -1,5 +1,5 @@
 from fridom.nonhydro.state import State
-from fridom.nonhydro.model_state import ModelState
+from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, update_module, start_module
 
 
@@ -29,7 +29,7 @@ class PressureGradientTendency(Module):
             dz (State)      : Tendency of the state.
         """
         cp = dz.cp
-        p_pad = cp.pad(mz.p, ((0,1), (0,1), (0,1)), 'wrap')
+        p_pad = cp.pad(mz.z_diag.p, ((0,1), (0,1), (0,1)), 'wrap')
 
         # Slices
         c = slice(None,-1); f = slice(1,None)

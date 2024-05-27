@@ -1,7 +1,7 @@
 import numpy as np
 
 from fridom.framework.modules.animation.model_plotter import ModelPlotterBase
-from fridom.nonhydro.model_state import ModelState
+from fridom.framework.model_state import ModelState
 
 
 class ModelPlotter(ModelPlotterBase):

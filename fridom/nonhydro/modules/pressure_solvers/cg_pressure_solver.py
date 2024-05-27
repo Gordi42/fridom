@@ -1,5 +1,5 @@
 from fridom.nonhydro.state import State
-from fridom.nonhydro.model_state import ModelState
+from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, update_module, start_module
 
 
@@ -67,9 +67,9 @@ class CGPressureSolver(Module):
             mz (ModelState) : Model state.
             dz (State)      : Tendency of the state.
         """
-        p_flat, info = self.cg(self.A, mz.div.reshape(-1), x0=mz.p.reshape(-1),
+        p_flat, info = self.cg(self.A, mz.z_diag.div.reshape(-1), x0=mz.p.reshape(-1),
                              tol=self.tol, maxiter=self.max_iter)
-        mz.p[:] = p_flat.reshape(self.mset.N)
+        mz.z_diag.p[:] = p_flat.reshape(self.mset.N)
         return
 
     def __repr__(self) -> str:

@@ -1,7 +1,7 @@
 from fridom.framework.modules.module import \
     Module, update_module
 from fridom.shallowwater.state import State
-from fridom.shallowwater.model_state import ModelState
+from fridom.framework.model_state import ModelState
 
 class Diagnostics(Module):
     def __init__(self, 

@@ -1,9 +1,4 @@
-from abc import abstractmethod
-import numpy as np
-
 from fridom.framework.grid_base import GridBase
-from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelStateBase
 
 
 class Model:
@@ -39,7 +34,8 @@ class Model:
         self.grid = grid
 
         # state variable
-        self.model_state = grid.mset.model_state_constructor(grid)
+        from fridom.framework.model_state import ModelState
+        self.model_state = ModelState(grid)
 
         # Timer
         from fridom.framework.timing_module import TimingModule
@@ -168,4 +164,4 @@ class Model:
 
 
 # remove symbols from namespace
-del abstractmethod, GridBase, StateBase
+del GridBase

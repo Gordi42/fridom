@@ -21,11 +21,11 @@ This module should mainly be used for developing new modules and models.
 """
 
 # import classes
-from .modelsettings_base import ModelSettingsBase
+from .modelsettings import ModelSettingsBase
 from .grid_base import GridBase
 from .field_variable import FieldVariable
 from .state_base import StateBase
-from .model_state import ModelStateBase
+from .model_state import ModelState
 from .model import Model
 from .diagnose_imbalance_base import DiagnoseImbalanceBase
 

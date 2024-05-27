@@ -1,5 +1,5 @@
 from fridom.nonhydro.state import State
-from fridom.nonhydro.model_state import ModelState
+from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, update_module, start_module
 
 
@@ -57,9 +57,9 @@ class TendencyDivergence(Module):
         zb = (n,n,b); zc = (n,n,c)
 
         # calculate divergence
-        mz.div[:] = (u_pad[xc] - u_pad[xb])*self.dx1 + \
-                    (v_pad[yc] - v_pad[yb])*self.dy1 + \
-                    (w_pad[zc] - w_pad[zb])*self.dz1
+        mz.z_diag.div[:] = (u_pad[xc] - u_pad[xb])*self.dx1 + \
+                           (v_pad[yc] - v_pad[yb])*self.dy1 + \
+                           (w_pad[zc] - w_pad[zb])*self.dz1
         return
 
     def __repr__(self) -> str:

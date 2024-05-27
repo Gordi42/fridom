@@ -2,7 +2,7 @@ import numpy as np
 
 from fridom.framework.modules.module import start_module, update_module
 from fridom.framework.time_steppers.time_stepper import TimeStepper
-from fridom.framework.model_state import ModelStateBase
+from fridom.framework.model_state import ModelState
 
 class AdamBashforth(TimeStepper):
     def __init__(self, dt: float = 0.01, order: int = 3, eps=0.01):
@@ -60,7 +60,7 @@ class AdamBashforth(TimeStepper):
         return
 
     @update_module
-    def update(self, mz: ModelStateBase):
+    def update(self, mz: ModelState):
         """
         # Update the time stepper.
         ## Args:

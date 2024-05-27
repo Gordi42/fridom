@@ -2,7 +2,7 @@ from fridom.framework.modules.module import \
     Module, start_module, stop_module, update_module
 from fridom.framework.modules.animation import ModelPlotterBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelStateBase
+from fridom.framework.model_state import ModelState
 
 
 class VideoWriter(Module):
@@ -76,7 +76,7 @@ class VideoWriter(Module):
         return
 
     @update_module
-    def update(self, mz: ModelStateBase, dz: StateBase):
+    def update(self, mz: ModelState, dz: StateBase):
         """
         Update method of the parallel animated model.
         """
@@ -156,5 +156,5 @@ class VideoWriter(Module):
         return
 
 # remove symbols from namespace
-del ModelPlotterBase, StateBase, ModelStateBase, \
+del ModelPlotterBase, StateBase, ModelState, \
     Module, start_module, stop_module, update_module

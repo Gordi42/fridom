@@ -1,6 +1,6 @@
 import numpy as np
 
-from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.modelsettings import ModelSettingsBase
 
 class ModelSettings(ModelSettingsBase):
     """
@@ -65,10 +65,9 @@ class ModelSettings(ModelSettingsBase):
         # state constructor
         from fridom.nonhydro.state import State
         self.state_constructor = lambda grid: State(grid, is_spectral=False)
-
-        # model state constructor
-        from fridom.nonhydro.model_state import ModelState
-        self.model_state_constructor = lambda grid: ModelState(grid)
+        from fridom.nonhydro.diagnostic_state import DiagnosticState
+        self.diagnostic_state_constructor = lambda \
+            grid: DiagnosticState(grid, is_spectral=False)
         return
 
 

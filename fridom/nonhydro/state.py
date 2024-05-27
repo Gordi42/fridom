@@ -1,4 +1,3 @@
-from fridom.nonhydro.model_settings import ModelSettings
 from fridom.nonhydro.grid import Grid
 from fridom.framework.state_base import StateBase
 from fridom.framework.field_variable import FieldVariable
@@ -336,4 +335,4 @@ class State(StateBase):
 
     
 # remove symbols from namespace
-del ModelSettings, Grid, FieldVariable, StateBase
+del Grid, FieldVariable, StateBase

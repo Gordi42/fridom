@@ -1,6 +1,6 @@
 import numpy as np
 
-from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.modelsettings import ModelSettingsBase
 
 class ModelSettings(ModelSettingsBase):
     """
@@ -51,10 +51,6 @@ class ModelSettings(ModelSettingsBase):
         # state constructor
         from fridom.shallowwater.state import State
         self.state_constructor = lambda grid: State(grid, is_spectral=False)
-
-        # model state constructor
-        from fridom.shallowwater.model_state import ModelState
-        self.model_state_constructor = lambda grid: ModelState(grid)
 
         # ------------------------------------------------------------------
         #   SWITCHES

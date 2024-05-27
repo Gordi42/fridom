@@ -1,4 +1,4 @@
-from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.modelsettings import ModelSettingsBase
 
 class GridBase:
     """

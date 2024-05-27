@@ -2,7 +2,7 @@ from fridom.framework.modules.module import \
     Module, start_module, stop_module, update_module
 from fridom.framework.modules.animation.model_plotter import ModelPlotterBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelStateBase
+from fridom.framework.model_state import ModelState
 
 class LiveAnimation(Module):
     def __init__(self, 
@@ -21,7 +21,7 @@ class LiveAnimation(Module):
         self.fig = self.model_plotter.create_figure()
 
     @update_module
-    def update(self, mz: ModelStateBase, dz: StateBase):
+    def update(self, mz: ModelState, dz: StateBase):
         # check if its time to update the plot
         if mz.it % self.interval != 0:
             return

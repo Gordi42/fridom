@@ -43,15 +43,13 @@ sw.Plot(model.z.ekin())(model.z)
 from .model_settings import ModelSettings
 from .grid import Grid
 from .state import State
-from .model_state import ModelState
 from .plot import Plot, PlotContainer
 from .model_plotter import ModelPlotter
 from .diagnosed_imbalance import DiagnoseImbalance
 
-# move the field variable into the shallowwater namespace
+# move classes from the framework into the shallowwater namespace
 from fridom.framework.field_variable import FieldVariable
-
-# move the model from the framework into the shallowwater namespace
+from fridom.framework.model_state import ModelState
 from fridom.framework.model import Model
 
 # import modules

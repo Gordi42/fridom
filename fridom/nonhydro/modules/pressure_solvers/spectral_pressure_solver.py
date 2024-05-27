@@ -1,5 +1,5 @@
 from fridom.nonhydro.state import State
-from fridom.nonhydro.model_state import ModelState
+from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, update_module
 
 class SpectralPressureSolver(Module):
@@ -20,9 +20,9 @@ class SpectralPressureSolver(Module):
         """
         Solve for the pressure field.
         """
-        ps = mz.div.fft() / (-self.grid.k2_hat)
+        ps = mz.z_diag.div.fft() / (-self.grid.k2_hat)
         ps[self.grid.k2_hat_zero] = 0
-        mz.p[:] = ps.fft()
+        mz.z_diag.p[:] = ps.fft()
         return
 
     def __repr__(self) -> str:
