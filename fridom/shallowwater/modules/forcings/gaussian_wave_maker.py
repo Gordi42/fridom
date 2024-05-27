@@ -60,6 +60,7 @@ class GaussianWaveMaker(Module):
         res += f"    width: {self.width}\n"
         res += f"    frequency: {self.frequency}\n"
         res += f"    amplitude: {self.amplitude}\n"
+        return res
 
 
 # remove symbols from namespace

@@ -66,12 +66,11 @@ class ModelBase:
         # Timer
         from fridom.framework.timing_module import TimingModule
         self.timer = TimingModule()
-        self.timer.add_component("Total Tendency")
         self.timer.add_component("Time Stepping")
 
         # Modules
         from copy import deepcopy
-        self.tendency_modules = deepcopy(mset.tendency_modules)
+        self.main_tendency = deepcopy(mset.main_tendency)
         self.diagnostics_modules = deepcopy(mset.diagnostic_modules)
         return
 
@@ -80,8 +79,7 @@ class ModelBase:
         Prepare the model for running.
         """
         # start all modules
-        for module in self.tendency_modules:
-            module.start(grid=self.grid, timer=self.timer)
+        self.main_tendency.start(grid=self.grid, timer=self.timer)
         for module in self.diagnostics_modules:
             module.start(grid=self.grid, timer=self.timer)
         return
@@ -90,8 +88,7 @@ class ModelBase:
         """
         Finish the model run.
         """
-        for module in self.tendency_modules:
-            module.stop()
+        self.main_tendency.stop()
         for module in self.diagnostics_modules:
             module.stop()
         return
@@ -147,13 +144,7 @@ class ModelBase:
         end_timer   = lambda x: self.timer.get(x).stop()
 
         # calculate tendency
-        start_timer("Total Tendency")
-        self.total_tendency()
-        end_timer("Total Tendency")
-
-        # loop over tendency modules
-        for module in self.tendency_modules:
-            module.update(mz=self.model_state, dz=self.dz)
+        self.main_tendency.update(mz=self.model_state, dz=self.dz)
 
         # Adam Bashforth time stepping
         start_timer("Time Stepping")
@@ -172,16 +163,6 @@ class ModelBase:
     # ============================================================
     #   TENDENCIES
     # ============================================================
-
-    @abstractmethod
-    def total_tendency(self) -> None:
-        """
-        This is the main method of the model. It calculates the right hand side of the model equations. All models must implement this method.
-        The result of the calculation must be stored in self.dz[:]
-        $\partial_t z = f(z, t)$ (f is the rhs)
-        """
-        # to implement in child class
-        return
 
     def nonlinear_tendency(self) -> StateBase:
         """

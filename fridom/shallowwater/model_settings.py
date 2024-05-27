@@ -20,10 +20,6 @@ class ModelSettings(ModelSettingsBase):
         dy (dtype)             : Grid spacing in y-direction.
         dz (dtype)             : Grid spacing in z-direction.
         periodic_bounds (list) : List of bools for periodic boundaries.
-        ahbi (dtype)           : Hor. biharmonic friction coeff.
-        khbi (dtype)           : Hor. biharmonic mixing coeff.
-        ah (dtype)             : Hor. harmonic friction coeff.
-        kh (dtype)             : Hor. harmonic mixing coeff.
         dt (dtype)             : Time step size.
         eps (dtype)            : 2nd order bashforth correction.
         AB1 (np.ndarray)       : 1st order Adams-Bashforth coefficients.
@@ -61,21 +57,15 @@ class ModelSettings(ModelSettingsBase):
         self.beta = dtype(0)
         self.Ro   = dtype(0.1)
 
-        # friction and mixing parameters
-        self.ahbi = dtype(0)
-        self.khbi = dtype(0)
-        self.ah   = dtype(0)
-        self.kh   = dtype(0)
+        # main tendency
+        from fridom.shallowwater.modules.main_tendency import MainTendency
+        self.main_tendency = MainTendency()
 
         # ------------------------------------------------------------------
         #   SWITCHES
         
         # Physics
-        self.enable_nonlinear  = True    # Enable nonlinear terms
         self.enable_varying_f  = False   # Enable varying Coriolis parameter
-        self.enable_source     = False   # Enable source terms
-        self.enable_biharmonic = False   # Enable biharmonic friction and mixing
-        self.enable_harmonic   = False   # Enable harmonic friction and mixing
 
         # Set attributes from keyword arguments
         for key, value in kwargs.items():
@@ -85,14 +75,6 @@ class ModelSettings(ModelSettingsBase):
                     "ModelSettings has no attribute '{}'".format(key)
                     )
             setattr(self, key, value)
-
-    def scale_biharmonic(self):
-        """
-        Scale biharmonic friction and mixing coefficients with grid spacing.
-        """
-        self.ahbi = self.dtype(self.Ro/2 * self.dx**4)
-        self.khbi = self.dtype(self.Ro/2 * self.dx**4)
-        return
 
     def __str__(self) -> str:
         """
@@ -107,17 +89,8 @@ class ModelSettings(ModelSettingsBase):
         res += "    f0   = {:.3f}\n".format(self.f0)
         res += "    beta = {:.3f}\n".format(self.beta)
         res += "    Ro   = {:.3f}\n".format(self.Ro)
-        res += "  Friction and mixing parameters:\n"
-        res += "    ahbi = {:.2e}".format(self.ahbi)
-        res += "    khbi = {:.2e}".format(self.khbi)
-        res += "    ah   = {:.2e}".format(self.ah)
-        res += "    kh   = {:.2e}".format(self.kh)
         res += "  Switches:\n"
-        res += "    enable_nonlinear  = {}\n".format(self.enable_nonlinear)
         res += "    enable_varying_f  = {}\n".format(self.enable_varying_f)
-        res += "    enable_source     = {}\n".format(self.enable_source)
-        res += "    enable_biharmonic = {}\n".format(self.enable_biharmonic)
-        res += "    enable_harmonic   = {}\n".format(self.enable_harmonic)
         res += "================================================\n"
         return res
 

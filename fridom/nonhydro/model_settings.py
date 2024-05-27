@@ -28,10 +28,8 @@ class ModelSettings(ModelSettingsBase):
         AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
         AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
 
-        enable_nonlinear (bool) : Enable nonlinear terms.
         enable_varying_N (bool) : Enable varying stratification.
         enable_varying_f (bool) : Enable varying Coriolis parameter.
-        enable_source (bool)    : Enable source terms.
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
     """
@@ -53,12 +51,11 @@ class ModelSettings(ModelSettingsBase):
 
         # ------------------------------------------------------------------
         #   SWITCHES
+        # ------------------------------------------------------------------
         
         # Physics
-        self.enable_nonlinear  = True    # Enable nonlinear terms
         self.enable_varying_N  = False   # Enable varying stratification
         self.enable_varying_f  = False   # Enable varying Coriolis parameter
-        self.enable_source     = False   # Enable source terms
 
         # init function must be called after all new variables are set
         super().__init__(n_dims=3, dtype=dtype, ctype=ctype, **kwargs)
@@ -66,6 +63,10 @@ class ModelSettings(ModelSettingsBase):
         # Some parameters would be overwritten by the init function
         # so we set them again here
         self.model_name = "NonHydrostatic"
+
+        # main tendency
+        from fridom.nonhydro.modules.main_tendency import MainTendency
+        self.main_tendency = MainTendency()
         return
 
 
@@ -84,10 +85,8 @@ class ModelSettings(ModelSettingsBase):
         res += "    dsqr = {:.3f}\n".format(self.dsqr)
         res += "    Ro   = {:.3f}\n".format(self.Ro)
         res += "  Switches:\n"
-        res += "    enable_nonlinear  = {}\n".format(self.enable_nonlinear)
         res += "    enable_varying_N  = {}\n".format(self.enable_varying_N)
         res += "    enable_varying_f  = {}\n".format(self.enable_varying_f)
-        res += "    enable_source     = {}\n".format(self.enable_source)
         res += "================================================\n"
         return res
 

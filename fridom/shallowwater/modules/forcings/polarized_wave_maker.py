@@ -88,7 +88,9 @@ class PolarizedWaveMaker(Module):
         cp = self.grid.cp
         phase = mz.time * self.omega
         z = self.z_real * cp.cos(phase) + self.z_imag * cp.sin(phase)
-        dz += z
+        dz.u[:] += z.u
+        dz.v[:] += z.v
+        dz.h[:] += z.h
         return
 
     def __repr__(self) -> str:
