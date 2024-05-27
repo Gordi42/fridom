@@ -20,6 +20,7 @@ Prof. Carsten Eden ( https://github.com/ceden/ps3D ).
     initial_conditions: contains initial conditions
     source            : contains source terms to force the model
     eigenvectors      : eigenvectors module
+    time_steppers     : time steppers
 
 ## Example:
 ```python
@@ -57,3 +58,6 @@ from . import modules
 from . import projection
 from . import initial_conditions
 from . import eigenvectors
+
+# move the time steppers into the nonhydro namespace
+from fridom.framework import time_steppers

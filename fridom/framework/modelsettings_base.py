@@ -15,12 +15,6 @@ class ModelSettingsBase:
         N (list)               : Grid points in each direction.
         dg (list)              : Grid spacing in each direction.
         periodic_bounds (list) : List of bools for periodic boundaries.
-        dt (dtype)             : Time step size.
-        eps (dtype)            : 2nd order bashforth correction.
-        AB1 (np.ndarray)       : 1st order Adams-Bashforth coefficients.
-        AB2 (np.ndarray)       : 2nd order Adams-Bashforth coefficients.
-        AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
-        AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
 
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
@@ -68,14 +62,10 @@ class ModelSettingsBase:
         self.periodic_bounds = [True] * n_dims
 
         # time parameters
-        self.time_levels = 3
-        self.dt  = dtype(0.002)
-        self.eps = dtype(0.01)
-        self.AB1 = np.array([1], dtype=dtype)
-        self.AB2 = np.array([3/2 + self.eps, -1/2 - self.eps], dtype=dtype)
-        self.AB3 = np.array([23/12, -4/3, 5/12], dtype=dtype)
-        self.AB4 = np.array([55/24, -59/24, 37/24, -3/8], dtype=dtype)
+        from fridom.framework.time_steppers.adam_bashforth import AdamBashforth
+        self.time_stepper = AdamBashforth()
 
+        # modules
         from fridom.framework.modules.module_container import ModuleContainer
         # List of modules that calculate tendencies
         self.tendencies = ModuleContainer(name="All Tendency Modules")
@@ -145,10 +135,7 @@ class ModelSettingsBase:
         res += "]\n"
         res += "  Boundary conditions:\n"
         res += "    Periodic : {}\n".format(self.periodic_bounds)
-        res += "  Time parameters:\n"
-        res += "    dt  = {:.3f}".format(self.dt)
-        res += "    eps = {:.3f}\n".format(self.eps)
-        res += "    time_levels = {}\n".format(self.time_levels)
+        res += f"{self.time_stepper}"
         res += f"{self.tendencies}"
         res += f"{self.diagnostics}"
         res += "------------------------------------------------\n"

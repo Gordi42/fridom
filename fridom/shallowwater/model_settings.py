@@ -20,22 +20,9 @@ class ModelSettings(ModelSettingsBase):
         dy (dtype)             : Grid spacing in y-direction.
         dz (dtype)             : Grid spacing in z-direction.
         periodic_bounds (list) : List of bools for periodic boundaries.
-        dt (dtype)             : Time step size.
-        eps (dtype)            : 2nd order bashforth correction.
-        AB1 (np.ndarray)       : 1st order Adams-Bashforth coefficients.
-        AB2 (np.ndarray)       : 2nd order Adams-Bashforth coefficients.
-        AB3 (np.ndarray)       : 3rd order Adams-Bashforth coefficients.
-        AB4 (np.ndarray)       : 4th order Adams-Bashforth coefficients.
 
-        solver (str)           : Solver name ("Spectral", "FD").
-
-        enable_nonlinear (bool) : Enable nonlinear terms.
         enable_varying_f (bool) : Enable varying Coriolis parameter.
-        enable_source (bool)    : Enable source terms.
-        enable_biharmonic (bool): Enable biharmonic friction and mixing.
-        enable_harmonic (bool)  : Enable harmonic friction and mixing.
         enable_tqdm (bool)      : Enable progress bar.
-        enable_diag (bool)      : Enable diagnostic output.
         enable_verbose (bool)   : Enable verbose output.
     """
     def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):

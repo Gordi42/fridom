@@ -21,6 +21,7 @@ Based on Sadourny [1975].
     initial_conditions: contains initial conditions
     projection        : for flow decomposition
     eigenvectors      : eigenvectors module
+    time_steppers     : time steppers
 
 ## Example:
 ```python
@@ -58,3 +59,6 @@ from . import modules
 from . import initial_conditions
 from . import projection
 from . import eigenvectors
+
+# move the time steppers into the shallowwater namespace
+from fridom.framework import time_steppers
