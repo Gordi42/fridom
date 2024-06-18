@@ -36,3 +36,16 @@ pygments_style = 'sphinx'
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+autodoc_mock_imports = ['numpy', 'mpi4py', ]
+
+# default_role = 'literal'
+# MyST configuration
+myst_enable_extensions = [
+    "deflist",  # for definition lists
+    "colon_fence",  # for fenced code blocks with colons
+    "html_admonition",  # for admonitions with HTML
+    "html_image",  # for HTML image syntax
+]
+
+# Optional: configure other MyST options
+myst_heading_anchors = 3  # create anchors for headers up to level 3

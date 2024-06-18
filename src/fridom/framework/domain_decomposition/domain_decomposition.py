@@ -1,9 +1,8 @@
 from mpi4py import MPI
 from .subdomain import Subdomain
 
-def make_slice_list(s: slice, n_dims: int):
+def _make_slice_list(s: slice, n_dims: int):
     """
-    # Make Slice List
     Create a list of slices for halo exchange.
         
     Description
@@ -30,16 +29,14 @@ def make_slice_list(s: slice, n_dims: int):
         
     Examples
     --------
-    ```
-    halo = 2
-    n_dims = 2
-    send_to_next = make_slice_list(slice(-2*halo, -halo))
-    send_to_next
-    # [(slice(-4, -2), slice(None)), (slice(None), slice(-4, -2))]
-    # send_to_next[0] is used to send data to the next processor in the
-    # first dimension, send_to_next[1] is used to send data to the next
-    # processor in the second dimension
-    ```
+    >>> halo = 2
+    >>> n_dims = 2
+    >>> send_to_next = _make_slice_list(slice(-2*halo, -halo))
+    >>> send_to_next
+    >>> # [(slice(-4, -2), slice(None)), (slice(None), slice(-4, -2))]
+    >>> # send_to_next[0] is used to send data to the next processor in the
+    >>> # first dimension, send_to_next[1] is used to send data to the next
+    >>> # processor in the second dimension
     """
     slice_list = []
     for i in range(n_dims):
@@ -50,7 +47,6 @@ def make_slice_list(s: slice, n_dims: int):
 
 def set_device(backend_is_cupy):
     """
-    # Set GPU Device
     Sync the gpu device with the processor rank. This function should be
     called once at the beginning of the simulation.
         
@@ -80,7 +76,6 @@ def set_device(backend_is_cupy):
 
 class DomainDecomposition:
     """
-    # Domain Decomposition
     Construct a grid of processors and decompose a global domain into subdomains.
     
     Description
@@ -90,17 +85,17 @@ class DomainDecomposition:
     decomposition can be done in multiple dimensions. Axes that are shared
     between processors can be specified (e.g. for fft)
     ```
-    #          -----------------------------------
-    #         /                /                /|
-    #        /                /                / |
-    #       /                /                /  |
-    #      /                /                /   |
-    #     /                /                /    |
-    #    /                /                /    /|
-    #   /                /                /    / |
-    #   ----------------------------------    /  |
-    #  |                |                |   /   |
-    #  |   PROCESSOR    |   PROCESSOR    |  /    |
+    #          ----------------------------------- 
+    #         /                /                /| 
+    #        /                /                / | 
+    #       /                /                /  | 
+    #      /                /                /   | 
+    #     /                /                /    | 
+    #    /                /                /    /| 
+    #   /                /                /    / | 
+    #   ----------------------------------    /  | 
+    #  |                |                |   /   | 
+    #  |   PROCESSOR    |   PROCESSOR    |  /    | 
     #  |     0, 1       |     1, 1       | /    /
     #  |                |                |/    /
     #  |----------------|----------------|    /     ^
@@ -152,16 +147,16 @@ class DomainDecomposition:
     
     Examples
     --------
-    ```
-    # create two domains where one shares the x-axis and the other the y-axis
-    dom = DomainDecomposition(n_global=[128]*2, halo=2, shared_axes=[0])
-
-    # create a random array on the local domain
-    u = dom_x.ncp.random.rand(*dom_x.my_subdomain.shape)
-
-    # synchronize the halo regions between neighboring domains
-    dom_x.sync(u)
-    ```
+    >>> from fridom.framework.domain_decomposition import DomainDecomposition
+    >>> # create a domain decomposition that shares the x-axis
+    >>> dom = DomainDecomposition(
+            n_global=[128]*2, halo=2, shared_axes=[0])
+    >>> 
+    >>> # create a random array on the local domain
+    >>> u = dom_x.ncp.random.rand(*dom_x.my_subdomain.shape)
+    >>>
+    >>> # synchronize the halo regions between neighboring domains
+    >>> dom_x.sync(u)
     """
     def __init__(self, 
                  n_global: 'list[int]', 
@@ -171,7 +166,6 @@ class DomainDecomposition:
                  backend = "numpy", # or "cupy"
                  ) -> None:
         """
-        # Initialize the domain decomposition.
         Create a grid of processors and decompose a global domain into subdomains.
         
         Parameters
@@ -199,6 +193,7 @@ class DomainDecomposition:
         
         Examples
         --------
+        >>> from fridom.framework.domain_decomposition import DomainDecomposition
         >>> # Create a 3D domain that shares the z-axis and uses cupy
         >>> domain = DomainDecomposition(
         ...     n_global=[128, 128, 128], halo=2, shared_axes=[2], backend="cupy")
@@ -277,10 +272,10 @@ class DomainDecomposition:
         next_proc = [n[1] for n in neighbors]
 
         # create slices for halo exchange
-        send_to_next = make_slice_list(slice(-2*halo, -halo), n_dims)
-        send_to_prev = make_slice_list(slice(halo, 2*halo), n_dims)
-        recv_from_next = make_slice_list(slice(-halo, None), n_dims)
-        recv_from_prev = make_slice_list(slice(None, halo), n_dims)
+        send_to_next = _make_slice_list(slice(-2*halo, -halo), n_dims)
+        send_to_prev = _make_slice_list(slice(halo, 2*halo), n_dims)
+        recv_from_next = _make_slice_list(slice(-halo, None), n_dims)
+        recv_from_prev = _make_slice_list(slice(None, halo), n_dims)
 
         # --------------------------------------------------------------
         #  Set the attributes
@@ -335,16 +330,13 @@ class DomainDecomposition:
         
         Examples
         --------
-        ```
-        # create a domain decomposition
-        domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
-
-        # create a random array on the local domain
-        u = domain.ncp.random.rand(domain.my_subdomain.shape)
-
-        # synchronize the halo regions between neighboring domains
-        domain.sync(u)
-        ```
+        >>> from fridom.framework.domain_decomposition import DomainDecomposition
+        >>> # create a domain decomposition
+        >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
+        >>> # create a random array on the local domain
+        >>> u = domain.ncp.random.rand(domain.my_subdomain.shape)
+        >>> # synchronize the halo regions between neighboring domains
+        >>> domain.sync(u)
         """
         # nothing to do if there are no halo regions
         if self.halo == 0:
@@ -421,17 +413,14 @@ class DomainDecomposition:
         
         Examples
         --------
-        ```
-        # create a domain decomposition
-        domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
-
-        # create a random array on the local domain
-        u = domain.ncp.random.rand(domain.my_subdomain.shape)
-        v = domain.ncp.random.rand(domain.my_subdomain.shape)
-
-        # synchronize the halo regions between neighboring domains
-        domain.sync_list([u, v])
-        ```
+        >>> from fridom.framework.domain_decomposition import DomainDecomposition
+        >>> # create a domain decomposition
+        >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
+        >>> # create a random array on the local domain
+        >>> u = domain.ncp.random.rand(domain.my_subdomain.shape)
+        >>> v = domain.ncp.random.rand(domain.my_subdomain.shape)
+        >>> # synchronize the halo regions between neighboring domains
+        >>> domain.sync_list([u, v])
         """
         # nothing to do if there are no halo regions
         if self.halo == 0:

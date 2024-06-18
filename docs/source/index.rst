@@ -10,7 +10,11 @@ Welcome to fridom's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   fridom
+   installation
+   getting_started
+   creating_own_models
+   models
+   fridom/index
 
 
 
