@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fridom"
+version = "0.0.1"
+authors = [
+  { name="Silvano Rosenau", email="silvano.rosenau@uni-hamburg.de" },
+]
+description = "Framework for Idealized Ocean Models"
+readme = "README.md"
+keywords = ["oceanography", "idealized ocean models", "modeling", "numerical modeling"]
+requires-python = ">=3.8"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Development Status :: 2 - Pre-Alpha",
+]
+dependencies = [
+  "numpy",
+  "netCDF4",
+]
+license = {file = "LICENSE"}
+
+[project.optional-dependencies]
+cupy = ["cupy"]
+
+[project.urls]
+Repository = "https://github.com/Gordi42/FRIDOM"
+
+[tool.setuptools.packages.find]
+where = ["src"]
