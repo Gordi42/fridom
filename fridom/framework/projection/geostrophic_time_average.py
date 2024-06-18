@@ -2,20 +2,18 @@ import numpy as np
 
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model import Model
 from fridom.framework.projection.projection import Projection
 
-class GeostrophicTimeAverageBase(Projection):
+class GeostrophicTimeAverage(Projection):
     """
     Geostrophic projection using time-averaging.
     """
     def __init__(self, grid: GridBase, 
-                 Model: Model,
                  n_ave=4,
                  equidistant_chunks=True,
                  max_period=None,
-                 backward_forward=False
-                 ) -> None:
+                 backward_forward=False,
+                 disable_diagnostic=True) -> None:
         """
         Geostrophic projection using time-averaging.
 
@@ -29,26 +27,13 @@ class GeostrophicTimeAverageBase(Projection):
                                         the inertial period.
             backward_forward  (bool)  : Whether to use backward-forward averaging.
         """
-        mset_new = grid.mset.copy()
-
-        # disable all nonlinear terms
-        mset_new.enable_nonlinear = False
-        # disable friction and mixing
-        mset_new.enable_harmonic = False
-        mset_new.enable_biharmonic = False
-        # disable forcing
-        mset_new.enable_source = False
-        # disable diagnostics
-        mset_new.enable_diag = False
-        # disable snapshots
-        mset_new.enable_snap = False
 
         # initialization
-        super().__init__(mset_new, grid)
+        super().__init__(grid)
         mset = self.mset
         self.n_ave = n_ave
         if max_period is None:
-            max_period = 2 * np.pi / mset.f0
+            max_period = np.abs(2 * np.pi / mset.f0)
         
         # construct the averaging periods
         if equidistant_chunks:
@@ -57,11 +42,18 @@ class GeostrophicTimeAverageBase(Projection):
             self.periods = np.ones(n_ave) * max_period
 
         # calculate the number of time steps
-        self.n_steps = np.ceil(self.periods / mset.dt).astype(int)
+        self.n_steps = np.ceil(self.periods / mset.time_stepper.dt).astype(int)
         self.backward_forward = backward_forward
 
         # initialize the model
-        self.model = Model(mset, grid)
+        from fridom.framework.model import Model
+        self.model = Model(grid)
+
+        # disable advection
+        self.model.tendencies.advection.disable()
+        # disable diagnostics
+        if disable_diagnostic:
+            self.model.diagnostics.disable()
         return
 
     def __call__(self, z: StateBase) -> StateBase:
@@ -77,11 +69,13 @@ class GeostrophicTimeAverageBase(Projection):
         verbose = self.mset.print_verbose
         z_ave = z.copy()
         model = self.model
+        time_stepper = model.time_stepper
+        
         verbose("Starting time averaging")
         for n_its in self.n_steps:
             # forward averaging
-            model.mset.dt = np.abs(model.mset.dt)
-            verbose(f"Averaging forward for {n_its*self.mset.dt:.2f} seconds")
+            time_stepper.dt = np.abs(time_stepper.dt)
+            verbose(f"Averaging forward for {n_its*time_stepper.dt:.2f} seconds")
             model.reset()
             model.z = z_ave.copy()
             for _ in range(n_its):
@@ -91,8 +85,8 @@ class GeostrophicTimeAverageBase(Projection):
 
             # backward averaging
             if self.backward_forward:
-                verbose(f"Averaging backwards for {n_its*self.mset.dt:.2f} seconds")
-                model.mset.dt = - np.abs(model.mset.dt)
+                verbose(f"Averaging backwards for {n_its*time_stepper.dt:.2f} seconds")
+                time_stepper.dt = - np.abs(time_stepper.dt)
                 model.reset()
                 model.z = z_ave.copy()
                 for _ in range(n_its):
@@ -104,4 +98,4 @@ class GeostrophicTimeAverageBase(Projection):
 
 
 # remove symbols from namespace
-del GridBase, StateBase, Model
+del GridBase, StateBase

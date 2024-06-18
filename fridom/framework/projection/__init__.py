@@ -25,8 +25,8 @@ from .projection import Projection
 from .wave_spectral import WaveSpectralBase
 from .divergence_spectral import DivergenceSpectralBase
 from .geostrophic_spectral import GeostrophicSpectralBase
-from .geostrophic_time_average import GeostrophicTimeAverageBase
+from .geostrophic_time_average import GeostrophicTimeAverage
 
 # nonlinear projections
 from .nnmd import NNMDBase
-from .optimal_balance import OptimalBalanceBase
+from .optimal_balance import OptimalBalance

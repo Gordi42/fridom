@@ -17,8 +17,8 @@ or to decompose the flow into balanced and unbalanced components.
 # linear projections
 from .wave_spectral import WaveSpectral
 from .geostrophic_spectral import GeostrophicSpectral
-from .geostrophic_time_average import GeostrophicTimeAverage
+from fridom.framework.projection import GeostrophicTimeAverage
 
 # nonlinear projections
-from .optimal_balance import OptimalBalance
+from fridom.framework.projection import OptimalBalance
 from .nnmd import NNMD

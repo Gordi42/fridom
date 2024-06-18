@@ -2,21 +2,21 @@ import numpy as np
 
 from fridom.framework.grid_base import GridBase
 from fridom.framework.state_base import StateBase
-from fridom.framework.model import Model
 from fridom.framework.projection.projection import Projection
 
 
-class OptimalBalanceBase(Projection):
+class OptimalBalance(Projection):
     """
     Nonlinear balancing using the optimal balance method.
     """
     def __init__(self, grid: GridBase,
-                 Model: Model,
                  base_proj:Projection,
+                 grid_backwards: GridBase = None,
                  ramp_period=1,
                  ramp_type="exp",
                  enable_forward_friction=False,
                  enable_backward_friction=False,
+                 disable_diagnostic=True,
                  update_base_point=True,
                  max_it=3,
                  stop_criterion=1e-9,
@@ -40,29 +40,25 @@ class OptimalBalanceBase(Projection):
             max_it     (int)          : Maximum number of iterations.
             stop_criterion (float)    : The stopping criterion.
         """
-        mset = grid.mset
-        super().__init__(mset.copy(), grid)
-
-        # check the model settings
-        if not mset.enable_nonlinear or mset.Ro == 0:
-            print("WARNING: Model is linear.")
-        # disable forcing
-        mset.enable_source = False
-        # disable diagnostics
-        mset.enable_diag = False
-        # disable snapshots
-        mset.enable_snap = False
+        super().__init__(grid)
+        self.grid_backwards = grid_backwards or grid
 
         self.base_proj = base_proj
         self.return_details = return_details
         
         # initialize the model
-        self.model = Model(mset, grid)
+        from fridom.framework.model import Model
+        self.model_forward = Model(grid)
+        self.model_backward = Model(grid_backwards or grid)
+
+        if disable_diagnostic:
+            self.model_forward.diagnostics.disable()
+            self.model_backward.diagnostics.disable()
 
         # save the parameters
         self.ramp_period    = ramp_period
-        self.ramp_steps     = int(ramp_period / mset.dt)
-        self.ramp_func      = OptimalBalanceBase.get_ramp_func(ramp_type)
+        self.ramp_steps     = int(ramp_period / grid.mset.time_stepper.dt)
+        self.ramp_func      = OptimalBalance.get_ramp_func(ramp_type)
         self.max_it         = max_it
         self.stop_criterion = stop_criterion
         self.enable_forward_friction  = enable_forward_friction
@@ -70,7 +66,7 @@ class OptimalBalanceBase(Projection):
         self.update_base_point = update_base_point
 
         # save the rossby number
-        self.rossby = float(mset.Ro)
+        self.rossby = float(grid.mset.Ro)
 
         # prepare the balancing
         self.z_base = None
@@ -91,16 +87,13 @@ class OptimalBalanceBase(Projection):
             z_ramp (State) : The ramped state.
         """
 
-        model = self.model
+        model = self.model_forward
         model.reset()
         mset = model.mset
+        time_stepper = model.time_stepper
 
-        # update model settings
-        model.mset.enable_biharmonic = self.enable_forward_friction
-        model.mset.enable_harmonic = self.enable_forward_friction
-        # make sure that the parameters are positive
-        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
-            setattr(mset, attr, np.abs(getattr(mset, attr)))
+        # make sure the time step is positive
+        time_stepper.dt = np.abs(time_stepper.dt)
 
         # initialize the model
         model.z = z.copy()
@@ -121,16 +114,12 @@ class OptimalBalanceBase(Projection):
         Returns:
             z_ramp (State) : The ramped state.
         """
-        model = self.model
+        model = self.model_backward
         model.reset()
         mset = model.mset
 
-        # update model settings
-        model.mset.enable_biharmonic = self.enable_backward_friction
-        model.mset.enable_harmonic = self.enable_backward_friction
-        # make sure that the parameters are negative
-        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
-            setattr(mset, attr, - np.abs(getattr(mset, attr)))
+        # make sure the time step is negative
+        model.time_stepper.dt = - np.abs(model.time_stepper.dt)
 
         # initialize the model
         model.z = z.copy()
@@ -151,16 +140,12 @@ class OptimalBalanceBase(Projection):
         Returns:
             z_ramp (State) : The ramped state.
         """
-        model = self.model
+        model = self.model_forward
         model.reset()
         mset = model.mset
 
-        # update model settings
-        model.mset.enable_biharmonic = self.enable_forward_friction
-        model.mset.enable_harmonic = self.enable_forward_friction
-        # make sure that the parameters are positive
-        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
-            setattr(mset, attr, np.abs(getattr(mset, attr)))
+        # make sure the time step is positive
+        model.time_stepper.dt = np.abs(model.time_stepper.dt)
 
         # initialize the model
         model.z = z.copy()
@@ -181,16 +166,12 @@ class OptimalBalanceBase(Projection):
         Returns:
             z_ramp (State) : The ramped state.
         """
-        model = self.model
+        model = self.model_backward
         model.reset()
         mset = model.mset
 
-        # update model settings
-        model.mset.enable_biharmonic = self.enable_backward_friction
-        model.mset.enable_harmonic = self.enable_backward_friction
-        # make sure that the parameters are negative
-        for attr in ["ah", "kh", "ahbi", "khbi", "dt"]:
-            setattr(mset, attr, -np.abs(getattr(mset, attr)))
+        # make sure the time step is negative
+        model.time_stepper.dt = - np.abs(model.time_stepper.dt)
 
         # initialize the model
         model.z = z.copy()
@@ -288,4 +269,4 @@ class OptimalBalanceBase(Projection):
             return z_res
 
 # remove symbols from the namespace
-del GridBase, StateBase, Model, Projection
+del GridBase, StateBase, Projection

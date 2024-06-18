@@ -153,9 +153,8 @@ class Model:
         """
         Reset the model (pointers, tendencies).
         """
-        self.tendencies.reset()
-        self.diagnostics.reset()
-        self.time_stepper.reset()
+        self.stop()
+        self.start()
         self.model_state.it = 0
         self.timer.reset()
         self.z *= 0
