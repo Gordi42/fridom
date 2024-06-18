@@ -1,4 +1,4 @@
-framework.domain_decomposition
+domain_decomposition
 ==============================
 
 .. automodule:: fridom.framework.domain_decomposition

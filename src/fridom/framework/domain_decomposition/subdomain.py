@@ -2,7 +2,6 @@ from mpi4py import MPI
 
 class Subdomain:
     """
-    # Subdomain
     A class that holds information about a local domain in the global processor
     grid.
     
@@ -49,35 +48,39 @@ class Subdomain:
     Examples
     --------
     The following example must be run with MPI enabled and with 6 processors:
-    ```bash
-    mpirun -n 6 python example.py
-    ```
+
+    .. code-block:: bash
+
+        mpirun -n 6 python example.py
+
     with the following content in `example.py`:
-    ```
-    # Create a cartesian communicator with a processor grid of 3x2 processors
-    from mpi4py import MPI
-    cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
-    rank = cart_comm.Get_rank()
 
-    # Create a subdomain for the processor of the current rank
-    subdomain = Subdomain(rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+    .. code-block:: python
 
-    # Print the attributes of the subdomain for the processor with rank 1
-    if rank == 1:
-        print(subdomain.coord)         # [0, 1]
-        print(subdomain.inner_shape)   # [42, 64]
-        print(subdomain.shape)         # [44, 66] -> +2 because of the halo
-        print(subdomain.position)      # [0, 64]
-        print(subdomain.global_slice)  # (slice(0, 42, None), slice(64, 128, None))
+        from mpi4py import MPI
+        from fridom.framework.domain_decomposition import Subdomain
+        # Create a cartesian communicator with a processor grid of 3x2 processors
+        cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
+        rank = cart_comm.Get_rank()
 
-    # Create a numpy array with the shape of the local domain
-    import numpy as np
-    data = np.zeros(subdomain.shape)
+        # Create a subdomain for the processor of the current rank
+        subdomain = Subdomain(rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
 
-    # set the values in the area [25:50, 20:120] to 1
-    local_slice = subdomain.g2l_slice((slice(25,50), slice(20,120)))
-    data[local_slice] = 1
-    ```
+        # Print the attributes of the subdomain for the processor with rank 1
+        if rank == 1:
+            print(subdomain.coord)         # [0, 1]
+            print(subdomain.inner_shape)   # [42, 64]
+            print(subdomain.shape)         # [44, 66] -> +2 because of the halo
+            print(subdomain.position)      # [0, 64]
+            print(subdomain.global_slice)  # (slice(0, 42, None), slice(64, 128, None))
+
+        # Create a numpy array with the shape of the local domain
+        import numpy as np
+        data = np.zeros(subdomain.shape)
+
+        # set the values in the area [25:50, 20:120] to 1
+        local_slice = subdomain.g2l_slice((slice(25,50), slice(20,120)))
+        data[local_slice] = 1
     """
     def __init__(self, rank: int, 
                  comm: MPI.Intracomm,
@@ -85,7 +88,6 @@ class Subdomain:
                  halo: int = 0,
                  ) -> None:
         """
-        # Initialize Subdomain
         Initialize the subdomain with the rank of the processor, the cartesian
         communicator, the global number of grid points, and the number of halo
         cells.
@@ -108,20 +110,17 @@ class Subdomain:
         
         Examples
         --------
-        ```
-        # Create a cartesian communicator with a processor grid of 3x2 processors
-        from mpi4py import MPI
-        cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
-        rank = cart_comm.Get_rank()
-
-        # Create a subdomain for the processor of the current rank
-        subdomain = Subdomain(
-            rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
-
-        # Create a subdomain for the processor with rank 1
-        subdomain = Subdomain(
-            rank=1, comm=cart_comm, n_global=[128,128], halo=1)
-        ```
+        >>> from mpi4py import MPI
+        >>> from fridom.framework.domain_decomposition import Subdomain
+        >>> # Create a cartesian communicator with a processor grid of 3x2 processors
+        >>> cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
+        >>> rank = cart_comm.Get_rank()
+        >>> # Create a subdomain for the processor of the current rank
+        >>> subdomain = Subdomain(
+        ...     rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+        >>> # Create a subdomain for the processor with rank 1
+        >>> subdomain = Subdomain(
+        ...     rank=1, comm=cart_comm, n_global=[128,128], halo=1)
         """
 
         # get the processor coordinates and dimensions of the processor grid
@@ -171,7 +170,6 @@ class Subdomain:
 
     def has_overlap(self, other: 'Subdomain') -> bool:
         """
-        # Overlap Check
         Check if the local domain overlaps with another domain.
         
         Description
@@ -194,25 +192,36 @@ class Subdomain:
         
         Examples
         --------
-        ```
-        # Create a cartesian communicator with a processor grid of 2x1 processors
-        cart_comm = MPI.COMM_WORLD.Create_cart(dims=[2,1], periods=[True,True])
+        The following example must be run with MPI enabled and with 2 processors:
 
-        # Create two subdomains for the processors with rank 0 and 1
-        subdomain0 = Subdomain(
-            rank=0, comm=cart_comm, n_global=[128,128], halo=1)
-        subdomain1 = Subdomain(
-            rank=1, comm=cart_comm, n_global=[128,128], halo=1)
-        print(subdomain0.has_overlap(subdomain1))  # False
+        .. code-block:: bash
 
-        # Create a cartesian communicator with a processor grid of 1x2 processors
-        cart_comm = MPI.COMM_WORLD.Create_cart(dims=[1,2], periods=[True,True])
+            mpirun -n 2 python example.py
 
-        # Create a subdomain for the processor in the new communicator
-        subdomain2 = Subdomain(
-            rank=0, comm=cart_comm, n_global=[128,128], halo=1)
-        print(subdomain0.has_overlap(subdomain2))  # True
-        ```
+        with the following content in `example.py`:
+
+        .. code-block:: python
+
+            from mpi4py import MPI
+            from fridom.framework.domain_decomposition import Subdomain
+
+            # Create a cartesian communicator with a processor grid of 2x1 processors
+            cart_comm = MPI.COMM_WORLD.Create_cart(dims=[2,1], periods=[True,True])
+
+            # Create two subdomains for the processors with rank 0 and 1
+            subdomain0 = Subdomain(
+                rank=0, comm=cart_comm, n_global=[128,128], halo=1)
+            subdomain1 = Subdomain(
+                rank=1, comm=cart_comm, n_global=[128,128], halo=1)
+            print(subdomain0.has_overlap(subdomain1))  # False
+
+            # Create a cartesian communicator with a processor grid of 1x2 processors
+            cart_comm = MPI.COMM_WORLD.Create_cart(dims=[1,2], periods=[True,True])
+
+            # Create a subdomain for the processor in the new communicator
+            subdomain2 = Subdomain(
+                rank=0, comm=cart_comm, n_global=[128,128], halo=1)
+            print(subdomain0.has_overlap(subdomain2))  # True
         """
         # if there is an overlap, than every dimension must have an overlap
         for me, you in zip(self.global_slice, other.global_slice):
@@ -224,7 +233,6 @@ class Subdomain:
 
     def get_overlap_slice(self, other: 'Subdomain') -> 'tuple[slice]':
         """
-        # Get Overlap Slice
         Get the slice of the local domain that overlaps with another domain.
         
         Description
@@ -247,23 +255,34 @@ class Subdomain:
         
         Examples
         --------
-        ```
-        # Create a 2x1 and 1x2 processor grid:
-        cart_comm1 = MPI.COMM_WORLD.Create_cart(dims=[2,1], periods=[True,True])
-        cart_comm2 = MPI.COMM_WORLD.Create_cart(dims=[1,2], periods=[True,True])
+        The following example must be run with MPI enabled and with 2 processors:
 
-        # Create two subdomains for the processors with rank 0 and 1
-        subdomain1 = Subdomain(
-            rank=0, comm=cart_comm1, n_global=[128,128], halo=1)
-        subdomain2 = Subdomain(
-            rank=0, comm=cart_comm2, n_global=[128,128], halo=1)
+        .. code-block:: bash
 
-        print(subdomain1.global_slice)  # [0:64, 0:128]
-        print(subdomain2.global_slice)  # [0:128, 0:64]
+            mpirun -n 2 python example.py
 
-        overlap = subdomain1.get_overlap_slice(subdomain2)
-        print(overlap)  # [1:65, 1:65]  (+1 because of the halo region)
-        ```
+        with the following content in `example.py`:
+
+        .. code-block:: python
+
+            from mpi4py import MPI
+            from fridom.framework.domain_decomposition import Subdomain
+
+            # Create a 2x1 and 1x2 processor grid:
+            cart_comm1 = MPI.COMM_WORLD.Create_cart(dims=[2,1], periods=[True,True])
+            cart_comm2 = MPI.COMM_WORLD.Create_cart(dims=[1,2], periods=[True,True])
+
+            # Create two subdomains for the processors with rank 0 and 1
+            subdomain1 = Subdomain(
+                rank=0, comm=cart_comm1, n_global=[128,128], halo=1)
+            subdomain2 = Subdomain(
+                rank=0, comm=cart_comm2, n_global=[128,128], halo=1)
+
+            print(subdomain1.global_slice)  # [0:64, 0:128]
+            print(subdomain2.global_slice)  # [0:128, 0:64]
+
+            overlap = subdomain1.get_overlap_slice(subdomain2)
+            print(overlap)  # [1:65, 1:65]  (+1 because of the halo region)
         """
         # first get the overlap in the global coordinates
         global_overlap = []
@@ -277,7 +296,6 @@ class Subdomain:
 
     def g2l_slice(self, global_slice: 'tuple[slice]') -> 'tuple[slice]':
         """
-        # Convert Global to Local Slice
         Convert a slice from the global space to the local space.
         
         Parameters
@@ -292,24 +310,35 @@ class Subdomain:
         
         Examples
         --------
-        ```
-        # Create a cartesian communicator with a processor grid of 3x2 processors
-        cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
-        rank = cart_comm.Get_rank()
+        The following example must be run with MPI enabled and with 6 processors:
 
-        # Create a subdomain for the processor of the current rank
-        subdomain = Subdomain(
-            rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+        .. code-block:: bash
 
-        # Create a numpy array with the shape of the local domain
-        import numpy as np
-        data = np.zeros(subdomain.shape)
+            mpirun -n 6 python example.py
 
-        # set the values in the area [25:50, 20:120] to 1
-        global_slice = (slice(25,50), slice(20,120))
-        local_slice = subdomain.g2l_slice(global_slice)
-        data[local_slice] = 1
-        ```
+        with the following content in `example.py`:
+
+        .. code-block:: python
+
+            from mpi4py import MPI
+            from fridom.framework.domain_decomposition import Subdomain
+
+            # Create a cartesian communicator with a processor grid of 3x2 processors
+            cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
+            rank = cart_comm.Get_rank()
+
+            # Create a subdomain for the processor of the current rank
+            subdomain = Subdomain(
+                rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+
+            # Create a numpy array with the shape of the local domain
+            import numpy as np
+            data = np.zeros(subdomain.shape)
+
+            # set the values in the area [25:50, 20:120] to 1
+            global_slice = (slice(25,50), slice(20,120))
+            local_slice = subdomain.g2l_slice(global_slice)
+            data[local_slice] = 1
         """
         local_slice = []
         for g, p, s in zip(global_slice, self.position, self.shape):
@@ -320,7 +349,6 @@ class Subdomain:
 
     def l2g_slice(self, local_slice: 'tuple[slice]') -> 'tuple[slice]':
         """
-        # Convert Local to Global Slice
         Convert a slice from the local space to the global space.
         
         Parameters
@@ -335,28 +363,39 @@ class Subdomain:
         
         Examples
         --------
-        ```
-        # Create a cartesian communicator with a processor grid of 3x2 processors
-        cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
-        rank = cart_comm.Get_rank()
+        The following example must be run with MPI enabled and with 6 processors:
 
-        # Create a subdomain for the processor of the current rank
-        subdomain = Subdomain(
-            rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+        .. code-block:: bash
 
-        # Create a numpy array
-        import numpy as np
-        u_global = np.random.rand(*subdomain.n_global)
-        u_local = np.zeros(subdomain.shape)
-        u_local[subdomain.inner_slice] = u_global[subdomain.global_slice]
+            mpirun -n 6 python example.py
 
-        # Create a local slice and convert it to a global slice
-        local_slice = (slice(10,20), slice(20,30))
-        global_slice = subdomain.l2g_slice(local_slice)
+        with the following content in `example.py`:
 
-        # Check if the values are the same
-        assert np.allclose(u_global[global_slice], u_local[local_slice])
-        ```
+        .. code-block:: python
+
+            from mpi4py import MPI
+            from fridom.framework.domain_decomposition import Subdomain
+
+            # Create a cartesian communicator with a processor grid of 3x2 processors
+            cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
+            rank = cart_comm.Get_rank()
+
+            # Create a subdomain for the processor of the current rank
+            subdomain = Subdomain(
+                rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+
+            # Create a numpy array
+            import numpy as np
+            u_global = np.random.rand(*subdomain.n_global)
+            u_local = np.zeros(subdomain.shape)
+            u_local[subdomain.inner_slice] = u_global[subdomain.global_slice]
+
+            # Create a local slice and convert it to a global slice
+            local_slice = (slice(10,20), slice(20,30))
+            global_slice = subdomain.l2g_slice(local_slice)
+
+            # Check if the values are the same
+            assert np.allclose(u_global[global_slice], u_local[local_slice])
         """
         global_slice = []
         for l, p, s in zip(local_slice, self.position, self.shape):

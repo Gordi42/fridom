@@ -5,7 +5,6 @@ from .domain_decomposition import DomainDecomposition
 def get_overlap_info(domain_in: DomainDecomposition, 
                      domain_out: DomainDecomposition):
     """
-    # Get overlap information between two domains
     Get information about which processors of the output domain overlaps with
     the subdomain of this processor in the input domain.
     
@@ -86,7 +85,6 @@ def transform(domain_in: DomainDecomposition,
               arr_in: np.ndarray,
               arr_out: np.ndarray = None,) -> np.ndarray:
     """
-    # Transform data
     Transform data from an array in the input domain to an array in the output
     domain. This function is called by the transformer class.
     
@@ -174,7 +172,6 @@ def transform(domain_in: DomainDecomposition,
 
 class Transformer:
     """
-    # Transformer
     Transformation module that transforms data from one domain to another.
     
     Description
@@ -204,32 +201,32 @@ class Transformer:
     
     Examples
     --------
-    ```
-    # create two domains where one shares the x-axis and the other the y-axis
-    domain_x = DomainDecomposition(n_global=[128]*2, shared_axes=[0])
-    domain_y = DomainDecomposition(n_global=[128]*2, shared_axes=[1])
 
-    # create a random array on the local domain
-    u = domain_x.ncp.random.rand(*domain_x.my_subdomain.shape)
-    domain_x.sync(u)
-
-    # construct transformers between the domains
-    transformer = Transformer(domain_x, domain_y)
-            
-    # transform the array from domain_x to domain_y
-    v = transformer.forward(u)
-    assert v.shape == domain_y.my_subdomain.shape
-    
-    # transform the array back from domain_y to domain_x
-    w = transformer.backward(v)
-    assert domain_x.ncp.allclose(u, w)
-    ```
+    >>> from fridom.framework \\
+    ...     .domain_decomposition import DomainDecomposition, Transformer
+    >>> # create two domains where one shares the x-axis and the other the y-axis
+    >>> domain_x = DomainDecomposition(n_global=[128]*2, shared_axes=[0])
+    >>> domain_y = DomainDecomposition(n_global=[128]*2, shared_axes=[1])
+    >>> 
+    >>> # create a random array on the local domain
+    >>> u = domain_x.ncp.random.rand(*domain_x.my_subdomain.shape)
+    >>> domain_x.sync(u)
+    >>> 
+    >>> # construct transformers between the domains
+    >>> transformer = Transformer(domain_x, domain_y)
+    >>> 
+    >>> # transform the array from domain_x to domain_y
+    >>> v = transformer.forward(u)
+    >>> assert v.shape == domain_y.my_subdomain.shape
+    >>> 
+    >>> # transform the array back from domain_y to domain_x
+    >>> w = transformer.backward(v)
+    >>> assert domain_x.ncp.allclose(u, w)
     """
     def __init__(self, 
                  domain_in: DomainDecomposition, 
                  domain_out: DomainDecomposition) -> None:
         """
-        # Initialize the transformer
         Constructing a transformer for transforming arrays from one domain to
         another.
         
@@ -271,7 +268,6 @@ class Transformer:
 
     def forward(self, arr_in, arr_out=None):
         """
-        # Forward transformation
         Transform an array from the input domain to the output domain.
         
         Parameters
@@ -298,7 +294,6 @@ class Transformer:
     
     def backward(self, arr_in, arr_out=None):
         """
-        # Backward transformation
         Transform an array from the output domain to the input domain.
         
         Parameters
