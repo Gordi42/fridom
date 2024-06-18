@@ -34,3 +34,4 @@ from . import time_steppers
 from . import modules
 from . import projection
 from . import timing_module
+from . import domain_decomposition
