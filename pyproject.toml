@@ -32,3 +32,8 @@ Repository = "https://github.com/Gordi42/FRIDOM"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = [
+  "--import-mode=importlib",
+]
