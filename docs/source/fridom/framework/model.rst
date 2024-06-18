@@ -1,0 +1,8 @@
+Model
+=====
+
+.. autoclass:: fridom.framework.model.Model
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :special-members: __init__

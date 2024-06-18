@@ -15,7 +15,6 @@ class ModelSettingsBase:
         N (list)               : Grid points in each direction.
         dg (list)              : Grid spacing in each direction.
         periodic_bounds (list) : List of bools for periodic boundaries.
-
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
 
@@ -23,8 +22,7 @@ class ModelSettingsBase:
         copy           : Return a copy of the model settings.
         print_verbose  : Print function for verbose output.
         __str__        : String representation of the model settings.
-        __repr__       : String representation of the model settings (for 
-                         IPython).
+        __repr__       : String representation of the model settings (for IPython).
     """
 
     def __init__(self, n_dims:int, dtype=np.float64, ctype=np.complex128,
