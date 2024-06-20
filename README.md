@@ -1,3 +1,6 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Docs](https://readthedocs.org/projects/fridom/badge/?version=latest)](https://fridom.readthedocs.io/en/latest/index.html)
+
 [![](media/fridom-title.png)](https://www.youtube.com/watch?v=Fotni4P2ZQs)
 
 # Framework for Idealized Ocean Models (FRIDOM)
@@ -18,6 +21,8 @@ Currently, two idealized ocean models are implemented:
 
 **NOTE: FRIDOM is in en early development stage, and as such, it may undergo significant changes.**
 
+## Documentation
+Learn more about FRIDOM in its official [documentation](https://fridom.readthedocs.io/en/latest/index.html).
 ## Getting Started
 
 ### Prerequisites
