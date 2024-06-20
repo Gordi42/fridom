@@ -1,5 +1,5 @@
-ModelSettingsBase
-=================
+modelsettings
+===========
 
 .. autoclass:: fridom.framework.modelsettings.ModelSettingsBase
    :members:

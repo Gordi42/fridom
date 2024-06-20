@@ -23,7 +23,7 @@ fridom.framework
    :caption: Classes:
 
    grid_base
-   modelsettings_base
+   modelsettings
    field_variable
    state_base
    model_state

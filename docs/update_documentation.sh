@@ -1,8 +1,10 @@
 #!/bin/bash
 
 # Define the source and destination directories
-SOURCE_DIR="../src/fridom"
-DEST_DIR="test"
+PREFIX="../src/"
+FRIDOM_DIR="fridom"
+SOURCE_DIR="$PREFIX$FRIDOM_DIR"
+DEST_DIR="source/fridom"
 
 # Function to create the directory structure
 create_directories() {
@@ -86,6 +88,7 @@ create_index_rst() {
     local INIT_FILE=$3
 
     FOLDER_NAME=$(basename "$DST")
+    RELATIVE_PATH="${SRC#$PREFIX}"
 
     # get local subdirectories and files
     local subdirs=()
@@ -109,7 +112,7 @@ create_index_rst() {
 $FOLDER_NAME
 =============
 
-.. automodule:: ${SRC//\//.}.$FOLDER_NAME
+.. automodule:: ${RELATIVE_PATH//\//.}
    :members:
    :undoc-members:
    :show-inheritance:
@@ -146,12 +149,13 @@ create_file_rst() {
     local BASENAME=$3
 
     FILE_NAME="${BASENAME%.py}"
+    RELATIVE_PATH="${SRC#$PREFIX}"
 
     cat << EOF > "$DST/$FILE_NAME.rst"
 $FILE_NAME
 ===========
 
-.. autoclass:: ${SRC//\//.}.$FILE_NAME
+.. autoclass:: ${RELATIVE_PATH//\//.}.$FILE_NAME
    :members:
    :undoc-members:
    :show-inheritance:

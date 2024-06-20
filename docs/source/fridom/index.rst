@@ -12,3 +12,5 @@ Code Documentation
    :caption: Modules:
 
    framework/index.rst
+   nonhydro/index.rst
+   shallowwater/index.rst
