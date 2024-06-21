@@ -1,6 +1,6 @@
 import numpy as np
 
-from fridom.framework.modelsettings import ModelSettingsBase
+from fridom.framework.modelsettings_base import ModelSettingsBase
 
 class ModelSettings(ModelSettingsBase):
     """

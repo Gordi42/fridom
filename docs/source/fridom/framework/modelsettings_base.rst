@@ -1,4 +1,4 @@
-modelsettings
+ModelSettingsBase
 ===========
 
 .. autoclass:: fridom.framework.modelsettings.ModelSettingsBase

@@ -21,7 +21,7 @@ This module should mainly be used for developing new modules and models.
 """
 
 # import classes
-from .modelsettings import ModelSettingsBase
+from .modelsettings_base import ModelSettingsBase
 from .grid_base import GridBase
 from .field_variable import FieldVariable
 from .state_base import StateBase
