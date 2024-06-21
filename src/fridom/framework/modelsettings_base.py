@@ -3,37 +3,110 @@ import numpy as np
 
 class ModelSettingsBase:
     """
-    Base class for model settings container. 
+    Base class for model settings container.
+    
+    Description
+    -----------
+    This class should be used as a base class for all model settings containers.
+    It provides a set of attributes and methods that are common to all models.
+    Child classes should override the following attributes: 
+    - n_dims 
+    - model_name
+    - tendencies
+    - diagnostics
+    - state_constructor
+    - diagnostic_state_constructor
 
-    Attributes:
-        dtype (np.dtype)       : Data type for real.         
-        ctype (np.dtype)       : Data type for complex.       
-        model_name (str)       : Name of the model.
-        gpu (bool)             : Switch for GPU.              
-        n_dims (int)           : Number of spatial dimensions.
-        L (list)               : Domain size in each direction.
-        N (list)               : Grid points in each direction.
-        dg (list)              : Grid spacing in each direction.
-        periodic_bounds (list) : List of bools for periodic boundaries.
-        enable_tqdm (bool)      : Enable progress bar.
-        enable_verbose (bool)   : Enable verbose output.
-
-    Methods:
-        copy           : Return a copy of the model settings.
-        print_verbose  : Print function for verbose output.
-        __str__        : String representation of the model settings.
-        __repr__       : String representation of the model settings (for IPython).
+    
+    Attributes
+    ----------
+    `dtype` : `np.dtype` (default: `np.float64`)
+        The data type for real numbers.
+    `ctype` : `np.dtype` (default: `np.complex128`)
+        The data type for complex numbers.
+    `model_name` : `str` (default: `"Unnamed model"`)
+        The name of the model.
+    `gpu` : `bool` (default: `True` if `cupy` is installed)
+        Switch for GPU acceleration.
+    `n_dims` : `int`
+        The number of spatial dimensions.
+    `L` : `list[float]`
+        The domain size in each direction.
+    `N` : `list[int]`
+        The number of grid points in each direction.
+    `dg` : `list[float]`
+        The grid spacing in each direction. (read-only)
+    `total_grid_points` : `int` (read-only)
+        The total number of grid points.
+    `periodic_bounds` : `list[bool]`
+        A list of booleans indicating whether the boundaries are periodic.
+    `time_stepper` : `TimeStepperBase` (default: `AdamBashforth()`
+        The time stepper object.
+    `tendencies` : `ModuleContainer`
+        A container for all modules that calculate tendencies.
+    `diagnostics` : `ModuleContainer`
+        A container for all modules that calculate diagnostics.
+    `state_constructor` : `callable`
+        A function that constructs a state from the grid.
+    `diagnostic_state_constructor` : `callable`
+        A function that constructs a diagnostic state from the grid.
+    `enable_tqdm` : `bool` (default: `True`)
+        Enable progress bar.
+    `enable_verbose` : `bool` (default: `False`)
+        Enable verbose output.
+    
+    
+    Methods
+    -------
+    `copy()`
+        Returns a deep copy of the model settings.
+    `print_verbose(*args, **kwargs)`
+        Print function for verbose output.
+    `set_attributes(**kwargs)`
+        Set attributes from keyword arguments.
+    
+    Examples
+    --------
+    Create a new model settings class by inheriting from `ModelSettingsBase`:
+    >>> from fridom.framework import ModelSettingsBase
+    >>> class ModelSettings(ModelSettingsBase):
+    ...     def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):
+    ...         super().__init__(n_dims=2, dtype=dtype, ctype=ctype)
+    ...         self.model_name = "MyModel"
+    ...         # make default domain size 2*pi x 2*pi with 63 x 63 grid points
+    ...         self.L = [2*np.pi, 2*np.pi]
+    ...         self.N = [63, 63]
+    ...         # set other parameters
+    ...         self.my_parameter = 1.0
+    ...         # set up modules and state constructors here. Eee for example 
+    ...         # the `ModelSettings` class in `shallowwater/model_settings.py`
+    ...         # Finally, set attributes from keyword arguments
+    ...         self.set_attributes(**kwargs)
+    ...     # maybe update the __str__ method to include the new parameter
+    ...     def __str__(self) -> str:
+    ...         res = super().__str__()
+    ...         res += "  My parameter: {}\\n".format(self.my_parameter)
+    >>> settings = ModelSettings(L=[4*np.pi, 4*np.pi], my_parameter=2.0)
+    >>> print(settings)
     """
-
     def __init__(self, n_dims:int, dtype=np.float64, ctype=np.complex128,
-                 **kwargs):
+                 **kwargs) -> None:
         """
-        Constructor.
-
-        Args:
-            n_dims (int)       : Number of spatial dimensions.
-            dtype (np.dtype)   : Data type for real.         
-            ctype (np.dtype)   : Data type for complex.
+        Constructor of the model settings base class. Should be called by the
+        constructor of the child class.
+        
+        Parameters
+        ----------
+        `n_dims` : `int`
+            The number of spatial dimensions.
+        `dtype` : `np.dtype` (default: `np.float64`)
+            The data type for real numbers.
+        `ctype` : `np.dtype` (default: `np.complex128`)
+            The data type for complex numbers.
+        
+        Examples
+        --------
+        See the examples in the class docstring
         """
 
         # variable types
@@ -84,6 +157,24 @@ class ModelSettingsBase:
         self.diagnostic_state_constructor = lambda grid: StateBase(grid, [])
 
         # Set attributes from keyword arguments
+        self.set_attributes(**kwargs)
+
+    def set_attributes(self, **kwargs):
+        """
+        Set model settings attributes from keyword arguments. If an attribute
+        does not exist, an AttributeError is raised.
+        
+        Parameters
+        ----------
+        `**kwargs` : `dict`
+            Keyword arguments to set the attributes of the model settings.
+        
+        Raises
+        ------
+        `AttributeError`
+            The attribute does not exist in the model settings.
+        """
+        # Set attributes from keyword arguments
         for key, value in kwargs.items():
             # Check if attribute exists
             if not hasattr(self, key):
@@ -91,17 +182,18 @@ class ModelSettingsBase:
                     "ModelSettings has no attribute '{}'".format(key)
                     )
             setattr(self, key, value)
+        return
 
     def copy(self):
         """
-        Return a copy of the model settings.
+        Return a deepcopy of the model settings.
         """
         import copy
         return copy.deepcopy(self)
 
     def print_verbose(self, *args, **kwargs):
         """
-        Print function for verbose output.
+        Print only if verbose output is enabled.
         """
         if self.enable_verbose:
             print(*args, **kwargs)
@@ -110,9 +202,6 @@ class ModelSettingsBase:
     def __str__(self) -> str:
         """
         String representation of the model settings.
-
-        Returns:
-            res (str): String representation of the model settings.
         """
         res = "================================================\n"
         res += "  Model Settings:\n"
@@ -140,9 +229,6 @@ class ModelSettingsBase:
     def __repr__(self) -> str:
         """
         String representation of the model settings (for IPython).
-
-        Returns:
-            res (str): String representation of the model settings.
         """
         return self.__str__()
 

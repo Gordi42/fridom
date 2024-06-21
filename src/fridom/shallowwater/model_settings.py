@@ -58,13 +58,14 @@ class ModelSettings(ModelSettingsBase):
         # Physics
         self.enable_varying_f  = False   # Enable varying Coriolis parameter
 
+        # TODO: Use method from ModelSettingsBase instead
+        # self.set_attributes(**kwargs)
+
         # Set attributes from keyword arguments
         for key, value in kwargs.items():
             # Check if attribute exists
             if not hasattr(self, key):
-                raise AttributeError(
-                    "ModelSettings has no attribute '{}'".format(key)
-                    )
+                raise AttributeError("ModelSettings has no attribute '{}'".format(key))
             setattr(self, key, value)
 
     def __str__(self) -> str:
