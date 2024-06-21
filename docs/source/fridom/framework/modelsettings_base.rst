@@ -1,7 +1,7 @@
 ModelSettingsBase
 ===========
 
-.. autoclass:: fridom.framework.modelsettings.ModelSettingsBase
+.. autoclass:: fridom.framework.ModelSettingsBase
    :members:
    :undoc-members:
    :show-inheritance:
