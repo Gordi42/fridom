@@ -1,4 +1,4 @@
-from fridom.framework.modelsettings import ModelSettingsBase
+from fridom.framework.modelsettings_base import ModelSettingsBase
 from fridom.framework.model_state import ModelState
 from fridom.framework.state_base import StateBase
 from fridom.framework.modules.module import \

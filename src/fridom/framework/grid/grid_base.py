@@ -1,4 +1,4 @@
-from fridom.framework.modelsettings import ModelSettingsBase
+from fridom.framework.modelsettings_base import ModelSettingsBase
 from fridom.framework.field_variable import FieldVariable
 
 class GridBase:

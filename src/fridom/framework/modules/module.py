@@ -1,5 +1,5 @@
 from fridom.framework.grid_base import GridBase
-from fridom.framework.modelsettings import ModelSettingsBase
+from fridom.framework.modelsettings_base import ModelSettingsBase
 from fridom.framework.state_base import StateBase
 from fridom.framework.model_state import ModelState
 from fridom.framework.timing_module import TimingModule
