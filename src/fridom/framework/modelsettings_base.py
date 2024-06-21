@@ -68,6 +68,7 @@ class ModelSettingsBase:
     Examples
     --------
     Create a new model settings class by inheriting from `ModelSettingsBase`:
+
     >>> from fridom.framework import ModelSettingsBase
     >>> class ModelSettings(ModelSettingsBase):
     ...     def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):
