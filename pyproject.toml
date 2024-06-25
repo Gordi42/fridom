@@ -20,6 +20,7 @@ classifiers = [
 ]
 dependencies = [
   "numpy",
+  "scipy",
   "netCDF4",
   "mpi4py",
 ]
