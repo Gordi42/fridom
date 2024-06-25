@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
   "numpy",
   "netCDF4",
+  "mpi4py",
 ]
 license = {file = "LICENSE"}
 
