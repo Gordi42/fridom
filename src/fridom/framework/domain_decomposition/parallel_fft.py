@@ -7,7 +7,8 @@ def transform(arr_in: np.ndarray,
               domain_out: DomainDecomposition, 
               transform_funs: 'list[callable]',
               fft_axes: 'list[list[int]]',
-              apply_fun: callable) -> np.ndarray:
+              apply_fun: callable,
+              complex_dtype = np.complex128) -> np.ndarray:
     """
     Perform a transform from one domain to another, while applying a function
     to the data at each step.
@@ -35,6 +36,8 @@ def transform(arr_in: np.ndarray,
     `apply_fun` : `callable`
         The function that will be applied to the data at each step, should have
         the signature `apply_fun(arr, axes) -> np.ndarray`
+    `complex_dtype` : `np.dtype`, optional (default=np.complex128)
+        The dtype of the complex data
     
     Returns
     -------
@@ -46,8 +49,8 @@ def transform(arr_in: np.ndarray,
     See the implementation in the forward and backward methods of the ParallelFFT
     class.
     """
-    # first remove the halo cells of the input array
-    arr_out = arr_in[domain_in.my_subdomain.inner_slice]
+    # first remove the halo cells of the input array and make the array complex
+    arr_out = arr_in[domain_in.my_subdomain.inner_slice].astype(complex_dtype)
     for i, transform in enumerate(transform_funs):
         # apply the function to the given axes
         arr_out  = apply_fun(arr_out , axes=fft_axes[i])
@@ -125,7 +128,8 @@ class ParallelFFT:
     def __init__(self, 
                  domain_in: DomainDecomposition, 
                  shared_axes_out : 'list[int]' = None,
-                 halo_out: int = 0) -> None:
+                 halo_out: int = 0,
+                 complex_dtype = np.complex128) -> None:
         """
         The ParallelFFT object is used to perform fourier transform on decomposed
         domains.
@@ -138,6 +142,8 @@ class ParallelFFT:
             The axes that should be shared in the output domain
         `halo_out` : `int`, optional (default=0)
             The halo size of the output domain
+        `complex_dtype` : `np.dtype`, optional (default=np.complex128)
+            The dtype of the complex data
         
         Returns
         -------
@@ -285,6 +291,7 @@ class ParallelFFT:
         self._forward_transforms = forward_transforms
         self._backward_transforms = backward_transforms
         self._fft_axes = fft_axes
+        self._complex_dtype = complex_dtype
         return
 
     def forward(self, u: np.ndarray) -> np.ndarray:
@@ -410,7 +417,7 @@ class ParallelFFT:
         """
         return transform(u, self.domain_in, self.domain_out,
                         self._forward_transforms, self._fft_axes,
-                        apply_fun)
+                        apply_fun, complex_dtype=self._complex_dtype)
 
     def backward_apply(self, u: np.ndarray, apply_fun: callable) -> np.ndarray:
         """
@@ -432,5 +439,5 @@ class ParallelFFT:
         """
         return transform(u, self.domain_out, self.domain_in,
                         self._backward_transforms, self._fft_axes[::-1],
-                        apply_fun)
+                        apply_fun, complex_dtype=self._complex_dtype)
 
