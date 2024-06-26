@@ -1,4 +1,5 @@
 from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.grid.cartesian.fft import FFT
 
 class GridBase:
     """
@@ -32,7 +33,6 @@ class GridBase:
         # shorthand notation
         n_dims = mset.n_dims
         cp = self.cp; dtype = mset.dtype
-        pi2 = 2 * cp.pi
         L = mset.L; N = mset.N; dg = mset.dg
 
         # physical domain
@@ -41,12 +41,13 @@ class GridBase:
 
 
         # spectral domain
-        k_freq = lambda n, d: cp.fft.fftfreq(n, d/pi2).astype(dtype)
-        pad = [1 if mset.periodic_bounds[i] else 2 for i in range(n_dims)]
-        self.k = [k_freq(n*p, d) for n, p, d in zip(N, pad, dg)]
+        backend = "cupy" if mset.gpu else "numpy"
+        fft = FFT(mset.periodic_bounds, backend=backend)
+        self.k = fft.get_freq(N, dg)
         self.K = list(cp.meshgrid(*self.k, indexing='ij'))
 
         self._cpu = None  # CPU copy of the grid (created on demand)
+        self.fft = fft  # FFT object
         return
 
     @property

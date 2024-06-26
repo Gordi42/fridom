@@ -55,8 +55,8 @@ class FieldVariable:
         else:
             self.arr = cp.array(arr, dtype=dtype)
 
-        self.forward = lambda x: cp.fft.fftn(bc.pad_for_fft(x))
-        self.backward = lambda x: bc.unpad_from_fft(cp.fft.ifftn(x).real)
+        self.forward = lambda x: grid.fft.forward(x)
+        self.backward = lambda x: grid.fft.backward(x).real
         return
 
     def copy(self):
