@@ -4,13 +4,12 @@ from fridom.framework.field_variable import FieldVariable
 
 class DiagnosticState(StateBase):
     def __init__(self, grid: Grid, is_spectral=False, field_list=None) -> None:
-        from fridom.nonhydro.boundary_conditions import PBoundary
         from fridom.framework.field_variable import FieldVariable
         if field_list is None:
             p = FieldVariable(grid, 
-                name="Pressure p", is_spectral=is_spectral, bc=PBoundary(grid.mset))
+                name="Pressure p", is_spectral=is_spectral)
             div = FieldVariable(grid,
-                name="Divergence", is_spectral=is_spectral, bc=PBoundary(grid.mset))
+                name="Divergence", is_spectral=is_spectral)
             field_list = [p, div]
         super().__init__(grid, field_list, is_spectral)
         self.constructor = DiagnosticState

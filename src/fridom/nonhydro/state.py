@@ -5,18 +5,16 @@ from fridom.framework.field_variable import FieldVariable
 
 class State(StateBase):
     def __init__(self, grid: Grid, is_spectral=False, field_list=None) -> None:
-        from fridom.nonhydro.boundary_conditions import \
-            UBoundary, VBoundary, WBoundary, BBoundary
         from fridom.framework.field_variable import FieldVariable
         if field_list is None:
             u = FieldVariable(grid,
-                name="Velocity u", is_spectral=is_spectral, bc=UBoundary(grid.mset))
+                name="Velocity u", is_spectral=is_spectral)
             v = FieldVariable(grid,
-                name="Velocity v", is_spectral=is_spectral, bc=VBoundary(grid.mset))
+                name="Velocity v", is_spectral=is_spectral)
             w = FieldVariable(grid,
-                name="Velocity w", is_spectral=is_spectral, bc=WBoundary(grid.mset))
+                name="Velocity w", is_spectral=is_spectral)
             b = FieldVariable(grid,
-                name="Buoyancy b", is_spectral=is_spectral, bc=BBoundary(grid.mset))
+                name="Buoyancy b", is_spectral=is_spectral)
             field_list = [u, v, w, b]
         super().__init__(grid, field_list, is_spectral)
         self.constructor = State
@@ -35,14 +33,13 @@ class State(StateBase):
             ekin (FieldVariable)  : Kinetic energy field.
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         # First transform to physical space if necessary
         z = self
         if self.is_spectral:
             z = self.fft()
         dsqr = self.mset.dsqr
         ekin = 0.5*(z.u**2 + z.v**2 + dsqr*z.w**2)
-        return FieldVariable(self.grid, is_spectral=False, name="Kinetic Energy", arr=ekin, bc=TriplePeriodic(self.mset))
+        return FieldVariable(self.grid, is_spectral=False, name="Kinetic Energy", arr=ekin)
 
     def epot(self) -> FieldVariable:
         """
@@ -53,7 +50,6 @@ class State(StateBase):
             epot (FieldVariable)  : Potential energy field.
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         # First transform to physical space if necessary
         z = self
         if self.is_spectral:
@@ -61,7 +57,7 @@ class State(StateBase):
         N0 = self.mset.N0
         epot = 0.5*(z.b**2 / (N0**2))
         return FieldVariable(self.grid, is_spectral=False,
-                             name="Potential Energy", arr=epot, bc=TriplePeriodic(self.mset))
+                             name="Potential Energy", arr=epot)
     
     def etot(self) -> FieldVariable:
         """
@@ -72,10 +68,9 @@ class State(StateBase):
             etot (FieldVariable)  : Total energy field.
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         etot = (self.ekin() + self.epot()).arr
         return FieldVariable(self.grid, is_spectral=False,
-                             name="Total Energy", arr=etot, bc=TriplePeriodic(self.mset))
+                             name="Total Energy", arr=etot)
 
     def mean_ekin(self) -> float:
         """
@@ -117,7 +112,6 @@ class State(StateBase):
             hor_vort (FieldVariable)  : Horizontal vorticity field.
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         # shortcuts
         dx = self.mset.dx
         dy = self.mset.dy
@@ -130,7 +124,7 @@ class State(StateBase):
 
         # Create the field variable
         field = FieldVariable(self.grid, is_spectral=False, 
-                              name="Horizontal Vorticity", arr=vort, bc=TriplePeriodic(self.mset))
+                              name="Horizontal Vorticity", arr=vort)
         return field
 
     def ver_vort_x(self) -> FieldVariable:
@@ -142,7 +136,6 @@ class State(StateBase):
             ver_vort_x (FieldVariable)  : Vertical vorticity field in y,z-plane.
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         # shortcuts
         dy   = self.mset.dy
         dz   = self.mset.dz
@@ -156,7 +149,7 @@ class State(StateBase):
             
         # Create the field variable
         field = FieldVariable(self.grid, is_spectral=False, 
-                              name="y,z - Vorticity", arr=vort, bc=TriplePeriodic(self.mset))
+                              name="y,z - Vorticity", arr=vort)
         return field
     
     def ver_vort_y(self) -> FieldVariable:
@@ -168,7 +161,6 @@ class State(StateBase):
             ver_vort_y (FieldVariable)  : Vertical vorticity field in x,z-plane.
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         # shortcuts
         dx   = self.mset.dx 
         dz   = self.mset.dz
@@ -182,7 +174,7 @@ class State(StateBase):
 
         # Create the field variable
         field = FieldVariable(self.grid, is_spectral=False, 
-                              name="x,z - Vorticity", arr=vort, bc=TriplePeriodic(self.mset))
+                              name="x,z - Vorticity", arr=vort)
         return field
 
     def pot_vort(self) -> FieldVariable:
@@ -194,7 +186,6 @@ class State(StateBase):
             pot_vort (FieldVariable)  : Scaled potential vorticity field.
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         # shortcuts
         f0 = self.mset.f0; N0 = self.mset.N0; 
         dx = self.mset.dx; dy = self.mset.dy; dz = self.mset.dz
@@ -217,7 +208,7 @@ class State(StateBase):
 
         # Create the field variable
         field = FieldVariable(self.grid, arr=pot_vort,
-                              is_spectral=False, name="Potential Vorticity", bc=TriplePeriodic(self.mset))
+                              is_spectral=False, name="Potential Vorticity")
         return field
 
     def linear_pot_vort(self) -> FieldVariable:
@@ -226,7 +217,6 @@ class State(StateBase):
         $ Q = Ro * (f/N0^2 \partial_z b + \zeta)$
         """
         from fridom.framework.field_variable import FieldVariable
-        from fridom.nonhydro.boundary_conditions import TriplePeriodic
         # shortcuts
         f0 = self.mset.f0; N0 = self.mset.N0;
         Ro = self.mset.Ro; dsqr = self.mset.dsqr
@@ -243,7 +233,7 @@ class State(StateBase):
 
         # Create the field variable
         field = FieldVariable(self.grid, arr=pot_vort,
-                              is_spectral=False, name="Linear PV", bc=TriplePeriodic(self.mset))
+                              is_spectral=False, name="Linear PV")
         return field
 
     # ======================================================================

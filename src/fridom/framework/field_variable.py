@@ -1,5 +1,4 @@
 from fridom.framework.grid_base import GridBase
-from fridom.framework.boundary_conditions import BoundaryConditions
 
 
 class FieldVariable:
@@ -12,7 +11,6 @@ class FieldVariable:
         grid (Grid)         : Grid object
         is_spectral (bool)  : True if the FieldVariable is in spectral space
         arr (ndarray)       : The underlying array
-        bc (BoundaryCondition) : Boundary condition
 
     Methods:
         zeros: Create a FieldVariable of zeros
@@ -24,8 +22,7 @@ class FieldVariable:
     # ==================================================================
 
     def __init__(self, grid:GridBase,
-                 is_spectral=False, name="Unnamed", bc=BoundaryConditions,
-                 arr=None) -> None:
+                 is_spectral=False, name="Unnamed", arr=None) -> None:
         """
         Creates a FieldVariable initialized from input array if given.
         Else, creates a FieldVariable initialized with zeros.
@@ -34,7 +31,6 @@ class FieldVariable:
             grid (Grid)          : Grid object
             is_spectral (bool)   : True if the FieldVariable is in spectral space
             name (str)           : Name of the FieldVariable
-            bc (Boundary Condition) : Boundary condition
             arr (ndarray)        : The array to be wrapped
         """
         mset = grid.mset
@@ -42,7 +38,6 @@ class FieldVariable:
         self.mset = mset
         self.grid = grid
         self.is_spectral = is_spectral
-        self.bc = bc
 
         cp = grid.cp
         self.cp = cp
@@ -92,7 +87,7 @@ class FieldVariable:
         FieldVariable constructor
         """
         return {"grid":self.grid, "name":self.name,
-                "is_spectral":self.is_spectral, "bc":self.bc}
+                "is_spectral":self.is_spectral}
 
     def fft(self) -> "FieldVariable":
         """
@@ -494,4 +489,4 @@ class FieldVariable:
         return self.__str__()
 
 # remove symbols from the namespace
-del GridBase, BoundaryConditions
+del GridBase

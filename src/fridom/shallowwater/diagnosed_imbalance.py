@@ -9,7 +9,7 @@ class DiagnoseImbalance(DiagnoseImbalanceBase):
                  proj:Projection,
                  proj2=None,
                  store_details=False) -> None:
-        from fridom.shallowwater.model import Model
+        from fridom.framework.model import Model
         super().__init__(grid, Model, diag_per, proj, proj2, store_details)
 
 # remove symbols from namespace
