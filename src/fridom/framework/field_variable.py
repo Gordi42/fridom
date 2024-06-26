@@ -50,8 +50,6 @@ class FieldVariable:
         else:
             self.arr = cp.array(arr, dtype=dtype)
 
-        self.forward = lambda x: grid.fft.forward(x)
-        self.backward = lambda x: grid.fft.backward(x).real
         return
 
     def copy(self):
@@ -98,9 +96,11 @@ class FieldVariable:
         """
         cp = self.cp
         if self.is_spectral:
-            res = cp.array(self.backward(self.arr), dtype=self.mset.dtype)
+            res = cp.array(self.grid.fft.backward(self.arr).real, 
+                           dtype=self.mset.dtype)
         else:
-            res = cp.array(self.forward(self.arr), dtype=self.mset.ctype)
+            res = cp.array(self.grid.fft.forward(self.arr), 
+                           dtype=self.mset.ctype)
 
         kw = self.get_kw()
         kw["is_spectral"] = not self.is_spectral
