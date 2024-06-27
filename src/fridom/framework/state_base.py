@@ -47,7 +47,7 @@ class StateBase:
         """
         fields_fft = [field.fft() for field in self.field_list]
         z = self.constructor(
-            self.grid, field_list=fields_fft, 
+            self.mset, field_list=fields_fft, 
             is_spectral=not self.is_spectral)
         return z
 
@@ -134,7 +134,7 @@ class StateBase:
         else:
             sums = [field + other for field in self.field_list]
 
-        z = self.constructor(self.grid, field_list=sums,
+        z = self.constructor(self.mset, field_list=sums,
                                 is_spectral=self.is_spectral)
         
         return z
@@ -151,7 +151,7 @@ class StateBase:
         else:
             diffs = [field - other for field in self.field_list]
 
-        z = self.constructor(self.grid, field_list=diffs,
+        z = self.constructor(self.mset, field_list=diffs,
                                 is_spectral=self.is_spectral)
         return z
     
@@ -160,7 +160,7 @@ class StateBase:
         Subtract something from the state.
         """
         diffs = [other - field for field in self.field_list]
-        z = self.constructor(self.grid, field_list=diffs,
+        z = self.constructor(self.mset, field_list=diffs,
                                 is_spectral=self.is_spectral)
         return z
         
@@ -173,7 +173,7 @@ class StateBase:
         else:
             prods = [field * other for field in self.field_list]
 
-        z = self.constructor(self.grid, field_list=prods,
+        z = self.constructor(self.mset, field_list=prods,
                                 is_spectral=self.is_spectral)
         return z
     
@@ -189,7 +189,7 @@ class StateBase:
         else:
             quot = [field / other for field in self.field_list]
 
-        z = self.constructor(self.grid, field_list=quot,
+        z = self.constructor(self.mset, field_list=quot,
                                 is_spectral=self.is_spectral)
         return z
 
@@ -198,7 +198,7 @@ class StateBase:
         Divide something by the state.
         """
         quot = [other / field for field in self.field_list]
-        z = self.constructor(self.grid, field_list=quot,
+        z = self.constructor(self.mset, field_list=quot,
                                 is_spectral=self.is_spectral)
         return z
     
@@ -211,6 +211,6 @@ class StateBase:
         else:
             prods = [field ** other for field in self.field_list]
 
-        z = self.constructor(self.grid, field_list=prods,
+        z = self.constructor(self.mset, field_list=prods,
                                 is_spectral=self.is_spectral)
         return z

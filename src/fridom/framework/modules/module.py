@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from functools import wraps
 # Import type information
 if TYPE_CHECKING:
-    from fridom.framework.grid_base_old import GridBaseOld
+    from fridom.framework.grid.grid_base import GridBase
     from fridom.framework.modelsettings_base import ModelSettingsBase
     from fridom.framework.state_base import StateBase
     from fridom.framework.model_state import ModelState
@@ -107,7 +107,7 @@ class Module:
         self.__enabled = True
         self.required_halo = 0  # The required halo for the module
         # The grid should be set by the model when the module is started
-        self.grid: 'GridBaseOld' | None = None
+        self.grid: 'GridBase' | None = None
         self.mset: 'ModelSettingsBase' | None = None
         self.timer: 'TimingModule' | None = None
         # Update the attributes with the keyword arguments
@@ -182,7 +182,7 @@ class Module:
         when the model is reset. 
         """
         self.stop()
-        self.start(grid=self.grid, timer=self.timer)
+        self.start(mset=self.mset, timer=self.timer)
 
     def __repr__(self) -> str:
         res = f"  {self.name}:"

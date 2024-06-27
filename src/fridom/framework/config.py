@@ -1,3 +1,43 @@
+"""
+Configurations for the framework.
+
+Description
+-----------
+This module contains the basic configurations for the framework, for example the
+default backend (numpy or cupy), the default data types (real and complex), etc.
+
+Attributes
+----------
+`backend` : `str`
+    The current backend used for computations (numpy or cupy).
+`ncp` : `module`
+    The current numpy-like module used for computations (numpy or cupy).
+`scp` : `module`
+    The current scipy-like module used for computations (scipy or cupyx.scipy).
+`dtype_real` : `np.dtype`
+    The current default data type for real numbers.
+`dtype_comp` : `np.dtype`
+    The current default data type for complex numbers.
+
+Functions
+---------
+`set_backend(new_backend: str)`
+    Set the backend to use for computations (numpy or cupy).
+`set_dtype_real(new_dtype_real: np.dtype)`
+    Set the default real data type.
+`set_dtype_comp(new_dtype_comp: np.dtype)`
+    Set the default complex data type.
+
+Examples
+--------
+>>> import fridom.framework as fr
+>>> fr.config.set_backend("numpy")
+>>> print(fr.config.ncp)
+<module 'numpy' from '.../numpy/__init__.py'>
+>>> fr.config.set_backend("cupy")
+>>> print(fr.config.ncp)
+<module 'cupy' from '.../cupy/__init__.py'>
+"""
 import numpy as np
 
 # -----------------------------------------------------------------------------
@@ -13,7 +53,7 @@ dtype_comp = np.complex128
 #  Setters
 # -----------------------------------------------------------------------------
 
-def set_default_backend():
+def _set_default_backend():
     """
     Set the default backend (cupy if available, numpy otherwise).
     """
@@ -91,7 +131,7 @@ def set_dtype_real(new_dtype_real: np.dtype):
     >>> import fridom.framework as fr
     >>> fr.config.set_dtype_real(np.float32)
     >>> print(fr.config.dtype_real)
-    dtype('float32')
+    <class 'numpy.float32'>
     """
     global dtype_real
     dtype_real = new_dtype_real
@@ -111,7 +151,7 @@ def set_dtype_comp(new_dtype_comp: np.dtype):
     >>> import fridom.framework as fr
     >>> fr.config.set_dtype_comp(np.complex64)
     >>> print(fr.config.dtype_comp)
-    dtype('complex64')
+    <class 'numpy.complex64'>
     """
     global dtype_comp
     dtype_comp = new_dtype_comp
@@ -121,4 +161,4 @@ def set_dtype_comp(new_dtype_comp: np.dtype):
 # =============================================================================
 #  Default configs
 # =============================================================================
-set_default_backend()
+_set_default_backend()

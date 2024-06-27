@@ -16,6 +16,9 @@ class GridBase:
     override these flags and attributes as needed.
     """
     def __init__(self) -> None:
+        # prepare for numpy conversion (the numpy copy will be stored here)
+        self._cpu = None
+
         # ---------------------------------------------------------------------
         #  Set default flags
         # ---------------------------------------------------------------------

@@ -9,6 +9,28 @@ if TYPE_CHECKING:
 
 class FieldVariable:
     """
+    Class for field variables in the framework.
+    
+    Description
+    -----------
+    The 
+    A more detailed explanation of the class's purpose.
+    
+    Attributes
+    ----------
+    `attr` : `int`
+        Description of the first attribute.
+    
+    Methods
+    -------
+    `method(param1, param2)`
+        Description of the first method.
+    
+    Examples
+    --------
+    >>> # Provide examples of how to use this class.
+    """
+    """
     Base class for FieldVariables
 
     Attributes:
