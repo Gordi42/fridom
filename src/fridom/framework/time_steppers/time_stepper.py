@@ -1,6 +1,11 @@
-from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelState
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
 from fridom.framework.modules.module import Module
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.state_base import StateBase
+    from fridom.framework.model_state import ModelState
 
 
 class TimeStepper(Module):
@@ -37,14 +42,14 @@ class TimeStepper(Module):
     def __init__(self, name, **kwargs) -> None:
         super().__init__(name, **kwargs)
 
-    def update(self, mz: ModelState):
+    def update(self, mz: 'ModelState'):
         raise NotImplementedError
 
     def update_tendency(self):
         raise NotImplementedError
 
     @property
-    def dz(self) -> StateBase:
+    def dz(self) -> 'StateBase':
         """
         Return the tendency state at the current time level.
         """

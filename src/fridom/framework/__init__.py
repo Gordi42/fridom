@@ -23,7 +23,7 @@ This module should mainly be used for developing new modules and models.
 
 # import classes
 from .modelsettings_base import ModelSettingsBase
-from .grid_base import GridBase
+# from .grid_base_old import GridBaseOld
 from .mesh_point import MeshPoint
 from .field_variable import FieldVariable
 from .state_base import StateBase
@@ -32,8 +32,10 @@ from .model import Model
 from .diagnose_imbalance_base import DiagnoseImbalanceBase
 
 # import modules:
+from . import config
 from . import time_steppers
 from . import modules
 from . import projection
 from . import timing_module
 from . import domain_decomposition
+from . import grid

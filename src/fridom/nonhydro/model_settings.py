@@ -1,6 +1,9 @@
 import numpy as np
-
+from typing import TYPE_CHECKING
 from fridom.framework.modelsettings_base import ModelSettingsBase
+
+if TYPE_CHECKING:
+    from fridom.framework.grid.grid_base import GridBase
 
 class ModelSettings(ModelSettingsBase):
     """
@@ -27,7 +30,8 @@ class ModelSettings(ModelSettingsBase):
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
     """
-    def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):
+    def __init__(self, grid: 'GridBase',
+                 dtype=np.float64, ctype=np.complex128, **kwargs):
         """
         Constructor.
 
@@ -52,7 +56,7 @@ class ModelSettings(ModelSettingsBase):
         self.enable_varying_f  = False   # Enable varying Coriolis parameter
 
         # init function must be called after all new variables are set
-        super().__init__(n_dims=3, dtype=dtype, ctype=ctype, **kwargs)
+        super().__init__(grid, n_dims=3, dtype=dtype, ctype=ctype, **kwargs)
 
         # Some parameters would be overwritten by the init function
         # so we set them again here

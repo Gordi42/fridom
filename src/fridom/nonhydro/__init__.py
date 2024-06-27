@@ -56,6 +56,7 @@ from . import modules
 from . import projection
 from . import initial_conditions
 from . import eigenvectors
+from fridom.framework import config
 
 # move the time steppers into the nonhydro namespace
 from fridom.framework import time_steppers

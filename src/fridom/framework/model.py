@@ -1,4 +1,8 @@
-from fridom.framework.grid_base import GridBase
+# Import external modules
+from typing import TYPE_CHECKING
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
 
 
 class Model:
@@ -23,19 +27,16 @@ class Model:
         reset()                 : Reset the model (pointers, tendencies)
     """
 
-    def __init__(self, grid: GridBase) -> None:
+    def __init__(self, mset: 'ModelSettingsBase') -> None:
         """
         Constructor.
-
-        Args:
-            grid (Grid)             : Grid.
         """
-        self.mset = grid.mset
-        self.grid = grid
+        self.mset = mset
+        self.grid = mset.grid
 
         # state variable
         from fridom.framework.model_state import ModelState
-        self.model_state = ModelState(grid)
+        self.model_state = ModelState(mset)
 
         # Timer
         from fridom.framework.timing_module import TimingModule
@@ -43,11 +44,11 @@ class Model:
 
         # Modules
         from copy import deepcopy
-        self.tendencies  = deepcopy(grid.mset.tendencies)
-        self.diagnostics = deepcopy(grid.mset.diagnostics)
+        self.tendencies  = deepcopy(mset.tendencies)
+        self.diagnostics = deepcopy(mset.diagnostics)
 
         # Time stepper
-        self.time_stepper = deepcopy(grid.mset.time_stepper)
+        self.time_stepper = deepcopy(mset.time_stepper)
         return
 
     def start(self):
@@ -55,9 +56,9 @@ class Model:
         Prepare the model for running.
         """
         # start all modules
-        self.tendencies.start(grid=self.grid, timer=self.timer)
-        self.diagnostics.start(grid=self.grid, timer=self.timer)
-        self.time_stepper.start(grid=self.grid, timer=self.timer)
+        self.tendencies.start(mset=self.mset, timer=self.timer)
+        self.diagnostics.start(mset=self.mset, timer=self.timer)
+        self.time_stepper.start(mset=self.mset, timer=self.timer)
         return
 
     def stop(self):
@@ -160,7 +161,3 @@ class Model:
         self.z *= 0
         # to implement in child class
         return
-
-
-# remove symbols from namespace
-del GridBase

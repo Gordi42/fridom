@@ -5,7 +5,7 @@ import sys
 sys.path.append('../..')
 
 from fridom.framework.modelsettings import ModelSettingsBase
-from fridom.framework.grid_base import GridBase
+from fridom.framework.grid_base_old import GridBaseOld
 
 class TestGridBase(unittest.TestCase):
     """
@@ -19,7 +19,7 @@ class TestGridBase(unittest.TestCase):
 
         for n_dims in range(1, 3):
             m = ModelSettingsBase(n_dims)
-            g = GridBase(m)
+            g = GridBaseOld(m)
             self.assertEqual(g.mset, m)
 
     def test_x(self):
@@ -37,7 +37,7 @@ class TestGridBase(unittest.TestCase):
             m = ModelSettingsBase(n_dim)
             m.L = L_
             m.N = N_
-            g = GridBase(m)
+            g = GridBaseOld(m)
             self.assertEqual(len(g.x), n_dim)
             for i in range(n_dim):
                 self.assertEqual(g.x[i][0], 0)
@@ -57,7 +57,7 @@ class TestGridBase(unittest.TestCase):
             m = ModelSettingsBase(n_dim)
             m.L = L_
             m.N = N_
-            g = GridBase(m)
+            g = GridBaseOld(m)
             self.assertEqual(len(g.X), n_dim)
             for i in range(n_dim):
                 self.assertEqual(g.X[i].shape, tuple(N_))
@@ -77,7 +77,7 @@ class TestGridBase(unittest.TestCase):
             m = ModelSettingsBase(n_dim)
             m.L = L_
             m.N = N_
-            g = GridBase(m)
+            g = GridBaseOld(m)
             cp = g.cp
             self.assertEqual(len(g.k), n_dim)
             for i in range(n_dim):
@@ -99,7 +99,7 @@ class TestGridBase(unittest.TestCase):
             m = ModelSettingsBase(n_dim)
             m.L = L_
             m.N = N_
-            g = GridBase(m)
+            g = GridBaseOld(m)
             self.assertEqual(len(g.K), n_dim)
             for i in range(n_dim):
                 self.assertEqual(g.K[i].shape, tuple(N_))
@@ -118,7 +118,7 @@ class TestGridBase(unittest.TestCase):
         m.N = N
         m.periodic_bounds = periods
 
-        g = GridBase(m)
+        g = GridBaseOld(m)
 
         self.assertEqual(g.X[0].shape, (64, 64))
         self.assertEqual(g.K[0].shape, (64, 128))

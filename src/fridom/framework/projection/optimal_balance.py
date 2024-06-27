@@ -1,17 +1,21 @@
+# Import external modules
+from typing import TYPE_CHECKING
 import numpy as np
-
-from fridom.framework.grid_base import GridBase
-from fridom.framework.state_base import StateBase
+# Import internal modules
 from fridom.framework.projection.projection import Projection
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.state_base import StateBase
 
 
 class OptimalBalance(Projection):
     """
     Nonlinear balancing using the optimal balance method.
     """
-    def __init__(self, grid: GridBase,
+    def __init__(self, mset: 'ModelSettingsBase',
                  base_proj:Projection,
-                 grid_backwards: GridBase = None,
+                 mset_backwards: 'ModelSettingsBase' = None,
                  ramp_period=1,
                  ramp_type="exp",
                  enable_forward_friction=False,
@@ -25,7 +29,6 @@ class OptimalBalance(Projection):
         Nonlinear balancing using the optimal balance method.
 
         Arguments:
-            grid      (Grid)          : The grid.
             base_proj  (Projection)   : The projection onto the base point.
             ramp_period (float)       : The ramping period (not scaled).
             ramp_type   (str)         : The ramping type. Choose from
@@ -40,16 +43,16 @@ class OptimalBalance(Projection):
             max_it     (int)          : Maximum number of iterations.
             stop_criterion (float)    : The stopping criterion.
         """
-        super().__init__(grid)
-        self.grid_backwards = grid_backwards or grid
+        super().__init__(mset)
+        self.mset_backwards = mset_backwards or mset
 
         self.base_proj = base_proj
         self.return_details = return_details
         
         # initialize the model
         from fridom.framework.model import Model
-        self.model_forward = Model(grid)
-        self.model_backward = Model(grid_backwards or grid)
+        self.model_forward = Model(mset)
+        self.model_backward = Model(mset_backwards or mset)
 
         if disable_diagnostic:
             self.model_forward.diagnostics.disable()
@@ -57,7 +60,7 @@ class OptimalBalance(Projection):
 
         # save the parameters
         self.ramp_period    = ramp_period
-        self.ramp_steps     = int(ramp_period / grid.mset.time_stepper.dt)
+        self.ramp_steps     = int(ramp_period / mset.time_stepper.dt)
         self.ramp_func      = OptimalBalance.get_ramp_func(ramp_type)
         self.max_it         = max_it
         self.stop_criterion = stop_criterion
@@ -66,17 +69,17 @@ class OptimalBalance(Projection):
         self.update_base_point = update_base_point
 
         # save the rossby number
-        self.rossby = float(grid.mset.Ro)
+        self.rossby = float(mset.Ro)
 
         # prepare the balancing
         self.z_base = None
         return
 
-    def calc_base_coord(self, z: StateBase) -> None:
+    def calc_base_coord(self, z: 'StateBase') -> None:
         self.z_base = self.base_proj(z)
         return
 
-    def forward_to_nonlinear(self, z: StateBase) -> StateBase:
+    def forward_to_nonlinear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform forward ramping from linear model to nonlinear model.
 
@@ -104,7 +107,7 @@ class OptimalBalance(Projection):
             model.step()
         return model.z
     
-    def backward_to_linear(self, z: StateBase) -> StateBase:
+    def backward_to_linear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform backward ramping from nonlinear model to linear model.
 
@@ -130,7 +133,7 @@ class OptimalBalance(Projection):
             model.step()
         return model.z
 
-    def forward_to_linear(self, z: StateBase) -> StateBase:
+    def forward_to_linear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform forward ramping from nonlinear model to linear model.
 
@@ -156,7 +159,7 @@ class OptimalBalance(Projection):
             model.step()
         return model.z
 
-    def backward_to_nonlinear(self, z: StateBase) -> StateBase:
+    def backward_to_nonlinear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform backward ramping from linear model to nonlinear model.
 
@@ -203,7 +206,7 @@ class OptimalBalance(Projection):
         return ramp_func
         
 
-    def __call__(self, z: StateBase) -> StateBase:
+    def __call__(self, z: 'StateBase') -> 'StateBase':
         """
         Project a state to the geostrophic subspace.
 
@@ -267,6 +270,3 @@ class OptimalBalance(Projection):
             return z_res, (iterations, errors)
         else:
             return z_res
-
-# remove symbols from the namespace
-del GridBase, StateBase, Projection

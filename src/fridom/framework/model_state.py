@@ -1,5 +1,9 @@
-from fridom.framework.state_base import StateBase
-from fridom.framework.grid_base import GridBase
+# Import external modules
+from typing import TYPE_CHECKING
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.state_base import StateBase
 
 class ModelState:
     """
@@ -15,35 +19,16 @@ class ModelState:
     - time (float)    : Model time
     """
     def __init__(self, 
-                 grid: GridBase, 
+                 mset: 'ModelSettingsBase', 
                  initialize_state = True) -> None:
         """
         The base constructor for the ModelStateBase class.
         """
         if initialize_state:
-            self.z = grid.mset.state_constructor(grid)
-            self.z_diag = grid.mset.diagnostic_state_constructor(grid)
+            self.z = mset.state_constructor()
+            self.z_diag = mset.diagnostic_state_constructor()
         else:
             self.z: StateBase = None
             self.z_diag: StateBase = None
         self.it = 0
         self.time = 0.0
-
-    def cpu(self) -> 'ModelState':
-        """
-        If the model runs on the cpu, this function returns the object itself.
-        If the model runs on the gpu, this function creates a copy of the model
-        state on the cpu.
-        """
-        if self.z.grid.mset.gpu:
-            mz = ModelState(self.z.grid, False)
-            mz.z = self.z.cpu()
-            mz.z_diag = self.z_diag.cpu()
-            mz.it = self.it
-            mz.time = self.time
-            return mz
-        else:
-            return self
-
-# remove symbols from the namespace
-del StateBase, GridBase

@@ -1,4 +1,8 @@
-from fridom.framework.model_state import ModelState
+# Import external modules
+from typing import TYPE_CHECKING
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.model_state import ModelState
 
 class ModelPlotterBase:
     """
@@ -16,7 +20,7 @@ class ModelPlotterBase:
         """
         raise NotImplementedError
 
-    def update_figure(fig, mz: ModelState) -> None:
+    def update_figure(fig, mz: 'ModelState') -> None:
         """
         This method should update the figure object with the
         given model state.
@@ -29,6 +33,3 @@ class ModelPlotterBase:
         This method should convert the figure object to a numpy image array.
         """
         raise NotImplementedError
-
-# remove symbols from namespace
-del ModelState

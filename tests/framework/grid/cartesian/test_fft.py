@@ -1,11 +1,8 @@
 import pytest
 
+from fridom.framework import config
 from fridom.framework.grid.cartesian import FFT
 from fridom.framework.domain_decomposition import DomainDecomposition, ParallelFFT
-
-@pytest.fixture
-def backend(enable_gpu):
-    return "cupy" if enable_gpu else "numpy"
 
 @pytest.fixture(params=[10, 11], ids=["nx=10", "nx=11"])
 def nx(request):
@@ -21,8 +18,8 @@ def kx(request):
 
 @pytest.mark.mpi_skip
 def test_dct1D(backend, nx, lx, kx):
-    fft = FFT([False], backend=backend)
-    ncp = fft._ncp
+    fft = FFT([False])
+    ncp = config.ncp
 
     # prepare the domain
     dx = lx / nx
@@ -57,8 +54,8 @@ def periodic(request):
 
 @pytest.mark.mpi_skip
 def test_fft3D(backend, nx, periodic):
-    fft = FFT(periodic, backend=backend)
-    ncp = fft._ncp
+    fft = FFT(periodic)
+    ncp = config.ncp
 
     # prepare the domain
     n = [nx] * 3
@@ -79,8 +76,8 @@ def axes(request):
 
 @pytest.mark.mpi_skip
 def test_fft3D_axes(backend, nx, axes, periodic):
-    fft = FFT(periodic, backend=backend)
-    ncp = fft._ncp
+    fft = FFT(periodic)
+    ncp = config.ncp
 
     # prepare the domain
     n = [nx] * 3
@@ -119,10 +116,9 @@ def halo(request):
 
 @pytest.mark.mpi(max_size=32)
 def test_fft2D_mpi(backend, n, periodic2d, halo):
-    domain_decomp = DomainDecomposition(n, halo, backend=backend, 
-                                        shared_axes=[0])
-    fft = FFT(periodic2d, backend=backend)
-    ncp = fft._ncp
+    domain_decomp = DomainDecomposition(n, halo, shared_axes=[0])
+    fft = FFT(periodic2d)
+    ncp = config.ncp
     pfft = ParallelFFT(domain_decomp)
 
     # set the physical space

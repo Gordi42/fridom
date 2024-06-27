@@ -1,14 +1,18 @@
+# Import external modules
+from typing import TYPE_CHECKING
 import numpy as np
-
-from fridom.framework.grid_base import GridBase
-from fridom.framework.state_base import StateBase
+# Import internal modules
 from fridom.framework.projection.projection import Projection
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.state_base import StateBase
 
 class GeostrophicTimeAverage(Projection):
     """
     Geostrophic projection using time-averaging.
     """
-    def __init__(self, grid: GridBase, 
+    def __init__(self, mset: 'ModelSettingsBase', 
                  n_ave=4,
                  equidistant_chunks=True,
                  max_period=None,
@@ -18,7 +22,6 @@ class GeostrophicTimeAverage(Projection):
         Geostrophic projection using time-averaging.
 
         Arguments:
-            grid      (Grid)          : The grid.
             n_ave             (int)   : Number of averages to perform.
             equidistant_chunks(bool)  : Whether to split the averaging periods 
                                         into equidistant chunks.
@@ -29,7 +32,7 @@ class GeostrophicTimeAverage(Projection):
         """
 
         # initialization
-        super().__init__(grid)
+        super().__init__(mset)
         mset = self.mset
         self.n_ave = n_ave
         if max_period is None:
@@ -47,7 +50,7 @@ class GeostrophicTimeAverage(Projection):
 
         # initialize the model
         from fridom.framework.model import Model
-        self.model = Model(grid)
+        self.model = Model(mset)
 
         # disable advection
         self.model.tendencies.advection.disable()
@@ -56,7 +59,7 @@ class GeostrophicTimeAverage(Projection):
             self.model.diagnostics.disable()
         return
 
-    def __call__(self, z: StateBase) -> StateBase:
+    def __call__(self, z: 'StateBase') -> 'StateBase':
         """
         Project a state to the geostrophic subspace.
 
@@ -95,7 +98,3 @@ class GeostrophicTimeAverage(Projection):
                 z_ave /= (n_its + 1)
 
         return z_ave
-
-
-# remove symbols from namespace
-del GridBase, StateBase

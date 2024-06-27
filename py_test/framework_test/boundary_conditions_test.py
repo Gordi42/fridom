@@ -5,7 +5,7 @@ import sys
 sys.path.append('../..')
 
 from fridom.framework.modelsettings import ModelSettingsBase
-from fridom.framework.grid_base import GridBase
+from fridom.framework.grid_base_old import GridBaseOld
 from fridom.framework.boundary_conditions import *
 
 class TestPeriodicBoundary(unittest.TestCase):
@@ -35,7 +35,7 @@ class TestPeriodicBoundary(unittest.TestCase):
 
         for period in periods:
             mset.periodic_bounds = period
-            grid = GridBase(mset)
+            grid = GridBaseOld(mset)
 
             for i in range(n_dims):
                 p = Periodic(mset, i)
@@ -55,7 +55,7 @@ class TestPeriodicBoundary(unittest.TestCase):
 
         for period in periods:
             mset.periodic_bounds = period
-            grid = GridBase(mset)
+            grid = GridBaseOld(mset)
 
             for i in range(n_dims):
                 p = Periodic(mset, i)
@@ -91,7 +91,7 @@ class TestDirichlet(unittest.TestCase):
         mset.N = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
 
         for i in range(n_dims):
             p = Dirichlet(mset, i, btype=1)
@@ -111,7 +111,7 @@ class TestDirichlet(unittest.TestCase):
         mset.L = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
         cp = grid.cp
 
         correct = cp.array([0, -2, -1, 0, 1, 2])
@@ -137,7 +137,7 @@ class TestDirichlet(unittest.TestCase):
         mset.L = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
         cp = grid.cp
 
         correct = cp.array([-2, -1, 0, 0, 1, 2])
@@ -163,7 +163,7 @@ class TestDirichlet(unittest.TestCase):
         mset.N = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
 
         for i in range(n_dims):
             p = Dirichlet(mset, i, btype=1)
@@ -182,7 +182,7 @@ class TestDirichlet(unittest.TestCase):
         mset.N = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
 
         for i in range(n_dims):
             p = Dirichlet(mset, i, btype=2)
@@ -218,7 +218,7 @@ class TestNeumann(unittest.TestCase):
         mset.N = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
 
         for i in range(n_dims):
             p = Neumann(mset, i, btype=1)
@@ -238,7 +238,7 @@ class TestNeumann(unittest.TestCase):
         mset.L = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
         cp = grid.cp
 
         correct = cp.array([0, 2, 1, 0, 1, 2])
@@ -264,7 +264,7 @@ class TestNeumann(unittest.TestCase):
         mset.L = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
         cp = grid.cp
 
         correct = cp.array([2, 1, 0, 0, 1, 2])
@@ -290,7 +290,7 @@ class TestNeumann(unittest.TestCase):
         mset.N = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
 
         for i in range(n_dims):
             p = Neumann(mset, i, btype=1)
@@ -309,7 +309,7 @@ class TestNeumann(unittest.TestCase):
         mset.N = [3] * n_dims
         mset.periodic_bounds = [False, False]
 
-        grid = GridBase(mset)
+        grid = GridBaseOld(mset)
 
         for i in range(n_dims):
             p = Neumann(mset, i, btype=2)
@@ -356,7 +356,7 @@ class TestBoundaryConditions(unittest.TestCase):
                         periods[1] = True
                     m.periodic_bounds = periods
 
-                    grid = GridBase(m)
+                    grid = GridBaseOld(m)
                     bounds = [x_bound(m, 0, btype), y_bound(m, 1, btype)]
                     b = BoundaryConditions(bounds)
 
@@ -389,7 +389,7 @@ class TestBoundaryConditions(unittest.TestCase):
                         periods[1] = True
                     m.periodic_bounds = periods
 
-                    grid = GridBase(m)
+                    grid = GridBaseOld(m)
                     bounds = [x_bound(m, 0, btype), y_bound(m, 1, btype)]
                     b = BoundaryConditions(bounds)
 
@@ -413,7 +413,7 @@ class TestBoundaryConditions(unittest.TestCase):
         for btype in [1, 2]:
             for x_bound in bound_types:
                 for y_bound in bound_types:
-                    grid = GridBase(m)
+                    grid = GridBaseOld(m)
                     bounds = [x_bound(m, 0, btype), y_bound(m, 1, btype)]
                     b = BoundaryConditions(bounds)
 

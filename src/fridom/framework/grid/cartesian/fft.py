@@ -1,4 +1,9 @@
+# Import external modules
 import numpy as np
+from copy import deepcopy
+import inspect
+# Import internal modules
+from fridom.framework import config
 
 class FFT:
     """
@@ -27,44 +32,23 @@ class FFT:
     --------
     >>> import numpy as np
     >>> from fridom.framework.grid.cartesian import FFT
-    >>> fft = FFT(periodic=[True, True, False], backend="numpy")
+    >>> fft = FFT(periodic=[True, True, False])
     >>> u = np.random.rand(*[32, 32, 8])
     >>> v = fft.forward(u)
     >>> w = fft.backward(v).real
     >>> assert np.allclose(u, w)
 
     """
-    def __init__(self, 
-                 periodic: list[bool],
-                 backend="numpy") -> None:
+    def __init__(self, periodic: list[bool]) -> None:
         """
         Initialize the FFT class.
-        
-        Description
-        -----------
-        This method initializes the FFT class. It sets the backend to use for
-        the FFT and DCT operations, and determines which axes are periodic and
-        which are non-periodic.
         
         Parameters
         ----------
         `periodic` : `list[bool]`
             A list of booleans that indicate whether the axis is periodic.
             If True, the axis is periodic, if False, the axis is non-periodic.
-        `backend` : `str`
-            The backend to use for the FFT and DCT operations. The backend can
-            be either "numpy" or "cupy".
         """
-
-        # --------------------------------------------------------------
-        #  Import the backend (numpy + scipy or cupy)
-        # --------------------------------------------------------------
-        if backend == "numpy":
-            import numpy as ncp
-            import scipy as scp
-        elif backend == "cupy":
-            import cupy as ncp
-            import cupyx.scipy as scp
         
         # --------------------------------------------------------------
         #  Check which axis to apply fft, dct
@@ -83,8 +67,6 @@ class FFT:
 
         # private attributes
         self._periodic = periodic
-        self._ncp = ncp
-        self._scp = scp
         self._fft_axes = fft_axes
         self._dct_axes = dct_axes
         return
@@ -115,13 +97,13 @@ class FFT:
         --------
         >>> import numpy as np
         >>> from fridom.framework.grid.cartesian import FFT
-        >>> fft = FFT(periodic=[True, True, False], backend="numpy")
+        >>> fft = FFT(periodic=[True, True, False])
         >>> shape = [32, 32, 8]  # Number of grid points in x,y,z
         >>> dx = [0.1, 0.1, 0.1]  # Grid spacing in x,y,z
         >>> kx, ky, kz = fft.get_freq(shape, dx)
         >>> KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
         """
-        ncp = self._ncp
+        ncp = config.ncp
         k = []
         for i in range(len(shape)):
             if self._periodic[i]:
@@ -148,7 +130,7 @@ class FFT:
             The transformed array in spectral space. If all dimensions are
             periodic, the obtained array is real, else it is complex.
         """
-        ncp = self._ncp; scp = self._scp
+        ncp = config.ncp; scp = config.scp
         # Get the axes to apply fft, dct
         if axes is None:
             fft_axes = self._fft_axes
@@ -181,7 +163,7 @@ class FFT:
         `np.ndarray`
             The transformed array in physical space.
         """
-        ncp = self._ncp; scp = self._scp
+        ncp = config.ncp; scp = config.scp
         if axes is None:
             fft_axes = self._fft_axes
             dct_axes = self._dct_axes
@@ -197,3 +179,14 @@ class FFT:
             u = scp.fft.idct(u, type=2, axis=axis)
 
         return u
+
+    def __deepcopy__(self, memo):
+        deepcopy_obj = object.__new__(self.__class__)
+        memo[id(self)] = deepcopy_obj  # Store in memo to handle self-references
+        for key, value in vars(self).items():
+            if inspect.ismodule(value):  # skip modules
+                setattr(deepcopy_obj, key, value)
+            else:
+                setattr(deepcopy_obj, key, deepcopy(value, memo))
+
+        return deepcopy_obj

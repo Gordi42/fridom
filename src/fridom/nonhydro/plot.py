@@ -283,20 +283,23 @@ class Plot:
         Constructor of the Plot class.
         """
         self.mset = mset = field.mset
-        self.grid = grid = field.grid
+        self.grid = grid = mset.grid
+        # self.grid = grid = field.grid
         self.name = name = field.name
 
         # convert to numpy array if necessary
         get = lambda x: x.get() if mset.gpu else x
 
+        self.ics = ics = grid.subdomain_phy.inner_slice
+
         # save field and grid information
-        self.field = get(field.arr)
-        self.x     = get(grid.x[0])
-        self.y     = get(grid.x[1])
-        self.z     = get(grid.x[2])
-        self.X     = get(grid.X[0])
-        self.Y     = get(grid.X[1])
-        self.Z     = get(grid.X[2])
+        self.field = get(field.arr[ics])
+        self.x     = get(grid.x_local[0])
+        self.y     = get(grid.x_local[1])
+        self.z     = get(grid.x_local[2])
+        self.X     = get(grid.X[0][ics])
+        self.Y     = get(grid.X[1][ics])
+        self.Z     = get(grid.X[2][ics])
 
     # ========================================================================
     #  Main Plotting functions
@@ -404,8 +407,9 @@ class Plot:
         if state is None:
             u = None; v = None; w = None
         else:
+            ics = self.ics
             get = lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
-            u = get(state.u); v = get(state.v); w = get(state.w)
+            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
 
         ax = fig.add_subplot(111)
         im = PlotContainer.front_on_axis(
@@ -449,8 +453,9 @@ class Plot:
         if state is None:
             u = None; v = None; w = None
         else:
+            ics = self.ics
             get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
-            u = get(state.u); v = get(state.v); w = get(state.w)
+            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
 
             
         ax = fig.add_subplot(111)
@@ -495,7 +500,8 @@ class Plot:
             u = None; v = None; w = None
         else:
             get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
-            u = get(state.u); v = get(state.v); w = get(state.w)
+            ics = self.ics
+            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
         
         ax = fig.add_subplot(111)
         im = PlotContainer.top_on_axis(
@@ -530,7 +536,8 @@ class Plot:
             u = None; v = None; w = None
         else:
             get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
-            u = get(state.u); v = get(state.v); w = get(state.w)
+            ics = self.ics
+            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
 
         im = PlotContainer.side_on_axis(
             axs[0], self.field, self.X, self.Y, self.Z,

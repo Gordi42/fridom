@@ -5,7 +5,7 @@ import os, sys
 sys.path.append("../..")
 
 from fridom.framework.modelsettings import ModelSettingsBase
-from fridom.framework.grid_base import GridBase
+from fridom.framework.grid_base_old import GridBaseOld
 from fridom.framework.boundary_conditions import *
 from fridom.framework.field_variable import FieldVariable
 from fridom.framework.state_base import StateBase
@@ -16,7 +16,7 @@ class StateBaseTest(unittest.TestCase):
         self.mset = mset = ModelSettingsBase(n_dims)
         self.mset.N = [10, 10]
         bounds = [Periodic(mset, 0), Periodic(mset, 1)]
-        self.grid = grid = GridBase(mset)
+        self.grid = grid = GridBaseOld(mset)
         bc = BoundaryConditions(bounds)
         self.fields = [FieldVariable(grid, is_spectral=False, bc=bc) 
                        for i in range(3)]
@@ -24,7 +24,7 @@ class StateBaseTest(unittest.TestCase):
         self.mset_1d = mset_1d = ModelSettingsBase(1)
         self.mset_1d.N = [3]
         bounds = [Periodic(mset_1d, 0)]
-        self.grid_1d = grid_1d = GridBase(mset_1d)
+        self.grid_1d = grid_1d = GridBaseOld(mset_1d)
         bc = BoundaryConditions(bounds)
         self.zeros_p = FieldVariable(grid_1d,
                                        is_spectral=False, bc=bc)

@@ -26,7 +26,7 @@ class ModuleTest(unittest.TestCase):
     def setUp(self) -> None:
         # create a grid and timer
         mset = fr.ModelSettingsBase(n_dims=1)
-        grid = fr.GridBase(mset)
+        grid = fr.GridBaseOld(mset)
         timer = fr.timing_module.TimingModule()
         # set the grid and timer as attributes of the testing module
         self.mset = mset

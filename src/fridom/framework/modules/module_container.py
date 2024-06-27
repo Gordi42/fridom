@@ -1,6 +1,11 @@
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
 from .module import Module, start_module, stop_module, update_module
-from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelState
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.state_base import StateBase
+    from fridom.framework.model_state import ModelState
 
 class ModuleContainer(Module):
     def __init__(self, name="Module Container", module_list: list = None):
@@ -17,7 +22,7 @@ class ModuleContainer(Module):
         - timer (TimerBase): Timer object.
         """
         for module in self.module_list:
-            module.start(grid=self.grid, timer=self.timer)
+            module.start(mset=self.mset, timer=self.timer)
         return
 
     @stop_module
@@ -30,7 +35,7 @@ class ModuleContainer(Module):
         return
 
     @update_module
-    def update(self, mz: ModelState, dz: StateBase) -> None:
+    def update(self, mz: 'ModelState', dz: 'StateBase') -> None:
         """
         # Update all modules.
         ## Args:

@@ -1,9 +1,15 @@
+# Import external modules
+from typing import TYPE_CHECKING
 from mpi4py import MPI
 import numpy as np
-from .domain_decomposition import DomainDecomposition
+# Import internal modules
+from fridom.framework import config
+# Import type information
+if TYPE_CHECKING:
+    from .domain_decomposition import DomainDecomposition
 
-def get_overlap_info(domain_in: DomainDecomposition, 
-                     domain_out: DomainDecomposition):
+def get_overlap_info(domain_in: 'DomainDecomposition', 
+                     domain_out: 'DomainDecomposition'):
     """
     Get information about which processors of the output domain overlaps with
     the subdomain of this processor in the input domain.
@@ -77,8 +83,8 @@ def get_overlap_info(domain_in: DomainDecomposition,
                         slice_same_proc=slice_same_proc)
     return overlap_info
 
-def transform(domain_in: DomainDecomposition, 
-              domain_out: DomainDecomposition, 
+def transform(domain_in: 'DomainDecomposition', 
+              domain_out: 'DomainDecomposition', 
               same_domain: bool,
               overlap_info_in: dict,
               overlap_info_out: dict,
@@ -131,13 +137,13 @@ def transform(domain_in: DomainDecomposition,
 
     # create new array
     if arr_out is None:
-        arr_out = domain_in.ncp.zeros(
+        arr_out = config.ncp.zeros(
             domain_out.my_subdomain.shape, dtype=arr_in.dtype)
 
     # send the data
     destinations = overlap_info_in['processors']
     send_slices = overlap_info_in['overlap_slices']
-    bufs = [domain_in.ncp.ascontiguousarray(arr_in[s]) for s in send_slices]
+    bufs = [config.ncp.ascontiguousarray(arr_in[s]) for s in send_slices]
     domain_in.sync_with_device()
     reqs = [domain_in.comm.Isend(buf, dest=dest, tag=0) 
             for buf, dest in zip(bufs, destinations)]
@@ -145,7 +151,7 @@ def transform(domain_in: DomainDecomposition,
     # receive the data
     sources = overlap_info_out['processors']
     recv_slices = overlap_info_out['overlap_slices']
-    bufs = [domain_in.ncp.empty(arr_out[s].shape, dtype=arr_out.dtype) 
+    bufs = [config.ncp.empty(arr_out[s].shape, dtype=arr_out.dtype) 
             for s in recv_slices]
 
     reqs += [domain_in.comm.Irecv(buf, source=source, tag=0)
@@ -202,6 +208,7 @@ class Transformer:
     Examples
     --------
 
+    >>> from fridom.framework import config
     >>> from fridom.framework \\
     ...     .domain_decomposition import DomainDecomposition, Transformer
     >>> # create two domains where one shares the x-axis and the other the y-axis
@@ -209,7 +216,7 @@ class Transformer:
     >>> domain_y = DomainDecomposition(n_global=[128]*2, shared_axes=[1])
     >>> 
     >>> # create a random array on the local domain
-    >>> u = domain_x.ncp.random.rand(*domain_x.my_subdomain.shape)
+    >>> u = config.ncp.random.rand(*domain_x.my_subdomain.shape)
     >>> domain_x.sync(u)
     >>> 
     >>> # construct transformers between the domains
@@ -221,11 +228,11 @@ class Transformer:
     >>> 
     >>> # transform the array back from domain_y to domain_x
     >>> w = transformer.backward(v)
-    >>> assert domain_x.ncp.allclose(u, w)
+    >>> assert config.ncp.allclose(u, w)
     """
     def __init__(self, 
-                 domain_in: DomainDecomposition, 
-                 domain_out: DomainDecomposition) -> None:
+                 domain_in: 'DomainDecomposition', 
+                 domain_out: 'DomainDecomposition') -> None:
         """
         Constructing a transformer for transforming arrays from one domain to
         another.

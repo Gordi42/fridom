@@ -1,12 +1,17 @@
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
 from fridom.framework.modules.module import \
     Module, start_module, stop_module, update_module
-from fridom.framework.modules.animation.model_plotter import ModelPlotterBase
-from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelState
+# Import type information
+if TYPE_CHECKING:
+    from .model_plotter import ModelPlotterBase
+    from fridom.framework.state_base import StateBase
+    from fridom.framework.model_state import ModelState
 
 class LiveAnimation(Module):
     def __init__(self, 
-                 model_plotter: ModelPlotterBase,
+                 model_plotter: 'ModelPlotterBase',
                  interval: int = 50,
                  ) -> None:
         super().__init__(
@@ -21,7 +26,7 @@ class LiveAnimation(Module):
         self.fig = self.model_plotter.create_figure()
 
     @update_module
-    def update(self, mz: ModelState, dz: StateBase):
+    def update(self, mz: 'ModelState', dz: 'StateBase'):
         # check if its time to update the plot
         if mz.it % self.interval != 0:
             return

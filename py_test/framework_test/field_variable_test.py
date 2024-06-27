@@ -4,7 +4,7 @@ import os, sys
 sys.path.append("../..")
 
 from fridom.framework.modelsettings import ModelSettingsBase
-from fridom.framework.grid_base import GridBase
+from fridom.framework.grid_base_old import GridBaseOld
 from fridom.framework.boundary_conditions import *
 from fridom.framework.field_variable import FieldVariable
 
@@ -41,7 +41,7 @@ class TestFieldVariable(unittest.TestCase):
                     m = ModelSettingsBase(n_dim)
                     m.gpu = gpu
                     m.N = [1] * n_dim
-                    g = GridBase(m)
+                    g = GridBaseOld(m)
                     cp = g.cp
                     arr = cp.ones(shape=tuple(m.N))
                     field = FieldVariable(
@@ -66,7 +66,7 @@ class TestFieldVariable(unittest.TestCase):
                     m = ModelSettingsBase(n_dim)
                     m.gpu = gpu
                     m.N = [1] * n_dim
-                    g = GridBase(m)
+                    g = GridBaseOld(m)
                     cp = g.cp
                     arr = cp.zeros(shape=tuple(m.N))
                     field = FieldVariable(
@@ -91,7 +91,7 @@ class TestFieldVariable(unittest.TestCase):
                     m = ModelSettingsBase(n_dim)
                     m.gpu = gpu
                     m.N = [1] * n_dim
-                    g = GridBase(m)
+                    g = GridBaseOld(m)
                     cp = g.cp
                     field = FieldVariable(
                         g, is_spectral=spectral, name="Test")
@@ -129,7 +129,7 @@ class TestFieldVariable(unittest.TestCase):
                     m.N = [numpy.random.randint(1,10) for i in range(n_dim)]
                     bounds = [bc_(m, i, 1) for i in range(n_dim)]
                     boundary_conditions = BoundaryConditions(bounds)
-                    g = GridBase(m)
+                    g = GridBaseOld(m)
                     cp = g.cp
                     field = FieldVariable(
                         g, is_spectral=False, name="Test", bc=boundary_conditions)
@@ -162,7 +162,7 @@ class TestFieldVariable(unittest.TestCase):
                 m.N = [3, 2, 1]
                 bounds = [bc(m, i, 1) for i in range(n_dim)]
                 boundary_conditions = BoundaryConditions(bounds)
-                g = GridBase(m)
+                g = GridBaseOld(m)
                 field = FieldVariable(
                     g, is_spectral=False, name="Test", bc=boundary_conditions)
                 field.arr[:] = 1
@@ -185,7 +185,7 @@ class TestFieldVariable(unittest.TestCase):
                     m = ModelSettingsBase(n_dim)
                     m.gpu = gpu
                     m.N = [1] * n_dim
-                    g = GridBase(m)
+                    g = GridBaseOld(m)
                     cp = g.cp
                     field = FieldVariable(
                         g, is_spectral=spectral, name="Test")
@@ -208,7 +208,7 @@ class TestFieldVariable(unittest.TestCase):
                     m = ModelSettingsBase(n_dim)
                     m.gpu = gpu
                     m.N = [2] * n_dim
-                    g = GridBase(m)
+                    g = GridBaseOld(m)
                     cp = g.cp
                     field = FieldVariable(
                         g, is_spectral=spectral, name="Test")
@@ -227,7 +227,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [1, 3, 1]
-            g = GridBase(m)
+            g = GridBaseOld(m)
             cp = g.cp
             field = FieldVariable(
                 g, is_spectral=False, name="Test")
@@ -260,7 +260,7 @@ class TestFieldVariable(unittest.TestCase):
                 m.gpu = gpu
                 m.N = [1, 3, 1]
                 m.periodic_bounds = [period] * 3
-                g = GridBase(m)
+                g = GridBaseOld(m)
                 cp = g.cp
                 field = FieldVariable(
                     g, is_spectral=False, name="Test")
@@ -287,7 +287,7 @@ class TestFieldVariable(unittest.TestCase):
                 m.N = [1, 3, 1]
                 self.assertAlmostEqual(m.dg[1], 1/3)
                 m.periodic_bounds = [period] * 3
-                g = GridBase(m)
+                g = GridBaseOld(m)
                 cp = g.cp
                 field = FieldVariable(
                     g, is_spectral=False, name="Test")
@@ -314,7 +314,7 @@ class TestFieldVariable(unittest.TestCase):
                 m.N = [1, 3, 1]
                 self.assertAlmostEqual(m.dg[1], 1/3)
                 m.periodic_bounds = [period] * 3
-                g = GridBase(m)
+                g = GridBaseOld(m)
                 cp = g.cp
                 field = FieldVariable(
                     g, is_spectral=False, name="Test")
@@ -338,7 +338,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            g = GridBase(m)
+            g = GridBaseOld(m)
             cp = g.cp
             zeros = FieldVariable(
                 g, is_spectral=False, name="Test")
@@ -361,7 +361,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            g = GridBase(m)
+            g = GridBaseOld(m)
             cp = g.cp
             zeros = FieldVariable(
                 g, is_spectral=False, name="Test")
@@ -385,7 +385,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            g = GridBase(m)
+            g = GridBaseOld(m)
             cp = g.cp
             ones = FieldVariable(
                 g, is_spectral=False, name="Test")
@@ -417,7 +417,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             zeros = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -447,7 +447,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             zeros = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -471,7 +471,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             zeros = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -501,7 +501,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             zeros = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -525,7 +525,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             zeros = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -555,7 +555,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             zeros = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -581,7 +581,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             ones = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -609,7 +609,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             ones = FieldVariable(
                 grid, is_spectral=False, name="Test")
@@ -633,7 +633,7 @@ class TestFieldVariable(unittest.TestCase):
             m = ModelSettingsBase(3)
             m.gpu = gpu
             m.N = [3, 2, 1]
-            grid = GridBase(m)
+            grid = GridBaseOld(m)
             cp = grid.cp
             ones = FieldVariable(
                 grid, is_spectral=False, name="Test")

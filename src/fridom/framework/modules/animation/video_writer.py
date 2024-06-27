@@ -1,8 +1,14 @@
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework.to_numpy import to_numpy
 from fridom.framework.modules.module import \
     Module, start_module, stop_module, update_module
-from fridom.framework.modules.animation import ModelPlotterBase
-from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelState
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modules.animation import ModelPlotterBase
+    from fridom.framework.state_base import StateBase
+    from fridom.framework.model_state import ModelState
 
 
 class VideoWriter(Module):
@@ -10,7 +16,7 @@ class VideoWriter(Module):
     Module for creating a mp4 video from the model output.
     """
     def __init__(self, 
-                 model_plotter:ModelPlotterBase, 
+                 model_plotter: 'ModelPlotterBase', 
                  interval: int=50,
                  filename: str="output.mp4", 
                  fps: int=30,
@@ -76,7 +82,7 @@ class VideoWriter(Module):
         return
 
     @update_module
-    def update(self, mz: ModelState, dz: StateBase):
+    def update(self, mz: 'ModelState', dz: 'StateBase'):
         """
         Update method of the parallel animated model.
         """
@@ -94,7 +100,7 @@ class VideoWriter(Module):
         # create a new figure
         import multiprocessing as mp
         q = mp.Queue()
-        kw = {"mz": mz.cpu(), "output_queue": q, "model_plotter": self.model_plotter}
+        kw = {"mz": to_numpy(mz), "output_queue": q, "model_plotter": self.model_plotter}
         job = mp.Process(target=VideoWriter.p_make_figure, kwargs=kw)
         job.start()
 
@@ -154,7 +160,3 @@ class VideoWriter(Module):
         img = model_plotter.convert_to_img(fig)
         output_queue.put(img)
         return
-
-# remove symbols from namespace
-del ModelPlotterBase, StateBase, ModelState, \
-    Module, start_module, stop_module, update_module

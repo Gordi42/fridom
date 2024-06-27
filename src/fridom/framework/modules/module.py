@@ -1,10 +1,14 @@
-from fridom.framework.grid_base import GridBase
-from fridom.framework.modelsettings_base import ModelSettingsBase
-from fridom.framework.state_base import StateBase
-from fridom.framework.model_state import ModelState
-from fridom.framework.timing_module import TimingModule
-
+# Import external modules
+from typing import TYPE_CHECKING
 from functools import wraps
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.grid_base_old import GridBaseOld
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.state_base import StateBase
+    from fridom.framework.model_state import ModelState
+    from fridom.framework.timing_module import TimingModule
+
 
 def start_module(method):
     """
@@ -15,9 +19,9 @@ def start_module(method):
     @wraps(method)
     def wrapper(self, **kwargs):
         if self.is_enabled():
-            grid = kwargs.get('grid')
-            self.grid = grid
-            self.mset = grid.mset
+            mset = kwargs.get('mset')
+            self.mset = mset
+            self.grid = mset.grid
             self.timer = kwargs.get('timer')
             method(self)
     return wrapper
@@ -60,9 +64,10 @@ class Module:
     to a file. Make sure to wrap the method with the `@update_module` decorator.
 
     ## Optional methods:
-    1. `start(self, grid: GridBase, timer: TimingModule) -> None`: This method is
-    called by the model when the module is started. It can for example open an
-    output file. Make sure to wrap the method with the `@start_module` decorator.
+    1. `start(self, mset: ModelSettingsBase, timer: TimingModule) -> None`: 
+    This method is called by the model when the module is started. It can for 
+    example open an output file. Make sure to wrap the method with the 
+    `@start_module` decorator.
     2. `stop(self) -> None`: This method is called by the model when the module
     is stopped. It can for example close an output file. Make sure to wrap the
     method with the `@stop_module` decorator.
@@ -100,10 +105,11 @@ class Module:
         """
         # The module is enabled by default
         self.__enabled = True
+        self.required_halo = 0  # The required halo for the module
         # The grid should be set by the model when the module is started
-        self.grid: GridBase = None
-        self.mset: ModelSettingsBase = None
-        self.timer: TimingModule = None
+        self.grid: 'GridBaseOld' | None = None
+        self.mset: 'ModelSettingsBase' | None = None
+        self.timer: 'TimingModule' | None = None
         # Update the attributes with the keyword arguments
         self.__dict__.update(kwargs)
         self.name = name
@@ -137,7 +143,7 @@ class Module:
         return
 
     @update_module
-    def update(self, mz: ModelState, dz: StateBase) -> None:
+    def update(self, mz: 'ModelState', dz: 'StateBase') -> None:
         """
         This method is called by the model at each time step. Child classes
         should overwrite this method to implement the module's functionality.

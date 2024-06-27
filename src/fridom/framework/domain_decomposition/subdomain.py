@@ -1,3 +1,4 @@
+# Import external modules
 from mpi4py import MPI
 
 class Subdomain:

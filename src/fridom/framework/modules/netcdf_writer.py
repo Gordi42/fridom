@@ -1,8 +1,15 @@
-from fridom.framework.modelsettings_base import ModelSettingsBase
-from fridom.framework.model_state import ModelState
-from fridom.framework.state_base import StateBase
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework import config
+from fridom.framework.to_numpy import to_numpy
 from fridom.framework.modules.module import \
     Module, start_module, update_module, stop_module
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.model_state import ModelState
+    from fridom.framework.state_base import StateBase
 
 class NetCDFWriter(Module):
     """
@@ -72,8 +79,7 @@ class NetCDFWriter(Module):
             sel = tuple([slice(None)]*len(self.grid.x))
 
         # launch parallel writer
-        get = lambda x: x.get() if self.mset.gpu else x
-        x = [get(xi[sel[i]]) for i, xi in enumerate(self.grid.x)]
+        x = [to_numpy(xi[sel[i]]) for i, xi in enumerate(self.grid.x)]
         self.input_queue = mp.Queue()
         self.parallel_writer = mp.Process(
             target=parallel_writer, args=(
@@ -86,10 +92,11 @@ class NetCDFWriter(Module):
         return
 
     @update_module
-    def update(self, mz: ModelState, dz: StateBase):
+    def update(self, mz: 'ModelState', dz: 'StateBase'):
         """
         Write data to binary files and add them to the NetCDF file.
         """
+        ncp = config.ncp
         # check if it is time to write
         if mz.it % self.snap_interval != 0:
             return  # not time to write
@@ -106,10 +113,9 @@ class NetCDFWriter(Module):
             sel = tuple([slice(None)]*len(self.grid.x))
 
         # write data to binary file
-        cp = self.grid.cp
         binary_files = self.binary_files
         for name, var in zip(binary_files, self.get_variables(mz)):
-            cp.save(name, var[sel])
+            ncp.save(name, var[sel])
 
         # add binary file to cdf file
         self.input_queue.put(mz.time)
@@ -126,7 +132,7 @@ class NetCDFWriter(Module):
         self.is_active = False
         return
 
-    def get_variables(self, mz: ModelState):
+    def get_variables(self, mz: 'ModelState'):
         """
         This method should be overwritten by the user to return the variables
         that should be written to the NetCDF file.
@@ -147,7 +153,7 @@ class NetCDFWriter(Module):
         
 
 
-def parallel_writer(mset:ModelSettingsBase, x_in, filename, input_queue, 
+def parallel_writer(mset: 'ModelSettingsBase', x_in, filename, input_queue, 
                     var_names, var_long_names, var_unit_names,
                     binary_files):
     """

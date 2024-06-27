@@ -18,6 +18,7 @@ class SecondOrderAdvection(Module):
         - None
         """
         super().__init__(name="Second Order Advection")
+        self.required_halo = 2
 
     @start_module
     def start(self):

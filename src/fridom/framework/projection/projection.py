@@ -1,7 +1,10 @@
+# Import external modules
+from typing import TYPE_CHECKING
 from abc import ABC, abstractmethod
-
-from fridom.framework.grid_base import GridBase
-from fridom.framework.state_base import StateBase
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.state_base import StateBase
 
 class Projection:
     """
@@ -10,12 +13,12 @@ class Projection:
     Methods:
         project : Project a state to a subspace (e.g. geostrophic subspace).
     """
-    def __init__(self, grid:GridBase) -> None:
-        self.mset = grid.mset
-        self.grid = grid
+    def __init__(self, mset: 'ModelSettingsBase') -> None:
+        self.mset = mset
+        self.grid = mset.grid
 
     @abstractmethod
-    def __call__(self, z: StateBase) -> StateBase:
+    def __call__(self, z: 'StateBase') -> 'StateBase':
         """
         Abstract method for projecting a state to a subspace. All subclasses must implement this method.
 
@@ -26,6 +29,3 @@ class Projection:
             z_proj (State) : The projected state.
         """
         pass
-
-# remove symbols from namespace
-del ABC, abstractmethod, GridBase, StateBase

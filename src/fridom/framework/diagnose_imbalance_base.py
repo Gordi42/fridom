@@ -1,21 +1,25 @@
-from fridom.framework.grid_base import GridBase
-from fridom.framework.state_base import StateBase
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
 from fridom.framework.model import Model
-from fridom.framework.projection.projection import Projection
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.state_base import StateBase
+    from fridom.framework.projection.projection import Projection
 
 class DiagnoseImbalanceBase:
-    def __init__(self, grid:GridBase,
+    def __init__(self, mset: 'ModelSettingsBase',
                  Model:Model,
                  diag_per:float,
-                 proj:Projection,
-                 proj2=None,
+                 proj: 'Projection',
+                 proj2: 'Projection' = None,
                  store_details=False) -> None:
         """
         Calculate the diagnostic imbalance
 
         Arguments:
             mset (ModelSettings) : Model settings
-            grid (Grid)          : Grid
             diag_per (float)     : Model run time in between the two projections
             proj (Projection)    : Projector to be tested
             proj2 (Projection)   : Second projector for cross balancing
@@ -23,8 +27,8 @@ class DiagnoseImbalanceBase:
             store_details (bool) : Whether to store the fields
         """
 
-        self.mset = grid.mset
-        self.grid = grid
+        self.mset = mset
+        self.grid = mset.grid
         self.diag_per = diag_per
         self.proj_ini = proj
         self.proj_fin = proj2 if proj2 is not None else proj
@@ -42,9 +46,9 @@ class DiagnoseImbalanceBase:
         self.ini_bal_details = None
         self.fin_bal_details = None
 
-    def __call__(self, z:StateBase, delete_grid=False) -> float:
+    def __call__(self, z: 'StateBase', delete_grid=False) -> float:
         verbose = self.mset.print_verbose
-        model = self.Model(self.mset, self.grid)
+        model = self.Model(self.mset)
 
         self.z_ini = z.copy() if self.store_details else None
         
@@ -83,6 +87,3 @@ class DiagnoseImbalanceBase:
         if delete_grid:
             self.grid = None
         return self.imbalance
-
-# remove symbols from namespace
-del GridBase, StateBase, Model, Projection

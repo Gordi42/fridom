@@ -1,8 +1,13 @@
+# Import external modules
 import numpy as np
-
-from fridom.framework.modules.module import start_module, update_module
+from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework import config
 from fridom.framework.time_steppers.time_stepper import TimeStepper
-from fridom.framework.model_state import ModelState
+from fridom.framework.modules.module import start_module, update_module
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.model_state import ModelState
 
 class AdamBashforth(TimeStepper):
     def __init__(self, dt: float = 0.01, order: int = 3, eps=0.01):
@@ -35,32 +40,32 @@ class AdamBashforth(TimeStepper):
         - grid (GridBase): Grid object.
         - timer (TimerBase): Timer object.
         """
-        cp = self.grid.cp
+        ncp = config.ncp
+        dtype = config.dtype_real
         mset = self.mset
-        grid = self.grid
 
         # cast the time step to the correct data type
         self.dt = mset.dtype(self.dt)
 
         # Adam Bashforth coefficients
         self.coeffs = [
-            cp.asarray(self.AB1, dtype=mset.dtype), 
-            cp.asarray(self.AB2, dtype=mset.dtype),
-            cp.asarray(self.AB3, dtype=mset.dtype), 
-            cp.asarray(self.AB4, dtype=mset.dtype)
+            ncp.asarray(self.AB1, dtype=dtype), 
+            ncp.asarray(self.AB2, dtype=dtype),
+            ncp.asarray(self.AB3, dtype=dtype), 
+            ncp.asarray(self.AB4, dtype=dtype)
         ]
-        self.coeff_AB = cp.zeros(self.order, dtype=mset.dtype)
+        self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
 
         # pointers
-        self.pointer = np.arange(self.order, dtype=cp.int32)
+        self.pointer = np.arange(self.order, dtype=ncp.int32)
 
         # tendencies
-        self.dz_list = [mset.state_constructor(grid) for _ in range(self.order)]
+        self.dz_list = [mset.state_constructor(mset) for _ in range(self.order)]
         self.it_count = 0
         return
 
     @update_module
-    def update(self, mz: ModelState):
+    def update(self, mz: 'ModelState'):
         """
         # Update the time stepper.
         ## Args:
@@ -97,7 +102,7 @@ class AdamBashforth(TimeStepper):
         """
         # current time level (ctl)
         # maximum ctl is the number of time levels - 1
-        cp = self.grid.cp
+        ncp = config.ncp
         ctl = min(self.it_count, self.order-1)
 
         # list of Adam-Bashforth coefficients
@@ -105,7 +110,7 @@ class AdamBashforth(TimeStepper):
 
         # choose Adam-Bashforth coefficients of current time level
         self.coeff_AB[:]      = 0
-        self.coeff_AB[:ctl+1] = cp.asarray(coeffs[ctl])
+        self.coeff_AB[:ctl+1] = ncp.asarray(coeffs[ctl])
         return
 
     @property

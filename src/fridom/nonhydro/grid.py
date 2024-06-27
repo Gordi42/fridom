@@ -1,9 +1,9 @@
 import numpy as np
 
-from fridom.framework.grid_base import GridBase
+from fridom.framework.grid_base_old import GridBaseOld
 from fridom.nonhydro.model_settings import ModelSettings
 
-class Grid(GridBase):
+class Grid(GridBaseOld):
     """
     Grid container with the meshgrid of the physical and spectral domain.
 
@@ -39,6 +39,9 @@ class Grid(GridBase):
         self.f_array  = cp.zeros((1,N[1],1), dtype=dtype)
         self.f_array[:] = mset.f0 + mset.beta * y[None,:,None]
 
+        self.N2_array = mset.N0**2
+        self.f_array = mset.f0
+
         # discretized wave number squared
         k_dis = [2 * (1 - cp.cos(kx * dx)) / dx**2 
                   for (kx,dx) in zip(self.K, mset.dg)]
@@ -67,8 +70,8 @@ class Grid(GridBase):
                 mset_cpu = self.mset.copy()
                 mset_cpu.gpu = False
                 self._cpu = Grid(mset_cpu)
-                self._cpu.N2_array = self.N2_array.get()
-                self._cpu.f_array  = self.f_array.get()
+                # self._cpu.N2_array = self.N2_array.get()
+                # self._cpu.f_array  = self.f_array.get()
         return self._cpu
 
     
@@ -220,4 +223,4 @@ class Grid(GridBase):
         return self._omega_time_discrete
 
 # remove symbols from namespace
-del ModelSettings, GridBase
+del ModelSettings, GridBaseOld

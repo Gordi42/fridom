@@ -12,5 +12,5 @@ https://github.com/Gordi42/FRIDOM
 """
 
 from . import framework
-from . import nonhydro
-from . import shallowwater
+# from . import nonhydro
+# from . import shallowwater

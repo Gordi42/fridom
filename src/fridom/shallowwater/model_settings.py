@@ -1,6 +1,9 @@
 import numpy as np
-
+from typing import TYPE_CHECKING
 from fridom.framework.modelsettings_base import ModelSettingsBase
+
+if TYPE_CHECKING:
+    from fridom.framework.grid.grid_base import GridBase
 
 class ModelSettings(ModelSettingsBase):
     """
@@ -25,7 +28,7 @@ class ModelSettings(ModelSettingsBase):
         enable_tqdm (bool)      : Enable progress bar.
         enable_verbose (bool)   : Enable verbose output.
     """
-    def __init__(self, dtype=np.float64, ctype=np.complex128, **kwargs):
+    def __init__(self, grid: 'GridBase', dtype=np.float64, ctype=np.complex128, **kwargs):
         """
         Constructor.
 
@@ -33,7 +36,7 @@ class ModelSettings(ModelSettingsBase):
             dtype (np.dtype)   : Data type for real.         
             ctype (np.dtype)   : Data type for complex.
         """
-        super().__init__(n_dims=2, dtype=dtype, ctype=ctype)
+        super().__init__(grid, n_dims=2, dtype=dtype, ctype=ctype)
         self.model_name = "ShallowWater"
         self.L = [2*np.pi, 2*np.pi]
         self.N = [63, 63]

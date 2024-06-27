@@ -1,14 +1,16 @@
+# Import external modules
+import numpy as np
+# Import internal modules
+from fridom.framework import config
 from .domain_decomposition import DomainDecomposition
 from .transformer import Transformer
-import numpy as np
 
 def transform(arr_in: np.ndarray, 
               domain_in: DomainDecomposition, 
               domain_out: DomainDecomposition, 
               transform_funs: 'list[callable]',
               fft_axes: 'list[list[int]]',
-              apply_fun: callable,
-              complex_dtype = np.complex128) -> np.ndarray:
+              apply_fun: callable) -> np.ndarray:
     """
     Perform a transform from one domain to another, while applying a function
     to the data at each step.
@@ -36,8 +38,6 @@ def transform(arr_in: np.ndarray,
     `apply_fun` : `callable`
         The function that will be applied to the data at each step, should have
         the signature `apply_fun(arr, axes) -> np.ndarray`
-    `complex_dtype` : `np.dtype`, optional (default=np.complex128)
-        The dtype of the complex data
     
     Returns
     -------
@@ -50,7 +50,7 @@ def transform(arr_in: np.ndarray,
     class.
     """
     # first remove the halo cells of the input array and make the array complex
-    arr_out = arr_in[domain_in.my_subdomain.inner_slice].astype(complex_dtype)
+    arr_out = arr_in[domain_in.my_subdomain.inner_slice].astype(config.dtype_comp)
     for i, transform in enumerate(transform_funs):
         # apply the function to the given axes
         arr_out  = apply_fun(arr_out , axes=fft_axes[i])
@@ -128,8 +128,7 @@ class ParallelFFT:
     def __init__(self, 
                  domain_in: DomainDecomposition, 
                  shared_axes_out : 'list[int]' = None,
-                 halo_out: int = 0,
-                 complex_dtype = np.complex128) -> None:
+                 halo_out: int = 0) -> None:
         """
         The ParallelFFT object is used to perform fourier transform on decomposed
         domains.
@@ -142,8 +141,6 @@ class ParallelFFT:
             The axes that should be shared in the output domain
         `halo_out` : `int`, optional (default=0)
             The halo size of the output domain
-        `complex_dtype` : `np.dtype`, optional (default=np.complex128)
-            The dtype of the complex data
         
         Returns
         -------
@@ -215,8 +212,7 @@ class ParallelFFT:
         domain_out = DomainDecomposition(
             n_global=domain_in.n_global,
             halo=halo_out,
-            shared_axes=shared_axes_out,
-            backend=domain_in.backend)
+            shared_axes=shared_axes_out)
         
         # --------------------------------------------------------------
         #  Construct the domain decompositions for the intermediate domains
@@ -244,8 +240,7 @@ class ParallelFFT:
         domain_list_all = [DomainDecomposition(
             n_global=domain_in.n_global,
             halo=0,
-            shared_axes=shared_axes,
-            backend=domain_in.backend)
+            shared_axes=shared_axes)
             for shared_axes in all_shared_axes]
 
         # the final domain in the domain list should include the halo cells
@@ -291,7 +286,6 @@ class ParallelFFT:
         self._forward_transforms = forward_transforms
         self._backward_transforms = backward_transforms
         self._fft_axes = fft_axes
-        self._complex_dtype = complex_dtype
         return
 
     def forward(self, u: np.ndarray) -> np.ndarray:
@@ -324,7 +318,7 @@ class ParallelFFT:
         >>> # Perform a forward transform
         >>> u_hat = pfft.forward(u)
         """
-        return self.forward_apply(u, self.domain_in.ncp.fft.fftn)
+        return self.forward_apply(u, config.ncp.fft.fftn)
 
     def backward(self, u_hat: np.ndarray) -> np.ndarray:
         """
@@ -360,7 +354,7 @@ class ParallelFFT:
         >>> # Perform a backward transform
         >>> u = pfft.backward(u)  # will be complex
         """
-        return self.backward_apply(u_hat, self.domain_out.ncp.fft.ifftn)
+        return self.backward_apply(u_hat, config.ncp.fft.ifftn)
 
     def forward_apply(self, u: np.ndarray, apply_fun: callable) -> np.ndarray:
         """
@@ -417,7 +411,7 @@ class ParallelFFT:
         """
         return transform(u, self.domain_in, self.domain_out,
                         self._forward_transforms, self._fft_axes,
-                        apply_fun, complex_dtype=self._complex_dtype)
+                        apply_fun)
 
     def backward_apply(self, u: np.ndarray, apply_fun: callable) -> np.ndarray:
         """
@@ -439,5 +433,5 @@ class ParallelFFT:
         """
         return transform(u, self.domain_out, self.domain_in,
                         self._backward_transforms, self._fft_axes[::-1],
-                        apply_fun, complex_dtype=self._complex_dtype)
+                        apply_fun)
 

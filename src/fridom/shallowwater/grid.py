@@ -1,9 +1,9 @@
 import numpy as np
 
-from fridom.framework.grid_base import GridBase
+from fridom.framework.grid_base_old import GridBaseOld
 from fridom.shallowwater.model_settings import ModelSettings
 
-class Grid(GridBase):
+class Grid(GridBaseOld):
     """
     Grid container with the meshgrid of the physical and spectral domain.
 
@@ -217,4 +217,4 @@ class Grid(GridBase):
 
 
 # remove symbols from namespace
-del ModelSettings, GridBase
+del ModelSettings, GridBaseOld

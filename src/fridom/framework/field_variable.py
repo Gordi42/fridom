@@ -1,4 +1,10 @@
-from fridom.framework.grid_base import GridBase
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework import config
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
 
 
 class FieldVariable:
@@ -21,59 +27,33 @@ class FieldVariable:
     #  CONSTRUCTORS
     # ==================================================================
 
-    def __init__(self, grid:GridBase,
+    def __init__(self, mset: 'ModelSettingsBase',
                  is_spectral=False, name="Unnamed", arr=None) -> None:
         """
         Creates a FieldVariable initialized from input array if given.
         Else, creates a FieldVariable initialized with zeros.
 
         Arguments:
-            grid (Grid)          : Grid object
             is_spectral (bool)   : True if the FieldVariable is in spectral space
             name (str)           : Name of the FieldVariable
             arr (ndarray)        : The array to be wrapped
         """
-        mset = grid.mset
         self.name = name
         self.mset = mset
-        self.grid = grid
+        self.grid = mset.grid
         self.is_spectral = is_spectral
 
-        cp = grid.cp
-        self.cp = cp
-        dtype = mset.ctype if is_spectral else mset.dtype
+        ncp = config.ncp
+        dtype = config.dtype_comp if is_spectral else config.dtype_real
         if arr is None:
             if is_spectral:
-                self.arr = cp.zeros(shape=grid.K[0].shape, dtype=dtype)
+                self.arr = ncp.zeros(shape=mset.grid.K[0].shape, dtype=dtype)
             else:
-                self.arr = cp.zeros(shape=tuple(mset.N), dtype=dtype)
+                self.arr = ncp.zeros(shape=mset.grid.X[0].shape, dtype=dtype)
         else:
-            self.arr = cp.array(arr, dtype=dtype)
+            self.arr = ncp.array(arr, dtype=dtype)
 
         return
-
-    def copy(self):
-        """
-        Return a copy of the FieldVariable
-        """
-        return FieldVariable(arr=self.arr.copy(), **self.get_kw())
-
-    def cpu(self):
-        """
-        Return a copy of the FieldVariable on the CPU
-        """
-        mset_cpu = self.mset.copy()
-        mset_cpu.gpu = False
-        # transform grid to CPU
-        grid_cpu = self.grid.cpu
-        grid_cpu.mset = mset_cpu
-
-        kw = self.get_kw()
-        kw["grid"] = grid_cpu
-
-        arr = self.arr.get() if self.mset.gpu else self.arr
-
-        return FieldVariable(arr=arr, **kw)
         
     # ==================================================================
     #  OTHER METHODS
@@ -84,8 +64,8 @@ class FieldVariable:
         Return a dictionary with the keyword arguments for the
         FieldVariable constructor
         """
-        return {"grid":self.grid, "name":self.name,
-                "is_spectral":self.is_spectral}
+        return {"mset": self.mset, "name": self.name,
+                "is_spectral": self.is_spectral}
 
     def fft(self) -> "FieldVariable":
         """
@@ -94,18 +74,34 @@ class FieldVariable:
         Returns:
             FieldVariable: Fourier transform of the FieldVariable
         """
-        cp = self.cp
+        if not self.grid.fourier_transform_available:
+            raise NotImplementedError(
+                "Fourier transform not available for this grid")
+
+        ncp = config.ncp
         if self.is_spectral:
-            res = cp.array(self.grid.fft.backward(self.arr).real, 
-                           dtype=self.mset.dtype)
+            res = ncp.array(self.grid.ifft(self.arr).real, 
+                           dtype=config.dtype_real)
         else:
-            res = cp.array(self.grid.fft.forward(self.arr), 
-                           dtype=self.mset.ctype)
+            res = ncp.array(self.grid.fft(self.arr), 
+                           dtype=config.dtype_comp)
 
         kw = self.get_kw()
         kw["is_spectral"] = not self.is_spectral
 
         return FieldVariable(arr=res, **kw)
+
+    def sync(self):
+        """
+        Synchronize the FieldVariable (exchange boundary values)
+        """
+        if not self.grid.mpi_available:
+            raise NotImplementedError(
+                "MPI not available for this grid")
+        if self.is_spectral:
+            self.grid.sync_spectral(self.arr)
+        else:
+            self.grid.sync_physical(self.arr)
 
     def spectra_1d(self, nbins=50) -> tuple:
         """
@@ -123,7 +119,7 @@ class FieldVariable:
             k_centers (ndarray) : Bin centers of the 1D spectra
             spectra_1D (ndarray): 1D spectra
         """
-        cp = self.cp
+        ncp = config.ncp
         if self.is_spectral:
             spectral = self.arr.copy()
         else:
@@ -132,33 +128,33 @@ class FieldVariable:
         spectral /= spectral.size
         # check if domain was extended
         import numpy
-        fac = numpy.prod([1 if p else 2 for p in self.mset.periodic_bounds])
+        fac = numpy.prod([1 if p else 2 for p in self.grid.periodic_bounds])
         spectral /= fac
 
         # calculate n-dimensional spectra and flatten the array
-        spectra_3D = (cp.abs(spectral)**2).flatten()
+        spectra_3D = (ncp.abs(spectral)**2).flatten()
         # calculate the corresponding wave number
-        k = cp.zeros_like(spectral).real
+        k = ncp.zeros_like(spectral).real
         for K in self.grid.K:
             k += K**2
-        k = cp.sqrt(k).flatten()
+        k = ncp.sqrt(k).flatten()
 
         # find largest grid spacing in spectral space
         dk_max = 0
         k_vol = 1
         for kk in self.grid.k:
-            dk_max = max(dk_max, cp.abs(kk[1] - kk[0]))
+            dk_max = max(dk_max, ncp.abs(kk[1] - kk[0]))
             k_vol *= kk[1] - kk[0]
 
-        kmax = float(cp.max(k))
+        kmax = float(ncp.max(k))
         dk_max = float(dk_max)
         # find the bin edges
-        k_bins = cp.arange(0, kmax + dk_max, dk_max)
+        k_bins = ncp.arange(0, kmax + dk_max, dk_max)
         # find the bin centers
         k_centers = 0.5*(k_bins[1:] + k_bins[:-1])
         # integrate the 3D spectra over the bins
-        k_idx = cp.digitize(k, k_bins)
-        spectra_1D = cp.bincount(k_idx, weights=spectra_3D)[1:]
+        k_idx = ncp.digitize(k, k_bins)
+        spectra_1D = ncp.bincount(k_idx, weights=spectra_3D)[1:]
         # normalize:
         spectra_1D *= k_vol/(k_centers[1] - k_centers[0])
 
@@ -171,7 +167,7 @@ class FieldVariable:
         Returns:
             FieldVariable: Square root of the FieldVariable
         """
-        return FieldVariable(arr=self.cp.sqrt(self.arr), **self.get_kw())
+        return FieldVariable(arr=config.ncp.sqrt(self.arr), **self.get_kw())
 
     def norm_l2(self):
         """
@@ -180,7 +176,7 @@ class FieldVariable:
         Returns:
             float: L2 norm of the FieldVariable
         """
-        return self.cp.linalg.norm(self.arr)
+        return config.ncp.linalg.norm(self.arr)
 
     def pad_raw(self, pad_width):
         """
@@ -193,8 +189,8 @@ class FieldVariable:
         Returns:
             p_arr (ndarray): Padded version of the FieldVariable
         """
-        cp = self.cp
-        p_arr = cp.pad(self.arr, pad_width, mode="wrap")
+        ncp = config.ncp
+        p_arr = ncp.pad(self.arr, pad_width, mode="wrap")
         return p_arr
 
     def ave(self, shift, axis):
@@ -212,30 +208,30 @@ class FieldVariable:
         # get padding width
         if shift_positive:
             pad_width = tuple([(0, 0) if i != axis else (0, 1) 
-                               for i in range(self.mset.n_dims)])
+                               for i in range(self.grid.n_dims)])
         else:
             pad_width = tuple([(0, 0) if i != axis else (1, 0) 
-                               for i in range(self.mset.n_dims)])
+                               for i in range(self.grid.n_dims)])
 
         # pad the array
         p_arr = self.pad_raw(pad_width)
 
         # apply boundary conditions
-        if not self.mset.periodic_bounds[axis]:
+        if not self.grid.periodic_bounds[axis]:
             if shift_positive:
                 sl = tuple([slice(None) if i != axis else -1
-                            for i in range(self.mset.n_dims)])
+                            for i in range(self.grid.n_dims)])
             else:
                 sl = tuple([slice(None) if i != axis else 0
-                            for i in range(self.mset.n_dims)])
+                            for i in range(self.grid.n_dims)])
             p_arr[sl] = 0
                 
 
         # get slices for the center and shifted values
         center = tuple([slice(None) if i != axis else slice(None, -1)
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
         shifted = tuple([slice(None) if i != axis else slice(1, None)
-                         for i in range(self.mset.n_dims)])
+                         for i in range(self.grid.n_dims)])
 
         # compute the average
         ave = 0.5*(p_arr[center] + p_arr[shifted])
@@ -253,25 +249,25 @@ class FieldVariable:
             FieldVariable: Forward difference of the FieldVariable
         """
         pad_width = tuple([(0, 0) if i != axis else (0, 1)
-                           for i in range(self.mset.n_dims)])
+                           for i in range(self.grid.n_dims)])
 
         # pad the array
         p_arr = self.pad_raw(pad_width)
 
         # apply boundary conditions
-        if not self.mset.periodic_bounds[axis]:
+        if not self.grid.periodic_bounds[axis]:
             sl = tuple([slice(None) if i != axis else -1
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
             p_arr[sl] = 0
 
         # get slices for the center and shifted values
         first = tuple([slice(None) if i != axis else slice(None, -1)
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
         secon = tuple([slice(None) if i != axis else slice(1, None)
-                         for i in range(self.mset.n_dims)])
+                         for i in range(self.grid.n_dims)])
 
         # calculate the forward difference
-        diff = (p_arr[secon] - p_arr[first])/self.mset.dg[axis]
+        diff = (p_arr[secon] - p_arr[first])/self.grid.dx[axis]
         return FieldVariable(arr=diff, **self.get_kw())
     
     def diff_backward(self, axis):
@@ -285,25 +281,25 @@ class FieldVariable:
             FieldVariable: Backward difference of the FieldVariable
         """
         pad_width = tuple([(0, 0) if i != axis else (1, 0)
-                           for i in range(self.mset.n_dims)])
+                           for i in range(self.grid.n_dims)])
 
         # pad the array
         p_arr = self.pad_raw(pad_width)
 
         # apply boundary conditions
-        if not self.mset.periodic_bounds[axis]:
+        if not self.grid.periodic_bounds[axis]:
             sl = tuple([slice(None) if i != axis else 0
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
             p_arr[sl] = 0
 
         # get slices for the center and shifted values
         first = tuple([slice(None) if i != axis else slice(None, -1)
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
         secon = tuple([slice(None) if i != axis else slice(1, None)
-                         for i in range(self.mset.n_dims)])
+                         for i in range(self.grid.n_dims)])
 
         # calculate the backward difference
-        diff = (p_arr[secon] - p_arr[first])/self.mset.dg[axis]
+        diff = (p_arr[secon] - p_arr[first])/self.grid.dx[axis]
         return FieldVariable(arr=diff, **self.get_kw())
         
     
@@ -318,30 +314,30 @@ class FieldVariable:
             FieldVariable: Second order difference of the FieldVariable
         """
         pad_width = tuple([(0, 0) if i != axis else (1, 1)
-                           for i in range(self.mset.n_dims)])
+                           for i in range(self.grid.n_dims)])
 
         # pad the array
         p_arr = self.pad_raw(pad_width)
 
         # apply boundary conditions
-        if not self.mset.periodic_bounds[axis]:
+        if not self.grid.periodic_bounds[axis]:
             sl = tuple([slice(None) if i != axis else 0
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
             p_arr[sl] = 0
             sl = tuple([slice(None) if i != axis else -1
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
             p_arr[sl] = 0
 
         # get slices for the center and shifted values
         first = tuple([slice(None) if i != axis else slice(None, -2)
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
         secon = tuple([slice(None) if i != axis else slice(1, -1)
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
         third = tuple([slice(None) if i != axis else slice(2, None)
-                        for i in range(self.mset.n_dims)])
+                        for i in range(self.grid.n_dims)])
 
         # calculate the second order difference
-        diff = (p_arr[third] - 2*p_arr[secon] + p_arr[first])/self.mset.dg[axis]**2
+        diff = (p_arr[third] - 2*p_arr[secon] + p_arr[first])/self.grid.dx[axis]**2
         return FieldVariable(arr=diff, **self.get_kw())
 
     # ==================================================================
@@ -487,6 +483,3 @@ class FieldVariable:
 
     def __repr__(self) -> str:
         return self.__str__()
-
-# remove symbols from the namespace
-del GridBase

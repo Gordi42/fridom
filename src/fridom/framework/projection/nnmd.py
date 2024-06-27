@@ -1,16 +1,19 @@
+# Import external modules
 import numpy as np
-
-from fridom.framework.grid_base import GridBase
-from fridom.framework.state_base import StateBase
+from typing import TYPE_CHECKING
+# Import internal modules
 from fridom.framework.model import Model
 from fridom.framework.projection.projection import Projection
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.state_base import StateBase
 
 class NNMDBase(Projection):
     """
     Nonlinear normal mode decomposition.
     """
-    def __init__(self, grid: GridBase,
-                 Model: Model, State: StateBase,
+    def __init__(self, mset: 'ModelSettingsBase',
                  VecQ, VecP,
                  order=3,
                  enable_dealiasing=True) -> None:
@@ -24,8 +27,9 @@ class NNMDBase(Projection):
                                         order 4.
             enable_dealiasing (bool)  : Whether to enable dealiasing.
         """
-        mset = grid.mset
-        super().__init__(mset, grid)
+        mset = mset
+        grid = mset.grid
+        super().__init__(mset)
 
         # check if model is nonlinear
         if not mset.enable_nonlinear or mset.Ro == 0:
@@ -48,23 +52,23 @@ class NNMDBase(Projection):
         self.order = order
 
         # create the eigenvectors
-        self.q0 = VecQ(0, grid)
-        self.p0 = VecP(0, grid)
-        self.qp = VecQ(1, grid)
-        self.pp = VecP(1, grid)
-        self.qm = VecQ(-1, grid)
-        self.pm = VecP(-1, grid)
+        self.q0 = VecQ(0, mset)
+        self.p0 = VecP(0, mset)
+        self.qp = VecQ(1, mset)
+        self.pp = VecP(1, mset)
+        self.qm = VecQ(-1, mset)
+        self.pm = VecP(-1, mset)
 
         self.one_over_omega = 1 / self.grid.omega_space_discrete
         # set inf to zero
         self.one_over_omega[np.isinf(self.one_over_omega)] = 0
 
         # initialize the model
-        self.model = Model(mset, grid)
-        self.State = State
+        self.model = Model(mset)
+        self.State = mset.state_constructor
         return
     
-    def __call__(self, z: StateBase) -> StateBase:
+    def __call__(self, z: 'StateBase') -> 'StateBase':
         """
         Project a state to the balanced subspace.
 
@@ -114,7 +118,7 @@ class NNMDBase(Projection):
     #  Calculation of the n-order term in the power series
     # ========================================================================
 
-    def zero_order(self, z_hat: StateBase) -> StateBase:
+    def zero_order(self, z_hat: 'StateBase') -> 'StateBase':
         """
         Calculate the zero-order term of the power series.
 
@@ -124,7 +128,7 @@ class NNMDBase(Projection):
         return self.proj_0(z_hat)
 
     
-    def first_order(self, z0_hat: StateBase) -> StateBase:
+    def first_order(self, z0_hat: 'StateBase') -> 'StateBase':
         """
         Calculate the unscaled first order term of the power series.
 
@@ -138,8 +142,8 @@ class NNMDBase(Projection):
 
         return self.solve_for_z(interaction)
 
-    def second_order(self, z0_hat: StateBase, z1_hat: StateBase,
-                     dT_z1_hat: StateBase) -> StateBase:
+    def second_order(self, z0_hat: 'StateBase', z1_hat: 'StateBase',
+                     dT_z1_hat: 'StateBase') -> 'StateBase':
         """
         Calculate the unscaled second order term of the power series.
 
@@ -157,8 +161,8 @@ class NNMDBase(Projection):
 
         return self.solve_for_z(right_hand_side)
 
-    def third_order(self, z0_hat: StateBase, z1_hat: StateBase,
-                    z2_hat: StateBase, dT_z2_hat: StateBase) -> StateBase:
+    def third_order(self, z0_hat: 'StateBase', z1_hat: 'StateBase',
+                    z2_hat: 'StateBase', dT_z2_hat: 'StateBase') -> 'StateBase':
         """
         Calculate the unscaled third order term of the power series.
         """
@@ -170,7 +174,7 @@ class NNMDBase(Projection):
         right_hand_side = interaction - dT_z2_hat
         return self.solve_for_z(right_hand_side)
 
-    def solve_for_z(self, right_hand_side: StateBase) -> StateBase:
+    def solve_for_z(self, right_hand_side: 'StateBase') -> 'StateBase':
         """
         Solves the linear equation for z.
         $$ 
@@ -193,7 +197,7 @@ class NNMDBase(Projection):
     #  Slow derivative of the n-order term
     # ========================================================================
 
-    def derivative_zero_order(self, z0_hat: StateBase) -> StateBase:
+    def derivative_zero_order(self, z0_hat: 'StateBase') -> 'StateBase':
         """
         Calculates the slow derivative of the zero-order term.
         """
@@ -204,8 +208,8 @@ class NNMDBase(Projection):
 
         return dT_z0_hat
 
-    def derivative_first_order(self, z0_hat: StateBase, 
-                               dT_z0_hat: StateBase) -> StateBase:
+    def derivative_first_order(self, z0_hat: 'StateBase', 
+                               dT_z0_hat: 'StateBase') -> 'StateBase':
         """
         Calculates the slow derivative of the first-order term.
         """
@@ -216,8 +220,8 @@ class NNMDBase(Projection):
 
         return self.solve_for_z(interaction)
 
-    def derivative_second_order(self, z0_hat: StateBase, z1_hat: StateBase,
-                                dT_z0_hat: StateBase, dT_z1_hat: StateBase) -> StateBase:
+    def derivative_second_order(self, z0_hat: 'StateBase', z1_hat: 'StateBase',
+                                dT_z0_hat: 'StateBase', dT_z1_hat: 'StateBase') -> 'StateBase':
         """
         Calculates the slow derivative of the second-order term.
         """
@@ -236,7 +240,7 @@ class NNMDBase(Projection):
         return self.solve_for_z(2*dT_inter - dT_dT_z1_hat)
 
 
-    def proj_p(self, z: StateBase) -> StateBase:
+    def proj_p(self, z: 'StateBase') -> 'StateBase':
         """
         Project a state to the positive eigenspace.
 
@@ -248,7 +252,7 @@ class NNMDBase(Projection):
         """
         return z.project(self.pp, self.qp)
     
-    def proj_m(self, z: StateBase) -> StateBase:
+    def proj_m(self, z: 'StateBase') -> 'StateBase':
         """
         Project a state to the negative eigenspace.
 
@@ -260,7 +264,7 @@ class NNMDBase(Projection):
         """
         return z.project(self.pm, self.qm)
     
-    def proj_0(self, z: StateBase) -> StateBase:
+    def proj_0(self, z: 'StateBase') -> 'StateBase':
         """
         Project a state to the zero eigenspace.
 
@@ -286,7 +290,7 @@ class NNMDBase(Projection):
 
 
 
-    def non_linear(self, z: StateBase) -> StateBase:
+    def non_linear(self, z: 'StateBase') -> 'StateBase':
         """
         Calculate the nonlinear term.
 
@@ -314,8 +318,8 @@ class NNMDBase(Projection):
         z_nl = z_nl.fft() if spectral_transform else z_nl
         return z_nl
 
-    def derivative_inter(self, z1_hat: StateBase, z2_hat: StateBase,
-                         dT_z1_hat: StateBase, dT_z2_hat: StateBase) -> StateBase:
+    def derivative_inter(self, z1_hat: 'StateBase', z2_hat: 'StateBase',
+                         dT_z1_hat: 'StateBase', dT_z2_hat: 'StateBase') -> 'StateBase':
         """
         Calculate the slow derivative of the nonlinear term between two states.
         """
@@ -330,7 +334,7 @@ class NNMDBase(Projection):
 
     
 
-    def non_linear_inter(self, z1: StateBase, z2: StateBase) -> StateBase:
+    def non_linear_inter(self, z1: 'StateBase', z2: 'StateBase') -> 'StateBase':
         """
         Calculate the nonlinear term between two states.
 
@@ -358,7 +362,7 @@ class NNMDBase(Projection):
         z_nl = z_nl.fft() if spectral_transform else z_nl
         return z_nl
 
-    def time_tendency(self, z: StateBase) -> StateBase:
+    def time_tendency(self, z: 'StateBase') -> 'StateBase':
         """
         Calculate the time tendency.
 
@@ -381,7 +385,3 @@ class NNMDBase(Projection):
         dz = (z_next - z_phys) / model.mset.dt
 
         return dz.fft() if spectral_transform else dz
-
-
-# remove symbols from the namespace
-del GridBase, StateBase, Model, Projection

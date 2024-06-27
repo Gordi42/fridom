@@ -1,8 +1,11 @@
-from typing import Type
-
-from fridom.framework.modelsettings_base import ModelSettingsBase
-from fridom.framework.grid_base import GridBase
-from fridom.framework.field_variable import FieldVariable
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework import config
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.field_variable import FieldVariable
+    from fridom.framework.modelsettings_base import ModelSettingsBase
 
 class StateBase:
     """
@@ -19,47 +22,26 @@ class StateBase:
     #  STATE CONSTRUCTORS
     # ======================================================================
 
-    def __init__(self, grid:GridBase, 
+    def __init__(self, mset: 'ModelSettingsBase', 
                  field_list:list, is_spectral=False) -> None:
         """
         Base Constructor.
 
         Arguments:
-            grid (Grid)           : Grid object.
             field_list (list)     : List of FieldVariables.
             is_spectral (bool)    : State is in spectral space. (default: False)
         """
-        self.mset = grid.mset
-        self.grid = grid
+        self.mset = mset
+        self.grid = mset.grid
         self.is_spectral = is_spectral
-        self.cp = grid.cp
         self.constructor = StateBase
         self.field_list = field_list
-
-    def copy(self) -> Type["StateBase"]:
-        """
-        Create a copy of the state.
-        """
-        fields = [field.copy() for field in self.field_list]
-        z = self.constructor(self.grid, 
-                             field_list=fields, is_spectral=self.is_spectral)
-        return z
-
-    def cpu(self) -> Type["StateBase"]:
-        """
-        Create a copy of the state on the CPU.
-        """
-        fields_cpu = [field.cpu() for field in self.field_list]
-        grid = fields_cpu[0].grid
-        z = self.constructor(grid, field_list=fields_cpu,
-                                is_spectral=self.is_spectral)
-        return z
     
     # ======================================================================
     #  BASIC OPERATIONS
     # ======================================================================
         
-    def fft(self) -> Type["StateBase"]:
+    def fft(self) -> "StateBase":
         """
         Calculate the Fourier transform of the state. (forward and backward)
         """
@@ -69,8 +51,15 @@ class StateBase:
             is_spectral=not self.is_spectral)
         return z
 
-    def project(self, p_vec:Type["StateBase"], 
-                      q_vec:Type["StateBase"]) -> Type["StateBase"]:
+    def sync(self) -> None:
+        """
+        Synchronize the state. (Exchange ghost cells)
+        """
+        [field.sync() for field in self.field_list]
+        return
+
+    def project(self, p_vec:"StateBase", 
+                      q_vec:"StateBase") -> "StateBase":
         """
         Project the state on a (spectral) vector.
         $ z = q_vec * (z \cdot p_vec) $
@@ -92,7 +81,7 @@ class StateBase:
             z = z.fft()
         return z
 
-    def dot(self, other:Type["StateBase"]) -> FieldVariable:
+    def dot(self, other: "StateBase") -> 'FieldVariable':
         """
         Calculate the dot product of the state with another state.
 
@@ -118,10 +107,11 @@ class StateBase:
         Returns:
             norm (float)  : L2 norm of the state.
         """
-        cell_volume = self.cp.prod(self.cp.array(self.mset.dg))
-        return self.cp.sqrt(self.cp.sum(self.dot(self)) * cell_volume)
+        ncp = config.ncp
+        cell_volume = ncp.prod(ncp.array(self.grid.dx))
+        return ncp.sqrt(ncp.sum(self.dot(self)) * cell_volume)
 
-    def norm_of_diff(self, other:Type["StateBase"]) -> float:
+    def norm_of_diff(self, other: "StateBase") -> float:
         """
         Calculate the norm of the difference between two states.
         $$ 2 \frac{||z - z'||_2}{||z||_2 + ||z'||_2} $$
@@ -224,6 +214,3 @@ class StateBase:
         z = self.constructor(self.grid, field_list=prods,
                                 is_spectral=self.is_spectral)
         return z
-
-# remove symbols from namespace
-del Type, ModelSettingsBase, GridBase, FieldVariable

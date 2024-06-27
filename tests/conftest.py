@@ -1,16 +1,18 @@
 import pytest
+import fridom.framework as fr
 
 # Fixture to enable GPU testing
 
 try:
     import cupy
-    gpu_unavailable = False
+    cupy_unavailable = False
 except ImportError:
-    gpu_unavailable = True
+    cupy_unavailable = True
 
 @pytest.fixture(scope='module', params=[
-    pytest.param(False, id="CPU"),
-    pytest.param(True, id="GPU", marks=pytest.mark.skipif(
-        gpu_unavailable, reason="GPU not available"))])
-def enable_gpu(request):
+    pytest.param("numpy", id="numpy"),
+    pytest.param("cupy", id="cupy", marks=pytest.mark.skipif(
+        cupy_unavailable, reason="Cupy not available"))])
+def backend(request):
+    fr.config.set_backend(request.param)
     return request.param

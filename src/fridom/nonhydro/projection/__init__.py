@@ -16,6 +16,7 @@ or to decompose the flow into balanced and unbalanced components.
 """
 
 from .divergence_spectral import DivergenceSpectral
+from .geostrophic_spectral import GeostrophicSpectral
 from .wave_spectral import WaveSpectral
 from fridom.framework.projection import GeostrophicTimeAverage
 

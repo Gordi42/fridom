@@ -1,5 +1,9 @@
+# Import external modules
 from mpi4py import MPI
+from copy import deepcopy
+# Import internal modules
 from .subdomain import Subdomain
+from fridom.framework import config
 
 def _make_slice_list(s: slice, n_dims: int):
     """
@@ -45,7 +49,7 @@ def _make_slice_list(s: slice, n_dims: int):
         slice_list.append(tuple(full_slice))
     return slice_list
 
-def set_device(backend_is_cupy):
+def set_device():
     """
     Sync the gpu device with the processor rank. This function should be
     called once at the beginning of the simulation.
@@ -65,8 +69,8 @@ def set_device(backend_is_cupy):
     -------
     `None`
     """
-    if backend_is_cupy:
-        import cupy as cp
+    if config.backend == "cupy":
+        cp = config.ncp
         comm_node = MPI.COMM_WORLD.Split_type(MPI.COMM_TYPE_SHARED)
         node_rank = comm_node.Get_rank()
         num_gpus = cp.cuda.runtime.getDeviceCount()
@@ -114,10 +118,6 @@ class DomainDecomposition:
         The total number of grid points in each dimension.
     `halo` : `int`
         The number of halo cells (ghost cells) around the local domain.
-    `backend` : `str`
-        The backend to use for the computation (numpy or cupy).
-    `ncp` : `module`
-        The numpy or cupy module.
     `n_procs` : `list[int]`
         The number of processors in each direction.
     `shared_axes` : `list[int]`
@@ -147,13 +147,14 @@ class DomainDecomposition:
     
     Examples
     --------
+    >>> from fridom.framework import config
     >>> from fridom.framework.domain_decomposition import DomainDecomposition
     >>> # create a domain decomposition that shares the x-axis
     >>> dom = DomainDecomposition(
             n_global=[128]*2, halo=2, shared_axes=[0])
     >>> 
     >>> # create a random array on the local domain
-    >>> u = dom_x.ncp.random.rand(*dom_x.my_subdomain.shape)
+    >>> u = config.ncp.random.rand(*dom_x.my_subdomain.shape)
     >>>
     >>> # synchronize the halo regions between neighboring domains
     >>> dom_x.sync(u)
@@ -163,7 +164,6 @@ class DomainDecomposition:
                  halo: int = 0,
                  shared_axes: 'list[int]' = None,
                  reorder_comm = True,
-                 backend = "numpy", # or "cupy"
                  ) -> None:
         """
         Create a grid of processors and decompose a global domain into subdomains.
@@ -179,48 +179,27 @@ class DomainDecomposition:
             A list of axes that are shared between processors.
         `reorder_comm` : `bool`, optional (default=True)
             Whether to reorder the communicator.
-        `backend` : `str`, optional (default="numpy")
-            The backend to use for the computation (numpy or cupy).
         
         Returns
         -------
         `None`
         
-        Raises
-        ------
-        `ValueError`
-            If the backend is not "numpy" or "cupy".
-        
         Examples
         --------
         >>> from fridom.framework.domain_decomposition import DomainDecomposition
-        >>> # Create a 3D domain that shares the z-axis and uses cupy
+        >>> # Create a 3D domain that shares the z-axis
         >>> domain = DomainDecomposition(
-        ...     n_global=[128, 128, 128], halo=2, shared_axes=[2], backend="cupy")
-        >>> # Create a 2D domain that does not share any axes and uses numpy
+        ...     n_global=[128, 128, 128], halo=2, shared_axes=[2])
+        >>> # Create a 2D domain that does not share any axes
         >>> domain = DomainDecomposition(
-        ...     n_global=[128, 128], halo=2, shared_axes=None, backend="numpy")
+        ...     n_global=[128, 128], halo=2, shared_axes=None)
         """
 
         # set input parameters
         n_dims = len(n_global)
 
-        # --------------------------------------------------------------
-        #  Import the backend (numpy or cupy) and set the device
-        # --------------------------------------------------------------
-        if backend == "cupy":
-            import cupy as cp
-            backend_is_cupy = True
-            ncp = cp
-        elif backend == "numpy":
-            import numpy as np
-            backend_is_cupy = False
-            ncp = np
-        else:
-            raise ValueError("Unknown backend. Use 'numpy' or 'cupy'.")
-
         # set the device (only important for cupy backend)
-        set_device(backend_is_cupy)
+        set_device()
 
         # --------------------------------------------------------------
         #  Get the number of processors in each direction
@@ -285,8 +264,6 @@ class DomainDecomposition:
         self.n_dims = n_dims           # number of dimensions
         self.n_global = n_global       # total number of grid points
         self.halo = halo               # number of halo cells
-        self.backend = backend         # backend (numpy or cupy)
-        self.ncp = ncp                 # numpy or cupy
         self.n_procs = n_procs         # number of processors in each direction
         self.shared_axes = shared_axes # axes that are shared between processors
         self.comm = comm               # communicator
@@ -297,7 +274,6 @@ class DomainDecomposition:
 
         # private attributes
         self._subcomms = subcomms
-        self._backend_is_cupy = backend_is_cupy
         self._next_proc = next_proc
         self._prev_proc = prev_proc
         self._send_to_next = send_to_next
@@ -330,11 +306,12 @@ class DomainDecomposition:
         
         Examples
         --------
+        >>> from fridom.framework import config
         >>> from fridom.framework.domain_decomposition import DomainDecomposition
         >>> # create a domain decomposition
         >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
         >>> # create a random array on the local domain
-        >>> u = domain.ncp.random.rand(domain.my_subdomain.shape)
+        >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
         >>> # synchronize the halo regions between neighboring domains
         >>> domain.sync(u)
         """
@@ -367,8 +344,8 @@ class DomainDecomposition:
             reqs = []
 
             # sending
-            buf_send_next = self.ncp.ascontiguousarray(arr[self._send_to_next[i]])
-            buf_send_prev = self.ncp.ascontiguousarray(arr[self._send_to_prev[i]])
+            buf_send_next = config.ncp.ascontiguousarray(arr[self._send_to_next[i]])
+            buf_send_prev = config.ncp.ascontiguousarray(arr[self._send_to_prev[i]])
             self.sync_with_device()
             reqs.append(self._subcomms[i].Isend(
                 buf_send_next, dest=self._next_proc[i], tag=0))
@@ -376,8 +353,8 @@ class DomainDecomposition:
                 buf_send_prev, dest=self._prev_proc[i], tag=0))
 
             # receiving
-            buf_recv_next = self.ncp.empty_like(arr[self._recv_from_next[i]])
-            buf_recv_prev = self.ncp.empty_like(arr[self._recv_from_prev[i]])
+            buf_recv_next = config.ncp.empty_like(arr[self._recv_from_next[i]])
+            buf_recv_prev = config.ncp.empty_like(arr[self._recv_from_prev[i]])
             reqs.append(self._subcomms[i].Irecv(
                 buf_recv_next, source=self._next_proc[i], tag=0))
             reqs.append(self._subcomms[i].Irecv(
@@ -413,12 +390,13 @@ class DomainDecomposition:
         
         Examples
         --------
+        >>> from fridom.framework import config
         >>> from fridom.framework.domain_decomposition import DomainDecomposition
         >>> # create a domain decomposition
         >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
         >>> # create a random array on the local domain
-        >>> u = domain.ncp.random.rand(domain.my_subdomain.shape)
-        >>> v = domain.ncp.random.rand(domain.my_subdomain.shape)
+        >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
+        >>> v = config.ncp.random.rand(domain.my_subdomain.shape)
         >>> # synchronize the halo regions between neighboring domains
         >>> domain.sync_list([u, v])
         """
@@ -427,8 +405,8 @@ class DomainDecomposition:
             return
         
         # synchronize cpu and gpu
-        if self.backend == "cupy":
-            self.ncp.cuda.Stream.null.synchronize()
+        if config.backend == "cupy":
+            config.ncp.cuda.Stream.null.synchronize()
 
         # synchronize one dimension at a time
         for i in range(self.n_dims):
@@ -442,8 +420,8 @@ class DomainDecomposition:
 
             # sending
             for j, arr in enumerate(arr_list):
-                buf_send_next = self.ncp.ascontiguousarray(arr[self._send_to_next[i]])
-                buf_send_prev = self.ncp.ascontiguousarray(arr[self._send_to_prev[i]])
+                buf_send_next = config.ncp.ascontiguousarray(arr[self._send_to_next[i]])
+                buf_send_prev = config.ncp.ascontiguousarray(arr[self._send_to_prev[i]])
                 reqs.append(self._subcomms[i].Isend(
                     buf_send_next, dest=self._next_proc[i], tag=j))
                 reqs.append(self._subcomms[i].Isend(
@@ -453,8 +431,8 @@ class DomainDecomposition:
             buf_recv_nexts = []
             buf_recv_prevs = []
             for j, arr in enumerate(arr_list):
-                buf_recv_next = self.ncp.empty_like(arr[self._recv_from_next[i]])
-                buf_recv_prev = self.ncp.empty_like(arr[self._recv_from_prev[i]])
+                buf_recv_next = config.ncp.empty_like(arr[self._recv_from_next[i]])
+                buf_recv_prev = config.ncp.empty_like(arr[self._recv_from_prev[i]])
                 reqs.append(self._subcomms[i].Irecv(
                     buf_recv_next, source=self._next_proc[i], tag=1))
                 reqs.append(self._subcomms[i].Irecv(
@@ -492,5 +470,24 @@ class DomainDecomposition:
         -------
         `None`
         """
-        if self.backend == "cupy":
-            self.ncp.cuda.Stream.null.synchronize()
+        if config.backend == "cupy":
+            config.ncp.cuda.Stream.null.synchronize()
+
+    def __deepcopy__(self, memo):
+        deepcopy_obj = object.__new__(self.__class__)
+        memo[id(self)] = deepcopy_obj  # Store in memo to handle self-references
+        for key, value in vars(self).items():
+            if isinstance(value, list):
+                list_copy = []
+                for item in value:
+                    if isinstance(item, MPI.Cartcomm):
+                        list_copy.append(item)
+                    else:
+                        list_copy.append(deepcopy(item, memo))
+                setattr(deepcopy_obj, key, list_copy)
+            # check if value is of type mpi4py.MPI.Cartcomm
+            elif isinstance(value, MPI.Cartcomm):
+                setattr(deepcopy_obj, key, value)
+            else:
+                setattr(deepcopy_obj, key, deepcopy(value, memo))
+        return deepcopy_obj
