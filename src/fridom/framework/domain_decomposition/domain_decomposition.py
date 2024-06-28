@@ -109,6 +109,18 @@ class DomainDecomposition:
     #  |                |                |/
     #  ----------------------------------- 
     ```
+
+    Parameters
+    ----------
+    `n_global` : `list[int]`
+        The total number of grid points in each dimension.
+    `halo` : `int`, optional (default=0)
+        The number of halo cells (ghost cells) around the local domain
+        for the exchange of boundary values.
+    `shared_axes` : `list[int]`, optional (default=None)
+        A list of axes that are shared between processors.
+    `reorder_comm` : `bool`, optional (default=True)
+        Whether to reorder the communicator.
     
     Attributes
     ----------
@@ -165,36 +177,6 @@ class DomainDecomposition:
                  shared_axes: 'list[int]' = None,
                  reorder_comm = True,
                  ) -> None:
-        """
-        Create a grid of processors and decompose a global domain into subdomains.
-        
-        Parameters
-        ----------
-        `n_global` : `list[int]`
-            The total number of grid points in each dimension.
-        `halo` : `int`, optional (default=0)
-            The number of halo cells (ghost cells) around the local domain
-            for the exchange of boundary values.
-        `shared_axes` : `list[int]`, optional (default=None)
-            A list of axes that are shared between processors.
-        `reorder_comm` : `bool`, optional (default=True)
-            Whether to reorder the communicator.
-        
-        Returns
-        -------
-        `None`
-        
-        Examples
-        --------
-        >>> from fridom.framework.domain_decomposition import DomainDecomposition
-        >>> # Create a 3D domain that shares the z-axis
-        >>> domain = DomainDecomposition(
-        ...     n_global=[128, 128, 128], halo=2, shared_axes=[2])
-        >>> # Create a 2D domain that does not share any axes
-        >>> domain = DomainDecomposition(
-        ...     n_global=[128, 128], halo=2, shared_axes=None)
-        """
-
         # set input parameters
         n_dims = len(n_global)
 
@@ -219,7 +201,6 @@ class DomainDecomposition:
             n_procs, periods=[True]*n_dims, reorder=reorder_comm)
         size = comm.Get_size()
         rank = comm.Get_rank()
-        
 
         # --------------------------------------------------------------
         #  Create subdomains
@@ -280,8 +261,6 @@ class DomainDecomposition:
         self._send_to_prev = send_to_prev
         self._recv_from_next = recv_from_next
         self._recv_from_prev = recv_from_prev
-        
-        
         return
 
     def sync(self, arr) -> None:
@@ -343,7 +322,9 @@ class DomainDecomposition:
 
             reqs = []
 
-            # sending
+            # ----------------------------------------------------------------
+            #  Sending
+            # ----------------------------------------------------------------
             buf_send_next = config.ncp.ascontiguousarray(arr[self._send_to_next[i]])
             buf_send_prev = config.ncp.ascontiguousarray(arr[self._send_to_prev[i]])
             self.sync_with_device()
@@ -352,7 +333,9 @@ class DomainDecomposition:
             reqs.append(self._subcomms[i].Isend(
                 buf_send_prev, dest=self._prev_proc[i], tag=0))
 
-            # receiving
+            # ----------------------------------------------------------------
+            #  Receiving
+            # ----------------------------------------------------------------
             buf_recv_next = config.ncp.empty_like(arr[self._recv_from_next[i]])
             buf_recv_prev = config.ncp.empty_like(arr[self._recv_from_prev[i]])
             reqs.append(self._subcomms[i].Irecv(
@@ -370,7 +353,6 @@ class DomainDecomposition:
 
     def sync_list(self, arr_list: 'list') -> None:
         """
-        # Synchronize Multiple Arrays
         Synchronize the halo regions of a list of arrays between neighboring domains.
         
         Description
@@ -452,7 +434,6 @@ class DomainDecomposition:
 
     def sync_with_device(self):
         """
-        # Sync with Device
         Synchronize the gpu device with the processor.
         
         Description

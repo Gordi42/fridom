@@ -18,6 +18,12 @@ class FFT:
     spectral space and back. For the discrete cosine transform, the type 2
     transform is used. This means that the variable must be located at the 
     cell centers in that direction.
+        
+    Parameters
+    ----------
+    `periodic` : `list[bool]`
+        A list of booleans that indicate whether the axis is periodic.
+        If True, the axis is periodic, if False, the axis is non-periodic.
     
     Methods
     -------
@@ -40,15 +46,6 @@ class FFT:
 
     """
     def __init__(self, periodic: list[bool]) -> None:
-        """
-        Initialize the FFT class.
-        
-        Parameters
-        ----------
-        `periodic` : `list[bool]`
-            A list of booleans that indicate whether the axis is periodic.
-            If True, the axis is periodic, if False, the axis is non-periodic.
-        """
         
         # --------------------------------------------------------------
         #  Check which axis to apply fft, dct

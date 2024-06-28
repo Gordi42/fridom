@@ -12,6 +12,18 @@ class Subdomain:
     holds information about the position in the processor grid, as well as the
     position in the global index space. The subdomain also provides methods to
     convert slices between the global and local index space.
+
+    Parameters
+    ----------
+    `rank` : `int`
+        The global rank of the processor.
+    `comm` : `MPI.Intracomm`
+        The cartesian communicator that defines the processor grid.
+    `n_global` : `list[int]`
+        The global number of grid points in each dimension.
+    `halo` : `int`, optional (default: 0)
+        The number of halo cells around the local domain for the exchange
+        of boundary values.
     
     Attributes
     ----------
@@ -88,42 +100,6 @@ class Subdomain:
                  n_global: 'list[int]',
                  halo: int = 0,
                  ) -> None:
-        """
-        Initialize the subdomain with the rank of the processor, the cartesian
-        communicator, the global number of grid points, and the number of halo
-        cells.
-        
-        Parameters
-        ----------
-        `rank` : `int`
-            The global rank of the processor.
-        `comm` : `MPI.Intracomm`
-            The cartesian communicator that defines the processor grid.
-        `n_global` : `list[int]`
-            The global number of grid points in each dimension.
-        `halo` : `int`, optional (default: 0)
-            The number of halo cells around the local domain for the exchange
-            of boundary values.
-        
-        Returns
-        -------
-        `None`
-        
-        Examples
-        --------
-        >>> from mpi4py import MPI
-        >>> from fridom.framework.domain_decomposition import Subdomain
-        >>> # Create a cartesian communicator with a processor grid of 3x2 processors
-        >>> cart_comm = MPI.COMM_WORLD.Create_cart(dims=[3,2], periods=[True,True])
-        >>> rank = cart_comm.Get_rank()
-        >>> # Create a subdomain for the processor of the current rank
-        >>> subdomain = Subdomain(
-        ...     rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
-        >>> # Create a subdomain for the processor with rank 1
-        >>> subdomain = Subdomain(
-        ...     rank=1, comm=cart_comm, n_global=[128,128], halo=1)
-        """
-
         # get the processor coordinates and dimensions of the processor grid
         n_dims = len(n_global)
         coord = comm.Get_coords(rank)  # processor coordinates

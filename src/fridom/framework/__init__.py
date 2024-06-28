@@ -7,23 +7,6 @@ Description
 This module contain the base classes and functions for the FRIDOM framework.
 This module should mainly be used for developing new modules and models.
 
-Classes
--------
-'ModelSettingsBase'
-    Base class for model settings
-'FieldVariable'
-    Class for storing scalar variables
-'StateBase'
-    Base class for storing state variables
-'ModelState'
-    Class for storing model state variables
-'Model'
-    Main class for models
-'DiagnoseImbalanceBase'
-    Base class for diagnosing imbalances
-'MeshPoint'
-    Enum class for the different types of mesh points
-
 Modules
 -------
 'grid'
@@ -40,6 +23,23 @@ Modules
     Contains functions for flow decomposition
 'timing_module'
     Contains functions for timing the model (benchmarking)
+
+Classes
+-------
+'ModelSettingsBase'
+    Base class for model settings
+'FieldVariable'
+    Class for storing scalar variables
+'StateBase'
+    Base class for storing state variables
+'ModelState'
+    Class for storing model state variables
+'Model'
+    Main class for models
+'DiagnoseImbalanceBase'
+    Base class for diagnosing imbalances
+'MeshPoint'
+    Enum class for the different types of mesh points
 
 Functions
 'to_numpy(x)'

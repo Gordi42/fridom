@@ -13,13 +13,104 @@ if TYPE_CHECKING:
 
 
 class CartesianGrid(GridBase):
+    """
+    An n-dimensional cartesian grid with capabilities for fourier transforms.
+    
+    Description
+    -----------
+    The cartesian grid is a regular grid with constant grid spacing in each
+    direction. The grid can be periodic in some directions and non-periodic in
+    others. When performing a fourier transform, ffts are applied to the
+    periodic axes and discrete cosine transforms to the non-periodic axes. When
+    constructing the grid with MPI initialized, the grid will be distributed
+    among the MPI ranks.
+    
+    Parameters
+    ----------
+    `N` : `list[int]`
+        Number of grid points in each direction.
+    `L` : `list[float]`
+        Domain size in meters in each direction.
+    `periodic_bounds` : `list[bool]`, optional
+        A list of booleans that indicate whether the axis is periodic.
+        If True, the axis is periodic, if False, the axis is non-periodic.
+        Default is True for all axes.
+    `shared_axes` : `list[int]`, optional
+        A list of integers that indicate which axes are shared among MPI ranks.
+        Default is None, which means that no fourier transforms are available.
+    
+    Attributes
+    ----------
+    `n_dims` : `int`
+        The number of dimensions of the grid.
+    `L` : `list[float]`
+        Domain size in each direction.
+    `N` : `list[int]`
+        Number of grid points in each direction.
+    `total_grid_points` : `int` (read-only)
+        Total number of grid points.
+    `dx` : `list[float]` (read-only)
+        Grid spacing in each direction.
+    `X` : `list[np.ndarray]` (read-only)
+        Physical meshgrid on the local domain (with ghost points).
+    `x_local` : `list[np.ndarray]` (read-only)
+        Physical x-vectors on the local domain (without ghost points).
+    `x_global` : `list[np.ndarray]` (read-only)
+        Global physical x-vectors.
+    `K` : `list[np.ndarray]` (read-only)
+        Spectral meshgrid on the local domain.
+    `k_local` : `list[np.ndarray]` (read-only)
+        Spectral k-vectors on the local domain.
+    `k_global` : `list[np.ndarray]` (read-only)
+        Global spectral k-vectors.
+    `periodic_bounds` : `list[bool]` (read-only)
+        A list of booleans that indicate whether the axis is periodic.
+    'subdomain_phy' : `Subdomain` (read-only)
+        The subdomain of the physical domain decomposition.
+    'subdomain_spe' : `Subdomain` (read-only)
+        The subdomain of the spectral domain decomposition.
+    `mset` : `ModelSettingsBase` (read-only)
+        The model settings that the grid is constructed with.
+    
+    Methods
+    -------
+    `setup(mset: ModelSettingsBase)`
+        Setup the grid (meshgrids, etc.) using the model settings.
+    `fft(u: np.ndarray) -> np.ndarray`
+        Forward transform from physical space to spectral space.
+    `ifft(u: np.ndarray) -> np.ndarray`
+        Backward transform from spectral space to physical space.
+    `sync_physical(u: np.ndarray) -> None`
+        Synchronize the physical field across MPI ranks.
+    `sync_spectral(u: np.ndarray) -> None`
+        Synchronize the spectral field across MPI ranks.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> # construct a 3D grid:
+    >>> grid = fr.grid.CartesianGrid(
+    ...     N=[32, 32, 8],  # 32x32x8 grid points
+    ...     L=[100.0, 100.0, 10.0],  # 100m x 100m x 10m domain
+    ...     periodic_bounds=[True, True, False]  # non-periodic in z
+    ...     shared_axes=[0, 1]  # slab decomposition, shared in x and y
+    ...     )
+    >>> # setup the grid using the model settings
+    >>> mset = fr.ModelSettingsBase(grid)
+    >>> mset.setup()
+    >>> # get the meshgrids
+    >>> X, Y, Z = grid.X  # physical meshgrid of the local domain
+    >>> KX, KY, KZ = grid.K  # spectral meshgrid of the local domain
+    >>> # get the grid spacing
+    >>> dx, dy, dz = grid.dx
+
+    """
     def __init__(self, 
                  N: list[int],
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
                  shared_axes: list[int] | None = None) -> None:
         super().__init__()
-
         # --------------------------------------------------------------
         #  Check the input
         # --------------------------------------------------------------
@@ -174,6 +265,11 @@ class CartesianGrid(GridBase):
             self._total_grid_points *= n
 
     @property
+    def total_grid_points(self) -> list:
+        """Total number of grid points."""
+        return self._total_grid_points
+
+    @property
     def dx(self) -> list:
         """Grid spacing in each direction."""
         return self._dx
@@ -209,17 +305,8 @@ class CartesianGrid(GridBase):
         return self._k_global
 
     @property
-    def total_grid_points(self) -> list:
-        """Total number of grid points."""
-        return self._total_grid_points
-
-    @property
     def periodic_bounds(self) -> list:
         return self._periodic_bounds
-    
-    @property
-    def domain_decomp(self) -> DomainDecomposition:
-        return self._domain_decomp
 
     @property
     def subdomain_phy(self):
@@ -228,10 +315,6 @@ class CartesianGrid(GridBase):
     @property
     def subdomain_spe(self):
         return self._pfft.domain_out.my_subdomain
-    
-    @property
-    def pfft(self) -> ParallelFFT:
-        return self._pfft
     
     @property
     def mset(self) -> 'ModelSettingsBase':

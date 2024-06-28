@@ -77,6 +77,15 @@ class ParallelFFT:
     class also provides the possibility to apply a custom transformation 
     function. For example if one wants to apply cosine transforms along some axes
     and fft along others.
+
+    Parameters
+    ----------
+    `domain_in` : `DomainDecomposition`
+        The domain decomposition of the input data
+    `shared_axes_out` : `list[int]`, optional (default=None)
+        The axes that should be shared in the output domain
+    `halo_out` : `int`, optional (default=0)
+        The halo size of the output domain
     
     Attributes
     ----------
@@ -129,53 +138,6 @@ class ParallelFFT:
                  domain_in: DomainDecomposition, 
                  shared_axes_out : 'list[int]' = None,
                  halo_out: int = 0) -> None:
-        """
-        The ParallelFFT object is used to perform fourier transform on decomposed
-        domains.
-        
-        Parameters
-        ----------
-        `domain_in` : `DomainDecomposition`
-            The domain decomposition of the input data
-        `shared_axes_out` : `list[int]`, optional (default=None)
-            The axes that should be shared in the output domain
-        `halo_out` : `int`, optional (default=0)
-            The halo size of the output domain
-        
-        Returns
-        -------
-        None
-        
-        Raises
-        ------
-        ValueError
-            If the number of shared axes in the input domain is less than the
-            number of shared axes in the output domain.
-        
-        Example
-        -------
-
-        >>> import numpy as np
-        >>> from fridom.framework \\
-        ...     .domain_decomposition import DomainDecomposition, ParallelFFT
-        >>> # Create a 3D physical domain that is decomposed along the z-axis and
-        >>> # two halo points at each side of the domain
-        >>> domain = DomainDecomposition(n_global=[64]*3, shared_axes=[0,1], halo=2)
-        >>> 
-        >>> # Create a ParallelFFT with a spectral domain that is decomposed along 
-        >>> # the kx-axes and zero halo points
-        >>> pfft = ParallelFFT(domain, shared_axes_out=[1,2], halo_out=0)
-        >>> 
-        >>> # Get the spectral domain
-        >>> domain_spectral = pfft.domain_out
-        >>> 
-        >>> # Create a random field in the physical domain
-        >>> u = np.random.rand(*domain.my_subdomain.shape)
-        >>> domain.sync(u)
-        >>> 
-        >>> # Perform a forward transform
-        >>> u_hat = pfft.forward(u)
-        """
         n_dims = domain_in.n_dims
         shared_axes_out = shared_axes_out or []
 

@@ -191,6 +191,13 @@ class Transformer:
     function does exactly that. It is not limited to pencils and can be
     used for any domain decomposition.
     
+    Parameters
+    ----------
+    `domain_in` : `DomainDecomposition`
+        The input domain.
+    `domain_out` : `DomainDecomposition`
+        The output domain.
+        
     Attributes
     ----------
     `domain_in` : `DomainDecomposition`
@@ -233,21 +240,6 @@ class Transformer:
     def __init__(self, 
                  domain_in: 'DomainDecomposition', 
                  domain_out: 'DomainDecomposition') -> None:
-        """
-        Constructing a transformer for transforming arrays from one domain to
-        another.
-        
-        Parameters
-        ----------
-        `domain_in` : `DomainDecomposition`
-            The input domain.
-        `domain_out` : `DomainDecomposition`
-            The output domain.
-        
-        Examples
-        --------
-        See the transformer class for an example.
-        """
         # First check if the domains are the same
         same_domain = True
         for my_proc, other_proc in zip(domain_in.n_procs, domain_out.n_procs):
@@ -290,10 +282,6 @@ class Transformer:
         `np.ndarray` or `cupy.ndarray`
             The transformed array. If `arr_out` is not None, the output array
             will be the same as `arr_out`.
-        
-        Examples
-        --------
-        See the transformer class for an example.
         """
         return transform(
             self.domain_in, self.domain_out, self._same_domain,
@@ -316,10 +304,6 @@ class Transformer:
         `np.ndarray` or `cupy.ndarray`
             The transformed array. If `arr_out` is not None, the output array
             will be the same as `arr_out`.
-        
-        Examples
-        --------
-        See the transformer class for an example.
         """
         return transform(
             self.domain_out, self.domain_in, self._same_domain,
