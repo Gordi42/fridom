@@ -10,6 +10,34 @@ if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
 
 class LiveAnimation(Module):
+    """
+    Create a live plot of the model that gets updated at regular intervals 
+    during the simulation.
+    
+    Description
+    -----------
+    To create a live animation of the model, one must provide a `ModelPlotter`
+    that will be used to create the figure. Note that live animations only work
+    in Jupyter notebooks (no MPI support).
+    
+    Parameters
+    ----------
+    `model_plotter` : `ModelPlotterBase`
+        The model plotter that will be used to create the figure.
+    `interval` : `int`, optional (default=50)
+        The interval (time steps) at which the plot will be updated.
+    
+    Methods
+    -------
+    `start()`
+        Initialize the figure
+    `update(mz, dz)`
+        Update the figure from the model state and display it
+    
+    Examples
+    --------
+    >>> TODO add example for nonhydrostatic model
+    """
     def __init__(self, 
                  model_plotter: 'ModelPlotterBase',
                  interval: int = 50,
@@ -23,10 +51,23 @@ class LiveAnimation(Module):
 
     @start_module
     def start(self) -> None:
+        """
+        Initialize the figure.
+        """
         self.fig = self.model_plotter.create_figure()
 
     @update_module
     def update(self, mz: 'ModelState', dz: 'StateBase'):
+        """
+        Update the figure from the model state and display it.
+        
+        Parameters
+        ----------
+        `mz` : `ModelState`
+            The model state to be used to update the figure.
+        `dz` : `StateBase`
+            The tendency state (not used in this method)
+        """
         # check if its time to update the plot
         if mz.it % self.interval != 0:
             return

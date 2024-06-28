@@ -13,7 +13,41 @@ if TYPE_CHECKING:
 
 class VideoWriter(Module):
     """
-    Module for creating a mp4 video from the model output.
+    Create a mp4 video from the model.
+    
+    Description
+    -----------
+    To create a mp4 video from the model, one must provide a `ModelPlotter`
+    that will be used to create the figure. The video writer does not support
+    MPI parallelism.
+    
+    Parameters
+    ----------
+    `model_plotter` : `ModelPlotterBase`
+        The model plotter that will be used to create the figure.
+    `interval` : `int`, optional (default=50)
+        The interval (time steps) at which the plot will be updated.
+    `filename` : `str`, optional (default="output.mp4")
+        The filename of the video (will be stored in videos/filename).
+    `fps` : `int`, optional (default=30)
+        The frames per second of the video.
+    `max_jobs` : `float`, optional (default=0.4)
+        The maximum fraction of the available threads that will be used.
+    
+    Methods
+    -------
+    `start()`
+        Start the video writing process.
+    `stop()`
+        Stop the video writing process.
+    `update(mz, dz)`
+        Add a new frame to the video.
+    `show_video(width)`
+        Show the video in the Jupyter notebook.
+    
+    Examples
+    --------
+    >>> TODO: add example from nonhydrostatic model
     """
     def __init__(self, 
                  model_plotter: 'ModelPlotterBase', 
@@ -22,16 +56,6 @@ class VideoWriter(Module):
                  fps: int=30,
                  max_jobs: float=0.4,
                  name="Video Writer") -> None:
-        """
-        Constructor of the parallel mp4 output writer module
-
-        Arguments:
-            model_plotter       : class with the plotting functions
-            interval (int)      : interval between frames
-            filename (str)      : filename of the video
-            fps (int)           : frames per second of the video
-            max_jobs (float)    : maximum fraction of the available threads
-        """
         import os
         filename = os.path.join("videos", filename)
         super().__init__(name=name, 
