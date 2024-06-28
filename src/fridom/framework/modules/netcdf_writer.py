@@ -13,14 +13,47 @@ if TYPE_CHECKING:
 
 class NetCDFWriter(Module):
     """
-    # Base class for netCDF writers.
-    Writes the data to a NetCDF file on a separate process.
-
+    Single processor NetCDF writer.
+    
+    Description
+    -----------
+    Base class for netCDF writers that writes model data to a NetCDF file.
+    Does not support MPI! 
     Child classes must implement the following methods:
-    ## Must implement:
     - init: Initialization of the module, specifying variable names
     - get_variables: Get the variables from the model state to write to the 
-    NetCDF file.
+    
+    Parameters
+    ----------
+    `name` : `str`
+        Name of the module.
+    `filename` : `str`
+        Name of the NetCDF file. (will be stored in snapshots/filename)
+    `snap_interval` : `int`
+        Interval (time steps) at which the snapshots are taken.
+    `snap_slice` : `tuple`
+        Which part of the grid to save.
+    `var_names` : `list`
+        Names of the variables. (should be set by child)
+    `var_long_names` : `list`
+        Long names of the variables. (should be set by child)
+    `var_unit_names` : `list`
+        Unit names of the variables. (should be set by child)
+    
+    Methods
+    -------
+    `start()`
+        Start the parallel writer process.
+    `update(mz, dz)`
+        Write data to binary files and add them to the NetCDF file.
+    `stop()`
+        Stop the parallel writer process.
+    `get_variables(mz)`
+        Get the variables from the model state to write to the NetCDF file.
+    
+    Examples
+    --------
+    >>> TODO: add example from nonhydrostatic model
     """
     def __init__(self,
                  name = "NetCDFWriter",
@@ -31,16 +64,6 @@ class NetCDFWriter(Module):
                  var_long_names = None,
                  var_unit_names = None,
                  ) -> None:
-        """
-        # Args:
-        - name (str)            : Name of the module.
-        - filename (str)        : Name of the NetCDF file. 
-        - snap_interval (int)   : Interval between snapshots.
-        - snap_slice (tuple)    : Which part of the grid to save.
-        - var_names (list)      : Names of the variables. (should be set by child)
-        - var_long_names (list) : Long names of the variables. (should be set by child)
-        - var_unit_names (list) : Unit names of the variables. (should be set by child)
-        """
         import os
         filename = os.path.join("snapshots", filename)
         fname = filename.split(".")[0]
@@ -134,11 +157,23 @@ class NetCDFWriter(Module):
 
     def get_variables(self, mz: 'ModelState'):
         """
+        Get the variables from the model state to write to the NetCDF file.
+        
+        Description
+        -----------
         This method should be overwritten by the user to return the variables
         that should be written to the NetCDF file.
-
-        ## Returns:
-        - List of Field Variables
+        
+        Parameters
+        ----------
+        `mz` : `ModelState`
+            The model state at the current time step.
+        
+        Returns
+        -------
+        `list[FieldVariable]`
+            A list of field variables to be written to the NetCDF file.
+        
         """
         return []
 

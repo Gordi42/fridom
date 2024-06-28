@@ -46,6 +46,7 @@ class LiveAnimation(Module):
             name="Live Animation",
             model_plotter=model_plotter,
             interval=interval)
+        self.mpi_available = False
         self.fig = None
         return
 

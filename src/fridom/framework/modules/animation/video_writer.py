@@ -64,6 +64,8 @@ class VideoWriter(Module):
                          filename=filename,
                          fps=fps,
                          max_jobs=max_jobs)
+        # set the flag for MPI availability
+        self.mpi_available = False
         return
 
     @start_module

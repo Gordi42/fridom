@@ -8,6 +8,41 @@ if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
 
 class ModuleContainer(Module):
+    """
+    A module container that can hold multiple modules.
+    
+    Description
+    -----------
+    A module container holds a list of modules and is a module itself. It can
+    start, stop, and update all the modules it contains.
+    
+    Parameters
+    ----------
+    `name` : `str`
+        The name of the module container.
+    `module_list` : `list`
+        A list of modules to be added to the container.
+
+    Flags
+    -----
+    `mpi_available` : `bool`
+        If True, the module is available in MPI mode.
+    `required_halo` : `int`
+        The number of halo points required by the module.
+    
+    Methods
+    -------
+    `start()`
+        Start all modules.
+    `stop()`
+        Stop all modules.
+    `update()`
+        Update all modules.
+    `add_module()`
+        Append a module to the list.
+    `get()`
+        Get a module by name.
+    """
     def __init__(self, name="Module Container", module_list: list = None):
         if module_list is None:
             module_list = []
@@ -16,10 +51,7 @@ class ModuleContainer(Module):
     @start_module
     def start(self) -> None:
         """
-        # Start all modules.
-        ## Args:
-        - grid (GridBase): Grid object.
-        - timer (TimerBase): Timer object.
+        Start all modules.
         """
         for module in self.module_list:
             module.start(mset=self.mset, timer=self.timer)
@@ -28,7 +60,7 @@ class ModuleContainer(Module):
     @stop_module
     def stop(self) -> None:
         """
-        # Stop all modules.
+        Stop all modules.
         """
         for module in self.module_list:
             module.stop()
@@ -37,10 +69,7 @@ class ModuleContainer(Module):
     @update_module
     def update(self, mz: 'ModelState', dz: 'StateBase') -> None:
         """
-        # Update all modules.
-        ## Args:
-        - mz (ModelState): Model state.
-        - dz (StateBase): Tendency state.
+        Update all modules.
         """
         for module in self.module_list:
             module.update(mz=mz, dz=dz)
@@ -48,20 +77,31 @@ class ModuleContainer(Module):
 
     def add_module(self, module) -> None:
         """
-        # Add a module to the list.
-        ## Args:
-        - module (Module): Module to be added.
+        Add a module to the end of the module list.
+        
+        Parameters
+        ----------
+        `module` : `Module`
+            The module to be added to the list.
         """
         self.module_list.append(module)
         return
 
     def get(self, name) -> list:
         """
-        # Get a module by name.
-        ## Args:
-        - name (str): Name of the module.
-        ## Returns:
-        - matches (list): List of modules with the given name.
+        Get a module by name.
+        
+        Parameters
+        ----------
+        `name` : `str`
+            Name of the module.
+        
+        Returns
+        -------
+        `list[Module]`
+            List of modules with the given name. If no module is found, an
+            empty list is returned. If multiple modules are found, all of them
+            are returned.
         """
         matches = []
         for module in self.module_list:
@@ -69,9 +109,23 @@ class ModuleContainer(Module):
                 matches.append(module)
         return matches
 
+    @property
+    def required_halo(self) -> int:
+        """
+        The maximum required halo points of all modules.
+        """
+        return max([module.required_halo for module in self.module_list])
+    
+    @property
+    def mpi_available(self) -> bool:
+        """
+        Whether all modules are available in MPI mode.
+        """
+        return all([module.mpi_available for module in self.module_list])
+
     def __repr__(self) -> str:
         """
-        # String representation of the module.
+        String representation of the module.
         """
         # format the title into a 48 character string of format
         # "==================== TITLE ===================="

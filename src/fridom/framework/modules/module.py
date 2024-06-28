@@ -29,7 +29,6 @@ def start_module(method):
 def stop_module(method):
     """
     Decorator for the stop method of a module.
-
     """
     @wraps(method)
     def wrapper(self, **kwargs):
@@ -48,12 +47,15 @@ def update_module(method):
 
 class Module:
     """
-    # Base class for all model modules.
+    Base class for all modules.
+    
+    Description
+    -----------
     A module is a component of the model that is executed at each time step.
     It can for example be a tendency term, a parameterization, or a diagnostic
     as for example outputting the model state to a file.
 
-    ## Required methods:
+    Required methods:
     1. `__init__(self, ...) -> None`: The constructor only takes keyword 
     argument which are stored as attributes. Always call the parent constructor 
     with `super().__init__(name, **kwargs)`. The name of the module is stored in
@@ -63,7 +65,7 @@ class Module:
     tendency state `dz` based on the model state `mz`. Or write the model state
     to a file. Make sure to wrap the method with the `@update_module` decorator.
 
-    ## Optional methods:
+    Optional methods:
     1. `start(self, mset: ModelSettingsBase, timer: TimingModule) -> None`: 
     This method is called by the model when the module is started. It can for 
     example open an output file. Make sure to wrap the method with the 
@@ -71,41 +73,76 @@ class Module:
     2. `stop(self) -> None`: This method is called by the model when the module
     is stopped. It can for example close an output file. Make sure to wrap the
     method with the `@stop_module` decorator.
-
-    ## Example:
-    An example of a simple module that increments a number at each time step:
-    ```python
-    import fridom.framework as fr
-
-    class Increment(fr.modules.Module):
-        def __init__(self):
-            # sets the module name to "Increment", and the number to None
-            super().__init__("Increment", number=None)
     
-        @fr.modules.start_module
-        def start(self):
-            self.number = 0  # sets the number to 0
-
-        @fr.modules.update_module
-        def update(self, mz: fr.ModelSettingsBase, dz: fr.StateBase) -> None:
-            self.number += 1  # increments the number by 1
-
-        @fr.modules.stop_module
-        def stop(self):
-            self.number = None  # sets the number to None
-    ```
+    
+    Parameters
+    ----------
+    `name` : `str`
+        The name of the module.
+    `**kwargs`
+        Keyword arguments that are stored as attributes of the module.
+    
+    Attributes
+    ----------
+    `name` : `str`
+        The name of the module.
+    `mset` : `ModelSettingsBase`
+        The model settings.
+    `grid` : `GridBase`
+        The grid of the model.
+    `timer` : `TimingModule`
+        The timing module of the model.
+    `__enabled` : `bool`
+        Whether the module is enabled or not.
+    
+    Flags
+    -----
+    `required_halo` : `int`
+        The number of halo points required by the module.
+    `mpi_available` : `bool`
+        Whether the module can be run in parallel.
+    
+    Methods
+    -------
+    `start()`
+        Start the module.
+    `stop()`
+        Stop the module.
+    `reset()`
+        Stop and start the module.
+    `update(mz, dz)`
+        Update the module.
+    `enable()`
+        Enable the module.
+    `disable()`
+        Disable the module.
+    `is_enabled()`
+        Return whether the module is enabled or not.
+    
+    Examples
+    --------
+    >>> :# Provide examples of how to use this class.}
+    >>> import fridom.framework as fr
+    >>> class Increment(fr.modules.Module):
+    ...    def __init__(self):
+    ...        # sets the module name to "Increment", and the number to None
+    ...        super().__init__("Increment", number=None)
+    ...    @fr.modules.start_module
+    ...    def start(self):
+    ...        self.number = 0  # sets the number to 0
+    ...    @fr.modules.update_module
+    ...    def update(self, mz: fr.ModelSettingsBase, dz: fr.StateBase) -> None:
+    ...        self.number += 1  # increments the number by 1
+    ...    @fr.modules.stop_module
+    ...    def stop(self):
+    ...        self.number = None  # sets the number to None
     """
     def __init__(self, name, **kwargs) -> None:
-        """
-        Initialize the module with the given keyword arguments.
-        Child classes should always call the parent constructor with
-        `super().__init__(name, **kwargs)`. Avoid giving the model settings or 
-        the grid as arguments, as they are set by the model when the module 
-        is started.
-        """
         # The module is enabled by default
         self.__enabled = True
+        # Set the flags
         self.required_halo = 0  # The required halo for the module
+        self.mpi_available = True  # Whether the module can be run in parallel
         # The grid should be set by the model when the module is started
         self.grid: 'GridBase' | None = None
         self.mset: 'ModelSettingsBase' | None = None
@@ -118,11 +155,16 @@ class Module:
     @start_module
     def start(self) -> None:
         """
+        Start the module
+
+        Description
+        -----------
         This method is called by the model when the module is started. Child 
         classes that require a start method (for example to start an output writer) 
         should overwrite this method. 
 
-        ## Note:
+        Note
+        ----
         The start method should have no arguments. The grid and timer are set
         as attributes of the module when the start method is called. (See the
         `start_module` decorator.)
@@ -132,11 +174,16 @@ class Module:
     @stop_module
     def stop(self) -> None:
         """
+        Stop the module
+
+        Description
+        -----------
         This method is called by the model when the module is stopped. Child
         classes that require a stop method (for example to close an output file)
         should overwrite this method.
 
-        ## Note:
+        Note
+        ----
         Child classes should have the same signature as this method, e.g.
         it can not have any arguments.
         """
@@ -145,12 +192,18 @@ class Module:
     @update_module
     def update(self, mz: 'ModelState', dz: 'StateBase') -> None:
         """
+        Update the module
+        
+        Description
+        -----------
         This method is called by the model at each time step. Child classes
-        should overwrite this method to implement the module's functionality.
-
-        ## Arguments:
-        - `mz`: The model state at the current time step.
-        - `dz`: The tendency state at the current time step.
+        
+        Parameters
+        ----------
+        `mz` : `ModelState`
+            The model state at the current time step.
+        `dz` : `StateBase`
+            The tendency state at the current time step.
         """
         pass
 
