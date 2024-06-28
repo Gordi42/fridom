@@ -10,7 +10,36 @@ if TYPE_CHECKING:
 
 class GeostrophicTimeAverage(Projection):
     """
-    Geostrophic projection using time-averaging.
+    Projection onto the geostrophic subspace using time-averaging
+    
+    Description
+    -----------
+    For a constant coriolis parameter, the linear geostrophic mode is constant
+    in time, while the inertia-gravity wave modes are oscillatory. By averaging
+    the flow over a time period, the inertia-gravity wave modes are removed.
+    This process can be repeated for more effective removal of the inertia-gravity.
+    
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
+    `n_ave` : `int`
+        The number of averages to perform.
+    `equidistant_chunks` : `bool`
+        Whether to split the averaging periods into equidistant chunks. If False,
+        the averaging periods will be equal to the maximum period.
+    `max_period` : `float`
+        The maximum period of the time averages. If None, the maximum period is set
+        to the inertial period.
+    `backward_forward` : `bool`
+        Whether to use backward-forward averaging.
+    `disable_diagnostic` : `bool`
+        Whether to disable the diagnostic tendencies during the averaging.
+    
+    Methods
+    -------
+    `__call__(z: State) -> State`
+        The projection of the state onto the geostrophic subspace using time-averaging.
     """
     def __init__(self, mset: 'ModelSettingsBase', 
                  n_ave=4,
@@ -18,19 +47,6 @@ class GeostrophicTimeAverage(Projection):
                  max_period=None,
                  backward_forward=False,
                  disable_diagnostic=True) -> None:
-        """
-        Geostrophic projection using time-averaging.
-
-        Arguments:
-            n_ave             (int)   : Number of averages to perform.
-            equidistant_chunks(bool)  : Whether to split the averaging periods 
-                                        into equidistant chunks.
-            max_period        (float) : The maximum period of the time averages.
-                                        if None, the maximum period is set to
-                                        the inertial period.
-            backward_forward  (bool)  : Whether to use backward-forward averaging.
-        """
-
         # initialization
         super().__init__(mset)
         mset = self.mset
@@ -61,13 +77,18 @@ class GeostrophicTimeAverage(Projection):
 
     def __call__(self, z: 'StateBase') -> 'StateBase':
         """
-        Project a state to the geostrophic subspace.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_ave  (State) : The geostrophic state.
+        Project a state to the geostrophic subspace using time-averaging.
+        Warning: This method is computationally expensive.
+        
+        Parameters
+        ----------
+        `z` : `State`
+            The state to project.
+        
+        Returns
+        -------
+        `State`
+            The projection of the state onto the geostrophic subspace.
         """
         verbose = self.mset.print_verbose
         z_ave = z.copy()

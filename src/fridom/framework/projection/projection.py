@@ -9,9 +9,11 @@ if TYPE_CHECKING:
 class Projection:
     """
     Base class for projections. All projections should inherit from this class.
-
-    Methods:
-        project : Project a state to a subspace (e.g. geostrophic subspace).
+    
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
     """
     def __init__(self, mset: 'ModelSettingsBase') -> None:
         self.mset = mset
@@ -22,10 +24,14 @@ class Projection:
         """
         Abstract method for projecting a state to a subspace. All subclasses must implement this method.
 
-        Arguments:
-            z      (State) : The state to project.
+        Parameters
+        ----------
+        `z` : `State`
+            The state to project.
 
-        Returns:
-            z_proj (State) : The projected state.
+        Returns
+        -------
+        `State`
+            The projected state.
         """
         pass

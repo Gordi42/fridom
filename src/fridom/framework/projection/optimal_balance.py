@@ -12,37 +12,40 @@ if TYPE_CHECKING:
 class OptimalBalance(Projection):
     """
     Nonlinear balancing using the optimal balance method.
+
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
+    `base_proj` : `Projection`
+        The projection onto the base point.
+    `mset_backwards` : `ModelSettings`
+        The model settings for the backward ramping. If None, the forward model
+        settings are used.
+    `ramp_period` : `float`
+        The ramping period (not scaled).
+    `ramp_type` : `str`
+        The ramping type. Choose from "exp", "pow", "cos", "lin".
+    `disable_diagnostic` : `bool`
+        Whether to disable the diagnostic tendencies during the iterations.
+    `update_base_point` : `bool`
+        Whether to update the base point after each iteration. This has no effect
+        on OB. But it matters for OBTA. Should be True for OBTA.
+    `max_it` : `int`
+        Maximum number of iterations.
+    `stop_criterion` : `float`
+        The stopping criterion.
     """
     def __init__(self, mset: 'ModelSettingsBase',
                  base_proj:Projection,
                  mset_backwards: 'ModelSettingsBase' = None,
                  ramp_period=1,
                  ramp_type="exp",
-                 enable_forward_friction=False,
-                 enable_backward_friction=False,
                  disable_diagnostic=True,
                  update_base_point=True,
                  max_it=3,
                  stop_criterion=1e-9,
                  return_details=False) -> None:
-        """
-        Nonlinear balancing using the optimal balance method.
-
-        Arguments:
-            base_proj  (Projection)   : The projection onto the base point.
-            ramp_period (float)       : The ramping period (not scaled).
-            ramp_type   (str)         : The ramping type. Choose from
-                                        "exp", "pow", "cos", "lin".
-            enable_forward_friction (bool) : Whether to enable forward friction.
-            enable_backward_friction (bool): Whether to enable backward friction.
-                                        (Backward friction has negative sign.)
-            update_base_point (bool)  : Whether to update the base point 
-                                        after each iteration. This has no effect
-                                        on OB. But it matters for OBTA. Should 
-                                        be True for OBTA.
-            max_it     (int)          : Maximum number of iterations.
-            stop_criterion (float)    : The stopping criterion.
-        """
         super().__init__(mset)
         self.mset_backwards = mset_backwards or mset
 
@@ -64,8 +67,6 @@ class OptimalBalance(Projection):
         self.ramp_func      = OptimalBalance.get_ramp_func(ramp_type)
         self.max_it         = max_it
         self.stop_criterion = stop_criterion
-        self.enable_forward_friction  = enable_forward_friction
-        self.enable_backward_friction = enable_backward_friction
         self.update_base_point = update_base_point
 
         # save the rossby number
@@ -82,12 +83,6 @@ class OptimalBalance(Projection):
     def forward_to_nonlinear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform forward ramping from linear model to nonlinear model.
-
-        Arguments:
-            z      (State) : The state to ramp.
-
-        Returns:
-            z_ramp (State) : The ramped state.
         """
 
         model = self.model_forward
@@ -110,12 +105,6 @@ class OptimalBalance(Projection):
     def backward_to_linear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform backward ramping from nonlinear model to linear model.
-
-        Arguments:
-            z      (State) : The state to ramp.
-
-        Returns:
-            z_ramp (State) : The ramped state.
         """
         model = self.model_backward
         model.reset()
@@ -136,12 +125,6 @@ class OptimalBalance(Projection):
     def forward_to_linear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform forward ramping from nonlinear model to linear model.
-
-        Arguments:
-            z      (State) : The state to ramp.
-
-        Returns:
-            z_ramp (State) : The ramped state.
         """
         model = self.model_forward
         model.reset()
@@ -162,12 +145,6 @@ class OptimalBalance(Projection):
     def backward_to_nonlinear(self, z: 'StateBase') -> 'StateBase':
         """
         Perform backward ramping from linear model to nonlinear model.
-
-        Arguments:
-            z      (State) : The state to ramp.
-
-        Returns:
-            z_ramp (State) : The ramped state.
         """
         model = self.model_backward
         model.reset()
@@ -208,13 +185,17 @@ class OptimalBalance(Projection):
 
     def __call__(self, z: 'StateBase') -> 'StateBase':
         """
-        Project a state to the geostrophic subspace.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_bal  (State) : The balanced state.
+        Project a state to the balanced subspace using optimal balance.
+        
+        Parameters
+        ----------
+        `z` : `State`
+            The state to project.
+        
+        Returns
+        -------
+        `State`
+            The projection of the state onto the balanced subspace.
         """
         verbose = self.mset.print_verbose
 

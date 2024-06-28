@@ -9,13 +9,29 @@ if TYPE_CHECKING:
 
 class GeostrophicSpectralBase(Projection):
     """
-    Geostrophic projection using spectral discrete eigenvectors.
+    Projection onto the geostrophic subspace using spectral eigenvectors.
+
+    Parameters
+    ----------
+    `VecQ` : `State (constructor)`
+        The constructor of an eigenvector.
+    `VecP` : `State (constructor)`
+        The constructor of the projection vector onto an eigenspace.
+    
+    Attributes
+    ----------
+    `q` : `State`
+        The eigenvector of the geostrophic subspace.
+    `p` : `State`
+        The projection vector onto the geostrophic subspace.
+    
+    Methods
+    -------
+    `__call__(z: State) -> State`
+        Project a state to the geostrophic subspace.
     """
     def __init__(self, mset: 'ModelSettingsBase',
                  VecQ, VecP) -> None:
-        """
-        Constructor of the Projector using spectral eigenvectors.
-        """
         super().__init__(mset)
         # Construct the eigenvectors
         self.q = VecQ(0, mset)
@@ -25,11 +41,15 @@ class GeostrophicSpectralBase(Projection):
     def __call__(self, z: 'StateBase') -> 'StateBase':
         """
         Project a state to the geostrophic subspace.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_proj (State) : The geostrophic state.
+        
+        Parameters
+        ----------
+        `z` : `State`
+            The state to project.
+        
+        Returns
+        -------
+        `State`
+            The projection of the state onto the geostrophic subspace.
         """
         return z.project(self.p, self.q)
