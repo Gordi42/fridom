@@ -13,53 +13,60 @@ class FieldVariable:
     
     Description
     -----------
-    The 
-    A more detailed explanation of the class's purpose.
+    TODO
+
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        ModelSettings object
+    `is_spectral` : `bool`
+        True if the FieldVariable should be initialized in spectral space
+    `name` : `str` (default "Unnamed")
+        Name of the FieldVariable
+    `arr` : `ndarray` (default None)
+        The array to be wrapped
     
     Attributes
     ----------
-    `attr` : `int`
-        Description of the first attribute.
+    `name` : `str`
+        The name of the FieldVariable
+    `mset` : `ModelSettings`
+        ModelSettings object
+    `grid` : `Grid`
+        Grid object
+    `is_spectral` : `bool`
+        True if the FieldVariable is in spectral space
+    `arr` : `ndarray`
+        The underlying array
     
     Methods
     -------
-    `method(param1, param2)`
-        Description of the first method.
+    `fft()`
+        Compute forward and backward Fourier transform of the FieldVariable
+    `sync()`
+        Synchronize the FieldVariable (exchange boundary values)
+    `sqrt()`
+        Compute the square root of the FieldVariable
+    `norm_l2()`
+        Compute the L2 norm of the FieldVariable
+    `pad_raw(pad_width)`
+        Return a padded version of the FieldVariable with the given padding width
+    `ave(shift, axis)`
+        Compute the average in a given direction
+    `diff_forward(axis)`
+        Compute the forward difference in a given direction
+    `diff_backward(axis)`
+        Compute the backward difference in a given direction
+    `diff_2(axis)`
+        Compute the second order difference in a given direction
+    
     
     Examples
     --------
-    >>> # Provide examples of how to use this class.
+    TODO
     """
-    """
-    Base class for FieldVariables
-
-    Attributes:
-        name (str)          : Name of the FieldVariable
-        mset (ModelSettings): ModelSettings object
-        grid (Grid)         : Grid object
-        is_spectral (bool)  : True if the FieldVariable is in spectral space
-        arr (ndarray)       : The underlying array
-
-    Methods:
-        zeros: Create a FieldVariable of zeros
-        ones : Create a FieldVariable of ones
-    """
-
-    # ==================================================================
-    #  CONSTRUCTORS
-    # ==================================================================
-
     def __init__(self, mset: 'ModelSettingsBase',
                  is_spectral=False, name="Unnamed", arr=None) -> None:
-        """
-        Creates a FieldVariable initialized from input array if given.
-        Else, creates a FieldVariable initialized with zeros.
-
-        Arguments:
-            is_spectral (bool)   : True if the FieldVariable is in spectral space
-            name (str)           : Name of the FieldVariable
-            arr (ndarray)        : The array to be wrapped
-        """
         self.name = name
         self.mset = mset
         self.grid = mset.grid

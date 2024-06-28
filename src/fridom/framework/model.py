@@ -117,6 +117,16 @@ class Model:
         self.time_stepper.update_tendency()
         dz = self.time_stepper.dz
 
+        # synchronize the state vector (ghost points)
+        self.timer.get("sync").start()
+        self.z.sync()
+        self.timer.get("sync").stop()
+
+        # apply boundary conditions to the state variable
+        self.timer.get("boundary conditions").start()
+        self.z.apply_boundary_conditions()
+        self.timer.get("boundary conditions").stop()
+
         # calculate tendency
         self.tendencies.update(mz=self.model_state, dz=dz)
 

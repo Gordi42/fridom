@@ -58,6 +58,14 @@ class StateBase:
         [field.sync() for field in self.field_list]
         return
 
+    def apply_boundary_conditions(self) -> None:
+        """
+        Apply boundary conditions to the state.
+
+        This method should be implemented in the child classes.
+        """
+        pass
+
     def project(self, p_vec:"StateBase", 
                       q_vec:"StateBase") -> "StateBase":
         """
