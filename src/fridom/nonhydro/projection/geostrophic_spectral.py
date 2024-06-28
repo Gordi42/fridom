@@ -1,11 +1,8 @@
-from fridom.nonhydro.grid import Grid
 from fridom.framework.projection \
     .geostrophic_spectral import GeostrophicSpectralBase
+from fridom.nonhydro.model_settings import ModelSettings
 
 class GeostrophicSpectral(GeostrophicSpectralBase):
-    def __init__(self, grid: Grid) -> None:
+    def __init__(self, mset: ModelSettings) -> None:
         from fridom.nonhydro.eigenvectors import VecP, VecQ
-        super().__init__(grid, VecQ, VecP)
-
-# remove symbols from namespace
-del Grid, GeostrophicSpectralBase
+        super().__init__(mset, VecQ, VecP)

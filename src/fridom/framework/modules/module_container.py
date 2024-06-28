@@ -116,12 +116,20 @@ class ModuleContainer(Module):
         """
         return max([module.required_halo for module in self.module_list])
     
+    @required_halo.setter
+    def required_halo(self, value: int) -> None:
+        pass  # do nothing
+    
     @property
     def mpi_available(self) -> bool:
         """
         Whether all modules are available in MPI mode.
         """
         return all([module.mpi_available for module in self.module_list])
+
+    @mpi_available.setter
+    def mpi_available(self, value: bool) -> None:
+        pass  # do nothing
 
     def __repr__(self) -> str:
         """

@@ -1,4 +1,3 @@
-from fridom.nonhydro.grid import Grid
 from fridom.framework.field_variable import FieldVariable
 from fridom.framework.modules.module import start_module
 from .interpolation_module import InterpolationModule
@@ -110,7 +109,3 @@ class LinearInterpolation(InterpolationModule):
 
     def __repr__(self) -> str:
         return self.name
-
-
-# remove symbols from the namespace
-del Grid, FieldVariable, InterpolationModule, start_module

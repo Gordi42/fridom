@@ -1,57 +1,65 @@
+# Import external modules
+from typing import TYPE_CHECKING
 import numpy as np
-
-from fridom.nonhydro.grid import Grid
+# Import internal modules
+from fridom.framework import config
 from fridom.nonhydro.state import State
-
+# Import type information
+if TYPE_CHECKING:
+    from fridom.nonhydro.model_settings import ModelSettings
 
 class SingleWave(State):
     """
-    An initial condition that consist of a single wave with a 
+    An initial condition that consist of a single wave with a
     given wavenumber and a given mode.
-
-    Attributes:
-        kx (float)     : The wavenumber in the x-direction.
-        ky (float)     : The wavenumber in the y-direction.
-        kz (float)     : The wavenumber in the z-direction.
-        mode (int)     : The mode (0, 1, -1)
-        omega (complex): The frequency of the wave 
-                         (includes effects of time discretization)
-                         (only for inertia-gravity modes).
-        period (float) : The period of the wave.
-                         (includes effects of time discretization)
-                         (only for inertia-gravity modes).
+    
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
+    `kx` : `float`
+        The wavenumber in the x-direction.
+    `ky` : `float`
+        The wavenumber in the y-direction.
+    `kz` : `float`
+        The wavenumber in the z-direction.
+    `s` : `int`
+        The mode (0, 1, -1)
+        0 => geostrophic mode
+        1 => positive inertia-gravity mode
+        -1 => negative inertia-gravity mode
+    `phase` : `complex`
+        The phase of the wave. (default: 0)
+    `use_discrete` : `bool` (default: True)
+        Whether to use the discrete eigenvectors or the analytical ones.
+    
+    Attributes
+    ----------
+    `omega` : `complex`
+        The frequency of the wave (includes effects of time discretization)
+        (only for inertia-gravity modes).
+    `period` : `float`
+        The period of the wave (includes effects of time discretization)
+        (only for inertia-gravity modes).
     """
-    def __init__(self, grid:Grid, 
+    def __init__(self, mset: 'ModelSettings', 
                  kx=6, ky=0, kz=4, s=1, phase=0, use_discrete=True) -> None:
-        """
-        Constructor of the SingleWave initial condition.
-
-        Arguments:
-            grid (Grid)           : The grid.
-            kx (float)            : The wavenumber in the x-direction.
-            ky (float)            : The wavenumber in the y-direction.
-            kz (float)            : The wavenumber in the z-direction.
-            s (int)               : The mode (0, 1, -1)
-                                    0 => geostrophic mode
-                                    1 => positive inertia-gravity mode
-                                   -1 => negative inertia-gravity mode
-            phase (complex)       : The phase of the wave. (Default: 0)
-            use_discrete (bool)   : Whether to use the discrete eigenvectors
-                                    or the analytical ones. Default: True.
-        """
-        super().__init__(grid)
+        super().__init__(mset)
 
         # Shortcuts
-        cp = self.cp
+        ncp = config.ncp
+        grid = mset.grid
 
         # Find index of the wavenumber in the grid (nearest neighbor)
-        ki = cp.argmin(cp.abs(grid.k[0] - kx))
-        kj = cp.argmin(cp.abs(grid.k[1] - ky))
-        kk = cp.argmin(cp.abs(grid.k[2] - kz))
+        ki = ncp.argmin(ncp.abs(grid.k_global[0] - kx))
+        kj = ncp.argmin(ncp.abs(grid.k_global[1] - ky))
+        kk = ncp.argmin(ncp.abs(grid.k_global[2] - kz))
 
         # save the index of the wave number and the wave number itself
+        self.kx = grid.k_global[0][ki]
+        self.ky = grid.k_global[1][kj]
+        self.kz = grid.k_global[2][kk]
         self.k_loc = (ki, kj, kk)
-        self.kx = grid.k[0][ki]; self.ky = grid.k[1][kj]; self.kz = grid.k[2][kk]
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode

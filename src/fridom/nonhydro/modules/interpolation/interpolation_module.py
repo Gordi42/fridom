@@ -1,4 +1,3 @@
-from fridom.nonhydro.grid import Grid
 from fridom.framework.field_variable import FieldVariable
 from fridom.framework.modules.module import Module
 
@@ -177,4 +176,4 @@ class InterpolationModule(Module):
 
 
 # remove symbols from the namespace
-del Grid, FieldVariable, Module
+del FieldVariable, Module

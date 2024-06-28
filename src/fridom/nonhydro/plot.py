@@ -1,7 +1,6 @@
 import numpy as np
 
 from fridom.nonhydro.model_settings import ModelSettings
-from fridom.nonhydro.grid import Grid
 from fridom.framework.field_variable import FieldVariable
 
 

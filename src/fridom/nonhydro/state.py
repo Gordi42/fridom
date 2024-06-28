@@ -1,22 +1,27 @@
-from fridom.nonhydro.grid import Grid
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework import config
 from fridom.framework.state_base import StateBase
 from fridom.framework.field_variable import FieldVariable
-
+# Import type information
+if TYPE_CHECKING:
+    from fridom.nonhydro.model_settings import ModelSettings
 
 class State(StateBase):
-    def __init__(self, grid: Grid, is_spectral=False, field_list=None) -> None:
+    def __init__(self, mset: 'ModelSettings', is_spectral=False, field_list=None) -> None:
         from fridom.framework.field_variable import FieldVariable
         if field_list is None:
-            u = FieldVariable(grid,
+            u = FieldVariable(mset,
                 name="Velocity u", is_spectral=is_spectral)
-            v = FieldVariable(grid,
+            v = FieldVariable(mset,
                 name="Velocity v", is_spectral=is_spectral)
-            w = FieldVariable(grid,
+            w = FieldVariable(mset,
                 name="Velocity w", is_spectral=is_spectral)
-            b = FieldVariable(grid,
+            b = FieldVariable(mset,
                 name="Buoyancy b", is_spectral=is_spectral)
             field_list = [u, v, w, b]
-        super().__init__(grid, field_list, is_spectral)
+        super().__init__(mset, field_list, is_spectral)
         self.constructor = State
         return
     
@@ -39,7 +44,7 @@ class State(StateBase):
             z = self.fft()
         dsqr = self.mset.dsqr
         ekin = 0.5*(z.u**2 + z.v**2 + dsqr*z.w**2)
-        return FieldVariable(self.grid, is_spectral=False, name="Kinetic Energy", arr=ekin)
+        return FieldVariable(self.mset, is_spectral=False, name="Kinetic Energy", arr=ekin)
 
     def epot(self) -> FieldVariable:
         """
@@ -56,7 +61,7 @@ class State(StateBase):
             z = self.fft()
         N0 = self.mset.N0
         epot = 0.5*(z.b**2 / (N0**2))
-        return FieldVariable(self.grid, is_spectral=False,
+        return FieldVariable(self.mset, is_spectral=False,
                              name="Potential Energy", arr=epot)
     
     def etot(self) -> FieldVariable:
@@ -69,7 +74,7 @@ class State(StateBase):
         """
         from fridom.framework.field_variable import FieldVariable
         etot = (self.ekin() + self.epot()).arr
-        return FieldVariable(self.grid, is_spectral=False,
+        return FieldVariable(self.mset, is_spectral=False,
                              name="Total Energy", arr=etot)
 
     def mean_ekin(self) -> float:
@@ -123,7 +128,7 @@ class State(StateBase):
                 ).ave(-1, 0).ave(-1, 1)
 
         # Create the field variable
-        field = FieldVariable(self.grid, is_spectral=False, 
+        field = FieldVariable(self.mset, is_spectral=False, 
                               name="Horizontal Vorticity", arr=vort)
         return field
 
@@ -148,7 +153,7 @@ class State(StateBase):
                 ).ave(-1, 1).ave(-1, 2)
             
         # Create the field variable
-        field = FieldVariable(self.grid, is_spectral=False, 
+        field = FieldVariable(self.mset, is_spectral=False, 
                               name="y,z - Vorticity", arr=vort)
         return field
     
@@ -173,7 +178,7 @@ class State(StateBase):
                 ).ave(-1, 0).ave(-1, 2)
 
         # Create the field variable
-        field = FieldVariable(self.grid, is_spectral=False, 
+        field = FieldVariable(self.mset, is_spectral=False, 
                               name="x,z - Vorticity", arr=vort)
         return field
 
@@ -207,7 +212,7 @@ class State(StateBase):
                     buo_grad_x * ver_vort_x + buo_grad_y * ver_vort_y
 
         # Create the field variable
-        field = FieldVariable(self.grid, arr=pot_vort,
+        field = FieldVariable(self.mset, arr=pot_vort,
                               is_spectral=False, name="Potential Vorticity")
         return field
 
@@ -232,7 +237,7 @@ class State(StateBase):
         pot_vort = Ro * (f0/N0**2 * buo_grad_z + hor_vort)
 
         # Create the field variable
-        field = FieldVariable(self.grid, arr=pot_vort,
+        field = FieldVariable(self.mset, arr=pot_vort,
                               is_spectral=False, name="Linear PV")
         return field
 
@@ -322,7 +327,3 @@ class State(StateBase):
     def b(self, value: FieldVariable):
         self.field_list[3] = value
         return
-
-    
-# remove symbols from namespace
-del Grid, FieldVariable, StateBase

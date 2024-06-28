@@ -24,5 +24,5 @@ Modules
 """
 
 from . import framework
-# from . import nonhydro
+from . import nonhydro
 # from . import shallowwater
