@@ -10,10 +10,11 @@ if TYPE_CHECKING:
 
 class TimeStepper(Module):
     """
-    # Base class for all time steppers.
-    A time stepper is a module that advances the model state in time.
-
-    ## Required methods:
+    Base class for all time steppers.
+    
+    Description
+    -----------
+    Required methods:
     1. `__init__(self, ...) -> None`: The constructor only takes keyword
     argument which are stored as attributes. Always call the parent constructor
     with `super().__init__(name, **kwargs)`.
@@ -29,7 +30,7 @@ class TimeStepper(Module):
     4. `dz` property: This property should return the tendency state at the 
     current time level.
 
-    ## Optional methods:
+    Optional methods:
     1. `start(self) -> None`: This method is called by the model before the
     time stepping starts. It can be used to initialize variables or allocate
     memory. Make sure to wrap the method with the `@start_module` decorator from
@@ -38,6 +39,14 @@ class TimeStepper(Module):
     stepping has finished. It can be used to deallocate memory or clean up.
     Make sure to wrap the method with the `@stop_module` decorator from the
     `Module` class.
+    
+    Parameters
+    ----------
+    `name` : `str`
+        The name of the time stepper.
+    **kwargs
+        Additional keyword arguments.
+    
     """
     def __init__(self, name, **kwargs) -> None:
         super().__init__(name, **kwargs)

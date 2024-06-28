@@ -10,14 +10,25 @@ if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
 
 class AdamBashforth(TimeStepper):
+    """
+    Adam Bashforth time stepping up to 4th order.
+    
+    Parameters
+    ----------
+    `dt` : `float`
+        Time step size. (default 0.01)
+    `order` : `int`
+        Order of the time stepping. (default 3, max 4)
+    `eps` : `float`
+        2nd order bashforth correction. (default 0.01)
+    
+    Attributes
+    ----------
+    `dz` : `State`
+        Tendency term at the current time level.
+    
+    """
     def __init__(self, dt: float = 0.01, order: int = 3, eps=0.01):
-        """
-        # Adam Bashforth Time Stepping.
-        ## Args:
-        - dt (float): Time step size. (default 0.01)
-        - order (int): Order of the time stepping. (default 3, max 4)
-        - eps (float): 2nd order bashforth correction. (default 0.01)
-        """
         # check that the order is not too high
         if order > 4:
             raise ValueError(
@@ -34,12 +45,6 @@ class AdamBashforth(TimeStepper):
 
     @start_module
     def start(self):
-        """
-        # Start the time stepper.
-        ## Args:
-        - grid (GridBase): Grid object.
-        - timer (TimerBase): Timer object.
-        """
         ncp = config.ncp
         dtype = config.dtype_real
         mset = self.mset
@@ -67,9 +72,7 @@ class AdamBashforth(TimeStepper):
     @update_module
     def update(self, mz: 'ModelState'):
         """
-        # Update the time stepper.
-        ## Args:
-        - mz (ModelStateBase): Model state.
+        Update the time stepper.
         """
         dt = self.dt
         for i in range(self.order):
