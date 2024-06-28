@@ -23,6 +23,11 @@ class FieldVariable:
         True if the FieldVariable should be initialized in spectral space
     `name` : `str` (default "Unnamed")
         Name of the FieldVariable
+    `topo` : `list[bool]` (default None)
+        Topology of the FieldVariable. If None, the FieldVariable is
+        assumed to be fully extended in all directions. If a list of booleans 
+        is given, the FieldVariable has no extend in the directions where the
+        corresponding entry is False.
     `arr` : `ndarray` (default None)
         The array to be wrapped
     
@@ -36,6 +41,8 @@ class FieldVariable:
         Grid object
     `is_spectral` : `bool`
         True if the FieldVariable is in spectral space
+    `topo` : `list[bool]`
+        Topology of the FieldVariable
     `arr` : `ndarray`
         The underlying array
     
@@ -66,21 +73,35 @@ class FieldVariable:
     TODO
     """
     def __init__(self, mset: 'ModelSettingsBase',
-                 is_spectral=False, name="Unnamed", arr=None) -> None:
+                 is_spectral=False, name="Unnamed", 
+                 topo=None,
+                 arr=None) -> None:
+
+        ncp = config.ncp
+        dtype = config.dtype_comp if is_spectral else config.dtype_real
+        topo = topo or [True] * mset.grid.n_dims
+        if arr is None:
+            # get the shape of the array
+            if is_spectral:
+                shape = tuple(n if p else 1 
+                              for n, p in zip(mset.grid.K[0].shape, topo))
+            else:
+                shape = tuple(n if p else 1 
+                              for n, p in zip(mset.grid.X[0].shape, topo))
+            data = ncp.zeros(shape=shape, dtype=dtype)
+        else:
+            data = ncp.array(arr, dtype=dtype)
+
+        # ----------------------------------------------------------------
+        #  Set attributes
+        # ----------------------------------------------------------------
+
         self.name = name
         self.mset = mset
         self.grid = mset.grid
         self.is_spectral = is_spectral
-
-        ncp = config.ncp
-        dtype = config.dtype_comp if is_spectral else config.dtype_real
-        if arr is None:
-            if is_spectral:
-                self.arr = ncp.zeros(shape=mset.grid.K[0].shape, dtype=dtype)
-            else:
-                self.arr = ncp.zeros(shape=mset.grid.X[0].shape, dtype=dtype)
-        else:
-            self.arr = ncp.array(arr, dtype=dtype)
+        self.topo = topo
+        self.arr = data
 
         return
         
@@ -94,7 +115,7 @@ class FieldVariable:
         FieldVariable constructor
         """
         return {"mset": self.mset, "name": self.name,
-                "is_spectral": self.is_spectral}
+                "is_spectral": self.is_spectral, "topo": self.topo,}
 
     def fft(self) -> "FieldVariable":
         """
@@ -410,13 +431,16 @@ class FieldVariable:
         Returns:
             FieldVariable: Sum of self and other (inherits from self)
         """
+        kwargs = self.get_kw()
         # Check that the other object is a FieldVariable
         if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
             sum = self.arr + other.arr
         else:
             sum = self.arr + other
 
-        return FieldVariable(arr=sum, **self.get_kw())
+        return FieldVariable(arr=sum, **kwargs)
     
     def __radd__(self, other):
         return self.__add__(other)
@@ -431,13 +455,16 @@ class FieldVariable:
         Returns:
             FieldVariable: Difference of self and other (inherits from self)
         """
+        kwargs = self.get_kw()
         # Check that the other object is a FieldVariable
         if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
             diff = self.arr - other.arr
         else:
             diff = self.arr - other
 
-        return FieldVariable(arr=diff, **self.get_kw())
+        return FieldVariable(arr=diff, **kwargs)
     
     def __rsub__(self, other):
         res = other - self.arr
@@ -453,13 +480,16 @@ class FieldVariable:
         Returns:
             FieldVariable: Product of self and other (inherits from self)
         """
+        kwargs = self.get_kw()
         # Check that the other object is a FieldVariable
         if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
             prod = self.arr * other.arr
         else:
             prod = self.arr * other
 
-        return FieldVariable(arr=prod, **self.get_kw())
+        return FieldVariable(arr=prod, **kwargs)
     
     def __rmul__(self, other):
         return self.__mul__(other)
@@ -474,13 +504,16 @@ class FieldVariable:
         Returns:
             FieldVariable: Quotient of self and other (inherits from self)
         """
+        kwargs = self.get_kw()
         # Check that the other object is a FieldVariable
         if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
             quot = self.arr / other.arr
         else:
             quot = self.arr / other
 
-        return FieldVariable(arr=quot, **self.get_kw())
+        return FieldVariable(arr=quot, **kwargs)
     
     def __rtruediv__(self, other):
         return FieldVariable(arr=other / self.arr, **self.get_kw())
@@ -495,13 +528,16 @@ class FieldVariable:
         Returns:
             FieldVariable: Power of self and other (inherits from self)
         """
+        kwargs = self.get_kw()
         # Check that the other object is a FieldVariable
         if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
             pow = self.arr ** other.arr
         else:
             pow = self.arr ** other
 
-        return FieldVariable(arr=pow, **self.get_kw())
+        return FieldVariable(arr=pow, **kwargs)
 
     # ==================================================================
     #  STRING REPRESENTATION

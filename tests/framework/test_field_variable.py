@@ -314,3 +314,100 @@ def test_pow(zeros, ones):
     # test power with array
     power = (ones*2) ** (ncp.ones(ones.shape)*3)
     assert ncp.allclose(power.arr, 8.0)
+
+# ================================================================
+#  Test Field Variable with topo set
+# ================================================================
+
+@pytest.fixture()
+def mset_topo(backend):
+    grid = fr.grid.CartesianGrid([31, 32, 33], [1.0, 2.0, 3.0], shared_axes=[0])
+    mset = fr.ModelSettingsBase(grid)
+    mset.setup()
+    return mset
+
+@pytest.fixture(params=[
+    [True, True, True],
+    [False, True, True],
+    [True, False, True],
+    [True, True, False],
+    [False, False, True],
+    [False, True, False],
+    [True, False, False],
+])
+def topo1(request):
+    return request.param
+
+@pytest.fixture(params=[
+    [True, True, True],
+    [False, True, True],
+    [True, False, True],
+    [True, True, False],
+    [False, False, True],
+    [False, True, False],
+    [True, False, False],
+])
+def topo2(request):
+    return request.param
+
+@pytest.fixture()
+def obtained_topo(topo1, topo2):
+    return [a or b for a, b in zip(topo1, topo2)]
+
+@pytest.fixture()
+def obtained_shape(mset_topo, obtained_topo, spectral):
+    if spectral:
+        full_shape = mset_topo.grid.K[0].shape
+    else:
+        full_shape = mset_topo.grid.X[0].shape
+    return tuple(n if t else 1 for n, t in zip(full_shape, obtained_topo))
+
+@pytest.fixture()
+def f1(mset_topo, topo1, spectral):
+    return fr.FieldVariable(mset_topo, is_spectral=spectral, topo=topo1) + 1.0
+
+@pytest.fixture()
+def f2(mset_topo, topo2, spectral):
+    return fr.FieldVariable(mset_topo, is_spectral=spectral, topo=topo2) + 2.0
+
+def test_f1(f1, topo1):
+    assert f1.topo == topo1
+
+def test_f2(f2, topo2):
+    assert f2.topo == topo2
+
+def test_topo_add(f1, f2, obtained_topo, obtained_shape):
+    ncp = config.ncp
+    f3 = f1 + f2
+    assert f3.topo == obtained_topo
+    assert f3.shape == obtained_shape
+    assert ncp.allclose(f3, 3.0)
+
+def test_topo_sub(f1, f2, obtained_topo, obtained_shape):
+    ncp = config.ncp
+    f3 = f1 - f2
+    assert f3.topo == obtained_topo
+    assert f3.shape == obtained_shape
+    assert ncp.allclose(f3, -1.0)
+
+def test_topo_mul(f1, f2, obtained_topo, obtained_shape):
+    ncp = config.ncp
+    f3 = f1 * f2
+    assert f3.topo == obtained_topo
+    assert f3.shape == obtained_shape
+    assert ncp.allclose(f3, 2.0)
+
+def test_topo_div(f1, f2, obtained_topo, obtained_shape):
+    ncp = config.ncp
+    f3 = f1 / f2
+    assert f3.topo == obtained_topo
+    assert f3.shape == obtained_shape
+    assert ncp.allclose(f3, 1.0/2.0)
+
+def test_topo_pow(f1, f2, obtained_topo, obtained_shape):
+    ncp = config.ncp
+    f3 = f1 ** f2
+    assert f3.topo == obtained_topo
+    assert f3.shape == obtained_shape
+    assert ncp.allclose(f3, 1.0**2.0)
+    
