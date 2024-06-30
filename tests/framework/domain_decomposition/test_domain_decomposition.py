@@ -30,3 +30,27 @@ def test_deepcopy(backend):
     domain_copy.n_global[0] = 128
     assert domain.n_global[0] != 128
 
+@pytest.fixture(params=[0, 1])
+def flat_axis(request):
+    return request.param
+
+def test_sync_topo_array(backend, flat_axis):
+    ncp = fr.config.ncp
+    domain = fr.domain_decomposition.DomainDecomposition(
+        n_global=[64, 64], shared_axes=[0], halo=2)
+    shape = list(domain.my_subdomain.shape)
+    shape[flat_axis] = 1
+    u = ncp.random.rand(*tuple(shape))
+    domain.sync(u, flat_axes=[flat_axis])
+
+@pytest.mark.parametrize("halo", [0, 1, 2])
+def test_sync_1d_array(backend, halo):
+    ncp = fr.config.ncp
+    n_global = [64, 1 , 32]
+    domain = fr.domain_decomposition.DomainDecomposition(
+        n_global=n_global, shared_axes=[0, 1], halo=halo)
+    u = ncp.random.rand(*domain.my_subdomain.shape)
+    assert u.shape[1] == 1 + 2 * halo
+    domain.sync(u)
+
+    

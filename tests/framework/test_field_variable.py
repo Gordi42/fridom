@@ -410,4 +410,3 @@ def test_topo_pow(f1, f2, obtained_topo, obtained_shape):
     assert f3.topo == obtained_topo
     assert f3.shape == obtained_shape
     assert ncp.allclose(f3, 1.0**2.0)
-    

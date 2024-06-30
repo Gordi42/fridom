@@ -174,7 +174,7 @@ class DomainDecomposition:
     def __init__(self, 
                  n_global: 'list[int]', 
                  halo: int = 0,
-                 shared_axes: 'list[int]' = None,
+                 shared_axes: 'list[int] | None' = None,
                  reorder_comm = True,
                  ) -> None:
         # set input parameters
@@ -188,7 +188,14 @@ class DomainDecomposition:
         # --------------------------------------------------------------
         # set the number of processors to 1 for shared axes
         shared_axes = shared_axes or []
-        n_procs = [1 if i in shared_axes else 0 for i in range(n_dims)]
+        n_procs = []
+        for i in range(n_dims):
+            if i in shared_axes:
+                n_procs.append(1)
+            elif n_global[i] == 1:
+                n_procs.append(1)
+            else:
+                n_procs.append(0)
         # calculate the remaining dimensions that are not shared
         n_procs = MPI.Compute_dims(MPI.COMM_WORLD.Get_size(), n_procs)
         # update the shared axes
@@ -211,6 +218,8 @@ class DomainDecomposition:
         # check that the number of grid points in each local domain is 
         # larger than the number of halo cells
         for i in range(n_dims):
+            if n_procs[i] == 1:  # skip shared axes
+                continue
             if my_subdomain.inner_shape[i] < halo:
                 raise ValueError(
                     f"Number of grid points in the direction {i} is too small. "
@@ -219,6 +228,11 @@ class DomainDecomposition:
         # --------------------------------------------------------------
         #  Prepare the halo exchange
         # --------------------------------------------------------------
+        # exchange of halo regions in shared axes:
+        paddings = [[(halo, halo) if i == j else (0, 0) for i in range(n_dims)]
+                    for j in range(n_dims)]
+        inner = _make_slice_list(slice(halo, -halo), n_dims)
+
         # create subcommunicators for each axis
         subcomms = []
         for i in range(n_dims):
@@ -261,9 +275,11 @@ class DomainDecomposition:
         self._send_to_prev = send_to_prev
         self._recv_from_next = recv_from_next
         self._recv_from_prev = recv_from_prev
+        self._paddings = paddings
+        self._inner = inner
         return
 
-    def sync(self, arr) -> None:
+    def sync(self, arr, flat_axes: list | None = None) -> None:
         """
         # Synchronize Halos
         Synchronize the halo regions of an array between neighboring domains.
@@ -278,6 +294,8 @@ class DomainDecomposition:
         ----------
         `arr` : `ndarray`
             The array to synchronize.
+        `skip_axes` : `list[int]`, optional (default=None)
+            A list of axes to skip synchronization.
         
         Returns
         -------
@@ -297,6 +315,8 @@ class DomainDecomposition:
         # nothing to do if there are no halo regions
         if self.halo == 0:
             return
+
+        flat_axes = flat_axes or []
         
         # synchronize cpu and gpu
         self.sync_with_device()
@@ -315,9 +335,15 @@ class DomainDecomposition:
         #  buf_recv_prev                               buf_recv_next
 
         for i in range(self.n_dims):
+            if i in flat_axes:
+                continue
             if self.n_procs[i] == 1:
-                arr[self._recv_from_next[i]] = arr[self._send_to_prev[i]]
-                arr[self._recv_from_prev[i]] = arr[self._send_to_next[i]]
+                if self.n_global[i] < self.halo:
+                    arr[:] = config.ncp.pad(
+                        arr[self._inner[i]], self._paddings[i], mode='wrap')
+                else:
+                    arr[self._recv_from_next[i]] = arr[self._send_to_prev[i]]
+                    arr[self._recv_from_prev[i]] = arr[self._send_to_next[i]]
                 continue
 
             reqs = []
