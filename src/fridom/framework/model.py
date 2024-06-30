@@ -46,6 +46,7 @@ class Model:
         from copy import deepcopy
         self.tendencies  = deepcopy(mset.tendencies)
         self.diagnostics = deepcopy(mset.diagnostics)
+        self.bc = deepcopy(mset.bc)
 
         # Time stepper
         self.time_stepper = deepcopy(mset.time_stepper)
@@ -59,6 +60,7 @@ class Model:
         self.tendencies.start(mset=self.mset, timer=self.timer)
         self.diagnostics.start(mset=self.mset, timer=self.timer)
         self.time_stepper.start(mset=self.mset, timer=self.timer)
+        self.bc.start(mset=self.mset, timer=self.timer)
         return
 
     def stop(self):
@@ -68,6 +70,7 @@ class Model:
         self.tendencies.stop()
         self.diagnostics.stop()
         self.time_stepper.stop()
+        self.bc.stop()
         return
         
 
@@ -123,9 +126,7 @@ class Model:
         self.timer.get("sync").stop()
 
         # apply boundary conditions to the state variable
-        self.timer.get("boundary conditions").start()
-        self.z.apply_boundary_conditions()
-        self.timer.get("boundary conditions").stop()
+        self.bc.update(mz=self.model_state, dz=dz)
 
         # calculate tendency
         self.tendencies.update(mz=self.model_state, dz=dz)

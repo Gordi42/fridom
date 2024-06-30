@@ -31,6 +31,8 @@ class ModelSettingsBase:
         A container for all modules that calculate tendencies.
     `diagnostics` : `ModuleContainer`
         A container for all modules that calculate diagnostics.
+    `bc` : `BoundaryConditions`
+        The boundary conditions object.
     `state_constructor` : `callable`
         A function that constructs a state from the model settings
     `diagnostic_state_constructor` : `callable`
@@ -98,10 +100,13 @@ class ModelSettingsBase:
 
         # modules
         from fridom.framework.modules.module_container import ModuleContainer
+        from fridom.framework.modules.boundary_conditions import BoundaryConditions
         # List of modules that calculate tendencies
         self.tendencies = ModuleContainer(name="All Tendency Modules")
         # List of modules that do diagnostics
         self.diagnostics = ModuleContainer(name="All Diagnostic Modules")
+        # Boundary conditions  (should be set by the child class)
+        self.bc = BoundaryConditions(field_names=[])
 
         # ------------------------------------------------------------------
         #   SWITCHES
