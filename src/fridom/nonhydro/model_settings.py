@@ -11,10 +11,6 @@ class ModelSettings(ModelSettingsBase):
     """
     Model settings for the 3D non-hydrostatic model.
     
-    Description
-    -----------
-    
-    
     Parameters
     ----------
     `grid` : `Grid`
@@ -30,8 +26,6 @@ class ModelSettings(ModelSettingsBase):
         Square of aspect ratio.
     `Ro` : `float`
         Rossby number.
-
-    
     """
     def __init__(self, grid: 'GridBase', **kwargs):
         super().__init__(grid)
@@ -41,6 +35,10 @@ class ModelSettings(ModelSettingsBase):
         # main tendency
         from fridom.nonhydro.modules.main_tendency import MainTendency
         tendencies = MainTendency()
+
+        # boundary condition
+        from fridom.nonhydro.modules.boundary_conditions import BoundaryConditions
+        bc = BoundaryConditions()
 
         # state constructor
         from fridom.nonhydro.state import State
@@ -58,6 +56,7 @@ class ModelSettings(ModelSettingsBase):
         self.dsqr = dtype(1)
         self.Ro   = dtype(1)
         self.tendencies = tendencies
+        self.bc   = bc
         self.state_constructor = state_constructor
         self.diagnostic_state_constructor = diag_state_constructor
 

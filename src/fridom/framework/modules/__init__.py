@@ -14,6 +14,8 @@ Classes
     Base class for all modules.
 `ModuleContainer`
     Base class for a container of modules.
+`BoundaryConditions`
+    Module for setting boundary conditions to the model state.
 `NetCDFWriter`
     Module for writing the model output to a NetCDF file.
 
@@ -32,6 +34,7 @@ from . import animation
 # importing the Classes
 from .module import Module
 from .module_container import ModuleContainer
+from .boundary_conditions import BoundaryConditions
 from .netcdf_writer import NetCDFWriter
 
 # importing the functions
