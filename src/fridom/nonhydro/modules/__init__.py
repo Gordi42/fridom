@@ -38,7 +38,7 @@ Classes
 # from . import advection
 # from . import interpolation
 # from . import diffusion
-# from . import pressure_solvers
+from . import pressure_solvers
 # from . import forcings
 
 # importing classes

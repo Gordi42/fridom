@@ -15,6 +15,7 @@ class PressureGradientTendency(Module):
     """
     def __init__(self):
         super().__init__(name="Pressure Gradient")
+        self.required_halo = 1
 
     @start_module
     def start(self):

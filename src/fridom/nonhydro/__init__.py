@@ -98,9 +98,9 @@ from fridom.framework.model import Model
 # modules/linear_tendencies.py
 # modules/pressure_gradient_tendency.py
 # modules/tendency_divergence.py
+# modules/pressure_solvers/spectral_pressure_solver.py
 
 # start with:
-# modules/pressure_solvers/spectral_pressure_solver.py
 # modules/main_tendency.py
 
 # initial_conditions/barotropic_jet.py

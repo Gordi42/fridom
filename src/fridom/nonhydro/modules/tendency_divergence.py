@@ -17,6 +17,7 @@ class TendencyDivergence(Module):
 
     def __init__(self):
         super().__init__(name="Tendency Divergence")
+        self.required_halo = 1
 
     @start_module
     def start(self):
