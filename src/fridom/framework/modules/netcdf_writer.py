@@ -56,28 +56,27 @@ class NetCDFWriter(Module):
     >>> TODO: add example from nonhydrostatic model
     """
     def __init__(self,
+                 var_names: list[str],
+                 var_long_names: list[str],
+                 var_unit_names: list[str],
                  name = "NetCDFWriter",
                  filename = "snap",
                  snap_interval = 100,
                  snap_slice = None,
-                 var_names = None,
-                 var_long_names = None,
-                 var_unit_names = None,
                  ) -> None:
         import os
         filename = os.path.join("snapshots", filename)
         fname = filename.split(".")[0]
         binary_files = [fname + "_" + var_name + "_bin.npy" for var_name in var_names]
-        super().__init__(
-            name = name,
-            filename = filename,
-            is_active = False,
-            snap_interval = snap_interval,
-            snap_slice = snap_slice,
-            var_names = var_names,
-            var_long_names = var_long_names,
-            var_unit_names = var_unit_names,
-            binary_files = binary_files)
+        super().__init__(name = name)
+        self.filename = filename
+        self.is_active = False
+        self.snap_interval = snap_interval
+        self.snap_slice = snap_slice
+        self.var_names = var_names
+        self.var_long_names = var_long_names
+        self.var_unit_names = var_unit_names
+        self.binary_files = binary_files
         return
     
     @start_module

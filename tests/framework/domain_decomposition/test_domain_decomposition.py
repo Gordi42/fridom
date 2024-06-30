@@ -53,4 +53,40 @@ def test_sync_1d_array(backend, halo):
     assert u.shape[1] == 1 + 2 * halo
     domain.sync(u)
 
+@pytest.mark.parametrize("halo", [1, 2, 3])
+@pytest.mark.parametrize("ndims", [1, 2, 3])
+@pytest.mark.parametrize("axis", [0, 1, 2])
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_apply_boundary_conditions(backend, ndims, halo, axis, side):
+    if axis >= ndims:
+        return
+    ncp = fr.config.ncp
+    domain = fr.domain_decomposition.DomainDecomposition(
+        n_global=[64]*ndims, halo=halo)
+    
+    u = ncp.ones(shape=domain.my_subdomain.shape)
+    domain.sync(u)
+    assert ncp.allclose(u, 1.0)
+    bc_shape = list(u.shape)
+    bc_shape[axis] = 1
+    u_bc = ncp.zeros(shape=bc_shape)
+    domain.apply_boundary_condition(u, u_bc, axis, side=side)
+    if side == "left":
+        is_edge = domain.my_subdomain.is_left_edge[axis]
+        edge = slice(0, halo)
+    else:
+        is_edge = domain.my_subdomain.is_right_edge[axis]
+        edge = slice(-halo, None)
+    if is_edge:
+        edge_sl = tuple(edge if i == axis else slice(None) 
+                        for i in range(ndims))
+        assert ncp.allclose(u[edge_sl], 0.0)
+        assert not ncp.allclose(u, 1.0)
+    else:
+        assert ncp.allclose(u, 1.0)
+
+    
+
+
+
     

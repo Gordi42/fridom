@@ -156,6 +156,8 @@ class DomainDecomposition:
         Synchronize the halo regions of a list of arrays.
     `sync_with_device() -> None`
         Synchronize the gpu device with the processor.
+    `apply_boundary_condition(arr: 'ndarray', bc: 'ndarray', dimension, side)`
+        Apply boundary condition to the halo regions of an array.
     
     Examples
     --------
@@ -457,6 +459,71 @@ class DomainDecomposition:
                 arr[self._recv_from_prev[i]] = buf_recv_prevs[j]
         return
 
+    def apply_boundary_condition(self, arr, bc, dimension: int, side: str) -> None:
+        """
+        Apply boundary condition to the halo regions of an array.
+        
+        Parameters
+        ----------
+        `arr` : `np.ndarray`
+            The array to apply the boundary condition to.
+        `bc` : `np.ndarray`
+            The boundary condition to apply.
+        `dimension` : `int`
+            The dimension to apply the boundary condition to.
+        `side` : `str`
+            The side to apply the boundary condition to. left or right.
+        
+        Raises
+        ------
+        `ValueError`
+            f `side` is not either 'left' or 'right'.
+        """
+        if self.halo == 0:
+            return  # nothing to do if there are no halo regions
+        if side == "left":
+            self._apply_left_boundary_condition(arr, bc, dimension)
+        elif side == "right":
+            self._apply_right_boundary_condition(arr, bc, dimension)
+        else:
+            raise ValueError("side must be either 'left' or 'right'.")
+        return
+
+    def _apply_left_boundary_condition(self, arr, bc, dimension):
+        """
+        Apply left boundary condition to the halo regions of an array.
+        
+        Parameters
+        ----------
+        `arr` : `np.ndarray`
+            The array to apply the boundary condition to.
+        `bc` : `np.ndarray`
+            The boundary condition to apply.
+        `dimension` : `int`
+            The dimension to apply the boundary condition to.
+        """
+        # apply the boundary condition to the left side
+        if self.my_subdomain.is_left_edge[dimension]:
+            arr[self._recv_from_prev[dimension]] = bc
+        return
+    
+    def _apply_right_boundary_condition(self, arr, bc, dimension):
+        """
+        Apply right boundary condition to the halo regions of an array.
+        
+        Parameters
+        ----------
+        `arr` : `np.ndarray`
+            The array to apply the boundary condition to.
+        `bc` : `np.ndarray`
+            The boundary condition to apply.
+        `dimension` : `int`
+            The dimension to apply the boundary condition to.
+        """
+        # apply the boundary condition to the right side
+        if self.my_subdomain.is_right_edge[dimension]:
+            arr[self._recv_from_next[dimension]] = bc
+        return
 
     def sync_with_device(self):
         """

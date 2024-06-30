@@ -141,7 +141,7 @@ class CartesianGrid(GridBase):
         #  Set the attributes
         # --------------------------------------------------------------
         # public attributes
-        self.n_dims = n_dims
+        self._n_dims = n_dims
 
         # private attributes
         self._N = N
@@ -153,10 +153,10 @@ class CartesianGrid(GridBase):
         self._K: list | None = None
         self._k_local: list | None = None
         self._k_global: list | None = None
-        self._total_grid_points = np.prod(N)
+        self._total_grid_points = int(np.prod(N))
         self._periodic_bounds = periodic_bounds
         self._shared_axes = shared_axes
-        self._mset: 'ModelSettingsBase' | None = None
+        self._mset: 'ModelSettingsBase | None' = None
         self._domain_decomp: DomainDecomposition | None = None
         self._pfft: ParallelFFT | None = None
         self._fft: FFT | None = None
@@ -241,6 +241,24 @@ class CartesianGrid(GridBase):
     def sync_spectral(self, u: np.ndarray) -> None:
         self._pfft.domain_out.sync(u)
 
+    def apply_boundary_condition(self, field, axis, side, value):
+        """
+        Apply boundary conditions to a field.
+        
+        Parameters
+        ----------
+        `field` : `FieldVariable`
+            The field to apply the boundary conditions to.
+        `axis` : `int`
+            The axis to apply the boundary condition to.
+        `side` : `str`
+            The side to apply the boundary condition to.
+        `value` : `float | np.ndarray | FieldVariable`
+            The value of the boundary condition.
+        """
+        self._domain_decomp.apply_boundary_condition(field, value, axis, side)
+        return
+
     @property
     def L(self) -> list:
         """Domain size in each direction."""
@@ -260,12 +278,10 @@ class CartesianGrid(GridBase):
     def N(self, value: list):
         self._N = [int(val) for val in value]
         self._dx = [L / N for L, N in zip(self._L, self._N)]
-        self._total_grid_points = 1
-        for n in self._N:
-            self._total_grid_points *= n
+        self._total_grid_points = int(np.prod(self._N))
 
     @property
-    def total_grid_points(self) -> list:
+    def total_grid_points(self) -> int:
         """Total number of grid points."""
         return self._total_grid_points
 
@@ -275,38 +291,42 @@ class CartesianGrid(GridBase):
         return self._dx
 
     @property
-    def X(self) -> list:
+    def X(self) -> list | None:
         """Physical meshgrid on the local domain."""
         return self._X
 
     @property
-    def x_local(self) -> list:
+    def x_local(self) -> list | None:
         """Physical x-vectors on the local domain."""
         return self._x_local
 
     @property
-    def x_global(self) -> list:
+    def x_global(self) -> list | None:
         """Global physical x-vectors."""
         return self._x_global
 
     @property
-    def K(self) -> list:
+    def K(self) -> list | None:
         """Spectral meshgrid on the local domain."""
         return self._K
     
     @property
-    def k_local(self) -> list:
+    def k_local(self) -> list | None:
         """Spectral k-vectors on the local domain."""
         return self._k_local
     
     @property
-    def k_global(self) -> list:
+    def k_global(self) -> list | None:
         """Global spectral k-vectors."""
         return self._k_global
 
     @property
     def periodic_bounds(self) -> list:
         return self._periodic_bounds
+
+    @property
+    def n_dims(self) -> int:
+        return self._n_dims
 
     @property
     def subdomain_phy(self):

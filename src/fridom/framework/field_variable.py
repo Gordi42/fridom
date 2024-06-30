@@ -153,6 +153,35 @@ class FieldVariable:
         else:
             self.grid.sync_physical(self.arr)
 
+    def apply_boundary_conditions(self, axis, side, value):
+        """
+        Apply boundary conditions to the FieldVariable
+        
+        Parameters
+        ----------
+        `axis` : `int`
+            Axis along which to apply the boundary condition
+        `side` : `str`
+            Side of the axis along which to apply the boundary condition
+            (either "left" or "right")
+        `value` : `float | np.ndarray | FieldVariable`
+            The value of the boundary condition. If a float is provided, the
+            boundary condition will be set to a constant value. If an array is
+            provided, the boundary condition will be set to the array.
+        
+        Raises
+        ------
+        `NotImplementedError`
+            If the FieldVariable is in spectral space
+        """
+        if self.is_spectral:
+            raise NotImplementedError(
+                "Boundary conditions not available in spectral space")
+
+        self.grid.apply_boundary_condition(self.arr, axis, side, value)
+        return
+
+
     def spectra_1d(self, nbins=50) -> tuple:
         """
         Calculate the 1D spectra of the FieldVariable. The n-dimensional spectra 

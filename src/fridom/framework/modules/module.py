@@ -144,9 +144,9 @@ class Module:
         self.required_halo = 0  # The required halo for the module
         self.mpi_available = True  # Whether the module can be run in parallel
         # The grid should be set by the model when the module is started
-        self.grid: 'GridBase' | None = None
-        self.mset: 'ModelSettingsBase' | None = None
-        self.timer: 'TimingModule' | None = None
+        self.grid: 'GridBase | None' = None
+        self.mset: 'ModelSettingsBase | None' = None
+        self.timer: 'TimingModule | None' = None
         # Update the attributes with the keyword arguments
         self.__dict__.update(kwargs)
         self.name = name

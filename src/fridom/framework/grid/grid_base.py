@@ -24,6 +24,11 @@ class GridBase:
 
     Attributes
     ----------
+    `n_dims` : `int`
+        The number of dimensions of the grid.
+    `periodic_bounds` : `tuple`
+        A tuple of booleans indicating whether the grid is periodic in each
+        dimension.
     `X` : tuple(`np.ndarray`)
         The meshgrid of the grid points.
 
@@ -65,6 +70,14 @@ class GridBase:
         raise NotImplementedError
 
     def sync_spectral(self, f:'np.ndarray') -> None:
+        raise NotImplementedError
+
+    @property
+    def n_dims(self) -> int:
+        raise NotImplementedError
+
+    @property
+    def periodic_bounds(self) -> tuple:
         raise NotImplementedError
 
     @property

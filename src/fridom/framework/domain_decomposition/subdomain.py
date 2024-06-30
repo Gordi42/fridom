@@ -36,6 +36,12 @@ class Subdomain:
         The global rank of the subdomains processor in the communicator.
     `coord` : `list[int]`
         The coordinates of the processor in the processor grid.
+    `is_left_edge` : `list[bool]`
+        A list of booleans that indicate if the processor is at the left edge
+        of the global domain.
+    `is_right_edge` : `list[bool]`
+        A list of booleans that indicate if the processor is at the right edge
+        of the global domain.
     `shape` : `tuple[int]`
         The number of grid points in the local domain including halo.
     `inner_shape` : `tuple[int]`
@@ -96,7 +102,7 @@ class Subdomain:
         data[local_slice] = 1
     """
     def __init__(self, rank: int, 
-                 comm: MPI.Intracomm,
+                 comm: MPI.Cartcomm,
                  n_global: 'list[int]',
                  halo: int = 0,
                  ) -> None:
@@ -104,6 +110,10 @@ class Subdomain:
         n_dims = len(n_global)
         coord = comm.Get_coords(rank)  # processor coordinates
         n_procs = comm.Get_topo()[0]   # number of processors in each dim.
+
+        # check if a processor is at the edge of the global domain
+        is_left_edge = [c == 0 for c in coord]
+        is_right_edge = [c == n-1 for c,n in zip(coord, n_procs)]
 
         # get the number of grid points in the local domain (the inner shape)
         # we decompose the number of grid points in the local domain into the
@@ -137,11 +147,13 @@ class Subdomain:
         self.halo: int                  = halo
         self.rank: int                  = rank
         self.coord: list[int]           = coord
-        self.shape: tuple[int]          = tuple(shape)
-        self.inner_shape: tuple[int]    = tuple(inner_shape)
-        self.position: tuple[int]       = tuple(position)
-        self.global_slice: tuple[slice] = tuple(global_slice)
-        self.inner_slice: tuple[slice]  = tuple(inner_slice)
+        self.is_left_edge: list[bool]   = is_left_edge
+        self.is_right_edge: list[bool]  = is_right_edge
+        self.shape: tuple[int, ...]     = tuple(shape)
+        self.inner_shape: tuple[int, ...]    = tuple(inner_shape)
+        self.position: tuple[int, ...]       = tuple(position)
+        self.global_slice: tuple[slice, ...] = tuple(global_slice)
+        self.inner_slice: tuple[slice, ...]  = tuple(inner_slice)
         
         return
 
