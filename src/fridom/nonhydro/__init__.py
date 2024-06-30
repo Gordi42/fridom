@@ -88,3 +88,51 @@ from fridom.framework.model import Model
 
 # # move the time steppers into the nonhydro namespace
 # from fridom.framework import time_steppers
+
+
+# ================================================================
+#  TODO: Update the following imports
+# ================================================================
+
+# start with:
+# modules/linear_tendencies.py
+# modules/pressure_solvers/spectral_pressure_solver.py
+# modules/pressure_gradient_tendency.py
+# modules/tendency_divergence.py
+# modules/main_tendency.py
+
+# initial_conditions/barotropic_jet.py
+# initial_conditions/jet.py
+# initial_conditions/single_wave.py
+# initial_conditions/vertical_mode.py
+# initial_conditions/wave_package.py
+# initial_conditions/__init__.py
+# modules/advection/centered_advection.py
+# modules/advection/second_order_advection.py
+# modules/advection/__init__.py
+# modules/diffusion/biharmonic_friction.py
+# modules/diffusion/biharmonic_mixing.py
+# modules/diffusion/harmonic_friction.py
+# modules/diffusion/harmonic_mixing.py
+# modules/diffusion/__init__.py
+# modules/forcings/gaussian_wave_maker.py
+# modules/forcings/polarized_wave_maker.py
+# modules/forcings/__init__.py
+# modules/interpolation/interpolation_module.py
+# modules/interpolation/linear_interpolation.py
+# modules/interpolation/polynomial_interpolation.py
+# modules/interpolation/__init__.py
+# modules/pressure_solvers/cg_pressure_solver.py
+# modules/pressure_solvers/__init__.py
+# modules/diagnostics.py
+# modules/netcdf_writer.py
+# modules/__init__.py
+# projection/divergence_spectral.py
+# projection/geostrophic_spectral.py
+# projection/nnmd.py
+# projection/wave_spectral.py
+# projection/__init__.py
+# diagnose_imbalance.py
+# diagnostic_state.py
+# eigenvectors.py
+# plot.py
