@@ -44,7 +44,7 @@ Classes
 # importing classes
 from .boundary_conditions import BoundaryConditions
 from .linear_tendency import LinearTendency
-# from .tendency_divergence import TendencyDivergence
+from .tendency_divergence import TendencyDivergence
 from .pressure_gradient_tendency import PressureGradientTendency
 # from .netcdf_writer import NetCDFWriter
 # from .diagnostics import Diagnostics

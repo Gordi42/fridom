@@ -96,11 +96,11 @@ from fridom.framework.model import Model
 # ================================================================
 # :: updated but not tested ::
 # modules/linear_tendencies.py
+# modules/pressure_gradient_tendency.py
+# modules/tendency_divergence.py
 
 # start with:
 # modules/pressure_solvers/spectral_pressure_solver.py
-# modules/pressure_gradient_tendency.py
-# modules/tendency_divergence.py
 # modules/main_tendency.py
 
 # initial_conditions/barotropic_jet.py
