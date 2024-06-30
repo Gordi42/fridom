@@ -94,9 +94,10 @@ from fridom.framework.model import Model
 # ================================================================
 #  TODO: Update the following imports
 # ================================================================
+# :: updated but not tested ::
+# modules/linear_tendencies.py
 
 # start with:
-# modules/linear_tendencies.py
 # modules/pressure_solvers/spectral_pressure_solver.py
 # modules/pressure_gradient_tendency.py
 # modules/tendency_divergence.py

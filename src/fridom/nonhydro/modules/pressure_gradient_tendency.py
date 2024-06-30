@@ -1,6 +1,12 @@
-from fridom.nonhydro.state import State
-from fridom.framework.model_state import ModelState
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework import config
 from fridom.framework.modules.module import Module, update_module, start_module
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.model_state import ModelState
+    from fridom.nonhydro.state import State
 
 
 class PressureGradientTendency(Module):
@@ -13,48 +19,26 @@ class PressureGradientTendency(Module):
     @start_module
     def start(self):
         # compute the grid spacing
-        mset = self.mset
-        self.dx1 = mset.dtype(1.0) / mset.dx
-        self.dy1 = mset.dtype(1.0) / mset.dy
-        self.dz1 = mset.dtype(1.0) / mset.dz
+        dx, dy, dz = self.mset.grid.dx
+        self.dx1 = config.dtype_real(1.0) / dx
+        self.dy1 = config.dtype_real(1.0) / dy
+        self.dz1 = config.dtype_real(1.0) / dz
         return
 
     @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
-        """
-        Compute the pressure gradient tendency of the model.
-
-        Args:
-            mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
-        """
-        cp = dz.cp
-        p_pad = cp.pad(mz.z_diag.p, ((0,1), (0,1), (0,1)), 'wrap')
+    def update(self, mz: 'ModelState', dz: 'State') -> None:
+        p = mz.z_diag.p
 
         # Slices
-        c = slice(None,-1); f = slice(1,None)
-        xf = (f,c,c); xc = (c,c,c)
-        yf = (c,f,c); yc = (c,c,c)
-        zf = (c,c,f); zc = (c,c,c)
+        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
 
         # remove pressure gradient
-        dz.u -= (p_pad[xf] - p_pad[xc])*self.dx1 
-        dz.v -= (p_pad[yf] - p_pad[yc])*self.dy1 
-        dz.w -= (p_pad[zf] - p_pad[zc])*self.dz1 / self.mset.dsqr
-
-        # apply boundary conditions
-        if not self.mset.periodic_bounds[0]:
-            dz.u[-1,:,:] = 0
-        if not self.mset.periodic_bounds[1]:
-            dz.v[:,-1,:] = 0
-        if not self.mset.periodic_bounds[2]:
-            dz.w[:,:,-1] = 0
+        dz.u[c,:,:] -= (p[f,:,:] - p[b,:,:]) * self.dx1 
+        dz.v[:,c,:] -= (p[:,f,:] - p[:,b,:]) * self.dy1 
+        dz.w[:,:,c] -= (p[:,:,f] - p[:,:,b]) * self.dz1 / self.mset.dsqr
         return
 
     def __repr__(self) -> str:
         res = super().__repr__()
         res += f"    discretization: Finite difference\n"
         return res
-
-# remove symbols from the namespace
-del State, ModelState, Module, update_module, start_module
