@@ -48,6 +48,7 @@ Examples
 # ----------------------------------------------------------------
 # importing modules
 from . import grid
+from . import modules
 
 # importing classes
 from .model_settings import ModelSettings

@@ -35,19 +35,19 @@ Classes
 
 """
 # importing modules
-from . import advection
-from . import interpolation
-from . import diffusion
-from . import pressure_solvers
-from . import forcings
+# from . import advection
+# from . import interpolation
+# from . import diffusion
+# from . import pressure_solvers
+# from . import forcings
 
 # importing classes
 from .boundary_conditions import BoundaryConditions
 from .linear_tendency import LinearTendency
-from .tendency_divergence import TendencyDivergence
-from .pressure_gradient_tendency import PressureGradientTendency
-from .netcdf_writer import NetCDFWriter
-from .diagnostics import Diagnostics
+# from .tendency_divergence import TendencyDivergence
+# from .pressure_gradient_tendency import PressureGradientTendency
+# from .netcdf_writer import NetCDFWriter
+# from .diagnostics import Diagnostics
 
 # ----------------------------------------------------------------
 #  Importing generic classes and modules
