@@ -7,7 +7,7 @@ from fridom.framework.modules.module import \
     Module, start_module, update_module, stop_module
 # Import type information
 if TYPE_CHECKING:
-    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.model_state import ModelState
     from fridom.framework.state_base import StateBase
 

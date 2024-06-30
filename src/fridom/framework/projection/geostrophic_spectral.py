@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from fridom.framework.projection.projection import Projection
 # Import type information
 if TYPE_CHECKING:
-    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.state_base import StateBase
 
 class GeostrophicSpectralBase(Projection):

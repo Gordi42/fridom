@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config
-from fridom.framework.modelsettings_base import ModelSettingsBase
+from fridom.framework.model_settings_base import ModelSettingsBase
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase

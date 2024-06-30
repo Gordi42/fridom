@@ -9,7 +9,7 @@ from fridom.framework.domain_decomposition import ParallelFFT
 from .fft import FFT
 # Import type information
 if TYPE_CHECKING:
-    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.model_settings_base import ModelSettingsBase
 
 
 class CartesianGrid(GridBase):

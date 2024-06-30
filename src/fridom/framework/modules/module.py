@@ -4,7 +4,7 @@ from functools import wraps
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
-    from fridom.framework.modelsettings_base import ModelSettingsBase
+    from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.state_base import StateBase
     from fridom.framework.model_state import ModelState
     from fridom.framework.timing_module import TimingModule

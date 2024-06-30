@@ -48,7 +48,7 @@ Functions
 """
 
 # import classes
-from .modelsettings_base import ModelSettingsBase
+from .model_settings_base import ModelSettingsBase
 from .field_variable import FieldVariable
 from .state_base import StateBase
 from .model_state import ModelState
