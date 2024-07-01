@@ -1,5 +1,6 @@
 # Import external modules
 from typing import TYPE_CHECKING
+from copy import deepcopy
 # Import internal modules
 from fridom.framework import config
 # Import type information
@@ -445,6 +446,10 @@ class FieldVariable:
 
     def __setstate__(self, state):
         self.__dict__.update(state)
+
+    def __deepcopy__(self, memo):
+        return FieldVariable(arr=deepcopy(self.arr, memo), 
+                             **deepcopy(self.get_kw(), memo))
 
     # ==================================================================
     #  ARITHMETIC OPERATIONS

@@ -53,6 +53,7 @@ from . import modules
 # importing classes
 from .model_settings import ModelSettings
 from .state import State
+from .plot import Plot, PlotContainer
 
 # ----------------------------------------------------------------
 #  Importing generic classes and modules

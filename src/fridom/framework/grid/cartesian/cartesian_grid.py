@@ -333,6 +333,10 @@ class CartesianGrid(GridBase):
     @property
     def subdomain_spe(self):
         return self._pfft.domain_out.my_subdomain
+
+    @property
+    def inner_slice(self) -> tuple:
+        return self.subdomain_phy.inner_slice
     
     @property
     def mset(self) -> 'ModelSettingsBase':

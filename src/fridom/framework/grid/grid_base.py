@@ -83,3 +83,7 @@ class GridBase:
     @property
     def X(self) -> tuple:
         raise NotImplementedError
+
+    @property
+    def inner_slice(self) -> tuple:
+        return tuple(slice(None) for _ in range(self.n_dims))

@@ -1,7 +1,12 @@
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
 import numpy as np
-
-from fridom.nonhydro.model_settings import ModelSettings
-from fridom.framework.field_variable import FieldVariable
+from fridom.framework import config
+from fridom.framework.to_numpy import to_numpy
+# Import type information
+if TYPE_CHECKING:
+    from fridom.framework.field_variable import FieldVariable
 
 
 class PlotContainer:
@@ -277,28 +282,21 @@ class Plot:
         vol       : 3D volume plot of the model state
     """
 
-    def __init__(self, field: FieldVariable):
+    def __init__(self, field: 'FieldVariable'):
         """
         Constructor of the Plot class.
         """
         self.mset = mset = field.mset
         self.grid = grid = mset.grid
-        # self.grid = grid = field.grid
-        self.name = name = field.name
-
-        # convert to numpy array if necessary
-        get = lambda x: x.get() if mset.gpu else x
-
-        self.ics = ics = grid.subdomain_phy.inner_slice
+        self.ics = ics = grid.inner_slice
+        self.name = field.name
 
         # save field and grid information
-        self.field = get(field.arr[ics])
-        self.x     = get(grid.x_local[0])
-        self.y     = get(grid.x_local[1])
-        self.z     = get(grid.x_local[2])
-        self.X     = get(grid.X[0][ics])
-        self.Y     = get(grid.X[1][ics])
-        self.Z     = get(grid.X[2][ics])
+        self.field = to_numpy(field.arr[ics])
+        x, y, z = to_numpy(grid.x_local)
+        X, Y, Z = to_numpy(grid.X)
+        self.x, self.y, self.z = x, y, z
+        self.X, self.Y, self.Z = X[ics], Y[ics], Z[ics]
 
     # ========================================================================
     #  Main Plotting functions
@@ -407,15 +405,16 @@ class Plot:
             u = None; v = None; w = None
         else:
             ics = self.ics
-            get = lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
-            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
+            z = to_numpy(state)
+            u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
 
         ax = fig.add_subplot(111)
         im = PlotContainer.front_on_axis(
             ax, self.field, self.X, self.Y, self.Z,
             ysel, cmin, cmax, cmap, vmax, u, v, w)
 
-        shrink = min(self.mset.L[2] / self.mset.L[1],1)
+        Lx, Ly, Lz = self.grid.L
+        shrink = min(Lz / Ly,1)
         
         cbar = plt.colorbar(im, shrink=0.9*shrink)
         cbar.set_label(self.name)
@@ -453,8 +452,8 @@ class Plot:
             u = None; v = None; w = None
         else:
             ics = self.ics
-            get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
-            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
+            z = to_numpy(state)
+            u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
 
             
         ax = fig.add_subplot(111)
@@ -462,7 +461,8 @@ class Plot:
             ax, self.field, self.X, self.Y, self.Z,
             xsel, cmin, cmax, cmap, vmax, u, v, w)
     
-        shrink = min(self.mset.L[2] / self.mset.L[1],1)
+        Lx, Ly, Lz = self.grid.L
+        shrink = min(Lz / Ly,1)
             
         cbar = plt.colorbar(im, shrink=0.9*shrink)
         cbar.set_label(self.name)
@@ -498,16 +498,17 @@ class Plot:
         if state is None:
             u = None; v = None; w = None
         else:
-            get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
             ics = self.ics
-            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
+            z = to_numpy(state)
+            u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
         
         ax = fig.add_subplot(111)
         im = PlotContainer.top_on_axis(
             ax, self.field, self.X, self.Y, self.Z,
             zsel, cmin, cmax, cmap, vmax, u, v, w)
 
-        shrink = min(self.mset.L[1] / self.mset.L[0],1)
+        Lx, Ly, Lz = self.grid.L
+        shrink = min(Ly / Lx,1)
         
         cbar = plt.colorbar(im, shrink=0.9*shrink)
         cbar.set_label(self.name)
@@ -534,9 +535,9 @@ class Plot:
         if state is None:
             u = None; v = None; w = None
         else:
-            get=lambda x: np.array(x.get()) if self.mset.gpu else np.array(x)
             ics = self.ics
-            u = get(state.u)[ics]; v = get(state.v)[ics]; w = get(state.w)[ics]
+            z = to_numpy(state)
+            u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
 
         im = PlotContainer.side_on_axis(
             axs[0], self.field, self.X, self.Y, self.Z,
@@ -572,7 +573,3 @@ class Plot:
             axs[2].plot(x[xsel, :], z[xsel, :], c="red", linewidth=0.5)
             axs[2].plot(x[:, zsel], z[:, zsel], c="red", linewidth=0.5)
         return
-
-
-# remove symbols from namespace
-del ModelSettings, Grid, FieldVariable

@@ -114,6 +114,9 @@ class ModuleContainer(Module):
         """
         The maximum required halo points of all modules.
         """
+        # check if module_list is empty
+        if not self.module_list:
+            return 0
         return max([module.required_halo for module in self.module_list])
     
     @required_halo.setter
