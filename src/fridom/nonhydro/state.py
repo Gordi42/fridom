@@ -59,8 +59,8 @@ class State(StateBase):
         z = self
         if self.is_spectral:
             z = self.fft()
-        N0 = self.mset.N0
-        epot = 0.5*(z.b**2 / (N0**2))
+        N2 = self.mset.N2
+        epot = 0.5*(z.b**2 / (N2))
         return FieldVariable(self.mset, is_spectral=False,
                              name="Potential Energy", arr=epot)
     
@@ -102,7 +102,7 @@ class State(StateBase):
         Returns:
             mean_etot (float)  : Mean total energy.
         """
-        return self.cp.mean(self.etot())
+        return config.ncp.mean(self.etot())
 
     # ======================================================================
     #  VORTICITY
@@ -192,7 +192,7 @@ class State(StateBase):
         """
         from fridom.framework.field_variable import FieldVariable
         # shortcuts
-        f0 = self.mset.f0; N0 = self.mset.N0; 
+        f0 = self.mset.f0; N2 = self.mset.N2; 
         dx = self.mset.dx; dy = self.mset.dy; dz = self.mset.dz
         Ro = self.mset.Ro; dsqr = self.mset.dsqr
         b = self.b
@@ -203,9 +203,9 @@ class State(StateBase):
         hor_vort   = self.hor_vort()   * Ro
 
         # calculate the buoyancy gradient
-        buo_grad_x = b.diff_forward(0).ave(-1,0) * Ro / (N0**2)
-        buo_grad_y = b.diff_forward(1).ave(-1,1) * Ro / (N0**2)
-        buo_grad_z = b.diff_forward(2).ave(-1,2) * Ro / (N0**2)
+        buo_grad_x = b.diff_forward(0).ave(-1,0) * Ro / (N2)
+        buo_grad_y = b.diff_forward(1).ave(-1,1) * Ro / (N2)
+        buo_grad_z = b.diff_forward(2).ave(-1,2) * Ro / (N2)
 
         # calculate the potential vorticity
         pot_vort =  (f0 + hor_vort) * (1 + buo_grad_z) + \
@@ -223,7 +223,7 @@ class State(StateBase):
         """
         from fridom.framework.field_variable import FieldVariable
         # shortcuts
-        f0 = self.mset.f0; N0 = self.mset.N0;
+        f0 = self.mset.f0; N2 = self.mset.N2;
         Ro = self.mset.Ro; dsqr = self.mset.dsqr
         b = self.b
 
@@ -234,7 +234,7 @@ class State(StateBase):
         buo_grad_z = b.diff_forward(2).ave(-1,2)
 
         # calculate the potential vorticity
-        pot_vort = Ro * (f0/N0**2 * buo_grad_z + hor_vort)
+        pot_vort = Ro * (f0/N2 * buo_grad_z + hor_vort)
 
         # Create the field variable
         field = FieldVariable(self.mset, arr=pot_vort,

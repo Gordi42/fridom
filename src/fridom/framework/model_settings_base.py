@@ -74,20 +74,6 @@ class ModelSettingsBase:
     >>> print(settings)
     """
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
-        """
-        Constructor of the model settings base class. Should be called by the
-        constructor of the child class.
-        
-        Parameters
-        ----------
-        `grid` : `GridBase`
-            The grid object.
-        
-        Examples
-        --------
-        See the examples in the class docstring
-        """
-
         # grid
         self.grid = grid
 

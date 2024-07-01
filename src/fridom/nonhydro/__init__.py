@@ -52,6 +52,7 @@ from . import modules
 
 # importing classes
 from .model_settings import ModelSettings
+from .state import State
 
 # ----------------------------------------------------------------
 #  Importing generic classes and modules

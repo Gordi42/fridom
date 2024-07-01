@@ -25,7 +25,7 @@ class LinearTendency(Module):
     @update_module
     def update(self, mz: 'ModelState', dz: 'State') -> None:
         # compute the linear tendency
-        u = mz.z.u; v = mz.z.v; w = mz.z.w; b = mz.z.b
+        u = mz.z.u; v = mz.z.v; w = mz.z.w; bu = mz.z.b
         dsqr = self.mset.dsqr
         f_cor = self.mset.f_coriolis
         N2 = self.mset.N2
@@ -42,7 +42,7 @@ class LinearTendency(Module):
         dz.v[c,c] = (u[c,c] + u[b,c] + u[c,f] + u[b,f]) * q * (-f_cor)
 
         # calculate w-tendency
-        dz.w[:,:,c] = (b[:,:,f] + b[:,:,b]) * h / dsqr
+        dz.w[:,:,c] = (bu[:,:,f] + bu[:,:,b]) * h / dsqr
 
         # calculate b-tendency
         dz.b[:,:,c] = - (w[:,:,f] + w[:,:,b]) * h * N2

@@ -75,6 +75,7 @@ class BoundaryConditions(Module):
         for field in self._fields:
             all_boundary_conditions[field] = {}
             for axis in range(getattr(self.grid, "n_dims")):
+                all_boundary_conditions[field][axis] = {}
                 for side in ["left", "right"]:
                     # by default set all boundary conditions to zero
                     all_boundary_conditions[field][axis][side] = 0
@@ -85,6 +86,7 @@ class BoundaryConditions(Module):
             side  = bc["side"]
             value = bc["value"]
             all_boundary_conditions[field][axis][side] = value
+        self._all_boundary_conditions = all_boundary_conditions
         return
 
     @update_module

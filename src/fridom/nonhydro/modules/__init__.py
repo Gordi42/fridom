@@ -28,6 +28,8 @@ Classes
     Tendency divergence term (required for pressure solver).
 `PressureGradientTendency`
     Pressure gradient tendency term.
+`MainTendency`
+    Main tendency module.
 `NetCDFWriter`
     NetCDF writer module.
 `Diagnostics`
@@ -46,6 +48,7 @@ from .boundary_conditions import BoundaryConditions
 from .linear_tendency import LinearTendency
 from .tendency_divergence import TendencyDivergence
 from .pressure_gradient_tendency import PressureGradientTendency
+from .main_tendency import MainTendency
 # from .netcdf_writer import NetCDFWriter
 # from .diagnostics import Diagnostics
 

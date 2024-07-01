@@ -1,4 +1,8 @@
+# Import external modules
+from typing import TYPE_CHECKING
+# Import internal modules
 from fridom.framework.modules.module_container import ModuleContainer
+from fridom.framework.modules.module import Module
 from fridom.nonhydro.modules.linear_tendency import LinearTendency
 from fridom.nonhydro.modules.advection \
     .second_order_advection import SecondOrderAdvection
@@ -7,12 +11,17 @@ from fridom.nonhydro.modules \
     .pressure_gradient_tendency import PressureGradientTendency
 from fridom.nonhydro.modules.pressure_solvers \
     .spectral_pressure_solver import SpectralPressureSolver
+# Import type information
+if TYPE_CHECKING:
+    pass
+
+
 
 class MainTendency(ModuleContainer):
     def __init__(self,
                  name="All Tendency Modules",
                  linear_tendency=LinearTendency(),
-                 advection=SecondOrderAdvection(),
+                 advection=Module(name="None"),
                  tendency_divergence=TendencyDivergence(),
                  pressure_solver=SpectralPressureSolver(),
                  pressure_gradient_tendency=PressureGradientTendency()):
@@ -91,7 +100,3 @@ class MainTendency(ModuleContainer):
     def pressure_gradient_tendency(self, value):
         self.module_list[-1] = value
         return
-
-# remove symbols from the namespace
-del ModuleContainer, LinearTendency, SecondOrderAdvection, \
-    PressureGradientTendency, SpectralPressureSolver, TendencyDivergence

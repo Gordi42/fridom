@@ -50,7 +50,7 @@ class AdamBashforth(TimeStepper):
         mset = self.mset
 
         # cast the time step to the correct data type
-        self.dt = mset.dtype(self.dt)
+        self.dt = dtype(self.dt)
 
         # Adam Bashforth coefficients
         self.coeffs = [
@@ -65,7 +65,7 @@ class AdamBashforth(TimeStepper):
         self.pointer = np.arange(self.order, dtype=ncp.int32)
 
         # tendencies
-        self.dz_list = [mset.state_constructor(mset) for _ in range(self.order)]
+        self.dz_list = [mset.state_constructor() for _ in range(self.order)]
         self.it_count = 0
         return
 
