@@ -33,7 +33,6 @@ class LinearTendency(Module):
         # Slices
         c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
         q = self.quarter  # 0.25
-        h = self.half     # 0.5
 
         # calculate u-tendency
         dz.u[c,c] = (v[c,c] + v[f,c] + v[c,b] + v[f,b]) * q * f_cor
@@ -42,10 +41,10 @@ class LinearTendency(Module):
         dz.v[c,c] = (u[c,c] + u[b,c] + u[c,f] + u[b,f]) * q * (-f_cor)
 
         # calculate w-tendency
-        dz.w[:,:,c] = (bu[:,:,f] + bu[:,:,b]) * h / dsqr
+        dz.w[:,:,c] = (bu[:,:,f] + bu[:,:,b]) * self.half / dsqr
 
         # calculate b-tendency
-        dz.b[:,:,c] = - (w[:,:,f] + w[:,:,b]) * h * N2
+        dz.b[:,:,c] = - (w[:,:,f] + w[:,:,b]) * self.half * N2
 
         return
 
