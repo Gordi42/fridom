@@ -289,6 +289,11 @@ class CartesianGrid(GridBase):
         return self._dx
 
     @property
+    def dV(self) -> float:
+        """Volume element."""
+        return np.prod(self._dx)
+
+    @property
     def X(self) -> list | None:
         """Physical meshgrid on the local domain."""
         return self._X

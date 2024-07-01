@@ -1,6 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
+from fridom.framework import config
 from fridom.framework.to_numpy import to_numpy
 from fridom.framework.modules.module import \
     Module, start_module, stop_module, update_module
@@ -177,6 +178,7 @@ class VideoWriter(Module):
             modelplot (ModelPlotter): model plotter object
             output_queue (mp.Queue) : output queue
         """
+        config.set_backend("numpy")
         # get output queue
         output_queue = kwargs["output_queue"]
         model_plotter = kwargs["model_plotter"]

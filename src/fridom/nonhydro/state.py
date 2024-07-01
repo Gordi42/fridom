@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from fridom.framework import config
 from fridom.framework.state_base import StateBase
 from fridom.framework.field_variable import FieldVariable
+from mpi4py import MPI
 # Import type information
 if TYPE_CHECKING:
     from fridom.nonhydro.model_settings import ModelSettings
@@ -84,7 +85,10 @@ class State(StateBase):
         Returns:
             mean_ekin (float)  : Mean kinetic energy.
         """
-        return config.ncp.mean(self.ekin())
+        local_ekin = self.ekin() * self.grid.dV
+        local_tot_ekin = config.ncp.sum(local_ekin[self.grid.inner_slice])
+        global_tot_ekin = MPI.COMM_WORLD.allreduce(local_tot_ekin, op=MPI.SUM)
+        return global_tot_ekin
     
     def mean_epot(self) -> float:
         """
@@ -93,7 +97,11 @@ class State(StateBase):
         Returns:
             mean_epot (float)  : Mean potential energy.
         """
-        return config.ncp.mean(self.epot())
+        local_epot = self.epot() * self.grid.dV
+        local_tot_epot = config.ncp.sum(local_epot[self.grid.inner_slice])
+        global_tot_epot = MPI.COMM_WORLD.allreduce(local_tot_epot, op=MPI.SUM)
+        return global_tot_epot
+
     
     def mean_etot(self) -> float:
         """
@@ -102,7 +110,10 @@ class State(StateBase):
         Returns:
             mean_etot (float)  : Mean total energy.
         """
-        return config.ncp.mean(self.etot())
+        local_etot = self.etot() * self.grid.dV
+        local_tot_etot = config.ncp.sum(local_etot[self.grid.inner_slice])
+        global_tot_etot = MPI.COMM_WORLD.allreduce(local_tot_etot, op=MPI.SUM)
+        return global_tot_etot
 
     # ======================================================================
     #  VORTICITY
