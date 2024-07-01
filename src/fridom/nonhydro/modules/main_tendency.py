@@ -20,11 +20,22 @@ if TYPE_CHECKING:
 class MainTendency(ModuleContainer):
     def __init__(self,
                  name="All Tendency Modules",
-                 linear_tendency=LinearTendency(),
-                 advection=Module(name="None"),
-                 tendency_divergence=TendencyDivergence(),
-                 pressure_solver=SpectralPressureSolver(),
-                 pressure_gradient_tendency=PressureGradientTendency()):
+                 linear_tendency=None,
+                 advection=None,
+                 tendency_divergence=None,
+                 pressure_solver=None,
+                 pressure_gradient_tendency=None):
+        if linear_tendency is None:
+            linear_tendency = LinearTendency()
+        if advection is None:
+            advection = Module(name="None")
+        if tendency_divergence is None:
+            tendency_divergence = TendencyDivergence()
+        if pressure_solver is None:
+            pressure_solver = SpectralPressureSolver()
+        if pressure_gradient_tendency is None:
+            pressure_gradient_tendency = PressureGradientTendency()
+
         module_list = [
             linear_tendency,             # Always on element 0
             advection,                   # Always on element 1
