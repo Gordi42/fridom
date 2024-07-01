@@ -30,7 +30,8 @@ class TendencyDivergence(Module):
 
     @update_module
     def update(self, mz: 'ModelState', dz: 'State') -> None:
-        u = mz.z.u; v = mz.z.v; w = mz.z.w
+        dz.sync()
+        u = dz.u; v = dz.v; w = dz.w
         # Slices
         c = slice(1,-1); b = slice(None,-2)
 

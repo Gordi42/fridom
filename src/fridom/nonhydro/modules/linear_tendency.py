@@ -41,10 +41,10 @@ class LinearTendency(Module):
         dz.v[c,c] = (u[c,c] + u[b,c] + u[c,f] + u[b,f]) * q * (-f_cor)
 
         # calculate w-tendency
-        dz.w[:,:,c] = (bu[:,:,f] + bu[:,:,b]) * self.half / dsqr
+        dz.w[:,:,c] = (bu[:,:,c] + bu[:,:,f]) * self.half / dsqr
 
         # calculate b-tendency
-        dz.b[:,:,c] = - (w[:,:,f] + w[:,:,b]) * self.half * N2
+        dz.b[:,:,c] = - (w[:,:,c] + w[:,:,b]) * self.half * N2
 
         return
 

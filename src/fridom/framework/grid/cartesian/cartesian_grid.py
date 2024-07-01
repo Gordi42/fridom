@@ -170,9 +170,7 @@ class CartesianGrid(GridBase):
         # --------------------------------------------------------------
         #  Initialize the domain decomposition
         # --------------------------------------------------------------
-        required_halo = 0
-        for mod in mset.tendencies.module_list:
-            required_halo = max(required_halo, mod.required_halo)
+        required_halo = mset.tendencies.required_halo
         domain_decomp = DomainDecomposition(
             self.N, required_halo, shared_axes=self._shared_axes)
 

@@ -84,7 +84,7 @@ class State(StateBase):
         Returns:
             mean_ekin (float)  : Mean kinetic energy.
         """
-        return self.cp.mean(self.ekin())
+        return config.ncp.mean(self.ekin())
     
     def mean_epot(self) -> float:
         """
@@ -93,7 +93,7 @@ class State(StateBase):
         Returns:
             mean_epot (float)  : Mean potential energy.
         """
-        return self.cp.mean(self.epot())
+        return config.ncp.mean(self.epot())
     
     def mean_etot(self) -> float:
         """

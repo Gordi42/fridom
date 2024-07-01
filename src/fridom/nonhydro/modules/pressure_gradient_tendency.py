@@ -31,12 +31,12 @@ class PressureGradientTendency(Module):
         p = mz.z_diag.p
 
         # Slices
-        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
+        c = slice(1,-1); b = slice(None,-2)
 
         # remove pressure gradient
-        dz.u[c,:,:] -= (p[f,:,:] - p[b,:,:]) * self.dx1 
-        dz.v[:,c,:] -= (p[:,f,:] - p[:,b,:]) * self.dy1 
-        dz.w[:,:,c] -= (p[:,:,f] - p[:,:,b]) * self.dz1 / self.mset.dsqr
+        dz.u[c,:,:] -= (p[c,:,:] - p[b,:,:]) * self.dx1 
+        dz.v[:,c,:] -= (p[:,c,:] - p[:,b,:]) * self.dy1 
+        dz.w[:,:,c] -= (p[:,:,c] - p[:,:,b]) * self.dz1 / self.mset.dsqr
         return
 
     def __repr__(self) -> str:
