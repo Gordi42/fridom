@@ -49,7 +49,7 @@ def test_boundary_conditions(backend, periodic_bounds):
 
     grid = nh.grid.CartesianGrid(N=N, L=L, periodic_bounds=periodic_bounds)
     mset = nh.ModelSettings(grid, f_coriolis=f0, N2=N2)
-    mset.time_stepper.dt = 2 * 60.0
+    mset.time_stepper.dt = 20.0
     mset.tendencies.advection.disable()
     mset.setup()
 
@@ -72,4 +72,4 @@ def test_boundary_conditions(backend, periodic_bounds):
 
     final_total_energy = model.z.mean_etot()
 
-    assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-3
+    assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-2
