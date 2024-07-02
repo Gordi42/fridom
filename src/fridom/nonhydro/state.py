@@ -33,7 +33,7 @@ class State(StateBase):
     def ekin(self) -> FieldVariable:
         """
         Calculate the kinetic energy field.
-        $ ekin = 0.5 * (u^2 + v^2 + \delta^2 w^2) $
+        $ ekin = 0.5 * (u^2 + v^2 + \\delta^2 w^2) $
 
         Returns:
             ekin (FieldVariable)  : Kinetic energy field.
@@ -122,7 +122,7 @@ class State(StateBase):
     def hor_vort(self) -> FieldVariable:
         """
         Calculate the horizontal vorticity field.
-        $ hor_vort = \partial_x v - \partial_y u $
+        $ hor_vort = \\partial_x v - \\partial_y u $
 
         Returns:
             hor_vort (FieldVariable)  : Horizontal vorticity field.
@@ -146,7 +146,7 @@ class State(StateBase):
     def ver_vort_x(self) -> FieldVariable:
         """
         Calculate the scaled vertical vorticity field in y,z-plane.
-        $ ver_vort_x = \delta^2 \partial_y w - \partial_z v $
+        $ ver_vort_x = \\delta^2 \\partial_y w - \\partial_z v $
 
         Returns:
             ver_vort_x (FieldVariable)  : Vertical vorticity field in y,z-plane.
@@ -171,7 +171,7 @@ class State(StateBase):
     def ver_vort_y(self) -> FieldVariable:
         """
         Calculate the scaled vertical vorticity field in x,z-plane.
-        $ ver_vort_y = \partial_z u - \delta^2 \partial_x w $
+        $ ver_vort_y = \\partial_z u - \\delta^2 \\partial_x w $
 
         Returns:
             ver_vort_y (FieldVariable)  : Vertical vorticity field in x,z-plane.
@@ -196,7 +196,7 @@ class State(StateBase):
     def pot_vort(self) -> FieldVariable:
         """
         Calculate the scaled potential vorticity field.
-        $ Q = (f\\vec{k} + \\nabla \\times \\vec{u}) / \cdot \nabla (b + N^2 z) $
+        $ Q = (f\\vec{k} + \\nabla \\times \\vec{u}) / \\cdot \\nabla (b + N^2 z) $
 
         Returns:
             pot_vort (FieldVariable)  : Scaled potential vorticity field.
@@ -230,7 +230,7 @@ class State(StateBase):
     def linear_pot_vort(self) -> FieldVariable:
         """
         Calculate the linearized scaled potential vorticity field.
-        $ Q = Ro * (f/N0^2 \partial_z b + \zeta)$
+        $ Q = Ro * (f/N0^2 \\partial_z b + \\zeta)$
         """
         from fridom.framework.field_variable import FieldVariable
         # shortcuts

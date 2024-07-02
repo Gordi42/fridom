@@ -70,7 +70,7 @@ class StateBase:
                       q_vec:"StateBase") -> "StateBase":
         """
         Project the state on a (spectral) vector.
-        $ z = q_vec * (z \cdot p_vec) $
+        $ z = q_vec * (z \\cdot p_vec) $
 
         Arguments:
             p_vec (State)  : P-Vector.
@@ -109,7 +109,7 @@ class StateBase:
         """
         Calculate the L2 norm of the state.
 
-        $$ ||z||_2 = \sqrt{ \sum_{i} \int z_i^2 dV } $$
+        $$ ||z||_2 = \\sqrt{ \\sum_{i} \\int z_i^2 dV } $$
         where $z_i$ are the fields of the state.
 
         Returns:

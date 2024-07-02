@@ -178,7 +178,7 @@ class NNMDBase(Projection):
         """
         Solves the linear equation for z.
         $$ 
-        i \omega^\pm \hat{z}^\pm = \hat{f}^\pm
+        i \\omega^\\pm \\hat{z}^\\pm = \\hat{f}^\\pm
         $$
 
         Arguments:
