@@ -37,8 +37,6 @@ class ModelSettingsBase:
         A function that constructs a state from the model settings
     `diagnostic_state_constructor` : `callable`
         A function that constructs a diagnostic state from the model settings
-    `enable_tqdm` : `bool` (default: `True`)
-        Enable progress bar.
     `enable_verbose` : `bool` (default: `False`)
         Enable verbose output.
     
@@ -99,7 +97,6 @@ class ModelSettingsBase:
         # ------------------------------------------------------------------
 
         # Output
-        self.enable_tqdm       = True    # Enable progress bar
         self.enable_verbose    = False   # Enable verbose output
 
         # State Constructors

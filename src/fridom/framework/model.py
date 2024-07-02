@@ -1,5 +1,6 @@
 # Import external modules
 from typing import TYPE_CHECKING
+from mpi4py import MPI
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
@@ -79,7 +80,7 @@ class Model:
     #   RUN MODEL
     # ============================================================
 
-    def run(self, steps=None, runlen=None) -> None:
+    def run(self, steps=None, runlen=None, enable_tqdm=True) -> None:
         """
         Run the model for a given number of steps or a given time.
 
@@ -92,8 +93,10 @@ class Model:
             steps = runlen / self.time_stepper.dt
         
         # progress bar
-        from tqdm import tqdm
-        tq = tqdm if self.mset.enable_tqdm else lambda x: x
+        tq = lambda x: x
+        if enable_tqdm and MPI.COMM_WORLD.Get_rank() == 0:
+            from tqdm import tqdm
+            tq = tqdm
 
         # start the model
         self.start()
