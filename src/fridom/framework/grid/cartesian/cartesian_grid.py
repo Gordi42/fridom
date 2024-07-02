@@ -50,7 +50,9 @@ class CartesianGrid(GridBase):
     `total_grid_points` : `int` (read-only)
         Total number of grid points.
     `dx` : `list[float]` (read-only)
-        Grid spacing in each direction.
+        Grid spacing in each direction
+    `dV` : `float` (read-only)
+        Volume element.
     `X` : `list[np.ndarray]` (read-only)
         Physical meshgrid on the local domain (with ghost points).
     `x_local` : `list[np.ndarray]` (read-only)
@@ -65,10 +67,6 @@ class CartesianGrid(GridBase):
         Global spectral k-vectors.
     `periodic_bounds` : `list[bool]` (read-only)
         A list of booleans that indicate whether the axis is periodic.
-    'subdomain_phy' : `Subdomain` (read-only)
-        The subdomain of the physical domain decomposition.
-    'subdomain_spe' : `Subdomain` (read-only)
-        The subdomain of the spectral domain decomposition.
     `mset` : `ModelSettingsBase` (read-only)
         The model settings that the grid is constructed with.
     
@@ -84,6 +82,12 @@ class CartesianGrid(GridBase):
         Synchronize the physical field across MPI ranks.
     `sync_spectral(u: np.ndarray) -> None`
         Synchronize the spectral field across MPI ranks.
+    `apply_boundary_condition(field, axis, side, value)`
+        Apply boundary conditions to a field.
+    `get_domain_decomposition(spectral=False)`
+        Get the domain decomposition of the physical or spectral domain.
+    `get_subdomain(spectral=False)`
+        Get the subdomain of the physical or spectral domain.
     
     Examples
     --------
@@ -257,6 +261,16 @@ class CartesianGrid(GridBase):
         self._domain_decomp.apply_boundary_condition(field, value, axis, side)
         return
 
+    def get_domain_decomposition(self, spectral=False):
+        if spectral:
+            return self._pfft.domain_out
+        else:
+            return self._domain_decomp
+
+    def get_subdomain(self, spectral=False):
+        domain_decomp = self.get_domain_decomposition(spectral)
+        return domain_decomp.my_subdomain
+
     @property
     def L(self) -> list:
         """Domain size in each direction."""
@@ -332,16 +346,8 @@ class CartesianGrid(GridBase):
         return self._n_dims
 
     @property
-    def subdomain_phy(self):
-        return self._domain_decomp.my_subdomain
-
-    @property
-    def subdomain_spe(self):
-        return self._pfft.domain_out.my_subdomain
-
-    @property
     def inner_slice(self) -> tuple:
-        return self.subdomain_phy.inner_slice
+        return self.get_subdomain().inner_slice
     
     @property
     def mset(self) -> 'ModelSettingsBase':

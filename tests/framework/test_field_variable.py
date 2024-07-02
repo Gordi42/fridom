@@ -28,11 +28,11 @@ def mset(backend, n_dims):
 
 @pytest.fixture()
 def shape_phy(mset):
-    return mset.grid.subdomain_phy.shape
+    return mset.grid.get_subdomain().shape
 
 @pytest.fixture()
 def shape_spe(mset):
-    return mset.grid.subdomain_spe.shape
+    return mset.grid.get_subdomain(spectral=True).shape
 
 @pytest.fixture(params=[True, False], ids=["Spectral", "Physical"])
 def spectral(request):

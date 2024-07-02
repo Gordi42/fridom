@@ -47,11 +47,11 @@ def grid(backend, L, N):
 
 @pytest.fixture()
 def local_shape_phy(grid):
-    return grid.subdomain_phy.shape
+    return grid.get_subdomain().shape
 
 @pytest.fixture()
 def local_shape_spe(grid):
-    return grid.subdomain_spe.shape
+    return grid.get_subdomain(spectral=True).shape
 
 # --------------------------------------------------------------
 #  Testing

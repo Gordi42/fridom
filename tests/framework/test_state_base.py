@@ -255,7 +255,7 @@ def test_truediv(mset_1d, zeros_p, ones_p):
     assert config.ncp.allclose(state3.field_list[1], 1)
 
     # divide number and state
-    state3 = 2 / state
+    state3 = 2 / state2
     assert isinstance(state3, fr.StateBase)
-    # assert config.ncp.allclose(state3.field_list[0], zeros_p)
+    assert config.ncp.allclose(state3.field_list[0], 2)
     assert config.ncp.allclose(state3.field_list[1], 2)
