@@ -130,26 +130,11 @@ class PlotContainer:
         return vmax * arrow_number, vmax
 
     def front_on_axis(ax, field, X, Y, Z, ysel, cmin, cmax, cmap, vmax,
-                      u=None, v=None, w=None):
-        """
-        Plot a front view of the field on a given axis.
-
-        Arguments:
-            ax   : matplotlib axis to plot on
-            field: field to plot
-            u    : U velocity
-            v    : V velocity
-            w    : W velocity
-            cmin : minimum value for the colormap
-            cmax : maximum value for the colormap
-            vmax : maximum velocity for the quiver plot
-            cmap : colormap to use
-            ysel : y index of the section
-        """
+                      u=None, v=None, w=None, aspect="auto"):
         ax.set_title("Front View")
         ax.set_xlabel("x")
         ax.set_ylabel("z")
-        ax.set_aspect("equal", adjustable="box")
+        ax.set_aspect(aspect, adjustable="box")
 
         im = ax.pcolor(X[:,ysel,:], Z[:,ysel,:], field[:,ysel,:],
                        cmap=cmap, vmin=cmin, vmax=cmax)
@@ -170,26 +155,11 @@ class PlotContainer:
         return im
     
     def side_on_axis(ax, field, X, Y, Z, xsel, cmin, cmax, cmap, vmax,
-                      u=None, v=None, w=None):
-        """
-        Plot a side view of the field on a given axis.
-
-        Arguments:
-            ax   : matplotlib axis to plot on
-            field: field to plot
-            u    : U velocity
-            v    : V velocity
-            w    : W velocity
-            cmin : minimum value for the colormap
-            cmax : maximum value for the colormap
-            vmax : maximum velocity for the quiver plot
-            cmap : colormap to use
-            xsel : x index of the section
-        """
+                      u=None, v=None, w=None, aspect="auto"):
         ax.set_title("Side View")
         ax.set_xlabel("y")
         ax.set_ylabel("z")
-        ax.set_aspect("equal", adjustable="box")
+        ax.set_aspect(aspect, adjustable="box")
 
         im = ax.pcolor(Y[xsel,:,:],
                        Z[xsel,:,:],
@@ -212,26 +182,11 @@ class PlotContainer:
         return im
 
     def top_on_axis(ax, field, X, Y, Z, zsel, cmin, cmax, cmap, vmax,
-                      u=None, v=None, w=None):
-        """
-        Plot a top view of the field on a given axis.
-
-        Arguments:
-            ax   : matplotlib axis to plot on
-            field: field to plot
-            u    : U velocity
-            v    : V velocity
-            w    : W velocity
-            cmin : minimum value for the colormap
-            cmax : maximum value for the colormap
-            vmax : maximum velocity for the quiver plot
-            cmap : colormap to use
-            zsel : z index of the section
-        """
+                      u=None, v=None, w=None, aspect="auto"):
         ax.set_title("Top View")
         ax.set_xlabel("x")
         ax.set_ylabel("y")
-        ax.set_aspect("equal", adjustable="box")
+        ax.set_aspect(aspect, adjustable="box")
 
         im = ax.pcolor(X[:,:,zsel], Y[:,:,zsel], field[:,:,zsel],
                        cmap=cmap, vmin=cmin, vmax=cmax)
@@ -374,19 +329,30 @@ class Plot:
         return
 
     def front(self, state=None, y=0, yi=None, fig=None,
-              cmin=None, cmax=None, vmax=None, cmap=None):
+              cmin=None, cmax=None, vmax=None, cmap=None, aspect="auto"):
         """
         Plot a front view of the field.
-
-        Arguments:
-            state : model state to plot
-            y     : y coordinate of the section
-            yi    : y index of the section
-            fig   : matplotlib figure to plot on
-            cmin  : minimum value for the colormap
-            cmax  : maximum value for the colormap
-            vmax  : maximum velocity for the quiver plot
-            cmap  : colormap to use
+        
+        Parameters
+        ----------
+        `state` : `State`
+            If provided, the state is used to plot the velocity field.
+        `y` : `float`
+            The y coordinate of the section.
+        `yi` : `int`
+            The y index of the section.
+        `fig` : `matplotlib.figure.Figure`
+            The figure to plot on.
+        `cmin` : `float`
+            The minimum value for the colormap.
+        `cmax` : `float`
+            The maximum value for the colormap.
+        `vmax` : `float`
+            The maximum velocity for the quiver plot.
+        `cmap` : `str`
+            The colormap to use.
+        `aspect` : `str | float`
+            For ax.set_aspect(aspect, adjustable="box")
         """
         import matplotlib.pyplot as plt
 
@@ -411,7 +377,7 @@ class Plot:
         ax = fig.add_subplot(111)
         im = PlotContainer.front_on_axis(
             ax, self.field, self.X, self.Y, self.Z,
-            ysel, cmin, cmax, cmap, vmax, u, v, w)
+            ysel, cmin, cmax, cmap, vmax, u, v, w, aspect)
 
         Lx, Ly, Lz = self.grid.L
         shrink = min(Lz / Ly,1)
@@ -422,19 +388,30 @@ class Plot:
         return
 
     def side(self, state=None, x=0, xi=None, fig=None,
-                cmin=None, cmax=None, vmax=None, cmap=None):
+                cmin=None, cmax=None, vmax=None, cmap=None, aspect="auto"):
         """
-        Plot a side view of the field.
-    
-        Arguments:
-            state : model state to plot
-            x     : x coordinate of the section
-            xi    : x index of the section
-            fig   : matplotlib figure to plot on
-            cmin  : minimum value for the colormap
-            cmax  : maximum value for the colormap
-            vmax  : maximum velocity for the quiver plot
-            cmap  : colormap to use
+        Plot a front view of the field.
+        
+        Parameters
+        ----------
+        `state` : `State`
+            If provided, the state is used to plot the velocity field.
+        `x` : `float`
+            The x coordinate of the section.
+        `xi` : `int`
+            The x index of the section.
+        `fig` : `matplotlib.figure.Figure`
+            The figure to plot on.
+        `cmin` : `float`
+            The minimum value for the colormap.
+        `cmax` : `float`
+            The maximum value for the colormap.
+        `vmax` : `float`
+            The maximum velocity for the quiver plot.
+        `cmap` : `str`
+            The colormap to use.
+        `aspect` : `str | float`
+            For ax.set_aspect(aspect, adjustable="box")
         """
         import matplotlib.pyplot as plt
         xsel = PlotContainer.get_coord_index(xi, x, self.x)
@@ -459,7 +436,7 @@ class Plot:
         ax = fig.add_subplot(111)
         im = PlotContainer.side_on_axis(
             ax, self.field, self.X, self.Y, self.Z,
-            xsel, cmin, cmax, cmap, vmax, u, v, w)
+            xsel, cmin, cmax, cmap, vmax, u, v, w, aspect)
     
         Lx, Ly, Lz = self.grid.L
         shrink = min(Lz / Ly,1)
@@ -469,19 +446,30 @@ class Plot:
         return
 
     def top(self, state=None, z=0, zi=None, fig=None,
-            cmin=None, cmax=None, vmax=None, cmap=None):
+            cmin=None, cmax=None, vmax=None, cmap=None, aspect="auto"):
         """
-        Plot a top view of the field.
-
-        Arguments:
-            state : model state to plot
-            z     : z coordinate of the section
-            zi    : z index of the section
-            fig   : matplotlib figure to plot on
-            cmin  : minimum value for the colormap
-            cmax  : maximum value for the colormap
-            vmax  : maximum velocity for the quiver plot
-            cmap  : colormap to use
+        Plot a front view of the field.
+        
+        Parameters
+        ----------
+        `state` : `State`
+            If provided, the state is used to plot the velocity field.
+        `z` : `float`
+            The z coordinate of the section.
+        `zi` : `int`
+            The z index of the section.
+        `fig` : `matplotlib.figure.Figure`
+            The figure to plot on.
+        `cmin` : `float`
+            The minimum value for the colormap.
+        `cmax` : `float`
+            The maximum value for the colormap.
+        `vmax` : `float`
+            The maximum velocity for the quiver plot.
+        `cmap` : `str`
+            The colormap to use.
+        `aspect` : `str | float`
+            For ax.set_aspect(aspect, adjustable="box")
         """
         import matplotlib.pyplot as plt
         zsel = PlotContainer.get_coord_index(zi, z, self.z)
@@ -505,7 +493,7 @@ class Plot:
         ax = fig.add_subplot(111)
         im = PlotContainer.top_on_axis(
             ax, self.field, self.X, self.Y, self.Z,
-            zsel, cmin, cmax, cmap, vmax, u, v, w)
+            zsel, cmin, cmax, cmap, vmax, u, v, w, aspect)
 
         Lx, Ly, Lz = self.grid.L
         shrink = min(Ly / Lx,1)
@@ -515,7 +503,8 @@ class Plot:
         return
 
     def sec(self, state=None, x=0, y=0, z=0, xi=None, yi=None, zi=None, fig=None,
-            cmin=None, cmax=None, vmax=None, cmap=None, add_lines=True):
+            cmin=None, cmax=None, vmax=None, cmap=None, add_lines=True,
+            aspects=["auto", "auto", "auto"]):
         import matplotlib.pyplot as plt
 
         xsel = PlotContainer.get_coord_index(xi, x, self.x)
@@ -541,13 +530,13 @@ class Plot:
 
         im = PlotContainer.side_on_axis(
             axs[0], self.field, self.X, self.Y, self.Z,
-            xsel, cmin, cmax, cmap, vmax, u, v, w)
+            xsel, cmin, cmax, cmap, vmax, u, v, w, aspects[0])
         PlotContainer.top_on_axis(
             axs[1], self.field, self.X, self.Y, self.Z,
-            zsel, cmin, cmax, cmap, vmax, u, v, w)
+            zsel, cmin, cmax, cmap, vmax, u, v, w, aspects[1])
         PlotContainer.front_on_axis(
             axs[2], self.field, self.X, self.Y, self.Z,
-            ysel, cmin, cmax, cmap, vmax, u, v, w)
+            ysel, cmin, cmax, cmap, vmax, u, v, w, aspects[2])
 
 
         cbar = plt.colorbar(im, ax=axs)
