@@ -1,53 +1,68 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework.modules.boundary_conditions import \
-    BoundaryConditions as BoundaryConditionsBase
+from fridom.framework.modules import Module, update_module
+# Import type information
+if TYPE_CHECKING:
+    from fridom.nonhydro.state import State
+    from fridom.framework.model_state import ModelState
 
-class BoundaryConditions(BoundaryConditionsBase):
+class BoundaryConditions(Module):
     """
     Set boundary conditions to the model state.
     
-    Description
-    -----------
-    By default, all boundary conditions are set to zero. The user can set 
-    custom boundary conditions for each field, at each axis and side. The
-    boundary condition can be a constant value or a FieldVariable itself.
-    
-    Parameters
-    ----------
-    `boundary_conditions` : `list[dict] | None`
-        List of dictionaries with the following keys:
-        - "field": name of the field
-        - "axis": axis along which the boundary condition should be applied
-        - "side": side of the axis along which the boundary condition should be
-          applied
-        - "value": value of the boundary condition
-    `name` : `str` (default="BoundaryConditions")
-        Name of the module.
-    
     Methods
     -------
-    `set_boundary_condition(field, axis, side, value)`
-        Set a boundary condition for a field.
-    
-    Examples
-    --------
-    >>> # import modules
-    >>> import fridom.nonhydro as nh
-    >>> ncp = nh.config.ncp
-    >>> # Create a grid and model settings
-    >>> grid = nh.grid.CartesianGrid(N=[64]*3, L=[2*ncp.pi]*3)
-    >>> mset = nh.ModelSettings(grid)
-    >>> mset.setup()
-    >>> # Set constant buoyancy boundary condition at the top
-    >>> mset.bc.set_boundary_condition("b", 1, "left", 1.0)
-    >>> # Set cosine velocity boundary condition at the right side in x-direction
-    >>> u_bc = nh.FieldVariable(mset, topo=[False, True, False])
-    >>> y = grid.X[1][0, :, 0]
-    >>> u_bc[:] = ncp.cos(y)
-    >>> mset.bc.set_boundary_condition("u", 0, "right", u_bc)
+    `apply_boundary_conditions(z: 'State') -> None`
+        Apply the boundary conditions to the model state.
     """
-    def __init__(self, boundary_conditions: list[dict] = None,
-                 name: str = "BoundaryConditions"):
-        super().__init__(["u", "v", "w", "b"], boundary_conditions, name)
+    def __init__(self, name: str = "BoundaryConditions"):
+        super().__init__(name=name)
+
+    def update_boundary_conditions(self, mz: 'ModelState', dz: 'State') -> None:
+        self.apply_boundary_conditions(mz.z)
+        return
+    
+    def apply_boundary_conditions(self, z: 'State') -> None:
+        if all(self.grid.periodic_bounds):
+            return
+        
+        subdomain = self.grid.get_subdomain(spectral=False)
+        # slices
+        left  = slice(0, subdomain.halo)
+        right = slice(-subdomain.halo, None)
+        righti = slice(-subdomain.halo - 1, None)  # include the right edge
+        # apply boundary conditions
+        if not self.grid.periodic_bounds[0]:
+            if subdomain.is_left_edge[0]:
+                z.u[left,:,:] = 0
+                z.v[left,:,:] = 0
+                z.w[left,:,:] = 0
+                z.b[left,:,:] = 0
+            if subdomain.is_right_edge[0]:
+                z.u[righti,:,:] = 0
+                z.v[right,:,:] = 0
+                z.w[right,:,:] = 0
+                z.b[right,:,:] = 0
+        if not self.grid.periodic_bounds[1]:
+            if subdomain.is_left_edge[1]:
+                z.u[:,left,:] = 0
+                z.v[:,left,:] = 0
+                z.w[:,left,:] = 0
+                z.b[:,left,:] = 0
+            if subdomain.is_right_edge[1]:
+                z.u[:,right,:] = 0
+                z.v[:,righti,:] = 0
+                z.w[:,right,:] = 0
+                z.b[:,right,:] = 0
+        if not self.grid.periodic_bounds[2]:
+            if subdomain.is_left_edge[2]:
+                z.u[:,:,left] = 0
+                z.v[:,:,left] = 0
+                z.w[:,:,left] = 0
+                z.b[:,:,left] = 0
+            if subdomain.is_right_edge[2]:
+                z.u[:,:,right] = 0
+                z.v[:,:,right] = 0
+                z.w[:,:,righti] = 0
+                z.b[:,:,right] = 0

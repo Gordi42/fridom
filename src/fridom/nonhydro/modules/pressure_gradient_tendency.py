@@ -24,6 +24,8 @@ class PressureGradientTendency(Module):
         self.dx1 = config.dtype_real(1.0) / dx
         self.dy1 = config.dtype_real(1.0) / dy
         self.dz1 = config.dtype_real(1.0) / dz
+        self.bc = self.mset.bc
+        self.bc.start(mset=self.mset, timer=self.timer)
         return
 
     @update_module
@@ -37,6 +39,7 @@ class PressureGradientTendency(Module):
         dz.u[c,:,:] -= (p[f,:,:] - p[c,:,:]) * self.dx1 
         dz.v[:,c,:] -= (p[:,f,:] - p[:,c,:]) * self.dy1 
         dz.w[:,:,c] -= (p[:,:,f] - p[:,:,c]) * self.dz1 / self.mset.dsqr
+        self.bc.apply_boundary_conditions(dz)
         return
 
     def __repr__(self) -> str:
