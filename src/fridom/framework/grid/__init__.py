@@ -17,4 +17,5 @@ Classes
 from . import cartesian
 
 # import classes
+from .grid_base import GridBase
 from .cartesian import CartesianGrid

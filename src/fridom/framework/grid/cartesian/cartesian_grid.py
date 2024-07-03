@@ -114,7 +114,7 @@ class CartesianGrid(GridBase):
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
                  shared_axes: list[int] | None = None) -> None:
-        super().__init__()
+        super().__init__(len(N))
         # --------------------------------------------------------------
         #  Check the input
         # --------------------------------------------------------------
