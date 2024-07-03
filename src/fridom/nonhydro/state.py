@@ -14,13 +14,17 @@ class State(StateBase):
         from fridom.framework.field_variable import FieldVariable
         if field_list is None:
             u = FieldVariable(mset,
-                name="Velocity u", is_spectral=is_spectral)
+                name="u", long_name="u-velocity",
+                units="m/s", is_spectral=is_spectral)
             v = FieldVariable(mset,
-                name="Velocity v", is_spectral=is_spectral)
+                name="v", long_name="v-velocity",
+                units="m/s", is_spectral=is_spectral)
             w = FieldVariable(mset,
-                name="Velocity w", is_spectral=is_spectral)
+                name="w", long_name="w-velocity",
+                units="m/s", is_spectral=is_spectral)
             b = FieldVariable(mset,
-                name="Buoyancy b", is_spectral=is_spectral)
+                name="b", long_name="buoyancy", 
+                units="m^2/s^2", is_spectral=is_spectral)
             field_list = [u, v, w, b]
         super().__init__(mset, field_list, is_spectral)
         self.constructor = State

@@ -1,5 +1,6 @@
 import pytest
 import fridom.nonhydro as nh
+import numpy as np
 
 @pytest.mark.parametrize("runlen", [1, 6, 24])  # in hours
 def test_linear_model(backend, runlen):
@@ -11,7 +12,7 @@ def test_linear_model(backend, runlen):
 
     grid = nh.grid.CartesianGrid(N=N, L=L)
     mset = nh.ModelSettings(grid, f_coriolis=f0, N2=N2)
-    mset.time_stepper.dt = 2 * 60.0
+    mset.time_stepper.dt = np.timedelta64(2, 'm')
     mset.tendencies.advection.disable()
     mset.setup()
 
@@ -26,7 +27,7 @@ def test_linear_model(backend, runlen):
 
     model = nh.Model(mset)
     model.z = z
-    model.run(runlen=runlen*3600)
+    model.run(runlen=np.timedelta64(runlen, 'h'))
 
     final_total_energy = model.z.mean_etot()
 
@@ -49,7 +50,7 @@ def test_boundary_conditions(backend, periodic_bounds):
 
     grid = nh.grid.CartesianGrid(N=N, L=L, periodic_bounds=periodic_bounds)
     mset = nh.ModelSettings(grid, f_coriolis=f0, N2=N2)
-    mset.time_stepper.dt = 20.0
+    mset.time_stepper.dt = np.timedelta64(20, 's')
     mset.tendencies.advection.disable()
     mset.setup()
 
@@ -68,7 +69,7 @@ def test_boundary_conditions(backend, periodic_bounds):
 
     model = nh.Model(mset)
     model.z = z
-    model.run(runlen=6*3600)
+    model.run(runlen=np.timedelta64(6, 'h'))
 
     final_total_energy = model.z.mean_etot()
 

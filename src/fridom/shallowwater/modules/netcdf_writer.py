@@ -1,5 +1,5 @@
-from fridom.framework.modules.netcdf_writer \
-    import NetCDFWriter as NetCDFWriterBase
+from fridom.framework.modules.netcdf_writer_single_proc \
+    import NetCDFWriterSingleProc as NetCDFWriterBase
 from fridom.framework.model_state import ModelState
 
 class NetCDFWriter(NetCDFWriterBase):

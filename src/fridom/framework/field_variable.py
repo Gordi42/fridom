@@ -36,6 +36,12 @@ class FieldVariable:
     ----------
     `name` : `str`
         The name of the FieldVariable
+    `long_name` : `str`
+        The long name of the FieldVariable
+    `units` : `str`
+        The unit of the FieldVariable
+    `nc_attrs` : `dict`
+        Dictionary with additional attributes for the NetCDF file
     `mset` : `ModelSettings`
         ModelSettings object
     `grid` : `Grid`
@@ -73,8 +79,13 @@ class FieldVariable:
     --------
     TODO
     """
-    def __init__(self, mset: 'ModelSettingsBase',
-                 is_spectral=False, name="Unnamed", 
+    def __init__(self, 
+                 mset: 'ModelSettingsBase',
+                 is_spectral=False, 
+                 name="Unnamed", 
+                 long_name="Unnamed", 
+                 units="n/a",
+                 nc_attrs=None,
                  topo=None,
                  arr=None) -> None:
 
@@ -98,6 +109,9 @@ class FieldVariable:
         # ----------------------------------------------------------------
 
         self.name = name
+        self.long_name = long_name
+        self.units = units
+        self.nc_attrs = nc_attrs or {}
         self.mset = mset
         self.grid = mset.grid
         self.is_spectral = is_spectral
@@ -115,8 +129,13 @@ class FieldVariable:
         Return a dictionary with the keyword arguments for the
         FieldVariable constructor
         """
-        return {"mset": self.mset, "name": self.name,
-                "is_spectral": self.is_spectral, "topo": self.topo,}
+        return {"mset": self.mset, 
+                "name": self.name,
+                "long_name": self.long_name,
+                "units": self.units,
+                "nc_attrs": self.nc_attrs,
+                "is_spectral": self.is_spectral, 
+                "topo": self.topo,}
 
     def fft(self) -> "FieldVariable":
         """

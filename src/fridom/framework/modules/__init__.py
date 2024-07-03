@@ -16,8 +16,10 @@ Classes
     Base class for a container of modules.
 `BoundaryConditions`
     Module for setting boundary conditions to the model state.
-`NetCDFWriter`
-    Module for writing the model output to a NetCDF file.
+`NetCDFWriterBase`
+    Base Module for writing the model output to a NetCDF file.
+`NetCDFWriterSingleProc`
+    Module for writing the model output to a NetCDF file on a single processor.
 
 Functions
 ---------
@@ -35,7 +37,9 @@ from . import animation
 from .module import Module
 from .module_container import ModuleContainer
 from .boundary_conditions import BoundaryConditions
+from .netcdf_writer_single_proc import NetCDFWriterSingleProc
 from .netcdf_writer import NetCDFWriter
 
 # importing the functions
 from .module import update_module, start_module, stop_module
+

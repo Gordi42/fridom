@@ -28,19 +28,22 @@ class AdamBashforth(TimeStepper):
         Tendency term at the current time level.
     
     """
-    def __init__(self, dt: float = 0.01, order: int = 3, eps=0.01):
+    def __init__(self, dt = np.timedelta64(1, 's'), order: int = 3, eps=0.01):
         # check that the order is not too high
         if order > 4:
             raise ValueError(
                 "Adam Bashforth Time Stepping only supports orders up to 4.")
         
         super().__init__("Adam Bashforth Time Stepping", 
-                         dt=dt, order=order, eps=eps)
+                         order=order, eps=eps)
         self.AB1 = [1]
         self.AB2 = [3/2 + eps, -1/2 - eps]
         self.AB3 = [23/12, -4/3, 5/12]
         self.AB4 = [55/24, -59/24, 37/24, -3/8]
         self.it_count = None
+        self._dt_float = None
+        self._dt_timedelta = None
+        self.dt = dt
         return
 
     @start_module
@@ -48,9 +51,6 @@ class AdamBashforth(TimeStepper):
         ncp = config.ncp
         dtype = config.dtype_real
         mset = self.mset
-
-        # cast the time step to the correct data type
-        self.dt = dtype(self.dt)
 
         # Adam Bashforth coefficients
         self.coeffs = [
@@ -74,13 +74,13 @@ class AdamBashforth(TimeStepper):
         """
         Update the time stepper.
         """
-        dt = self.dt
+        dt = self._dt_float
         for i in range(self.order):
             mz.z += self.dz_list[self.pointer[i]] * dt * self.coeff_AB[i]
 
         self.it_count += 1
         mz.it += 1
-        mz.time += dt
+        mz.time += self.dt
         return
 
     @update_module
@@ -139,3 +139,18 @@ class AdamBashforth(TimeStepper):
             res += f"    eps = {self.eps}\n"
         return res
 
+    @property
+    def dt(self) -> float:
+        """
+        Time step size.
+        """
+        return self._dt_timedelta
+
+    @dt.setter
+    def dt(self, value: np.timedelta64) -> None:
+        """
+        Set the time step size.
+        """
+        self._dt_timedelta = value
+        self._dt_float = config.dtype_real(value / np.timedelta64(1, 's'))
+        return

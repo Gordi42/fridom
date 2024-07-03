@@ -1,5 +1,6 @@
 # Import external modules
 from typing import TYPE_CHECKING
+import numpy as np
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
@@ -92,12 +93,11 @@ class ModelSettingsBase:
         # Boundary conditions  (should be set by the child class)
         self.bc = BoundaryConditions(field_names=[])
 
-        # ------------------------------------------------------------------
-        #   SWITCHES
-        # ------------------------------------------------------------------
-
         # Output
-        self.enable_verbose    = False   # Enable verbose output
+        self.enable_verbose = False   # Enable verbose output
+        
+        # Starttime
+        self.start_time = np.datetime64(0, 's')
 
         # State Constructors
         from fridom.framework.state_base import StateBase

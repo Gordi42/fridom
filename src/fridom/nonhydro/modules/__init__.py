@@ -31,7 +31,9 @@ Classes
 `MainTendency`
     Main tendency module.
 `NetCDFWriter`
-    NetCDF writer module.
+    NetCDF writer module (for parallel output).
+`NetCDFWriterSingleProc`
+    NetCDF writer module for single processor.
 `Diagnostics`
     Diagnostic module.
 
@@ -49,7 +51,7 @@ from .linear_tendency import LinearTendency
 from .tendency_divergence import TendencyDivergence
 from .pressure_gradient_tendency import PressureGradientTendency
 from .main_tendency import MainTendency
-# from .netcdf_writer import NetCDFWriter
+from .netcdf_writer_single_proc import NetCDFWriterSingleProc
 # from .diagnostics import Diagnostics
 
 # ----------------------------------------------------------------
@@ -59,3 +61,4 @@ from .main_tendency import MainTendency
 from fridom.framework.modules import animation
 
 # importing classes
+from fridom.framework.modules.netcdf_writer import NetCDFWriter

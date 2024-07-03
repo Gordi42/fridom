@@ -1,8 +1,8 @@
-from fridom.framework.modules.netcdf_writer \
-    import NetCDFWriter as NetCDFWriterBase
+from fridom.framework.modules.netcdf_writer_single_proc \
+    import NetCDFWriterSingleProc as NetCDFWriterBase
 from fridom.framework.model_state import ModelState
 
-class NetCDFWriter(NetCDFWriterBase):
+class NetCDFWriterSingleProc(NetCDFWriterBase):
     def __init__(self, 
                  name="NetCDFWriter", 
                  filename="snap.cdf", 
@@ -20,6 +20,3 @@ class NetCDFWriter(NetCDFWriterBase):
 
     def get_variables(self, mz: ModelState):
         return [mz.z.u, mz.z.v, mz.z.w, mz.z.b, mz.z_diag.p]
-
-# remove symbols from the namespace
-del NetCDFWriterBase, ModelState

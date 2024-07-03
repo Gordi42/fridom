@@ -1,6 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 from mpi4py import MPI
+from tqdm import tqdm
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
@@ -38,6 +39,7 @@ class Model:
         # state variable
         from fridom.framework.model_state import ModelState
         self.model_state = ModelState(mset)
+        self.model_state.time = mset.start_time
 
         # Timer
         from fridom.framework.timing_module import TimingModule
@@ -80,31 +82,66 @@ class Model:
     #   RUN MODEL
     # ============================================================
 
-    def run(self, steps=None, runlen=None, enable_tqdm=True) -> None:
+    def run(self, 
+            steps=None, 
+            runlen=None, 
+            end_time=None,
+            progress_bar=True) -> None:
         """
-        Run the model for a given number of steps or a given time.
+        Run the model
+        
+        Parameters
+        ----------
+        `steps` : `int`
+            Number of steps to run.
+        `runlen` : `np.timedelta64`
+            Length of the run.
+        `end_time` : `np.datetime64`
+            End time of the run.
+        `progress_bar` : `bool`
+            Show progress bar.
+        
+        Raises
+        ------
+        `ValueError`
+            Only one of `steps`, `runlen` or `end_time` can be given.
+        """
+        # only one of steps, runlen or end_time can be given
+        if sum([steps is not None, 
+                runlen is not None, 
+                end_time is not None]) > 1:
+            raise ValueError("Only one of steps, runlen or end_time can be given.")
 
-        Args:
-            steps (int)     : Number of steps to run.
-            runlen (float)  : Time to run. (preferred over steps)
-        """
-        # check if steps or runlen is given
+        # calculate end time if runlen is given
         if runlen is not None:
-            steps = runlen / self.time_stepper.dt
+            end_time = self.mset.start_time + runlen
         
         # progress bar
-        tq = lambda x: x
-        if enable_tqdm and MPI.COMM_WORLD.Get_rank() == 0:
-            from tqdm import tqdm
-            tq = tqdm
+        if MPI.COMM_WORLD.Get_rank() != 0:
+            progress_bar = False
+        bar_format = "{percentage:3.2f}%|{bar}| [{elapsed}<{remaining}, {rate_fmt}]{postfix}"
+        pbar = tqdm(
+            total=100, disable=not progress_bar, bar_format=bar_format, unit="%")
 
         # start the model
         self.start()
 
         # main loop
         self.timer.total.start()
-        for _ in tq(range(int(steps))):
-            self.step()
+        if steps is not None:
+            for i in range(steps):
+                self.step()
+                pbar.n = 100 * (i+1) / steps
+                pbar.set_postfix_str(f"It: {self.model_state.it} - Time: {self.model_state.time}")
+                pbar.refresh()
+        elif end_time is not None:
+            while self.model_state.time < end_time:
+                self.step()
+                pbar.n = 100 * ( (self.model_state.time - self.mset.start_time) 
+                                   / (end_time - self.mset.start_time) )
+                pbar.set_postfix_str(f"It: {self.model_state.it} - Time: {self.model_state.time}")
+                pbar.refresh()
+        pbar.close()
         self.timer.total.stop()
 
         # stop the model
