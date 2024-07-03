@@ -51,7 +51,7 @@ def dtype(spectral):
 # --------------------------------------------------------------
 def test_zeros(mset, spectral, dtype, n_dims, shape):
     """Test the FieldVariable() constructor with no input array."""
-    fv = fr.FieldVariable(mset, is_spectral=spectral)
+    fv = fr.FieldVariable(mset, is_spectral=spectral, name="fv")
     assert fv.mset == mset
     assert fv.grid == mset.grid
     assert len(fv.shape) == n_dims
@@ -64,12 +64,12 @@ def test_zeros(mset, spectral, dtype, n_dims, shape):
 def test_constructor_with_input(mset, spectral, dtype, shape):
     ncp = config.ncp
     arr = ncp.ones(shape, dtype=dtype)
-    fv = fr.FieldVariable(mset, is_spectral=spectral, arr=arr)
+    fv = fr.FieldVariable(mset, is_spectral=spectral, arr=arr, name="fv")
     assert ncp.allclose(fv[:], arr)
 
 def teste_copy(mset, spectral):
     ncp = config.ncp
-    fv = fr.FieldVariable(mset, is_spectral=spectral)
+    fv = fr.FieldVariable(mset, is_spectral=spectral, name="fv")
     copy = deepcopy(fv)
     # Test that the copy is not the same object
     assert fv is not copy
@@ -364,11 +364,13 @@ def obtained_shape(mset_topo, obtained_topo, spectral):
 
 @pytest.fixture()
 def f1(mset_topo, topo1, spectral):
-    return fr.FieldVariable(mset_topo, is_spectral=spectral, topo=topo1) + 1.0
+    return fr.FieldVariable(
+        mset_topo, is_spectral=spectral, topo=topo1, name="f1") + 1.0
 
 @pytest.fixture()
 def f2(mset_topo, topo2, spectral):
-    return fr.FieldVariable(mset_topo, is_spectral=spectral, topo=topo2) + 2.0
+    return fr.FieldVariable(
+        mset_topo, is_spectral=spectral, topo=topo2, name="f2") + 2.0
 
 def test_f1(f1, topo1):
     assert f1.topo == topo1

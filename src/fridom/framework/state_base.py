@@ -23,7 +23,7 @@ class StateBase:
     # ======================================================================
 
     def __init__(self, mset: 'ModelSettingsBase', 
-                 field_list:list, is_spectral=False) -> None:
+                 field_list: list, is_spectral=False) -> None:
         """
         Base Constructor.
 
@@ -35,7 +35,7 @@ class StateBase:
         self.grid = mset.grid
         self.is_spectral = is_spectral
         self.constructor = StateBase
-        self.field_list = field_list
+        self.fields = {field.name: field for field in field_list}
     
     # ======================================================================
     #  BASIC OPERATIONS
@@ -45,7 +45,8 @@ class StateBase:
         """
         Calculate the Fourier transform of the state. (forward and backward)
         """
-        fields_fft = [field.fft() for field in self.field_list]
+        # loop over all fields in self.field_dict
+        fields_fft = [field.fft() for field in self.fields.values()]
         z = self.constructor(
             self.mset, field_list=fields_fft, 
             is_spectral=not self.is_spectral)
@@ -55,7 +56,7 @@ class StateBase:
         """
         Synchronize the state. (Exchange ghost cells)
         """
-        [field.sync() for field in self.field_list]
+        [field.sync() for field in self.fields.values()]
         return
 
     def apply_boundary_conditions(self) -> None:
@@ -129,6 +130,13 @@ class StateBase:
         """
         return 2 * (self - other).norm_l2() / (self.norm_l2() + other.norm_l2())
 
+    @property
+    def field_list(self) -> list:
+        """
+        Return the list of fields.
+        """
+        return list(self.fields.values())
+
     # ======================================================================
     #  OPERATOR OVERLOADING
     # ======================================================================
@@ -177,9 +185,10 @@ class StateBase:
         Multiply two states / fields.
         """
         if isinstance(other, self.constructor):
-            prods = [f1 * f2 for f1, f2 in zip(self.field_list, other.field_list)]
+            prods = [f1 * f2 for f1, f2 in 
+                    zip(self.fields.values(), other.fields.values())]
         else:
-            prods = [field * other for field in self.field_list]
+            prods = [field * other for field in self.fields.values()]
 
         z = self.constructor(self.mset, field_list=prods,
                                 is_spectral=self.is_spectral)
@@ -193,9 +202,10 @@ class StateBase:
         Divide two states / fields.
         """
         if isinstance(other, self.constructor):
-            quot = [f1 / f2 for f1, f2 in zip(self.field_list, other.field_list)]
+            quot = [f1 / f2 for f1, f2 in 
+                    zip(self.fields.values(), other.fields.values())]
         else:
-            quot = [field / other for field in self.field_list]
+            quot = [field / other for field in self.fields.values()]
 
         z = self.constructor(self.mset, field_list=quot,
                                 is_spectral=self.is_spectral)
@@ -205,7 +215,7 @@ class StateBase:
         """
         Divide something by the state.
         """
-        quot = [other / field for field in self.field_list]
+        quot = [other / field for field in self.fields.values()]
         z = self.constructor(self.mset, field_list=quot,
                                 is_spectral=self.is_spectral)
         return z
@@ -215,9 +225,10 @@ class StateBase:
         Exponentiate two states / fields.
         """
         if isinstance(other, self.constructor):
-            prods = [f1 ** f2 for f1, f2 in zip(self.field_list, other.field_list)]
+            prods = [f1 ** f2 for f1, f2 in 
+                    zip(self.fields.values(), other.fields.values())]
         else:
-            prods = [field ** other for field in self.field_list]
+            prods = [field ** other for field in self.fields.values()]
 
         z = self.constructor(self.mset, field_list=prods,
                                 is_spectral=self.is_spectral)

@@ -33,7 +33,8 @@ def mset(backend, n_dims):
 
 @pytest.fixture()
 def field_list(mset, is_spectral, n_fields):
-    field_list = [fr.FieldVariable(mset, is_spectral) for _ in range(n_fields)]
+    field_list = [fr.FieldVariable(mset, name=f"v{i}", is_spectral=is_spectral) 
+                  for i in range(n_fields)]
     for field in field_list:
         field[:] = config.ncp.random.rand(*field.shape)
     return field_list
@@ -51,28 +52,41 @@ def mset_1d(backend):
 
 @pytest.fixture()
 def zeros_p(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=False)
+    return fr.FieldVariable(mset_1d, is_spectral=False, name="zeros_p")
 
 @pytest.fixture()
 def zeros_s(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=True)
+    return fr.FieldVariable(mset_1d, is_spectral=True, name="zeros_s")
 
 @pytest.fixture()
 def ones_p(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=False) + 1.0
+    return fr.FieldVariable(mset_1d, is_spectral=False, name="ones_p") + 1.0
 
 @pytest.fixture()
 def ones_s(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=True) + 1.0
+    return fr.FieldVariable(mset_1d, is_spectral=True, name="ones_s") + 1.0
 
 @pytest.fixture()
 def imag_s(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=True) + 1.0j
+    return fr.FieldVariable(mset_1d, is_spectral=True, name="imag_s") + 1.0j
+
+@pytest.fixture()
+def state_01(mset_1d):
+    v1 = fr.FieldVariable(mset_1d, is_spectral=False, name="v1")
+    v2 = fr.FieldVariable(mset_1d, is_spectral=False, name="v2") + 1.0
+    return fr.StateBase(mset_1d, [v1, v2], is_spectral=False)
+
+@pytest.fixture()
+def state_11(mset_1d):
+    v1 = fr.FieldVariable(mset_1d, is_spectral=False, name="v1") + 1.0
+    v2 = fr.FieldVariable(mset_1d, is_spectral=False, name="v2") + 1.0
+    return fr.StateBase(mset_1d, [v1, v2], is_spectral=False)
 
 def test_init(mset, field_list, state):
     assert state.mset is mset
     assert state.grid is mset.grid
-    assert state.field_list == field_list
+    field_dict = {f.name: f for f in field_list}
+    assert field_dict == field_dict
 
 def test_copy(state):
     state_copy = deepcopy(state)
@@ -94,22 +108,25 @@ def test_fft(state, dtype_in, dtype_out):
             assert config.ncp.allclose(f1, f2)
 
 @pytest.mark.mpi_skip
-def test_dot(mset_1d, zeros_p, ones_p, zeros_s, ones_s, imag_s):
-    state = fr.StateBase(mset_1d, [zeros_p, ones_p], is_spectral=False)
-    state2 = fr.StateBase(mset_1d, [ones_p, ones_p], is_spectral=False)
+def test_dot(mset_1d, ones_p, ones_s, state_01, state_11):
+    state = state_01; state2 = state_11
     dot = state.dot(state2)
     assert isinstance(dot, fr.FieldVariable)
     assert config.ncp.allclose(dot, ones_p)
 
     # test complex
-    state = fr.StateBase(mset_1d, [ones_s, ones_s - 1j], is_spectral=True)
-    state2 = fr.StateBase(mset_1d, [imag_s, ones_s], is_spectral=True)
+    v1 = fr.FieldVariable(mset_1d, is_spectral=True, name="v1") + 1
+    v2 = fr.FieldVariable(mset_1d, is_spectral=True, name="v2") + 1 - 1j
+    state = fr.StateBase(mset_1d, [v1, v2], is_spectral=True)
+    v1 = fr.FieldVariable(mset_1d, is_spectral=True, name="v1") + 1j
+    v2 = fr.FieldVariable(mset_1d, is_spectral=True, name="v2") + 1 
+    state2 = fr.StateBase(mset_1d, [v1, v2], is_spectral=True)
     dot = state.dot(state2)
     assert config.ncp.allclose(dot, ones_s-2j)
 
 @pytest.mark.mpi_skip
-def test_norm_l2(mset_1d, zeros_p, ones_p):
-    state = fr.StateBase(mset_1d, [zeros_p, ones_p], is_spectral=False)
+def test_norm_l2(mset_1d, state_01, state_11, ones_p):
+    state = state_01; state2 = state_11
     # yields state = [(0, 1), (0, 1), (0, 1)]
     # with l2 norm = sqrt((1+1+1) * 1/3) = 1
     #                               ^^^
@@ -117,40 +134,37 @@ def test_norm_l2(mset_1d, zeros_p, ones_p):
     norm = state.norm_l2()
     assert config.ncp.allclose(norm, 1.0)
 
-    state2 = fr.StateBase(mset_1d, [ones_p, ones_p], is_spectral=False)
     # yields state = [(1, 1), (1, 1), (1, 1)]
     # with l2 norm = sqrt((2+2+2) * 1/3) = sqrt(2)
     norm = state2.norm_l2()
     assert config.ncp.allclose(norm, 2**0.5)
 
 @pytest.mark.mpi_skip
-def test_norm_of_diff(mset_1d, zeros_p, ones_p):
-    state = fr.StateBase(mset_1d, [zeros_p, ones_p], is_spectral=False)
-    state2 = fr.StateBase(mset_1d, [ones_p, ones_p], is_spectral=False)
-
+def test_norm_of_diff(mset_1d, state_01, state_11):
     # test norm of difference between two identical states
     # should be 0
-    norm = state.norm_of_diff(state)
+    norm = state_01.norm_of_diff(state_01)
     assert norm == 0
 
     # test norm of difference between two different states
     # the l2 norm of state - state2 is:
     # sqrt((1+1+1) * 1/3) = 1
-    assert (state - state2).norm_l2() == 1
+    assert (state_01 - state_11).norm_l2() == 1
 
     # hence, the norm of the difference should be
     # 2 * |z - z'|_2 / (|z|_2 + |z'|_2)
     # 2 *    1       / ( 1    + 2**(1/2))
-    norm = state.norm_of_diff(state2)
+    norm = state_01.norm_of_diff(state_11)
     assert norm == 2 / (1 + 2**0.5)
 
 @pytest.mark.mpi_skip
-def test_add(mset_1d, zeros_p, ones_p):
-    state = fr.StateBase(mset_1d, [zeros_p, ones_p], is_spectral=False)
-    state2 = fr.StateBase(mset_1d, [ones_p, ones_p], is_spectral=False)
+def test_add(state_01, state_11, zeros_p, ones_p):
+    state = state_01; state2 = state_11
 
     # add two states
     state3 = state + state2
+    assert config.ncp.allclose(state.field_list[0], zeros_p)
+    assert config.ncp.allclose(state.field_list[1], ones_p)
     assert isinstance(state3, fr.StateBase)
     assert config.ncp.allclose(state3.field_list[0], ones_p)
     assert config.ncp.allclose(state3.field_list[1], ones_p + 1)
@@ -174,9 +188,8 @@ def test_add(mset_1d, zeros_p, ones_p):
     assert config.ncp.allclose(state3.field_list[1], ones_p + 1)
 
 @pytest.mark.mpi_skip
-def test_sub(mset_1d, zeros_p, ones_p):
-    state = fr.StateBase(mset_1d, [zeros_p, ones_p], is_spectral=False)
-    state2 = fr.StateBase(mset_1d, [ones_p, ones_p], is_spectral=False)
+def test_sub(ones_p, state_01, state_11):
+    state = state_01; state2 = state_11
 
     # subtract two states
     state3 = state - state2
@@ -203,9 +216,8 @@ def test_sub(mset_1d, zeros_p, ones_p):
     assert config.ncp.allclose(state3.field_list[1], 0)
 
 @pytest.mark.mpi_skip
-def test_mul(mset_1d, zeros_p, ones_p):
-    state = fr.StateBase(mset_1d, [zeros_p, ones_p], is_spectral=False)
-    state2 = fr.StateBase(mset_1d, [ones_p, ones_p], is_spectral=False)
+def test_mul(zeros_p, ones_p, state_01, state_11):
+    state = state_01; state2 = state_11
 
     # multiply two states
     state3 = state * state2
@@ -232,9 +244,8 @@ def test_mul(mset_1d, zeros_p, ones_p):
     assert config.ncp.allclose(state3.field_list[1], 2)
 
 @pytest.mark.mpi_skip
-def test_truediv(mset_1d, zeros_p, ones_p):
-    state = fr.StateBase(mset_1d, [zeros_p, ones_p], is_spectral=False)
-    state2 = fr.StateBase(mset_1d, [ones_p, ones_p], is_spectral=False)
+def test_truediv(zeros_p, ones_p, state_01, state_11):
+    state = state_01; state2 = state_11
 
     # divide two states
     state3 = state / state2

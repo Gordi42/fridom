@@ -22,7 +22,7 @@ class FieldVariable:
         ModelSettings object
     `is_spectral` : `bool`
         True if the FieldVariable should be initialized in spectral space
-    `name` : `str` (default "Unnamed")
+    `name` : `str` 
         Name of the FieldVariable
     `topo` : `list[bool]` (default None)
         Topology of the FieldVariable. If None, the FieldVariable is
@@ -81,8 +81,8 @@ class FieldVariable:
     """
     def __init__(self, 
                  mset: 'ModelSettingsBase',
+                 name,
                  is_spectral=False, 
-                 name="Unnamed", 
                  long_name="Unnamed", 
                  units="n/a",
                  nc_attrs=None,
