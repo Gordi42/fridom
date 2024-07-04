@@ -1,9 +1,8 @@
-# cython: language_level=3
-from mpi4py cimport MPI
 from mpi4py import MPI
 from copy import deepcopy
-from . cimport Subdomain
-from fridom.config import config
+
+from .subdomain cimport Subdomain
+from fridom.framework import config
 
 cdef list _make_slice_list(slice s, int n_dims):
     """
@@ -43,8 +42,8 @@ cdef list _make_slice_list(slice s, int n_dims):
     >>> # processor in the second dimension
     """
     cdef list slice_list = []
-    cdef tuple full_slice
     cdef int i
+    cdef tuple full_slice
     for i in range(n_dims):
         full_slice = tuple(slice(None) for _ in range(n_dims))
         full_slice[i] = s
@@ -66,12 +65,8 @@ cdef void set_device():
     ----------
     `backend_is_cupy` : `bool`
         Whether the backend is cupy or not.
-        
-    Returns
-    -------
-    `None`
     """
-    cdef MPI.Intracomm comm_node
+    cdef object comm_node
     cdef int node_rank, num_gpus, device_id
     if config.backend == "cupy":
         import cupy as cp
@@ -83,7 +78,7 @@ cdef void set_device():
     return
 
 cdef class DomainDecomposition:
-    def __init__(self, list n_global, int halo = 0, list shared_axes = None,
+    def __init__(self, list n_global, int halo, list shared_axes = None,
                  bint reorder_comm = True):
         # set input parameters
         cdef int n_dims = len(n_global)
@@ -113,7 +108,7 @@ cdef class DomainDecomposition:
         # --------------------------------------------------------------
         #  Initialize the communicators
         # --------------------------------------------------------------
-        cdef MPI.Cartcomm comm = MPI.COMM_WORLD.Create_cart(
+        cdef object comm = MPI.COMM_WORLD.Create_cart(
             n_procs, periods=[True]*n_dims, reorder=reorder_comm)
         cdef int size = comm.Get_size()
         cdef int rank = comm.Get_rank()
@@ -121,8 +116,8 @@ cdef class DomainDecomposition:
         # --------------------------------------------------------------
         #  Create subdomains
         # --------------------------------------------------------------
-        cdef list all_subdomains = [Subdomain(i, comm, n_global, halo) 
-                                    for i in range(size)]
+        cdef list all_subdomains
+        all_subdomains = [Subdomain(i, comm, n_global, halo) for i in range(size)]
         cdef Subdomain my_subdomain = all_subdomains[rank]
 
         # check that the number of grid points in each local domain is 
@@ -139,10 +134,9 @@ cdef class DomainDecomposition:
         #  Prepare the halo exchange
         # --------------------------------------------------------------
         # exchange of halo regions in shared axes:
-        cdef int zero = 0
-        cdef list paddings = [[(halo, halo) if i == j else (zero, zero) 
-                              for i in range(n_dims)]
-                              for j in range(n_dims)]
+        cdef list paddings = [[(halo, halo) if i == j else (int(0), int(0)) 
+                                for i in range(n_dims)]
+                                for j in range(n_dims)]
         cdef list inner = _make_slice_list(slice(halo, -halo), n_dims)
 
         # create subcommunicators for each axis
@@ -194,16 +188,11 @@ cdef class DomainDecomposition:
         self._inner = inner
         return
 
-    # ================================================================
-    #  Methods
-    # ================================================================
-
-    cpdef void sync(self, object arr, list flat_axes):
-        cdef list arrs = [arr]
-        self.sync_list(arrs, flat_axes)
+    cpdef void sync(self, object arr, list flat_axes = None):
+        self.sync_list([arr], flat_axes)
         return
 
-    cpdef void sync_list(self, list arrs, list flat_axes):
+    cpdef void sync_list(self, list arrs, list flat_axes = None):
         # nothing to do if there are no halo regions
         if self.halo == 0:
             return
@@ -221,12 +210,8 @@ cdef class DomainDecomposition:
             self._sync_axis(arrs, axis)
         return
 
-    cpdef void _sync_axis_same_proc(self, object arrs, int axis):
-        # sync dimension where start and end are on the same processor
+    cdef void _sync_axis_same_proc(self, object arrs, int axis):
         if self.n_global[axis] < self.halo:
-            # if the number of grid points is smaller than the number of halo
-            # cells, we need to pad the array with numpy or cupy
-            # This is less efficient than settings the boundary values directly
             for arr in arrs:
                 arr[:] = config.ncp.pad(
                     arr[self._inner[axis]], self._paddings[axis], mode='wrap')
@@ -235,16 +220,13 @@ cdef class DomainDecomposition:
                 arr[self._recv_from_next[axis]] = arr[self._send_to_prev[axis]]
                 arr[self._recv_from_prev[axis]] = arr[self._send_to_next[axis]]
         return
-    
-    cpdef void _sync_axis(self, list arrs, int axis):
+
+    cdef void _sync_axis(self, list arrs, int axis):
         if self.n_procs[axis] == 1:
             self._sync_axis_same_proc(arrs, axis)
             return
 
-        cdef object arr
-        cdef list reqs = []
-        cdef int j
-        cdef object ncp = config.ncp
+        reqs = []
 
         # we need to create 4 buffers for each dimension:
         #  - buf_send_next: buffer to be sent to the next processor
@@ -261,14 +243,16 @@ cdef class DomainDecomposition:
         # ----------------------------------------------------------------
         #  Sending
         # ----------------------------------------------------------------
+        cdef object ncp = config.ncp
         cdef object buf_send_next, buf_send_prev
-        for j, arr in enumerate(arrs):
+        for arr in arrs:
             buf_send_next = ncp.ascontiguousarray(arr[self._send_to_next[axis]])
             buf_send_prev = ncp.ascontiguousarray(arr[self._send_to_prev[axis]])
+            self.sync_with_device()
             reqs.append(self._subcomms[axis].Isend(
-                buf_send_next, dest=self._next_proc[axis], tag=j))
+                buf_send_next, dest=self._next_proc[axis], tag=0))
             reqs.append(self._subcomms[axis].Isend(
-                buf_send_prev, dest=self._prev_proc[axis], tag=j))
+                buf_send_prev, dest=self._prev_proc[axis], tag=0))
 
         # ----------------------------------------------------------------
         #  Receiving
@@ -276,13 +260,13 @@ cdef class DomainDecomposition:
         cdef list buf_recv_next_list = []
         cdef list buf_recv_prev_list = []
         cdef object buf_recv_next, buf_recv_prev
-        for j, arr in enumerate(arrs):
+        for arr in arrs:
             buf_recv_next = ncp.empty_like(arr[self._recv_from_next[axis]])
             buf_recv_prev = ncp.empty_like(arr[self._recv_from_prev[axis]])
             reqs.append(self._subcomms[axis].Irecv(
-                buf_recv_next, source=self._next_proc[axis], tag=j))
+                buf_recv_next, source=self._next_proc[axis], tag=0))
             reqs.append(self._subcomms[axis].Irecv(
-                buf_recv_prev, source=self._prev_proc[axis], tag=j))
+                buf_recv_prev, source=self._prev_proc[axis], tag=0))
             buf_recv_next_list.append(buf_recv_next)
             buf_recv_prev_list.append(buf_recv_prev)
 
@@ -290,10 +274,16 @@ cdef class DomainDecomposition:
         MPI.Request.Waitall(reqs)
 
         # copy the received data to the halo regions
-        for j, arr in enumerate(arrs):
-            arr[self._recv_from_next[axis]] = buf_recv_next_list[j]
-            arr[self._recv_from_prev[axis]] = buf_recv_prev_list[j]
+        cdef int i
+        for i, arr in enumerate(arrs):
+            arr[self._recv_from_next[axis]] = buf_recv_next_list[i]
+            arr[self._recv_from_prev[axis]] = buf_recv_prev_list[i]
         return
+
+    cpdef void sync_with_device(self):
+        if config.backend == "cupy":
+            import cupy as cp
+            cp.cuda.Stream.null.synchronize()
 
     cpdef void apply_boundary_condition(
         self, object arr, object bc, int axis, str side):
@@ -303,32 +293,27 @@ cdef class DomainDecomposition:
             self._apply_right_boundary_condition(arr, bc, axis)
         else:
             raise ValueError(f"Unknown side '{side}'. Use 'left' or 'right'.")
-        return
-        
-    cpdef void _apply_left_boundary_condition(
+
+    cdef void _apply_left_boundary_condition(
         self, object arr, object bc, int axis):
         # apply the boundary condition to the left side
         if self.my_subdomain.is_left_edge[axis]:
             arr[self._recv_from_prev[axis]] = bc
         return
 
-    cpdef void _apply_right_boundary_condition(
+    cdef void _apply_right_boundary_condition(
         self, object arr, object bc, int axis):
         # apply the boundary condition to the right side
         if self.my_subdomain.is_right_edge[axis]:
             arr[self._recv_from_next[axis]] = bc
         return
 
-    cpdef void sync_with_device(self):
-        if config.backend == "cupy":
-            import cupy as cp
-            cp.cuda.Stream.null.synchronize()
-        return
-
     cpdef object __deepcopy__(self, dict memo):
-        cdef list list_copy
-        deepcopy_obj = object.__new__(self.__class__)
+        cdef object deepcopy_obj = object.__new__(self.__class__)
         memo[id(self)] = deepcopy_obj  # Store in memo to handle self-references
+        cdef str key
+        cdef object value
+        cdef list list_copy
         for key, value in vars(self).items():
             if isinstance(value, list):
                 list_copy = []
@@ -344,3 +329,10 @@ cdef class DomainDecomposition:
             else:
                 setattr(deepcopy_obj, key, deepcopy(value, memo))
         return deepcopy_obj
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    property n_dims:
+        def __get__(self):
+            return self.n_dims

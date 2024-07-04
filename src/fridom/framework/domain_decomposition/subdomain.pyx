@@ -2,18 +2,6 @@
 from mpi4py cimport MPI
 
 cdef class Subdomain:
-    cdef list n_global
-    cdef int halo
-    cdef int rank
-    cdef list coord
-    cdef list is_left_edge
-    cdef list is_right_edge
-    cdef tuple shape
-    cdef tuple inner_shape
-    cdef tuple position
-    cdef tuple global_slice
-    cdef tuple inner_slice
-
     def __init__(self, int rank, MPI.Cartcomm comm, list n_global, int halo):
         # get the processor coordinates and dimensions of the processor grid
         cdef int n_dims = len(n_global)
