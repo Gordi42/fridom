@@ -105,57 +105,7 @@ class Subdomain:
                  comm: MPI.Cartcomm,
                  n_global: 'list[int]',
                  halo: int = 0,
-                 ) -> None:
-        # get the processor coordinates and dimensions of the processor grid
-        n_dims = len(n_global)
-        coord = comm.Get_coords(rank)  # processor coordinates
-        n_procs = comm.Get_topo()[0]   # number of processors in each dim.
-
-        # check if a processor is at the edge of the global domain
-        is_left_edge = [c == 0 for c in coord]
-        is_right_edge = [c == n-1 for c,n in zip(coord, n_procs)]
-
-        # get the number of grid points in the local domain (the inner shape)
-        # we decompose the number of grid points in the local domain into the
-        # base number of grid points that each processor gets and the remainder.
-        # The remainder is added to the last processor such that the global
-        # number of grid points is preserved.
-        # Consider for example the case of 102 grid points and 10 processors:
-        # Each processor gets 10 grid points, except the last one, which gets 12.
-        # Hence the base number of grid points is 10 and the remainder is 0 for
-        # all processors except the last one, where it is 2.
-
-        # number of local elements in each dimension
-        n_base = [n_grid // n_proc for n_grid, n_proc in zip(n_global, n_procs)]
-        remainder = [n_grid % n_proc if (c == n_proc - 1) else 0
-                     for c, n_grid, n_proc in zip(coord, n_global, n_procs)]
-        inner_shape = [n+r for n,r in zip(n_base, remainder)]
-        shape = [n + 2*halo for n in inner_shape]
-        inner_slice = [slice(None)] * n_dims
-        if halo > 0:
-            inner_slice = [slice(halo, -halo)] * n_dims
-
-        # get the start position of the local domain in the global grid
-        position = [c * n for c,n in zip(coord, n_base)]
-        global_slice = [slice(p,p+s) for p,s in zip(position, inner_shape)]
-
-        # --------------------------------------------------------------
-        #  Set the attributes
-        # --------------------------------------------------------------
-
-        self.n_global: list[int]        = n_global
-        self.halo: int                  = halo
-        self.rank: int                  = rank
-        self.coord: list[int]           = coord
-        self.is_left_edge: list[bool]   = is_left_edge
-        self.is_right_edge: list[bool]  = is_right_edge
-        self.shape: tuple[int, ...]     = tuple(shape)
-        self.inner_shape: tuple[int, ...]    = tuple(inner_shape)
-        self.position: tuple[int, ...]       = tuple(position)
-        self.global_slice: tuple[slice, ...] = tuple(global_slice)
-        self.inner_slice: tuple[slice, ...]  = tuple(inner_slice)
-        
-        return
+                 ) -> None:...
 
     def has_overlap(self, other: 'Subdomain') -> bool:
         """
@@ -212,13 +162,6 @@ class Subdomain:
                 rank=0, comm=cart_comm, n_global=[128,128], halo=1)
             print(subdomain0.has_overlap(subdomain2))  # True
         """
-        # if there is an overlap, than every dimension must have an overlap
-        for me, you in zip(self.global_slice, other.global_slice):
-            if me.start >= you.stop or you.start >= me.stop:
-                return False
-
-        # if we reach this point, there is an overlap
-        return True
 
     def get_overlap_slice(self, other: 'Subdomain') -> 'tuple[slice]':
         """
@@ -273,15 +216,6 @@ class Subdomain:
             overlap = subdomain1.get_overlap_slice(subdomain2)
             print(overlap)  # [1:65, 1:65]  (+1 because of the halo region)
         """
-        # first get the overlap in the global coordinates
-        global_overlap = []
-        for me, you in zip(self.global_slice, other.global_slice):
-            start = max(me.start, you.start)
-            stop = min(me.stop, you.stop)
-            global_overlap.append(slice(start, stop))
-
-        # convert the global overlap to local coordinates
-        return self.g2l_slice(tuple(global_overlap))
 
     def g2l_slice(self, global_slice: 'tuple[slice]') -> 'tuple[slice]':
         """
@@ -329,14 +263,8 @@ class Subdomain:
             local_slice = subdomain.g2l_slice(global_slice)
             data[local_slice] = 1
         """
-        local_slice = []
-        for g, p, s in zip(global_slice, self.position, self.shape):
-            start = g.start - p + self.halo
-            stop = g.stop - p + self.halo
-            local_slice.append(slice(start, stop))
-        return tuple(local_slice)
 
-    def l2g_slice(self, local_slice: 'tuple[slice]') -> 'tuple[slice]':
+    def l2g_slice(self, local_slice: tuple[slice]) -> tuple[slice]:
         """
         Convert a slice from the local space to the global space.
         
@@ -386,9 +314,3 @@ class Subdomain:
             # Check if the values are the same
             assert np.allclose(u_global[global_slice], u_local[local_slice])
         """
-        global_slice = []
-        for l, p, s in zip(local_slice, self.position, self.shape):
-            start = l.start + p - self.halo
-            stop = l.stop + p - self.halo
-            global_slice.append(slice(start, stop))
-        return tuple(global_slice)

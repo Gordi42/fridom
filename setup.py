@@ -2,6 +2,7 @@ from setuptools import setup, Extension
 from Cython.Build import cythonize
 import os
 import glob
+import numpy
 
 # Function to recursively find all .pyx files
 def find_pyx_files(base_dir):
@@ -11,7 +12,9 @@ def find_pyx_files(base_dir):
 # Define the extension modules
 ext_modules = cythonize([Extension(
     name=os.path.splitext(os.path.relpath(pyx, 'src'))[0].replace(os.sep, '.'),
-    sources=[pyx]
+    sources=[pyx],
+    include_dirs=[numpy.get_include()],
+    define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")],
 ) for pyx in find_pyx_files("src/fridom")])
 
 setup(    
