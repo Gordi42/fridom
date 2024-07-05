@@ -1,3 +1,4 @@
+# cython: language_level=3
 from mpi4py cimport MPI
 from mpi4py import MPI
 from copy import deepcopy
