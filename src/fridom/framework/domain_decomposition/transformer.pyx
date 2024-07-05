@@ -1,15 +1,11 @@
-# Import external modules
-from typing import TYPE_CHECKING
-from mpi4py import MPI
-import numpy as np
-# Import internal modules
+# cython: language_level=3
+from mpi4py cimport MPI
+from .domain_decomposition cimport DomainDecomposition
+from .subdomain cimport Subdomain
 from fridom.framework import config
-# Import type information
-if TYPE_CHECKING:
-    from .domain_decomposition import DomainDecomposition
 
-def get_overlap_info(domain_in: 'DomainDecomposition', 
-                     domain_out: 'DomainDecomposition'):
+cdef dict get_overlap_info(DomainDecomposition domain_in, 
+                           DomainDecomposition domain_out):
     """
     Get information about which processors of the output domain overlaps with
     the subdomain of this processor in the input domain.
@@ -61,9 +57,12 @@ def get_overlap_info(domain_in: 'DomainDecomposition',
     of the domain2.")
     ```
     """
-    overlap_slices = []
-    processors = []
-    slice_same_proc = None
+    cdef list overlap_slices = []
+    cdef list processors = []
+    cdef tuple slice_same_proc = None
+    cdef int i
+    cdef Subdomain in_subdomain, out_subdomain
+
     in_subdomain = domain_in.my_subdomain
     for i in range(domain_in.comm.Get_size()):
         # get the domain of the output
@@ -78,18 +77,19 @@ def get_overlap_info(domain_in: 'DomainDecomposition',
         else:
             overlap_slices.append(overlap_slice)
             processors.append(i)
+    cdef dict overlap_info
     overlap_info = dict(overlap_slices=overlap_slices,
                         processors=processors,
                         slice_same_proc=slice_same_proc)
     return overlap_info
 
-def transform(domain_in: 'DomainDecomposition', 
-              domain_out: 'DomainDecomposition', 
-              same_domain: bool,
-              overlap_info_in: dict,
-              overlap_info_out: dict,
-              arr_in: np.ndarray,
-              arr_out: np.ndarray = None,) -> np.ndarray:
+cdef object transform(DomainDecomposition domain_in, 
+                      DomainDecomposition domain_out, 
+                      bint same_domain,
+                      dict overlap_info_in,
+                      dict overlap_info_out,
+                      object arr_in,
+                      object arr_out = None):
     """
     Transform data from an array in the input domain to an array in the output
     domain. This function is called by the transformer class.
@@ -141,16 +141,17 @@ def transform(domain_in: 'DomainDecomposition',
             domain_out.my_subdomain.shape, dtype=arr_in.dtype)
 
     # send the data
-    destinations = overlap_info_in['processors']
-    send_slices = overlap_info_in['overlap_slices']
-    bufs = [config.ncp.ascontiguousarray(arr_in[s]) for s in send_slices]
+    cdef list destinations = overlap_info_in['processors']
+    cdef list send_slices = overlap_info_in['overlap_slices']
+    cdef list bufs = [config.ncp.ascontiguousarray(arr_in[s]) for s in send_slices]
     domain_in.sync_with_device()
+    cdef list reqs
     reqs = [domain_in.comm.Isend(buf, dest=dest, tag=0) 
             for buf, dest in zip(bufs, destinations)]
 
     # receive the data
-    sources = overlap_info_out['processors']
-    recv_slices = overlap_info_out['overlap_slices']
+    cdef list sources = overlap_info_out['processors']
+    cdef list recv_slices = overlap_info_out['overlap_slices']
     bufs = [config.ncp.empty(arr_out[s].shape, dtype=arr_out.dtype) 
             for s in recv_slices]
 
@@ -161,12 +162,14 @@ def transform(domain_in: 'DomainDecomposition',
     MPI.Request.Waitall(reqs)
 
     # copy the received data to the new array
+    cdef slice recv_slice
+    cdef object buf
     for recv_slice, buf in zip(recv_slices, bufs):
         arr_out[recv_slice] = buf
 
     # copy the matching slice
-    send_same_proc = overlap_info_in['slice_same_proc']
-    recv_same_proc = overlap_info_out['slice_same_proc']
+    cdef tuple send_same_proc = overlap_info_in['slice_same_proc']
+    cdef tuple recv_same_proc = overlap_info_out['slice_same_proc']
     if send_same_proc is not None:
         arr_out[recv_same_proc] = arr_in[send_same_proc]
 
@@ -175,73 +178,13 @@ def transform(domain_in: 'DomainDecomposition',
 
     return arr_out
 
-
-class Transformer:
-    """
-    Transformation module that transforms data from one domain to another.
-    
-    Description
-    -----------
-    Let's assume we have two domain decompositions, one that has pencils
-    in the x-direction and one that has pencils in the y-direction. The
-    input array is a x-pencil array and we want to transform it to a
-    y-pencil array. Hence, one processor has to send different parts of
-    the input array to different processors and receive different parts 
-    of the output array from different processors. This transformer
-    function does exactly that. It is not limited to pencils and can be
-    used for any domain decomposition.
-    
-    Parameters
-    ----------
-    `domain_in` : `DomainDecomposition`
-        The input domain.
-    `domain_out` : `DomainDecomposition`
-        The output domain.
-        
-    Attributes
-    ----------
-    `domain_in` : `DomainDecomposition`
-        The input domain.
-    `domain_out` : `DomainDecomposition`
-        The output domain.
-    
-    Methods
-    -------
-    `forward(arr_in, arr_out=None)` : `np.ndarray` or `cupy.ndarray`
-        Transform an array from the input domain to the output domain.
-    `backward(arr_in, arr_out=None)` : `np.ndarray` or `cupy.ndarray`
-        Transform an array from the output domain to the input domain.
-    
-    Examples
-    --------
-
-    >>> from fridom.framework import config
-    >>> from fridom.framework \\
-    ...     .domain_decomposition import DomainDecomposition, Transformer
-    >>> # create two domains where one shares the x-axis and the other the y-axis
-    >>> domain_x = DomainDecomposition(n_global=[128]*2, shared_axes=[0])
-    >>> domain_y = DomainDecomposition(n_global=[128]*2, shared_axes=[1])
-    >>> 
-    >>> # create a random array on the local domain
-    >>> u = config.ncp.random.rand(*domain_x.my_subdomain.shape)
-    >>> domain_x.sync(u)
-    >>> 
-    >>> # construct transformers between the domains
-    >>> transformer = Transformer(domain_x, domain_y)
-    >>> 
-    >>> # transform the array from domain_x to domain_y
-    >>> v = transformer.forward(u)
-    >>> assert v.shape == domain_y.my_subdomain.shape
-    >>> 
-    >>> # transform the array back from domain_y to domain_x
-    >>> w = transformer.backward(v)
-    >>> assert config.ncp.allclose(u, w)
-    """
-    def __init__(self, 
-                 domain_in: 'DomainDecomposition', 
-                 domain_out: 'DomainDecomposition') -> None:
+cdef class Transformer:
+    def __init__(self,
+                 DomainDecomposition domain_in,
+                 DomainDecomposition domain_out):
         # First check if the domains are the same
-        same_domain = True
+        cdef bint same_domain = True
+        cdef int my_proc, other_proc
         for my_proc, other_proc in zip(domain_in.n_procs, domain_out.n_procs):
             if my_proc != other_proc:
                 same_domain = False
@@ -250,8 +193,8 @@ class Transformer:
             same_domain = False
 
         # Get the overlap information
-        overlap_info_in = get_overlap_info(domain_in, domain_out)
-        overlap_info_out = get_overlap_info(domain_out, domain_in)
+        cdef dict overlap_info_in = get_overlap_info(domain_in, domain_out)
+        cdef dict overlap_info_out = get_overlap_info(domain_out, domain_in)
 
         # --------------------------------------------------------------
         #  Set the attributes
@@ -259,52 +202,29 @@ class Transformer:
         self.domain_in = domain_in
         self.domain_out = domain_out
 
-        # private attributes for internal use
+        # private attributes
         self._same_domain = same_domain
         self._overlap_info_in = overlap_info_in
         self._overlap_info_out = overlap_info_out
-        return
 
-    def forward(self, arr_in, arr_out=None):
-        """
-        Transform an array from the input domain to the output domain.
-        
-        Parameters
-        ----------
-        `arr_in` : `np.ndarray` or `cupy.ndarray`
-            The array to be transformed (lives in the input domain).
-        `arr_out` : `np.ndarray` or `cupy.ndarray`
-            The transformed array (lives in the output domain). If None, a new
-            array will be created.
-        
-        Returns
-        -------
-        `np.ndarray` or `cupy.ndarray`
-            The transformed array. If `arr_out` is not None, the output array
-            will be the same as `arr_out`.
-        """
+    cpdef object forward(self, arr_in, arr_out = None):
         return transform(
             self.domain_in, self.domain_out, self._same_domain,
             self._overlap_info_in, self._overlap_info_out, arr_in, arr_out)
-    
-    def backward(self, arr_in, arr_out=None):
-        """
-        Transform an array from the output domain to the input domain.
-        
-        Parameters
-        ----------
-        `arr_in` : `np.ndarray` or `cupy.ndarray`
-            The array to be transformed (lives in the output domain).
-        `arr_out` : `np.ndarray` or `cupy.ndarray`
-            The transformed array (lives in the input domain). If None, a new
-            array will be created.
-        
-        Returns
-        -------
-        `np.ndarray` or `cupy.ndarray`
-            The transformed array. If `arr_out` is not None, the output array
-            will be the same as `arr_out`.
-        """
+
+    cpdef object backward(self, arr_in, arr_out = None):
         return transform(
             self.domain_out, self.domain_in, self._same_domain,
             self._overlap_info_out, self._overlap_info_in, arr_in, arr_out)
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+
+    property domain_in:
+        def __get__(self):
+            return self._domain_in
+
+    property domain_out:
+        def __get__(self):
+            return self._domain_out
