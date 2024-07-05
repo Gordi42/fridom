@@ -23,6 +23,7 @@ dependencies = [
   "scipy",
   "netCDF4",
   "mpi4py",
+  "tqdm",
 ]
 license = {file = "LICENSE"}
 

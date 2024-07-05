@@ -37,8 +37,8 @@ from . import animation
 from .module import Module
 from .module_container import ModuleContainer
 from .boundary_conditions import BoundaryConditions
-from .netcdf_writer_single_proc import NetCDFWriterSingleProc
-from .netcdf_writer import NetCDFWriter
+# from .netcdf_writer_single_proc import NetCDFWriterSingleProc
+# from .netcdf_writer import NetCDFWriter
 
 # importing the functions
 from .module import update_module, start_module, stop_module

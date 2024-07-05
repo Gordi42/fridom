@@ -75,6 +75,7 @@ cdef void set_device():
         num_gpus = cp.cuda.runtime.getDeviceCount()
         device_id = node_rank % num_gpus
         cp.cuda.Device(device_id).use()
+        comm_node.Free()
     return
 
 cdef class DomainDecomposition:
@@ -316,6 +317,11 @@ cdef class DomainDecomposition:
             n_global, halo, shared_axes)
         memo[id(self)] = deepcopy_obj  # Store in memo to handle self-references
         return deepcopy_obj
+
+    def __del__(self):
+        self.comm.Free()
+        for comm in self._subcomms:
+            comm.Free()
 
     # ================================================================
     #  Properties

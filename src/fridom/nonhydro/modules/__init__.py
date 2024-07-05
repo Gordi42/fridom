@@ -51,7 +51,7 @@ from .linear_tendency import LinearTendency
 from .tendency_divergence import TendencyDivergence
 from .pressure_gradient_tendency import PressureGradientTendency
 from .main_tendency import MainTendency
-from .netcdf_writer_single_proc import NetCDFWriterSingleProc
+# from .netcdf_writer_single_proc import NetCDFWriterSingleProc
 # from .diagnostics import Diagnostics
 
 # ----------------------------------------------------------------
@@ -61,4 +61,4 @@ from .netcdf_writer_single_proc import NetCDFWriterSingleProc
 from fridom.framework.modules import animation
 
 # importing classes
-from fridom.framework.modules.netcdf_writer import NetCDFWriter
+# from fridom.framework.modules.netcdf_writer import NetCDFWriter
