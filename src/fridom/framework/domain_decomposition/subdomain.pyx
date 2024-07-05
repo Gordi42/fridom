@@ -2,7 +2,8 @@
 from mpi4py cimport MPI
 
 cdef class Subdomain:
-    def __init__(self, int rank, MPI.Cartcomm comm, list n_global, int halo):
+    def __init__(self, int rank, MPI.Cartcomm comm, list n_global, 
+                 int halo = 0):
         # get the processor coordinates and dimensions of the processor grid
         cdef int n_dims = len(n_global)
         cdef list coord = comm.Get_coords(rank)  # processor coordinates

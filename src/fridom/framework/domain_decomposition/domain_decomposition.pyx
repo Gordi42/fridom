@@ -78,7 +78,7 @@ cdef void set_device():
     return
 
 cdef class DomainDecomposition:
-    def __init__(self, list n_global, int halo, list shared_axes = None,
+    def __init__(self, list n_global, int halo = 0, list shared_axes = None,
                  bint reorder_comm = True):
         # set input parameters
         cdef int n_dims = len(n_global)

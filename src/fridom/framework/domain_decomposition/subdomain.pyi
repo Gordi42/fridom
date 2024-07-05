@@ -314,3 +314,53 @@ class Subdomain:
             # Check if the values are the same
             assert np.allclose(u_global[global_slice], u_local[local_slice])
         """
+
+    @property
+    def n_global(self) -> 'list[int]':
+        """The global number of grid points in each dimension."""
+
+    @property
+    def halo(self) -> int:
+        """The number of halo cells around the local domain for the exchange 
+        of boundary values."""
+
+    @property
+    def rank(self) -> int:
+        """The global rank of the subdomains processor in the communicator."""
+
+    @property
+    def coord(self) -> 'list[int]':
+        """The coordinates of the processor in the processor grid."""
+
+    @property
+    def is_left_edge(self) -> 'list[bool]':
+        """A list of booleans that indicate if the processor is at the left edge
+        of the global domain."""
+
+    @property
+    def is_right_edge(self) -> 'list[bool]':
+        """A list of booleans that indicate if the processor is at the right edge
+        of the global domain."""
+
+    @property
+    def shape(self) -> 'tuple[int]':
+        """The number of grid points in the local domain including halo."""
+
+    @property
+    def inner_shape(self) -> 'tuple[int]':
+        """The number of grid points in the local domain without halo."""
+
+    @property
+    def position(self) -> 'tuple[int]':
+        """The position of the local domain in the global grid (index 
+        coordinates)."""
+
+    @property
+    def global_slice(self) -> 'tuple[slice]':
+        """The slice of the global domain that corresponds to the local domain."""
+    
+    @property
+    def inner_slice(self) -> 'tuple[slice]':
+        """The slice of the local domain without halo."""
+
+
