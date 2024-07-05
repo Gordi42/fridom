@@ -5,9 +5,9 @@ from .subdomain cimport Subdomain
 cdef class DomainDecomposition:
     # public attributes
     cdef int n_dims
-    cdef tuple n_global
+    cdef list n_global
     cdef int halo
-    cdef tuple n_procs
+    cdef list n_procs
     cdef list shared_axes
     cdef object comm
     cdef int size
@@ -16,7 +16,7 @@ cdef class DomainDecomposition:
     cdef Subdomain my_subdomain
 
     # private attributes
-    cdef list _subdomms
+    cdef list _subcomms
     cdef list _next_proc
     cdef list _prev_proc
     cdef list _send_to_next
@@ -38,4 +38,4 @@ cdef class DomainDecomposition:
         self, object arr, object bc, int axis)
     cdef void _apply_right_boundary_condition(
         self, object arr, object bc, int axis)
-    cpdef object __deepcopy__(self, dict memo)
+    cpdef DomainDecomposition __deepcopy__(self, dict memo)

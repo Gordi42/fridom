@@ -43,11 +43,11 @@ cdef list _make_slice_list(slice s, int n_dims):
     """
     cdef list slice_list = []
     cdef int i
-    cdef tuple full_slice
+    cdef list full_slice
     for i in range(n_dims):
-        full_slice = tuple(slice(None) for _ in range(n_dims))
+        full_slice = [slice(None) for _ in range(n_dims)]
         full_slice[i] = s
-        slice_list.append(full_slice)
+        slice_list.append(tuple(full_slice))
     return slice_list
 
 cdef void set_device():
@@ -308,26 +308,13 @@ cdef class DomainDecomposition:
             arr[self._recv_from_next[axis]] = bc
         return
 
-    cpdef object __deepcopy__(self, dict memo):
-        cdef object deepcopy_obj = object.__new__(self.__class__)
+    cpdef DomainDecomposition __deepcopy__(self, dict memo):
+        cdef list n_global = deepcopy(self.n_global, memo)
+        cdef int halo = self.halo
+        cdef list shared_axes = deepcopy(self.shared_axes, memo)
+        cdef DomainDecomposition deepcopy_obj = DomainDecomposition(
+            n_global, halo, shared_axes)
         memo[id(self)] = deepcopy_obj  # Store in memo to handle self-references
-        cdef str key
-        cdef object value
-        cdef list list_copy
-        for key, value in vars(self).items():
-            if isinstance(value, list):
-                list_copy = []
-                for item in value:
-                    if isinstance(item, MPI.Cartcomm):
-                        list_copy.append(item)
-                    else:
-                        list_copy.append(deepcopy(item, memo))
-                setattr(deepcopy_obj, key, list_copy)
-            # check if value is of type mpi4py.MPI.Cartcomm
-            elif isinstance(value, MPI.Cartcomm):
-                setattr(deepcopy_obj, key, value)
-            else:
-                setattr(deepcopy_obj, key, deepcopy(value, memo))
         return deepcopy_obj
 
     # ================================================================
@@ -336,3 +323,39 @@ cdef class DomainDecomposition:
     property n_dims:
         def __get__(self):
             return self.n_dims
+
+    property n_global:
+        def __get__(self):
+            return self.n_global
+
+    property halo:
+        def __get__(self):
+            return self.halo
+
+    property n_procs:
+        def __get__(self):
+            return self.n_procs
+
+    property shared_axes:
+        def __get__(self):
+            return self.shared_axes
+
+    property comm:
+        def __get__(self):
+            return self.comm
+    
+    property size:
+        def __get__(self):
+            return self.size
+    
+    property rank:
+        def __get__(self):
+            return self.rank
+    
+    property all_subdomains:
+        def __get__(self):
+            return self.all_subdomains
+
+    property my_subdomain:
+        def __get__(self):
+            return self.my_subdomain
