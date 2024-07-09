@@ -1,4 +1,5 @@
 import pytest
+import numpy as np
 from copy import deepcopy
 import fridom.framework as fr
 
@@ -18,7 +19,7 @@ def test_fft2D(backend, in_halo, out_halo, n_global):
     subdom_sp = domain_sp.my_subdomain
 
     # create random array
-    ncp.random.seed(0)  # random numbers are the same for all ranks
+    ncp.random.seed(np.uint64(0))  # random numbers are the same for all ranks
     u_global = ncp.random.rand(*domain_ph.n_global)
 
     u = ncp.zeros(domain_ph.my_subdomain.shape)
@@ -54,7 +55,7 @@ def test_fft3D(backend, in_halo, out_halo, n_global, shared_axes):
     subdom_sp = domain_sp.my_subdomain
 
     # create random array
-    ncp.random.seed(0)  # random numbers are the same for all ranks
+    ncp.random.seed(np.uint64(0))  # random numbers are the same for all ranks
     u_global = ncp.random.rand(*domain_ph.n_global)
 
     u = ncp.zeros(domain_ph.my_subdomain.shape)

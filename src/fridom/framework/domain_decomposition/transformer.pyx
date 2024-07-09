@@ -57,6 +57,7 @@ cdef dict get_overlap_info(DomainDecomposition domain_in,
     of the domain2.")
     ```
     """
+    cdef tuple overlap_slice
     cdef list overlap_slices = []
     cdef list processors = []
     cdef tuple slice_same_proc = None
@@ -162,7 +163,7 @@ cdef object transform(DomainDecomposition domain_in,
     MPI.Request.Waitall(reqs)
 
     # copy the received data to the new array
-    cdef slice recv_slice
+    cdef tuple recv_slice
     cdef object buf
     for recv_slice, buf in zip(recv_slices, bufs):
         arr_out[recv_slice] = buf
