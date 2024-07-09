@@ -5,9 +5,9 @@ from .subdomain cimport Subdomain
 cdef class DomainDecomposition:
     # public attributes
     cdef int n_dims
-    cdef list n_global
+    cdef tuple n_global
     cdef int halo
-    cdef list n_procs
+    cdef tuple n_procs
     cdef list shared_axes
     cdef object comm
     cdef int size

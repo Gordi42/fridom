@@ -3,7 +3,10 @@
 cdef class GridBase:
     # attributes
     cdef int n_dims
-    cdef list periodic_bounds
+    cdef tuple N
+    cdef tuple L
+    cdef int total_grid_points
+    cdef tuple periodic_bounds
     cdef tuple inner_slice
     cdef tuple X
     cdef tuple x_global

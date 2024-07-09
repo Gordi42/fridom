@@ -29,6 +29,10 @@ def to_numpy(obj, memo=None, _nil=[]):
     if y is not _nil:
         return y
 
+    # if the object has a _to_numpy method, call it
+    if hasattr(obj, '_to_numpy'):
+        return obj._to_numpy(memo)
+
     # if the object is a cupy array, convert it to numpy and return it
     if isinstance(obj, cp.ndarray):
         memo[d] = cp.asnumpy(obj)

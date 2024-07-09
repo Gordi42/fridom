@@ -119,6 +119,18 @@ class GridBase:
         """The number of dimensions of the grid."""
 
     @property
+    def N(self) -> tuple[int]:
+        """The number of grid points in each dimension."""
+
+    @property
+    def L(self) -> tuple[float]:
+        """The length of the grid in each dimension."""
+
+    @property
+    def total_grid_points(self) -> int:
+        """The total number of grid points in the grid."""
+
+    @property
     def periodic_bounds(self) -> list[bool]:
         """A tuple of booleans indicating whether the grid is periodic 
         in each dimension."""
@@ -146,3 +158,15 @@ class GridBase:
     @property
     def dV(self) -> np.ndarray:
         """The volume element of the grid."""
+
+    # ================================================================
+    #  Flags
+    # ================================================================
+
+    @property
+    def fourier_transform_available(self) -> bool:
+        """Indicates whether the grid supports fast fourier transforms."""
+
+    @property
+    def mpi_available(self) -> bool:
+        """Indicates whether the grid supports MPI parallelization."""

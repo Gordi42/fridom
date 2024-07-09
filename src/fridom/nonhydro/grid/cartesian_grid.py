@@ -14,11 +14,11 @@ class CartesianGrid(CartesianGridBase):
     
     Parameters
     ----------
-    `N` : `list[int]`
+    `N` : `tuple[int]`
         Number of grid points in each direction.
-    `L` : `list[int]`
+    `L` : `tuple[int]`
         Domain size in each direction (in meters).
-    `periodic_bounds` : `list[bool]`
+    `periodic_bounds` : `tuple[bool]`
         Whether the domain is periodic in each direction.
     `decomposition` : `str`
         The decomposition of the domain ('slab' or 'pencil').
@@ -32,8 +32,8 @@ class CartesianGrid(CartesianGridBase):
     `omega_time_discrete` : `np.ndarray`
         Dispersion relation with space-time-discretization effects
     """
-    def __init__(self, N: list[int], L: list[int],
-                 periodic_bounds: list[bool] = [True, True, True],
+    def __init__(self, N: tuple[int], L: tuple[int],
+                 periodic_bounds: tuple[bool] = (True, True, True),
                  decomposition: str = 'slab'):
         if decomposition == 'slab':
             shared_axes = [0, 1]

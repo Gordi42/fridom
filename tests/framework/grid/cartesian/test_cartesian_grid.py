@@ -22,17 +22,17 @@ def n_dims(request):
 def L(n_dims):
     match n_dims:
         case 1:
-            return [1.0]
+            return (1.0, )
         case 2:
-            return [1.0, 2.0]
+            return (1.0, 2.0)
 
 @pytest.fixture()
 def N(n_dims):
     match n_dims:
         case 1:
-            return [64]
+            return (64, )
         case 2:
-            return [32, 128]
+            return (32, 128)
         
 @pytest.fixture()
 def dx(L, N):

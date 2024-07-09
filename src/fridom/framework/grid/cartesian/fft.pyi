@@ -17,13 +17,13 @@ class FFT:
         
     Parameters
     ----------
-    `periodic` : `list[bool]`
+    `periodic` : `tuple[bool]`
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
     
     Methods
     -------
-    `get_freq(shape, dx, periodic)`
+    `get_freq(shape: tuple, dx: tuple)`
         Get (kx, ky, ...) frequencies for the given shape and dx.
     `forward(u: np.ndarray, axes: list[int] | None = None) -> np.ndarray`
         Forward transform from physical space to spectral space.
@@ -34,18 +34,18 @@ class FFT:
     --------
     >>> import numpy as np
     >>> from fridom.framework.grid.cartesian import FFT
-    >>> fft = FFT(periodic=[True, True, False])
-    >>> u = np.random.rand(*[32, 32, 8])
+    >>> fft = FFT(periodic=(True, True, False))
+    >>> u = np.random.rand(*(32, 32, 8))
     >>> v = fft.forward(u)
     >>> w = fft.backward(v).real
     >>> assert np.allclose(u, w)
 
     """
-    def __init__(self, periodic: list[bool]) -> None: ...
+    def __init__(self, periodic: tuple[bool]) -> None: ...
 
     def get_freq(self, 
-                 shape: list[int], 
-                 dx: list[float], ) -> tuple[np.ndarray]:
+                 shape: tuple[int], 
+                 dx: tuple[float], ) -> tuple[np.ndarray]:
         """
         Get the frequencies for the given shape and dx.
         
@@ -70,9 +70,9 @@ class FFT:
         --------
         >>> import numpy as np
         >>> from fridom.framework.grid.cartesian import FFT
-        >>> fft = FFT(periodic=[True, True, False])
-        >>> shape = [32, 32, 8]  # Number of grid points in x,y,z
-        >>> dx = [0.1, 0.1, 0.1]  # Grid spacing in x,y,z
+        >>> fft = FFT(periodic=(True, True, False))
+        >>> shape = (32, 32, 8)  # Number of grid points in x,y,z
+        >>> dx = (0.1, 0.1, 0.1)  # Grid spacing in x,y,z
         >>> kx, ky, kz = fft.get_freq(shape, dx)
         >>> KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
         """

@@ -25,7 +25,7 @@ def n_fields(request):
 
 @pytest.fixture()
 def mset(backend, n_dims):
-    grid = fr.grid.CartesianGrid(N=[32]*n_dims, L=[1.0]*n_dims, 
+    grid = fr.grid.CartesianGrid(N=tuple([32]*n_dims), L=tuple([1.0]*n_dims), 
                                  shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
@@ -45,7 +45,7 @@ def state(mset, field_list, is_spectral):
 
 @pytest.fixture()
 def mset_1d(backend):
-    grid = fr.grid.CartesianGrid(N=[3], L=[1.0], shared_axes=[0])
+    grid = fr.grid.CartesianGrid(N=(3,), L=(1.0,), shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset

@@ -1,12 +1,12 @@
 # cython: language_level=3
 
 cdef class Subdomain:
-    cdef list n_global
+    cdef tuple n_global
     cdef int halo
     cdef int rank
-    cdef list coord
-    cdef list is_left_edge
-    cdef list is_right_edge
+    cdef tuple coord
+    cdef tuple is_left_edge
+    cdef tuple is_right_edge
     cdef tuple shape
     cdef tuple inner_shape
     cdef tuple position

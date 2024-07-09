@@ -2,7 +2,7 @@
 from fridom.framework import config
 
 cdef class FFT:
-    def __init__(self, list periodic):
+    def __init__(self, tuple periodic):
         # --------------------------------------------------------------
         #  Check which axis to apply fft, dct
         # --------------------------------------------------------------
@@ -25,7 +25,7 @@ cdef class FFT:
         self._dct_axes = dct_axes
         return
 
-    cpdef tuple get_freq(self, list shape, list dx):
+    cpdef tuple get_freq(self, tuple shape, tuple dx):
         cdef object ncp = config.ncp
         cdef list k = []
         for i in range(len(shape)):

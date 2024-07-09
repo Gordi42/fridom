@@ -1,16 +1,16 @@
 # cython: language_level=3
 
 cdef class Subdomain:
-    def __init__(self, int rank, object comm, list n_global, 
+    def __init__(self, int rank, object comm, tuple n_global, 
                  int halo = 0):
         # get the processor coordinates and dimensions of the processor grid
         cdef int n_dims = len(n_global)
-        cdef list coord = comm.Get_coords(rank)  # processor coordinates
-        cdef list n_procs = comm.Get_topo()[0]   # number of processors in each dim.
+        cdef tuple coord = tuple(comm.Get_coords(rank)) # processor coordinates
+        cdef tuple n_procs = tuple(comm.Get_topo()[0])  # number of processors in each dim.
 
         # check if a processor is at the edge of the global domain
-        cdef list is_left_edge = [c == 0 for c in coord]
-        cdef list is_right_edge = [c == n-1 for c,n in zip(coord, n_procs)]
+        cdef tuple is_left_edge = tuple([c == 0 for c in coord])
+        cdef tuple is_right_edge = tuple([c == n-1 for c,n in zip(coord, n_procs)])
 
         # get the number of grid points in the local domain (the inner shape)
         # we decompose the number of grid points in the local domain into the

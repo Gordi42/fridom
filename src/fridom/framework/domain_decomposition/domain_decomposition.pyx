@@ -80,7 +80,7 @@ cdef void set_device():
     return
 
 cdef class DomainDecomposition:
-    def __init__(self, list n_global, int halo = 0, list shared_axes = None,
+    def __init__(self, tuple n_global, int halo = 0, list shared_axes = None,
                  bint reorder_comm = True):
         # set input parameters
         cdef int n_dims = len(n_global)
@@ -170,7 +170,7 @@ cdef class DomainDecomposition:
         self.n_dims = n_dims           # number of dimensions
         self.n_global = n_global       # total number of grid points
         self.halo = halo               # number of halo cells
-        self.n_procs = n_procs         # number of processors in each direction
+        self.n_procs = tuple(n_procs)  # number of processors in each direction
         self.shared_axes = shared_axes # axes that are shared between processors
         self.comm = comm               # communicator
         self.size = size               # number of processors
@@ -311,7 +311,7 @@ cdef class DomainDecomposition:
         return
 
     cpdef DomainDecomposition __deepcopy__(self, dict memo):
-        cdef list n_global = deepcopy(self.n_global, memo)
+        cdef tuple n_global = deepcopy(self.n_global, memo)
         cdef int halo = self.halo
         cdef list shared_axes = deepcopy(self.shared_axes, memo)
         cdef DomainDecomposition deepcopy_obj = DomainDecomposition(

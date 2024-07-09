@@ -24,6 +24,14 @@ def test_cupy_list_to_numpy(backend):
     for yi in y:
         assert isinstance(yi, np.ndarray)
 
+def test_cupy_tuple_to_numpy(backend):
+    x = tuple(fr.config.ncp.random.rand(10) for _ in range(3))
+    if backend != "numpy":
+        assert not isinstance(x[0], np.ndarray)
+    y = to_numpy(x)
+    for yi in y:
+        assert isinstance(yi, np.ndarray)
+
 def test_recursion(backend):
     x = fr.config.ncp.random.rand(10)
     y = [x, x]
@@ -38,9 +46,11 @@ def test_numpy_generic(backend):
     assert isinstance(y, np.float64)
 
 def test_mset_to_numpy(backend):
-    grid = fr.grid.CartesianGrid(N=[32, 32, 8], L=[1, 1, 1])
+    grid = fr.grid.CartesianGrid(N=(32, 32, 8), L=(1, 1, 1))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
+
     mset_cpu = to_numpy(mset)
     grid_cpu = mset_cpu.grid
+
     assert isinstance(grid_cpu.X[0], np.ndarray)

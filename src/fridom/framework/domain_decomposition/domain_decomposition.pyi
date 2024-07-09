@@ -38,7 +38,7 @@ class DomainDecomposition:
 
     Parameters
     ----------
-    `n_global` : `list[int]`
+    `n_global` : `tuple[int]`
         The total number of grid points in each dimension.
     `halo` : `int`, optional (default=0)
         The number of halo cells (ghost cells) around the local domain
@@ -52,11 +52,11 @@ class DomainDecomposition:
     ----------
     `n_dims` : `int`
         The number of dimensions.
-    `n_global` : `list[int]`
+    `n_global` : `tuple[int]`
         The total number of grid points in each dimension.
     `halo` : `int`
         The number of halo cells (ghost cells) around the local domain.
-    `n_procs` : `list[int]`
+    `n_procs` : `tuple[int]`
         The number of processors in each direction.
     `shared_axes` : `list[int]`
         A list of axes that are shared between processors. A shared axis is an
@@ -89,7 +89,7 @@ class DomainDecomposition:
     >>> from fridom.framework.domain_decomposition import DomainDecomposition
     >>> # create a domain decomposition that shares the x-axis
     >>> dom = DomainDecomposition(
-            n_global=[128]*2, halo=2, shared_axes=[0])
+            n_global=(128, 128), halo=2, shared_axes=[0])
     >>> 
     >>> # create a random array on the local domain
     >>> u = config.ncp.random.rand(*dom_x.my_subdomain.shape)
@@ -99,7 +99,7 @@ class DomainDecomposition:
     """
     def __init__(
             self, 
-            n_global: 'list[int]', 
+            n_global: 'tuple[int]', 
             halo: int = 0,
             shared_axes: 'list[int] | None' = None, 
             reorder_comm = True,
@@ -128,7 +128,7 @@ class DomainDecomposition:
         >>> from fridom.framework import config
         >>> from fridom.framework.domain_decomposition import DomainDecomposition
         >>> # create a domain decomposition
-        >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
+        >>> domain = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
         >>> # create a random array on the local domain
         >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
         >>> # synchronize the halo regions between neighboring domains
@@ -159,7 +159,7 @@ class DomainDecomposition:
         >>> from fridom.framework import config
         >>> from fridom.framework.domain_decomposition import DomainDecomposition
         >>> # create a domain decomposition
-        >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
+        >>> domain = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
         >>> # create a random array on the local domain
         >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
         >>> v = config.ncp.random.rand(domain.my_subdomain.shape)
@@ -211,7 +211,7 @@ class DomainDecomposition:
         """The number of dimensions."""
 
     @property
-    def n_global(self) -> list[int]:
+    def n_global(self) -> tuple[int]:
         """The total number of grid points in each dimension."""
 
     @property
@@ -219,7 +219,7 @@ class DomainDecomposition:
         """The number of halo cells (ghost cells) around the local domain."""
 
     @property
-    def n_procs(self) -> list[int]:
+    def n_procs(self) -> tuple[int]:
         """The number of processors in each direction."""
 
     @property

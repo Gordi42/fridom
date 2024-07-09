@@ -1,9 +1,11 @@
 # cython: language_level=3
 
 cdef class GridBase:
-    def __init__(self, int n_dims):
+    def __init__(self, tuple N, tuple L, int n_dims):
         # attributes
         self.n_dims = n_dims        # read-only
+        self.N = N
+        self.L = L
         self.periodic_bounds = None
         self.inner_slice = tuple(slice(None) for _ in range(n_dims))
         self.X = None               # read-only
@@ -42,6 +44,10 @@ cdef class GridBase:
     property n_dims:
         def __get__(self):
             return self.n_dims
+
+    property total_grid_points:
+        def __get__(self):
+            return self.total_grid_points
 
     property periodic_bounds:
         def __get__(self):

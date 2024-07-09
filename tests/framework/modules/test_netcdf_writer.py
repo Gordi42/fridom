@@ -36,7 +36,7 @@ def netcdf_module(directory_name):
 
 @pytest.fixture()
 def mset(backend):
-    grid = fr.grid.CartesianGrid(N=[128, 64], L=[1, 1])
+    grid = fr.grid.CartesianGrid(N=(128, 64), L=(1, 1))
     mset = fr.ModelSettingsBase(grid=grid)
     mset.setup()
     def state_constructor():
