@@ -1,24 +1,6 @@
 # cython: language_level=3
 
 cdef class GridBase:
-    # attributes
-    cdef int n_dims
-    cdef list periodic_bounds
-    cdef tuple inner_slice
-    cdef tuple X
-    cdef tuple x_global
-    cdef tuple x_local
-    cdef tuple dx
-    cdef object dV
-
-    # flags
-    cdef bint fourier_transform_available
-    cdef bint mpi_available
-
-    # private attribute for deepcopy
-    cdef GridBase _cpu
-
-
     def __init__(self, int n_dims):
         # attributes
         self.n_dims = n_dims        # read-only
