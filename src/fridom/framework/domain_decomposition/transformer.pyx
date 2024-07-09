@@ -1,5 +1,5 @@
 # cython: language_level=3
-from mpi4py cimport MPI
+from mpi4py import MPI
 from .domain_decomposition cimport DomainDecomposition
 from .subdomain cimport Subdomain
 from fridom.framework import config

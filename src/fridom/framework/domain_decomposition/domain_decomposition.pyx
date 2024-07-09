@@ -1,5 +1,4 @@
 # cython: language_level=3
-from mpi4py cimport MPI
 from mpi4py import MPI
 from copy import deepcopy
 
@@ -68,7 +67,7 @@ cdef void set_device():
     `backend_is_cupy` : `bool`
         Whether the backend is cupy or not.
     """
-    cdef MPI.Comm comm_node
+    cdef object comm_node
     cdef int node_rank, num_gpus, device_id
     if config.backend == "cupy":
         import cupy as cp
@@ -111,7 +110,7 @@ cdef class DomainDecomposition:
         # --------------------------------------------------------------
         #  Initialize the communicators
         # --------------------------------------------------------------
-        cdef MPI.Cartcomm comm = MPI.COMM_WORLD.Create_cart(
+        cdef object comm = MPI.COMM_WORLD.Create_cart(
             n_procs, periods=[True]*n_dims, reorder=reorder_comm)
         cdef int size = comm.Get_size()
         cdef int rank = comm.Get_rank()

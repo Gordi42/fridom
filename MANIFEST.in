@@ -1,2 +1,2 @@
 include *.py 
-recursive-include mypackage *.py *.pyx
+recursive-include fridom *.py *.pyx

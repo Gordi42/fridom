@@ -1,6 +1,5 @@
 # cython: language_level=3
 
-from mpi4py cimport MPI
 from .subdomain cimport Subdomain
 
 cdef class DomainDecomposition:
@@ -10,7 +9,7 @@ cdef class DomainDecomposition:
     cdef int halo
     cdef list n_procs
     cdef list shared_axes
-    cdef MPI.Cartcomm comm
+    cdef object comm
     cdef int size
     cdef int rank
     cdef list all_subdomains

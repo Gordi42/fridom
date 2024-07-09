@@ -41,3 +41,18 @@ and make the file executable with
 chmod +x ~/my_envs/fridom/bin/python
 ```
 Finally we go into VSCode open the command palette and search for `select interpreter`. There we enter the path of the new python program.
+
+
+
+
+export OMPI_MCA_osc="ucx"
+export OMPI_MCA_pml="ucx"
+export OMPI_MCA_btl="self"
+export UCX_HANDLE_ERRORS="bt"
+export OMPI_MCA_pml_ucx_opal_mem_hooks=1
+export LD_PRELOAD=/sw/spack-levante/pmix-3.2.1-chn3vj/lib/libpmi2.so.1.0.0
+export LD_LIBRARY_PATH=/sw/spack-levante/openmpi-4.1.6-mjsagq/lib
+export MPICC=/sw/spack-levante/openmpi-4.1.6-mjsagq/bin/mpicc
+ml python3 openmpi/4.1.6-nvhpc-23.9 nvhpc/23.9-gcc-11.2.0
+source activate
+mamba install jaxlib=*=*cuda* jax cuda-nvcc -c conda-forge -c nvidia
