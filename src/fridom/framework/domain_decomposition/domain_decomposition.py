@@ -509,12 +509,6 @@ class DomainDecomposition:
                 setattr(deepcopy_obj, key, deepcopy(value, memo))
         return deepcopy_obj
 
-    def __del__(self):
-        self._comm.Free()
-        for comm in self._subcomms:
-            comm.Free()
-        return
-
     # ================================================================
     #  Properties
     # ================================================================

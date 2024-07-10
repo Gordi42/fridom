@@ -112,7 +112,7 @@ class ParallelFFT:
     ...     .domain_decomposition import DomainDecomposition, ParallelFFT
     >>> # Create a 3D physical domain that is decomposed along the z-axis and
     >>> # two halo points at each side of the domain
-    >>> domain = DomainDecomposition(n_global=[64]*3, shared_axes=[0,1], halo=2)
+    >>> domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1], halo=2)
     >>> 
     >>> # Create a ParallelFFT with a spectral domain that is decomposed along 
     >>> # the kx-axes and zero halo points
@@ -240,9 +240,9 @@ class ParallelFFT:
         # -------------------------------------------------------------
         #  Set the attributes
         # -------------------------------------------------------------
-
-        self.domain_in = domain_in
-        self.domain_out = domain_out
+        # public readable attributes
+        self._domain_in = domain_in
+        self._domain_out = domain_out
 
         # private attributes
         self._forward_transforms = forward_transforms
@@ -250,13 +250,13 @@ class ParallelFFT:
         self._fft_axes = fft_axes
         return
 
-    def forward(self, u: np.ndarray) -> np.ndarray:
+    def forward(self, arr: np.ndarray) -> np.ndarray:
         """
         Perform a forward fourier transform on the input data.
         
         Parameters
         ----------
-        `u` : `np.ndarray`
+        `arr` : `np.ndarray`
             The input data to be fourier transformed (can be real or complex)
         
         Returns
@@ -270,7 +270,7 @@ class ParallelFFT:
         >>> from fridom.framework \\
         ...     .domain_decomposition import DomainDecomposition, ParallelFFT
         >>> # Create the domain decomposition and the ParallelFFT object
-        >>> domain = DomainDecomposition(n_global=[64]*3, shared_axes=[0,1])
+        >>> domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
         >>> pfft = ParallelFFT(domain)
         >>> 
         >>> # Create a random field in the physical domain
@@ -280,9 +280,9 @@ class ParallelFFT:
         >>> # Perform a forward transform
         >>> u_hat = pfft.forward(u)
         """
-        return self.forward_apply(u, config.ncp.fft.fftn)
+        return self.forward_apply(arr, config.ncp.fft.fftn)
 
-    def backward(self, u_hat: np.ndarray) -> np.ndarray:
+    def backward(self, arr: np.ndarray) -> np.ndarray:
         """
         Perform a backward fourier transform on the input data.
         
@@ -304,7 +304,7 @@ class ParallelFFT:
         >>> from fridom.framework \\
         ...     .domain_decomposition import DomainDecomposition, ParallelFFT
         >>> # Create the domain decomposition and the ParallelFFT object
-        >>> domain = DomainDecomposition(n_global=[64]*3, shared_axes=[0,1])
+        >>> domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
         >>> pfft = ParallelFFT(domain)
         >>>
         >>> # Get the spectral domain
@@ -316,9 +316,9 @@ class ParallelFFT:
         >>> # Perform a backward transform
         >>> u = pfft.backward(u)  # will be complex
         """
-        return self.backward_apply(u_hat, config.ncp.fft.ifftn)
+        return self.backward_apply(arr, config.ncp.fft.ifftn)
 
-    def forward_apply(self, u: np.ndarray, apply_fun: callable) -> np.ndarray:
+    def forward_apply(self, arr: np.ndarray, apply_fun: callable) -> np.ndarray:
         """
         Do a forward transform while applying a function to the data at each step.
         
@@ -333,7 +333,7 @@ class ParallelFFT:
         
         Parameters
         ----------
-        `u` : `np.ndarray`
+        `arr` : `np.ndarray`
             The input data to be transformed
         `apply_fun` : `callable`
             The function that will be applied to the data at each step, should have
@@ -361,7 +361,7 @@ class ParallelFFT:
         ...     return u
         >>> 
         >>> # Create the domain decomposition and the ParallelFFT object
-        >>> domain = DomainDecomposition(n_global=[64]*2, shared_axes=[0])
+        >>> domain = DomainDecomposition(n_global=(64, 64), shared_axes=[0])
         >>> pfft = ParallelFFT(domain)
         >>> 
         >>> # Create a random field in the physical domain
@@ -371,18 +371,18 @@ class ParallelFFT:
         >>> # Perform a custom forward transform
         >>> u_hat = pfft.forward_apply(u, my_custom_transform)
         """
-        return transform(u, self.domain_in, self.domain_out,
+        return transform(arr, self._domain_in, self._domain_out,
                         self._forward_transforms, self._fft_axes,
                         apply_fun)
 
-    def backward_apply(self, u: np.ndarray, apply_fun: callable) -> np.ndarray:
+    def backward_apply(self, arr: np.ndarray, apply_fun: callable) -> np.ndarray:
         """
         The same as the forward_apply method but for the backward transform.
         For more information see the forward_apply method.
         
         Parameters
         ----------
-        `u` : `np.ndarray`
+        `arr` : `np.ndarray`
             The input data to be transformed (lives in the output domain)
         `apply_fun` : `callable`
             The function that will be applied to the data at each step, should have
@@ -393,7 +393,20 @@ class ParallelFFT:
         `np.ndarray`
             The transformed data (lives in the input domain)
         """
-        return transform(u, self.domain_out, self.domain_in,
+        return transform(arr, self._domain_out, self._domain_in,
                         self._backward_transforms, self._fft_axes[::-1],
                         apply_fun)
 
+    # ================================================================
+    #  Properties
+    # ================================================================
+
+    @property
+    def domain_in(self) -> DomainDecomposition:
+        """The domain decomposition of the input data"""
+        return self._domain_in
+
+    @property
+    def domain_out(self) -> DomainDecomposition:
+        """The domain decomposition of the output data"""
+        return self._domain_out
