@@ -19,7 +19,7 @@ class BoundaryConditions(Module):
     def __init__(self, name: str = "BoundaryConditions"):
         super().__init__(name=name)
 
-    def update_boundary_conditions(self, mz: 'ModelState', dz: 'State') -> None:
+    def update_boundary_conditions(self, mz: 'ModelState') -> None:
         self.apply_boundary_conditions(mz.z)
         return
     

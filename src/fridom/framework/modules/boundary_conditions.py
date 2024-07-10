@@ -90,7 +90,7 @@ class BoundaryConditions(Module):
         return
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'StateBase'):
+    def update(self, mz: 'ModelState'):
         # first loop over all fields
         for field in self._fields:
             f = getattr(mz.z, field)  # get the field

@@ -157,7 +157,7 @@ class Model:
         Update the model state by one time step.
         """
         self.time_stepper.update_tendency()
-        dz = self.time_stepper.dz
+        self.model_state.dz = self.time_stepper.dz
 
         # synchronize the state vector (ghost points)
         self.timer.get("sync").start()
@@ -165,15 +165,15 @@ class Model:
         self.timer.get("sync").stop()
 
         # apply boundary conditions to the state variable
-        self.bc.update(mz=self.model_state, dz=dz)
+        self.bc.update(mz=self.model_state)
 
         # calculate tendency
-        self.tendencies.update(mz=self.model_state, dz=dz)
+        self.tendencies.update(mz=self.model_state)
 
         self.time_stepper.update(mz=self.model_state)
 
         # make diagnostics
-        self.diagnostics.update(self.model_state, dz)
+        self.diagnostics.update(self.model_state)
         return
 
     

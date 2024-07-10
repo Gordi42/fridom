@@ -5,7 +5,6 @@ from fridom.framework import config
 from fridom.framework.modules.module import Module, update_module
 # Import type information
 if TYPE_CHECKING:
-    from fridom.nonhydro.state import State
     from fridom.framework.model_state import ModelState
 
 class SpectralPressureSolver(Module):
@@ -17,7 +16,7 @@ class SpectralPressureSolver(Module):
         self.required_halo = 0
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'State') -> None:
+    def update(self, mz: 'ModelState') -> None:
         ps = mz.z_diag.div.fft() / (-self.grid.k2_hat)
         ps[self.grid.k2_hat_zero] = 0
         mz.z_diag.p[:] = ps.fft()

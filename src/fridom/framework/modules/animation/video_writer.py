@@ -41,7 +41,7 @@ class VideoWriter(Module):
         Start the video writing process.
     `stop()`
         Stop the video writing process.
-    `update(mz, dz)`
+    `update(mz)`
         Add a new frame to the video.
     `show_video(width)`
         Show the video in the Jupyter notebook.
@@ -109,7 +109,7 @@ class VideoWriter(Module):
         return
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'StateBase'):
+    def update(self, mz: 'ModelState'):
         """
         Update method of the parallel animated model.
         """

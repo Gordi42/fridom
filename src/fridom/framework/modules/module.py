@@ -60,9 +60,9 @@ class Module:
     argument which are stored as attributes. Always call the parent constructor 
     with `super().__init__(name, **kwargs)`. The name of the module is stored in
     the timing module and should not be too long.
-    2. `update(self, mz: ModelState, dz: StateBase) -> None`: This method is
+    2. `update(self, mz: ModelState) -> None`: This method is
     called by the model at each time step. It can for example update the 
-    tendency state `dz` based on the model state `mz`. Or write the model state
+    tendency state `mz.dz` based on the model state `mz`. Or write the model state
     to a file. Make sure to wrap the method with the `@update_module` decorator.
 
     Optional methods:
@@ -110,7 +110,7 @@ class Module:
         Stop the module.
     `reset()`
         Stop and start the module.
-    `update(mz, dz)`
+    `update(mz)`
         Update the module.
     `enable()`
         Enable the module.
@@ -131,7 +131,7 @@ class Module:
     ...    def start(self):
     ...        self.number = 0  # sets the number to 0
     ...    @fr.modules.update_module
-    ...    def update(self, mz: fr.ModelSettingsBase, dz: fr.StateBase) -> None:
+    ...    def update(self, mz: fr.ModelSettingsBase) -> None:
     ...        self.number += 1  # increments the number by 1
     ...    @fr.modules.stop_module
     ...    def stop(self):
@@ -190,7 +190,7 @@ class Module:
         return
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'StateBase') -> None:
+    def update(self, mz: 'ModelState') -> None:
         """
         Update the module
         
@@ -202,8 +202,6 @@ class Module:
         ----------
         `mz` : `ModelState`
             The model state at the current time step.
-        `dz` : `StateBase`
-            The tendency state at the current time step.
         """
         pass
 

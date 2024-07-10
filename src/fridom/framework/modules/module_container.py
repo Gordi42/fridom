@@ -67,12 +67,12 @@ class ModuleContainer(Module):
         return
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'StateBase') -> None:
+    def update(self, mz: 'ModelState') -> None:
         """
         Update all modules.
         """
         for module in self.module_list:
-            module.update(mz=mz, dz=dz)
+            module.update(mz=mz)
         return
 
     def add_module(self, module) -> None:

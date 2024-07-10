@@ -50,18 +50,18 @@ def test_start(mset, timer):
     module = Increment()
     assert module.number == None
     # start the module
-    module.start(mset=mset, timer=timer)
+    module.start(mset=mset)
     # check if the number is 0
     assert module.number == 0
     # check if the grid, mset, and timer are set
     assert module.mset == mset
     assert module.grid == mset.grid
-    assert module.timer == timer
+    assert module.timer == mset.timer
 
     # now testing a disabled module
     module = Increment()
     module.disable()
-    module.start(mset=mset, timer=timer)
+    module.start(mset=mset)
     # check if everything is still None
     assert module.number == None
     assert module.grid == None

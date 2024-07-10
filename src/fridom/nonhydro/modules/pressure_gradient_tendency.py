@@ -29,8 +29,9 @@ class PressureGradientTendency(Module):
         return
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'State') -> None:
+    def update(self, mz: 'ModelState') -> None:
         p = mz.z_diag.p
+        dz = mz.dz
 
         # Slices
         c = slice(1,-1); f = slice(2,None)

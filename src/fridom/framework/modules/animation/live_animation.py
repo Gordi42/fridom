@@ -31,7 +31,7 @@ class LiveAnimation(Module):
     -------
     `start()`
         Initialize the figure
-    `update(mz, dz)`
+    `update(mz)`
         Update the figure from the model state and display it
     
     Examples
@@ -58,7 +58,7 @@ class LiveAnimation(Module):
         self.fig = self.model_plotter.create_figure()
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'StateBase'):
+    def update(self, mz: 'ModelState'):
         """
         Update the figure from the model state and display it.
         

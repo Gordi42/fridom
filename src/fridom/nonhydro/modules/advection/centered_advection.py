@@ -44,13 +44,12 @@ class CenteredAdvection(Module):
         return
         
     @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
+    def update(self, mz: ModelState) -> None:
         """
         Compute the advection term of the state vector z.
 
         Args:
             mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
         """
         # calculate the full velocity field
         # in future, this enables the use of a background velocity field
@@ -63,7 +62,7 @@ class CenteredAdvection(Module):
         inter_zf = inter.sym_zf; inter_zb = inter.sym_zb
         uf = zf.u; vf = zf.v; wf = zf.w
         u  = mz.z.u;  v  = mz.z.v;  w  = mz.z.w
-        du = dz.u; dv = dz.v; dw = dz.w
+        du = mz.dz.u; dv = mz.dz.v; dw = mz.dz.w
         bcx = self.bcx; bcy = self.bcy; bcz = self.bcz
 
         # -----------------------------------
@@ -199,9 +198,9 @@ class CenteredAdvection(Module):
         fz = self.grid.cp.pad(fz, ((0,0), (0,0), (1,0)), bcz)
 
         # calculate the flux divergence => tendency term
-        dz.b[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
+        mz.dz.b[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
 
-        return dz
+        return
 
 
     def flux_divergence(self, flux_x, flux_y, flux_z):

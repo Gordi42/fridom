@@ -44,7 +44,7 @@ class NetCDFWriterSingleProc(Module):
     -------
     `start()`
         Start the parallel writer process.
-    `update(mz, dz)`
+    `update(mz)`
         Write data to binary files and add them to the NetCDF file.
     `stop()`
         Stop the parallel writer process.
@@ -114,7 +114,7 @@ class NetCDFWriterSingleProc(Module):
         return
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'StateBase'):
+    def update(self, mz: 'ModelState'):
         """
         Write data to binary files and add them to the NetCDF file.
         """

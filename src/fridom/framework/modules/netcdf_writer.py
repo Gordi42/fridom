@@ -39,7 +39,7 @@ class NetCDFWriter(Module):
         A function that returns a list of field variables that should be written 
         to the file. If None, all fields of the State object will be written.
         The function signature of get_variables is:
-        `get_variables(mz: 'ModelState', dz: 'StateBase') -> list[FieldVariable]`
+        `get_variables(mz: 'ModelState') -> list[FieldVariable]`
     
     Examples
     --------
@@ -49,7 +49,7 @@ class NetCDFWriter(Module):
     >>> mset = nh.ModelSettingsBase(...)  # ... is a placeholder for the arguments
     >>> # create a NetCDFWriter object that outputs, u, v, and p
     >>> nc_writer = nh.modules.NetCDFWriter(
-    ...     get_variables = lambda mz, dz: [mz.u, mz.v, mz.z_diag.p],
+    ...     get_variables = lambda mz: [mz.u, mz.v, mz.z_diag.p],
     ...     write_interval = np.timedelta64(1, 'h'))
     >>> # add the NetCDFWriter object to the diagnostics
     >>> mset.diagnostics.add_module(nc_writer)
@@ -71,7 +71,7 @@ class NetCDFWriter(Module):
         super().__init__(name = name)
 
         if get_variables is None:
-            def get_variables(mz: 'ModelState', dz: 'StateBase'):
+            def get_variables(mz: 'ModelState'):
                 return mz.z.field_list
 
         if snap_slice is not None:
@@ -117,7 +117,7 @@ class NetCDFWriter(Module):
             self._close_file()
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'StateBase'):
+    def update(self, mz: 'ModelState'):
         time = mz.time
         # ----------------------------------------------------------------
         #  Check if the model time is in the writing range
@@ -166,16 +166,16 @@ class NetCDFWriter(Module):
                 while time - start_time >= self.restart_interval:
                     start_time += self.restart_interval
             self._current_start_time = start_time
-            self._create_file(mz, dz)
+            self._create_file(mz)
 
         # ----------------------------------------------------------------
         #  Write data
         # ----------------------------------------------------------------
-        self._write_data(mz, dz)
+        self._write_data(mz)
         self._last_write_time = time
         return
 
-    def _create_file(self, mz: 'ModelState', dz: 'StateBase'):
+    def _create_file(self, mz: 'ModelState'):
         # ----------------------------------------------------------------
         #  Create the filename
         # ----------------------------------------------------------------
@@ -237,7 +237,7 @@ class NetCDFWriter(Module):
             x[i][:] = to_numpy(self.grid.x_global[i][self.snap_slice[i]])
 
         # create the output variables
-        for var in self.get_variables(mz, dz):
+        for var in self.get_variables(mz):
             nc_var = ncfile.createVariable(
                 var.name, dtype, ("time", *x_names[::-1]))
             nc_var.units = var.units
@@ -253,7 +253,7 @@ class NetCDFWriter(Module):
         self._ncfile = ncfile
         return
 
-    def _write_data(self, mz: 'ModelState', dz: 'StateBase'):
+    def _write_data(self, mz: 'ModelState'):
         time = self._ncfile.variables["time"]
         time_ind = time.size
         global_slice = self.grid.get_subdomain().global_slice
@@ -261,7 +261,7 @@ class NetCDFWriter(Module):
         ind = time_ind, *global_slice[::-1]
 
         time[time_ind] = mz.time
-        for var in self.get_variables(mz, dz):
+        for var in self.get_variables(mz):
             nc_var = self._ncfile.variables[var.name]
             arr = var[inner_slice]
             nc_var[ind] = to_numpy(arr.T)

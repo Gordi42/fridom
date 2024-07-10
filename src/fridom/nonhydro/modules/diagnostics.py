@@ -16,7 +16,7 @@ class Diagnostics(Module):
             cfl_info=cfl_info,)
 
     @update_module
-    def update(self, mz: ModelState, dz: State):
+    def update(self, mz: ModelState):
         """
         Print diagnostic information.
         """

@@ -23,8 +23,9 @@ class LinearTendency(Module):
         self.half = config.dtype_real(0.5)
 
     @update_module
-    def update(self, mz: 'ModelState', dz: 'State') -> None:
+    def update(self, mz: 'ModelState') -> None:
         # compute the linear tendency
+        dz = mz.dz
         u = mz.z.u; v = mz.z.v; w = mz.z.w; bu = mz.z.b
         dsqr = self.mset.dsqr
         f_cor = self.mset.f_coriolis

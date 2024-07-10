@@ -59,13 +59,12 @@ class CGPressureSolver(Module):
         return
 
     @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
+    def update(self, mz: ModelState) -> None:
         """
         Solve for the pressure field.
 
         Args:
             mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
         """
         p_flat, info = self.cg(self.A, mz.z_diag.div.reshape(-1), x0=mz.p.reshape(-1),
                              tol=self.tol, maxiter=self.max_iter)
