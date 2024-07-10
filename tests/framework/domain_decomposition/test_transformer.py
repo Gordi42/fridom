@@ -4,7 +4,7 @@ import fridom.framework as fr
 
 @pytest.mark.parametrize("in_halo", [0, 1, 4])
 @pytest.mark.parametrize("out_halo", [0, 0, 3])
-@pytest.mark.parametrize("n_global", [[64, 128], [64, 64, 64]])
+@pytest.mark.parametrize("n_global", [(64, 128), (64, 64, 64)])
 @pytest.mark.parametrize("shared_axes_out", [None, [0], [1]])
 @pytest.mark.parametrize("shared_axes_in", [None, [0], [1]])
 def test_transformer(backend, in_halo, out_halo, n_global, 
@@ -30,9 +30,9 @@ def test_transformer(backend, in_halo, out_halo, n_global,
 
 def test_deepcopy(backend):
     domain_1 = fr.domain_decomposition.DomainDecomposition(
-        n_global=[64, 64], shared_axes=[0], halo=0)
+        n_global=(64, 64), shared_axes=[0], halo=0)
     domain_2 = fr.domain_decomposition.DomainDecomposition(
-        n_global=[64, 64], shared_axes=[0], halo=0)
+        n_global=(64, 64), shared_axes=[0], halo=0)
     transformer = fr.domain_decomposition.Transformer(domain_1, domain_2)
     transformer_copy = deepcopy(transformer)
     assert transformer != transformer_copy

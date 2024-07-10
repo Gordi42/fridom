@@ -7,7 +7,7 @@ import fridom.framework as fr
 def halo(request):
     return request.param
 
-@pytest.mark.parametrize("n_global", [[64, 64], [64, 65], [64, 64, 63]])
+@pytest.mark.parametrize("n_global", [(64, 64), (64, 65), (64, 64, 63)])
 def test_construction(backend, halo, n_global):
     fr.config.set_backend(backend)
     domain = fr.domain_decomposition.DomainDecomposition(
@@ -21,14 +21,10 @@ def test_construction(backend, halo, n_global):
 
 def test_deepcopy(backend):
     domain = fr.domain_decomposition.DomainDecomposition(
-        n_global=[64, 64], shared_axes=[0], halo=0)
+        n_global=(64, 64), shared_axes=[0], halo=0)
     domain_copy = deepcopy(domain)
     assert domain != domain_copy
     assert domain.n_global == domain_copy.n_global
-
-    # Change the copy
-    domain_copy.n_global[0] = 128
-    assert domain.n_global[0] != 128
 
 @pytest.fixture(params=[0, 1])
 def flat_axis(request):
@@ -37,7 +33,7 @@ def flat_axis(request):
 def test_sync_topo_array(backend, flat_axis):
     ncp = fr.config.ncp
     domain = fr.domain_decomposition.DomainDecomposition(
-        n_global=[64, 64], shared_axes=[0], halo=2)
+        n_global=(64, 64), shared_axes=[0], halo=2)
     shape = list(domain.my_subdomain.shape)
     shape[flat_axis] = 1
     u = ncp.random.rand(*tuple(shape))
@@ -46,7 +42,7 @@ def test_sync_topo_array(backend, flat_axis):
 @pytest.mark.parametrize("halo", [0, 1, 2])
 def test_sync_1d_array(backend, halo):
     ncp = fr.config.ncp
-    n_global = [64, 1 , 32]
+    n_global = (64, 1 , 32)
     domain = fr.domain_decomposition.DomainDecomposition(
         n_global=n_global, shared_axes=[0, 1], halo=halo)
     u = ncp.random.rand(*domain.my_subdomain.shape)
@@ -62,7 +58,7 @@ def test_apply_boundary_conditions(backend, ndims, halo, axis, side):
         return
     ncp = fr.config.ncp
     domain = fr.domain_decomposition.DomainDecomposition(
-        n_global=[64]*ndims, halo=halo)
+        n_global=tuple([64]*ndims), halo=halo)
     
     u = ncp.ones(shape=domain.my_subdomain.shape)
     domain.sync(u)

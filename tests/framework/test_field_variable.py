@@ -21,7 +21,7 @@ def n_dims(request):
 
 @pytest.fixture()
 def mset(backend, n_dims):
-    grid = fr.grid.CartesianGrid([64]*n_dims, [1.0]*n_dims, shared_axes=[0])
+    grid = fr.grid.CartesianGrid(tuple([64]*n_dims), tuple([1.0]*n_dims), shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -122,8 +122,8 @@ def periodic(request):
 
 @pytest.fixture()
 def mset_131(backend, periodic):
-    grid = fr.grid.CartesianGrid(N=[1, 3, 1], L=[1, 1, 1], 
-                                 periodic_bounds=[periodic]*3)
+    grid = fr.grid.CartesianGrid(N=(1, 3, 1), L=(1, 1, 1), 
+                                 periodic_bounds=tuple([periodic]*3))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -205,7 +205,7 @@ def test_setitem(random_fields_real, n_dims):
 
 @pytest.fixture()
 def mset_3(backend, n_dims):
-    grid = fr.grid.CartesianGrid(N=[3]*n_dims, L=[1]*n_dims)
+    grid = fr.grid.CartesianGrid(N=tuple([3]*n_dims), L=tuple([1]*n_dims))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -321,31 +321,31 @@ def test_pow(zeros, ones):
 
 @pytest.fixture()
 def mset_topo(backend):
-    grid = fr.grid.CartesianGrid([31, 32, 33], [1.0, 2.0, 3.0], shared_axes=[0])
+    grid = fr.grid.CartesianGrid((31, 32, 33), (1.0, 2.0, 3.0), shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
 
 @pytest.fixture(params=[
-    [True, True, True],
-    [False, True, True],
-    [True, False, True],
-    [True, True, False],
-    [False, False, True],
-    [False, True, False],
-    [True, False, False],
+    (True, True, True),
+    (False, True, True),
+    (True, False, True),
+    (True, True, False),
+    (False, False, True),
+    (False, True, False),
+    (True, False, False),
 ])
 def topo1(request):
     return request.param
 
 @pytest.fixture(params=[
-    [True, True, True],
-    [False, True, True],
-    [True, False, True],
-    [True, True, False],
-    [False, False, True],
-    [False, True, False],
-    [True, False, False],
+    (True, True, True),
+    (False, True, True),
+    (True, False, True),
+    (True, True, False),
+    (False, False, True),
+    (False, True, False),
+    (True, False, False),
 ])
 def topo2(request):
     return request.param

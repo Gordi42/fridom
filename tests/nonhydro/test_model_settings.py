@@ -1,11 +1,11 @@
 import pytest
 import fridom.nonhydro as nh
 
-@pytest.fixture(params=[[64, 64, 64], [64, 53, 33]], ids=['64x64x64', '64x53x33'])
+@pytest.fixture(params=[(64, 64, 64), (64, 53, 33)], ids=['64x64x64', '64x53x33'])
 def N(request):
     return request.param
 
-@pytest.fixture(params=[[1.0, 1.0, 1.0], [1.0, 2.0, 3.0]], ids=['1x1x1', '1x2x3'])
+@pytest.fixture(params=[(1.0, 1.0, 1.0), (1.0, 2.0, 3.0)], ids=['1x1x1', '1x2x3'])
 def L(request):
     return request.param
 

@@ -18,7 +18,7 @@ def kx(request):
 
 @pytest.mark.mpi_skip
 def test_dct1D(backend, nx, lx, kx):
-    fft = FFT([False])
+    fft = FFT((False, ))
     ncp = config.ncp
 
     # prepare the domain
@@ -41,14 +41,14 @@ def test_dct1D(backend, nx, lx, kx):
     u_hat[kx] = 0
     assert ncp.allclose(u_hat, 0)
 
-@pytest.fixture(params=[[True, True, True], 
-                        [False, True, True],
-                        [True, False, True],
-                        [True, True, False],
-                        [False, False, True],
-                        [False, True, False],
-                        [True, False, False],
-                        [False, False, False]])
+@pytest.fixture(params=[(True, True, True), 
+                        (False, True, True),
+                        (True, False, True),
+                        (True, True, False),
+                        (False, False, True),
+                        (False, True, False),
+                        (True, False, False),
+                        (False, False, False)])
 def periodic(request):
     return request.param
 
@@ -95,17 +95,17 @@ def test_fft3D_axes(backend, nx, axes, periodic):
 # -------------------------------------------------------------------
 # MPI Tests
 # -------------------------------------------------------------------
-@pytest.fixture(params=[[32, 32], 
-                        [32, 33], 
-                        [33, 32], 
-                        [33, 33]], ids=["32x32", "32x33", "33x32", "33x33"])
+@pytest.fixture(params=[(32, 32), 
+                        (32, 33), 
+                        (33, 32), 
+                        (33, 33)], ids=["32x32", "32x33", "33x32", "33x33"])
 def n(request):
     return request.param
 
-@pytest.fixture(params=[[True, True], 
-                        [False, True], 
-                        [True, False], 
-                        [False, False]], 
+@pytest.fixture(params=[(True, True), 
+                        (False, True), 
+                        (True, False), 
+                        (False, False)], 
                 ids=["PerTT", "PerFT", "PerTF", "PerFF"])
 def periodic2d(request):
     return request.param

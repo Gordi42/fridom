@@ -7,8 +7,8 @@ def test_linear_model(backend, runlen):
     ncp = nh.config.ncp
     f0 = 1e-4
     N2 = (50 * f0) ** 2
-    N = [16] * 3
-    L = [10_000, 10_000, 100]
+    N = tuple([16] * 3)
+    L = (10_000, 10_000, 100)
 
     grid = nh.grid.CartesianGrid(N=N, L=L)
     mset = nh.ModelSettings(grid, f_coriolis=f0, N2=N2)
@@ -35,18 +35,18 @@ def test_linear_model(backend, runlen):
 
 @pytest.mark.parametrize("periodic_bounds",
     [
-        [True, True, True],
-        [False, True, True],
-        [True, False, True],
-        [True, True, False],
-        [False, False, False],
+        (True, True, True),
+        (False, True, True),
+        (True, False, True),
+        (True, True, False),
+        (False, False, False),
     ])
 def test_boundary_conditions(backend, periodic_bounds):
     ncp = nh.config.ncp
     f0 = 1e-4
     N2 = (50 * f0) ** 2
-    N = [16] * 3
-    L = [10_000, 10_000, 100]
+    N = tuple([16] * 3)
+    L = (10_000, 10_000, 100)
 
     grid = nh.grid.CartesianGrid(N=N, L=L, periodic_bounds=periodic_bounds)
     mset = nh.ModelSettings(grid, f_coriolis=f0, N2=N2)
