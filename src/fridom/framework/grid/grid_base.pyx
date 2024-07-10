@@ -37,6 +37,18 @@ cdef class GridBase:
     cpdef void sync(self, object f):
         raise NotImplementedError
 
+    def _to_numpy(self, memo):
+        from copy import deepcopy
+        from fridom.framework.to_numpy import to_numpy
+        copy = deepcopy(self)
+        for attr in dir(copy):
+            if attr.startswith("__"):
+                continue
+            if callable(getattr(copy, attr)):
+                continue
+            setattr(copy, attr, to_numpy(getattr(copy, attr), memo))
+        return copy
+
     # ----------------------------------------------------------------
     #  Attribute Accessors
     # ----------------------------------------------------------------

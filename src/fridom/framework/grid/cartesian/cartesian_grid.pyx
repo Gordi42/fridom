@@ -155,6 +155,18 @@ cdef class CartesianGrid(GridBase):
     cpdef Subdomain get_subdomain(self, bint spectral = False):
         return self.get_domain_decomposition(spectral).my_subdomain
 
+    # def _to_numpy(self, memo):
+        # from copy import deepcopy
+        # from fridom.framework.to_numpy import to_numpy
+        # cdef CartesianGrid copy = deepcopy(self)
+        # for attr in dir(copy):
+            # if attr.startswith("__"):
+                # continue
+            # if callable(getattr(copy, attr)):
+                # continue
+            # setattr(copy, attr, to_numpy(getattr(copy, attr), memo))
+        # return copy
+
     def _to_numpy(self, memo):
         if self._cpu is not None:
             return self._cpu
