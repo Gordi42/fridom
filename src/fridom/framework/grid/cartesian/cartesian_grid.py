@@ -10,6 +10,8 @@ from .fft import FFT
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
+    from fridom.framework.field_variable import FieldVariable
+    from fridom.framework.domain_decomposition import Subdomain
 
 
 class CartesianGrid(GridBase):
@@ -27,11 +29,11 @@ class CartesianGrid(GridBase):
     
     Parameters
     ----------
-    `N` : `list[int]`
+    `N` : `tuple[int]`
         Number of grid points in each direction.
-    `L` : `list[float]`
+    `L` : `tuple[float]`
         Domain size in meters in each direction.
-    `periodic_bounds` : `list[bool]`, optional
+    `periodic_bounds` : `tuple[bool]`, optional
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
         Default is True for all axes.
@@ -43,32 +45,32 @@ class CartesianGrid(GridBase):
     ----------
     `n_dims` : `int`
         The number of dimensions of the grid.
-    `L` : `list[float]`
+    `L` : `tuple[float]`
         Domain size in each direction.
-    `N` : `list[int]`
+    `N` : `tuple[int]`
         Number of grid points in each direction.
     `total_grid_points` : `int` (read-only)
         Total number of grid points.
-    `dx` : `list[float]` (read-only)
+    `dx` : `tuple[float]` (read-only)
         Grid spacing in each direction
     `dV` : `float` (read-only)
         Volume element.
-    `X` : `list[np.ndarray]` (read-only)
+    `X` : `tuple[np.ndarray]` (read-only)
         Physical meshgrid on the local domain (with ghost points).
-    `x_local` : `list[np.ndarray]` (read-only)
+    `x_local` : `tuple[np.ndarray]` (read-only)
         Physical x-vectors on the local domain (without ghost points).
-    `x_global` : `list[np.ndarray]` (read-only)
+    `x_global` : `tuple[np.ndarray]` (read-only)
         Global physical x-vectors.
-    `K` : `list[np.ndarray]` (read-only)
+    `K` : `tuple[np.ndarray]` (read-only)
         Spectral meshgrid on the local domain.
-    `k_local` : `list[np.ndarray]` (read-only)
+    `k_local` : `tuple[np.ndarray]` (read-only)
         Spectral k-vectors on the local domain.
-    `k_global` : `list[np.ndarray]` (read-only)
+    `k_global` : `tuple[np.ndarray]` (read-only)
         Global spectral k-vectors.
-    `periodic_bounds` : `list[bool]` (read-only)
+    `periodic_bounds` : `tuple[bool]` (read-only)
         A list of booleans that indicate whether the axis is periodic.
-    `mset` : `ModelSettingsBase` (read-only)
-        The model settings that the grid is constructed with.
+    `inner_slice` : `tuple[slice]` (read-only)
+        The slice of the grid that excludes the boundary points.
     
     Methods
     -------
@@ -78,10 +80,8 @@ class CartesianGrid(GridBase):
         Forward transform from physical space to spectral space.
     `ifft(u: np.ndarray) -> np.ndarray`
         Backward transform from spectral space to physical space.
-    `sync_physical(u: np.ndarray) -> None`
-        Synchronize the physical field across MPI ranks.
-    `sync_spectral(u: np.ndarray) -> None`
-        Synchronize the spectral field across MPI ranks.
+    `sync(f: FieldVariable) -> None`
+        Synchronize the field across MPI ranks.
     `apply_boundary_condition(field, axis, side, value)`
         Apply boundary conditions to a field.
     `get_domain_decomposition(spectral=False)`
@@ -94,9 +94,9 @@ class CartesianGrid(GridBase):
     >>> import fridom.framework as fr
     >>> # construct a 3D grid:
     >>> grid = fr.grid.CartesianGrid(
-    ...     N=[32, 32, 8],  # 32x32x8 grid points
-    ...     L=[100.0, 100.0, 10.0],  # 100m x 100m x 10m domain
-    ...     periodic_bounds=[True, True, False]  # non-periodic in z
+    ...     N=(32, 32, 8),  # 32x32x8 grid points
+    ...     L=(100.0, 100.0, 10.0),  # 100m x 100m x 10m domain
+    ...     periodic_bounds=(True, True, False)  # non-periodic in z
     ...     shared_axes=[0, 1]  # slab decomposition, shared in x and y
     ...     )
     >>> # setup the grid using the model settings
@@ -114,7 +114,7 @@ class CartesianGrid(GridBase):
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
                  shared_axes: list[int] | None = None) -> None:
-        super().__init__()
+        super().__init__(len(N))
         # --------------------------------------------------------------
         #  Check the input
         # --------------------------------------------------------------
@@ -150,13 +150,14 @@ class CartesianGrid(GridBase):
         # private attributes
         self._N = N
         self._L = L
-        self._dx = [L / N for L, N in zip(L, N)]
-        self._X: list | None = None
-        self._x_local: list | None = None
-        self._x_global: list | None = None
-        self._K: list | None = None
-        self._k_local: list | None = None
-        self._k_global: list | None = None
+        self._dx = tuple(L / N for L, N in zip(L, N))
+        self._dV = np.prod(self._dx)
+        self._X: tuple | None = None
+        self._x_local: tuple | None = None
+        self._x_global: tuple | None = None
+        self._K: tuple | None = None
+        self._k_local: tuple | None = None
+        self._k_global: tuple | None = None
         self._total_grid_points = int(np.prod(N))
         self._periodic_bounds = periodic_bounds
         self._shared_axes = shared_axes
@@ -176,7 +177,7 @@ class CartesianGrid(GridBase):
         # --------------------------------------------------------------
         required_halo = mset.tendencies.required_halo
         domain_decomp = DomainDecomposition(
-            self.N, required_halo, shared_axes=self._shared_axes)
+            self._N, required_halo, shared_axes=self._shared_axes)
 
         # --------------------------------------------------------------
         #  Initialize the fourier transform
@@ -191,16 +192,16 @@ class CartesianGrid(GridBase):
         # --------------------------------------------------------------
         #  Initialize the physical meshgrid
         # --------------------------------------------------------------
-        x = [ncp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
-             for li, ni, dxi in zip(self._L, self._N, self._dx)]
+        x = tuple(ncp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
+                  for li, ni, dxi in zip(self._L, self._N, self._dx))
         # get the local slice of x
         global_slice = domain_decomp.my_subdomain.global_slice
-        x_local = [xi[global_slice[i]] for i, xi in enumerate(x)]
+        x_local = tuple(xi[global_slice[i]] for i, xi in enumerate(x))
         # construct the local meshgrids (without ghost points)
         X_inner = ncp.meshgrid(*x_local, indexing='ij')
         # add ghost points
-        X = [ncp.zeros(domain_decomp.my_subdomain.shape, dtype=dtype) 
-             for _ in range(n_dims)]
+        X = tuple(ncp.zeros(domain_decomp.my_subdomain.shape, dtype=dtype) 
+                  for _ in range(n_dims))
         for i in range(n_dims):
             X[i][domain_decomp.my_subdomain.inner_slice] = X_inner[i]
             domain_decomp.sync(X[i])
@@ -212,7 +213,7 @@ class CartesianGrid(GridBase):
             spectral_subdomain = pfft.domain_out.my_subdomain
             k = fft.get_freq(self._N, self._dx)
             global_slice = spectral_subdomain.global_slice
-            k_local = [ki[global_slice[i]] for i, ki in enumerate(k)]
+            k_local = tuple(ki[global_slice[i]] for i, ki in enumerate(k))
             K = ncp.meshgrid(*k_local, indexing='ij')
         else:
             k = None
@@ -229,6 +230,7 @@ class CartesianGrid(GridBase):
         self._K = K
         self._k_local = k_local
         self._k_global = k
+        self._inner_slice = domain_decomp.my_subdomain.inner_slice
         return
 
     def fft(self, u: np.ndarray) -> np.ndarray:
@@ -237,13 +239,15 @@ class CartesianGrid(GridBase):
     def ifft(self, u: np.ndarray) -> np.ndarray:
         return self._pfft.backward_apply(u, self._fft.backward)
 
-    def sync_physical(self, u: np.ndarray) -> None:
-        self._domain_decomp.sync(u)
+    def sync(self, f: 'FieldVariable') -> None:
+        if f.is_spectral:
+            self._pfft.domain_out.sync(f)
+        else:
+            self._domain_decomp.sync(f)
 
-    def sync_spectral(self, u: np.ndarray) -> None:
-        self._pfft.domain_out.sync(u)
-
-    def apply_boundary_condition(self, field, axis, side, value):
+    def apply_boundary_condition(
+            self, field: 'FieldVariable', axis: int, side: str, 
+            value: 'float | np.ndarray | FieldVariable') -> None:
         """
         Apply boundary conditions to a field.
         
@@ -261,94 +265,71 @@ class CartesianGrid(GridBase):
         self._domain_decomp.apply_boundary_condition(field, value, axis, side)
         return
 
-    def get_domain_decomposition(self, spectral=False):
+    def get_domain_decomposition(self, spectral=False) -> DomainDecomposition:
+        """
+        Get the domain decomposition of the physical or spectral domain.
+
+        Parameters
+        ----------
+        `spectral` : `bool`, optional
+            If True, return the domain decomposition of the spectral domain.
+            Default is False.
+        """
         if spectral:
             return self._pfft.domain_out
         else:
             return self._domain_decomp
 
-    def get_subdomain(self, spectral=False):
+    def get_subdomain(self, spectral=False) -> 'Subdomain':
+        """
+        Get the local subdomain of the processor in the physical or spectral 
+        domain decomposition.
+
+        Parameters
+        ----------
+        `spectral` : `bool`, optional
+            If True, return the subdomain of the spectral domain.
+            Default is False.
+        """
         domain_decomp = self.get_domain_decomposition(spectral)
         return domain_decomp.my_subdomain
 
+    # ================================================================
+    #  Properties
+    # ================================================================
+
     @property
-    def L(self) -> list:
+    def L(self) -> tuple:
         """Domain size in each direction."""
         return self._L
-
     @L.setter
-    def L(self, value: list):
-        self._L = [float(val) for val in value]
-        self._dx = [L / N for L, N in zip(self._L, self._N)]    
+    def L(self, value: tuple):
+        self._L = value
+        self._dx = tuple(L / N for L, N in zip(self._L, self._N))
 
     @property
-    def N(self) -> list:
+    def N(self) -> tuple:
         """Grid points in each direction."""
         return self._N
-    
     @N.setter
-    def N(self, value: list):
-        self._N = [int(val) for val in value]
-        self._dx = [L / N for L, N in zip(self._L, self._N)]
+    def N(self, value: tuple):
+        self._N = value
+        self._dx = tuple(L / N for L, N in zip(self._L, self._N))
+        self._dV = np.prod(self._dx)
         self._total_grid_points = int(np.prod(self._N))
 
-    @property
-    def total_grid_points(self) -> int:
-        """Total number of grid points."""
-        return self._total_grid_points
 
     @property
-    def dx(self) -> list:
-        """Grid spacing in each direction."""
-        return self._dx
-
-    @property
-    def dV(self) -> float:
-        """Volume element."""
-        return np.prod(self._dx)
-
-    @property
-    def X(self) -> list | None:
-        """Physical meshgrid on the local domain."""
-        return self._X
-
-    @property
-    def x_local(self) -> list | None:
-        """Physical x-vectors on the local domain."""
-        return self._x_local
-
-    @property
-    def x_global(self) -> list | None:
-        """Global physical x-vectors."""
-        return self._x_global
-
-    @property
-    def K(self) -> list | None:
+    def K(self) -> tuple | None:
         """Spectral meshgrid on the local domain."""
         return self._K
     
     @property
-    def k_local(self) -> list | None:
+    def k_local(self) -> tuple | None:
         """Spectral k-vectors on the local domain."""
         return self._k_local
     
     @property
-    def k_global(self) -> list | None:
+    def k_global(self) -> tuple | None:
         """Global spectral k-vectors."""
         return self._k_global
-
-    @property
-    def periodic_bounds(self) -> list:
-        return self._periodic_bounds
-
-    @property
-    def n_dims(self) -> int:
-        return self._n_dims
-
-    @property
-    def inner_slice(self) -> tuple:
-        return self.get_subdomain().inner_slice
-    
-    @property
-    def mset(self) -> 'ModelSettingsBase':
-        return self._mset

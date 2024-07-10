@@ -168,10 +168,7 @@ class FieldVariable:
         if not self.grid.mpi_available:
             raise NotImplementedError(
                 "MPI not available for this grid")
-        if self.is_spectral:
-            self.grid.sync_spectral(self.arr)
-        else:
-            self.grid.sync_physical(self.arr)
+        self.grid.sync(self)
 
     def apply_boundary_conditions(self, axis, side, value):
         """
