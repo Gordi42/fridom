@@ -1,6 +1,7 @@
 # Import external modules
 from mpi4py import MPI
 from copy import deepcopy
+import numpy as np
 # Import internal modules
 from .subdomain import Subdomain
 from fridom.framework import config
@@ -112,7 +113,7 @@ class DomainDecomposition:
 
     Parameters
     ----------
-    `n_global` : `list[int]`
+    `n_global` : `tuple[int]`
         The total number of grid points in each dimension.
     `halo` : `int`, optional (default=0)
         The number of halo cells (ghost cells) around the local domain
@@ -126,11 +127,11 @@ class DomainDecomposition:
     ----------
     `n_dims` : `int`
         The number of dimensions.
-    `n_global` : `list[int]`
+    `n_global` : `tuple[int]`
         The total number of grid points in each dimension.
     `halo` : `int`
         The number of halo cells (ghost cells) around the local domain.
-    `n_procs` : `list[int]`
+    `n_procs` : `tuple[int]`
         The number of processors in each direction.
     `shared_axes` : `list[int]`
         A list of axes that are shared between processors. A shared axis is an
@@ -148,11 +149,9 @@ class DomainDecomposition:
     
     Methods
     -------
-    `__init__(n_global: 'list[int]', **kwargs) -> None`
-        Initialize the domain decomposition.
     `sync(arr: 'ndarray') -> None`
         Synchronize the halo regions of an array between neighboring domains.
-    `sync_list(arr_list: 'list[ndarray]') -> None`
+    `sync_list(arrs: 'list[ndarray]') -> None`
         Synchronize the halo regions of a list of arrays.
     `sync_with_device() -> None`
         Synchronize the gpu device with the processor.
@@ -165,7 +164,7 @@ class DomainDecomposition:
     >>> from fridom.framework.domain_decomposition import DomainDecomposition
     >>> # create a domain decomposition that shares the x-axis
     >>> dom = DomainDecomposition(
-            n_global=[128]*2, halo=2, shared_axes=[0])
+            n_global=(128, 128), halo=2, shared_axes=[0])
     >>> 
     >>> # create a random array on the local domain
     >>> u = config.ncp.random.rand(*dom_x.my_subdomain.shape)
@@ -174,7 +173,7 @@ class DomainDecomposition:
     >>> dom_x.sync(u)
     """
     def __init__(self, 
-                 n_global: 'list[int]', 
+                 n_global: 'tuple[int]', 
                  halo: int = 0,
                  shared_axes: 'list[int] | None' = None,
                  reorder_comm = True,
@@ -257,17 +256,17 @@ class DomainDecomposition:
         #  Set the attributes
         # --------------------------------------------------------------
 
-        # public attributes
-        self.n_dims = n_dims           # number of dimensions
-        self.n_global = n_global       # total number of grid points
-        self.halo = halo               # number of halo cells
-        self.n_procs = n_procs         # number of processors in each direction
-        self.shared_axes = shared_axes # axes that are shared between processors
-        self.comm = comm               # communicator
-        self.size = size               # number of processors
-        self.rank = rank               # rank of this processor
-        self.all_subdomains = all_subdomains  # list of all subdomains
-        self.my_subdomain = my_subdomain  # subdomain of this processor
+        # public readable attributes
+        self._n_dims = n_dims           # number of dimensions
+        self._n_global = n_global       # total number of grid points
+        self._halo = halo               # number of halo cells
+        self._n_procs = n_procs         # number of processors in each direction
+        self._shared_axes = shared_axes # axes that are shared between processors
+        self._comm = comm               # communicator
+        self._size = size               # number of processors
+        self._rank = rank               # rank of this processor
+        self._all_subdomains = all_subdomains  # list of all subdomains
+        self._my_subdomain = my_subdomain  # subdomain of this processor
 
         # private attributes
         self._subcomms = subcomms
@@ -281,7 +280,7 @@ class DomainDecomposition:
         self._inner = inner
         return
 
-    def sync(self, arr, flat_axes: list | None = None) -> None:
+    def sync(self, arr: np.ndarray, flat_axes: list | None = None) -> None:
         """
         # Synchronize Halos
         Synchronize the halo regions of an array between neighboring domains.
@@ -296,23 +295,53 @@ class DomainDecomposition:
         ----------
         `arr` : `ndarray`
             The array to synchronize.
-        `skip_axes` : `list[int]`, optional (default=None)
+        `flat_axes` : `list[int]`, optional (default=None)
             A list of axes to skip synchronization.
-        
-        Returns
-        -------
-        `None`
         
         Examples
         --------
         >>> from fridom.framework import config
         >>> from fridom.framework.domain_decomposition import DomainDecomposition
         >>> # create a domain decomposition
-        >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
+        >>> domain = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
         >>> # create a random array on the local domain
         >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
         >>> # synchronize the halo regions between neighboring domains
         >>> domain.sync(u)
+        """
+        self.sync_list([arr], flat_axes)
+        return
+
+    def sync_list(self, 
+                  arrs: 'list[np.ndarray]', 
+                  flat_axes: list | None = None) -> None:
+        """
+        Synchronize the halo regions of a list of arrays between neighboring domains.
+        
+        Description
+        -----------
+        This function synchronizes the halo regions of a list of arrays between
+        neighboring domains. The synchronization is done in place (no return value).
+        Synchronization is always periodic in all directions.
+        
+        Parameters
+        ----------
+        `arrs` : `list[ndarray]`
+            List of arrays to synchronize.
+        `flat_axes` : `list[int]`, optional (default=None)
+            A list of axes to skip synchronization.
+        
+        Examples
+        --------
+        >>> from fridom.framework import config
+        >>> from fridom.framework.domain_decomposition import DomainDecomposition
+        >>> # create a domain decomposition
+        >>> domain = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
+        >>> # create a random array on the local domain
+        >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
+        >>> v = config.ncp.random.rand(domain.my_subdomain.shape)
+        >>> # synchronize the halo regions between neighboring domains
+        >>> domain.sync_list([u, v])
         """
         # nothing to do if there are no halo regions
         if self.halo == 0:
@@ -324,6 +353,30 @@ class DomainDecomposition:
         self.sync_with_device()
 
         # synchronize one dimension at a time
+        for axis in range(self.n_dims):
+            if axis in flat_axes:
+                continue
+            self._sync_axis(arrs, axis)
+        return
+
+    def _sync_axis_same_proc(self, arrs: list[np.ndarray], axis: int) -> None:
+        if self._n_global[axis] < self._halo:
+            for arr in arrs:
+                arr[:] = config.ncp.pad(
+                    arr[self._inner[axis]], self._paddings[axis], mode='wrap')
+        else:
+            for arr in arrs:
+                arr[self._recv_from_next[axis]] = arr[self._send_to_prev[axis]]
+                arr[self._recv_from_prev[axis]] = arr[self._send_to_next[axis]]
+        return
+
+    def _sync_axis(self, arrs: list[np.ndarray], axis: int) -> None:
+        if self._n_procs[axis] == 1:
+            self._sync_axis_same_proc(arrs, axis)
+            return
+
+        reqs = []
+
         # we need to create 4 buffers for each dimension:
         #  - buf_send_next: buffer to be sent to the next processor
         #  - buf_send_prev: buffer to be sent to the previous processor
@@ -336,130 +389,50 @@ class DomainDecomposition:
         # |     ^                                            ^     |
         #  buf_recv_prev                               buf_recv_next
 
-        for i in range(self.n_dims):
-            if i in flat_axes:
-                continue
-            if self.n_procs[i] == 1:
-                if self.n_global[i] < self.halo:
-                    arr[:] = config.ncp.pad(
-                        arr[self._inner[i]], self._paddings[i], mode='wrap')
-                else:
-                    arr[self._recv_from_next[i]] = arr[self._send_to_prev[i]]
-                    arr[self._recv_from_prev[i]] = arr[self._send_to_next[i]]
-                continue
-
-            reqs = []
-
-            # ----------------------------------------------------------------
-            #  Sending
-            # ----------------------------------------------------------------
-            buf_send_next = config.ncp.ascontiguousarray(arr[self._send_to_next[i]])
-            buf_send_prev = config.ncp.ascontiguousarray(arr[self._send_to_prev[i]])
+        # ----------------------------------------------------------------
+        #  Sending
+        # ----------------------------------------------------------------
+        ncp = config.ncp
+        for arr in arrs:
+            buf_send_next = ncp.ascontiguousarray(arr[self._send_to_next[axis]])
+            buf_send_prev = ncp.ascontiguousarray(arr[self._send_to_prev[axis]])
             self.sync_with_device()
-            reqs.append(self._subcomms[i].Isend(
-                buf_send_next, dest=self._next_proc[i], tag=0))
-            reqs.append(self._subcomms[i].Isend(
-                buf_send_prev, dest=self._prev_proc[i], tag=0))
+            reqs.append(self._subcomms[axis].Isend(
+                buf_send_next, dest=self._next_proc[axis], tag=0))
+            reqs.append(self._subcomms[axis].Isend(
+                buf_send_prev, dest=self._prev_proc[axis], tag=0))
 
-            # ----------------------------------------------------------------
-            #  Receiving
-            # ----------------------------------------------------------------
-            buf_recv_next = config.ncp.empty_like(arr[self._recv_from_next[i]])
-            buf_recv_prev = config.ncp.empty_like(arr[self._recv_from_prev[i]])
-            reqs.append(self._subcomms[i].Irecv(
-                buf_recv_next, source=self._next_proc[i], tag=0))
-            reqs.append(self._subcomms[i].Irecv(
-                buf_recv_prev, source=self._prev_proc[i], tag=0))
+        # ----------------------------------------------------------------
+        #  Receiving
+        # ----------------------------------------------------------------
+        buf_recv_next_list = []
+        buf_recv_prev_list = []
+        for arr in arrs:
+            buf_recv_next = ncp.empty_like(arr[self._recv_from_next[axis]])
+            buf_recv_prev = ncp.empty_like(arr[self._recv_from_prev[axis]])
+            reqs.append(self._subcomms[axis].Irecv(
+                buf_recv_next, source=self._next_proc[axis], tag=0))
+            reqs.append(self._subcomms[axis].Irecv(
+                buf_recv_prev, source=self._prev_proc[axis], tag=0))
+            buf_recv_next_list.append(buf_recv_next)
+            buf_recv_prev_list.append(buf_recv_prev)
 
-            # wait for all non-blocking operations to complete
-            MPI.Request.Waitall(reqs)
+        # wait for all non-blocking operations to complete
+        MPI.Request.Waitall(reqs)
 
-            # copy the received data to the halo regions
-            arr[self._recv_from_next[i]] = buf_recv_next
-            arr[self._recv_from_prev[i]] = buf_recv_prev
+        # copy the received data to the halo regions
+        for i, arr in enumerate(arrs):
+            arr[self._recv_from_next[axis]] = buf_recv_next_list[i]
+            arr[self._recv_from_prev[axis]] = buf_recv_prev_list[i]
         return
 
-    def sync_list(self, arr_list: 'list') -> None:
-        """
-        Synchronize the halo regions of a list of arrays between neighboring domains.
-        
-        Description
-        -----------
-        This function synchronizes the halo regions of a list of arrays between
-        neighboring domains. The synchronization is done in place (no return value).
-        Synchronization is always periodic in all directions.
-        
-        Parameters
-        ----------
-        `arr_list` : `list[ndarray]`
-            List of arrays to synchronize.
-        
-        Returns
-        -------
-        `None`
-        
-        Examples
-        --------
-        >>> from fridom.framework import config
-        >>> from fridom.framework.domain_decomposition import DomainDecomposition
-        >>> # create a domain decomposition
-        >>> domain = DomainDecomposition(n_global=[128, 128], shared_axes=[0])
-        >>> # create a random array on the local domain
-        >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
-        >>> v = config.ncp.random.rand(domain.my_subdomain.shape)
-        >>> # synchronize the halo regions between neighboring domains
-        >>> domain.sync_list([u, v])
-        """
-        # nothing to do if there are no halo regions
-        if self.halo == 0:
-            return
-        
-        # synchronize cpu and gpu
-        if config.backend == "cupy":
-            config.ncp.cuda.Stream.null.synchronize()
-
-        # synchronize one dimension at a time
-        for i in range(self.n_dims):
-            if self.n_procs[i] == 1:
-                for arr in arr_list:
-                    arr[self._recv_from_next[i]] = arr[self._send_to_prev[i]]
-                    arr[self._recv_from_prev[i]] = arr[self._send_to_next[i]]
-                continue
-
-            reqs = []
-
-            # sending
-            for j, arr in enumerate(arr_list):
-                buf_send_next = config.ncp.ascontiguousarray(arr[self._send_to_next[i]])
-                buf_send_prev = config.ncp.ascontiguousarray(arr[self._send_to_prev[i]])
-                reqs.append(self._subcomms[i].Isend(
-                    buf_send_next, dest=self._next_proc[i], tag=j))
-                reqs.append(self._subcomms[i].Isend(
-                    buf_send_prev, dest=self._prev_proc[i], tag=j))
-
-            # receiving
-            buf_recv_nexts = []
-            buf_recv_prevs = []
-            for j, arr in enumerate(arr_list):
-                buf_recv_next = config.ncp.empty_like(arr[self._recv_from_next[i]])
-                buf_recv_prev = config.ncp.empty_like(arr[self._recv_from_prev[i]])
-                reqs.append(self._subcomms[i].Irecv(
-                    buf_recv_next, source=self._next_proc[i], tag=1))
-                reqs.append(self._subcomms[i].Irecv(
-                    buf_recv_prev, source=self._prev_proc[i], tag=0))
-                buf_recv_nexts.append(buf_recv_next)
-                buf_recv_prevs.append(buf_recv_prev)
-
-            # wait for all non-blocking operations to complete
-            MPI.Request.Waitall(reqs)
-
-            # copy the received data to the halo regions
-            for j, arr in enumerate(arr_list):
-                arr[self._recv_from_next[i]] = buf_recv_nexts[j]
-                arr[self._recv_from_prev[i]] = buf_recv_prevs[j]
-        return
-
-    def apply_boundary_condition(self, arr, bc, dimension: int, side: str) -> None:
+    def apply_boundary_condition(
+            self, 
+            arr: np.ndarray, 
+            bc: np.ndarray, 
+            axis: int, 
+            side: str
+            ) -> None:
         """
         Apply boundary condition to the halo regions of an array.
         
@@ -469,7 +442,7 @@ class DomainDecomposition:
             The array to apply the boundary condition to.
         `bc` : `np.ndarray`
             The boundary condition to apply.
-        `dimension` : `int`
+        `axis` : `int`
             The dimension to apply the boundary condition to.
         `side` : `str`
             The side to apply the boundary condition to. left or right.
@@ -482,47 +455,25 @@ class DomainDecomposition:
         if self.halo == 0:
             return  # nothing to do if there are no halo regions
         if side == "left":
-            self._apply_left_boundary_condition(arr, bc, dimension)
+            self._apply_left_boundary_condition(arr, bc, axis)
         elif side == "right":
-            self._apply_right_boundary_condition(arr, bc, dimension)
+            self._apply_right_boundary_condition(arr, bc, axis)
         else:
             raise ValueError("side must be either 'left' or 'right'.")
         return
 
-    def _apply_left_boundary_condition(self, arr, bc, dimension):
-        """
-        Apply left boundary condition to the halo regions of an array.
-        
-        Parameters
-        ----------
-        `arr` : `np.ndarray`
-            The array to apply the boundary condition to.
-        `bc` : `np.ndarray`
-            The boundary condition to apply.
-        `dimension` : `int`
-            The dimension to apply the boundary condition to.
-        """
+    def _apply_left_boundary_condition(
+            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> None:
         # apply the boundary condition to the left side
-        if self.my_subdomain.is_left_edge[dimension]:
-            arr[self._recv_from_prev[dimension]] = bc
+        if self.my_subdomain.is_left_edge[axis]:
+            arr[self._recv_from_prev[axis]] = bc
         return
     
-    def _apply_right_boundary_condition(self, arr, bc, dimension):
-        """
-        Apply right boundary condition to the halo regions of an array.
-        
-        Parameters
-        ----------
-        `arr` : `np.ndarray`
-            The array to apply the boundary condition to.
-        `bc` : `np.ndarray`
-            The boundary condition to apply.
-        `dimension` : `int`
-            The dimension to apply the boundary condition to.
-        """
+    def _apply_right_boundary_condition(
+            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> None:
         # apply the boundary condition to the right side
-        if self.my_subdomain.is_right_edge[dimension]:
-            arr[self._recv_from_next[dimension]] = bc
+        if self.my_subdomain.is_right_edge[axis]:
+            arr[self._recv_from_next[axis]] = bc
         return
 
     def sync_with_device(self):
@@ -535,14 +486,6 @@ class DomainDecomposition:
         not wait for the gpu to finish the computation. This can lead to the cpu
         and gpu being out of sync. This function ensures that the cpu waits for
         all gpu computations to finish.
-        
-        Parameters
-        ----------
-        `None`
-        
-        Returns
-        -------
-        `None`
         """
         if config.backend == "cupy":
             config.ncp.cuda.Stream.null.synchronize()
@@ -565,3 +508,62 @@ class DomainDecomposition:
             else:
                 setattr(deepcopy_obj, key, deepcopy(value, memo))
         return deepcopy_obj
+
+    def __del__(self):
+        self._comm.Free()
+        for comm in self._subcomms:
+            comm.Free()
+        return
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def n_dims(self) -> int:
+        """The number of dimensions."""
+        return self._n_dims
+
+    @property
+    def n_global(self) -> tuple[int]:
+        """The total number of grid points in each dimension."""
+        return self._n_global
+
+    @property
+    def halo(self) -> int:
+        """The number of halo cells (ghost cells) around the local domain."""
+        return self._halo
+
+    @property
+    def n_procs(self) -> tuple[int]:
+        """The number of processors in each direction."""
+        return self._n_procs
+
+    @property
+    def shared_axes(self) -> list[int]:
+        """A list of axes that are shared between processors."""
+        return self._shared_axes
+
+    @property
+    def comm(self) -> MPI.Intracomm:
+        """The cartesian communicator that defines the processor grid."""
+        return self._comm
+
+    @property
+    def size(self) -> int:
+        """The total number of processors."""
+        return self._size
+
+    @property
+    def rank(self) -> int:
+        """The rank of the current processor."""
+        return self._rank
+
+    @property
+    def all_subdomains(self) -> list[Subdomain]:
+        """A list of all subdomains in the global domain."""
+        return self._all_subdomains
+
+    @property
+    def my_subdomain(self) -> Subdomain:
+        """The local domain of the current processor."""
+        return self._my_subdomain

@@ -19,7 +19,7 @@ class Subdomain:
         The global rank of the processor.
     `comm` : `MPI.Intracomm`
         The cartesian communicator that defines the processor grid.
-    `n_global` : `list[int]`
+    `n_global` : `tuple[int]`
         The global number of grid points in each dimension.
     `halo` : `int`, optional (default: 0)
         The number of halo cells around the local domain for the exchange
@@ -27,19 +27,19 @@ class Subdomain:
     
     Attributes
     ----------
-    `n_global` : `list[int]`
+    `n_global` : `tuple[int]`
         The global number of grid points in each dimension.
     `halo` : `int`
         The number of halo cells around the local domain for the exchange of
         boundary values.
     `rank` : `int`
         The global rank of the subdomains processor in the communicator.
-    `coord` : `list[int]`
+    `coord` : `tuple[int]`
         The coordinates of the processor in the processor grid.
-    `is_left_edge` : `list[bool]`
+    `is_left_edge` : `tuple[bool]`
         A list of booleans that indicate if the processor is at the left edge
         of the global domain.
-    `is_right_edge` : `list[bool]`
+    `is_right_edge` : `tuple[bool]`
         A list of booleans that indicate if the processor is at the right edge
         of the global domain.
     `shape` : `tuple[int]`
@@ -83,14 +83,14 @@ class Subdomain:
         rank = cart_comm.Get_rank()
 
         # Create a subdomain for the processor of the current rank
-        subdomain = Subdomain(rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+        subdomain = Subdomain(rank=rank, comm=cart_comm, n_global=(128,128), halo=1)
 
         # Print the attributes of the subdomain for the processor with rank 1
         if rank == 1:
-            print(subdomain.coord)         # [0, 1]
-            print(subdomain.inner_shape)   # [42, 64]
-            print(subdomain.shape)         # [44, 66] -> +2 because of the halo
-            print(subdomain.position)      # [0, 64]
+            print(subdomain.coord)         # (0, 1)
+            print(subdomain.inner_shape)   # (42, 64)
+            print(subdomain.shape)         # (44, 66) -> +2 because of the halo
+            print(subdomain.position)      # (0, 64)
             print(subdomain.global_slice)  # (slice(0, 42, None), slice(64, 128, None))
 
         # Create a numpy array with the shape of the local domain
@@ -103,17 +103,17 @@ class Subdomain:
     """
     def __init__(self, rank: int, 
                  comm: MPI.Cartcomm,
-                 n_global: 'list[int]',
+                 n_global: 'tuple[int]',
                  halo: int = 0,
                  ) -> None:
         # get the processor coordinates and dimensions of the processor grid
         n_dims = len(n_global)
-        coord = comm.Get_coords(rank)  # processor coordinates
-        n_procs = comm.Get_topo()[0]   # number of processors in each dim.
+        coord = tuple(comm.Get_coords(rank))  # processor coordinates
+        n_procs = tuple(comm.Get_topo()[0])   # number of processors in each dim.
 
         # check if a processor is at the edge of the global domain
-        is_left_edge = [c == 0 for c in coord]
-        is_right_edge = [c == n-1 for c,n in zip(coord, n_procs)]
+        is_left_edge = tuple(c == 0 for c in coord)
+        is_right_edge = tuple(c == n-1 for c,n in zip(coord, n_procs))
 
         # get the number of grid points in the local domain (the inner shape)
         # we decompose the number of grid points in the local domain into the
@@ -129,31 +129,31 @@ class Subdomain:
         n_base = [n_grid // n_proc for n_grid, n_proc in zip(n_global, n_procs)]
         remainder = [n_grid % n_proc if (c == n_proc - 1) else 0
                      for c, n_grid, n_proc in zip(coord, n_global, n_procs)]
-        inner_shape = [n+r for n,r in zip(n_base, remainder)]
-        shape = [n + 2*halo for n in inner_shape]
-        inner_slice = [slice(None)] * n_dims
+        inner_shape = tuple(n+r for n,r in zip(n_base, remainder))
+        shape = tuple(n + 2*halo for n in inner_shape)
+        inner_slice = tuple([slice(None)] * n_dims)
         if halo > 0:
-            inner_slice = [slice(halo, -halo)] * n_dims
+            inner_slice = tuple([slice(halo, -halo)] * n_dims)
 
         # get the start position of the local domain in the global grid
-        position = [c * n for c,n in zip(coord, n_base)]
-        global_slice = [slice(p,p+s) for p,s in zip(position, inner_shape)]
+        position = tuple(c * n for c,n in zip(coord, n_base))
+        global_slice = tuple(slice(p,p+s) for p,s in zip(position, inner_shape))
 
         # --------------------------------------------------------------
         #  Set the attributes
         # --------------------------------------------------------------
 
-        self.n_global: list[int]        = n_global
-        self.halo: int                  = halo
-        self.rank: int                  = rank
-        self.coord: list[int]           = coord
-        self.is_left_edge: list[bool]   = is_left_edge
-        self.is_right_edge: list[bool]  = is_right_edge
-        self.shape: tuple[int, ...]     = tuple(shape)
-        self.inner_shape: tuple[int, ...]    = tuple(inner_shape)
-        self.position: tuple[int, ...]       = tuple(position)
-        self.global_slice: tuple[slice, ...] = tuple(global_slice)
-        self.inner_slice: tuple[slice, ...]  = tuple(inner_slice)
+        self._n_global: list[int]        = n_global
+        self._halo: int                  = halo
+        self._rank: int                  = rank
+        self._coord: tuple[int]          = coord
+        self._is_left_edge: tuple[bool]  = is_left_edge
+        self._is_right_edge: tuple[bool] = is_right_edge
+        self._shape: tuple[int, ...]     = shape
+        self._inner_shape: tuple[int, ...]    = inner_shape
+        self._position: tuple[int, ...]       = position
+        self._global_slice: tuple[slice, ...] = global_slice
+        self._inner_slice: tuple[slice, ...]  = inner_slice
         
         return
 
@@ -199,9 +199,9 @@ class Subdomain:
 
             # Create two subdomains for the processors with rank 0 and 1
             subdomain0 = Subdomain(
-                rank=0, comm=cart_comm, n_global=[128,128], halo=1)
+                rank=0, comm=cart_comm, n_global=(128,128), halo=1)
             subdomain1 = Subdomain(
-                rank=1, comm=cart_comm, n_global=[128,128], halo=1)
+                rank=1, comm=cart_comm, n_global=(128,128), halo=1)
             print(subdomain0.has_overlap(subdomain1))  # False
 
             # Create a cartesian communicator with a processor grid of 1x2 processors
@@ -209,7 +209,7 @@ class Subdomain:
 
             # Create a subdomain for the processor in the new communicator
             subdomain2 = Subdomain(
-                rank=0, comm=cart_comm, n_global=[128,128], halo=1)
+                rank=0, comm=cart_comm, n_global=(128,128), halo=1)
             print(subdomain0.has_overlap(subdomain2))  # True
         """
         # if there is an overlap, than every dimension must have an overlap
@@ -263,9 +263,9 @@ class Subdomain:
 
             # Create two subdomains for the processors with rank 0 and 1
             subdomain1 = Subdomain(
-                rank=0, comm=cart_comm1, n_global=[128,128], halo=1)
+                rank=0, comm=cart_comm1, n_global=(128,128), halo=1)
             subdomain2 = Subdomain(
-                rank=0, comm=cart_comm2, n_global=[128,128], halo=1)
+                rank=0, comm=cart_comm2, n_global=(128,128), halo=1)
 
             print(subdomain1.global_slice)  # [0:64, 0:128]
             print(subdomain2.global_slice)  # [0:128, 0:64]
@@ -318,7 +318,7 @@ class Subdomain:
 
             # Create a subdomain for the processor of the current rank
             subdomain = Subdomain(
-                rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+                rank=rank, comm=cart_comm, n_global=(128,128), halo=1)
 
             # Create a numpy array with the shape of the local domain
             import numpy as np
@@ -371,7 +371,7 @@ class Subdomain:
 
             # Create a subdomain for the processor of the current rank
             subdomain = Subdomain(
-                rank=rank, comm=cart_comm, n_global=[128,128], halo=1)
+                rank=rank, comm=cart_comm, n_global=(128,128), halo=1)
 
             # Create a numpy array
             import numpy as np
@@ -392,3 +392,65 @@ class Subdomain:
             stop = l.stop + p - self.halo
             global_slice.append(slice(start, stop))
         return tuple(global_slice)
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def n_global(self) -> 'tuple[int]':
+        """The global number of grid points in each dimension."""
+        return self._n_global
+
+    @property
+    def halo(self) -> int:
+        """The number of halo cells around the local domain for the exchange 
+        of boundary values."""
+        return self._halo
+
+    @property
+    def rank(self) -> int:
+        """The global rank of the subdomains processor in the communicator."""
+        return self._rank
+
+    @property
+    def coord(self) -> 'tuple[int]':
+        """The coordinates of the processor in the processor grid."""
+        return self._coord
+
+    @property
+    def is_left_edge(self) -> 'tuple[bool]':
+        """A list of booleans that indicate if the processor is at the left edge
+        of the global domain."""
+        return self._is_left_edge
+
+    @property
+    def is_right_edge(self) -> 'tuple[bool]':
+        """A list of booleans that indicate if the processor is at the right edge
+        of the global domain."""
+        return self._is_right_edge
+
+    @property
+    def shape(self) -> 'tuple[int]':
+        """The number of grid points in the local domain including halo."""
+        return self._shape
+
+    @property
+    def inner_shape(self) -> 'tuple[int]':
+        """The number of grid points in the local domain without halo."""
+        return self._inner_shape
+
+    @property
+    def position(self) -> 'tuple[int]':
+        """The position of the local domain in the global grid (index 
+        coordinates)."""
+        return self._position
+
+    @property
+    def global_slice(self) -> 'tuple[slice]':
+        """The slice of the global domain that corresponds to the local domain."""
+        return self._global_slice
+    
+    @property
+    def inner_slice(self) -> 'tuple[slice]':
+        """The slice of the local domain without halo."""
+        return self._inner_slice
