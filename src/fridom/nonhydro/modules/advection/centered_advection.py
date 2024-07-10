@@ -40,7 +40,7 @@ class CenteredAdvection(Module):
         self.bcz = "wrap" if self.mset.periodic_bounds[2] else "constant"
 
         # initialize the interpolation scheme
-        self.interpolation.start(grid=self.grid, timer=None)
+        self.interpolation.start(grid=self.grid)
         return
         
     @update_module

@@ -22,7 +22,7 @@ def start_module(method):
             mset = kwargs.get('mset')
             self.mset = mset
             self.grid = mset.grid
-            self.timer = kwargs.get('timer')
+            self.timer = mset.timer
             method(self)
     return wrapper
 
@@ -66,7 +66,7 @@ class Module:
     to a file. Make sure to wrap the method with the `@update_module` decorator.
 
     Optional methods:
-    1. `start(self, mset: ModelSettingsBase, timer: TimingModule) -> None`: 
+    1. `start(self, mset: ModelSettingsBase) -> None`: 
     This method is called by the model when the module is started. It can for 
     example open an output file. Make sure to wrap the method with the 
     `@start_module` decorator.
@@ -165,7 +165,7 @@ class Module:
 
         Note
         ----
-        The start method should have no arguments. The grid and timer are set
+        The start method should have no arguments. The model settings are set
         as attributes of the module when the start method is called. (See the
         `start_module` decorator.)
         """
@@ -235,7 +235,7 @@ class Module:
         when the model is reset. 
         """
         self.stop()
-        self.start(mset=self.mset, timer=self.timer)
+        self.start(mset=self.mset)
 
     def __repr__(self) -> str:
         res = f"  {self.name}:"

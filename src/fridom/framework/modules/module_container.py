@@ -54,7 +54,7 @@ class ModuleContainer(Module):
         Start all modules.
         """
         for module in self.module_list:
-            module.start(mset=self.mset, timer=self.timer)
+            module.start(mset=self.mset)
         return
 
     @stop_module

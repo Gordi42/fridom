@@ -69,7 +69,7 @@ class ModelSettingsBase:
     ...         res = super().__str__()
     ...         res += "  My parameter: {}\\n".format(self.my_parameter)
     ...         return res
-    >>> settings = ModelSettings(L=[4*np.pi, 4*np.pi], my_parameter=2.0)
+    >>> settings = ModelSettings(grid=..., my_parameter=2.0)
     >>> print(settings)
     """
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
@@ -98,6 +98,10 @@ class ModelSettingsBase:
         
         # Starttime
         self.start_time = np.datetime64(0, 's')
+
+        # Timer
+        from fridom.framework.timing_module import TimingModule
+        self.timer = TimingModule()
 
         # State Constructors
         from fridom.framework.state_base import StateBase
@@ -144,9 +148,9 @@ class ModelSettingsBase:
             print(*args, **kwargs)
         return
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         """
-        String representation of the model settings.
+        String representation of the model settings (for IPython).
         """
         res = "================================================\n"
         res += "  Model Settings:\n"
@@ -157,9 +161,3 @@ class ModelSettingsBase:
         res += f"{self.diagnostics}"
         res += "------------------------------------------------\n"
         return res
-
-    def __repr__(self) -> str:
-        """
-        String representation of the model settings (for IPython).
-        """
-        return self.__str__()

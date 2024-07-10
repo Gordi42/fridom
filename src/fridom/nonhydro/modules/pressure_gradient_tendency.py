@@ -25,7 +25,7 @@ class PressureGradientTendency(Module):
         self.dy1 = config.dtype_real(1.0) / dy
         self.dz1 = config.dtype_real(1.0) / dz
         self.bc = self.mset.bc
-        self.bc.start(mset=self.mset, timer=self.timer)
+        self.bc.start(mset=self.mset)
         return
 
     @update_module

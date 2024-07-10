@@ -42,8 +42,7 @@ class Model:
         self.model_state.time = mset.start_time
 
         # Timer
-        from fridom.framework.timing_module import TimingModule
-        self.timer = TimingModule()
+        self.timer = mset.timer
 
         # Modules
         from copy import deepcopy
@@ -60,10 +59,10 @@ class Model:
         Prepare the model for running.
         """
         # start all modules
-        self.tendencies.start(mset=self.mset, timer=self.timer)
-        self.diagnostics.start(mset=self.mset, timer=self.timer)
-        self.time_stepper.start(mset=self.mset, timer=self.timer)
-        self.bc.start(mset=self.mset, timer=self.timer)
+        self.tendencies.start(mset=self.mset)
+        self.diagnostics.start(mset=self.mset)
+        self.time_stepper.start(mset=self.mset)
+        self.bc.start(mset=self.mset)
         return
 
     def stop(self):
