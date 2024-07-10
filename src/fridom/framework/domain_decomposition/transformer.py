@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from .domain_decomposition import DomainDecomposition
 
 def get_overlap_info(domain_in: 'DomainDecomposition', 
-                     domain_out: 'DomainDecomposition'):
+                     domain_out: 'DomainDecomposition') -> dict:
     """
     Get information about which processors of the output domain overlaps with
     the subdomain of this processor in the input domain.
@@ -219,8 +219,8 @@ class Transformer:
     >>> from fridom.framework \\
     ...     .domain_decomposition import DomainDecomposition, Transformer
     >>> # create two domains where one shares the x-axis and the other the y-axis
-    >>> domain_x = DomainDecomposition(n_global=[128]*2, shared_axes=[0])
-    >>> domain_y = DomainDecomposition(n_global=[128]*2, shared_axes=[1])
+    >>> domain_x = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
+    >>> domain_y = DomainDecomposition(n_global=(128, 128), shared_axes=[1])
     >>> 
     >>> # create a random array on the local domain
     >>> u = config.ncp.random.rand(*domain_x.my_subdomain.shape)
@@ -256,8 +256,9 @@ class Transformer:
         # --------------------------------------------------------------
         #  Set the attributes
         # --------------------------------------------------------------
-        self.domain_in = domain_in
-        self.domain_out = domain_out
+        # readable public attributes
+        self._domain_in = domain_in
+        self._domain_out = domain_out
 
         # private attributes for internal use
         self._same_domain = same_domain
@@ -265,7 +266,9 @@ class Transformer:
         self._overlap_info_out = overlap_info_out
         return
 
-    def forward(self, arr_in, arr_out=None):
+    def forward(self, 
+                arr_in: np.ndarray, 
+                arr_out: np.ndarray | None = None) -> np.ndarray:
         """
         Transform an array from the input domain to the output domain.
         
@@ -284,10 +287,12 @@ class Transformer:
             will be the same as `arr_out`.
         """
         return transform(
-            self.domain_in, self.domain_out, self._same_domain,
+            self._domain_in, self._domain_out, self._same_domain,
             self._overlap_info_in, self._overlap_info_out, arr_in, arr_out)
     
-    def backward(self, arr_in, arr_out=None):
+    def backward(self, 
+                 arr_in: np.ndarray, 
+                 arr_out: np.ndarray | None = None) -> np.ndarray:
         """
         Transform an array from the output domain to the input domain.
         
@@ -306,5 +311,19 @@ class Transformer:
             will be the same as `arr_out`.
         """
         return transform(
-            self.domain_out, self.domain_in, self._same_domain,
+            self._domain_out, self._domain_in, self._same_domain,
             self._overlap_info_out, self._overlap_info_in, arr_in, arr_out)
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+
+    @property
+    def domain_in(self) -> 'DomainDecomposition':
+        """The domain decomposition of the input domain."""
+        return self._domain_in
+
+    @property
+    def domain_out(self) -> 'DomainDecomposition':
+        """The domain decomposition of the output domain."""
+        return self._domain_out
