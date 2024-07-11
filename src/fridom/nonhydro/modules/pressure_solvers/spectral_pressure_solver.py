@@ -22,7 +22,8 @@ class SpectralPressureSolver(Module):
         mz.z_diag.p[:] = ps.fft()
         return
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += "    solver = Spectral\n"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["Solver"] = "Spectral"
         return res

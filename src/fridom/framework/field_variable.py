@@ -113,7 +113,6 @@ class FieldVariable:
         self.units = units
         self.nc_attrs = nc_attrs or {}
         self.mset = mset
-        self.grid = mset.grid
         self.is_spectral = is_spectral
         self.topo = topo
         self.arr = data
@@ -598,3 +597,11 @@ class FieldVariable:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def grid(self):
+        """Return the grid of the FieldVariable"""
+        return self.mset.grid

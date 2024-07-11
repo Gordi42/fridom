@@ -34,7 +34,6 @@ class Model:
         Constructor.
         """
         self.mset = mset
-        self.grid = mset.grid
 
         # state variable
         from fridom.framework.model_state import ModelState
@@ -113,7 +112,7 @@ class Model:
 
         # calculate end time if runlen is given
         if runlen is not None:
-            end_time = self.mset.start_time + runlen
+            end_time = self.model_state.time + runlen
         
         # progress bar
         if MPI.COMM_WORLD.Get_rank() != 0:
@@ -204,10 +203,64 @@ class Model:
         """
         Reset the model (pointers, tendencies).
         """
-        self.stop()
-        self.start()
-        self.model_state.it = 0
+        self.tendencies.reset()
+        self.diagnostics.reset()
+        self.time_stepper.reset()
+        self.bc.reset()
+        self.model_state.reset()
         self.timer.reset()
-        self.z *= 0
         # to implement in child class
         return
+
+    def load(self, 
+             filename: str = "model", 
+             directory: str | None = None) -> 'Model':
+        # underscores are not allowed in the filename
+        import dill
+        import os
+        import numpy as np
+        # get a list of all files in the directory that start with the filename
+        filename = filename.replace("_", "-")
+        directory = directory or "restart"
+
+        files = os.listdir(directory)
+        files = [f for f in files if f.startswith(filename)]
+        
+        # get the dates of the files
+        dates = [f.split("_")[1] for f in files]
+        dates = [np.datetime64(d) for d in dates]
+
+        # get the latest date
+        date = max(dates)
+
+        rank = MPI.COMM_WORLD.Get_rank()
+        filename = f"{filename}_{date}_{rank}.dill"
+
+        file = os.path.join(directory, filename)
+        with open(file, "rb") as f:
+            model = dill.load(f)
+            model.mset.grid = self.mset.grid
+
+        for key, attr in vars(model).items():
+            setattr(self, key, attr)
+        return
+
+    def save(self, 
+             filename: str = "model", 
+             directory: str | None = None) -> None:
+        filename = filename.replace("_", "-")
+        import dill
+        import os
+        directory = directory or "restart"
+        os.makedirs(directory, exist_ok=True)
+        time = self.model_state.time
+        rank = MPI.COMM_WORLD.Get_rank()
+        filename = f"{filename}_{time}_{rank}.dill"
+        file = os.path.join(directory, filename)
+        with open(file, "wb") as f:
+            grid = self.mset.grid
+            # remove the grid from the model before pickling
+            self.mset.grid = None
+            dill.dump(self, f)
+            # restore the grid
+            self.mset.grid = grid

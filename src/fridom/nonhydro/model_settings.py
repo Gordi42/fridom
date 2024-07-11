@@ -49,8 +49,7 @@ class ModelSettings(ModelSettingsBase):
         # ----------------------------------------------------------------
         #  Set attributes
         # ----------------------------------------------------------------
-        self.model_name = "NonHydrostatic"
-
+        self.model_name = "3D - Nonhydrostatic model"
         self.f_coriolis   = dtype(1)
         self.N2   = dtype(1)
         self.dsqr = dtype(1)
@@ -63,28 +62,11 @@ class ModelSettings(ModelSettingsBase):
         self.set_attributes(**kwargs)
         return
 
-
-    def __str__(self) -> str:
-        """
-        String representation of the model settings.
-
-        Returns:
-            res (str): String representation of the model settings.
-        """
-        res = super().__str__()
-        res += "  Physical parameters:\n"
-        res += "    f    = {:.3f}\n".format(self.f_coriolis)
-        res += "    N2   = {:.3f}\n".format(self.N2)
-        res += "    dsqr = {:.3f}\n".format(self.dsqr)
-        res += "    Ro   = {:.3f}\n".format(self.Ro)
-        res += "================================================\n"
+    @property
+    def parameters(self) -> dict:
+        res = super().parameters
+        res["coriolis parameter f"] = f"{self.f_coriolis} 1/s"
+        res["Stratification N²"] = f"{self.N2} 1/s^2"
+        res["Aspect ratio dsqr"] = f"{self.dsqr}"
+        res["Rossby number Ro"] = f"{self.Ro}"
         return res
-
-    def __repr__(self) -> str:
-        """
-        String representation of the model settings (for IPython).
-
-        Returns:
-            res (str): String representation of the model settings.
-        """
-        return self.__str__()

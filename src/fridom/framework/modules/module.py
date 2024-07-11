@@ -21,7 +21,6 @@ def start_module(method):
         if self.is_enabled():
             mset = kwargs.get('mset')
             self.mset = mset
-            self.grid = mset.grid
             self.timer = mset.timer
             method(self)
     return wrapper
@@ -144,7 +143,6 @@ class Module:
         self.required_halo = 0  # The required halo for the module
         self.mpi_available = True  # Whether the module can be run in parallel
         # The grid should be set by the model when the module is started
-        self.grid: 'GridBase | None' = None
         self.mset: 'ModelSettingsBase | None' = None
         self.timer: 'TimingModule | None' = None
         # Update the attributes with the keyword arguments
@@ -235,10 +233,34 @@ class Module:
         self.stop()
         self.start(mset=self.mset)
 
+    @property
+    def info(self) -> dict:
+        """
+        Return a dictionary with information about the time stepper.
+        
+        Description
+        -----------
+        This method should be overridden by the child class to return a
+        dictionary with information about the time stepper. This information is
+        used to print the time stepper in the `__repr__` method.
+        """
+        return {}
+
     def __repr__(self) -> str:
-        res = f"  {self.name}:"
+        """
+        String representation of the time stepper.
+        """
+        res = self.name
         if not self.__enabled:
             res += " (disabled)"
-        res += "\n"
+
+        for key, value in self.info.items():
+            res += "\n  - {}: {}".format(key, value)
         return res
 
+    @property
+    def grid(self) -> 'GridBase':
+        """
+        Return the grid of the model.
+        """
+        return self.mset.grid

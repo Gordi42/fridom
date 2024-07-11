@@ -33,7 +33,7 @@ Examples
 >>> # Provide examples of how to use this module.
 >>> import fridom.nonhydro as nh
 >>> mset = nh.ModelSettings()                  # create model settings
->>> mset.N = [2**7, 2**7, 2**4]                # set resolution
+>>> mset.N = (2**7, 2**7, 2**4)                # set resolution
 >>> mset.L = [4, 4, 1]                         # set domain size 
 >>> grid = nh.Grid(mset)                       # create grid
 >>> model = nh.Model(grid)                     # create model

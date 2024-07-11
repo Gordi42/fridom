@@ -45,9 +45,10 @@ class TendencyDivergence(Module):
                                (w[c,c,c] - w[c,c,b])*self.dz1
         return
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += "    discretization = Finite Difference\n"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["Discretization"] = "Finite Difference"
         return res
 
     def apply_boundary_conditions(self, z: 'State') -> None:

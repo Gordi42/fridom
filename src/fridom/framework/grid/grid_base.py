@@ -63,6 +63,9 @@ class GridBase:
         MPI ranks.
     """
     def __init__(self, n_dims: int) -> None:
+
+        self.name = "GridBase"
+
         self._n_dims = n_dims
         self._N = None
         self._L = None
@@ -142,9 +145,30 @@ class GridBase:
         """
         raise NotImplementedError
 
+    def __repr__(self) -> str:
+        """
+        String representation of the grid.
+        """
+        res = self.name
+        for key, value in self.info.items():
+            res += "\n  - {}: {}".format(key, value)
+        return res
+
     # ----------------------------------------------------------------
     #  Grid properties
     # ----------------------------------------------------------------
+    @property
+    def info(self) -> dict:
+        """
+        Return a dictionary with information about the grid.
+        
+        Description
+        -----------
+        This method should be overridden by the child class to return a
+        dictionary with information about the grid. This information is
+        used to print the grid in the `__repr__` method.
+        """
+        return {}
 
     @property
     def n_dims(self) -> int:

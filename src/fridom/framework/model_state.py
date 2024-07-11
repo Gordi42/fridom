@@ -37,3 +37,14 @@ class ModelState:
         self.dz = None
         self.it = 0
         self.time = mset.start_time
+
+    def reset(self) -> None:
+        """
+        Reset the model state.
+        """
+        self.z *= 0.0
+        self.z_diag *= 0.0
+        self.dz *= 0.0
+        self.it = 0
+        self.time = self.z.mset.start_time
+        return

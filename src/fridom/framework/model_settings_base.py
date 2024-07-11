@@ -152,12 +152,35 @@ class ModelSettingsBase:
         """
         String representation of the model settings (for IPython).
         """
-        res = "================================================\n"
-        res += "  Model Settings:\n"
-        res += "================================================\n"
-        res += "  Model name: {}\n".format(self.model_name)
-        res += f"{self.time_stepper}"
-        res += f"{self.tendencies}"
-        res += f"{self.diagnostics}"
-        res += "------------------------------------------------\n"
+        return f"""
+=================================================
+  Model Settings:
+-------------------------------------------------
+# {self.model_name}
+# Parameters: {self.__parameters_to_string()}
+# Grid: {self.grid}
+# Time Stepper: {self.time_stepper}
+# Tendencies: {self.tendencies}
+# Diagnostics: {self.diagnostics}
+=================================================
+        """
+
+    @property
+    def parameters(self) -> dict:
+        """
+        Return a dictionary with all parameters of the model settings.
+
+        Description
+        -----------
+        This method should be overridden by the child class to return a dictionary
+        with all parameters of the model settings. This dictionary is used to print
+        the model settings in the `__repr__` method.
+        """
+        return {}
+
+    def __parameters_to_string(self):
+        # res = "\n"
+        res = ""
+        for key, value in self.parameters.items():
+            res += "\n  - {}: {}".format(key, value)
         return res

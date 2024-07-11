@@ -7,6 +7,7 @@ from fridom.framework.grid.grid_base import GridBase
 from fridom.framework.domain_decomposition import DomainDecomposition
 from fridom.framework.domain_decomposition import ParallelFFT
 from .fft import FFT
+from fridom.framework.utils import humanize_number
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
@@ -115,6 +116,7 @@ class CartesianGrid(GridBase):
                  periodic_bounds: list[bool] | None = None,
                  shared_axes: list[int] | None = None) -> None:
         super().__init__(len(N))
+        self.name = "Cartesian Grid"
         # --------------------------------------------------------------
         #  Check the input
         # --------------------------------------------------------------
@@ -297,6 +299,24 @@ class CartesianGrid(GridBase):
     # ================================================================
     #  Properties
     # ================================================================
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["N"] = f"{self.N[0]}"
+        res["L"] = humanize_number(self.L[0], "meters")
+        res["dx"] = humanize_number(self.dx[0], "meters")
+        res["Periodic"] = f"{self.periodic_bounds[0]}"
+        for i in range(1, self.n_dims):
+            res["N"] += f" x {self.N[i]}"
+            res["L"] += f" x {humanize_number(self.L[i], 'meters')}"
+            res["dx"] += f" x {humanize_number(self.dx[i], 'meters')}"
+            res["Periodic"] += f" x {self.periodic_bounds[i]}"
+        if self._domain_decomp is not None:
+            res["Processors"] = f"{self._domain_decomp.n_procs[0]}"
+            for i in range(1, self.n_dims):
+                res["Processors"] += f" x {self._domain_decomp.n_procs[i]}"
+        return res
+        
 
     @property
     def L(self) -> tuple:

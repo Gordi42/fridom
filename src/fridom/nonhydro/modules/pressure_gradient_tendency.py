@@ -43,7 +43,8 @@ class PressureGradientTendency(Module):
         self.bc.apply_boundary_conditions(dz)
         return
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    discretization: Finite difference\n"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["Discretization"] = "Finite Difference"
         return res

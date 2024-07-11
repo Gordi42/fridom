@@ -32,7 +32,6 @@ class StateBase:
             is_spectral (bool)    : State is in spectral space. (default: False)
         """
         self.mset = mset
-        self.grid = mset.grid
         self.is_spectral = is_spectral
         self.constructor = StateBase
         self.fields = {field.name: field for field in field_list}
@@ -233,3 +232,10 @@ class StateBase:
         z = self.constructor(self.mset, field_list=prods,
                                 is_spectral=self.is_spectral)
         return z
+
+    @property
+    def grid(self):
+        """
+        Return the grid of the model.
+        """
+        return self.mset.grid

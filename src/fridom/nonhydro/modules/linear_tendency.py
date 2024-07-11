@@ -49,7 +49,8 @@ class LinearTendency(Module):
 
         return
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += "    discretization: Finite Difference\n"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["Discretization"] = "Finite Difference"
         return res

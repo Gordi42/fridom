@@ -34,7 +34,7 @@ class AdamBashforth(TimeStepper):
             raise ValueError(
                 "Adam Bashforth Time Stepping only supports orders up to 4.")
         
-        super().__init__("Adam Bashforth Time Stepping", 
+        super().__init__("Adam Bashforth", 
                          order=order, eps=eps)
         self.AB1 = [1]
         self.AB2 = [3/2 + eps, -1/2 - eps]
@@ -59,14 +59,21 @@ class AdamBashforth(TimeStepper):
             ncp.asarray(self.AB3, dtype=dtype), 
             ncp.asarray(self.AB4, dtype=dtype)
         ]
-        self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
 
-        # pointers
-        self.pointer = np.arange(self.order, dtype=ncp.int32)
+        if self.it_count is None:
+            self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
 
-        # tendencies
-        self.dz_list = [mset.state_constructor() for _ in range(self.order)]
-        self.it_count = 0
+            # pointers
+            self.pointer = np.arange(self.order, dtype=ncp.int32)
+
+            # tendencies
+            self.dz_list = [mset.state_constructor() for _ in range(self.order)]
+            self.it_count = 0
+        return
+
+    def reset(self):
+        self.it_count = None
+        self.start(mset=self.mset)
         return
 
     @update_module
@@ -117,6 +124,15 @@ class AdamBashforth(TimeStepper):
         return
 
     @property
+    def info(self) -> dict:
+        res = super().info
+        res["dt"] = f"{self.dt}"
+        res["order"] = self.order
+        if self.order == 2:
+            res["eps"] = self.eps
+        return res
+
+    @property
     def dz(self):
         """
         Returns a pointer on the current tendency term.
@@ -130,14 +146,6 @@ class AdamBashforth(TimeStepper):
         """
         self.dz_list[self.pointer[0]] = value
         return
-
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    dt = {self.dt}\n"
-        res += f"    order = {self.order}\n"
-        if self.order == 2:
-            res += f"    eps = {self.eps}\n"
-        return res
 
     @property
     def dt(self) -> float:

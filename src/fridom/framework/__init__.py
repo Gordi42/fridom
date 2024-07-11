@@ -15,6 +15,8 @@ Modules
     Contains classes for domain decomposition (parallelization)
 'config'
     Contains the configuration settings for the framework
+'utils'
+    Contains utility functions
 'time_steppers'
     Contains classes related to time stepping
 'modules'
@@ -60,6 +62,7 @@ from .mesh_point import MeshPoint
 from . import grid
 from . import domain_decomposition
 from . import config
+from . import utils
 from . import time_steppers
 from . import modules
 from . import projection

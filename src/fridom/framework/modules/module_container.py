@@ -66,6 +66,14 @@ class ModuleContainer(Module):
             module.stop()
         return
 
+    def reset(self) -> None:
+        """
+        Reset all modules.
+        """
+        for module in self.module_list:
+            module.reset()
+        return
+
     @update_module
     def update(self, mz: 'ModelState') -> None:
         """
@@ -140,9 +148,9 @@ class ModuleContainer(Module):
         """
         # format the title into a 48 character string of format
         # "==================== TITLE ===================="
-        title = self.name.upper()
-        title = title.center(len(title)+2).center(48, "=")
-        res = f"{title}\n"
+        # title = self.name.upper()
+        # title = title.center(len(title)+2).center(48, "=")
+        res = f"{self.name}"
         for module in self.module_list:
-            res += f"{module}"
+            res += f"\n## {module}"
         return res
