@@ -28,6 +28,10 @@ Modules
 
 Classes
 -------
+'FridomLogger'
+    Class for logging messages
+'LogLevel
+    Enum class for the different log levels
 'ModelSettingsBase'
     Base class for model settings
 'FieldVariable'
@@ -57,6 +61,7 @@ from .model_state import ModelState
 from .model import Model
 from .diagnose_imbalance_base import DiagnoseImbalanceBase
 from .mesh_point import MeshPoint
+from .fridom_logger import FridomLogger, LogLevel
 
 # import modules
 from . import grid

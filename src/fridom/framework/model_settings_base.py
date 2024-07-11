@@ -1,6 +1,9 @@
 # Import external modules
 from typing import TYPE_CHECKING
 import numpy as np
+import logging
+# Import internal modules
+from fridom.framework.config import logger
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
@@ -137,15 +140,10 @@ class ModelSettingsBase:
         return
 
     def setup(self):
+        logger.verbose("Setting up model settings")
         self.grid.setup(self)
-        return
 
-    def print_verbose(self, *args, **kwargs):
-        """
-        Print only if verbose output is enabled.
-        """
-        if self.enable_verbose:
-            print(*args, **kwargs)
+        logger.info(self)
         return
 
     def __repr__(self) -> str:
