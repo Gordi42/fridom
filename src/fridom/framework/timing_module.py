@@ -1,3 +1,5 @@
+from fridom.framework import config
+
 class TimingComponent:
     """
     A class to keep track of the time spent in a particular component 
@@ -29,7 +31,9 @@ class TimingComponent:
         """
         # check if the timer is already active
         if self.is_active:
-            raise RuntimeError(f"TimingComponent {self.name} is already active.")
+            config.logger.warning(
+                f"Start of TimingComponent {self.name} is called, but the component is already active.")
+            return
         # start the timer
         self.is_active = True
         from time import time
@@ -42,7 +46,9 @@ class TimingComponent:
         """
         # check if the timer is active
         if not self.is_active:
-            raise RuntimeError(f"TimingComponent {self.name} is not active.")
+            config.logger.warning(
+                f"Stop of TimingComponent {self.name} is called, but the component is not active.")
+            return
         # stop the timer
         from time import time
         self.time += time() - self.start_time

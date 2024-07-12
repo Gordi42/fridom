@@ -20,6 +20,8 @@ Modules
 
 Classes
 -------
+`RestartModule`
+    A module for restarting the model.
 `BoundaryConditions`
     Boundary conditions module.
 `LinearTendency`
@@ -62,3 +64,4 @@ from fridom.framework.modules import animation
 
 # importing classes
 from fridom.framework.modules.netcdf_writer import NetCDFWriter
+from fridom.framework.modules.restart_module import RestartModule

@@ -14,6 +14,8 @@ Classes
     Base class for all modules.
 `ModuleContainer`
     Base class for a container of modules.
+`RestartModule`
+    Module for restarting the model.
 `BoundaryConditions`
     Module for setting boundary conditions to the model state.
 `NetCDFWriterBase`
@@ -36,6 +38,7 @@ from . import animation
 # importing the Classes
 from .module import Module
 from .module_container import ModuleContainer
+from .restart_module import RestartModule
 from .boundary_conditions import BoundaryConditions
 from .netcdf_writer_single_proc import NetCDFWriterSingleProc
 from .netcdf_writer import NetCDFWriter

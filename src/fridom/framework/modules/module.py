@@ -53,14 +53,15 @@ def module_method(method):
                 config.set_log_level(self.log_level.value)
 
             config.logger.debug(
-                f"Calling {method.__name__} of module: {self.name}")
+                f"Calling '{method.__name__}' of: {self.name}")
             self.mset.timer.get(self.name).start()
-            method(self, *args, **kwargs)
+            result = method(self, *args, **kwargs)
             self.mset.timer.get(self.name).stop()
 
             # if the log level was set, change it back to the old log level
             if self.log_level is not None:
                 config.set_log_level(old_log_level)
+            return result
     return wrapper
 
 class Module:

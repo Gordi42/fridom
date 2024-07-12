@@ -45,6 +45,12 @@ import sys
 import os
 from IPython import get_ipython
 import coloredlogs
+import time
+
+# ================================================================
+#  Store the time when the module is loaded
+# ================================================================
+load_time = time.time()
 
 # ================================================================
 #  BACKEND
@@ -273,7 +279,7 @@ def _setup_logging():
             '%(asctime)s: %(message)s', datefmt='%H:%M:%S')
     else:
         formatter = logging.Formatter(
-            '%(levelname)s: %(message)s')
+            '%(asctime)s: %(levelname)s: %(message)s', datefmt='%H:%M:%S')
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
@@ -290,6 +296,8 @@ def _setup_logging():
     
     logger.verbose = verbose
     logger.notice = notice
+
+    set_log_ranks([0])
     return
 
 

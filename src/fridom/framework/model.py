@@ -2,6 +2,7 @@
 from typing import TYPE_CHECKING
 from mpi4py import MPI
 from tqdm import tqdm
+import numpy as np
 # Import internal modules
 from fridom.framework import config
 # Import type information
@@ -40,12 +41,12 @@ class Model:
         # state variable
         from fridom.framework.model_state import ModelState
         self.model_state = ModelState(mset)
-        self.model_state.time = mset.start_time
 
         # Timer
         self.timer = mset.timer
 
         # Modules
+        self.restart_module = mset.restart_module
         self.tendencies  = mset.tendencies
         self.diagnostics = mset.diagnostics
         self.bc = mset.bc
@@ -59,6 +60,8 @@ class Model:
         Prepare the model for running.
         """
         # start all modules
+        self.timer.total.start()
+        self.restart_module.start()
         self.tendencies.start()
         self.diagnostics.start()
         self.time_stepper.start()
@@ -69,12 +72,27 @@ class Model:
         """
         Finish the model run.
         """
+        self.restart_module.stop()
         self.tendencies.stop()
         self.diagnostics.stop()
         self.time_stepper.stop()
         self.bc.stop()
+        self.timer.total.stop()
         return
         
+    def reset(self) -> None:
+        """
+        Reset the model (pointers, tendencies).
+        """
+        self.restart_module.reset()
+        self.tendencies.reset()
+        self.diagnostics.reset()
+        self.time_stepper.reset()
+        self.bc.reset()
+        self.model_state.reset()
+        self.timer.reset()
+        # to implement in child class
+        return
 
 
     # ============================================================
@@ -84,6 +102,7 @@ class Model:
     def run(self, 
             steps=None, 
             runlen=None, 
+            start_time=np.datetime64(0, 's'),
             end_time=None,
             progress_bar=True) -> None:
         """
@@ -95,6 +114,8 @@ class Model:
             Number of steps to run.
         `runlen` : `np.timedelta64`
             Length of the run.
+        `start_time` : `np.datetime64` (default np.datetime64(0, 's'))
+            Start time of the run.
         `end_time` : `np.datetime64`
             End time of the run.
         `progress_bar` : `bool`
@@ -105,17 +126,40 @@ class Model:
         `ValueError`
             Only one of `steps`, `runlen` or `end_time` can be given.
         """
+        # ----------------------------------------------------------------
+        #  Check input
+        # ----------------------------------------------------------------
         # only one of steps, runlen or end_time can be given
         if sum([steps is not None, 
                 runlen is not None, 
                 end_time is not None]) > 1:
             raise ValueError("Only one of steps, runlen or end_time can be given.")
 
+        # set the start time
+        self.model_state.time = start_time
+
+        # ----------------------------------------------------------------
+        #  Calculate number of steps / end time
+        # ----------------------------------------------------------------
         # calculate end time if runlen is given
         if runlen is not None:
             end_time = self.model_state.time + runlen
+
+        # calculate the final iteration step if steps is given
+        if steps is not None:
+            first_it = self.model_state.it
+            final_it = first_it + steps
+            
+        # ----------------------------------------------------------------
+        #  Load the model
+        # ----------------------------------------------------------------
+        # check if the model needs to be reloaded
+        if self.restart_module.should_reload():
+            self.load(self.restart_module.file)
         
-        # progress bar
+        # ----------------------------------------------------------------
+        #  Set up the progress bar
+        # ----------------------------------------------------------------
         if MPI.COMM_WORLD.Get_rank() != 0:
             progress_bar = False
         bar_format = "{percentage:3.2f}%|{bar}| [{elapsed}<{remaining}, {rate_fmt}]{postfix}"
@@ -125,26 +169,51 @@ class Model:
         # start the model
         self.start()
 
-        # main loop
-        self.timer.total.start()
+        # ----------------------------------------------------------------
+        #  Main loop: Given number of setps
+        # ----------------------------------------------------------------
         if steps is not None:
-            for i in range(steps):
+            start_it = self.model_state.it
+            config.logger.info(
+                f"Running model from iteration {start_it} to {final_it}")
+            
+            # loop over the given number of steps
+            for i in range(start_it, final_it):
                 self.step()
-                pbar.n = 100 * (i+1) / steps
-                pbar.set_postfix_str(f"It: {self.model_state.it} - Time: {self.model_state.time}")
+
+                # update the progress bar
+                pbar.n = 100 * (i-first_it+1) / steps
+                pbar.set_postfix_str(
+                    f"It: {self.model_state.it} - Time: {self.model_state.time}")
                 pbar.refresh()
+
+        # ----------------------------------------------------------------
+        #  Main loop: Given run length
+        # ----------------------------------------------------------------
         elif end_time is not None:
+            config.logger.info(
+                f"Running model from {self.model_state.time} to {end_time}")
+
+            # loop until the end time is reached
             while self.model_state.time < end_time:
                 self.step()
-                pbar.n = 100 * ( (self.model_state.time - self.mset.start_time) 
-                                   / (end_time - self.mset.start_time) )
-                pbar.set_postfix_str(f"It: {self.model_state.it} - Time: {self.model_state.time}")
+
+                # update the progress bar
+                pbar.n = 100 * ( (self.model_state.time - start_time) 
+                                   / (end_time - start_time) )
+                pbar.set_postfix_str(
+                    f"It: {self.model_state.it} - Time: {self.model_state.time}")
                 pbar.refresh()
+        
+        # close the progress bar
         pbar.close()
-        self.timer.total.stop()
 
         # stop the model
         self.stop()
+
+        config.logger.info(
+            f"Model run finished at it: {self.model_state.it}, time: {self.model_state.time}")
+        config.logger.info(self.mset.timer)
 
         return
 
@@ -174,7 +243,29 @@ class Model:
 
         # make diagnostics
         self.diagnostics.update(self.model_state)
+
+        # check if the model should restart
+        if self.restart_module.should_restart(self.model_state):
+            self.restart()
         return
+
+    def restart(self) -> None:
+        config.logger.info(
+            f"Stopping model at it: {self.model_state.it}, time: {self.model_state.time}")
+        self.stop()
+        self.save(self.restart_module.file)
+        config.logger.info(self.mset.timer)
+        MPI.COMM_WORLD.Barrier()
+        if MPI.COMM_WORLD.Get_rank() == 0:
+            import subprocess
+            result = subprocess.run(
+                self.restart_module.restart_command.split(), 
+                capture_output=True, text=True)
+            config.logger.notice(result.stdout)
+            if result.stderr:
+                config.logger.error(result.stderr)
+        MPI.COMM_WORLD.Barrier()
+        exit()
 
     
     # ============================================================
@@ -200,44 +291,10 @@ class Model:
     #   OTHER METHODS
     # ============================================================
 
-    def reset(self) -> None:
-        """
-        Reset the model (pointers, tendencies).
-        """
-        self.tendencies.reset()
-        self.diagnostics.reset()
-        self.time_stepper.reset()
-        self.bc.reset()
-        self.model_state.reset()
-        self.timer.reset()
-        # to implement in child class
-        return
-
-    def load(self, 
-             filename: str = "model", 
-             directory: str | None = None) -> 'Model':
+    def load(self, file: str) -> None:
         # underscores are not allowed in the filename
         import dill
-        import os
-        import numpy as np
         # get a list of all files in the directory that start with the filename
-        filename = filename.replace("_", "-")
-        directory = directory or "restart"
-
-        files = os.listdir(directory)
-        files = [f for f in files if f.startswith(filename)]
-        
-        # get the dates of the files
-        dates = [f.split("_")[1] for f in files]
-        dates = [np.datetime64(d) for d in dates]
-
-        # get the latest date
-        date = max(dates)
-
-        rank = MPI.COMM_WORLD.Get_rank()
-        filename = f"{filename}_{date}_{rank}.dill"
-
-        file = os.path.join(directory, filename)
         with open(file, "rb") as f:
             model = dill.load(f)
             model.mset.grid = self.mset.grid
@@ -246,22 +303,14 @@ class Model:
             setattr(self, key, attr)
         return
 
-    def save(self, 
-             filename: str = "model", 
-             directory: str | None = None) -> None:
-        filename = filename.replace("_", "-")
+    def save(self, file: str) -> None:
         import dill
-        import os
-        directory = directory or "restart"
-        os.makedirs(directory, exist_ok=True)
-        time = self.model_state.time
-        rank = MPI.COMM_WORLD.Get_rank()
-        filename = f"{filename}_{time}_{rank}.dill"
-        file = os.path.join(directory, filename)
         with open(file, "wb") as f:
+            config.logger.verbose(f"Saving model to {file}")
             grid = self.mset.grid
             # remove the grid from the model before pickling
             self.mset.grid = None
             dill.dump(self, f)
             # restore the grid
             self.mset.grid = grid
+        return

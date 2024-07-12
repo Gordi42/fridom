@@ -98,7 +98,7 @@ class NetCDFWriter(Module):
     @setup_module
     def setup(self) -> None:
         # create snapshot folder if it doesn't exist
-        config.logger.info(f"Touching snapshot directory: {self.directory}")
+        config.logger.verbose(f"Touching snapshot directory: {self.directory}")
         os.makedirs(self.directory, exist_ok=True)
 
         # snap slice:
@@ -120,6 +120,10 @@ class NetCDFWriter(Module):
     def stop(self):
         if self._file_is_open:
             self._close_file()
+        self._current_start_time = None
+        self._last_checkpoint_time = None
+        self._last_write_time = None
+        return
 
     @module_method
     def update(self, mz: 'ModelState'):
@@ -194,10 +198,7 @@ class NetCDFWriter(Module):
         ext = ext.lower()
         base = base if ext in [".nc", ".cdf"] else self.filename
         ext = ext if ext in [".nc", ".cdf"] else ".cdf"
-        if self.restart_interval is None:
-            filename = f"{base}{ext}"
-        else:
-            filename = f"{base}_{self._current_start_time}{ext}"
+        filename = f"{base}_{self._current_start_time}{ext}"
 
         # ----------------------------------------------------------------
         #  Create the NetCDF file
@@ -287,5 +288,6 @@ class NetCDFWriter(Module):
 
     def _close_file(self):
         self._ncfile.close()
+        self._ncfile = None
         self._file_is_open = False
         return

@@ -30,6 +30,8 @@ class ModelSettingsBase:
         The name of the model.
     `time_stepper` : `TimeStepperBase` (default: `AdamBashforth()`
         The time stepper object.
+    `restart_module` : `RestartModule`
+        The restart module object.
     `tendencies` : `ModuleContainer`
         A container for all modules that calculate tendencies.
     `diagnostics` : `ModuleContainer`
@@ -86,8 +88,11 @@ class ModelSettingsBase:
         self.time_stepper = AdamBashforth()
 
         # modules
+        from fridom.framework.modules.restart_module import RestartModule
         from fridom.framework.modules.module_container import ModuleContainer
         from fridom.framework.modules.boundary_conditions import BoundaryConditions
+        # Restart module
+        self.restart_module = RestartModule()
         # List of modules that calculate tendencies
         self.tendencies = ModuleContainer(name="All Tendency Modules")
         # List of modules that do diagnostics
@@ -141,6 +146,7 @@ class ModelSettingsBase:
     def setup(self):
         logger.verbose("Setting up model settings")
         self.grid.setup(mset=self)
+        self.restart_module.setup(mset=self)
         self.tendencies.setup(mset=self)
         self.diagnostics.setup(mset=self)
         self.bc.setup(mset=self)
@@ -161,6 +167,7 @@ class ModelSettingsBase:
 # Parameters: {self.__parameters_to_string()}
 # Grid: {self.grid}
 # Time Stepper: {self.time_stepper}
+# {self.restart_module}
 # Tendencies: {self.tendencies}
 # Diagnostics: {self.diagnostics}
 =================================================
