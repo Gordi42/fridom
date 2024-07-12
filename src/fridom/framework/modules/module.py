@@ -1,6 +1,8 @@
 # Import external modules
 from typing import TYPE_CHECKING
 from functools import wraps
+# Import internal modules
+from fridom.framework import config
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
@@ -19,10 +21,21 @@ def start_module(method):
     @wraps(method)
     def wrapper(self, **kwargs):
         if self.is_enabled():
+            # if the log level is set, change the log level for the module
+            if self.log_level is not None:
+                old_log_level = config.logger.level
+                config.set_log_level(self.log_level.value)
+
+            config.logger.verbose(f"Starting module: {self.name}")
+            
             mset = kwargs.get('mset')
             self.mset = mset
             self.timer = mset.timer
             method(self)
+
+            # if the log level was set, change it back to the old log level
+            if self.log_level is not None:
+                config.set_log_level(old_log_level)
     return wrapper
 
 def stop_module(method):
@@ -32,16 +45,38 @@ def stop_module(method):
     @wraps(method)
     def wrapper(self, **kwargs):
         if self.is_enabled():
+            # if the log level is set, change the log level for the module
+            if self.log_level is not None:
+                old_log_level = config.logger.level
+                config.set_log_level(self.log_level.value)
+
+            config.logger.verbose(f"Stopping module: {self.name}")
+            
             method(self)
+
+            # if the log level was set, change it back to the old log level
+            if self.log_level is not None:
+                config.set_log_level(old_log_level)
     return wrapper
 
 def update_module(method):
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         if self.is_enabled():
+            # if the log level is set, change the log level for the module
+            if self.log_level is not None:
+                old_log_level = config.logger.level
+                config.set_log_level(self.log_level.value)
+
+            config.logger.debug(f"Updating module: {self.name}")
+
             self.timer.get(self.name).start()
             method(self, *args, **kwargs)
             self.timer.get(self.name).stop()
+
+            # if the log level was set, change it back to the old log level
+            if self.log_level is not None:
+                config.set_log_level(old_log_level)
     return wrapper
 
 class Module:
@@ -91,6 +126,11 @@ class Module:
         The grid of the model.
     `timer` : `TimingModule`
         The timing module of the model.
+    `log_level` : `LogLevel | None`
+        The log level of the module. If set, the log level of the logger is
+        changed to this log level when the module is called and changed back
+        to the old log level when the module is done. If not set, the log level
+        of the logger is not changed.
     `__enabled` : `bool`
         Whether the module is enabled or not.
     
@@ -139,6 +179,8 @@ class Module:
     def __init__(self, name, **kwargs) -> None:
         # The module is enabled by default
         self.__enabled = True
+        # The log level
+        self.log_level: config.LogLevel | None = None
         # Set the flags
         self.required_halo = 0  # The required halo for the module
         self.mpi_available = True  # Whether the module can be run in parallel

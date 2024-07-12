@@ -201,7 +201,7 @@ class LogLevel(Enum):
 logger = logging.getLogger("fridom")
 
 
-def set_log_level(level: LogLevel):
+def set_log_level(level: LogLevel | int):
     """
     Set the logging level.
     
@@ -216,7 +216,10 @@ def set_log_level(level: LogLevel):
     >>> fr.config.set_log_level(fr.LogLevel.INFO)
     """
     global logger
-    logger.setLevel(level.value)
+    if isinstance(level, LogLevel):
+        logger.setLevel(level.value)
+    else:
+        logger.setLevel(level)
     return
 
 def set_log_ranks(ranks: list[int] | None):

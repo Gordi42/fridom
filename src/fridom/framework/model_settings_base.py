@@ -1,7 +1,6 @@
 # Import external modules
 from typing import TYPE_CHECKING
 import numpy as np
-import logging
 # Import internal modules
 from fridom.framework.config import logger
 # Import type information

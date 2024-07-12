@@ -2,6 +2,8 @@
 from typing import TYPE_CHECKING
 from mpi4py import MPI
 from tqdm import tqdm
+# Import internal modules
+from fridom.framework import config
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
