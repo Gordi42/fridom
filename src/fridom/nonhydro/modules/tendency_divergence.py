@@ -2,10 +2,9 @@
 from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config
-from fridom.framework.modules.module import Module, update_module, start_module
+from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
-    from fridom.nonhydro.state import State
     from fridom.framework.model_state import ModelState
 
 
@@ -19,18 +18,18 @@ class TendencyDivergence(Module):
         super().__init__(name="Tendency Divergence")
         self.required_halo = 1
 
-    @start_module
-    def start(self):
+    @setup_module
+    def setup(self):
         # compute the grid spacing
         dx, dy, dz = self.mset.grid.dx
         self.dx1 = config.dtype_real(1.0) / dx
         self.dy1 = config.dtype_real(1.0) / dy
         self.dz1 = config.dtype_real(1.0) / dz
         self.bc = self.mset.bc
-        self.bc.start(mset=self.mset)
+        self.bc.setup(mset=self.mset)
         return
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState') -> None:
         dz = mz.dz
         dz.sync()
@@ -50,25 +49,3 @@ class TendencyDivergence(Module):
         res = super().info
         res["Discretization"] = "Finite Difference"
         return res
-
-    def apply_boundary_conditions(self, z: 'State') -> None:
-        subdomain = self.grid.get_subdomain(spectral=False)
-        # slices
-        left  = slice(0, subdomain.halo)
-        right = slice(-subdomain.halo - 1, None)
-        # apply boundary conditions
-        if not self.grid.periodic_bounds[0]:
-            if subdomain.is_left_edge[0]:
-                z.u[left,:,:] = 0
-            if subdomain.is_right_edge[0]:
-                z.u[right,:,:] = 0
-        if not self.grid.periodic_bounds[1]:
-            if subdomain.is_left_edge[1]:
-                z.v[:,left,:] = 0
-            if subdomain.is_right_edge[1]:
-                z.v[:,right,:] = 0
-        if not self.grid.periodic_bounds[2]:
-            if subdomain.is_left_edge[2]:
-                z.w[:,:,left] = 0
-            if subdomain.is_right_edge[2]:
-                z.w[:,:,right] = 0

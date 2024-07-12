@@ -41,5 +41,5 @@ from .netcdf_writer_single_proc import NetCDFWriterSingleProc
 from .netcdf_writer import NetCDFWriter
 
 # importing the functions
-from .module import update_module, start_module, stop_module
+from .module import setup_module, module_method
 

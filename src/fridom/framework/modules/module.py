@@ -7,15 +7,13 @@ from fridom.framework import config
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
     from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.state_base import StateBase
     from fridom.framework.model_state import ModelState
     from fridom.framework.timing_module import TimingModule
 
-
-def start_module(method):
+def setup_module(method):
     """
-    Decorator for the start method of a module. 
-    Sets the grid, mset, and timer as attributes of the module if the module is 
+    Decorator for the setup method of a module. 
+    Sets mset as attribute of the module if the module is
     enabled.
     """
     @wraps(method)
@@ -26,11 +24,10 @@ def start_module(method):
                 old_log_level = config.logger.level
                 config.set_log_level(self.log_level.value)
 
-            config.logger.verbose(f"Starting module: {self.name}")
+            config.logger.verbose(f"Setup module: {self.name}")
             
             mset = kwargs.get('mset')
             self.mset = mset
-            self.timer = mset.timer
             method(self)
 
             # if the log level was set, change it back to the old log level
@@ -38,28 +35,15 @@ def start_module(method):
                 config.set_log_level(old_log_level)
     return wrapper
 
-def stop_module(method):
+def module_method(method):
     """
-    Decorator for the stop method of a module.
+    Decorator for the start, update and stop method of a module.
+
+    Description
+    -----------
+    Sets the log level of the module if the log level is set and time 
+    the duration of the method.
     """
-    @wraps(method)
-    def wrapper(self, **kwargs):
-        if self.is_enabled():
-            # if the log level is set, change the log level for the module
-            if self.log_level is not None:
-                old_log_level = config.logger.level
-                config.set_log_level(self.log_level.value)
-
-            config.logger.verbose(f"Stopping module: {self.name}")
-            
-            method(self)
-
-            # if the log level was set, change it back to the old log level
-            if self.log_level is not None:
-                config.set_log_level(old_log_level)
-    return wrapper
-
-def update_module(method):
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         if self.is_enabled():
@@ -68,11 +52,11 @@ def update_module(method):
                 old_log_level = config.logger.level
                 config.set_log_level(self.log_level.value)
 
-            config.logger.debug(f"Updating module: {self.name}")
-
-            self.timer.get(self.name).start()
+            config.logger.debug(
+                f"Calling {method.__name__} of module: {self.name}")
+            self.mset.timer.get(self.name).start()
             method(self, *args, **kwargs)
-            self.timer.get(self.name).stop()
+            self.mset.timer.get(self.name).stop()
 
             # if the log level was set, change it back to the old log level
             if self.log_level is not None:
@@ -124,8 +108,6 @@ class Module:
         The model settings.
     `grid` : `GridBase`
         The grid of the model.
-    `timer` : `TimingModule`
-        The timing module of the model.
     `log_level` : `LogLevel | None`
         The log level of the module. If set, the log level of the logger is
         changed to this log level when the module is called and changed back
@@ -192,44 +174,51 @@ class Module:
         self.name = name
         return
 
-    @start_module
+    @setup_module
+    def setup(self) -> None:
+        """
+        Start the module
+
+        Description
+        -----------
+        This method is called by the ModelSettings.setup() and sets the 
+        ModelSettings as an attribute. Make sure to decorate the method with
+        the `@setup_module` decorator
+
+        Note
+        ----
+        The setup method should have no arguments. The model settings are set
+        as attributes of the module when the setup method is called. (See the
+        `setup_module` decorator.)
+        """
+        return
+
     def start(self) -> None:
         """
         Start the module
 
         Description
         -----------
-        This method is called by the model when the module is started. Child 
-        classes that require a start method (for example to start an output writer) 
-        should overwrite this method. 
-
-        Note
-        ----
-        The start method should have no arguments. The model settings are set
-        as attributes of the module when the start method is called. (See the
-        `start_module` decorator.)
+        This method is called at the beginning of the model run. Child classes 
+        that require a start method (for example to start an output writer)
+        should overwrite this method. Make sure to decorate the method with
+        the `@module_method` decorator.
         """
         return
 
-    @stop_module
     def stop(self) -> None:
         """
         Stop the module
 
         Description
         -----------
-        This method is called by the model when the module is stopped. Child
-        classes that require a stop method (for example to close an output file)
-        should overwrite this method.
-
-        Note
-        ----
-        Child classes should have the same signature as this method, e.g.
-        it can not have any arguments.
+        This method is called by the model at the end of the model run or
+        when the model is reset. Child classes that require a stop method 
+        (for example to close an output file) should overwrite this method.
+        Make sure to decorate the method with the `@module_method` decorator.
         """
         return
 
-    @update_module
     def update(self, mz: 'ModelState') -> None:
         """
         Update the module
@@ -237,6 +226,8 @@ class Module:
         Description
         -----------
         This method is called by the model at each time step. Child classes
+        should overwrite this method to update the module. Make sure to decorate
+        the method with the `@module_method` decorator.
         
         Parameters
         ----------
@@ -269,11 +260,26 @@ class Module:
 
     def reset(self):
         """
-        Reset the module to its initial state. This method is called by the model
-        when the model is reset. 
+        Stop and start the module.
         """
         self.stop()
-        self.start(mset=self.mset)
+        self.start()
+
+    def __repr__(self) -> str:
+        """
+        String representation of the time stepper.
+        """
+        res = self.name
+        if not self.__enabled:
+            res += " (disabled)"
+
+        for key, value in self.info.items():
+            res += "\n  - {}: {}".format(key, value)
+        return res
+
+    # ================================================================
+    #  Properties
+    # ================================================================
 
     @property
     def info(self) -> dict:
@@ -287,18 +293,6 @@ class Module:
         used to print the time stepper in the `__repr__` method.
         """
         return {}
-
-    def __repr__(self) -> str:
-        """
-        String representation of the time stepper.
-        """
-        res = self.name
-        if not self.__enabled:
-            res += " (disabled)"
-
-        for key, value in self.info.items():
-            res += "\n  - {}: {}".format(key, value)
-        return res
 
     @property
     def grid(self) -> 'GridBase':

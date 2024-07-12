@@ -3,8 +3,7 @@ from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config
 from fridom.framework.to_numpy import to_numpy
-from fridom.framework.modules.module import \
-    Module, start_module, stop_module, update_module
+from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.modules.animation import ModelPlotterBase
@@ -69,46 +68,56 @@ class VideoWriter(Module):
         self.mpi_available = False
         return
 
-    @start_module
-    def start(self):
-        """
-        Method to start the writer process.
-        """
+    @setup_module
+    def setup(self):
         import os
-
         # create video folder if it does not exist
         if not os.path.exists("videos"):
+            config.logger.info("Creating videos folder")
             os.makedirs("videos")
 
         # delete the file if it already exists
         if os.path.exists(self.filename):
+            config.logger.notice(f"Deleting existing video file {self.filename}")
             os.remove(self.filename)
-
-        # list for the jobs and queues for creating the figures
-        self.running_jobs = []       # Processes
-        self.open_queues  = []       # Queues
 
         # use maximum of 40% the available threads
         import multiprocessing as mp
         self.maximum_jobs = int(self.max_jobs*mp.cpu_count())
-
-        # start the writer
-        import imageio
-        self.writer = imageio.get_writer(self.filename, fps=self.fps)
         return
 
-    @stop_module
+    @module_method
+    def start(self):
+        """
+        Method to start the writer process.
+        """
+        # list for the jobs and queues for creating the figures
+        self.running_jobs = []       # Processes
+        self.open_queues  = []       # Queues
+
+        # start the writer
+        if self.writer is not None and not self.writer.closed:
+            config.logger.warning(
+                "VideoWriter.start() called without closing the previous writer.",
+                "Continue with the previous writer.")
+        else:
+            import imageio
+            self.writer = imageio.get_writer(self.filename, fps=self.fps)
+        return
+
+    @module_method
     def stop(self):
         """
         Method to stop the writer process.
         """
         # collect all figures
         while len(self.running_jobs) > 0:
+            config.logger.info("Collecting remaining figures")
             self.collect_figures()
         self.writer.close()
         return
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState'):
         """
         Update method of the parallel animated model.

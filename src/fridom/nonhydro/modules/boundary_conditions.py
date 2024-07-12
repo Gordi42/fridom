@@ -1,7 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework.modules import Module, update_module
+from fridom.framework.modules.module import Module
 # Import type information
 if TYPE_CHECKING:
     from fridom.nonhydro.state import State

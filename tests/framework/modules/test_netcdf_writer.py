@@ -53,13 +53,14 @@ def test_netCDFWriterNew(netcdf_module, directory_name, mset):
     # check that the directory is created
     assert not os.path.exists(directory_name)
     MPI.COMM_WORLD.barrier()
-    netcdf_module.start(mset=mset, timer=None)
+    netcdf_module.setup(mset=mset)
     # now the directory should exist
     assert os.path.exists(directory_name)
 
 def test_model_run(mset, netcdf_module, directory_name):
     
     mset.diagnostics.add_module(netcdf_module)
+    mset.setup()
     # check that the model runs without error
     model = fr.Model(mset)
     model.run(runlen=np.timedelta64(1, 'h'))

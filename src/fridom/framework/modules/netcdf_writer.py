@@ -6,12 +6,10 @@ from netCDF4 import Dataset
 # Import internal modules
 from fridom.framework import config
 from fridom.framework.to_numpy import to_numpy
-from fridom.framework.modules.module import \
-    Module, start_module, update_module, stop_module
+from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
-    from fridom.framework.state_base import StateBase
 
 class NetCDFWriter(Module):
     """
@@ -26,7 +24,7 @@ class NetCDFWriter(Module):
     `directory` : `str`, optional
         The directory where the files should be stored. Default is "snapshots".
     `start_time` : `np.datetime64`, optional
-        The time at which the first file should be written. Default is the model start time.
+        The time at which the first file should be written. Default is 
     `end_time` : `np.datetime64`, optional
         The time at which the last file should be written. Default is None.
     `restart_interval` : `np.timedelta64`, optional
@@ -97,33 +95,40 @@ class NetCDFWriter(Module):
         self._ncfile = None
         return
 
-    @start_module
-    def start(self):
-        if self._file_is_open:
-            self._close_file()
+    @setup_module
+    def setup(self) -> None:
         # create snapshot folder if it doesn't exist
+        config.logger.info(f"Touching snapshot directory: {self.directory}")
         os.makedirs(self.directory, exist_ok=True)
-        
+
         # snap slice:
         if self.snap_slice is None:
             self.snap_slice = tuple([slice(None)]*self.grid.n_dims)
-        # set the start time
-        self.start_time = self.start_time or self.mset.start_time
-        self._current_start_time = self.start_time
+        return
 
-    @stop_module
+
+    @module_method
+    def start(self):
+        if self._file_is_open:
+            config.logger.warning(
+                "NetCDFWriter: start() called while a file is already open.",
+                "Continue with closing the file")
+            self._close_file()
+        return
+
+    @module_method
     def stop(self):
         if self._file_is_open:
             self._close_file()
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState'):
         time = mz.time
         # ----------------------------------------------------------------
         #  Check if the model time is in the writing range
         # ----------------------------------------------------------------
         # check if the model time is smaller than the start time
-        if time < self.start_time:
+        if self.start_time is not None and time < self.start_time:
             return
         # check if the model time is larger than the end time
         if self.end_time is not None:
@@ -148,6 +153,12 @@ class NetCDFWriter(Module):
         self._last_checkpoint_time = time
         if not time_to_write:
             return
+
+        # ----------------------------------------------------------------
+        #  Cehck if the current start time is set
+        # ----------------------------------------------------------------
+        if self._current_start_time is None:
+            self._current_start_time = time
 
         # ----------------------------------------------------------------
         #  Check if the file should be closed
@@ -191,7 +202,14 @@ class NetCDFWriter(Module):
         # ----------------------------------------------------------------
         #  Create the NetCDF file
         # ----------------------------------------------------------------
-        ncfile = Dataset(filename, "w", format="NETCDF4", parallel=True)
+        config.logger.info(f"Creating NetCDF file: {filename}")
+        try:
+            ncfile = Dataset(filename, "w", format="NETCDF4", parallel=True)
+        except: 
+            config.logger.warning(
+                "Failed to create NetCDF file in parallel mode.",
+                "Trying parallel=False")
+            ncfile = Dataset(filename, "w", format="NETCDF4", parallel=False)
 
         dtype = config.dtype_real
         n_dims = self.grid.n_dims

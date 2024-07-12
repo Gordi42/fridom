@@ -2,10 +2,9 @@
 from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config
-from fridom.framework.modules.module import Module, update_module, start_module
+from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
-    from fridom.nonhydro.state import State
     from fridom.framework.model_state import ModelState
 
 
@@ -17,12 +16,13 @@ class LinearTendency(Module):
         super().__init__(name="Linear Tendency")
         self.required_halo = 1
 
-    @start_module
-    def start(self):
+    @setup_module
+    def setup(self):
         self.quarter = config.dtype_real(0.25)
         self.half = config.dtype_real(0.5)
+        return
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState') -> None:
         # compute the linear tendency
         dz = mz.dz

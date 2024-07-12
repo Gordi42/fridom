@@ -1,12 +1,10 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework.modules.module import \
-    Module, start_module, stop_module, update_module
+from fridom.framework.modules.module import Module, module_method
 # Import type information
 if TYPE_CHECKING:
     from .model_plotter import ModelPlotterBase
-    from fridom.framework.state_base import StateBase
     from fridom.framework.model_state import ModelState
 
 class LiveAnimation(Module):
@@ -50,14 +48,14 @@ class LiveAnimation(Module):
         self.fig = None
         return
 
-    @start_module
+    @module_method
     def start(self) -> None:
         """
         Initialize the figure.
         """
         self.fig = self.model_plotter.create_figure()
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState'):
         """
         Update the figure from the model state and display it.

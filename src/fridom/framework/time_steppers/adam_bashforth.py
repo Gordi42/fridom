@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config
 from fridom.framework.time_steppers.time_stepper import TimeStepper
-from fridom.framework.modules.module import start_module, update_module
+from fridom.framework.modules.module import setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
@@ -46,11 +46,10 @@ class AdamBashforth(TimeStepper):
         self.dt = dt
         return
 
-    @start_module
-    def start(self):
+    @setup_module
+    def setup(self):
         ncp = config.ncp
         dtype = config.dtype_real
-        mset = self.mset
 
         # Adam Bashforth coefficients
         self.coeffs = [
@@ -60,23 +59,21 @@ class AdamBashforth(TimeStepper):
             ncp.asarray(self.AB4, dtype=dtype)
         ]
 
-        if self.it_count is None:
-            self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
+        self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
 
-            # pointers
-            self.pointer = np.arange(self.order, dtype=ncp.int32)
+        # pointers
+        self.pointer = np.arange(self.order, dtype=ncp.int32)
 
-            # tendencies
-            self.dz_list = [mset.state_constructor() for _ in range(self.order)]
-            self.it_count = 0
+        # tendencies
+        self.dz_list = [self.mset.state_constructor() for _ in range(self.order)]
+        self.it_count = 0
         return
 
     def reset(self):
-        self.it_count = None
-        self.start(mset=self.mset)
+        self.setup()
         return
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState'):
         """
         Update the time stepper.
@@ -90,7 +87,7 @@ class AdamBashforth(TimeStepper):
         mz.time += self.dt
         return
 
-    @update_module
+    @module_method
     def update_tendency(self):
         if self.it_count <= self.order+1:
             self.update_coeff_AB()

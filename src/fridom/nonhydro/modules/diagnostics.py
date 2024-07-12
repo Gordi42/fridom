@@ -1,6 +1,4 @@
-from fridom.framework.modules.module import \
-    Module, update_module
-from fridom.nonhydro.state import State
+from fridom.framework.modules.module import Module, module_method
 from fridom.framework.model_state import ModelState
 
 class Diagnostics(Module):
@@ -15,7 +13,7 @@ class Diagnostics(Module):
             energy_info=energy_info,
             cfl_info=cfl_info,)
 
-    @update_module
+    @module_method
     def update(self, mz: ModelState):
         """
         Print diagnostic information.

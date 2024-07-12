@@ -1,7 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from .module import Module, start_module, stop_module, update_module
+from .module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.state_base import StateBase
@@ -48,16 +48,25 @@ class ModuleContainer(Module):
             module_list = []
         super().__init__(name=name, module_list=module_list)
 
-    @start_module
+    @setup_module
+    def setup(self) -> None:
+        """
+        Setup all modules.
+        """
+        for module in self.module_list:
+            module.setup(mset=self.mset)
+        return
+
+    @module_method
     def start(self) -> None:
         """
         Start all modules.
         """
         for module in self.module_list:
-            module.start(mset=self.mset)
+            module.start()
         return
 
-    @stop_module
+    @module_method
     def stop(self) -> None:
         """
         Stop all modules.
@@ -74,7 +83,7 @@ class ModuleContainer(Module):
             module.reset()
         return
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState') -> None:
         """
         Update all modules.

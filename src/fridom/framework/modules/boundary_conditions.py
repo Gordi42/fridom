@@ -1,8 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework.modules.module import \
-    Module, start_module, update_module
+from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     import numpy as np
@@ -69,8 +68,8 @@ class BoundaryConditions(Module):
         self._initial_boundary_conditions = boundary_conditions or []
         return
 
-    @start_module
-    def start(self):
+    @setup_module
+    def setup(self):
         all_boundary_conditions = {}
         for field in self._fields:
             all_boundary_conditions[field] = {}
@@ -89,7 +88,7 @@ class BoundaryConditions(Module):
         self._all_boundary_conditions = all_boundary_conditions
         return
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState'):
         # first loop over all fields
         for field in self._fields:

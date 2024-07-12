@@ -3,13 +3,11 @@ from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config
 from fridom.framework.to_numpy import to_numpy
-from fridom.framework.modules.module import \
-    Module, start_module, update_module, stop_module
+from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.model_state import ModelState
-    from fridom.framework.state_base import StateBase
 
 class NetCDFWriterSingleProc(Module):
     """
@@ -78,18 +76,22 @@ class NetCDFWriterSingleProc(Module):
         self.var_unit_names = var_unit_names
         self.binary_files = binary_files
         return
-    
-    @start_module
+
+    @setup_module
+    def setup(self) -> None:
+        import os
+        # create snapshot folder if it doesn't exist
+        if not os.path.exists("snapshots"):
+            config.logger.info("Creating snapshots folder")
+            os.makedirs("snapshots")
+        return
+
+    @module_method
     def start(self):
         """
         Start the parallel writer process.
         """
         import os
-        import multiprocessing as mp
-        # create snapshot folder if it doesn't exist
-        if not os.path.exists("snapshots"):
-            os.makedirs("snapshots")
-
         # delete old binary files
         for binary_file in self.binary_files:
             if os.path.exists(binary_file):
@@ -101,6 +103,7 @@ class NetCDFWriterSingleProc(Module):
             sel = tuple([slice(None)]*len(self.grid.x))
 
         # launch parallel writer
+        import multiprocessing as mp
         x = [to_numpy(xi[sel[i]]) for i, xi in enumerate(self.grid.x)]
         self.input_queue = mp.Queue()
         self.parallel_writer = mp.Process(
@@ -113,7 +116,18 @@ class NetCDFWriterSingleProc(Module):
         self.is_active = True
         return
 
-    @update_module
+    @module_method
+    def stop(self):
+        """
+        Stop the parallel writer process.
+        """
+        if self.is_active:
+            self.input_queue.put("STOP")
+            self.parallel_writer.join()
+        self.is_active = False
+        return
+
+    @module_method
     def update(self, mz: 'ModelState'):
         """
         Write data to binary files and add them to the NetCDF file.
@@ -141,17 +155,6 @@ class NetCDFWriterSingleProc(Module):
 
         # add binary file to cdf file
         self.input_queue.put(mz.time)
-        return
-
-    @stop_module
-    def stop(self):
-        """
-        Stop the parallel writer process.
-        """
-        if self.is_active:
-            self.input_queue.put("STOP")
-            self.parallel_writer.join()
-        self.is_active = False
         return
 
     def get_variables(self, mz: 'ModelState'):

@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 from fridom.framework.modules.module_container import ModuleContainer
 from fridom.framework.modules.module import Module
 from fridom.nonhydro.modules.linear_tendency import LinearTendency
-from fridom.nonhydro.modules.advection \
-    .second_order_advection import SecondOrderAdvection
+# from fridom.nonhydro.modules.advection \
+#     .second_order_advection import SecondOrderAdvection
 from fridom.nonhydro.modules.tendency_divergence import TendencyDivergence
 from fridom.nonhydro.modules \
     .pressure_gradient_tendency import PressureGradientTendency
@@ -14,7 +14,6 @@ from fridom.nonhydro.modules.pressure_solvers \
 # Import type information
 if TYPE_CHECKING:
     pass
-
 
 
 class MainTendency(ModuleContainer):

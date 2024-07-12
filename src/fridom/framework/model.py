@@ -46,13 +46,12 @@ class Model:
         self.timer = mset.timer
 
         # Modules
-        from copy import deepcopy
-        self.tendencies  = deepcopy(mset.tendencies)
-        self.diagnostics = deepcopy(mset.diagnostics)
-        self.bc = deepcopy(mset.bc)
+        self.tendencies  = mset.tendencies
+        self.diagnostics = mset.diagnostics
+        self.bc = mset.bc
 
         # Time stepper
-        self.time_stepper = deepcopy(mset.time_stepper)
+        self.time_stepper = mset.time_stepper
         return
 
     def start(self):
@@ -60,10 +59,10 @@ class Model:
         Prepare the model for running.
         """
         # start all modules
-        self.tendencies.start(mset=self.mset)
-        self.diagnostics.start(mset=self.mset)
-        self.time_stepper.start(mset=self.mset)
-        self.bc.start(mset=self.mset)
+        self.tendencies.start()
+        self.diagnostics.start()
+        self.time_stepper.start()
+        self.bc.start()
         return
 
     def stop(self):

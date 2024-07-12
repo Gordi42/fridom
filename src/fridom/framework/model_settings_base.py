@@ -140,7 +140,11 @@ class ModelSettingsBase:
 
     def setup(self):
         logger.verbose("Setting up model settings")
-        self.grid.setup(self)
+        self.grid.setup(mset=self)
+        self.tendencies.setup(mset=self)
+        self.diagnostics.setup(mset=self)
+        self.bc.setup(mset=self)
+        self.time_stepper.setup(mset=self)
 
         logger.info(self)
         return

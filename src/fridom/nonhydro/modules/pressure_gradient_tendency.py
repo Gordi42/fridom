@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config
-from fridom.framework.modules.module import Module, update_module, start_module
+from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
@@ -17,18 +17,18 @@ class PressureGradientTendency(Module):
         super().__init__(name="Pressure Gradient")
         self.required_halo = 1
 
-    @start_module
-    def start(self):
+    @setup_module
+    def setup(self):
         # compute the grid spacing
         dx, dy, dz = self.mset.grid.dx
         self.dx1 = config.dtype_real(1.0) / dx
         self.dy1 = config.dtype_real(1.0) / dy
         self.dz1 = config.dtype_real(1.0) / dz
         self.bc = self.mset.bc
-        self.bc.start(mset=self.mset)
+        self.bc.setup(mset=self.mset)
         return
 
-    @update_module
+    @module_method
     def update(self, mz: 'ModelState') -> None:
         p = mz.z_diag.p
         dz = mz.dz
