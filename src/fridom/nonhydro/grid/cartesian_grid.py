@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 import numpy as np
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from fridom.framework.grid.cartesian import CartesianGrid as CartesianGridBase
 # Import type information
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ class CartesianGrid(CartesianGridBase):
         k2_hat = k_dis[0] + k_dis[1] + k_dis[2] / mset.dsqr
 
         k2_hat_zero = (k2_hat == 0)
-        k2_hat[k2_hat_zero] = 1
+        utils.modify_array(k2_hat, k2_hat_zero, 1)
 
         # ----------------------------------------------------------------
         #  Set attributes
@@ -85,7 +85,7 @@ class CartesianGrid(CartesianGridBase):
             f2 = ncp.mean(self.mset.f_coriolis)**2
             N2 = ncp.mean(self.mset.N2)
 
-            if not ncp.allclose(f2, self.mset.f0**2):
+            if not ncp.allclose(f2, self.mset.f_coriolis**2):
                 print("Warning: Dispersion relation may be wrong when f is varying.")
             if not ncp.allclose(N2, self.mset.N2):
                 print("Warning: Dispersion relation may be wrong when N is varying.")
@@ -98,8 +98,9 @@ class CartesianGrid(CartesianGridBase):
             s = (kh2 + kz2 > 0)               
 
             # compute dispersion relation
-            om    = ncp.zeros_like(kh2)
-            om[s] = ncp.sqrt((f2 * kz2 + N2 * kh2)[s] / (dsqr * kh2 + kz2)[s])
+            om = ncp.zeros_like(kh2)
+            om = utils.modify_array(om, s, 
+                ncp.sqrt((f2 * kz2 + N2 * kh2)[s] / (dsqr * kh2 + kz2)[s]))
 
             # store the result
             self._omega_analytical = om
@@ -122,7 +123,7 @@ class CartesianGrid(CartesianGridBase):
             f2 = ncp.mean(self.mset.f_coriolis)**2
             N2 = ncp.mean(self.mset.N2)
 
-            if not ncp.allclose(f2, self.mset.f0**2):
+            if not ncp.allclose(f2, self.mset.f_coriolis**2):
                 print("Warning: Dispersion relation may be wrong when f is varying.")
             if not ncp.allclose(N2, self.mset.N2):
                 print("Warning: Dispersion relation may be wrong when N is varying.")
@@ -140,10 +141,10 @@ class CartesianGrid(CartesianGridBase):
 
             # compute dispersion relation
             om_hat = ncp.zeros_like(kh2_hat)
-            om_hat[s] = ncp.sqrt(
-                (ohpm(kx,dx) * ohpm(ky,dy) * f2 * khpm(kz,dz) + 
-                 ohpm(kz,dz) * N2 * kh2_hat)[s] /
-                (dsqr * kh2_hat + khpm(kz,dz))[s])
+            om_hat = utils.modify_array(om_hat, s,
+                ncp.sqrt((ohpm(kx,dx) * ohpm(ky,dy) * f2 * khpm(kz,dz) + 
+                          ohpm(kz,dz) * N2 * kh2_hat)[s] /
+                         (dsqr * kh2_hat + khpm(kz,dz))[s]))
 
             # store the result
             self._omega_space_discrete = om_hat
@@ -170,7 +171,7 @@ class CartesianGrid(CartesianGridBase):
             ab_coefficients = [ab.AB1, ab.AB2, ab.AB3, ab.AB4]
         
             # get the coefficients for the current time level
-            coeff = ab_coefficients[ab.order-1]
+            coeff = ncp.array(ab_coefficients[ab.order-1])
 
             # construct polynomial coefficients for each grid point
             # tile the array such that coeff and omega_discrete have the same
@@ -178,8 +179,11 @@ class CartesianGrid(CartesianGridBase):
             omi   = self.omega_space_discrete[..., ncp.newaxis]
 
             # calculate the polynomial coefficients
-            coeff = ncp.multiply(omi, coeff) * 1j * self.mset.dt
-            coeff[..., 0] -= 1
+            coeff = ncp.multiply(omi, coeff) * 1j * ab._dt_float
+
+            # subtract 1 from the last coefficient
+            last_col = (..., 0)
+            coeff = utils.modify_array(coeff, last_col, coeff[last_col] - 1)
 
             # leading coefficient is 1
             coeff = ncp.pad(
@@ -199,17 +203,17 @@ class CartesianGrid(CartesianGridBase):
                 Returns:
                     root (complex): Last root of the polynomial.
                 """
-                from fridom.framework.to_numpy import to_numpy
-                # root finding only works on the CPU
-                return np.roots(to_numpy(c))[-1]
+                return np.roots(c)[-1]
 
             # find the roots of the polynomial
-            roots = ncp.apply_along_axis(find_roots, -1, coeff)
+            from fridom.framework.to_numpy import to_numpy
+            # root finding only works on the CPU
+            coeff = to_numpy(coeff)
+            roots = ncp.array(np.apply_along_axis(find_roots, -1, coeff))
         
             # calculate the dispersion relation with time discretization
-            res = -1j * ncp.log(roots) / ab.dt
+            res = -1j * ncp.log(roots) / ab._dt_float
 
             # store the result
             self._omega_time_discrete = res
         return self._omega_time_discrete
-    

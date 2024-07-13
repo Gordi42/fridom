@@ -205,6 +205,7 @@ class Backend(Enum):
     JAX_GPU = auto()
 
 backend: Backend
+backend_is_jax: bool
 ncp = None  # numpy or cupy
 scp = None  # scipy or cupyx.scipy
 
@@ -235,17 +236,20 @@ def set_backend(new_backend: Backend):
     global ncp
     global scp
     global backend
+    global backend_is_jax
     global logger
     match new_backend:
         case Backend.NUMPY:
             import numpy
             import scipy
+            backend_is_jax = False
             ncp = numpy
             scp = scipy
         case Backend.CUPY:
             try:
                 import cupy
                 import cupyx.scipy
+                backend_is_jax = False
                 ncp = cupy
                 scp = cupyx.scipy
             except ImportError:
@@ -257,6 +261,7 @@ def set_backend(new_backend: Backend):
                 import jax
                 import jax.numpy
                 import jax.scipy
+                backend_is_jax = True
                 ncp = jax.numpy
                 scp = jax.scipy
                 jax.config.update('jax_platform_name', 'cpu')
@@ -270,6 +275,7 @@ def set_backend(new_backend: Backend):
                 import jax
                 import jax.numpy
                 import jax.scipy
+                backend_is_jax = True
                 ncp = jax.numpy
                 scp = jax.scipy
                 jax.config.update('jax_platform_name', 'gpu')
@@ -288,24 +294,6 @@ def set_backend(new_backend: Backend):
             raise ValueError(f"Backend {new_backend} not supported.")
     backend = new_backend
     return
-
-def backend_is_jax() -> bool:
-    """
-    Check if the backend is JAX.
-    
-    Returns
-    -------
-    `bool`
-        True if the backend is JAX, False otherwise.
-    
-    Examples
-    --------
-    >>> import fridom.framework as fr
-    >>> fr.config.set_backend(fr.Backend.JAX_CPU)
-    >>> print(fr.config.backend_is_jax())
-    True
-    """
-    return (backend == Backend.JAX_CPU) or (backend == Backend.JAX_GPU)
 
 def _set_default_backend():
     """

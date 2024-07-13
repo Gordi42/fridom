@@ -49,6 +49,8 @@ class GridBase:
         The grid spacing in each dimension.
     `dV` : `np.ndarray`
         The volume element of the grid.
+    `mset` : `ModelSettingsBase | None`
+        The model settings object.
 
     Methods
     -------
@@ -77,6 +79,7 @@ class GridBase:
         self._x_local = None
         self._dx = None
         self._dV = None
+        self._mset = None
 
         # prepare for numpy conversion (the numpy copy will be stored here)
         self._cpu = None
@@ -245,3 +248,8 @@ class GridBase:
     @mpi_available.setter
     def mpi_available(self, value: bool) -> None:
         self._mpi_available = value
+
+    @property
+    def mset(self) -> 'ModelSettingsBase | None':
+        """The model settings object."""
+        return self._mset

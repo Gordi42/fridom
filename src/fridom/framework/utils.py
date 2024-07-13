@@ -14,6 +14,11 @@ from . import config
 from .config import logger
 from mpi4py import MPI
 import time
+import numpy as np
+
+# ================================================================
+#  Print functions
+# ================================================================
 
 def print_bar(char='='):
     """
@@ -50,6 +55,10 @@ def print_job_init_info():
     print_bar("#")
     [print_bar(" ") for _ in range(3)]
 
+# ================================================================
+#  Formatting functions
+# ================================================================
+
 def humanize_number(value, unit):
     if unit == "meters":
         if value < 1e-2:
@@ -62,6 +71,10 @@ def humanize_number(value, unit):
             return f"{value/1e3:.2f} km"
     else:
         raise NotImplementedError(f"Unit '{unit}' not implemented.")
+
+# ================================================================
+#  Directory functions
+# ================================================================
 
 def chdir_to_submit_dir():
     """
@@ -89,6 +102,9 @@ def stdout_is_file():
         res = False  # output is ipython
     return res
 
+# ================================================================
+#  Progress bar class
+# ================================================================
 class ProgressBar:
     """
     Progress bar class.
@@ -198,3 +214,44 @@ class ProgressBar:
         """Close the progress bar."""
         self._pbar.close()
         return
+
+# ================================================================
+#  Array functions
+# ================================================================
+def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray:
+    """
+    Return a new array with the modifications.
+    
+    Description
+    -----------
+    A fundamental difference between JAX and NumPy is that NumPy allows
+    in-place modification of arrays, while JAX does not. This function does 
+    not modify the input array in place, but returns a new array with the
+    modifications.
+    
+    Parameters
+    ----------
+    `arr` : `np.ndarray`
+        The array to modify.
+    `where` : `slice`
+        The slice to modify.
+    `value` : `np.ndarray | float | int`
+        The value to set.
+    
+    Returns
+    -------
+    `np.ndarray`
+        The modified array.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> x = fr.config.ncp.arange(10)  # create some array
+    >>> # instead of x[2:5] = 0, we use the modify_array function
+    >>> x = fr.utils.modify_array(x, slice(2,5), 0)
+    """
+    if config.backend_is_jax:
+        return arr.at[where].set(value)
+    else:
+        arr[where] = value
+        return arr

@@ -371,9 +371,17 @@ class DomainDecomposition:
             pad_width = self._paddings[axis]
             return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
         else:
-            for arr in arrs:
-                arr[self._recv_from_next[axis]] = arr[self._send_to_prev[axis]]
-                arr[self._recv_from_prev[axis]] = arr[self._send_to_next[axis]]
+            rfn = self._recv_from_next[axis]
+            rfp = self._recv_from_prev[axis]
+            stn = self._send_to_next[axis]
+            stp = self._send_to_prev[axis]
+            if config.backend_is_jax:
+                arrs = tuple(arr.at[rfn].set(arr[stp]) for arr in arrs)
+                arrs = tuple(arr.at[rfp].set(arr[stn]) for arr in arrs)
+            else:
+                for arr in arrs:
+                    arr[rfn] = arr[stp]
+                    arr[rfp] = arr[stn]
             return arrs
 
     def _sync_axis(self, arrs: tuple[np.ndarray], axis: int) -> tuple[np.ndarray]:

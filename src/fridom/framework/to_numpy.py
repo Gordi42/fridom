@@ -9,6 +9,12 @@ try:
 except ImportError:
     cp = None
     cupy_array = No_Type
+try:
+    import jax
+    jax_array = jax.numpy.ndarray
+except ImportError:
+    jax = None
+    jax_array = No_Type
 # Import internal modules
 from fridom.framework import config
 
@@ -35,6 +41,10 @@ def to_numpy(obj, memo=None, _nil=[]):
     # if the object is a cupy array, convert it to numpy and return it
     if isinstance(obj, cupy_array):
         memo[d] = cp.asnumpy(obj)
+    
+    # if the object is a jax array, convert it to numpy and return it
+    elif isinstance(obj, jax_array):
+        memo[d] = np.array(obj)
 
     # if the object is a numpy array, return it
     elif isinstance(obj, (np.ndarray, np.generic)):

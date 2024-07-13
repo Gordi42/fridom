@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 import numpy as np
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from fridom.framework.grid.grid_base import GridBase
 from fridom.framework.domain_decomposition import DomainDecomposition
 from fridom.framework.domain_decomposition import ParallelFFT
@@ -202,17 +202,12 @@ class CartesianGrid(GridBase):
         # construct the local meshgrids (without ghost points)
         X_inner = ncp.meshgrid(*x_local, indexing='ij')
         # add ghost points
-        X = tuple(ncp.zeros(domain_decomp.my_subdomain.shape, dtype=dtype) 
-                  for _ in range(n_dims))
-        if config.backend_is_jax():
-            ics = domain_decomp.my_subdomain.inner_slice
-            for i in range(n_dims):
-                X[i] = X[i].at[ics].set(X_inner[i])
-                domain_decomp.sync(X[i])
-        else:
-            for i in range(n_dims):
-                X[i][domain_decomp.my_subdomain.inner_slice] = X_inner[i]
-                domain_decomp.sync(X[i])
+        X = [ncp.zeros(domain_decomp.my_subdomain.shape, dtype=dtype) 
+             for _ in range(n_dims)]
+        for i in range(n_dims):
+            X[i] = utils.modify_array(
+                X[i], domain_decomp.my_subdomain.inner_slice, X_inner[i])
+        X = domain_decomp.sync_multiple(tuple(X))
 
         # --------------------------------------------------------------
         #  Initialize the spectral meshgrid
