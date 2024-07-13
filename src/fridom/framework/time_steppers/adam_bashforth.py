@@ -110,8 +110,10 @@ class AdamBashforth(TimeStepper):
             dz_list = [self.dz_list[p].arr_dict for p in self.pointer]
             mz.z.arr_dict = _time_step_jit(mz.z.arr_dict, dz_list, self.coeff_AB)
         else:
-            for i in range(self.order):
-                mz.z += self.dz_list[self.pointer[i]] * self.coeff_AB[i]
+            dz_list = [self.dz_list[p].arr_dict for p in self.pointer]
+            mz.z.arr_dict = _time_step_jit(mz.z.arr_dict, dz_list, self.coeff_AB)
+            # for i in range(self.order):
+            #     mz.z += self.dz_list[self.pointer[i]] * self.coeff_AB[i]
 
         self.it_count += 1
         mz.it += 1

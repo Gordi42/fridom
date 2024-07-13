@@ -286,8 +286,11 @@ def jaxjit(fun: callable) -> callable:
     ... def my_function(x):
     ...     return x**2
     """
-    try:
-        import jax
-        return jax.jit(fun)
-    except ImportError:
+    if config.backend_is_jax:
+        try:
+            import jax
+            return jax.jit(fun)
+        except ImportError:
+            return fun
+    else:
         return fun
