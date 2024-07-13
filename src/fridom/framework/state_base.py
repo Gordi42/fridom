@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from fridom.framework import config
 # Import type information
 if TYPE_CHECKING:
+    import numpy as np
     from fridom.framework.field_variable import FieldVariable
     from fridom.framework.model_settings_base import ModelSettingsBase
 
@@ -129,12 +130,31 @@ class StateBase:
         """
         return 2 * (self - other).norm_l2() / (self.norm_l2() + other.norm_l2())
 
+    # ================================================================
+    #  PROPERTIES
+    # ================================================================
+
     @property
     def field_list(self) -> list:
         """
         Return the list of fields.
         """
         return list(self.fields.values())
+
+    @property
+    def arr_dict(self) -> 'dict[str, np.ndarray]':
+        """
+        Return the dictionary of arrays (not FieldVariables).
+        """
+        return {field.name: field.arr for field in self.fields.values()}
+    @arr_dict.setter
+    def arr_dict(self, arr_dict: 'dict[str, np.ndarray]') -> None:
+        """
+        Set the dictionary of arrays (not FieldVariables).
+        """
+        for key, field in self.fields.items():
+            field.arr = arr_dict[key]
+        return
 
     # ======================================================================
     #  OPERATOR OVERLOADING

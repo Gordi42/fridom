@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from mpi4py import MPI
 import numpy as np
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
     from .domain_decomposition import DomainDecomposition
@@ -88,14 +88,10 @@ def transform(domain_in: 'DomainDecomposition',
               same_domain: bool,
               overlap_info_in: dict,
               overlap_info_out: dict,
-              arr_in: np.ndarray,
-              arr_out: np.ndarray = None,) -> np.ndarray:
+              arr_in: np.ndarray) -> np.ndarray:
     """
     Transform data from an array in the input domain to an array in the output
     domain. This function is called by the transformer class.
-    
-    Description
-    -----------
     
     Parameters
     ----------
@@ -110,14 +106,12 @@ def transform(domain_in: 'DomainDecomposition',
         obtained by calling the get_overlap_info method.
     `overlap_info_out` : `dict`
         The overlap information of the output domain.
-    `arr_in` : `np.ndarray` or `cupy.ndarray`
+    `arr_in` : `np.ndarray`
         The input array.
-    `arr_out` : `np.ndarray` or `cupy.ndarray`
-        The output array. If None, a new array will be created.
     
     Returns
     -------
-    `np.ndarray` or `cupy.ndarray`
+    `np.ndarray`
         Output array after transformation. If `arr_out` is not None, the output
         array will be the same as `arr_out`.
     
@@ -126,19 +120,14 @@ def transform(domain_in: 'DomainDecomposition',
     See the transformer class for an example.
     """
     if same_domain:
-        if arr_out is None:
-            return arr_in
-        else:
-            arr_out[:] = arr_in
-            return arr_out
+        return arr_in
         
     # first synchronize the gpu and cpu
     domain_in.sync_with_device()
 
     # create new array
-    if arr_out is None:
-        arr_out = config.ncp.zeros(
-            domain_out.my_subdomain.shape, dtype=arr_in.dtype)
+    arr_out = config.ncp.zeros(
+        domain_out.my_subdomain.shape, dtype=arr_in.dtype)
 
     # send the data
     destinations = overlap_info_in['processors']
@@ -162,13 +151,14 @@ def transform(domain_in: 'DomainDecomposition',
 
     # copy the received data to the new array
     for recv_slice, buf in zip(recv_slices, bufs):
-        arr_out[recv_slice] = buf
+        arr_out = utils.modify_array(arr_out, recv_slice, buf)
 
     # copy the matching slice
     send_same_proc = overlap_info_in['slice_same_proc']
     recv_same_proc = overlap_info_out['slice_same_proc']
     if send_same_proc is not None:
-        arr_out[recv_same_proc] = arr_in[send_same_proc]
+        arr_out = utils.modify_array(
+            arr_out, recv_same_proc, arr_in[send_same_proc])
 
     # synchronize halo regions
     domain_out.sync(arr_out)
@@ -266,53 +256,41 @@ class Transformer:
         self._overlap_info_out = overlap_info_out
         return
 
-    def forward(self, 
-                arr_in: np.ndarray, 
-                arr_out: np.ndarray | None = None) -> np.ndarray:
+    def forward(self, arr: np.ndarray) -> np.ndarray:
         """
         Transform an array from the input domain to the output domain.
         
         Parameters
         ----------
-        `arr_in` : `np.ndarray` or `cupy.ndarray`
+        `arr` : `np.ndarray`
             The array to be transformed (lives in the input domain).
-        `arr_out` : `np.ndarray` or `cupy.ndarray`
-            The transformed array (lives in the output domain). If None, a new
-            array will be created.
         
         Returns
         -------
-        `np.ndarray` or `cupy.ndarray`
-            The transformed array. If `arr_out` is not None, the output array
-            will be the same as `arr_out`.
+        `np.ndarray`
+            The transformed array. 
         """
         return transform(
             self._domain_in, self._domain_out, self._same_domain,
-            self._overlap_info_in, self._overlap_info_out, arr_in, arr_out)
+            self._overlap_info_in, self._overlap_info_out, arr)
     
-    def backward(self, 
-                 arr_in: np.ndarray, 
-                 arr_out: np.ndarray | None = None) -> np.ndarray:
+    def backward(self, arr: np.ndarray) -> np.ndarray:
         """
         Transform an array from the output domain to the input domain.
         
         Parameters
         ----------
-        `arr_in` : `np.ndarray` or `cupy.ndarray`
+        `arr` : `np.ndarray`
             The array to be transformed (lives in the output domain).
-        `arr_out` : `np.ndarray` or `cupy.ndarray`
-            The transformed array (lives in the input domain). If None, a new
-            array will be created.
         
         Returns
         -------
-        `np.ndarray` or `cupy.ndarray`
-            The transformed array. If `arr_out` is not None, the output array
-            will be the same as `arr_out`.
+        `np.ndarray`
+            The transformed array.
         """
         return transform(
             self._domain_out, self._domain_in, self._same_domain,
-            self._overlap_info_out, self._overlap_info_in, arr_in, arr_out)
+            self._overlap_info_out, self._overlap_info_in, arr)
 
     # ================================================================
     #  Properties

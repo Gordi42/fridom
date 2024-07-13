@@ -2,13 +2,41 @@
 import numpy as np
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from fridom.framework.time_steppers.time_stepper import TimeStepper
 from fridom.framework.modules.module import setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
 
+# ================================================================
+#  JIT COMPILATION
+# ================================================================
+
+@utils.jaxjit
+def _time_step_jit(z: dict[str, np.ndarray], 
+                  dz_list: list[dict[str, np.ndarray]], 
+                  coeffs: np.ndarray) -> dict[str, np.ndarray]:
+    """
+    Jax jitted time stepping function for Adam-Bashforth.
+    
+    Parameters
+    ----------
+    `z` : `dict[str, np.ndarray]`
+        The state at the current time level.
+    `dz_list` : `list[dict[str, np.ndarray]]`
+        List of tendency terms at previous time levels.
+    `coeffs` : `np.ndarray`
+        Coefficients for the Adam-Bashforth time stepping.
+    """
+    for key in z.keys():  # loop over all fields
+        for i in range(len(dz_list)):  # loop over all time levels
+            z[key] = z[key] + dz_list[i][key] * coeffs[i]
+    return z
+
+# ================================================================
+#  ADAM BASHFORTH TIME STEPPING
+# ================================================================
 class AdamBashforth(TimeStepper):
     """
     Adam Bashforth time stepping up to 4th order.
@@ -51,12 +79,12 @@ class AdamBashforth(TimeStepper):
         ncp = config.ncp
         dtype = config.dtype_real
 
-        # Adam Bashforth coefficients
+        # Adam Bashforth coefficients including time step size
         self.coeffs = [
-            ncp.asarray(self.AB1, dtype=dtype), 
-            ncp.asarray(self.AB2, dtype=dtype),
-            ncp.asarray(self.AB3, dtype=dtype), 
-            ncp.asarray(self.AB4, dtype=dtype)
+            ncp.asarray(self.AB1, dtype=dtype) * self._dt_float, 
+            ncp.asarray(self.AB2, dtype=dtype) * self._dt_float,
+            ncp.asarray(self.AB3, dtype=dtype) * self._dt_float, 
+            ncp.asarray(self.AB4, dtype=dtype) * self._dt_float
         ]
 
         self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
@@ -78,9 +106,12 @@ class AdamBashforth(TimeStepper):
         """
         Update the time stepper.
         """
-        dt = self._dt_float
-        for i in range(self.order):
-            mz.z += self.dz_list[self.pointer[i]] * dt * self.coeff_AB[i]
+        if config.backend_is_jax:
+            dz_list = [self.dz_list[p].arr_dict for p in self.pointer]
+            mz.z.arr_dict = _time_step_jit(mz.z.arr_dict, dz_list, self.coeff_AB)
+        else:
+            for i in range(self.order):
+                mz.z += self.dz_list[self.pointer[i]] * self.coeff_AB[i]
 
         self.it_count += 1
         mz.it += 1
@@ -116,8 +147,8 @@ class AdamBashforth(TimeStepper):
         coeffs = self.coeffs
 
         # choose Adam-Bashforth coefficients of current time level
-        self.coeff_AB[:]      = 0
-        self.coeff_AB[:ctl+1] = ncp.asarray(coeffs[ctl])
+        self.coeff_AB = utils.modify_array(self.coeff_AB, slice(None), 0)
+        self.coeff_AB = utils.modify_array(self.coeff_AB, slice(ctl+1), coeffs[ctl])
         return
 
     @property

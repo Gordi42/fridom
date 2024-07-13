@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 from copy import deepcopy
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
@@ -443,7 +443,8 @@ class FieldVariable:
         return self.arr[key]
     
     def __setitem__(self, key, value):
-        self.arr[key] = value
+        new_arr = utils.modify_array(self.arr, key, value)
+        self.arr = new_arr
 
     def __getattr__(self, name):
         """

@@ -255,3 +255,39 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
     else:
         arr[where] = value
         return arr
+    
+# ================================================================
+#  JAX functions
+# ================================================================
+
+def jaxjit(fun: callable) -> callable:
+    """
+    Decorator for JAX JIT compilation.
+    
+    Description
+    -----------
+    This decorator is a wrapper around jax.jit. When jax is not installed,
+    the function is returned as it is.
+    
+    Parameters
+    ----------
+    `fun` : `callable`
+        The function to JIT compile.
+    
+    Returns
+    -------
+    `callable`
+        The JIT compiled function.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> @fr.utils.jaxjit
+    ... def my_function(x):
+    ...     return x**2
+    """
+    try:
+        import jax
+        return jax.jit(fun)
+    except ImportError:
+        return fun

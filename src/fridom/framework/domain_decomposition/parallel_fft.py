@@ -1,7 +1,7 @@
 # Import external modules
 import numpy as np
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from .domain_decomposition import DomainDecomposition
 from .transformer import Transformer
 
@@ -61,9 +61,10 @@ def transform(arr_in: np.ndarray,
     if fft_axes[-1]:
         # function should only be applied to the inner slice without halo cells
         in_s = domain_out.my_subdomain.inner_slice
-        arr_out[in_s] = apply_fun(arr_out[in_s], axes=fft_axes[-1])
+        arr_out = utils.modify_array(arr_out, in_s,
+                        apply_fun(arr_out[in_s], axes=fft_axes[-1]))
         # sync the data to the full domain
-        domain_out.sync(arr_out)
+        arr_out = domain_out.sync(arr_out)
     return arr_out 
 
 class ParallelFFT:
