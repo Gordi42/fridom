@@ -1,7 +1,6 @@
 # Import external modules
 from typing import TYPE_CHECKING
 from mpi4py import MPI
-from tqdm import tqdm
 import numpy as np
 # Import internal modules
 from fridom.framework import config
@@ -160,11 +159,8 @@ class Model:
         # ----------------------------------------------------------------
         #  Set up the progress bar
         # ----------------------------------------------------------------
-        if MPI.COMM_WORLD.Get_rank() != 0:
-            progress_bar = False
-        bar_format = "{percentage:3.2f}%|{bar}| [{elapsed}<{remaining}, {rate_fmt}]{postfix}"
-        pbar = tqdm(
-            total=100, disable=not progress_bar, bar_format=bar_format, unit="%")
+        from fridom.framework.utils import ProgressBar
+        pbar = ProgressBar(disable=not progress_bar)
 
         # start the model
         self.start()
@@ -182,10 +178,10 @@ class Model:
                 self.step()
 
                 # update the progress bar
-                pbar.n = 100 * (i-first_it+1) / steps
-                pbar.set_postfix_str(
-                    f"It: {self.model_state.it} - Time: {self.model_state.time}")
-                pbar.refresh()
+                mz = self.model_state
+                pbar.update(
+                    value = 100 * (i-first_it+1) / steps,
+                    postfix = f"It: {mz.it} - Time: {mz.time}")
 
         # ----------------------------------------------------------------
         #  Main loop: Given run length
@@ -197,13 +193,11 @@ class Model:
             # loop until the end time is reached
             while self.model_state.time < end_time:
                 self.step()
-
                 # update the progress bar
-                pbar.n = 100 * ( (self.model_state.time - start_time) 
-                                   / (end_time - start_time) )
-                pbar.set_postfix_str(
-                    f"It: {self.model_state.it} - Time: {self.model_state.time}")
-                pbar.refresh()
+                mz = self.model_state
+                pbar.update(
+                    value = 100*(mz.time-start_time) / (end_time-start_time),
+                    postfix = f"It: {mz.it} - Time: {mz.time}")
         
         # close the progress bar
         pbar.close()
@@ -255,6 +249,8 @@ class Model:
         self.stop()
         self.save(self.restart_module.file)
         config.logger.info(self.mset.timer)
+        config.logger.info("Spawning new sbatch job:")
+        config.logger.info(self.restart_module.restart_command)
         MPI.COMM_WORLD.Barrier()
         if MPI.COMM_WORLD.Get_rank() == 0:
             import subprocess

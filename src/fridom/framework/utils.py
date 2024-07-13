@@ -13,6 +13,7 @@ Functions
 from . import config
 from .config import logger
 from mpi4py import MPI
+import time
 
 def print_bar(char='='):
     """
@@ -73,3 +74,127 @@ def chdir_to_submit_dir():
     os.chdir(submit_dir)
     logger.info(f"New working directory: {os.getcwd()}")
     return
+
+def stdout_is_file():
+    import os, sys
+    # check if the output is not a file
+    if os.isatty(sys.stdout.fileno()):
+        res = False  # output is a terminal
+    else:
+        res = True   # output is a file
+
+    # check if the output is ipython
+    from IPython import get_ipython
+    if get_ipython() is not None:
+        res = False  # output is ipython
+    return res
+
+class ProgressBar:
+    """
+    Progress bar class.
+    
+    Description
+    -----------
+    The progress bar class is a wrapper around the tqdm progress bar. It
+    has a custom format and handles the output to the stdout when the
+    stdout is a file.
+    
+    Parameters
+    ----------
+    `disable` : `bool`
+        Whether to disable the progress bar.
+    
+    Methods
+    -------
+    `update(value: float, postfix: str)`
+        Updates the progress bar.
+    `close()`
+        Close the progress bar.
+    """
+    def __init__(self, disable: bool = False) -> None:
+        # only rank 0 should print the progress bar
+        if MPI.COMM_WORLD.Get_rank() != 0:
+            disable = True
+        # ----------------------------------------------------------------
+        #  Set the progress bar format
+        # ----------------------------------------------------------------
+        bar_format = "{percentage:3.2f}%|{bar}| "
+        bar_format += "[{elapsed}<{remaining}]{postfix}"
+
+        # ----------------------------------------------------------------
+        #  Check if the stdout is a file
+        # ----------------------------------------------------------------
+        file_output = stdout_is_file()
+        if file_output:
+            # if the stdout is a file, tqdm would print to the stderr by default
+            # we could instead print to the stdout, but this would mess up
+            # the look of the progress bar due to "\r" characters
+            # so we create a StringIO object to capture the output
+            # and adjust the progress bar accordingly
+            import io
+            output = io.StringIO()
+        else:
+            import sys
+            output = sys.stdout
+
+        # ----------------------------------------------------------------
+        #  Create the progress bar
+        # ----------------------------------------------------------------
+        from tqdm import tqdm
+        pbar = tqdm(
+            total=100, 
+            disable=disable, 
+            bar_format=bar_format, 
+            unit="%", 
+            file=output)
+        
+        # ----------------------------------------------------------------
+        #  Set the attributes
+        # ----------------------------------------------------------------
+        self.disable = disable
+        # private attributes
+        self._pbar = pbar
+        self._file_output = file_output
+        self._output = output
+        self._last_call = time.time()
+        return
+
+    def update(self, value: float, postfix: str = "") -> None:
+        """
+        Updates the progress bar.
+        
+        Parameters
+        ----------
+        `value` : `float`
+            A value between 0 and 100, representing the progress.
+        `postfix` : `str`
+            A string to append to the progress bar.
+        """
+        if self.disable:
+            return
+
+        # get the time between the last call (in milliseconds)
+        now = time.time()
+        elapsed = now - self._last_call
+        self._last_call = now
+        elapsed = f"{int(elapsed*1e3)} ms/it"
+
+        # update the progress bar
+        self._pbar.n = value
+        self._pbar.set_postfix_str(f"{elapsed}  at {postfix}")
+        self._pbar.refresh()
+
+        if not self._file_output:
+            return
+
+        # print the progress to the stdout
+        config.logger.info(self._output.getvalue().split("\r")[1])
+
+        # clear the output string
+        self._output.seek(0)
+        return
+
+    def close(self) -> None:
+        """Close the progress bar."""
+        self._pbar.close()
+        return
