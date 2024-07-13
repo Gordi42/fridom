@@ -77,6 +77,7 @@ def set_device():
         num_gpus = cp.cuda.runtime.getDeviceCount()
         device_id = node_rank % num_gpus
         cp.cuda.Device(device_id).use()
+        comm_node.Free()
     return
 
 class DomainDecomposition:
@@ -508,6 +509,13 @@ class DomainDecomposition:
             else:
                 setattr(deepcopy_obj, key, deepcopy(value, memo))
         return deepcopy_obj
+
+    def __del__(self):
+        try:
+            self._comm.Free()
+        except:
+            pass
+        return
 
     # ================================================================
     #  Properties

@@ -53,138 +53,6 @@ import time
 load_time = time.time()
 
 # ================================================================
-#  BACKEND
-# ================================================================
-
-class Backend(Enum):
-    """
-    Backend Types:
-    ---------------
-    `NUMPY`
-        Use numpy as the backend.
-    `CUPY`
-        Use cupy as the backend.
-    """
-    NUMPY = auto()
-    CUPY = auto()
-
-backend: Backend
-ncp = None  # numpy or cupy
-scp = None  # scipy or cupyx.scipy
-
-def _set_default_backend():
-    """
-    Set the default backend (cupy if available, numpy otherwise).
-    """
-    # get ncp and backend from global scope
-    global ncp
-    global scp
-    global backend
-    try:  # Try to import cupy
-        import cupy
-        import cupyx.scipy
-        backend = Backend.CUPY
-        ncp = cupy
-        scp = cupyx.scipy
-    except ImportError:  # If cupy is not available, use numpy instead
-        import numpy
-        import scipy
-        backend = Backend.NUMPY
-        ncp = numpy
-        scp = scipy
-    return
-
-def set_backend(new_backend: Backend):
-    """
-    Set the backend to use for computations (numpy or cupy).
-    
-    Parameters
-    ----------
-    `new_backend` : `str`
-        The new backend to use for computations (numpy or cupy)
-    
-    Raises
-    ------
-    `ValueError`
-        Unsupported backend.
-    
-    Examples
-    --------
-    >>> import fridom.framework as fr
-    >>> fr.config.set_backend("numpy")
-    >>> print(fr.config.ncp)
-    <module 'numpy' from '.../numpy/__init__.py'>
-    >>> fr.config.set_backend("cupy")
-    >>> print(fr.config.ncp)
-    <module 'cupy' from '.../cupy/__init__.py'>
-    """
-    global ncp
-    global scp
-    global backend
-    match new_backend:
-        case Backend.NUMPY:
-            import numpy
-            import scipy
-            ncp = numpy
-            scp = scipy
-        case Backend.CUPY:
-            import cupy
-            import cupyx.scipy
-            ncp = cupy
-            scp = cupyx.scipy
-        case _:
-            raise ValueError(f"Backend {new_backend} not supported.")
-    backend = new_backend
-    return
-
-# ================================================================
-#  DATA TYPES
-# ================================================================
-
-dtype_real = np.float64
-dtype_comp = np.complex128
-
-def set_dtype_real(new_dtype_real: np.dtype):
-    """
-    Set the default real data type.
-    
-    Parameters
-    ----------
-    `new_dtype_real` : `np.dtype`
-        The new default real data type.
-    
-    Examples
-    --------
-    >>> import fridom.framework as fr
-    >>> fr.config.set_dtype_real(np.float32)
-    >>> print(fr.config.dtype_real)
-    <class 'numpy.float32'>
-    """
-    global dtype_real
-    dtype_real = new_dtype_real
-    return
-
-def set_dtype_comp(new_dtype_comp: np.dtype):
-    """
-    Set the default complex data type.
-    
-    Parameters
-    ----------
-    `new_dtype_comp` : `np.dtype`
-        The new default complex data type.
-    
-    Examples
-    --------
-    >>> import fridom.framework as fr
-    >>> fr.config.set_dtype_comp(np.complex64)
-    >>> print(fr.config.dtype_comp)
-    <class 'numpy.complex64'>
-    """
-    global dtype_comp
-    dtype_comp = new_dtype_comp
-    return
-
-# ================================================================
 #  LOGGING
 # ================================================================
 class LogLevel(Enum):
@@ -313,9 +181,185 @@ def _setup_logging():
     set_log_ranks([0])
     return
 
-
-# =============================================================================
-#  Default configs
-# =============================================================================
-_set_default_backend()
 _setup_logging()
+
+# ================================================================
+#  BACKEND
+# ================================================================
+class Backend(Enum):
+    """
+    Backend Types:
+    ---------------
+    `NUMPY`
+        Use numpy as the backend.
+    `CUPY`
+        Use cupy as the backend.
+    `JAX_CPU`
+        Use jax with CPU as the backend.
+    `JAX_GPU`
+        Use jax with GPU as the backend.
+    """
+    NUMPY = auto()
+    CUPY = auto()
+    JAX_CPU = auto()
+    JAX_GPU = auto()
+
+backend: Backend
+ncp = None  # numpy or cupy
+scp = None  # scipy or cupyx.scipy
+
+def set_backend(new_backend: Backend):
+    """
+    Set the backend to use for computations (numpy like)
+    
+    Parameters
+    ----------
+    `new_backend` : `Backend`
+        The new backend to use for computations
+    
+    Raises
+    ------
+    `ValueError`
+        Unsupported backend.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> fr.config.set_backend(fr.Backend.NUMPY)
+    >>> print(fr.config.ncp)
+    <module 'numpy' from '.../numpy/__init__.py'>
+    >>> fr.config.set_backend(fr.Backend.CUPY)
+    >>> print(fr.config.ncp)
+    <module 'cupy' from '.../cupy/__init__.py'>
+    """
+    global ncp
+    global scp
+    global backend
+    global logger
+    match new_backend:
+        case Backend.NUMPY:
+            import numpy
+            import scipy
+            ncp = numpy
+            scp = scipy
+        case Backend.CUPY:
+            try:
+                import cupy
+                import cupyx.scipy
+                ncp = cupy
+                scp = cupyx.scipy
+            except ImportError:
+                logger.error("Failed to import cupy. Falling back to numpy.")
+                set_backend(Backend.NUMPY)
+                return
+        case Backend.JAX_CPU:
+            try:
+                import jax
+                import jax.numpy
+                import jax.scipy
+                ncp = jax.numpy
+                scp = jax.scipy
+                jax.config.update('jax_platform_name', 'cpu')
+                jax.config.update('jax_enable_x64', True)
+            except ImportError:
+                logger.error("Failed to import jax. Falling back to numpy.")
+                set_backend(Backend.NUMPY)
+                return
+        case Backend.JAX_GPU:
+            try:
+                import jax
+                import jax.numpy
+                import jax.scipy
+                ncp = jax.numpy
+                scp = jax.scipy
+                jax.config.update('jax_platform_name', 'gpu')
+                jax.config.update('jax_enable_x64', True)
+                # the next line will raise a RuntimeError if the GPU is not available
+                jax.lib.xla_bridge.get_backend().platform
+            except ImportError:
+                logger.error("Failed to import jax. Falling back to cupy.")
+                set_backend(Backend.CUPY)
+                return
+            except RuntimeError:
+                logger.error("GPU not available. Falling back to JAX_CPU.")
+                set_backend(Backend.JAX_CPU)
+                return
+        case _:
+            raise ValueError(f"Backend {new_backend} not supported.")
+    backend = new_backend
+    return
+
+def _set_default_backend():
+    """
+    Set the default backend (cupy if available, numpy otherwise).
+    """
+    # disable the logger temporarily
+    logger_disabled = logger.disabled
+    logger.disabled = True
+    set_backend(Backend.CUPY)
+    # restore the logger state
+    logger.disabled = logger_disabled
+    return
+
+_set_default_backend()
+
+# ================================================================
+#  DATA TYPES
+# ================================================================
+class DType(Enum):
+    """
+    Data Types:
+    -----------
+    `FLOAT32`
+        32-bit floating point number.
+    `FLOAT64`
+        64-bit floating point number.
+    `FLOAT128`
+        128-bit floating point number.
+
+    Note:
+    -----
+    Complex numbers are twice the size of real numbers.
+    """
+    FLOAT32 = auto()
+    FLOAT64 = auto()
+    FLOAT128 = auto()
+
+dtype_real = np.float64
+dtype_comp = np.complex128
+
+def set_dtype(dtype: DType):
+    """
+    Set the default data type.
+    
+    Parameters
+    ----------
+    `dtype` : `DType`
+        The new default data type of real values.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> fr.config.set_dtype(fr.DType.FLOAT32)
+    >>> print(fr.config.dtype_real)
+    <class 'numpy.float32'>
+    """
+    global dtype_real
+    global dtype_comp
+    global backend
+    match dtype:
+        case DType.FLOAT32:
+            dtype_real = np.float32
+            dtype_comp = np.complex64
+        case DType.FLOAT64:
+            dtype_real = np.float64
+            dtype_comp = np.complex128
+        case DType.FLOAT128:
+            if backend == Backend.JAX_CPU or backend == Backend.JAX_GPU:
+                logger.warning("JAX does not support FLOAT128, using FLOAT64 instead.")
+                set_dtype(DType.FLOAT64)
+                return
+            dtype_real = np.float128
+            dtype_comp = np.complex256
+        case _:
+            raise ValueError(f"Data type {dtype} not supported.")

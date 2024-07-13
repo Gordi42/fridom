@@ -23,12 +23,16 @@ dependencies = [
   "scipy",
   "netCDF4",
   "mpi4py",
+  "tqdm",
+  "dill",
   "coloredlogs",
 ]
 license = {file = "LICENSE"}
 
 [project.optional-dependencies]
 cupy = ["cupy"]
+jax = ["jax"]
+jax-cuda = ["jax[cuda12]"]
 
 [project.urls]
 Repository = "https://github.com/Gordi42/FRIDOM"

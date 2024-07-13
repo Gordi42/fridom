@@ -208,8 +208,7 @@ class NetCDFWriter(Module):
             ncfile = Dataset(filename, "w", format="NETCDF4", parallel=True)
         except: 
             config.logger.warning(
-                "Failed to create NetCDF file in parallel mode.",
-                "Trying parallel=False")
+                "Failed to create NetCDF file in parallel mode. Trying parallel=False")
             ncfile = Dataset(filename, "w", format="NETCDF4", parallel=False)
 
         dtype = config.dtype_real

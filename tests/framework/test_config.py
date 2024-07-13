@@ -10,12 +10,18 @@ def test_set_backend(backend):
         case fr.config.Backend.CUPY:
             assert fr.config.ncp.__name__ == "cupy"
 
-@pytest.mark.parametrize("dtype_real", [np.float32, np.float64])
-def test_set_dtype_real(dtype_real):
-    fr.config.set_dtype_real(dtype_real)
-    assert fr.config.dtype_real == dtype_real
-
-@pytest.mark.parametrize("dtype_comp", [np.complex64, np.complex128])
-def test_set_dtype_comp(dtype_comp):
-    fr.config.set_dtype_comp(dtype_comp)
-    assert fr.config.dtype_comp == dtype_comp
+@pytest.mark.parametrize("dtype", [fr.config.DType.FLOAT32, 
+                                   fr.config.DType.FLOAT64])
+def test_set_dtype(dtype):
+    fr.config.set_dtype(dtype)
+    match dtype:
+        case fr.config.DType.FLOAT32:
+            assert fr.config.dtype_real == np.float32
+            assert fr.config.dtype_comp == np.complex64
+        case fr.config.DType.FLOAT64:
+            assert fr.config.dtype_real == np.float64
+            assert fr.config.dtype_comp == np.complex128
+        case fr.config.DType.FLOAT128:
+            assert fr.config.dtype_real == np.float128
+            assert fr.config.dtype_comp == np.complex256
+    return

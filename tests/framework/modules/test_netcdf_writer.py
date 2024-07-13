@@ -72,7 +72,12 @@ def test_model_run(mset, netcdf_module, directory_name):
     assert os.path.exists(file_path)
 
     # open the file and check the contents
-    with Dataset(file_path, "r", parallel=True) as ncfile:
+    if MPI.COMM_WORLD.Get_size() > 1:
+        parallel = True
+    else:
+        parallel = False
+
+    with Dataset(file_path, "r", parallel=parallel) as ncfile:
         assert "var1" in ncfile.variables
         assert "var2" in ncfile.variables
         assert ncfile.variables["var1"].units == "unit1"
