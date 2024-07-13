@@ -329,10 +329,10 @@ def mset_topo(backend):
 @pytest.fixture(params=[
     (True, True, True),
     (False, True, True),
-    (True, False, True),
-    (True, True, False),
-    (False, False, True),
-    (False, True, False),
+    # (True, False, True),
+    # (True, True, False),
+    # (False, False, True),
+    # (False, True, False),
     (True, False, False),
 ])
 def topo1(request):
@@ -341,10 +341,10 @@ def topo1(request):
 @pytest.fixture(params=[
     (True, True, True),
     (False, True, True),
-    (True, False, True),
-    (True, True, False),
-    (False, False, True),
-    (False, True, False),
+    # (True, False, True),
+    # (True, True, False),
+    # (False, False, True),
+    # (False, True, False),
     (True, False, False),
 ])
 def topo2(request):

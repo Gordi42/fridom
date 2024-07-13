@@ -4,7 +4,11 @@ import numpy as np
 
 def test_set_backend(backend):
     assert fr.config.backend == backend
-    assert fr.config.ncp.__name__ == backend
+    match backend:
+        case fr.config.Backend.NUMPY:
+            assert fr.config.ncp.__name__ == "numpy"
+        case fr.config.Backend.CUPY:
+            assert fr.config.ncp.__name__ == "cupy"
 
 @pytest.mark.parametrize("dtype_real", [np.float32, np.float64])
 def test_set_dtype_real(dtype_real):

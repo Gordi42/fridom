@@ -39,7 +39,7 @@ Examples
 <module 'cupy' from '.../cupy/__init__.py'>
 """
 import numpy as np
-from enum import Enum
+from enum import Enum, auto
 import logging
 import sys
 import os
@@ -56,7 +56,19 @@ load_time = time.time()
 #  BACKEND
 # ================================================================
 
-backend = None
+class Backend(Enum):
+    """
+    Backend Types:
+    ---------------
+    `NUMPY`
+        Use numpy as the backend.
+    `CUPY`
+        Use cupy as the backend.
+    """
+    NUMPY = auto()
+    CUPY = auto()
+
+backend: Backend
 ncp = None  # numpy or cupy
 scp = None  # scipy or cupyx.scipy
 
@@ -71,18 +83,18 @@ def _set_default_backend():
     try:  # Try to import cupy
         import cupy
         import cupyx.scipy
-        backend = "cupy"
+        backend = Backend.CUPY
         ncp = cupy
         scp = cupyx.scipy
     except ImportError:  # If cupy is not available, use numpy instead
         import numpy
         import scipy
-        backend = "numpy"
+        backend = Backend.NUMPY
         ncp = numpy
         scp = scipy
     return
 
-def set_backend(new_backend: str):
+def set_backend(new_backend: Backend):
     """
     Set the backend to use for computations (numpy or cupy).
     
@@ -109,18 +121,19 @@ def set_backend(new_backend: str):
     global ncp
     global scp
     global backend
-    if new_backend == "numpy":
-        import numpy
-        import scipy
-        ncp = numpy
-        scp = scipy
-    elif new_backend == "cupy":
-        import cupy
-        import cupyx.scipy
-        ncp = cupy
-        scp = cupyx.scipy
-    else:
-        raise ValueError(f"Backend {new_backend} not supported.")
+    match new_backend:
+        case Backend.NUMPY:
+            import numpy
+            import scipy
+            ncp = numpy
+            scp = scipy
+        case Backend.CUPY:
+            import cupy
+            import cupyx.scipy
+            ncp = cupy
+            scp = cupyx.scipy
+        case _:
+            raise ValueError(f"Backend {new_backend} not supported.")
     backend = new_backend
     return
 
