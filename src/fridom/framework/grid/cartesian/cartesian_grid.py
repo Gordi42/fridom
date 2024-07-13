@@ -204,9 +204,15 @@ class CartesianGrid(GridBase):
         # add ghost points
         X = tuple(ncp.zeros(domain_decomp.my_subdomain.shape, dtype=dtype) 
                   for _ in range(n_dims))
-        for i in range(n_dims):
-            X[i][domain_decomp.my_subdomain.inner_slice] = X_inner[i]
-            domain_decomp.sync(X[i])
+        if config.backend_is_jax():
+            ics = domain_decomp.my_subdomain.inner_slice
+            for i in range(n_dims):
+                X[i] = X[i].at[ics].set(X_inner[i])
+                domain_decomp.sync(X[i])
+        else:
+            for i in range(n_dims):
+                X[i][domain_decomp.my_subdomain.inner_slice] = X_inner[i]
+                domain_decomp.sync(X[i])
 
         # --------------------------------------------------------------
         #  Initialize the spectral meshgrid
@@ -241,11 +247,13 @@ class CartesianGrid(GridBase):
     def ifft(self, u: np.ndarray) -> np.ndarray:
         return self._pfft.backward_apply(u, self._fft.backward)
 
-    def sync(self, f: 'FieldVariable') -> None:
+    def sync(self, f: 'FieldVariable') -> 'FieldVariable':
         if f.is_spectral:
-            self._pfft.domain_out.sync(f)
+            arr = self._pfft.domain_out.sync(f.arr)
         else:
-            self._domain_decomp.sync(f)
+            arr = self._domain_decomp.sync(f.arr)
+        f.arr = arr
+        return f
 
     def apply_boundary_condition(
             self, field: 'FieldVariable', axis: int, side: str, 

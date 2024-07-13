@@ -289,6 +289,24 @@ def set_backend(new_backend: Backend):
     backend = new_backend
     return
 
+def backend_is_jax() -> bool:
+    """
+    Check if the backend is JAX.
+    
+    Returns
+    -------
+    `bool`
+        True if the backend is JAX, False otherwise.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> fr.config.set_backend(fr.Backend.JAX_CPU)
+    >>> print(fr.config.backend_is_jax())
+    True
+    """
+    return (backend == Backend.JAX_CPU) or (backend == Backend.JAX_GPU)
+
 def _set_default_backend():
     """
     Set the default backend (cupy if available, numpy otherwise).

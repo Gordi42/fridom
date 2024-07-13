@@ -310,27 +310,31 @@ class DomainDecomposition:
         >>> # synchronize the halo regions between neighboring domains
         >>> domain.sync(u)
         """
-        self.sync_list([arr], flat_axes)
-        return
+        return self.sync_multiple((arr,), flat_axes)[0]
 
-    def sync_list(self, 
-                  arrs: 'list[np.ndarray]', 
-                  flat_axes: list | None = None) -> None:
+    def sync_multiple(self, 
+                      arrs: 'tuple[np.ndarray]', 
+                      flat_axes: list | None = None) -> tuple[np.ndarray]:
         """
-        Synchronize the halo regions of a list of arrays between neighboring domains.
+        Synchronize the halo regions of multiple arrays between neighboring domains.
         
         Description
         -----------
-        This function synchronizes the halo regions of a list of arrays between
+        This function synchronizes the halo regions of a tuple of arrays between
         neighboring domains. The synchronization is done in place (no return value).
         Synchronization is always periodic in all directions.
         
         Parameters
         ----------
-        `arrs` : `list[ndarray]`
+        `arrs` : `tuple[ndarray]`
             List of arrays to synchronize.
         `flat_axes` : `list[int]`, optional (default=None)
             A list of axes to skip synchronization.
+        
+        Returns
+        -------
+        `tuple[ndarray]`
+            The tuple of arrays with the halo regions synchronized.
         
         Examples
         --------
@@ -342,11 +346,11 @@ class DomainDecomposition:
         >>> u = config.ncp.random.rand(domain.my_subdomain.shape)
         >>> v = config.ncp.random.rand(domain.my_subdomain.shape)
         >>> # synchronize the halo regions between neighboring domains
-        >>> domain.sync_list([u, v])
+        >>> u, v = domain.sync_multiple((u, v))
         """
         # nothing to do if there are no halo regions
         if self.halo == 0:
-            return
+            return arrs
 
         flat_axes = flat_axes or []
         
@@ -357,24 +361,24 @@ class DomainDecomposition:
         for axis in range(self.n_dims):
             if axis in flat_axes:
                 continue
-            self._sync_axis(arrs, axis)
-        return
+            arrs = self._sync_axis(arrs, axis)
+        return arrs
 
-    def _sync_axis_same_proc(self, arrs: list[np.ndarray], axis: int) -> None:
+    def _sync_axis_same_proc(self, arrs: tuple[np.ndarray], axis: int) -> tuple[np.ndarray]:
         if self._n_global[axis] < self._halo:
-            for arr in arrs:
-                arr[:] = config.ncp.pad(
-                    arr[self._inner[axis]], self._paddings[axis], mode='wrap')
+            pad = config.ncp.pad
+            ics = self._inner[axis]
+            pad_width = self._paddings[axis]
+            return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
         else:
             for arr in arrs:
                 arr[self._recv_from_next[axis]] = arr[self._send_to_prev[axis]]
                 arr[self._recv_from_prev[axis]] = arr[self._send_to_next[axis]]
-        return
+            return arrs
 
-    def _sync_axis(self, arrs: list[np.ndarray], axis: int) -> None:
+    def _sync_axis(self, arrs: tuple[np.ndarray], axis: int) -> tuple[np.ndarray]:
         if self._n_procs[axis] == 1:
-            self._sync_axis_same_proc(arrs, axis)
-            return
+            return self._sync_axis_same_proc(arrs, axis)
 
         reqs = []
 
@@ -425,7 +429,7 @@ class DomainDecomposition:
         for i, arr in enumerate(arrs):
             arr[self._recv_from_next[axis]] = buf_recv_next_list[i]
             arr[self._recv_from_prev[axis]] = buf_recv_prev_list[i]
-        return
+        return arrs
 
     def apply_boundary_condition(
             self, 
@@ -433,7 +437,7 @@ class DomainDecomposition:
             bc: np.ndarray, 
             axis: int, 
             side: str
-            ) -> None:
+            ) -> np.ndarray:
         """
         Apply boundary condition to the halo regions of an array.
         
@@ -447,6 +451,11 @@ class DomainDecomposition:
             The dimension to apply the boundary condition to.
         `side` : `str`
             The side to apply the boundary condition to. left or right.
+
+        Returns
+        -------
+        `np.ndarray`
+            The array with the boundary condition applied.
         
         Raises
         ------
@@ -454,28 +463,27 @@ class DomainDecomposition:
             f `side` is not either 'left' or 'right'.
         """
         if self.halo == 0:
-            return  # nothing to do if there are no halo regions
+            return arr  # nothing to do if there are no halo regions
         if side == "left":
-            self._apply_left_boundary_condition(arr, bc, axis)
+            return self._apply_left_boundary_condition(arr, bc, axis)
         elif side == "right":
-            self._apply_right_boundary_condition(arr, bc, axis)
+            return self._apply_right_boundary_condition(arr, bc, axis)
         else:
             raise ValueError("side must be either 'left' or 'right'.")
-        return
 
     def _apply_left_boundary_condition(
-            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> None:
+            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
         # apply the boundary condition to the left side
         if self.my_subdomain.is_left_edge[axis]:
             arr[self._recv_from_prev[axis]] = bc
-        return
+        return arr
     
     def _apply_right_boundary_condition(
-            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> None:
+            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
         # apply the boundary condition to the right side
         if self.my_subdomain.is_right_edge[axis]:
             arr[self._recv_from_next[axis]] = bc
-        return
+        return arr
 
     def sync_with_device(self):
         """
@@ -491,7 +499,7 @@ class DomainDecomposition:
         if config.backend == "cupy":
             config.ncp.cuda.Stream.null.synchronize()
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo) -> 'DomainDecomposition':
         deepcopy_obj = object.__new__(self.__class__)
         memo[id(self)] = deepcopy_obj  # Store in memo to handle self-references
         for key, value in vars(self).items():
