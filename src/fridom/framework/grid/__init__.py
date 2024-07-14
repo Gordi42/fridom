@@ -35,10 +35,10 @@ if TYPE_CHECKING:
 
 # Set up dictionary that maps an import to a path
 # items in the all_modules_by_origin dictionary are imported as modules
-all_modules_by_origin = { "fridom.nonhydro": ["cartesian"] }
+all_modules_by_origin = { "fridom.framework.grid": ["cartesian"] }
 
 # items in the all_imports_by_origin dictionary are imported as elements of a module
-all_imports_by_origin = { "fridom.nonhydro.cartesian": ["CartesianGrid"] }
+all_imports_by_origin = { "fridom.framework.grid.cartesian": ["CartesianGrid"] }
 
 # ================================================================
 #  Set up the import system
