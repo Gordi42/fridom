@@ -206,6 +206,7 @@ class Backend(Enum):
 
 backend: Backend
 backend_is_jax: bool
+jax_jit_was_called: bool = False
 ncp = None  # numpy or cupy
 scp = None  # scipy or cupyx.scipy
 
@@ -238,6 +239,12 @@ def set_backend(new_backend: Backend):
     global backend
     global backend_is_jax
     global logger
+    global jax_jit_was_called
+    if jax_jit_was_called:
+        logger.warning(
+            "jax.jit was called before setting the backend. "
+            "This might lead to unexpected behavior.")
+
     match new_backend:
         case Backend.NUMPY:
             import numpy

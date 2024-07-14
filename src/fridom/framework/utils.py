@@ -260,7 +260,7 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
 #  JAX functions
 # ================================================================
 
-def jaxjit(fun: callable) -> callable:
+def jaxjit(fun: callable, *args, **kwargs) -> callable:
     """
     Decorator for JAX JIT compilation.
     
@@ -286,10 +286,11 @@ def jaxjit(fun: callable) -> callable:
     ... def my_function(x):
     ...     return x**2
     """
+    config.jax_jit_was_called = True
     if config.backend_is_jax:
         try:
             import jax
-            return jax.jit(fun)
+            return jax.jit(fun, *args, **kwargs)
         except ImportError:
             return fun
     else:
