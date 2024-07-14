@@ -12,8 +12,12 @@ Modules
 -------
 `config`
     Module that stores all configuration options for the framework.
+`utils`
+    Module that stores all utility functions for the framework.
 `grid`
     Module that stores all available grids for the non-hydrostatic model.
+`modules`
+    Module that stores all available modules for the non-hydrostatic model.
 `time_steppers`
     Time steppers for the non-hydrostatic model.
 
@@ -23,10 +27,14 @@ Classes
     The model settings class.
 `FieldVariable`
     A field variable class.
+`State`
+    The state class.
 `ModelState`
     The model state class.
 `Model`
     The model class.
+`Plot`
+    The plot class.
 
 Examples
 --------
@@ -43,29 +51,99 @@ Examples
 >>> # plot top view of final kinetic energy
 >>> nh.Plot(model.z.ekin()).top(model.z)
 """
-# ----------------------------------------------------------------
-#  Importing model specific classes and modules
-# ----------------------------------------------------------------
-# importing modules
-from . import grid
-from . import modules
+import sys
+from types import ModuleType
+import importlib
+from typing import TYPE_CHECKING
 
-# importing classes
-from .model_settings import ModelSettings
-from .state import State
-from .plot import Plot, PlotContainer
+# ================================================================
+#  Disable lazy loading for type checking
+# ================================================================
+if TYPE_CHECKING:
+    # ----------------------------------------------------------------
+    #  Importing model specific classes and modules
+    # ----------------------------------------------------------------
+    # importing modules
+    from . import grid
+    from . import modules
 
-# ----------------------------------------------------------------
-#  Importing generic classes and modules
-# ----------------------------------------------------------------
-# importing modules
-from fridom.framework import config
-from fridom.framework import time_steppers
+    # importing classes
+    from .model_settings import ModelSettings
+    from .state import State
+    from .plot import Plot, PlotContainer
 
-# importing classes
-from fridom.framework.field_variable import FieldVariable
-from fridom.framework.model_state import ModelState
-from fridom.framework.model import Model
+    # ----------------------------------------------------------------
+    #  Importing generic classes and modules
+    # ----------------------------------------------------------------
+    # importing modules
+    from fridom.framework import config
+    from fridom.framework import utils
+    from fridom.framework import time_steppers
+
+    # importing classes
+    from fridom.framework.field_variable import FieldVariable
+    from fridom.framework.model_state import ModelState
+    from fridom.framework.model import Model
+    
+
+# ================================================================
+#  Define all the possible imports
+# ================================================================
+
+# Set up dictionary that maps an import to a path
+# items in the all_modules_by_origin dictionary are imported as modules
+all_modules_by_origin = { 
+    "fridom.nonhydro": ["grid", "modules",],
+    "fridom.framework": ["config", "time_steppers", "utils"],
+}
+
+# items in the all_imports_by_origin dictionary are imported as elements of a module
+all_imports_by_origin = { 
+    "fridom.nonhydro.model_settings": ["ModelSettings"],
+    "fridom.nonhydro.state": ["State"],
+    "fridom.nonhydro.plot": ["Plot", "PlotContainer"],
+    "fridom.framework.field_variable": ["FieldVariable"],
+    "fridom.framework.model_state": ["ModelState"],
+    "fridom.framework.model": ["Model"],
+}
+
+# ================================================================
+#  Set up the import system
+# ================================================================
+
+origins = {}
+_all_modules = []
+for origin, items in all_modules_by_origin.items():
+    for item in items:
+        _all_modules.append(item)
+        origins[item] = origin
+
+_all_imports = []
+for origin, items in all_imports_by_origin.items():
+    for item in items:
+        _all_imports.append(item)
+        origins[item] = origin
+
+# load submodules on demand
+class _module(ModuleType):
+    def __getattr__(self, name):
+        # check if the attribute is a module
+        if name in _all_modules:
+            res = importlib.import_module(origins[name] + "." + name)
+        # check if the attribute is an import
+        elif name in _all_imports:
+            mod = importlib.import_module(origins[name])
+            res = getattr(mod, name)
+        # if the attribute is not found
+        else:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+        # set the attribute in the current module such that it is not loaded again
+        setattr(self, name, res)
+        # return the attribute
+        return res
+
+sys.modules[__name__].__class__ = _module
+__all__ = _all_modules + _all_imports
 
 
 
