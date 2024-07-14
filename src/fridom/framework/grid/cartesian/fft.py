@@ -1,7 +1,8 @@
 # Import external modules
 import numpy as np
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
+from functools import partial
 
 class FFT:
     """
@@ -43,6 +44,7 @@ class FFT:
     >>> assert np.allclose(u, w)
 
     """
+    _dynamic_attributes = [ ]
     def __init__(self, periodic: tuple[bool]) -> None:
         
         # --------------------------------------------------------------
@@ -107,7 +109,7 @@ class FFT:
                 k.append(ncp.linspace(0, ncp.pi/dx[i], shape[i], endpoint=False))
         return tuple(k)
 
-
+    @partial(utils.jaxjit, static_argnames=['axes',])
     def forward(self, u: np.ndarray, axes: list[int] | None = None) -> np.ndarray:
         """
         Forward transform from physical space to spectral space.
@@ -143,6 +145,7 @@ class FFT:
 
         return u_hat
 
+    @partial(utils.jaxjit, static_argnames=['axes',])
     def backward(self, u_hat: np.ndarray, 
                  axes: list[int] | None = None) -> np.ndarray:
         """
@@ -174,3 +177,5 @@ class FFT:
             u = scp.fft.idct(u, type=2, axis=axis)
 
         return u
+
+utils.jaxify_class(FFT)

@@ -111,7 +111,8 @@ class CartesianGrid(GridBase):
 
     """
     _dynamic_attributes = GridBase._dynamic_attributes + [
-        '_K', '_k_local', '_k_global', '_domain_decomp']
+        '_K', '_k_local', '_k_global', '_domain_decomp',
+        '_pfft', '_fft']
     def __init__(self, 
                  N: list[int],
                  L: list[float],
