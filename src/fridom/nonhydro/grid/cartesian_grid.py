@@ -32,6 +32,11 @@ class CartesianGrid(CartesianGridBase):
     `omega_time_discrete` : `np.ndarray`
         Dispersion relation with space-time-discretization effects
     """
+    # update the list of dynamic attributes
+    _dynamic_attributes = CartesianGridBase._dynamic_attributes + [
+        'k2_hat', 'k2_hat_zero',
+        '_omega_analytical', '_omega_space_discrete', '_omega_time_discrete']
+    
     def __init__(self, N: list[int], L: list[int],
                  periodic_bounds: list[bool] = [True, True, True],
                  decomposition: str = 'slab'):
@@ -55,7 +60,7 @@ class CartesianGrid(CartesianGridBase):
         # scaled discretized wave number squared
         k2_hat = k_dis[0] + k_dis[1] + k_dis[2] / mset.dsqr
 
-        k2_hat_zero = (k2_hat == 0)
+        k2_hat_zero = config.ncp.where(k2_hat == 0)
         utils.modify_array(k2_hat, k2_hat_zero, 1)
 
         # ----------------------------------------------------------------
@@ -217,3 +222,5 @@ class CartesianGrid(CartesianGridBase):
             # store the result
             self._omega_time_discrete = res
         return self._omega_time_discrete
+
+utils.jaxify_class(CartesianGrid)

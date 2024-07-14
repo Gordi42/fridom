@@ -1,7 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from fridom.framework.modules.module import Module, module_method
 # Import type information
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ class SpectralPressureSolver(Module):
     @module_method
     def update(self, mz: 'ModelState') -> None:
         ps = mz.z_diag.div.fft() / (-self.grid.k2_hat)
-        ps[self.grid.k2_hat_zero] = 0
+        ps.arr = set_constant_pressure(ps.arr, self.grid.k2_hat_zero)
         mz.z_diag.p[:] = ps.fft()
         return
 
@@ -27,3 +27,7 @@ class SpectralPressureSolver(Module):
         res = super().info
         res["Solver"] = "Spectral"
         return res
+
+@utils.jaxjit
+def set_constant_pressure(pressure, where):
+    return utils.modify_array(pressure, where, 0)

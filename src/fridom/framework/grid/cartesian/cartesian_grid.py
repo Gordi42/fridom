@@ -110,6 +110,8 @@ class CartesianGrid(GridBase):
     >>> dx, dy, dz = grid.dx
 
     """
+    _dynamic_attributes = GridBase._dynamic_attributes + [
+        '_K', '_k_local', '_k_global', '_domain_decomp']
     def __init__(self, 
                  N: list[int],
                  L: list[float],
@@ -181,6 +183,7 @@ class CartesianGrid(GridBase):
         domain_decomp = DomainDecomposition(
             self._N, required_halo, shared_axes=self._shared_axes)
 
+
         # --------------------------------------------------------------
         #  Initialize the fourier transform
         # --------------------------------------------------------------
@@ -222,6 +225,7 @@ class CartesianGrid(GridBase):
             k = None
             k_local = None
             K = None
+
 
         self._mset = mset
         self._domain_decomp = domain_decomp
@@ -356,3 +360,5 @@ class CartesianGrid(GridBase):
     def k_global(self) -> tuple | None:
         """Global spectral k-vectors."""
         return self._k_global
+
+utils.jaxify_class(CartesianGrid)

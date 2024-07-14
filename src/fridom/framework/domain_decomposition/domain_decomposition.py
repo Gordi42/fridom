@@ -2,13 +2,14 @@
 from mpi4py import MPI
 from copy import deepcopy
 import numpy as np
+from functools import partial
 # Import internal modules
 from .subdomain import Subdomain
-from fridom.framework import config
+from fridom.framework import config, utils
 
-def _make_slice_list(s: slice, n_dims: int):
+def _make_slice_tuple(s: slice, n_dims: int):
     """
-    Create a list of slices for halo exchange.
+    Create a tuple of slices for halo exchange.
         
     Description
     -----------
@@ -18,7 +19,7 @@ def _make_slice_list(s: slice, n_dims: int):
     slices, one for each dimension. In this example and a halo of 2, the
     slices would be (slice(0, 2), slice(None)) and 
     (slice(None), slice(0, 2)). This function for s=slice(0, 2) would
-    return the list of the two slice-tuples.
+    return the tuple of the two slice-tuples.
         
     Parameters
     ----------
@@ -29,16 +30,16 @@ def _make_slice_list(s: slice, n_dims: int):
         
     Returns
     -------
-    `list[tuple[slice]]`
+    `tuple[tuple[slice]]`
         A list of slice tuples for each dimension.
         
     Examples
     --------
     >>> halo = 2
     >>> n_dims = 2
-    >>> send_to_next = _make_slice_list(slice(-2*halo, -halo))
+    >>> send_to_next = _make_slice_tuple(slice(-2*halo, -halo))
     >>> send_to_next
-    >>> # [(slice(-4, -2), slice(None)), (slice(None), slice(-4, -2))]
+    >>> # ((slice(-4, -2), slice(None)), (slice(None), slice(-4, -2)))
     >>> # send_to_next[0] is used to send data to the next processor in the
     >>> # first dimension, send_to_next[1] is used to send data to the next
     >>> # processor in the second dimension
@@ -48,7 +49,7 @@ def _make_slice_list(s: slice, n_dims: int):
         full_slice = [slice(None)]*n_dims
         full_slice[i] = s
         slice_list.append(tuple(full_slice))
-    return slice_list
+    return tuple(slice_list)
 
 def set_device():
     """
@@ -79,6 +80,8 @@ def set_device():
         cp.cuda.Device(device_id).use()
         comm_node.Free()
     return
+
+
 
 class DomainDecomposition:
     """
@@ -173,6 +176,7 @@ class DomainDecomposition:
     >>> # synchronize the halo regions between neighboring domains
     >>> dom_x.sync(u)
     """
+    _dynamic_attributes = []
     def __init__(self, 
                  n_global: 'tuple[int]', 
                  halo: int = 0,
@@ -231,9 +235,10 @@ class DomainDecomposition:
         #  Prepare the halo exchange
         # --------------------------------------------------------------
         # exchange of halo regions in shared axes:
-        paddings = [[(halo, halo) if i == j else (0, 0) for i in range(n_dims)]
-                    for j in range(n_dims)]
-        inner = _make_slice_list(slice(halo, -halo), n_dims)
+        paddings = tuple(tuple((halo, halo) if i == j else (0, 0) 
+                               for i in range(n_dims))
+                         for j in range(n_dims))
+        inner = _make_slice_tuple(slice(halo, -halo), n_dims)
 
         # create subcommunicators for each axis
         subcomms = []
@@ -248,10 +253,36 @@ class DomainDecomposition:
         next_proc = [n[1] for n in neighbors]
 
         # create slices for halo exchange
-        send_to_next = _make_slice_list(slice(-2*halo, -halo), n_dims)
-        send_to_prev = _make_slice_list(slice(halo, 2*halo), n_dims)
-        recv_from_next = _make_slice_list(slice(-halo, None), n_dims)
-        recv_from_prev = _make_slice_list(slice(None, halo), n_dims)
+        send_to_next = _make_slice_tuple(slice(-2*halo, -halo), n_dims)
+        send_to_prev = _make_slice_tuple(slice(halo, 2*halo), n_dims)
+        recv_from_next = _make_slice_tuple(slice(-halo, None), n_dims)
+        recv_from_prev = _make_slice_tuple(slice(None, halo), n_dims)
+
+        # ----------------------------------------------------------------
+        #  Create some private jitted functions
+        # ----------------------------------------------------------------
+
+        @partial(utils.jaxjit, static_argnames=['axis'])
+        def _sync_axis_same_proc(arrs: tuple[np.ndarray], 
+                                axis: int,) -> tuple[np.ndarray]:
+            if n_global[axis] < halo:
+                pad = config.ncp.pad
+                ics = inner[axis]
+                pad_width = paddings[axis]
+                return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
+            else:
+                rfn = recv_from_next[axis]
+                rfp = recv_from_prev[axis]
+                stn = send_to_next[axis]
+                stp = send_to_prev[axis]
+                if config.backend_is_jax:
+                    arrs = tuple(arr.at[rfn].set(arr[stp]) for arr in arrs)
+                    arrs = tuple(arr.at[rfp].set(arr[stn]) for arr in arrs)
+                else:
+                    for arr in arrs:
+                        arr[rfn] = arr[stp]
+                        arr[rfp] = arr[stn]
+                return arrs
 
         # --------------------------------------------------------------
         #  Set the attributes
@@ -269,6 +300,9 @@ class DomainDecomposition:
         self._all_subdomains = all_subdomains  # list of all subdomains
         self._my_subdomain = my_subdomain  # subdomain of this processor
 
+        # private methods
+        self._sync_axis_same_proc = _sync_axis_same_proc
+
         # private attributes
         self._subcomms = subcomms
         self._next_proc = next_proc
@@ -281,6 +315,7 @@ class DomainDecomposition:
         self._inner = inner
         return
 
+    @partial(utils.jaxjit, static_argnames='flat_axes')
     def sync(self, arr: np.ndarray, flat_axes: list | None = None) -> None:
         """
         # Synchronize Halos
@@ -312,6 +347,7 @@ class DomainDecomposition:
         """
         return self.sync_multiple((arr,), flat_axes)[0]
 
+    @partial(utils.jaxjit, static_argnames='flat_axes')
     def sync_multiple(self, 
                       arrs: 'tuple[np.ndarray]', 
                       flat_axes: list | None = None) -> tuple[np.ndarray]:
@@ -361,33 +397,15 @@ class DomainDecomposition:
         for axis in range(self.n_dims):
             if axis in flat_axes:
                 continue
-            arrs = self._sync_axis(arrs, axis)
+            if self._n_procs[axis] == 1:
+                arrs = self._sync_axis_same_proc(arrs, axis)
+            else:
+                arrs = self._sync_axis(arrs, axis)
         return arrs
 
-    def _sync_axis_same_proc(self, arrs: tuple[np.ndarray], axis: int) -> tuple[np.ndarray]:
-        if self._n_global[axis] < self._halo:
-            pad = config.ncp.pad
-            ics = self._inner[axis]
-            pad_width = self._paddings[axis]
-            return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
-        else:
-            rfn = self._recv_from_next[axis]
-            rfp = self._recv_from_prev[axis]
-            stn = self._send_to_next[axis]
-            stp = self._send_to_prev[axis]
-            if config.backend_is_jax:
-                arrs = tuple(arr.at[rfn].set(arr[stp]) for arr in arrs)
-                arrs = tuple(arr.at[rfp].set(arr[stn]) for arr in arrs)
-            else:
-                for arr in arrs:
-                    arr[rfn] = arr[stp]
-                    arr[rfp] = arr[stn]
-            return arrs
 
+    @partial(utils.jaxjit, static_argnames='axis')
     def _sync_axis(self, arrs: tuple[np.ndarray], axis: int) -> tuple[np.ndarray]:
-        if self._n_procs[axis] == 1:
-            return self._sync_axis_same_proc(arrs, axis)
-
         reqs = []
 
         # we need to create 4 buffers for each dimension:
@@ -439,6 +457,7 @@ class DomainDecomposition:
             arr[self._recv_from_prev[axis]] = buf_recv_prev_list[i]
         return arrs
 
+    @partial(utils.jaxjit, static_argnames=['axis', 'side'])
     def apply_boundary_condition(
             self, 
             arr: np.ndarray, 
@@ -479,6 +498,7 @@ class DomainDecomposition:
         else:
             raise ValueError("side must be either 'left' or 'right'.")
 
+    @partial(utils.jaxjit, static_argnames=['axis'])
     def _apply_left_boundary_condition(
             self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
         # apply the boundary condition to the left side
@@ -486,6 +506,7 @@ class DomainDecomposition:
             arr[self._recv_from_prev[axis]] = bc
         return arr
     
+    @partial(utils.jaxjit, static_argnames=['axis'])
     def _apply_right_boundary_condition(
             self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
         # apply the boundary condition to the right side
@@ -585,3 +606,5 @@ class DomainDecomposition:
     def my_subdomain(self) -> Subdomain:
         """The local domain of the current processor."""
         return self._my_subdomain
+
+utils.jaxify_class(DomainDecomposition)

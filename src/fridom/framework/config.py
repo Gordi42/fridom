@@ -204,7 +204,7 @@ class Backend(Enum):
     JAX_CPU = auto()
     JAX_GPU = auto()
 
-backend: Backend
+backend: Backend = None
 backend_is_jax: bool
 jax_jit_was_called: bool = False
 ncp = None  # numpy or cupy
@@ -240,10 +240,13 @@ def set_backend(new_backend: Backend):
     global backend_is_jax
     global logger
     global jax_jit_was_called
-    if jax_jit_was_called:
-        logger.warning(
-            "jax.jit was called before setting the backend. "
-            "This might lead to unexpected behavior.")
+
+    # print a warning if the backend is changed after jax.jit was called
+    if backend is not None:
+        if new_backend != backend and jax_jit_was_called:
+            logger.warning(
+                "jax.jit was called before setting the backend. "
+                "This might lead to unexpected behavior.")
 
     match new_backend:
         case Backend.NUMPY:

@@ -295,3 +295,70 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
             return fun
     else:
         return fun
+
+
+def _tree_flatten(self):
+    # first store all attributes that are marked as dynamic
+    children = tuple(getattr(self, attr) for attr in self._dynamic_attributes)
+    # store all other attributes as aux_data
+    aux_data = {}  # static values
+    for key, att in vars(self).items():
+        if key in self._dynamic_attributes:
+            continue
+        aux_data[key] = att
+    return (children, aux_data)
+
+@classmethod
+def _tree_unflatten(cls, aux_data, children):
+    obj = object.__new__(cls)
+    # set dynamic attributes
+    for i, attr in enumerate(cls._dynamic_attributes):
+        setattr(obj, attr, children[i])
+    # set static attributes
+    for key, value in aux_data.items():
+        setattr(obj, key, value)
+    return obj
+
+
+def jaxify_class(cls: type) -> None:
+    """
+    Add JAX pytree support to a class (for jit compilation).
+    
+    Description
+    -----------
+    In order to use jax.jit on custom classes, the class must be registered
+    to jax. This function adds the necessary methods to the class to make it
+    compatible with jax.jit. 
+    By default, all attributes of an object are considered static, i.e., they
+    they will not be traced by jax. Attributes that should be dynamic must
+    be marked in the class definition inside the `_dynamic_attributes` list
+    (see example).
+    
+    Parameters
+    ----------
+    `cls` : `type`
+        The class to add jax support to.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> class MyClass:
+    ...     _dynamic_attributes = ["x",]
+    ...     def __init__(self, x):
+    ...         self.x = x
+    ...         self.my_static_attribute = 42
+    ...
+    ...     @fr.utils.jaxjit
+    ...     def my_method(self):
+    ...         return self.x**2
+    ...
+    >>> fr.utils.jaxify_class(MyClass)
+    """
+    if config.backend_is_jax:
+        try:
+            import jax
+            cls._tree_unflatten = _tree_unflatten
+            jax.tree_util.register_pytree_node(cls, _tree_flatten, cls._tree_unflatten)
+        except ImportError:
+            pass
+    return

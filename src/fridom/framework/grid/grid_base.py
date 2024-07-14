@@ -1,6 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 import numpy as np
+from fridom.framework import utils
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
@@ -64,6 +65,7 @@ class GridBase:
         Synchronize the halo (boundary) points of a field variable across all
         MPI ranks.
     """
+    _dynamic_attributes = ["_X", "_x_global", "_x_local", "_dx", "_dV"]
     def __init__(self, n_dims: int) -> None:
 
         self.name = "GridBase"
@@ -253,3 +255,5 @@ class GridBase:
     def mset(self) -> 'ModelSettingsBase | None':
         """The model settings object."""
         return self._mset
+
+utils.jaxify_class(GridBase)

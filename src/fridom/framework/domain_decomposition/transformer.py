@@ -2,14 +2,14 @@
 from typing import TYPE_CHECKING
 from mpi4py import MPI
 import numpy as np
+from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
     from .domain_decomposition import DomainDecomposition
 
-def get_overlap_info(domain_in: 'DomainDecomposition', 
-                     domain_out: 'DomainDecomposition') -> dict:
+class OverlapInfo:
     """
     Get information about which processors of the output domain overlaps with
     the subdomain of this processor in the input domain.
@@ -18,11 +18,7 @@ def get_overlap_info(domain_in: 'DomainDecomposition',
     -----------
     In case we want to send data from one domain to another, we need to know
     which processors of the output domain overlap with the subdomain of this
-    processor in the input domain. This method provides this information.
-    The method returns a dictionary containing a list of processors and slices.
-    The slice s=slices[i] of an array arr has to be sent to the processor
-    processors[i] of the output domain. For more information about the usage of
-    this method, see the transformer function.
+    processor in the input domain. This class provides this information.
     
     Parameters
     ----------
@@ -30,64 +26,73 @@ def get_overlap_info(domain_in: 'DomainDecomposition',
         The input domain.
     `domain_out` : `DomainDecomposition`
         The output domain.
-    
-    Returns
-    -------
-    `dict`
-        A dictionary containing the overlap information. The dictionary has the
-        following keys:
-        - `overlap_slices` : list[slice]
-            A list of slices that represent the overlap between the input and
-            output domains.
-        - `processors` : list[int]
-            A list of the processors of the output domain that overlap with the
-            input domain.
-        - `slice_same_proc` : slice
-            The slice of the input domain that overlaps with the output domain
-            of the same processor.
+
+    Attributes
+    ----------
+    `overlap_slices` : list[slice]
+        A list of slices that represent the overlap between the input and
+        output domains.
+    `processors` : list[int]
+        A list of the processors of the output domain that overlap with the
+        input domain.
+    `slice_same_proc` : slice
+        The slice of the input domain that overlaps with the output domain of
+        the same processor.
     
     Examples
     --------
     ```
     # create two domains
-    domain1 = DomainDecomposition(n_global=[128]*3, shared_axes=[0])
-    domain2 = DomainDecomposition(n_global=[128]*3, shared_axes=[1])
+    domain1 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[0])
+    domain2 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[1])
 
     # get the overlap information
-    overlap_info = get_overlap_info(domain1, domain2)
+    overlap_info = OverlapInfo(domain1, domain2)
 
-    print(f"The slice {overlap_info['overlap_slices'][0]} of domain1 \
-    shares an overlap with processor {overlap_info['processors'][0]} \
+    print(f"The slice {OverlapInfo.overlap_slices[0]} of domain1 \
+    shares an overlap with processor {OverlapInfo.processors[0]} \
     of the domain2.")
     ```
     """
-    overlap_slices = []
-    processors = []
-    slice_same_proc = None
-    in_subdomain = domain_in.my_subdomain
-    for i in range(domain_in.comm.Get_size()):
-        # get the domain of the output
-        out_subdomain = domain_out.all_subdomains[i]
-        # check if there is an overlap between the two domains
-        if not in_subdomain.has_overlap(out_subdomain):
-            continue
-        # get the overlap slice
-        overlap_slice = in_subdomain.get_overlap_slice(out_subdomain)
-        if i == domain_in.rank:
-            slice_same_proc = overlap_slice
-        else:
-            overlap_slices.append(overlap_slice)
-            processors.append(i)
-    overlap_info = dict(overlap_slices=overlap_slices,
-                        processors=processors,
-                        slice_same_proc=slice_same_proc)
-    return overlap_info
+    _dynamic_attributes = []
+    def __init__(self, 
+                 domain_in: 'DomainDecomposition', 
+                 domain_out: 'DomainDecomposition') -> None:
+        overlap_slices = []
+        processors = []
+        slice_same_proc = None
+        in_subdomain = domain_in.my_subdomain
+        for i in range(domain_in.comm.Get_size()):
+            # get the domain of the output
+            out_subdomain = domain_out.all_subdomains[i]
+            # check if there is an overlap between the two domains
+            if not in_subdomain.has_overlap(out_subdomain):
+                continue
+            # get the overlap slice
+            overlap_slice = in_subdomain.get_overlap_slice(out_subdomain)
+            if i == domain_in.rank:
+                slice_same_proc = overlap_slice
+            else:
+                overlap_slices.append(overlap_slice)
+                processors.append(i)
 
+        # ----------------------------------------------------------------
+        #  Set the attributes
+        # ----------------------------------------------------------------
+        self.overlap_slices = overlap_slices
+        self.processors = processors
+        self.slice_same_proc = slice_same_proc
+        return
+
+utils.jaxify_class(OverlapInfo)
+
+
+@partial(utils.jaxjit, static_argnames=["same_domain"])
 def transform(domain_in: 'DomainDecomposition', 
               domain_out: 'DomainDecomposition', 
               same_domain: bool,
-              overlap_info_in: dict,
-              overlap_info_out: dict,
+              overlap_info_in: OverlapInfo,
+              overlap_info_out: OverlapInfo,
               arr_in: np.ndarray) -> np.ndarray:
     """
     Transform data from an array in the input domain to an array in the output
@@ -101,10 +106,9 @@ def transform(domain_in: 'DomainDecomposition',
         The output domain.
     `same_domain` : `bool`
         A boolean that indicates if the input and output domains are the same.
-    `overlap_info_in` : `dict`
-        The overlap information of the input domain. This information can be
-        obtained by calling the get_overlap_info method.
-    `overlap_info_out` : `dict`
+    `overlap_info_in` : `OverlapInfo`
+        The overlap information of the input domain. 
+    `overlap_info_out` : `OverlapInfo`
         The overlap information of the output domain.
     `arr_in` : `np.ndarray`
         The input array.
@@ -130,16 +134,16 @@ def transform(domain_in: 'DomainDecomposition',
         domain_out.my_subdomain.shape, dtype=arr_in.dtype)
 
     # send the data
-    destinations = overlap_info_in['processors']
-    send_slices = overlap_info_in['overlap_slices']
+    destinations = overlap_info_in.processors
+    send_slices = overlap_info_in.overlap_slices
     bufs = [config.ncp.ascontiguousarray(arr_in[s]) for s in send_slices]
     domain_in.sync_with_device()
     reqs = [domain_in.comm.Isend(buf, dest=dest, tag=0) 
             for buf, dest in zip(bufs, destinations)]
 
     # receive the data
-    sources = overlap_info_out['processors']
-    recv_slices = overlap_info_out['overlap_slices']
+    sources = overlap_info_out.processors
+    recv_slices = overlap_info_out.overlap_slices
     bufs = [config.ncp.empty(arr_out[s].shape, dtype=arr_out.dtype) 
             for s in recv_slices]
 
@@ -154,8 +158,8 @@ def transform(domain_in: 'DomainDecomposition',
         arr_out = utils.modify_array(arr_out, recv_slice, buf)
 
     # copy the matching slice
-    send_same_proc = overlap_info_in['slice_same_proc']
-    recv_same_proc = overlap_info_out['slice_same_proc']
+    send_same_proc = overlap_info_in.slice_same_proc
+    recv_same_proc = overlap_info_out.slice_same_proc
     if send_same_proc is not None:
         arr_out = utils.modify_array(
             arr_out, recv_same_proc, arr_in[send_same_proc])
@@ -227,6 +231,8 @@ class Transformer:
     >>> w = transformer.backward(v)
     >>> assert config.ncp.allclose(u, w)
     """
+    _dynamic_attributes = ["_domain_in", "_domain_out", 
+                           "_overlap_info_in", "_overlap_info_out"]
     def __init__(self, 
                  domain_in: 'DomainDecomposition', 
                  domain_out: 'DomainDecomposition') -> None:
@@ -240,8 +246,8 @@ class Transformer:
             same_domain = False
 
         # Get the overlap information
-        overlap_info_in = get_overlap_info(domain_in, domain_out)
-        overlap_info_out = get_overlap_info(domain_out, domain_in)
+        overlap_info_in = OverlapInfo(domain_in, domain_out)
+        overlap_info_out = OverlapInfo(domain_out, domain_in)
 
         # --------------------------------------------------------------
         #  Set the attributes
@@ -256,6 +262,7 @@ class Transformer:
         self._overlap_info_out = overlap_info_out
         return
 
+    @utils.jaxjit
     def forward(self, arr: np.ndarray) -> np.ndarray:
         """
         Transform an array from the input domain to the output domain.
@@ -274,6 +281,7 @@ class Transformer:
             self._domain_in, self._domain_out, self._same_domain,
             self._overlap_info_in, self._overlap_info_out, arr)
     
+    @utils.jaxjit
     def backward(self, arr: np.ndarray) -> np.ndarray:
         """
         Transform an array from the output domain to the input domain.
@@ -305,3 +313,6 @@ class Transformer:
     def domain_out(self) -> 'DomainDecomposition':
         """The domain decomposition of the output domain."""
         return self._domain_out
+
+
+utils.jaxify_class(Transformer)

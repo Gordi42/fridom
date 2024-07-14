@@ -1,10 +1,12 @@
 # Import external modules
 import numpy as np
+from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
 from .domain_decomposition import DomainDecomposition
 from .transformer import Transformer
 
+@partial(utils.jaxjit, static_argnames=['transform_funs', 'apply_fun', 'fft_axes'])
 def transform(arr_in: np.ndarray, 
               domain_in: DomainDecomposition, 
               domain_out: DomainDecomposition, 
@@ -54,6 +56,7 @@ def transform(arr_in: np.ndarray,
     for i, transform in enumerate(transform_funs):
         # apply the function to the given axes
         arr_out  = apply_fun(arr_out , axes=fft_axes[i])
+        # arr_out  = config.ncp.fft.fftn(arr_out , axes=fft_axes[i])
         # transform the data to the next domain
         arr_out  = transform(arr_out )
 
@@ -135,6 +138,7 @@ class ParallelFFT:
     >>> # Check if the data is the same
     >>> assert np.allclose(u, v)
     """
+    _dynamic_attributes = ['_domain_in', '_domain_out']
     def __init__(self, 
                  domain_in: DomainDecomposition, 
                  shared_axes_out : 'list[int]' = None,
@@ -228,15 +232,15 @@ class ParallelFFT:
 
         # axes to be fourier transformed at each domain
         missing_fft_axes = set(range(n_dims))
-        fft_axes = [shared_axes_in]
+        fft_axes = [tuple(shared_axes_in)]
         missing_fft_axes -= set(shared_axes_in)
         for shared_axes_mid in shared_axes_mids:
             missing_axes = list(set(shared_axes_mid) & missing_fft_axes)
-            fft_axes.append(missing_axes)
+            fft_axes.append(tuple(missing_axes))
             missing_fft_axes -= set(missing_axes)
 
         missing_axes = list(set(shared_axes_out) & missing_fft_axes)
-        fft_axes.append(missing_axes)
+        fft_axes.append(tuple(missing_axes))
 
         # -------------------------------------------------------------
         #  Set the attributes
@@ -246,11 +250,12 @@ class ParallelFFT:
         self._domain_out = domain_out
 
         # private attributes
-        self._forward_transforms = forward_transforms
-        self._backward_transforms = backward_transforms
+        self._forward_transforms = tuple(forward_transforms)
+        self._backward_transforms = tuple(backward_transforms)
         self._fft_axes = fft_axes
         return
 
+    @utils.jaxjit
     def forward(self, arr: np.ndarray) -> np.ndarray:
         """
         Perform a forward fourier transform on the input data.
@@ -283,6 +288,7 @@ class ParallelFFT:
         """
         return self.forward_apply(arr, config.ncp.fft.fftn)
 
+    @utils.jaxjit
     def backward(self, arr: np.ndarray) -> np.ndarray:
         """
         Perform a backward fourier transform on the input data.
@@ -319,6 +325,7 @@ class ParallelFFT:
         """
         return self.backward_apply(arr, config.ncp.fft.ifftn)
 
+    @partial(utils.jaxjit, static_argnames=['apply_fun'])
     def forward_apply(self, arr: np.ndarray, apply_fun: callable) -> np.ndarray:
         """
         Do a forward transform while applying a function to the data at each step.
@@ -373,9 +380,10 @@ class ParallelFFT:
         >>> u_hat = pfft.forward_apply(u, my_custom_transform)
         """
         return transform(arr, self._domain_in, self._domain_out,
-                        self._forward_transforms, self._fft_axes,
+                        self._forward_transforms, tuple(self._fft_axes),
                         apply_fun)
 
+    @partial(utils.jaxjit, static_argnames=['apply_fun'])
     def backward_apply(self, arr: np.ndarray, apply_fun: callable) -> np.ndarray:
         """
         The same as the forward_apply method but for the backward transform.
@@ -395,7 +403,7 @@ class ParallelFFT:
             The transformed data (lives in the input domain)
         """
         return transform(arr, self._domain_out, self._domain_in,
-                        self._backward_transforms, self._fft_axes[::-1],
+                        self._backward_transforms, tuple(self._fft_axes[::-1]),
                         apply_fun)
 
     # ================================================================
@@ -411,3 +419,6 @@ class ParallelFFT:
     def domain_out(self) -> DomainDecomposition:
         """The domain decomposition of the output data"""
         return self._domain_out
+
+
+utils.jaxify_class(ParallelFFT)
