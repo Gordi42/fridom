@@ -21,7 +21,8 @@ def n_dims(request):
 
 @pytest.fixture()
 def mset(backend, n_dims):
-    grid = fr.grid.CartesianGrid(tuple([64]*n_dims), tuple([1.0]*n_dims), shared_axes=[0])
+    grid = fr.grid.cartesian.Grid(
+        tuple([64]*n_dims), tuple([1.0]*n_dims), shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -46,12 +47,18 @@ def shape(spectral, shape_phy, shape_spe):
 def dtype(spectral):
     return np.complex128 if spectral else np.float64
 
+@pytest.fixture()
+def position_center(n_dims):
+    return fr.grid.cartesian.Position(
+        tuple([fr.grid.cartesian.AxisOffset.CENTER]*n_dims))
+
 # --------------------------------------------------------------
 #  Testing
 # --------------------------------------------------------------
-def test_zeros(mset, spectral, dtype, n_dims, shape):
+def test_zeros(mset, spectral, dtype, n_dims, shape, position_center):
     """Test the FieldVariable() constructor with no input array."""
-    fv = fr.FieldVariable(mset, is_spectral=spectral, name="fv")
+    fv = fr.FieldVariable(
+        mset, is_spectral=spectral, name="fv", position=position_center)
     assert fv.mset == mset
     assert fv.grid == mset.grid
     assert len(fv.shape) == n_dims
@@ -61,15 +68,17 @@ def test_zeros(mset, spectral, dtype, n_dims, shape):
     arr = ncp.zeros(shape, dtype=dtype)
     assert ncp.allclose(fv[:], arr)
 
-def test_constructor_with_input(mset, spectral, dtype, shape):
+def test_constructor_with_input(mset, spectral, dtype, shape, position_center):
     ncp = config.ncp
     arr = ncp.ones(shape, dtype=dtype)
-    fv = fr.FieldVariable(mset, is_spectral=spectral, arr=arr, name="fv")
+    fv = fr.FieldVariable(
+        mset, is_spectral=spectral, arr=arr, name="fv", position=position_center)
     assert ncp.allclose(fv[:], arr)
 
-def teste_copy(mset, spectral):
+def teste_copy(mset, spectral, position_center):
     ncp = config.ncp
-    fv = fr.FieldVariable(mset, is_spectral=spectral, name="fv")
+    fv = fr.FieldVariable(
+        mset, is_spectral=spectral, name="fv", position=position_center)
     copy = deepcopy(fv)
     # Test that the copy is not the same object
     assert fv is not copy
@@ -80,9 +89,10 @@ def teste_copy(mset, spectral):
     assert not ncp.allclose(fv[:], copy[:])
 
 @pytest.fixture()
-def random_fields_real(mset, shape_phy):
+def random_fields_real(mset, shape_phy, position_center):
     ncp = config.ncp
-    field = fr.FieldVariable(mset, is_spectral=False, name="Test")
+    field = fr.FieldVariable(
+        mset, is_spectral=False, name="Test", position=position_center)
     field.arr = ncp.random.rand(*shape_phy)
     field.sync()
     return field
@@ -134,21 +144,23 @@ def test_setitem(random_fields_real, n_dims):
 
 @pytest.fixture()
 def mset_3(backend, n_dims):
-    grid = fr.grid.CartesianGrid(N=tuple([3]*n_dims), L=tuple([1]*n_dims))
+    grid = fr.grid.cartesian.Grid(
+        N=tuple([3]*n_dims), L=tuple([1]*n_dims))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
 
 @pytest.fixture()
-def zeros(mset_3):
-    field = fr.FieldVariable(mset_3, is_spectral=False, name="Test")
+def zeros(mset_3, position_center):
+    field = fr.FieldVariable(
+        mset_3, is_spectral=False, name="Test", position=position_center)
     return field
 
 @pytest.fixture()
-def ones(mset_3):
+def ones(mset_3, position_center):
     ncp = config.ncp
     field = fr.FieldVariable(mset_3, is_spectral=False, name="Test",
-                             arr=ncp.ones(mset_3.grid.N))
+                             arr=ncp.ones(mset_3.grid.N), position=position_center)
     return field
 
 @pytest.mark.mpi_skip
@@ -250,7 +262,8 @@ def test_pow(zeros, ones):
 
 @pytest.fixture()
 def mset_topo(backend):
-    grid = fr.grid.CartesianGrid((31, 32, 33), (1.0, 2.0, 3.0), shared_axes=[0])
+    grid = fr.grid.cartesian.Grid(
+        (31, 32, 33), (1.0, 2.0, 3.0), shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -293,13 +306,19 @@ def obtained_shape(mset_topo, obtained_topo, spectral):
 
 @pytest.fixture()
 def f1(mset_topo, topo1, spectral):
+    position = fr.grid.cartesian.Position(
+        tuple([fr.grid.cartesian.AxisOffset.CENTER]*3))
     return fr.FieldVariable(
-        mset_topo, is_spectral=spectral, topo=topo1, name="f1") + 1.0
+        mset_topo, is_spectral=spectral, topo=topo1, 
+        name="f1", position=position) + 1.0
 
 @pytest.fixture()
 def f2(mset_topo, topo2, spectral):
+    position = fr.grid.cartesian.Position(
+        tuple([fr.grid.cartesian.AxisOffset.CENTER]*3))
     return fr.FieldVariable(
-        mset_topo, is_spectral=spectral, topo=topo2, name="f2") + 2.0
+        mset_topo, is_spectral=spectral, topo=topo2, 
+        name="f2", position=position) + 2.0
 
 def test_f1(f1, topo1):
     assert f1.topo == topo1

@@ -26,7 +26,7 @@ class Increment(fr.modules.Module):
 
 @pytest.fixture()
 def mset(backend):
-    grid = fr.grid.CartesianGrid(N=(32, ), L=(1.0, ))
+    grid = fr.grid.cartesian.Grid(N=(32, ), L=(1.0, ))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset

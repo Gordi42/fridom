@@ -7,6 +7,7 @@ from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
+    from fridom.framework.grid.position_base import PositionBase
 
 
 class FieldVariable:
@@ -83,7 +84,8 @@ class FieldVariable:
     _dynamic_attributes = ["mset", "arr"]
     def __init__(self, 
                  mset: 'ModelSettingsBase',
-                 name,
+                 name: str,
+                 position: 'PositionBase',
                  is_spectral=False, 
                  long_name="Unnamed", 
                  units="n/a",
@@ -111,6 +113,7 @@ class FieldVariable:
         # ----------------------------------------------------------------
 
         self.name = name
+        self.position = position
         self.long_name = long_name
         self.units = units
         self.nc_attrs = nc_attrs or {}
@@ -132,6 +135,7 @@ class FieldVariable:
         """
         return {"mset": self.mset, 
                 "name": self.name,
+                "position": self.position,
                 "long_name": self.long_name,
                 "units": self.units,
                 "nc_attrs": self.nc_attrs,

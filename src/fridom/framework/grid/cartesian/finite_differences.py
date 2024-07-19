@@ -21,8 +21,8 @@ class FiniteDifferences(DiffBase):
         return
 
     def setup(self, mset: 'ModelSettingsBase') -> None:
-        from .cartesian_grid import CartesianGrid
-        if not isinstance(mset.grid, CartesianGrid):
+        from .grid import Grid
+        if not isinstance(mset.grid, Grid):
             raise ValueError("Finite differences only work with Cartesian grids.")
         
         # ----------------------------------------------------------------

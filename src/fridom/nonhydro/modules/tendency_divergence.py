@@ -29,13 +29,10 @@ class TendencyDivergence(Module):
     def update(self, mz: 'ModelState') -> None:
         dz = mz.dz
         dz.sync()
-        u = dz.u; v = dz.v; w = dz.w
-        # Slices
-        c = slice(1,-1); b = slice(None,-2)
         # apply boundary conditions
         self.bc.apply_boundary_conditions(dz)
 
-        mz.z_diag.div.arr = self.grid.div([u, v, w])
+        mz.z_diag.div.arr = self.grid.div((dz.u, dz.v, dz.w))
         return
 
     @property

@@ -10,7 +10,7 @@ def test_linear_model(backend, runlen):
     N = tuple([16] * 3)
     L = (10_000, 10_000, 100)
 
-    grid = nh.grid.CartesianGrid(N=N, L=L)
+    grid = nh.grid.cartesian.Grid(N=N, L=L)
     mset = nh.ModelSettings(grid, f_coriolis=f0, N2=N2)
     mset.time_stepper.dt = np.timedelta64(2, 'm')
     mset.tendencies.advection.disable()
@@ -48,7 +48,7 @@ def test_boundary_conditions(backend, periodic_bounds):
     N = tuple([16] * 3)
     L = (10_000, 10_000, 100)
 
-    grid = nh.grid.CartesianGrid(N=N, L=L, periodic_bounds=periodic_bounds)
+    grid = nh.grid.cartesian.Grid(N=N, L=L, periodic_bounds=periodic_bounds)
     mset = nh.ModelSettings(grid, f_coriolis=f0, N2=N2)
     mset.time_stepper.dt = np.timedelta64(20, 's')
     mset.tendencies.advection.disable()

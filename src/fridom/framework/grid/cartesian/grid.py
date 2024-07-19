@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from fridom.framework.grid.diff_base import DiffBase
 
 
-class CartesianGrid(GridBase):
+class Grid(GridBase):
     """
     An n-dimensional cartesian grid with capabilities for fourier transforms.
     
@@ -506,4 +506,4 @@ class CartesianGrid(GridBase):
         """Global spectral k-vectors."""
         return self._k_global
 
-utils.jaxify_class(CartesianGrid)
+utils.jaxify_class(Grid)

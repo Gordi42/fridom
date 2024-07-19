@@ -3,12 +3,12 @@ from typing import TYPE_CHECKING
 import numpy as np
 # Import internal modules
 from fridom.framework import config, utils
-from fridom.framework.grid.cartesian import CartesianGrid as CartesianGridBase
+from fridom.framework.grid.cartesian import Grid as CartesianGridBase
 # Import type information
 if TYPE_CHECKING:
     from fridom.nonhydro.model_settings import ModelSettings
 
-class CartesianGrid(CartesianGridBase):
+class Grid(CartesianGridBase):
     """
     Cartesian grid for the 3D non-hydrostatic model.
     
@@ -223,4 +223,4 @@ class CartesianGrid(CartesianGridBase):
             self._omega_time_discrete = res
         return self._omega_time_discrete
 
-utils.jaxify_class(CartesianGrid)
+utils.jaxify_class(Grid)

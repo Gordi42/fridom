@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 
     # import classes
     from .grid import Grid
-    from .position import AxisOffset, Position
-    from .fft import FFT
-    from .finite_differences import FiniteDifferences
+    from fridom.framework.grid.cartesian.position import AxisOffset, Position
+    from fridom.framework.grid.cartesian.fft import FFT
+    from fridom.framework.grid.cartesian.finite_differences import FiniteDifferences
     
 
 # ================================================================
@@ -22,15 +22,16 @@ if TYPE_CHECKING:
 
 # Set up dictionary that maps an import to a path
 # items in the all_modules_by_origin dictionary are imported as modules
-base = "fridom.framework.grid.cartesian"
+base_fr = "fridom.framework.grid.cartesian"
+base_nh = "fridom.nonhydro.grid.cartesian"
 all_modules_by_origin = {}
 
 # items in the all_imports_by_origin dictionary are imported as elements of a module
 all_imports_by_origin = { 
-    f"{base}.grid": ["Grid"],
-    f"{base}.position": ["AxisOffset", "Position"],
-    f"{base}.fft": ["FFT"],
-    f"{base}.finite_differences": ["FiniteDifferences"],
+    f"{base_nh}.grid": ["Grid"],
+    f"{base_fr}.position": ["AxisOffset", "Position"],
+    f"{base_fr}.fft": ["FFT"],
+    f"{base_fr}.finite_differences": ["FiniteDifferences"],
 }
 
 # ================================================================

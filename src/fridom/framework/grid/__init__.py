@@ -10,8 +10,14 @@ Modules
 
 Classes
 -------
-`CartesianGrid`
-    A regular grid in Cartesian coordinates with constant grid spacing.
+`GridBase`
+    Base class for all grid classes.
+`DiffBase`
+    Base class for all differential operators.
+`InterpolationBase`
+    Base class for all interpolation operators.
+`PositionBase`
+    Base class for all field positions on a grid.
 """
 import sys
 from types import ModuleType
@@ -26,7 +32,10 @@ if TYPE_CHECKING:
     from . import cartesian
 
     # import classes
-    from .cartesian import CartesianGrid
+    from .grid_base import GridBase
+    from .diff_base import DiffBase
+    from .interpolation_base import InterpolationBase
+    from .position_base import PositionBase
     
 
 # ================================================================
@@ -35,10 +44,16 @@ if TYPE_CHECKING:
 
 # Set up dictionary that maps an import to a path
 # items in the all_modules_by_origin dictionary are imported as modules
-all_modules_by_origin = { "fridom.framework.grid": ["cartesian"] }
+base = "fridom.framework.grid"
+all_modules_by_origin = { base: ["cartesian"] }
 
 # items in the all_imports_by_origin dictionary are imported as elements of a module
-all_imports_by_origin = { "fridom.framework.grid.cartesian": ["CartesianGrid"] }
+all_imports_by_origin = { 
+    f"{base}.grid_base": ["GridBase"],
+    f"{base}.diff_base": ["DiffBase"],
+    f"{base}.interpolation_base": ["InterpolationBase"],
+    f"{base}.position_base": ["PositionBase"],
+}
 
 # ================================================================
 #  Set up the import system

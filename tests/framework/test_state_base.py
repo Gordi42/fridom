@@ -25,15 +25,21 @@ def n_fields(request):
 
 @pytest.fixture()
 def mset(backend, n_dims):
-    grid = fr.grid.CartesianGrid(N=tuple([32]*n_dims), L=tuple([1.0]*n_dims), 
+    grid = fr.grid.cartesian.Grid(N=tuple([32]*n_dims), L=tuple([1.0]*n_dims), 
                                  shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
 
 @pytest.fixture()
-def field_list(mset, is_spectral, n_fields):
-    field_list = [fr.FieldVariable(mset, name=f"v{i}", is_spectral=is_spectral) 
+def position(n_dims):
+    return fr.grid.cartesian.Position(
+        tuple([fr.grid.cartesian.AxisOffset.CENTER]*n_dims))
+
+@pytest.fixture()
+def field_list(mset, is_spectral, n_fields, position):
+    field_list = [fr.FieldVariable(
+        mset, name=f"v{i}", is_spectral=is_spectral, position=position) 
                   for i in range(n_fields)]
     for field in field_list:
         field[:] = config.ncp.random.rand(*field.shape)
@@ -45,41 +51,54 @@ def state(mset, field_list, is_spectral):
 
 @pytest.fixture()
 def mset_1d(backend):
-    grid = fr.grid.CartesianGrid(N=(3,), L=(1.0,), shared_axes=[0])
+    grid = fr.grid.cartesian.Grid(N=(3,), L=(1.0,), shared_axes=[0])
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
 
 @pytest.fixture()
-def zeros_p(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=False, name="zeros_p")
+def position_1d():
+    return fr.grid.cartesian.Position((fr.grid.cartesian.AxisOffset.CENTER,))
 
 @pytest.fixture()
-def zeros_s(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=True, name="zeros_s")
+def zeros_p(mset_1d, position_1d):
+    return fr.FieldVariable(
+        mset_1d, is_spectral=False, name="zeros_p", position=position_1d)
 
 @pytest.fixture()
-def ones_p(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=False, name="ones_p") + 1.0
+def zeros_s(mset_1d, position_1d):
+    return fr.FieldVariable(
+        mset_1d, is_spectral=True, name="zeros_s", position=position_1d)
 
 @pytest.fixture()
-def ones_s(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=True, name="ones_s") + 1.0
+def ones_p(mset_1d, position_1d):
+    return fr.FieldVariable(
+        mset_1d, is_spectral=False, name="ones_p", position=position_1d) + 1.0
 
 @pytest.fixture()
-def imag_s(mset_1d):
-    return fr.FieldVariable(mset_1d, is_spectral=True, name="imag_s") + 1.0j
+def ones_s(mset_1d, position_1d):
+    return fr.FieldVariable(
+        mset_1d, is_spectral=True, name="ones_s", position=position_1d) + 1.0
 
 @pytest.fixture()
-def state_01(mset_1d):
-    v1 = fr.FieldVariable(mset_1d, is_spectral=False, name="v1")
-    v2 = fr.FieldVariable(mset_1d, is_spectral=False, name="v2") + 1.0
+def imag_s(mset_1d, position_1d):
+    return fr.FieldVariable(
+        mset_1d, is_spectral=True, name="imag_s", position=position_1d) + 1.0j
+
+@pytest.fixture()
+def state_01(mset_1d, position_1d):
+    v1 = fr.FieldVariable(
+        mset_1d, is_spectral=False, name="v1", position=position_1d)
+    v2 = fr.FieldVariable(
+        mset_1d, is_spectral=False, name="v2", position=position_1d) + 1.0
     return fr.StateBase(mset_1d, [v1, v2], is_spectral=False)
 
 @pytest.fixture()
-def state_11(mset_1d):
-    v1 = fr.FieldVariable(mset_1d, is_spectral=False, name="v1") + 1.0
-    v2 = fr.FieldVariable(mset_1d, is_spectral=False, name="v2") + 1.0
+def state_11(mset_1d, position_1d):
+    v1 = fr.FieldVariable(
+        mset_1d, is_spectral=False, name="v1", position=position_1d) + 1.0
+    v2 = fr.FieldVariable(
+        mset_1d, is_spectral=False, name="v2", position=position_1d) + 1.0
     return fr.StateBase(mset_1d, [v1, v2], is_spectral=False)
 
 def test_init(mset, field_list, state):
@@ -108,18 +127,22 @@ def test_fft(state, dtype_in, dtype_out):
             assert config.ncp.allclose(f1, f2)
 
 @pytest.mark.mpi_skip
-def test_dot(mset_1d, ones_p, ones_s, state_01, state_11):
+def test_dot(mset_1d, ones_p, ones_s, state_01, state_11, position_1d):
     state = state_01; state2 = state_11
     dot = state.dot(state2)
     assert isinstance(dot, fr.FieldVariable)
     assert config.ncp.allclose(dot, ones_p)
 
     # test complex
-    v1 = fr.FieldVariable(mset_1d, is_spectral=True, name="v1") + 1
-    v2 = fr.FieldVariable(mset_1d, is_spectral=True, name="v2") + 1 - 1j
+    v1 = fr.FieldVariable(
+        mset_1d, is_spectral=True, name="v1", position=position_1d) + 1
+    v2 = fr.FieldVariable(
+        mset_1d, is_spectral=True, name="v2", position=position_1d) + 1 - 1j
     state = fr.StateBase(mset_1d, [v1, v2], is_spectral=True)
-    v1 = fr.FieldVariable(mset_1d, is_spectral=True, name="v1") + 1j
-    v2 = fr.FieldVariable(mset_1d, is_spectral=True, name="v2") + 1 
+    v1 = fr.FieldVariable(
+        mset_1d, is_spectral=True, name="v1", position=position_1d) + 1j
+    v2 = fr.FieldVariable(
+        mset_1d, is_spectral=True, name="v2", position=position_1d) + 1 
     state2 = fr.StateBase(mset_1d, [v1, v2], is_spectral=True)
     dot = state.dot(state2)
     assert config.ncp.allclose(dot, ones_s-2j)

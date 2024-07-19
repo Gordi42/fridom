@@ -46,7 +46,7 @@ def test_numpy_generic(backend):
     assert isinstance(y, np.float64)
 
 def test_mset_to_numpy(backend):
-    grid = fr.grid.CartesianGrid(N=(32, 32, 8), L=(1, 1, 1))
+    grid = fr.grid.cartesian.Grid(N=(32, 32, 8), L=(1, 1, 1))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
 

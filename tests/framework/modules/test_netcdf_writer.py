@@ -36,14 +36,18 @@ def netcdf_module(directory_name):
 
 @pytest.fixture()
 def mset(backend):
-    grid = fr.grid.CartesianGrid(N=(128, 64), L=(1, 1))
+    grid = fr.grid.cartesian.Grid(N=(128, 64), L=(1, 1))
     mset = fr.ModelSettingsBase(grid=grid)
     mset.setup()
+    position = fr.grid.cartesian.Position(
+        tuple([fr.grid.cartesian.AxisOffset.CENTER] * 2))
     def state_constructor():
-        var1 = fr.FieldVariable(mset, name="var1", 
-                                long_name="Variable 1", units="unit1")
-        var2 = fr.FieldVariable(mset, name="var2", 
-                                long_name="Variable 2", units="unit2")
+        var1 = fr.FieldVariable(
+            mset, name="var1", long_name="Variable 1", units="unit1", 
+            position=position)
+        var2 = fr.FieldVariable(
+            mset, name="var2", long_name="Variable 2", units="unit2", 
+            position=position)
         return fr.StateBase(mset, field_list=[var1, var2])
     mset.state_constructor = state_constructor
     return mset

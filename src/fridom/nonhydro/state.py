@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from fridom.framework import config, utils
 from fridom.framework.state_base import StateBase
 from fridom.framework.field_variable import FieldVariable
+from fridom.framework.grid import cartesian
 from mpi4py import MPI
 # Import type information
 if TYPE_CHECKING:
@@ -13,18 +14,32 @@ class State(StateBase):
     def __init__(self, mset: 'ModelSettings', is_spectral=False, field_list=None) -> None:
         from fridom.framework.field_variable import FieldVariable
         if field_list is None:
+            # specify the positions of the fields
+            if isinstance(mset.grid, cartesian.Grid):
+                pos = cartesian.AxisOffset
+                u_pos = cartesian.Position(
+                    (pos.RIGHT, pos.CENTER, pos.CENTER))
+                v_pos = cartesian.Position(
+                    (pos.CENTER, pos.RIGHT, pos.CENTER))
+                w_pos = cartesian.Position(
+                    (pos.CENTER, pos.CENTER, pos.RIGHT))
+                b_pos = cartesian.Position(
+                    (pos.CENTER, pos.CENTER, pos.CENTER))
+            else:
+                raise ValueError("Unknown grid type")
+
             u = FieldVariable(mset,
                 name="u", long_name="u-velocity",
-                units="m/s", is_spectral=is_spectral)
+                units="m/s", is_spectral=is_spectral, position=u_pos)
             v = FieldVariable(mset,
                 name="v", long_name="v-velocity",
-                units="m/s", is_spectral=is_spectral)
+                units="m/s", is_spectral=is_spectral, position=v_pos)
             w = FieldVariable(mset,
                 name="w", long_name="w-velocity",
-                units="m/s", is_spectral=is_spectral)
+                units="m/s", is_spectral=is_spectral, position=w_pos)
             b = FieldVariable(mset,
                 name="b", long_name="buoyancy", 
-                units="m^2/s^2", is_spectral=is_spectral)
+                units="m^2/s^2", is_spectral=is_spectral, position=b_pos)
             field_list = [u, v, w, b]
         super().__init__(mset, field_list, is_spectral)
         self.constructor = State
@@ -49,8 +64,15 @@ class State(StateBase):
             z = self.fft()
         dsqr = self.mset.dsqr
         ekin = 0.5*(z.u**2 + z.v**2 + dsqr*z.w**2)
+        # find out the position
+        if isinstance(self.mset.grid, cartesian.Grid):
+            pos = cartesian.AxisOffset
+            position = cartesian.Position(
+                (pos.CENTER, pos.CENTER, pos.CENTER))
+        
         return FieldVariable(
-            self.mset, is_spectral=False, name="Kinetic Energy", arr=ekin.arr)
+            self.mset, is_spectral=False, name="Kinetic Energy", 
+            arr=ekin.arr, position=position)
 
     def epot(self) -> FieldVariable:
         """
@@ -67,8 +89,16 @@ class State(StateBase):
             z = self.fft()
         N2 = self.mset.N2
         epot = 0.5*(z.b**2 / (N2))
-        return FieldVariable(self.mset, is_spectral=False,
-                             name="Potential Energy", arr=epot.arr)
+
+        # find out the position
+        if isinstance(self.mset.grid, cartesian.Grid):
+            pos = cartesian.AxisOffset
+            position = cartesian.Position(
+                (pos.CENTER, pos.CENTER, pos.CENTER))
+
+        return FieldVariable(
+            self.mset, is_spectral=False,
+            name="Potential Energy", arr=epot.arr, position=position)
     
     def etot(self) -> FieldVariable:
         """
@@ -81,7 +111,8 @@ class State(StateBase):
         from fridom.framework.field_variable import FieldVariable
         etot = (self.ekin() + self.epot())
         return FieldVariable(self.mset, is_spectral=False,
-                             name="Total Energy", arr=etot.arr)
+                             name="Total Energy", arr=etot.arr, 
+                             position=etot.position)
 
     def mean_ekin(self) -> float:
         """
@@ -133,19 +164,19 @@ class State(StateBase):
             hor_vort (FieldVariable)  : Horizontal vorticity field.
         """
         from fridom.framework.field_variable import FieldVariable
-        # shortcuts
-        dx = self.mset.dx
-        dy = self.mset.dy
-        u  = self.u
-        v  = self.v
-
         # calculate the horizontal vorticity
-        vort = ((v.diff_forward(0) -  u.diff_forward(1))
-                ).ave(-1, 0).ave(-1, 1)
+        vort = self.grid.curl([self.u,self.v,self.w], axis=[2])[2]
+
+        # find out the position
+        if isinstance(self.mset.grid, cartesian.Grid):
+            pos = cartesian.AxisOffset
+            position = cartesian.Position(
+                (pos.RIGHT, pos.RIGHT, pos.CENTER))
 
         # Create the field variable
         field = FieldVariable(self.mset, is_spectral=False, 
-                              name="Horizontal Vorticity", arr=vort)
+                              name="Horizontal Vorticity", arr=vort,
+                              position=position)
         return field
 
     def ver_vort_x(self) -> FieldVariable:
@@ -158,19 +189,21 @@ class State(StateBase):
         """
         from fridom.framework.field_variable import FieldVariable
         # shortcuts
-        dy   = self.mset.dy
-        dz   = self.mset.dz
         dsqr = self.mset.dsqr
-        w    = self.w
-        v    = self.v
 
         # calculate the vertical vorticity
-        vort = ((w.diff_forward(1)*dsqr -  v.diff_forward(2))
-                ).ave(-1, 1).ave(-1, 2)
+        vort = self.grid.curl([self.u,self.v,self.w*dsqr], axis=[0])[0]
+
+        # find out the position
+        if isinstance(self.mset.grid, cartesian.Grid):
+            pos = cartesian.AxisOffset
+            position = cartesian.Position(
+                (pos.CENTER, pos.RIGHT, pos.RIGHT))
             
         # Create the field variable
         field = FieldVariable(self.mset, is_spectral=False, 
-                              name="y,z - Vorticity", arr=vort)
+                              name="y,z - Vorticity", arr=vort,
+                              position=position)
         return field
     
     def ver_vort_y(self) -> FieldVariable:
@@ -183,19 +216,21 @@ class State(StateBase):
         """
         from fridom.framework.field_variable import FieldVariable
         # shortcuts
-        dx   = self.mset.dx 
-        dz   = self.mset.dz
         dsqr = self.mset.dsqr
-        u    = self.u        
-        w    = self.w
 
         # calculate the vertical vorticity
-        vort = ((u.diff_forward(2) - dsqr * w.diff_forward(0))
-                ).ave(-1, 0).ave(-1, 2)
+        vort = self.grid.curl([self.u,self.v,self.w*dsqr], axis=[1])[1]
+
+        # find out the position
+        if isinstance(self.mset.grid, cartesian.Grid):
+            pos = cartesian.AxisOffset
+            position = cartesian.Position(
+                (pos.RIGHT, pos.CENTER, pos.RIGHT))
 
         # Create the field variable
         field = FieldVariable(self.mset, is_spectral=False, 
-                              name="x,z - Vorticity", arr=vort)
+                              name="x,z - Vorticity", arr=vort,
+                              position=position)
         return field
 
     def pot_vort(self) -> FieldVariable:
@@ -206,6 +241,7 @@ class State(StateBase):
         Returns:
             pot_vort (FieldVariable)  : Scaled potential vorticity field.
         """
+        # TODO: This needs to be redone
         from fridom.framework.field_variable import FieldVariable
         # shortcuts
         f0 = self.mset.f0; N2 = self.mset.N2; 
@@ -237,6 +273,7 @@ class State(StateBase):
         Calculate the linearized scaled potential vorticity field.
         $ Q = Ro * (f/N0^2 \\partial_z b + \\zeta)$
         """
+        # TODO: This needs to be redone
         from fridom.framework.field_variable import FieldVariable
         # shortcuts
         f0 = self.mset.f0; N2 = self.mset.N2;
