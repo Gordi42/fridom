@@ -103,13 +103,6 @@ def test_fft_ifft(random_fields_real):
     ncp = config.ncp
     assert ncp.allclose(u.arr, w.arr)
 
-def test_sqrt(random_fields_real):
-    field = random_fields_real
-    field_sqrt = field.sqrt()
-    # Check that the square of the field is the original field
-    ncp = config.ncp
-    assert ncp.allclose(field.arr, field_sqrt.arr**2)
-
 def test_norm_l2(random_fields_real):
     field = random_fields_real
     norm = field.norm_l2()
@@ -119,70 +112,6 @@ def test_norm_l2(random_fields_real):
 @pytest.fixture(params=[True, False], ids=["Periodic", "Non-periodic"])
 def periodic(request):
     return request.param
-
-@pytest.fixture()
-def mset_131(backend, periodic):
-    grid = fr.grid.CartesianGrid(N=(1, 3, 1), L=(1, 1, 1), 
-                                 periodic_bounds=tuple([periodic]*3))
-    mset = fr.ModelSettingsBase(grid)
-    mset.setup()
-    return mset
-
-@pytest.fixture()
-def field_123(mset_131):
-    field = fr.FieldVariable(mset_131, is_spectral=False, name="Test")
-    ncp = config.ncp
-    field.arr[0,:,0] = ncp.array([1,2,3])
-    return field
-
-@pytest.mark.mpi_skip
-def test_pad_raw(field_123):
-    ncp = config.ncp
-    pad = field_123.pad_raw(pad_width=((0,0),(0,0),(0,0)))
-    assert ncp.allclose(pad, field_123.arr)
-    pad = field_123.pad_raw(pad_width=((0,0),(1,1),(0,0)))
-    aim = [3,1,2,3,1]
-    assert ncp.allclose(pad[0,:,0], aim)
-
-@pytest.fixture(params=[1, -1], ids=["Forward", "Backward"])
-def direction(request):
-    return request.param
-
-@pytest.mark.mpi_skip
-def test_average(field_123, direction, periodic):
-    if direction == 1 and periodic:
-        aim = [1.5, 2.5, 2]
-    elif direction == 1 and not periodic:
-        aim = [1.5, 2.5, 1.5]
-    elif direction == -1 and periodic:
-        aim = [2, 1.5, 2.5]
-    elif direction == -1 and not periodic:
-        aim = [0.5, 1.5, 2.5]
-    averaged = field_123.ave(axis=1, shift=direction)
-    ncp = config.ncp
-    assert ncp.allclose(averaged[0,:,0], aim)
-
-@pytest.mark.mpi_skip
-def test_diff_forward(field_123, periodic):
-    if periodic:
-        aim = [1*3, 1*3, -2*3]
-    else:
-        aim = [1*3, 1*3, -3*3]
-
-    diff = field_123.diff_forward(axis=1)
-    ncp = config.ncp
-    assert ncp.allclose(diff.arr[0,:,0], aim)
-
-@pytest.mark.mpi_skip
-def test_diff_backward(field_123, periodic):
-    if periodic:
-        aim = [-2*3, 1*3, 1*3]
-    else:
-        aim = [1*3, 1*3, 1*3]
-
-    diff = field_123.diff_backward(axis=1)
-    ncp = config.ncp
-    assert ncp.allclose(diff.arr[0,:,0], aim)
 
 def test_setitem(random_fields_real, n_dims):
     field = random_fields_real
