@@ -39,9 +39,11 @@ class TendencyDivergence(Module):
         # apply boundary conditions
         self.bc.apply_boundary_conditions(dz)
 
-        mz.z_diag.div[c,c,c] = (u[c,c,c] - u[b,c,c])*self.dx1 + \
-                               (v[c,c,c] - v[c,b,c])*self.dy1 + \
-                               (w[c,c,c] - w[c,c,b])*self.dz1
+        mz.z_diag.div.arr = self.grid.div([u, v, w])
+
+        # mz.z_diag.div[c,c,c] = (u[c,c,c] - u[b,c,c])*self.dx1 + \
+        #                        (v[c,c,c] - v[c,b,c])*self.dy1 + \
+        #                        (w[c,c,c] - w[c,c,b])*self.dz1
         return
 
     @property

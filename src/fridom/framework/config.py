@@ -206,6 +206,7 @@ class Backend(Enum):
 
 backend: Backend = None
 backend_is_jax: bool
+enable_jax_jit: bool = True
 jax_jit_was_called: bool = False
 ncp = None  # numpy or cupy
 scp = None  # scipy or cupyx.scipy

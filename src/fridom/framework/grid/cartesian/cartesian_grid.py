@@ -1,18 +1,20 @@
 # Import external modules
 from typing import TYPE_CHECKING
 import numpy as np
+from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
 from fridom.framework.grid.grid_base import GridBase
 from fridom.framework.domain_decomposition import DomainDecomposition
 from fridom.framework.domain_decomposition import ParallelFFT
 from .fft import FFT
+from .finite_differences import FiniteDifferences
 from fridom.framework.utils import humanize_number
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.field_variable import FieldVariable
     from fridom.framework.domain_decomposition import Subdomain
+    from fridom.framework.grid.diff_base import DiffBase
 
 
 class CartesianGrid(GridBase):
@@ -41,6 +43,9 @@ class CartesianGrid(GridBase):
     `shared_axes` : `list[int]`, optional
         A list of integers that indicate which axes are shared among MPI ranks.
         Default is None, which means that no fourier transforms are available.
+    `diff_mod` : `DiffBase`, optional
+        A module that contains the differentiation operators. Default is None
+        which constructs the finite differences module.
     
     Attributes
     ----------
@@ -77,13 +82,13 @@ class CartesianGrid(GridBase):
     -------
     `setup(mset: ModelSettingsBase)`
         Setup the grid (meshgrids, etc.) using the model settings.
-    `fft(u: np.ndarray) -> np.ndarray`
+    `fft(arr: np.ndarray) -> np.ndarray`
         Forward transform from physical space to spectral space.
-    `ifft(u: np.ndarray) -> np.ndarray`
+    `ifft(arr: np.ndarray) -> np.ndarray`
         Backward transform from spectral space to physical space.
-    `sync(f: FieldVariable) -> None`
+    `sync(arr: np.ndarray) -> np.ndarray`
         Synchronize the field across MPI ranks.
-    `apply_boundary_condition(field, axis, side, value)`
+    `apply_boundary_condition(arr, axis, side, value) -> np.ndarray`
         Apply boundary conditions to a field.
     `get_domain_decomposition(spectral=False)`
         Get the domain decomposition of the physical or spectral domain.
@@ -112,12 +117,14 @@ class CartesianGrid(GridBase):
     """
     _dynamic_attributes = GridBase._dynamic_attributes + [
         '_K', '_k_local', '_k_global', '_domain_decomp',
-        '_pfft', '_fft']
+        '_pfft', '_fft', '_diff_mod']
     def __init__(self, 
                  N: list[int],
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
-                 shared_axes: list[int] | None = None) -> None:
+                 shared_axes: list[int] | None = None,
+                 diff_mod: 'DiffBase | None' = None
+                 ) -> None:
         super().__init__(len(N))
         self.name = "Cartesian Grid"
         # --------------------------------------------------------------
@@ -170,6 +177,7 @@ class CartesianGrid(GridBase):
         self._domain_decomp: DomainDecomposition | None = None
         self._pfft: ParallelFFT | None = None
         self._fft: FFT | None = None
+        self._diff_mod = diff_mod or FiniteDifferences()
         return
 
     def setup(self, mset: 'ModelSettingsBase'):
@@ -227,6 +235,14 @@ class CartesianGrid(GridBase):
             k_local = None
             K = None
 
+        # ----------------------------------------------------------------
+        #  Setup submodules
+        # ----------------------------------------------------------------
+        self._diff_mod.setup(mset)
+
+        # ----------------------------------------------------------------
+        #  Store the attributes
+        # ----------------------------------------------------------------
 
         self._mset = mset
         self._domain_decomp = domain_decomp
@@ -241,39 +257,37 @@ class CartesianGrid(GridBase):
         self._inner_slice = domain_decomp.my_subdomain.inner_slice
         return
 
-    def fft(self, u: np.ndarray) -> np.ndarray:
-        return self._pfft.forward_apply(u, self._fft.forward)
+    @utils.jaxjit
+    def fft(self, arr: np.ndarray) -> np.ndarray:
+        return self._pfft.forward_apply(arr, self._fft.forward)
 
-    def ifft(self, u: np.ndarray) -> np.ndarray:
-        return self._pfft.backward_apply(u, self._fft.backward)
+    @utils.jaxjit
+    def ifft(self, arr: np.ndarray) -> np.ndarray:
+        return self._pfft.backward_apply(arr, self._fft.backward)
 
-    def sync(self, f: 'FieldVariable') -> 'FieldVariable':
-        if f.is_spectral:
-            arr = self._pfft.domain_out.sync(f.arr)
-        else:
-            arr = self._domain_decomp.sync(f.arr)
-        f.arr = arr
-        return f
+    @utils.jaxjit
+    def sync(self, arr: np.ndarray) -> np.ndarray:
+        return self._domain_decomp.sync(arr)
 
+    @partial(utils.jaxjit, static_argnames=["axis", "side"])
     def apply_boundary_condition(
-            self, field: 'FieldVariable', axis: int, side: str, 
-            value: 'float | np.ndarray | FieldVariable') -> None:
+            self, arr: 'np.ndarray', axis: int, side: str, 
+            value: 'float | np.ndarray') -> np.ndarray:
         """
         Apply boundary conditions to a field.
         
         Parameters
         ----------
-        `field` : `FieldVariable`
-            The field to apply the boundary conditions to.
+        `arr` : `np.ndarray`
+            The array to apply the boundary conditions to.
         `axis` : `int`
             The axis to apply the boundary condition to.
         `side` : `str`
             The side to apply the boundary condition to.
-        `value` : `float | np.ndarray | FieldVariable`
+        `value` : `float | np.ndarray`
             The value of the boundary condition.
         """
-        self._domain_decomp.apply_boundary_condition(field, value, axis, side)
-        return
+        return self._domain_decomp.apply_boundary_condition(arr, value, axis, side)
 
     def get_domain_decomposition(self, spectral=False) -> DomainDecomposition:
         """
@@ -303,6 +317,128 @@ class CartesianGrid(GridBase):
         """
         domain_decomp = self.get_domain_decomposition(spectral)
         return domain_decomp.my_subdomain
+
+    # ================================================================
+    #  Operators
+    # ================================================================
+
+    def diff(self, 
+             arr: np.ndarray, 
+             axis: int, 
+             type: str | None = None,
+             **kwargs) -> np.ndarray:
+        """
+        Compute the derivative of a field along an axis.
+
+        Parameters
+        ----------
+        `arr` : `np.ndarray`
+            The field to differentiate.
+        `axis` : `int`
+            The axis to differentiate along.
+        `type` : `str` (default: `None`)
+            The type of derivative to compute. Options are:
+            - 'forward': forward difference
+            - 'backward': backward difference
+            - 'centered': centered difference
+            If `None`, the centered difference is used.
+
+        Returns
+        -------
+        `np.ndarray`
+            The derivative of the field along the specified axis. 
+            (same shape as `arr`)
+        """
+        return self._diff_mod.diff(arr, axis, type=type, **kwargs)
+
+    def div(self,
+            arrs: list[np.ndarray],
+            axes: list[int] | None = None,
+            **kwargs) -> np.ndarray:
+        """
+        Calculate the divergence of a vector field (\\nabla \\cdot \\vec{v}).
+
+        Parameters
+        ----------
+        `arrs` : `list[np.ndarray]`
+            The list of arrays representing the vector field.
+        `axes` : `list[int]` or `None` (default: `None`)
+            The axes along which to compute the divergence. If `None`, the
+            divergence is computed along all axes.
+
+        Returns
+        -------
+        `np.ndarray`
+            The divergence of the vector field.
+        """
+        return self._diff_mod.div(arrs, axes, **kwargs)
+    
+    def grad(self,
+             arr: np.ndarray,
+             axes: list[int] | None = None,
+             **kwargs) -> list[np.ndarray]:
+            """
+            Calculate the gradient of a scalar field (\\nabla f).
+    
+            Parameters
+            ----------
+            `arr` : `np.ndarray`
+                The array representing the scalar field.
+            `axes` : `list[int]` or `None` (default: `None`)
+                The axes along which to compute the gradient. If `None`, the
+                gradient is computed along all axes.
+    
+            Returns
+            -------
+            `list[np.ndarray]`
+                The gradient of the scalar field.
+            """
+            return self._diff_mod.grad(arr, axes, **kwargs)
+
+    def laplacian(self,
+                  arr: np.ndarray,
+                  axes: list[int] | None = None,
+                  **kwargs) -> np.ndarray:
+            """
+            Calculate the laplacian of a scalar field (\\nabla^2 f).
+    
+            Parameters
+            ----------
+            `arr` : `np.ndarray`
+                The array representing the scalar field.
+            `axes` : `list[int]` or `None` (default: `None`)
+                The axes along which to compute the laplacian. If `None`, the
+                laplacian is computed along all axes.
+    
+            Returns
+            -------
+            `np.ndarray`
+                The laplacian of the scalar field.
+            """
+            return self._diff_mod.laplacian(arr, axes, **kwargs)
+
+    def curl(self,
+             arrs: list[np.ndarray],
+             axes: list[int] | None = None,
+             **kwargs) -> np.ndarray:
+            """
+            Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
+    
+            Parameters
+            ----------
+            `arrs` : `list[np.ndarray]`
+                The list of arrays representing the vector field.
+            `axes` : `list[int]` or `None` (default: `None`)
+                The axes along which to compute the curl. If `None`, the
+                curl is computed along all axes.
+    
+            Returns
+            -------
+            `np.ndarray`
+                The curl of the vector field.
+            """
+            return self._diff_mod.curl(arrs, axes, **kwargs)
+
 
     # ================================================================
     #  Properties

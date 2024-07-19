@@ -1,7 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
     import numpy as np
@@ -19,6 +19,7 @@ class StateBase:
         norm_l2          : L2 norm of the state.
         norm_of_diff     : Norm of the difference between two states.
     """
+    _dynamic_attributes = ["mset", "fields"]
     # ======================================================================
     #  STATE CONSTRUCTORS
     # ======================================================================
@@ -259,3 +260,6 @@ class StateBase:
         Return the grid of the model.
         """
         return self.mset.grid
+
+
+utils.jaxify_class(StateBase)

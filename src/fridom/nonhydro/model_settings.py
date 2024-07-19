@@ -1,7 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from fridom.framework.model_settings_base import ModelSettingsBase
 # Import type information
 if TYPE_CHECKING:
@@ -27,6 +27,8 @@ class ModelSettings(ModelSettingsBase):
     `Ro` : `float`
         Rossby number.
     """
+    _dynamic_attributes = ModelSettingsBase._dynamic_attributes + [
+        "f_coriolis", "N2", "dsqr", "Ro" ]
     def __init__(self, grid: 'GridBase', **kwargs):
         super().__init__(grid)
         dtype = config.dtype_real
@@ -70,3 +72,6 @@ class ModelSettings(ModelSettingsBase):
         res["Aspect ratio dsqr"] = f"{self.dsqr}"
         res["Rossby number Ro"] = f"{self.Ro}"
         return res
+
+
+utils.jaxify_class(ModelSettings)

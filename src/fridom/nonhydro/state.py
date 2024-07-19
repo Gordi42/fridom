@@ -1,7 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from fridom.framework.state_base import StateBase
 from fridom.framework.field_variable import FieldVariable
 from mpi4py import MPI
@@ -342,3 +342,5 @@ class State(StateBase):
     def b(self, value: FieldVariable):
         self.field_list[3] = value
         return
+
+utils.jaxify_class(State)

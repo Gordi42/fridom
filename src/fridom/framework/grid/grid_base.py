@@ -5,7 +5,6 @@ from fridom.framework import utils
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.field_variable import FieldVariable
 
 class GridBase:
     """
@@ -106,13 +105,13 @@ class GridBase:
         """       
         raise NotImplementedError
 
-    def fft(self, f:'np.ndarray') -> 'np.ndarray':
+    def fft(self, arr: 'np.ndarray') -> 'np.ndarray':
         """
         Perform a (fast) fourier transform on the input array.
         
         Parameters
         ----------
-        `f` : `np.ndarray`
+        `arr` : `np.ndarray`
             The input array.
         
         Returns
@@ -122,13 +121,13 @@ class GridBase:
         """
         raise NotImplementedError
 
-    def ifft(self, f:'np.ndarray') -> 'np.ndarray':
+    def ifft(self, arr:'np.ndarray') -> 'np.ndarray':
         """
         Perform an inverse (fast) fourier transform on the input array.
         
         Parameters
         ----------
-        `f` : `np.ndarray`
+        `arr` : `np.ndarray`
             The input array.
         
         Returns
@@ -138,15 +137,14 @@ class GridBase:
         """
         raise NotImplementedError
 
-    def sync(self, f: 'FieldVariable') -> None:
+    def sync(self, arr: 'np.ndarray') -> 'np.ndarray':
         """
-        Synchronize the halo (boundary) points of a field variable
-        across all MPI ranks.
+        Synchronize the halo (boundary) points of an array across all MPI ranks.
         
         Parameters
         ----------
-        `f` : `FieldVariable`
-            The field variable to synchronize.
+        `arr` : `np.ndarray`
+            The array to synchronize.
         """
         raise NotImplementedError
 

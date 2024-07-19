@@ -2,6 +2,7 @@
 from typing import TYPE_CHECKING
 import numpy as np
 # Import internal modules
+from fridom.framework import utils
 from fridom.framework.config import logger
 # Import type information
 if TYPE_CHECKING:
@@ -76,6 +77,7 @@ class ModelSettingsBase:
     >>> settings = ModelSettings(grid=..., my_parameter=2.0)
     >>> print(settings)
     """
+    _dynamic_attributes = ["grid"]
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
         # grid
         self.grid = grid
@@ -192,3 +194,6 @@ class ModelSettingsBase:
         for key, value in self.parameters.items():
             res += "\n  - {}: {}".format(key, value)
         return res
+
+
+utils.jaxify_class(ModelSettingsBase)

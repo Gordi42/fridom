@@ -1,3 +1,4 @@
+from fridom.framework import utils
 from fridom.framework.state_base import StateBase
 from fridom.framework.field_variable import FieldVariable
 from fridom.nonhydro.model_settings import ModelSettings
@@ -30,3 +31,6 @@ class DiagnosticState(StateBase):
     @div.setter
     def div(self, value: FieldVariable) -> None:
         self.field_list[1] = value
+
+
+utils.jaxify_class(DiagnosticState)

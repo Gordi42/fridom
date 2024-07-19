@@ -37,9 +37,17 @@ class PressureGradientTendency(Module):
         c = slice(1,-1); f = slice(2,None)
 
         # remove pressure gradient
-        dz.u[c,:,:] -= (p[f,:,:] - p[c,:,:]) * self.dx1 
-        dz.v[:,c,:] -= (p[:,f,:] - p[:,c,:]) * self.dy1 
-        dz.w[:,:,c] -= (p[:,:,f] - p[:,:,c]) * self.dz1 / self.mset.dsqr
+        p_grad = self.grid.grad(p)
+        dz.u -= p_grad[0]
+        dz.v -= p_grad[1]
+        dz.w -= p_grad[2] * self.mset.dsqr
+
+
+
+
+        # dz.u[c,:,:] -= (p[f,:,:] - p[c,:,:]) * self.dx1 
+        # dz.v[:,c,:] -= (p[:,f,:] - p[:,c,:]) * self.dy1 
+        # dz.w[:,:,c] -= (p[:,:,f] - p[:,:,c]) * self.dz1 / self.mset.dsqr
         self.bc.apply_boundary_conditions(dz)
         return
 

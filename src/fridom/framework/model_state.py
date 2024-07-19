@@ -1,10 +1,10 @@
 # Import external modules
 from typing import TYPE_CHECKING
+# Import internal modules
+from fridom.framework import utils
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.state_base import StateBase
-    from fridom.framework.time_steppers.time_stepper import TimeStepper
 
 class ModelState:
     """
@@ -31,6 +31,7 @@ class ModelState:
     `dz` : `State`
         The state vector tendency.
     """
+    _dynamic_attributes = ["z", "z_diag", "dz", "it"]
     def __init__(self, mset: 'ModelSettingsBase') -> None:
         self.z = mset.state_constructor()
         self.z_diag = mset.diagnostic_state_constructor()
@@ -48,3 +49,5 @@ class ModelState:
         self.it = 0
         self.time = self.z.mset.start_time
         return
+
+utils.jaxify_class(ModelState)

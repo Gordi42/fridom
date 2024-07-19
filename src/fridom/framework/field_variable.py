@@ -1,6 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 from copy import deepcopy
+from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
 # Import type information
@@ -79,6 +80,7 @@ class FieldVariable:
     --------
     TODO
     """
+    _dynamic_attributes = ["mset", "arr"]
     def __init__(self, 
                  mset: 'ModelSettingsBase',
                  name,
@@ -154,22 +156,26 @@ class FieldVariable:
         else:
             res = ncp.array(self.grid.fft(self.arr), 
                            dtype=config.dtype_comp)
+        from copy import copy
+        f = copy(self)
+        f.arr = res
+        f.is_spectral = not self.is_spectral
 
-        kw = self.get_kw()
-        kw["is_spectral"] = not self.is_spectral
+        return f
 
-        return FieldVariable(arr=res, **kw)
-
-    def sync(self):
+    def sync(self) -> 'FieldVariable':
         """
         Synchronize the FieldVariable (exchange boundary values)
         """
-        if not self.grid.mpi_available:
-            raise NotImplementedError(
-                "MPI not available for this grid")
-        self.grid.sync(self)
+        f = self
+        f.arr = self.grid.sync(self.arr)
+        return f
 
-    def apply_boundary_conditions(self, axis, side, value):
+    def apply_boundary_conditions(self, 
+                                  axis: int, 
+                                  side: str, 
+                                  value: 'float | np.ndarray | FieldVariable'
+                                  ) -> 'FieldVariable':
         """
         Apply boundary conditions to the FieldVariable
         
@@ -193,78 +199,11 @@ class FieldVariable:
         if self.is_spectral:
             raise NotImplementedError(
                 "Boundary conditions not available in spectral space")
+        f = self
+        f.arr = self.grid.apply_boundary_condition(self.arr, axis, side, value)
+        return f
 
-        self.grid.apply_boundary_condition(self.arr, axis, side, value)
-        return
-
-
-    def spectra_1d(self, nbins=50) -> tuple:
-        """
-        Calculate the 1D spectra of the FieldVariable. The n-dimensional spectra 
-        is is integrated over spherical shells in spectral space.
-
-        Arguments:
-            nbins (int): Number of bins in the 1D spectra (shell width)
-            normalize_with_volume (bool): If True, the 1D spectra is
-                normalized with the volume of the spherical shells. If
-                False, the 1D spectra is normalized with the volume of
-                the grid.
-
-        Returns:
-            k_centers (ndarray) : Bin centers of the 1D spectra
-            spectra_1D (ndarray): 1D spectra
-        """
-        ncp = config.ncp
-        if self.is_spectral:
-            spectral = self.arr.copy()
-        else:
-            spectral = self.fft().arr.copy()
-        # normalize with respect to the number of grid points
-        spectral /= spectral.size
-        # check if domain was extended
-        import numpy
-        fac = numpy.prod([1 if p else 2 for p in self.grid.periodic_bounds])
-        spectral /= fac
-
-        # calculate n-dimensional spectra and flatten the array
-        spectra_3D = (ncp.abs(spectral)**2).flatten()
-        # calculate the corresponding wave number
-        k = ncp.zeros_like(spectral).real
-        for K in self.grid.K:
-            k += K**2
-        k = ncp.sqrt(k).flatten()
-
-        # find largest grid spacing in spectral space
-        dk_max = 0
-        k_vol = 1
-        for kk in self.grid.k:
-            dk_max = max(dk_max, ncp.abs(kk[1] - kk[0]))
-            k_vol *= kk[1] - kk[0]
-
-        kmax = float(ncp.max(k))
-        dk_max = float(dk_max)
-        # find the bin edges
-        k_bins = ncp.arange(0, kmax + dk_max, dk_max)
-        # find the bin centers
-        k_centers = 0.5*(k_bins[1:] + k_bins[:-1])
-        # integrate the 3D spectra over the bins
-        k_idx = ncp.digitize(k, k_bins)
-        spectra_1D = ncp.bincount(k_idx, weights=spectra_3D)[1:]
-        # normalize:
-        spectra_1D *= k_vol/(k_centers[1] - k_centers[0])
-
-        return k_centers, spectra_1D
-
-    def sqrt(self):
-        """
-        Compute the square root of the FieldVariable
-
-        Returns:
-            FieldVariable: Square root of the FieldVariable
-        """
-        return FieldVariable(arr=config.ncp.sqrt(self.arr), **self.get_kw())
-
-    def norm_l2(self):
+    def norm_l2(self) -> float:
         """
         Compute the L2 norm of the FieldVariable
 
@@ -272,168 +211,6 @@ class FieldVariable:
             float: L2 norm of the FieldVariable
         """
         return config.ncp.linalg.norm(self.arr)
-
-    def pad_raw(self, pad_width):
-        """
-        Return a padded version of the FieldVariable with the given padding
-        width. Padded values are periodic.
-
-        Arguments:
-            pad_width (int or tuple): Padding width
-
-        Returns:
-            p_arr (ndarray): Padded version of the FieldVariable
-        """
-        ncp = config.ncp
-        p_arr = ncp.pad(self.arr, pad_width, mode="wrap")
-        return p_arr
-
-    def ave(self, shift, axis):
-        """
-        Compute the average in a given direction
-
-        Arguments:
-            shift (int): Shift in the given direction [1 or -1]
-            axis (int) : Axis along which to compute the average
-
-        Returns:
-            float: Average of the FieldVariable
-        """
-        shift_positive = shift >= 0
-        # get padding width
-        if shift_positive:
-            pad_width = tuple([(0, 0) if i != axis else (0, 1) 
-                               for i in range(self.grid.n_dims)])
-        else:
-            pad_width = tuple([(0, 0) if i != axis else (1, 0) 
-                               for i in range(self.grid.n_dims)])
-
-        # pad the array
-        p_arr = self.pad_raw(pad_width)
-
-        # apply boundary conditions
-        if not self.grid.periodic_bounds[axis]:
-            if shift_positive:
-                sl = tuple([slice(None) if i != axis else -1
-                            for i in range(self.grid.n_dims)])
-            else:
-                sl = tuple([slice(None) if i != axis else 0
-                            for i in range(self.grid.n_dims)])
-            p_arr[sl] = 0
-                
-
-        # get slices for the center and shifted values
-        center = tuple([slice(None) if i != axis else slice(None, -1)
-                        for i in range(self.grid.n_dims)])
-        shifted = tuple([slice(None) if i != axis else slice(1, None)
-                         for i in range(self.grid.n_dims)])
-
-        # compute the average
-        ave = 0.5*(p_arr[center] + p_arr[shifted])
-        return FieldVariable(arr=ave, **self.get_kw())
-        
-
-    def diff_forward(self, axis):
-        """
-        Compute the forward difference in a given direction
-
-        Arguments:
-            axis (int): Axis along which to compute the difference
-
-        Returns:
-            FieldVariable: Forward difference of the FieldVariable
-        """
-        pad_width = tuple([(0, 0) if i != axis else (0, 1)
-                           for i in range(self.grid.n_dims)])
-
-        # pad the array
-        p_arr = self.pad_raw(pad_width)
-
-        # apply boundary conditions
-        if not self.grid.periodic_bounds[axis]:
-            sl = tuple([slice(None) if i != axis else -1
-                        for i in range(self.grid.n_dims)])
-            p_arr[sl] = 0
-
-        # get slices for the center and shifted values
-        first = tuple([slice(None) if i != axis else slice(None, -1)
-                        for i in range(self.grid.n_dims)])
-        secon = tuple([slice(None) if i != axis else slice(1, None)
-                         for i in range(self.grid.n_dims)])
-
-        # calculate the forward difference
-        diff = (p_arr[secon] - p_arr[first])/self.grid.dx[axis]
-        return FieldVariable(arr=diff, **self.get_kw())
-    
-    def diff_backward(self, axis):
-        """
-        Compute the backward difference in a given direction
-
-        Arguments:
-            axis (int): Axis along which to compute the difference
-
-        Returns:
-            FieldVariable: Backward difference of the FieldVariable
-        """
-        pad_width = tuple([(0, 0) if i != axis else (1, 0)
-                           for i in range(self.grid.n_dims)])
-
-        # pad the array
-        p_arr = self.pad_raw(pad_width)
-
-        # apply boundary conditions
-        if not self.grid.periodic_bounds[axis]:
-            sl = tuple([slice(None) if i != axis else 0
-                        for i in range(self.grid.n_dims)])
-            p_arr[sl] = 0
-
-        # get slices for the center and shifted values
-        first = tuple([slice(None) if i != axis else slice(None, -1)
-                        for i in range(self.grid.n_dims)])
-        secon = tuple([slice(None) if i != axis else slice(1, None)
-                         for i in range(self.grid.n_dims)])
-
-        # calculate the backward difference
-        diff = (p_arr[secon] - p_arr[first])/self.grid.dx[axis]
-        return FieldVariable(arr=diff, **self.get_kw())
-        
-    
-    def diff_2(self, axis):
-        """
-        Compute the second order difference in a given direction
-
-        Arguments:
-            axis (int): Axis along which to compute the difference
-
-        Returns:
-            FieldVariable: Second order difference of the FieldVariable
-        """
-        pad_width = tuple([(0, 0) if i != axis else (1, 1)
-                           for i in range(self.grid.n_dims)])
-
-        # pad the array
-        p_arr = self.pad_raw(pad_width)
-
-        # apply boundary conditions
-        if not self.grid.periodic_bounds[axis]:
-            sl = tuple([slice(None) if i != axis else 0
-                        for i in range(self.grid.n_dims)])
-            p_arr[sl] = 0
-            sl = tuple([slice(None) if i != axis else -1
-                        for i in range(self.grid.n_dims)])
-            p_arr[sl] = 0
-
-        # get slices for the center and shifted values
-        first = tuple([slice(None) if i != axis else slice(None, -2)
-                        for i in range(self.grid.n_dims)])
-        secon = tuple([slice(None) if i != axis else slice(1, -1)
-                        for i in range(self.grid.n_dims)])
-        third = tuple([slice(None) if i != axis else slice(2, None)
-                        for i in range(self.grid.n_dims)])
-
-        # calculate the second order difference
-        diff = (p_arr[third] - 2*p_arr[secon] + p_arr[first])/self.grid.dx[axis]**2
-        return FieldVariable(arr=diff, **self.get_kw())
 
     # ==================================================================
     #  SLICING
@@ -606,3 +383,6 @@ class FieldVariable:
     def grid(self):
         """Return the grid of the FieldVariable"""
         return self.mset.grid
+
+
+utils.jaxify_class(FieldVariable)

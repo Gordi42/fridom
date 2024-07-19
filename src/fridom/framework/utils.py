@@ -287,6 +287,9 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
     ...     return x**2
     """
     config.jax_jit_was_called = True
+    if not config.enable_jax_jit:
+        return fun
+
     if config.backend_is_jax:
         try:
             import jax
@@ -295,6 +298,24 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
             return fun
     else:
         return fun
+
+def free_memory():
+    """
+    This function deletes all live buffers in the JAX backend.
+
+    Description
+    -----------
+    This function destroys all live buffers in the JAX backend. This is
+    useful for rerunning the code in the same session without running out
+    of memory. 
+    Note that the memory is only freed within JAX, not in the operating
+    system. The operating system will still show the same memory usage.
+    """
+    if config.backend_is_jax:
+        import jax
+        backend = jax.lib.xla_bridge.get_backend()
+        for buf in backend.live_buffers(): buf.delete()
+    return
 
 
 def _tree_flatten(self):
