@@ -57,7 +57,9 @@ class StateBase:
         """
         Synchronize the state. (Exchange ghost cells)
         """
-        [field.sync() for field in self.fields.values()]
+        arrs = self.grid.sync_multi(tuple(field.arr for field in self.fields.values()))
+        for field, arr in zip(self.fields.values(), arrs):
+            field.arr = arr
         return
 
     def apply_boundary_conditions(self) -> None:

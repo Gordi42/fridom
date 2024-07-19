@@ -37,7 +37,7 @@ def linear_tendency(mset, z, dz):
 
     # calculate b-tendency
     db = - (w[:,:,c] + w[:,:,b]) * 0.5 * N2
-    dz["w"] = utils.modify_array(dz["b"], (slice(None), slice(None), c), db)
+    dz["b"] = utils.modify_array(dz["b"], (slice(None), slice(None), c), db)
 
     return dz
 
@@ -59,30 +59,6 @@ class LinearTendency(Module):
     def update(self, mz: 'ModelState') -> None:
         mz.dz.arr_dict = linear_tendency(
             self.mset, mz.z.arr_dict, mz.dz.arr_dict)
-        return
-        # compute the linear tendency
-        dz = mz.dz
-        u = mz.z.u; v = mz.z.v; w = mz.z.w; bu = mz.z.b
-        dsqr = self.mset.dsqr
-        f_cor = self.mset.f_coriolis
-        N2 = self.mset.N2
-
-        # Slices
-        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
-        q = self.quarter  # 0.25
-
-        # calculate u-tendency
-        dz.u[c,c] = (v[c,c] + v[f,c] + v[c,b] + v[f,b]) * q * f_cor
-
-        # calculate v-tendency
-        dz.v[c,c] = (u[c,c] + u[b,c] + u[c,f] + u[b,f]) * q * (-f_cor)
-
-        # calculate w-tendency
-        dz.w[:,:,c] = (bu[:,:,c] + bu[:,:,f]) * self.half / dsqr
-
-        # calculate b-tendency
-        dz.b[:,:,c] = - (w[:,:,c] + w[:,:,b]) * self.half * N2
-
         return
 
     @property

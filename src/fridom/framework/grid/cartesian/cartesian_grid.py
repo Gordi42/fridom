@@ -265,9 +265,17 @@ class CartesianGrid(GridBase):
     def ifft(self, arr: np.ndarray) -> np.ndarray:
         return self._pfft.backward_apply(arr, self._fft.backward)
 
-    @utils.jaxjit
-    def sync(self, arr: np.ndarray) -> np.ndarray:
-        return self._domain_decomp.sync(arr)
+    @partial(utils.jaxjit, static_argnames=["flat_axes"])
+    def sync(self, 
+             arr: np.ndarray, 
+             flat_axes: list[int] | None = None) -> np.ndarray:
+        return self._domain_decomp.sync(arr, flat_axes=flat_axes)
+
+    @partial(utils.jaxjit, static_argnames=["flat_axes"])
+    def sync_multi(self, 
+                   arrs: tuple[np.ndarray], 
+                   flat_axes: list[int] | None = None) -> tuple[np.ndarray]:
+        return self._domain_decomp.sync_multiple(arrs, flat_axes=flat_axes)
 
     @partial(utils.jaxjit, static_argnames=["axis", "side"])
     def apply_boundary_condition(

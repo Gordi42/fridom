@@ -49,7 +49,8 @@ class State(StateBase):
             z = self.fft()
         dsqr = self.mset.dsqr
         ekin = 0.5*(z.u**2 + z.v**2 + dsqr*z.w**2)
-        return FieldVariable(self.mset, is_spectral=False, name="Kinetic Energy", arr=ekin)
+        return FieldVariable(
+            self.mset, is_spectral=False, name="Kinetic Energy", arr=ekin.arr)
 
     def epot(self) -> FieldVariable:
         """
@@ -67,7 +68,7 @@ class State(StateBase):
         N2 = self.mset.N2
         epot = 0.5*(z.b**2 / (N2))
         return FieldVariable(self.mset, is_spectral=False,
-                             name="Potential Energy", arr=epot)
+                             name="Potential Energy", arr=epot.arr)
     
     def etot(self) -> FieldVariable:
         """
@@ -78,9 +79,9 @@ class State(StateBase):
             etot (FieldVariable)  : Total energy field.
         """
         from fridom.framework.field_variable import FieldVariable
-        etot = (self.ekin() + self.epot()).arr
+        etot = (self.ekin() + self.epot())
         return FieldVariable(self.mset, is_spectral=False,
-                             name="Total Energy", arr=etot)
+                             name="Total Energy", arr=etot.arr)
 
     def mean_ekin(self) -> float:
         """
@@ -309,38 +310,38 @@ class State(StateBase):
 
     @property
     def u(self) -> FieldVariable:
-        return self.field_list[0]
+        return self.fields["u"]
     
     @u.setter
     def u(self, value: FieldVariable):
-        self.field_list[0] = value
+        self.fields["u"] = value
         return
     
     @property
     def v(self) -> FieldVariable:
-        return self.field_list[1]
+        return self.fields["v"]
     
     @v.setter
     def v(self, value: FieldVariable):
-        self.field_list[1] = value
+        self.fields["v"] = value
         return
     
     @property
     def w(self) -> FieldVariable:
-        return self.field_list[2]
+        return self.fields["w"]
 
     @w.setter
     def w(self, value: FieldVariable):
-        self.field_list[2] = value
+        self.fields["w"] = value
         return
     
     @property
     def b(self) -> FieldVariable:
-        return self.field_list[3]
+        return self.fields["b"]
     
     @b.setter
     def b(self, value: FieldVariable):
-        self.field_list[3] = value
+        self.fields["b"] = value
         return
 
 utils.jaxify_class(State)

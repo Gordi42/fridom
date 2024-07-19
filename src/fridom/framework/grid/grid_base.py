@@ -145,6 +145,27 @@ class GridBase:
         ----------
         `arr` : `np.ndarray`
             The array to synchronize.
+
+        Returns
+        -------
+        `np.ndarray`
+            The synchronized array.
+        """
+        raise NotImplementedError
+
+    def sync_multi(self, arrs: 'list[np.ndarray]') -> 'list[np.ndarray]':
+        """
+        Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
+        
+        Parameters
+        ----------
+        `arrs` : `list[np.ndarray]`
+            The list of arrays to synchronize.
+        
+        Returns
+        -------
+        `list[np.ndarray]`
+            The synchronized list of arrays.
         """
         raise NotImplementedError
 
