@@ -16,11 +16,11 @@ class SpectralPressureSolver(Module):
         self.required_halo = 0
 
     @module_method
-    def update(self, mz: 'ModelState') -> None:
+    def update(self, mz: 'ModelState') -> 'ModelState':
         ps = mz.z_diag.div.fft() / (-self.grid.k2_hat)
         ps.arr = set_constant_pressure(ps.arr, self.grid.k2_hat_zero)
         mz.z_diag.p = ps.fft()
-        return
+        return mz
 
     @property
     def info(self) -> dict:

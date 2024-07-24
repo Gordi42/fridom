@@ -128,7 +128,7 @@ class NetCDFWriterSingleProc(Module):
         return
 
     @module_method
-    def update(self, mz: 'ModelState'):
+    def update(self, mz: 'ModelState') -> 'ModelState':
         """
         Write data to binary files and add them to the NetCDF file.
         """
@@ -155,7 +155,7 @@ class NetCDFWriterSingleProc(Module):
 
         # add binary file to cdf file
         self.input_queue.put(mz.time)
-        return
+        return mz
 
     def get_variables(self, mz: 'ModelState'):
         """

@@ -228,15 +228,15 @@ class Model:
         self.timer.get("sync").stop()
 
         # apply boundary conditions to the state variable
-        self.bc.update(mz=self.model_state)
+        # self.model_state = self.bc.update(mz=self.model_state)
 
         # calculate tendency
-        self.tendencies.update(mz=self.model_state)
+        self.model_state = self.tendencies.update(mz=self.model_state)
 
-        self.time_stepper.update(mz=self.model_state)
+        self.model_state = self.time_stepper.update(mz=self.model_state)
 
         # make diagnostics
-        self.diagnostics.update(self.model_state)
+        self.model_state = self.diagnostics.update(self.model_state)
 
         # check if the model should restart
         if self.restart_module.should_restart(self.model_state):

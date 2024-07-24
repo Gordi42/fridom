@@ -56,7 +56,7 @@ class LiveAnimation(Module):
         self.fig = self.model_plotter.create_figure()
 
     @module_method
-    def update(self, mz: 'ModelState'):
+    def update(self, mz: 'ModelState') -> 'ModelState':
         """
         Update the figure from the model state and display it.
         
@@ -69,7 +69,7 @@ class LiveAnimation(Module):
         """
         # check if its time to update the plot
         if mz.it % self.interval != 0:
-            return
+            return mz
 
         # first clear the figure
         self.fig.clf()
@@ -80,7 +80,7 @@ class LiveAnimation(Module):
         display.display(self.fig)
         # clear the output when the next figure is ready
         display.clear_output(wait=True)
-        return
+        return mz
 
     def __repr__(self) -> str:
         res = super().__repr__()

@@ -220,7 +220,7 @@ class Module:
         """
         return
 
-    def update(self, mz: 'ModelState') -> None:
+    def update(self, mz: 'ModelState') -> 'ModelState':
         """
         Update the module
         
@@ -234,8 +234,14 @@ class Module:
         ----------
         `mz` : `ModelState`
             The model state at the current time step.
+
+        Returns
+        -------
+        `ModelState`
+            The updated model state.
         """
-        pass
+        return mz
+        
 
     def enable(self) -> None:
         """

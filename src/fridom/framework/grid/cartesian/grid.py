@@ -9,12 +9,15 @@ from fridom.framework.domain_decomposition import DomainDecomposition
 from fridom.framework.domain_decomposition import ParallelFFT
 from .fft import FFT
 from .finite_differences import FiniteDifferences
+from .linear_interpolation import LinearInterpolation
+from .position import Position, AxisOffset
 from fridom.framework.utils import humanize_number
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.domain_decomposition import Subdomain
     from fridom.framework.grid.diff_base import DiffBase
+    from fridom.framework.grid.interpolation_base import InterpolationBase
 
 
 class Grid(GridBase):
@@ -46,6 +49,9 @@ class Grid(GridBase):
     `diff_mod` : `DiffBase`, optional
         A module that contains the differentiation operators. Default is None
         which constructs the finite differences module.
+    `interp_mod` : `InterpolationBase`, optional
+        A module that contains the interpolation methods. Default is None
+        which constructs the linear interpolation module.
     
     Attributes
     ----------
@@ -117,13 +123,14 @@ class Grid(GridBase):
     """
     _dynamic_attributes = GridBase._dynamic_attributes + [
         '_K', '_k_local', '_k_global', '_domain_decomp',
-        '_pfft', '_fft', '_diff_mod']
+        '_pfft', '_fft', '_diff_mod', '_interp_mod',]
     def __init__(self, 
                  N: list[int],
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
                  shared_axes: list[int] | None = None,
-                 diff_mod: 'DiffBase | None' = None
+                 diff_mod: 'DiffBase | None' = None,
+                 interp_mod: 'InterpolationBase | None' = None
                  ) -> None:
         super().__init__(len(N))
         self.name = "Cartesian Grid"
@@ -178,9 +185,11 @@ class Grid(GridBase):
         self._pfft: ParallelFFT | None = None
         self._fft: FFT | None = None
         self._diff_mod = diff_mod or FiniteDifferences()
+        self._interp_mod = interp_mod or LinearInterpolation()
         return
 
     def setup(self, mset: 'ModelSettingsBase'):
+        super().setup(mset)
         ncp = config.ncp
         n_dims = self.n_dims
         dtype = config.dtype_real
@@ -234,11 +243,6 @@ class Grid(GridBase):
             k = None
             k_local = None
             K = None
-
-        # ----------------------------------------------------------------
-        #  Setup submodules
-        # ----------------------------------------------------------------
-        self._diff_mod.setup(mset)
 
         # ----------------------------------------------------------------
         #  Store the attributes
@@ -326,126 +330,6 @@ class Grid(GridBase):
         domain_decomp = self.get_domain_decomposition(spectral)
         return domain_decomp.my_subdomain
 
-    # ================================================================
-    #  Operators
-    # ================================================================
-
-    def diff(self, 
-             arr: np.ndarray, 
-             axis: int, 
-             type: str | None = None,
-             **kwargs) -> np.ndarray:
-        """
-        Compute the derivative of a field along an axis.
-
-        Parameters
-        ----------
-        `arr` : `np.ndarray`
-            The field to differentiate.
-        `axis` : `int`
-            The axis to differentiate along.
-        `type` : `str` (default: `None`)
-            The type of derivative to compute. Options are:
-            - 'forward': forward difference
-            - 'backward': backward difference
-            - 'centered': centered difference
-            If `None`, the centered difference is used.
-
-        Returns
-        -------
-        `np.ndarray`
-            The derivative of the field along the specified axis. 
-            (same shape as `arr`)
-        """
-        return self._diff_mod.diff(arr, axis, type=type, **kwargs)
-
-    def div(self,
-            arrs: list[np.ndarray],
-            axes: list[int] | None = None,
-            **kwargs) -> np.ndarray:
-        """
-        Calculate the divergence of a vector field (\\nabla \\cdot \\vec{v}).
-
-        Parameters
-        ----------
-        `arrs` : `list[np.ndarray]`
-            The list of arrays representing the vector field.
-        `axes` : `list[int]` or `None` (default: `None`)
-            The axes along which to compute the divergence. If `None`, the
-            divergence is computed along all axes.
-
-        Returns
-        -------
-        `np.ndarray`
-            The divergence of the vector field.
-        """
-        return self._diff_mod.div(arrs, axes, **kwargs)
-    
-    def grad(self,
-             arr: np.ndarray,
-             axes: list[int] | None = None,
-             **kwargs) -> list[np.ndarray]:
-            """
-            Calculate the gradient of a scalar field (\\nabla f).
-    
-            Parameters
-            ----------
-            `arr` : `np.ndarray`
-                The array representing the scalar field.
-            `axes` : `list[int]` or `None` (default: `None`)
-                The axes along which to compute the gradient. If `None`, the
-                gradient is computed along all axes.
-    
-            Returns
-            -------
-            `list[np.ndarray]`
-                The gradient of the scalar field.
-            """
-            return self._diff_mod.grad(arr, axes, **kwargs)
-
-    def laplacian(self,
-                  arr: np.ndarray,
-                  axes: list[int] | None = None,
-                  **kwargs) -> np.ndarray:
-            """
-            Calculate the laplacian of a scalar field (\\nabla^2 f).
-    
-            Parameters
-            ----------
-            `arr` : `np.ndarray`
-                The array representing the scalar field.
-            `axes` : `list[int]` or `None` (default: `None`)
-                The axes along which to compute the laplacian. If `None`, the
-                laplacian is computed along all axes.
-    
-            Returns
-            -------
-            `np.ndarray`
-                The laplacian of the scalar field.
-            """
-            return self._diff_mod.laplacian(arr, axes, **kwargs)
-
-    def curl(self,
-             arrs: list[np.ndarray],
-             axes: list[int] | None = None,
-             **kwargs) -> np.ndarray:
-            """
-            Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
-    
-            Parameters
-            ----------
-            `arrs` : `list[np.ndarray]`
-                The list of arrays representing the vector field.
-            `axes` : `list[int]` or `None` (default: `None`)
-                The axes along which to compute the curl. If `None`, the
-                curl is computed along all axes.
-    
-            Returns
-            -------
-            `np.ndarray`
-                The curl of the vector field.
-            """
-            return self._diff_mod.curl(arrs, axes, **kwargs)
 
 
     # ================================================================

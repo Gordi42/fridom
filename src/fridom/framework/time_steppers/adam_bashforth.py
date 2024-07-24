@@ -8,31 +8,7 @@ from fridom.framework.modules.module import setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
-
-# ================================================================
-#  JIT COMPILATION
-# ================================================================
-
-@utils.jaxjit
-def _time_step_jit(z: dict[str, np.ndarray], 
-                  dz_list: list[dict[str, np.ndarray]], 
-                  coeffs: np.ndarray) -> dict[str, np.ndarray]:
-    """
-    Jax jitted time stepping function for Adam-Bashforth.
-    
-    Parameters
-    ----------
-    `z` : `dict[str, np.ndarray]`
-        The state at the current time level.
-    `dz_list` : `list[dict[str, np.ndarray]]`
-        List of tendency terms at previous time levels.
-    `coeffs` : `np.ndarray`
-        Coefficients for the Adam-Bashforth time stepping.
-    """
-    for key in z.keys():  # loop over all fields
-        for i in range(len(dz_list)):  # loop over all time levels
-            z[key] = z[key] + dz_list[i][key] * coeffs[i]
-    return z
+    from fridom.framework.state_base import StateBase
 
 # ================================================================
 #  ADAM BASHFORTH TIME STEPPING
@@ -56,6 +32,7 @@ class AdamBashforth(TimeStepper):
         Tendency term at the current time level.
     
     """
+    _dynamic_attributes = set(["dz_list", "pointer", "it_count", "coeff_AB"])
     def __init__(self, dt = np.timedelta64(1, 's'), order: int = 3, eps=0.01):
         # check that the order is not too high
         if order > 4:
@@ -101,18 +78,40 @@ class AdamBashforth(TimeStepper):
         self.setup()
         return
 
+    
+    @utils.jaxjit
+    def _update_state(self, z: 'StateBase', dz_list: 'list[StateBase]'
+                      ) -> 'StateBase':
+        """
+        Jax jitted time stepping function for Adam-Bashforth.
+    
+        Parameters
+        ----------
+        `z` : `State`
+            The state at the current time level.
+        `dz_list` : `list[State]`
+            List of tendency terms at previous time levels.
+        
+        Returns
+        -------
+        `State` : The updated state.
+        """
+        for i in range(len(dz_list)):  # loop over all time levels
+            z += dz_list[i] * self.coeff_AB[i]
+        return z
+
     @module_method
     def update(self, mz: 'ModelState'):
         """
         Update the time stepper.
         """
-        dz_list = [self.dz_list[p].arr_dict for p in self.pointer]
-        mz.z.arr_dict = _time_step_jit(mz.z.arr_dict, dz_list, self.coeff_AB)
+        dz_list = [self.dz_list[p] for p in self.pointer]
+        mz.z = self._update_state(mz.z, dz_list)
 
         self.it_count += 1
         mz.it += 1
         mz.time += self.dt
-        return
+        return mz
 
     @module_method
     def update_tendency(self):
@@ -136,7 +135,6 @@ class AdamBashforth(TimeStepper):
         """
         # current time level (ctl)
         # maximum ctl is the number of time levels - 1
-        ncp = config.ncp
         ctl = min(self.it_count, self.order-1)
 
         # list of Adam-Bashforth coefficients
@@ -186,3 +184,5 @@ class AdamBashforth(TimeStepper):
         self._dt_timedelta = value
         self._dt_float = config.dtype_real(value / np.timedelta64(1, 's'))
         return
+
+utils.jaxify_class(AdamBashforth)

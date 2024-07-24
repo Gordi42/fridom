@@ -19,7 +19,7 @@ class StateBase:
         norm_l2          : L2 norm of the state.
         norm_of_diff     : Norm of the difference between two states.
     """
-    _dynamic_attributes = ["mset", "fields"]
+    _dynamic_attributes = set(["fields"])
     # ======================================================================
     #  STATE CONSTRUCTORS
     # ======================================================================

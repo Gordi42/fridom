@@ -89,7 +89,7 @@ class BoundaryConditions(Module):
         return
 
     @module_method
-    def update(self, mz: 'ModelState'):
+    def update(self, mz: 'ModelState') -> 'ModelState':
         # first loop over all fields
         for field in self._fields:
             f = getattr(mz.z, field)  # get the field
@@ -100,7 +100,7 @@ class BoundaryConditions(Module):
                 axis_bcs = field_bcs[axis]
                 for side in ["left", "right"]:
                     f.apply_boundary_conditions(axis, side, axis_bcs[side])
-        return
+        return mz
         
     def set_boundary_condition(self, field: 'FieldVariable', 
                                axis: int, side: str, 

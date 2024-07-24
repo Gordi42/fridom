@@ -35,12 +35,12 @@ class PressureGradientTendency(Module):
         return
 
     @module_method
-    def update(self, mz: 'ModelState') -> None:
+    def update(self, mz: 'ModelState') -> 'ModelState':
         mz.dz.arr_dict = pressure_gradient_tendency(
             self.mset, mz.z_diag.p.arr, mz.dz.arr_dict)
 
         self.bc.apply_boundary_conditions(mz.dz)
-        return
+        return mz
 
     @property
     def info(self) -> dict:

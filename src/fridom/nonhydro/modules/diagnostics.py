@@ -14,7 +14,7 @@ class Diagnostics(Module):
             cfl_info=cfl_info,)
 
     @module_method
-    def update(self, mz: ModelState):
+    def update(self, mz: ModelState) -> ModelState:
         """
         Print diagnostic information.
         """
@@ -32,7 +32,7 @@ class Diagnostics(Module):
             out += "hor. CFL = {:.2f},           ".format(mz.z.max_cfl_h())
             out += "vert. CFL = {:.2f}".format(mz.z.max_cfl_v())
         print(out)
-        return
+        return mz
 
     def __repr__(self) -> str:
         res = super().__repr__()

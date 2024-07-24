@@ -118,13 +118,13 @@ class VideoWriter(Module):
         return
 
     @module_method
-    def update(self, mz: 'ModelState'):
+    def update(self, mz: 'ModelState') -> 'ModelState':
         """
         Update method of the parallel animated model.
         """
         # check if its time to update the plot
         if mz.it % self.interval != 0:
-            return
+            return mz
 
         # collect finished figures
         self.collect_figures()
@@ -142,7 +142,7 @@ class VideoWriter(Module):
 
         self.open_queues.append(q)
         self.running_jobs.append(job)
-        return
+        return mz
 
     def collect_figures(self):
         while len(self.running_jobs) > 0:

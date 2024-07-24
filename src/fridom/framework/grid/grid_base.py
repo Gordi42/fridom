@@ -1,10 +1,13 @@
 # Import external modules
 from typing import TYPE_CHECKING
-import numpy as np
 from fridom.framework import utils
 # Import type information
 if TYPE_CHECKING:
+    from numpy import ndarray
     from fridom.framework.model_settings_base import ModelSettingsBase
+    from .diff_base import DiffBase
+    from .interpolation_base import InterpolationBase
+    from .position_base import PositionBase
 
 class GridBase:
     """
@@ -39,15 +42,15 @@ class GridBase:
         dimension.
     `inner_slice` : `tuple[slice]`
         The slice of the grid that excludes the boundary points.
-    `X` : tuple(`np.ndarray`)
+    `X` : tuple(`ndarray`)
         The meshgrid of the grid points.
-    `x_global` : tuple(`np.ndarray`)
+    `x_global` : tuple(`ndarray`)
         The x-vector of the global grid points.
-    `x_local` : `np.ndarray`
+    `x_local` : `ndarray`
         The x-vector of the local grid points.
-    `dx` : tuple(`np.ndarray`)
+    `dx` : tuple(`ndarray`)
         The grid spacing in each dimension.
-    `dV` : `np.ndarray`
+    `dV` : `ndarray`
         The volume element of the grid.
     `mset` : `ModelSettingsBase | None`
         The model settings object.
@@ -56,13 +59,26 @@ class GridBase:
     -------
     `setup(mset: ModelSettingsBase)`
         Setup the grid. (must be implemented by child classes)
-    `fft(f: np.ndarray) -> np.ndarray`
+    `fft(f: ndarray) -> ndarray`
         Perform a (fast) fourier transform on the input array.
-    `ifft(f: np.ndarray) -> np.ndarray`
+    `ifft(f: ndarray) -> ndarray`
         Perform an inverse (fast) fourier transform on the input array.
-    `sync(f: FieldVariable)`
-        Synchronize the halo (boundary) points of a field variable across all
-        MPI ranks.
+    `sync(arr: ndarray) -> ndarray`
+        Synchronize the halo (boundary) points of an array across all MPI ranks.
+    `sync_multi(f: list[ndarray]) -> list[ndarray]`
+        Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
+    `diff(arr: ndarray, axis: int, **kwargs) -> ndarray`
+        Compute the derivative of a field along an axis.
+    `div(arrs: list[ndarray], axes: list[int] | None = None, **kwargs) -> ndarray`
+        Calculate the divergence of a vector field (\\nabla \\cdot \\vec{v}).
+    `grad(arr: ndarray, axes: list[int] | None = None, **kwargs) -> list[ndarray]`
+        Calculate the gradient of a scalar field (\\nabla f).
+    `laplacian(arr: ndarray, axes: list[int] | None = None, **kwargs) -> ndarray`
+        Calculate the laplacian of a scalar field (\\nabla^2 f).
+    `curl(arrs: list[ndarray], axes: list[int] | None = None, **kwargs) -> list[ndarray]`
+        Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
+    `interpolate(arr: ndarray, origin: PositionBase, destination: PositionBase) -> ndarray`
+        Interpolate an array from one position to another.
     """
     _dynamic_attributes = ["_X", "_x_global", "_x_local", "_dx", "_dV"]
     def __init__(self, n_dims: int) -> None:
@@ -81,6 +97,9 @@ class GridBase:
         self._dx = None
         self._dV = None
         self._mset = None
+        # operator modules
+        self._diff_mod: 'DiffBase' = None
+        self._interp_mod: 'InterpolationBase' = None
 
         # prepare for numpy conversion (the numpy copy will be stored here)
         self._cpu = None
@@ -103,68 +122,70 @@ class GridBase:
             The model settings object. This is for example needed to
             determine the required halo size.
         """       
-        raise NotImplementedError
+        self._diff_mod.setup(mset)
+        self._interp_mod.setup(mset)
+        return
 
-    def fft(self, arr: 'np.ndarray') -> 'np.ndarray':
+    def fft(self, arr: 'ndarray') -> 'ndarray':
         """
         Perform a (fast) fourier transform on the input array.
         
         Parameters
         ----------
-        `arr` : `np.ndarray`
+        `arr` : `ndarray`
             The input array.
         
         Returns
         -------
-        `np.ndarray`
+        `ndarray`
             The transformed array.
         """
         raise NotImplementedError
 
-    def ifft(self, arr:'np.ndarray') -> 'np.ndarray':
+    def ifft(self, arr:'ndarray') -> 'ndarray':
         """
         Perform an inverse (fast) fourier transform on the input array.
         
         Parameters
         ----------
-        `arr` : `np.ndarray`
+        `arr` : `ndarray`
             The input array.
         
         Returns
         -------
-        `np.ndarray`
+        `ndarray`
             The transformed array.
         """
         raise NotImplementedError
 
-    def sync(self, arr: 'np.ndarray') -> 'np.ndarray':
+    def sync(self, arr: 'ndarray') -> 'ndarray':
         """
         Synchronize the halo (boundary) points of an array across all MPI ranks.
         
         Parameters
         ----------
-        `arr` : `np.ndarray`
+        `arr` : `ndarray`
             The array to synchronize.
 
         Returns
         -------
-        `np.ndarray`
+        `ndarray`
             The synchronized array.
         """
         raise NotImplementedError
 
-    def sync_multi(self, arrs: 'list[np.ndarray]') -> 'list[np.ndarray]':
+    def sync_multi(self, arrs: 'list[ndarray]') -> 'list[ndarray]':
         """
         Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
         
         Parameters
         ----------
-        `arrs` : `list[np.ndarray]`
+        `arrs` : `list[ndarray]`
             The list of arrays to synchronize.
         
         Returns
         -------
-        `list[np.ndarray]`
+        `list[ndarray]`
             The synchronized list of arrays.
         """
         raise NotImplementedError
@@ -177,6 +198,143 @@ class GridBase:
         for key, value in self.info.items():
             res += "\n  - {}: {}".format(key, value)
         return res
+
+    # ================================================================
+    #  Operators
+    # ================================================================
+
+    def diff(self, 
+             arr: 'ndarray', 
+             axis: int, 
+             **kwargs) -> 'ndarray':
+        """
+        Compute the derivative of a field along an axis.
+
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The field to differentiate.
+        `axis` : `int`
+            The axis to differentiate along.
+
+        Returns
+        -------
+        `ndarray`
+            The derivative of the field along the specified axis. 
+            (same shape as `arr`)
+        """
+        return self._diff_mod.diff(arr, axis, **kwargs)
+
+    def div(self,
+            arrs: 'list[ndarray]',
+            axes: list[int] | None = None,
+            **kwargs) -> 'ndarray':
+        """
+        Calculate the divergence of a vector field (\\nabla \\cdot \\vec{v}).
+
+        Parameters
+        ----------
+        `arrs` : `list[ndarray]`
+            The list of arrays representing the vector field.
+        `axes` : `list[int]` or `None` (default: `None`)
+            The axes along which to compute the divergence. If `None`, the
+            divergence is computed along all axes.
+
+        Returns
+        -------
+        `ndarray`
+            The divergence of the vector field.
+        """
+        return self._diff_mod.div(arrs, axes, **kwargs)
+    
+    def grad(self,
+             arr: 'ndarray',
+             axes: list[int] | None = None,
+             **kwargs) -> 'list[ndarray]':
+            """
+            Calculate the gradient of a scalar field (\\nabla f).
+    
+            Parameters
+            ----------
+            `arr` : `ndarray`
+                The array representing the scalar field.
+            `axes` : `list[int]` or `None` (default: `None`)
+                The axes along which to compute the gradient. If `None`, the
+                gradient is computed along all axes.
+    
+            Returns
+            -------
+            `list[ndarray]`
+                The gradient of the scalar field.
+            """
+            return self._diff_mod.grad(arr, axes, **kwargs)
+
+    def laplacian(self,
+                  arr: 'ndarray',
+                  axes: list[int] | None = None,
+                  **kwargs) -> 'ndarray':
+            """
+            Calculate the laplacian of a scalar field (\\nabla^2 f).
+    
+            Parameters
+            ----------
+            `arr` : `ndarray`
+                The array representing the scalar field.
+            `axes` : `list[int]` or `None` (default: `None`)
+                The axes along which to compute the laplacian. If `None`, the
+                laplacian is computed along all axes.
+    
+            Returns
+            -------
+            `ndarray`
+                The laplacian of the scalar field.
+            """
+            return self._diff_mod.laplacian(arr, axes, **kwargs)
+
+    def curl(self,
+             arrs: 'list[ndarray]',
+             axes: list[int] | None = None,
+             **kwargs) -> 'list[ndarray]':
+            """
+            Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
+    
+            Parameters
+            ----------
+            `arrs` : `list[ndarray]`
+                The list of arrays representing the vector field.
+            `axes` : `list[int]` or `None` (default: `None`)
+                The axes along which to compute the curl. If `None`, the
+                curl is computed along all axes.
+    
+            Returns
+            -------
+            `list[ndarray]`
+                The curl of the vector field.
+            """
+            return self._diff_mod.curl(arrs, axes, **kwargs)
+
+    def interpolate(self, 
+                    arr: 'ndarray', 
+                    origin: 'PositionBase', 
+                    destination: 'PositionBase') -> 'ndarray':
+        """
+        Interpolate an array from one position to another.
+        
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The array to interpolate.
+        `origin` : `Position`
+            The position of the array.
+        `destination` : `Position`
+            The position to interpolate to.
+        
+        Returns
+        -------
+        `ndarray`
+            The interpolated array.
+        """
+        return self._interp_mod.interpolate(arr, origin, destination)
 
     # ----------------------------------------------------------------
     #  Grid properties
@@ -226,27 +384,27 @@ class GridBase:
         return self._inner_slice
 
     @property
-    def X(self) -> tuple[np.ndarray]:
+    def X(self) -> 'tuple[ndarray]':
         """The meshgrid of the grid points."""
         return self._X
 
     @property
-    def x_global(self) -> tuple[np.ndarray]:
+    def x_global(self) -> 'tuple[ndarray]':
         """The x-vector of the global grid points."""
         return self._x_global
 
     @property
-    def x_local(self) -> np.ndarray:
+    def x_local(self) -> 'ndarray':
         """The x-vector of the local grid points."""
         return self._x_local
 
     @property
-    def dx(self) -> tuple[np.ndarray]:
+    def dx(self) -> 'tuple[ndarray]':
         """The grid spacing in each dimension."""
         return self._dx
 
     @property
-    def dV(self) -> np.ndarray:
+    def dV(self) -> 'ndarray':
         """The volume element of the grid."""
         return self._dV
 

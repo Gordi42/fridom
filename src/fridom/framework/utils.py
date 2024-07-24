@@ -319,15 +319,15 @@ def free_memory():
 
 
 def _tree_flatten(self):
-    # first store all attributes that are marked as dynamic
+    # Store all attributes that are marked as dynamic
     children = tuple(getattr(self, attr) for attr in self._dynamic_attributes)
-    # store all other attributes as aux_data
-    aux_data = {}  # static values
-    for key, att in vars(self).items():
-        if key in self._dynamic_attributes:
-            continue
-        aux_data[key] = att
+    
+    # Store all other attributes as aux_data
+    aux_data = {key: att for key, att in self.__dict__.items() 
+                if key not in self._dynamic_attributes}
+    
     return (children, aux_data)
+
 
 @classmethod
 def _tree_unflatten(cls, aux_data, children):

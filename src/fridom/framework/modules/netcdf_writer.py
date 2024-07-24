@@ -126,7 +126,7 @@ class NetCDFWriter(Module):
         return
 
     @module_method
-    def update(self, mz: 'ModelState'):
+    def update(self, mz: 'ModelState') -> 'ModelState':
         time = mz.time
         # ----------------------------------------------------------------
         #  Check if the model time is in the writing range
@@ -188,7 +188,7 @@ class NetCDFWriter(Module):
         # ----------------------------------------------------------------
         self._write_data(mz)
         self._last_write_time = time
-        return
+        return mz
 
     def _create_file(self, mz: 'ModelState'):
         # ----------------------------------------------------------------
