@@ -132,6 +132,13 @@ class AdamBashforth(TimeStepper):
         """
         Update the time stepper.
         """
+        self.update_tendency()
+
+        mz.dz = self.dz
+
+        mz = self.mset.tendencies.update(mz)
+        self.dz = mz.dz
+
         dz_list = [self.dz_list[p] for p in self.pointer]
         mz.z = self._update_state(mz.z, dz_list)
 
@@ -140,7 +147,6 @@ class AdamBashforth(TimeStepper):
         mz.time += self.dt
         return mz
 
-    @module_method
     def update_tendency(self):
         if self.it_count <= self.order+1:
             self.update_coeff_AB()
