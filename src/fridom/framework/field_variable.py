@@ -81,7 +81,7 @@ class FieldVariable:
     --------
     TODO
     """
-    _dynamic_attributes = set(["arr"])
+    _dynamic_attributes = set(["arr", "position"])
     def __init__(self, 
                  mset: 'ModelSettingsBase',
                  name: str,

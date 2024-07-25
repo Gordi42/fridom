@@ -1,5 +1,6 @@
 from enum import Enum, auto
 from fridom.framework.grid.position_base import PositionBase
+from fridom.framework import utils
 
 class AxisOffset(Enum):
     """
@@ -32,9 +33,12 @@ class Position(PositionBase):
     `positions` : `tuple[Offset]`
         The offset of the field along each axis.
     """
+    _dynamic_attributes = set([])
     def __init__(self, positions: tuple[AxisOffset]) -> None:
         self.positions = positions
         return
 
     def __repr__(self) -> str:
         return f"Position({self.positions})"
+
+utils.jaxify_class(Position)
