@@ -253,8 +253,9 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
     if config.backend_is_jax:
         return arr.at[where].set(value)
     else:
-        arr[where] = value
-        return arr
+        res = arr.copy()
+        res[where] = value
+        return res
     
 # ================================================================
 #  JAX functions
