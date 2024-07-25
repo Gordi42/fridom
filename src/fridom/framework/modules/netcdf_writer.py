@@ -133,14 +133,14 @@ class NetCDFWriter(Module):
         # ----------------------------------------------------------------
         # check if the model time is smaller than the start time
         if self.start_time is not None and time < self.start_time:
-            return
+            return mz
         # check if the model time is larger than the end time
         if self.end_time is not None:
             if time > self.end_time and not self._file_is_open:
-                return
+                return mz
             if time > self.end_time and self._file_is_open:
                 self._close_file()
-                return
+                return mz
 
         # ----------------------------------------------------------------
         #  Check if it is time to write
@@ -156,7 +156,7 @@ class NetCDFWriter(Module):
                 time_to_write = False
         self._last_checkpoint_time = time
         if not time_to_write:
-            return
+            return mz
 
         # ----------------------------------------------------------------
         #  Cehck if the current start time is set
