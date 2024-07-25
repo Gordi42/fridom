@@ -25,7 +25,7 @@ class StateBase:
     # ======================================================================
 
     def __init__(self, mset: 'ModelSettingsBase', 
-                 field_list: list, is_spectral=False) -> None:
+                 field_list: list | dict, is_spectral=False) -> None:
         """
         Base Constructor.
 
@@ -36,7 +36,12 @@ class StateBase:
         self.mset = mset
         self.is_spectral = is_spectral
         self.constructor = StateBase
-        self.fields = {field.name: field for field in field_list}
+        if type(field_list) is list:
+            self.fields = {field.name: field for field in field_list}
+        elif type(field_list) is dict:
+            self.fields = field_list
+        else:
+            raise TypeError("field_list must be a list or a dictionary.")
     
     # ======================================================================
     #  BASIC OPERATIONS
@@ -167,10 +172,11 @@ class StateBase:
         """
         Add two states / fields together.
         """
+        keys = self.fields.keys()
         if isinstance(other, self.constructor):
-            sums = [f1 + f2 for f1, f2 in zip(self.field_list, other.field_list)]
+            sums = {key: self.fields[key] + other.fields[key] for key in keys}
         else:
-            sums = [field + other for field in self.field_list]
+            sums = {key: self.fields[key] + other for key in keys}
 
         z = self.constructor(self.mset, field_list=sums,
                                 is_spectral=self.is_spectral)
@@ -184,10 +190,11 @@ class StateBase:
         """
         Subtract two states / fields.
         """
+        keys = self.fields.keys()
         if isinstance(other, self.constructor):
-            diffs = [f1 - f2 for f1, f2 in zip(self.field_list, other.field_list)]
+            diffs = {key: self.fields[key] - other.fields[key] for key in keys}
         else:
-            diffs = [field - other for field in self.field_list]
+            diffs = {key: self.fields[key] - other for key in keys}
 
         z = self.constructor(self.mset, field_list=diffs,
                                 is_spectral=self.is_spectral)
@@ -206,11 +213,11 @@ class StateBase:
         """
         Multiply two states / fields.
         """
+        keys = self.fields.keys()
         if isinstance(other, self.constructor):
-            prods = [f1 * f2 for f1, f2 in 
-                    zip(self.fields.values(), other.fields.values())]
+            prods = {key: self.fields[key] * other.fields[key] for key in keys}
         else:
-            prods = [field * other for field in self.fields.values()]
+            prods = {key: self.fields[key] * other for key in keys}
 
         z = self.constructor(self.mset, field_list=prods,
                                 is_spectral=self.is_spectral)
@@ -223,11 +230,11 @@ class StateBase:
         """
         Divide two states / fields.
         """
+        keys = self.fields.keys()
         if isinstance(other, self.constructor):
-            quot = [f1 / f2 for f1, f2 in 
-                    zip(self.fields.values(), other.fields.values())]
+            quot = {key: self.fields[key] / other.fields[key] for key in keys}
         else:
-            quot = [field / other for field in self.fields.values()]
+            quot = {key: self.fields[key] / other for key in keys}
 
         z = self.constructor(self.mset, field_list=quot,
                                 is_spectral=self.is_spectral)
@@ -237,7 +244,8 @@ class StateBase:
         """
         Divide something by the state.
         """
-        quot = [other / field for field in self.fields.values()]
+        keys = self.fields.keys()
+        quot = {key: other / self.fields[key] for key in keys}
         z = self.constructor(self.mset, field_list=quot,
                                 is_spectral=self.is_spectral)
         return z
@@ -246,11 +254,11 @@ class StateBase:
         """
         Exponentiate two states / fields.
         """
+        keys = self.fields.keys()
         if isinstance(other, self.constructor):
-            prods = [f1 ** f2 for f1, f2 in 
-                    zip(self.fields.values(), other.fields.values())]
+            prods = {key: self.fields[key] ** other.fields[key] for key in keys}
         else:
-            prods = [field ** other for field in self.fields.values()]
+            prods = {key: self.fields[key] ** other for key in keys}
 
         z = self.constructor(self.mset, field_list=prods,
                                 is_spectral=self.is_spectral)
