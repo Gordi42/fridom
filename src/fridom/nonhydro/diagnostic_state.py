@@ -26,19 +26,19 @@ class DiagnosticState(StateBase):
 
     @property
     def p(self) -> FieldVariable:
-        return self.field_list[0]
+        return self.fields["Pressure p"]
 
     @p.setter
     def p(self, value: FieldVariable) -> None:
-        self.field_list[0] = value
+        self.fields["Pressure p"] = value
     
     @property
     def div(self) -> FieldVariable:
-        return self.field_list[1]
+        return self.fields["Divergence"]
     
     @div.setter
     def div(self, value: FieldVariable) -> None:
-        self.field_list[1] = value
+        self.fields["Divergence"] = value
 
 
 utils.jaxify_class(DiagnosticState)
