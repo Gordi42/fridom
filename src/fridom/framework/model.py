@@ -233,6 +233,7 @@ class Model:
         # calculate tendency
         self.model_state = self.tendencies.update(mz=self.model_state)
 
+        self.time_stepper.dz = self.model_state.dz
         self.model_state = self.time_stepper.update(mz=self.model_state)
 
         # make diagnostics
