@@ -197,9 +197,10 @@ class Grid(GridBase):
         # --------------------------------------------------------------
         #  Initialize the domain decomposition
         # --------------------------------------------------------------
-        required_halo = mset.tendencies.required_halo
+        req_halo = max(self._diff_mod.required_halo, self._interp_mod.required_halo)
+        req_halo = max(req_halo, mset.halo)
         domain_decomp = DomainDecomposition(
-            self._N, required_halo, shared_axes=self._shared_axes)
+            self._N, req_halo, shared_axes=self._shared_axes)
 
 
         # --------------------------------------------------------------

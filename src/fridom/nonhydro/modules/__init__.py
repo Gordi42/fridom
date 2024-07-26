@@ -9,8 +9,6 @@ Modules
     Modules for creating animated output of the model.
 `advection`
     Modules for advection schemes.
-`interpolation`
-    Modules for interpolation schemes.
 `diffusion`
     Modules for diffusion schemes.
 `pressure_solvers`
@@ -51,7 +49,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     # importing modules
     from . import advection
-    from . import interpolation
     from . import diffusion
     from . import pressure_solvers
     from . import forcings
@@ -86,7 +83,6 @@ fr_base_path = "fridom.framework.modules"
 all_modules_by_origin = { 
     base_path: [
         "advection", 
-        "interpolation", 
         "diffusion", 
         "pressure_solvers", 
         "forcings"], 

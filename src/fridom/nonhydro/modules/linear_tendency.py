@@ -16,7 +16,6 @@ class LinearTendency(Module):
     _dynamic_attributes = set(["mset"])
     def __init__(self, interpolation: 'InterpolationBase | None' = None):
         super().__init__(name="Linear Tendency")
-        self.required_halo = 1
         self.interpolation = interpolation
 
     @setup_module
@@ -63,5 +62,16 @@ class LinearTendency(Module):
         res = super().info
         res["Discretization"] = "Finite Difference"
         return res
+
+    @property
+    def required_halo(self) -> int:
+        if self.interpolation is None:
+            return 0
+        else:
+            return self.interpolation.required_halo
+    
+    @required_halo.setter
+    def required_halo(self, value: int):
+        return
 
 utils.jaxify_class(LinearTendency)

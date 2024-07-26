@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from fridom.framework.grid.cartesian.position import AxisOffset, Position
     from fridom.framework.grid.cartesian.fft import FFT
     from fridom.framework.grid.cartesian.finite_differences import FiniteDifferences
+    from fridom.framework.grid.cartesian.linear_interpolation import LinearInterpolation
+    from fridom.framework.grid.cartesian.polynomial_interpolation import PolynomialInterpolation
     
 
 # ================================================================
@@ -32,6 +34,8 @@ all_imports_by_origin = {
     f"{base_fr}.position": ["AxisOffset", "Position"],
     f"{base_fr}.fft": ["FFT"],
     f"{base_fr}.finite_differences": ["FiniteDifferences"],
+    f"{base_fr}.linear_interpolation": ["LinearInterpolation"],
+    f"{base_fr}.polynomial_interpolation": ["PolynomialInterpolation"],
 }
 
 # ================================================================

@@ -2,13 +2,15 @@
 from typing import TYPE_CHECKING
 import numpy as np
 # Import internal modules
+from fridom.framework.modules import Module
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
 
 
-class DiffBase:
-    def __init__(self):
+class DiffBase(Module):
+    def __init__(self, name="Differentiation"):
+        super().__init__(name=name)
         return
     
     def setup(self, mset: 'ModelSettingsBase') -> None:

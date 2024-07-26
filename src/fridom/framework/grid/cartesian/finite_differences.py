@@ -4,6 +4,7 @@ import numpy as np
 from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
+from fridom.framework.modules import setup_module, module_method
 from fridom.framework.grid.diff_base import DiffBase
 # Import type information
 if TYPE_CHECKING:
@@ -13,25 +14,27 @@ if TYPE_CHECKING:
 class FiniteDifferences(DiffBase):
     _dynamic_attributes = ['_dx1']
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(name="Finite Differences")
         # ----------------------------------------------------------------
         #  Set attributes
         # ----------------------------------------------------------------
         self._dx1 = None
         return
 
-    def setup(self, mset: 'ModelSettingsBase') -> None:
+    @setup_module
+    def setup(self) -> None:
         from .grid import Grid
-        if not isinstance(mset.grid, Grid):
+        if not isinstance(self.mset.grid, Grid):
             raise ValueError("Finite differences only work with Cartesian grids.")
         
         # ----------------------------------------------------------------
         #  Calculate the operator coefficients
         # ----------------------------------------------------------------
-        self._dx1 = 1 / config.ncp.array(mset.grid.dx, dtype=config.dtype_real)
+        self._dx1 = 1 / config.ncp.array(self.mset.grid.dx, dtype=config.dtype_real)
         return
 
     @partial(utils.jaxjit, static_argnames=('axis', 'type'))
+    @module_method
     def diff(self, 
              arr: np.ndarray, 
              axis: int, 
@@ -48,6 +51,7 @@ class FiniteDifferences(DiffBase):
                 return self._diff_centered(arr, axis)
 
     @partial(utils.jaxjit, static_argnames=('axes',))
+    @module_method
     def div(self,
             arrs: list[np.ndarray],
             axes: list[int] | None = None,
@@ -61,6 +65,7 @@ class FiniteDifferences(DiffBase):
         return res
 
     @partial(utils.jaxjit, static_argnames=('axes',))
+    @module_method
     def grad(self,
              arr: np.ndarray,
              axes: list[int] | None = None,
@@ -72,6 +77,7 @@ class FiniteDifferences(DiffBase):
                     for i in range(arr.ndim)]
     
     @partial(utils.jaxjit, static_argnames=('axes',))
+    @module_method
     def laplacian(self,
                   arr: np.ndarray,
                   axes: list[int] | None = None,
@@ -85,6 +91,7 @@ class FiniteDifferences(DiffBase):
             return res
 
     @partial(utils.jaxjit, static_argnames=('axes',))
+    @module_method
     def curl(self,
              arrs: list[np.ndarray],
              axes: list[int] | None = None,

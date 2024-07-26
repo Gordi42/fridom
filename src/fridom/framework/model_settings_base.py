@@ -190,5 +190,12 @@ class ModelSettingsBase:
             res += "\n  - {}: {}".format(key, value)
         return res
 
+    @property
+    def halo(self) -> int:
+        """
+        Return the halo size of the model.
+        """
+        return self.tendencies.required_halo
+
 
 utils.jaxify_class(ModelSettingsBase)

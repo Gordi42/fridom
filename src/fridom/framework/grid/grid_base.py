@@ -122,8 +122,8 @@ class GridBase:
             The model settings object. This is for example needed to
             determine the required halo size.
         """       
-        self._diff_mod.setup(mset)
-        self._interp_mod.setup(mset)
+        self._diff_mod.setup(mset=mset)
+        self._interp_mod.setup(mset=mset)
         return
 
     def fft(self, arr: 'ndarray') -> 'ndarray':

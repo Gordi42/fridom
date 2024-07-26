@@ -14,6 +14,8 @@ if TYPE_CHECKING:
     from .position import AxisOffset, Position
     from .fft import FFT
     from .finite_differences import FiniteDifferences
+    from .linear_interpolation import LinearInterpolation
+    from .polynomial_interpolation import PolynomialInterpolation
     
 
 # ================================================================
@@ -31,6 +33,8 @@ all_imports_by_origin = {
     f"{base}.position": ["AxisOffset", "Position"],
     f"{base}.fft": ["FFT"],
     f"{base}.finite_differences": ["FiniteDifferences"],
+    f"{base}.linear_interpolation": ["LinearInterpolation"],
+    f"{base}.polynomial_interpolation": ["PolynomialInterpolation"],
 }
 
 # ================================================================
