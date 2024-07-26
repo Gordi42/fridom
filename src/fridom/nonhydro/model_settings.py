@@ -42,12 +42,6 @@ class ModelSettings(ModelSettingsBase):
         from fridom.nonhydro.modules.boundary_conditions import BoundaryConditions
         bc = BoundaryConditions()
 
-        # state constructor
-        from fridom.nonhydro.state import State
-        state_constructor = lambda: State(self, is_spectral=False)
-        from fridom.nonhydro.diagnostic_state import DiagnosticState
-        diag_state_constructor = lambda: DiagnosticState(self, is_spectral=False)
-
         # ----------------------------------------------------------------
         #  Set attributes
         # ----------------------------------------------------------------
@@ -58,8 +52,6 @@ class ModelSettings(ModelSettingsBase):
         self.Ro   = dtype(1)
         self.tendencies = tendencies
         self.bc   = bc
-        self.state_constructor = state_constructor
-        self.diagnostic_state_constructor = diag_state_constructor
 
         self.set_attributes(**kwargs)
         return
@@ -72,6 +64,14 @@ class ModelSettings(ModelSettingsBase):
         res["Aspect ratio dsqr"] = f"{self.dsqr}"
         res["Rossby number Ro"] = f"{self.Ro}"
         return res
+
+    def state_constructor(self):
+        from fridom.nonhydro.state import State
+        return State(self, is_spectral=False)
+
+    def diagnostic_state_constructor(self):
+        from fridom.nonhydro.diagnostic_state import DiagnosticState
+        return DiagnosticState(self, is_spectral=False)
 
 
 utils.jaxify_class(ModelSettings)

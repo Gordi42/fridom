@@ -10,33 +10,6 @@ if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
     from fridom.framework.state_base import StateBase
 
-@utils.jaxjit
-def _update_state(z: 'StateBase', dz_list: 'list[StateBase]', coeefs
-                    ) -> 'StateBase':
-    """
-    Jax jitted time stepping function for Adam-Bashforth.
-    
-    Parameters
-    ----------
-    `z` : `State`
-        The state at the current time level.
-    `dz_list` : `list[State]`
-        List of tendency terms at previous time levels.
-        
-    Returns
-    -------
-    `State` : The updated state.
-    """
-    for i in range(len(dz_list)):  # loop over all time levels
-        z += dz_list[i] * coeefs[i]
-    return z
-
-@utils.jaxjit
-def unnecesary_function(z, coeff, f):
-    for i in range(10):
-        z += z * i * coeff[0] * f
-    return z
-
 # ================================================================
 #  ADAM BASHFORTH TIME STEPPING
 # ================================================================

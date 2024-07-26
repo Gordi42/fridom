@@ -4,6 +4,29 @@ import numpy as np
 from fridom.framework import config, utils
 from functools import partial
 
+@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+def dct_type2(x, axis, N):
+    ncp = config.ncp
+    n = ncp.arange(0, N)
+    n, k = ncp.meshgrid(n, n, indexing="ij")
+    weights = 2 * ncp.cos((ncp.pi / N) * k * (n + 0.5))
+
+    y = ncp.tensordot(x, weights, axes=([axis], [0]))
+    y = ncp.moveaxis(y, -1, axis)
+    return y
+
+@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+def dct_type3(x, axis, N):
+    ncp = config.ncp
+    n = ncp.arange(0, N)
+    n, k = ncp.meshgrid(n, n, indexing="ij")
+    weights = 2 * ncp.cos((ncp.pi / N) * n * (k + 0.5))
+    weights = utils.modify_array(weights, (0, slice(None)), 1)
+
+    y = ncp.tensordot(x, weights, axes=([axis], [0]))
+    y = ncp.moveaxis(y, -1, axis)
+    return y / (2 * N)
+
 class FFT:
     """
     Class for performing fourier transforms on a cartesian grid.
@@ -136,12 +159,19 @@ class FFT:
             fft_axes = list(set(axes) & set(self._fft_axes))
             dct_axes = list(set(axes) & set(self._dct_axes))
 
-        # fourier transform for periodic boundary conditions
-        u_hat = ncp.fft.fftn(u, axes=fft_axes)
+        u_hat = u
         
         # discrete cosine transform
         for axis in dct_axes:
-            u_hat = scp.fft.dct(u_hat, type=2, axis=axis)
+            if config.backend_is_jax:
+                u_hat = dct_type2(u_hat, axis, u_hat.shape[axis])
+                # u_hat = scp.fft.dct(u_hat, type=2, axis=axis)
+            else:
+                u_hat = scp.fft.dct(u_hat, type=2, axis=axis)
+
+        # fourier transform for periodic boundary conditions
+        u_hat = ncp.fft.fftn(u_hat, axes=fft_axes)
+        
 
         return u_hat
 
@@ -174,7 +204,11 @@ class FFT:
         
         # discrete cosine transform
         for axis in dct_axes:
-            u = scp.fft.idct(u, type=2, axis=axis)
+            if config.backend_is_jax:
+                # u = scp.fft.idct(u, type=2, axis=axis)
+                u = dct_type3(u, axis, u.shape[axis])
+            else:
+                u = scp.fft.idct(u, type=2, axis=axis)
 
         return u
 

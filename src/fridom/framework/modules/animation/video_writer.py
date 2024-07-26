@@ -1,5 +1,6 @@
 # Import external modules
 from typing import TYPE_CHECKING
+import warnings
 # Import internal modules
 from fridom.framework import config
 from fridom.framework.to_numpy import to_numpy
@@ -31,6 +32,8 @@ class VideoWriter(Module):
         The filename of the video (will be stored in videos/filename).
     `fps` : `int`, optional (default=30)
         The frames per second of the video.
+    'parallel' : `bool`, optional (default=True)
+        If True, the video writer will use parallelism to create the video.
     `max_jobs` : `float`, optional (default=0.4)
         The maximum fraction of the available threads that will be used.
     
@@ -54,6 +57,7 @@ class VideoWriter(Module):
                  interval: int=50,
                  filename: str="output.mp4", 
                  fps: int=30,
+                 parallel: bool=False,
                  max_jobs: float=0.4,
                  name="Video Writer") -> None:
         import os
@@ -66,6 +70,9 @@ class VideoWriter(Module):
                          max_jobs=max_jobs)
         # set the flag for MPI availability
         self.mpi_available = False
+        self.writer = None
+        self.parallel = parallel
+        self.fig = None
         return
 
     @setup_module
@@ -82,8 +89,10 @@ class VideoWriter(Module):
             os.remove(self.filename)
 
         # use maximum of 40% the available threads
-        import multiprocessing as mp
-        self.maximum_jobs = int(self.max_jobs*mp.cpu_count())
+        if self.parallel:
+            import multiprocessing as mp
+            self.maximum_jobs = int(self.max_jobs*mp.cpu_count())
+        self.fig = None
         return
 
     @module_method
@@ -115,6 +124,10 @@ class VideoWriter(Module):
             config.logger.info("Collecting remaining figures")
             self.collect_figures()
         self.writer.close()
+        if self.fig is not None:
+            import matplotlib.pyplot as plt
+            plt.close(self.fig)
+            self.fig = None
         return
 
     @module_method
@@ -126,6 +139,13 @@ class VideoWriter(Module):
         if mz.it % self.interval != 0:
             return mz
 
+        if self.parallel:
+            self.parallel_update(mz)
+        else:
+            self.single_update(mz)
+        return mz
+
+    def parallel_update(self, mz: 'ModelState'):
         # collect finished figures
         self.collect_figures()
 
@@ -136,13 +156,30 @@ class VideoWriter(Module):
         # create a new figure
         import multiprocessing as mp
         q = mp.Queue()
+        diagnostics = self.mset.diagnostics
+        self.mset.diagnostics = None
+
         kw = {"mz": to_numpy(mz), "output_queue": q, "model_plotter": self.model_plotter}
         job = mp.Process(target=VideoWriter.p_make_figure, kwargs=kw)
-        job.start()
+        self.mset.diagnostics = diagnostics
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            job.start()
 
         self.open_queues.append(q)
         self.running_jobs.append(job)
-        return mz
+        return
+    
+    def single_update(self, mz: 'ModelState'):
+        if self.fig is None:
+            self.fig = self.model_plotter.create_figure()
+        else:
+            self.fig.clear()
+        self.model_plotter.update_figure(fig=self.fig, mz=mz)
+        img = self.model_plotter.convert_to_img(self.fig)
+        self.writer.append_data(img)
+        return
 
     def collect_figures(self):
         while len(self.running_jobs) > 0:
@@ -172,7 +209,20 @@ class VideoWriter(Module):
         res += f"    max_jobs: {self.max_jobs}\n"
         return res
 
+    def __to_numpy__(self, memo):
+        return self.__deepcopy__(memo)
 
+    def __deepcopy__(self, memo):
+        dont_copy = ["writer", "fig"]
+        # now deepcopy the object
+        from copy import deepcopy
+        new = self.__class__.__new__(self.__class__)
+        for key in self.__dict__:
+            if key in dont_copy:
+                setattr(new, key, getattr(self, key))
+            else:
+                setattr(new, key, deepcopy(getattr(self, key), memo))
+        return new
 
     # =====================================================================
     #  PARALLEL FUNCTIONS
@@ -187,7 +237,7 @@ class VideoWriter(Module):
             modelplot (ModelPlotter): model plotter object
             output_queue (mp.Queue) : output queue
         """
-        config.set_backend("numpy")
+        config.set_backend(config.Backend.NUMPY, silent=True)
         # get output queue
         output_queue = kwargs["output_queue"]
         model_plotter = kwargs["model_plotter"]

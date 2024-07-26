@@ -32,6 +32,9 @@ class ModelPlotterBase:
     --------
     >>> TODO: add example from nonhydrostatic model
     """
+    def __init__(self):
+        return
+
     def create_figure():
         """
         This method should create a figure object 

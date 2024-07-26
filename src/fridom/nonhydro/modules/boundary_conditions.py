@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
-from fridom.framework.modules.module import Module
+from fridom.framework.modules.module import Module, module_method
 from fridom.framework.grid.cartesian import Grid
 # Import type information
 if TYPE_CHECKING:
@@ -21,38 +21,47 @@ def apply_cartesian_bc(z: 'dict[str, np.ndarray]',
     righti = slice(-subdomain.halo - 1, None)  # include the right edge
     # apply boundary conditions
     if not grid.periodic_bounds[0]:
+        lleft = (left, slice(None), slice(None))
+        rright = (right, slice(None), slice(None))
+        rrighti = (righti, slice(None), slice(None))
         if subdomain.is_left_edge[0]:
-            z["u"] = utils.modify_array(z["u"], left, 0)
-            z["v"] = utils.modify_array(z["v"], left, 0)
-            z["w"] = utils.modify_array(z["w"], left, 0)
-            z["b"] = utils.modify_array(z["b"], left, 0)
+            z["u"] = utils.modify_array(z["u"], lleft, 0)
+            z["v"] = utils.modify_array(z["v"], lleft, 0)
+            z["w"] = utils.modify_array(z["w"], lleft, 0)
+            z["b"] = utils.modify_array(z["b"], lleft, 0)
         if subdomain.is_right_edge[0]:
-            z["u"] = utils.modify_array(z["u"], righti, 0)
-            z["v"] = utils.modify_array(z["v"], right, 0)
-            z["w"] = utils.modify_array(z["w"], right, 0)
-            z["b"] = utils.modify_array(z["b"], right, 0)
+            z["u"] = utils.modify_array(z["u"], rrighti, 0)
+            z["v"] = utils.modify_array(z["v"], rright, 0)
+            z["w"] = utils.modify_array(z["w"], rright, 0)
+            z["b"] = utils.modify_array(z["b"], rright, 0)
     if not grid.periodic_bounds[1]:
+        lleft = (slice(None), left, slice(None))
+        rright = (slice(None), right, slice(None))
+        rrighti = (slice(None), righti, slice(None))
         if subdomain.is_left_edge[1]:
-            z["u"] = utils.modify_array(z["u"], left, 0)
-            z["v"] = utils.modify_array(z["v"], left, 0)
-            z["w"] = utils.modify_array(z["w"], left, 0)
-            z["b"] = utils.modify_array(z["b"], left, 0)
+            z["u"] = utils.modify_array(z["u"], lleft, 0)
+            z["v"] = utils.modify_array(z["v"], lleft, 0)
+            z["w"] = utils.modify_array(z["w"], lleft, 0)
+            z["b"] = utils.modify_array(z["b"], lleft, 0)
         if subdomain.is_right_edge[1]:
-            z["u"] = utils.modify_array(z["u"], right, 0)
-            z["v"] = utils.modify_array(z["v"], righti, 0)
-            z["w"] = utils.modify_array(z["w"], right, 0)
-            z["b"] = utils.modify_array(z["b"], right, 0)
+            z["u"] = utils.modify_array(z["u"], rright, 0)
+            z["v"] = utils.modify_array(z["v"], rrighti, 0)
+            z["w"] = utils.modify_array(z["w"], rright, 0)
+            z["b"] = utils.modify_array(z["b"], rright, 0)
     if not grid.periodic_bounds[2]:
+        lleft = (slice(None), slice(None), left)
+        rright = (slice(None), slice(None), right)
+        rrighti = (slice(None), slice(None), righti)
         if subdomain.is_left_edge[2]:
-            z["u"] = utils.modify_array(z["u"], left, 0)
-            z["v"] = utils.modify_array(z["v"], left, 0)
-            z["w"] = utils.modify_array(z["w"], left, 0)
-            z["b"] = utils.modify_array(z["b"], left, 0)
+            z["u"] = utils.modify_array(z["u"], lleft, 0)
+            z["v"] = utils.modify_array(z["v"], lleft, 0)
+            z["w"] = utils.modify_array(z["w"], lleft, 0)
+            z["b"] = utils.modify_array(z["b"], lleft, 0)
         if subdomain.is_right_edge[2]:
-            z["u"] = utils.modify_array(z["u"], right, 0)
-            z["v"] = utils.modify_array(z["v"], right, 0)
-            z["w"] = utils.modify_array(z["w"], righti, 0)
-            z["b"] = utils.modify_array(z["b"], right, 0)
+            z["u"] = utils.modify_array(z["u"], rright, 0)
+            z["v"] = utils.modify_array(z["v"], rright, 0)
+            z["w"] = utils.modify_array(z["w"], rrighti, 0)
+            z["b"] = utils.modify_array(z["b"], rright, 0)
     return z
     
 
@@ -68,16 +77,18 @@ class BoundaryConditions(Module):
     def __init__(self, name: str = "BoundaryConditions"):
         super().__init__(name=name)
 
-    def update_boundary_conditions(self, mz: 'ModelState') -> None:
-        self.apply_boundary_conditions(mz.z)
-        return
+    @module_method
+    def update(self, mz: 'ModelState') -> 'ModelState':
+        mz.z = self.apply_boundary_conditions(mz.z)
+        return mz
     
-    def apply_boundary_conditions(self, z: 'State') -> None:
+    def apply_boundary_conditions(self, z: 'State') -> 'State':
         if all(self.grid.periodic_bounds):
-            return
+            return z
 
         if isinstance(self.grid, Grid):
             z.arr_dict = apply_cartesian_bc(z.arr_dict, self.grid)
+            return z
         else:
             raise NotImplementedError("Only Cartesian grid is supported.")
         

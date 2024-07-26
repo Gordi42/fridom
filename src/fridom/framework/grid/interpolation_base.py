@@ -30,7 +30,7 @@ class InterpolationBase:
         return
     
     def setup(self, mset: 'ModelSettingsBase') -> None:
-        raise NotImplementedError
+        return
 
     def interpolate(self, 
                     arr: 'ndarray', 
@@ -60,4 +60,4 @@ class InterpolationBase:
         `ndarray`
             The interpolated array.
         """
-        raise NotImplementedError
+        return arr

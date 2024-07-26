@@ -6,7 +6,7 @@ from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
-    from fridom.nonhydro.model_settings import ModelSettings
+    from fridom.framework.grid import InterpolationBase
 
 
 class LinearTendency(Module):
@@ -14,14 +14,17 @@ class LinearTendency(Module):
     This class computes the linear tendency of the model.
     """
     _dynamic_attributes = set(["mset"])
-    def __init__(self):
+    def __init__(self, interpolation: 'InterpolationBase | None' = None):
         super().__init__(name="Linear Tendency")
         self.required_halo = 1
+        self.interpolation = interpolation
 
     @setup_module
     def setup(self):
-        self.quarter = config.dtype_real(0.25)
-        self.half = config.dtype_real(0.5)
+        if self.interpolation is None:
+            self.interpolation = self.mset.grid._interp_mod
+        else:
+            self.interpolation.setup(mset=self.mset)
         return
 
     @module_method
@@ -39,7 +42,7 @@ class LinearTendency(Module):
         dsqr = self.mset.dsqr
         f_cor = self.mset.f_coriolis
         N2 = self.mset.N2
-        interp = self.mset.grid.interpolate
+        interp = self.interpolation.interpolate
 
         # calculate u-tendency
         dz.u.arr = interp(v.arr, v.position, u.position) * f_cor

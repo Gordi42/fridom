@@ -62,6 +62,9 @@ def module_method(method):
             if self.log_level is not None:
                 config.set_log_level(old_log_level)
             return result
+        else:
+            if method.__name__ == "update":
+                return kwargs.get('mz')
     return wrapper
 
 class Module:

@@ -258,32 +258,6 @@ class DomainDecomposition:
         recv_from_next = _make_slice_tuple(slice(-halo, None), n_dims)
         recv_from_prev = _make_slice_tuple(slice(None, halo), n_dims)
 
-        # ----------------------------------------------------------------
-        #  Create some private jitted functions
-        # ----------------------------------------------------------------
-
-        @partial(utils.jaxjit, static_argnames=['axis'])
-        def _sync_axis_same_proc(arrs: tuple[np.ndarray], 
-                                axis: int,) -> tuple[np.ndarray]:
-            if n_global[axis] < halo:
-                pad = config.ncp.pad
-                ics = inner[axis]
-                pad_width = paddings[axis]
-                return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
-            else:
-                rfn = recv_from_next[axis]
-                rfp = recv_from_prev[axis]
-                stn = send_to_next[axis]
-                stp = send_to_prev[axis]
-                if config.backend_is_jax:
-                    arrs = tuple(arr.at[rfn].set(arr[stp]) for arr in arrs)
-                    arrs = tuple(arr.at[rfp].set(arr[stn]) for arr in arrs)
-                else:
-                    for arr in arrs:
-                        arr[rfn] = arr[stp]
-                        arr[rfp] = arr[stn]
-                return arrs
-
         # --------------------------------------------------------------
         #  Set the attributes
         # --------------------------------------------------------------
@@ -299,9 +273,6 @@ class DomainDecomposition:
         self._rank = rank               # rank of this processor
         self._all_subdomains = all_subdomains  # list of all subdomains
         self._my_subdomain = my_subdomain  # subdomain of this processor
-
-        # private methods
-        self._sync_axis_same_proc = _sync_axis_same_proc
 
         # private attributes
         self._subcomms = subcomms
@@ -403,6 +374,27 @@ class DomainDecomposition:
                 arrs = self._sync_axis(arrs, axis)
         return arrs
 
+    @partial(utils.jaxjit, static_argnames=['axis'])
+    def _sync_axis_same_proc(self, arrs: tuple[np.ndarray], 
+                            axis: int,) -> tuple[np.ndarray]:
+        if self.n_global[axis] < self.halo:
+            pad = config.ncp.pad
+            ics = self.inner[axis]
+            pad_width = self.paddings[axis]
+            return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
+        else:
+            rfn = self._recv_from_next[axis]
+            rfp = self._recv_from_prev[axis]
+            stn = self._send_to_next[axis]
+            stp = self._send_to_prev[axis]
+            if config.backend_is_jax:
+                arrs = tuple(arr.at[rfn].set(arr[stp]) for arr in arrs)
+                arrs = tuple(arr.at[rfp].set(arr[stn]) for arr in arrs)
+            else:
+                for arr in arrs:
+                    arr[rfn] = arr[stp]
+                    arr[rfp] = arr[stn]
+            return arrs
 
     @partial(utils.jaxjit, static_argnames='axis')
     def _sync_axis(self, arrs: tuple[np.ndarray], axis: int) -> tuple[np.ndarray]:
@@ -553,6 +545,14 @@ class DomainDecomposition:
         except:
             pass
         return
+
+    def __reduce__(self):
+        args = (self._n_global, self._halo, self._shared_axes)
+        return (self.__class__, args)
+
+    def __setstate__(self, state):
+        self.__init__(*state)
+        return self
 
     # ================================================================
     #  Properties

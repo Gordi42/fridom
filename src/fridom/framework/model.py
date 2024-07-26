@@ -224,11 +224,11 @@ class Model:
         self.z.sync()
         self.timer.get("sync").stop()
 
-        # apply boundary conditions to the state variable
-        # self.model_state = self.bc.update(mz=self.model_state)
-
         # perform the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
+
+        # apply boundary conditions to the state variable
+        self.model_state = self.bc.update(mz=self.model_state)
 
         # make diagnostics
         self.model_state = self.diagnostics.update(self.model_state)

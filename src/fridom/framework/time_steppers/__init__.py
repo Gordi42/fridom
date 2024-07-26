@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:
+    from . import runge_kutta
+
     from .time_stepper import TimeStepper
     from .adam_bashforth import AdamBashforth
     
@@ -27,10 +29,10 @@ if TYPE_CHECKING:
 
 # Set up dictionary that maps an import to a path
 # items in the all_modules_by_origin dictionary are imported as modules
-all_modules_by_origin = { }
+base_path = "fridom.framework.time_steppers"
+all_modules_by_origin = {base_path: ["runge_kutta"], }
 
 # items in the all_imports_by_origin dictionary are imported as elements of a module
-base_path = "fridom.framework.time_steppers"
 all_imports_by_origin = { 
     f"{base_path}.time_stepper": ["TimeStepper"],
     f"{base_path}.adam_bashforth": ["AdamBashforth"],

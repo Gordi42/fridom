@@ -2,6 +2,7 @@
 from copy import deepcopy
 from mpi4py import MPI
 import numpy as np
+import inspect
 class No_Type: ...
 try:
     import cupy as cp
@@ -37,9 +38,13 @@ def to_numpy(obj, memo=None, _nil=[]):
     y = memo.get(d, _nil)
     if y is not _nil:
         return y
+    
+    # if the object has a __to_numpy__ method, call it
+    if hasattr(obj, '__to_numpy__'):
+        memo[d] = obj.__to_numpy__(memo)
 
     # if the object is a cupy array, convert it to numpy and return it
-    if isinstance(obj, cupy_array):
+    elif isinstance(obj, cupy_array):
         memo[d] = cp.asnumpy(obj)
     
     # if the object is a jax array, convert it to numpy and return it
@@ -49,6 +54,18 @@ def to_numpy(obj, memo=None, _nil=[]):
     # if the object is a numpy array, return it
     elif isinstance(obj, (np.ndarray, np.generic)):
         memo[d] = deepcopy(obj)
+
+    # if the object is a module, return it
+    elif inspect.ismodule(obj):
+        memo[d] = obj
+
+    # if the object is a function, return it
+    elif inspect.isfunction(obj):
+        memo[d] = obj
+
+    # if the object is a method, return it
+    elif inspect.ismethod(obj):
+        memo[d] = obj
 
     # if the object is a dictionary, convert all values
     elif isinstance(obj, dict):

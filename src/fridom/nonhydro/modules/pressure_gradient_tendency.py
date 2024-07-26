@@ -28,18 +28,10 @@ class PressureGradientTendency(Module):
         super().__init__(name="Pressure Gradient")
         self.required_halo = 1
 
-    @setup_module
-    def setup(self):
-        self.bc = self.mset.bc
-        self.bc.setup(mset=self.mset)
-        return
-
     @module_method
     def update(self, mz: 'ModelState') -> 'ModelState':
         mz.dz.arr_dict = pressure_gradient_tendency(
             self.mset, mz.z_diag.p.arr, mz.dz.arr_dict)
-
-        self.bc.apply_boundary_conditions(mz.dz)
         return mz
 
     @property

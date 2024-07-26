@@ -112,11 +112,6 @@ class ModelSettingsBase:
         from fridom.framework.timing_module import TimingModule
         self.timer = TimingModule()
 
-        # State Constructors
-        from fridom.framework.state_base import StateBase
-        self.state_constructor = lambda: StateBase(self, [])
-        self.diagnostic_state_constructor = lambda: StateBase(self, [])
-
         # Set attributes from keyword arguments
         self.set_attributes(**kwargs)
 
