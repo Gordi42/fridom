@@ -1,5 +1,25 @@
 from fridom.nonhydro.state import State
+from fridom.framework import config
 from fridom.nonhydro.model_settings import ModelSettings
+
+# Discrete spectral operators (one-hat-plus etc.)
+def ohp(kx, dx):
+    return (1 + config.ncp.exp(1j*kx*dx)) / 2
+
+def ohm(kx, dx):
+    return (1 + config.ncp.exp(-1j*kx*dx)) / 2
+
+def khp(kx, dx):
+    return 1j * (1 - config.ncp.exp(1j*kx*dx)) / dx
+
+def khm(kx, dx):
+    return 1j * (config.ncp.exp(-1j*kx*dx) - 1) / dx
+
+def khpm(kx, dx):
+    return 2 * (1 - config.ncp.cos(kx*dx)) / dx**2
+
+def ohpm(kx, dx):
+    return (1 + config.ncp.cos(kx*dx)) / 2
 
 
 class VecQ(State):
@@ -24,18 +44,10 @@ class VecQ(State):
 
         # Shortcuts
         grid = mset.grid
-        cp = self.cp
-        kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
-        dx = mset.dx; dy = mset.dy; dz = mset.dz
-        f0 = mset.f0; N0 = mset.N0; dsqr = mset.dsqr
-
-        # Discrete spectral operators (one-hat-plus etc.)
-        ohp  = lambda kx, dx: (1 + cp.exp(1j*kx*dx)) / 2
-        ohm  = lambda kx, dx: (1 + cp.exp(-1j*kx*dx)) / 2
-        khp  = lambda kx, dx: 1j * (1 - cp.exp(1j*kx*dx)) / dx
-        khm  = lambda kx, dx: 1j * (cp.exp(-1j*kx*dx) - 1) / dx
-        khpm = lambda kx, dx: 2 * (1 - cp.cos(kx*dx)) / dx**2
-        ohpm = lambda kx, dx: (1 + cp.cos(kx*dx)) / 2
+        ncp = config.ncp
+        kx, ky, kz = grid.K
+        dx, dy, dz = grid.dx
+        f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
         
         # Discrete spectral horizontal wavenumber squared
         kh2_hat = khpm(kx, dx) + khpm(ky, dy)
@@ -44,45 +56,51 @@ class VecQ(State):
         is_geostrophic = (s == 0)
         is_divergent   = (s == "d")
 
-        # Mask to separate inertial modes from inertia-gravity modes
-        ng = (kx**2 + ky**2 == 0)       # inertial modes
-        g = (kx**2 + ky**2 != 0)        # inertia-gravity modes
-
+        # We first consider the case of nonzero horizontal wavenumbers
         if is_geostrophic:
-            # Horizontal constant geostrophic mode
-            self.u[ng] = 0
-            self.v[ng] = 0
-            self.w[ng] = 0
-            self.b[ng] = 1
-
-            # Geostrophic mode
-            self.u[g] = (-ohp(kx,dx)*ohm(ky,dy)*ohp(kz,dz)*khp(ky,dy))[g]
-            self.v[g] = ( ohm(kx,dx)*ohp(ky,dy)*ohp(kz,dz)*khp(kx,dx))[g]
-            self.w[g] = 0
-            self.b[g] = (ohpm(kx,dx)*ohpm(ky,dy)*f0*khp(kz,dz))[g]
+            u = -ohp(kx,dx)*ohm(ky,dy)*ohp(kz,dz)*khp(ky,dy)
+            v =  ohm(kx,dx)*ohp(ky,dy)*ohp(kz,dz)*khp(kx,dx)
+            w = ncp.zeros_like(kx)
+            b = ohpm(kx,dx)*ohpm(ky,dy)*f0*khp(kz,dz)
         elif is_divergent:
-            self.u[:] = khp(kx,dx)
-            self.v[:] = khp(ky,dy)
-            self.w[:] = khp(kz,dz)
-            self.b[:] = 0
+            u = khp(kx,dx)
+            v = khp(ky,dy)
+            w = khp(kz,dz)
+            b = ncp.zeros_like(kx)
         else:
-            # Inertial modes
-            self.u[ng] = -1j*s
-            self.v[ng] = 1
-            self.w[ng] = 0
-            self.b[ng] = 0
-
-            # Inertia-gravity wave modes
-            # Eigenvalues (frequency)
             om_hat = -s * self.grid.omega_space_discrete
+            u = (khm(kz,dz) * (1j*om_hat*khp(kx,dx) + 
+                  ohp(kx,dx)*ohm(ky,dy)*f0*khp(ky,dy)))
+            v = (khm(kz,dz) * (1j*om_hat*khp(ky,dy) -
+                  ohm(kx,dx)*ohp(ky,dy)*f0*khp(kx,dx)))
+            w = -1j * om_hat * kh2_hat
+            b = ohm(kz,dz) * N0**2 * kh2_hat
+        
+        # Now we consider the case of zero horizontal wavenumbers
+        # (ov -> only vertical)
+        if is_geostrophic:
+            u_ov = 0
+            v_ov = 0
+            w_ov = 0
+            b_ov = 1
+        elif is_divergent:
+            u_ov = khp(kx,dx) # should be zero
+            v_ov = khp(ky,dy) # should be zero
+            w_ov = khp(kz,dz)
+            b_ov = 0
+        else:
+            u_ov = -1j*s
+            v_ov = 1
+            w_ov = 0
+            b_ov = 0
 
-            # Eigenvectors of inertia-gravity wave modes
-            self.u[g] = (khm(kz,dz) * (1j*om_hat*khp(kx,dx) + 
-                          ohp(kx,dx)*ohm(ky,dy)*f0*khp(ky,dy)))[g]
-            self.v[g] = (khm(kz,dz) * (1j*om_hat*khp(ky,dy) -
-                          ohm(kx,dx)*ohp(ky,dy)*f0*khp(kx,dx)))[g]
-            self.w[g] = (-1j*om_hat*kh2_hat)[g]
-            self.b[g] = (ohm(kz,dz) * N0**2 * kh2_hat)[g]
+        # Mask to separate inertial modes from inertia-gravity modes
+        nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
+
+        self.u.arr = ncp.where(nonzero_horizontal, u, u_ov)
+        self.v.arr = ncp.where(nonzero_horizontal, v, v_ov)
+        self.w.arr = ncp.where(nonzero_horizontal, w, w_ov)
+        self.b.arr = ncp.where(nonzero_horizontal, b, b_ov)
 
 
 class VecP(State):
@@ -103,22 +121,14 @@ class VecP(State):
                     -1  => negative inertial-gravity)
             grid: The Grid object.
         """
-        super().__init__(grid, is_spectral=True)
+        super().__init__(mset=mset, is_spectral=True)
 
         # Shortcuts
-        cp = self.cp
+        ncp = config.ncp
         grid = mset.grid
-        kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
-        dx = mset.dx; dy = mset.dy; dz = mset.dz
-        f0 = mset.f0; N0 = mset.N0; dsqr = mset.dsqr
-
-        # Discrete spectral operators (one-hat-plus etc.)
-        ohp = lambda kx, dx: (1 + cp.exp(1j*kx*dx)) / 2
-        ohm = lambda kx, dx: (1 + cp.exp(-1j*kx*dx)) / 2
-        khp = lambda kx, dx: 1j * (1 - cp.exp(1j*kx*dx)) / dx
-        khm = lambda kx, dx: 1j * (cp.exp(-1j*kx*dx) - 1) / dx
-        khpm = lambda kx, dx: 2 * (1 - cp.cos(kx*dx)) / dx**2
-        ohpm = lambda kx, dx: (1 + cp.cos(kx*dx)) / 2
+        kx, ky, kz = grid.K
+        dx, dy, dz = grid.dx
+        f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
         
         # Discrete spectral horizontal wavenumber squared
         kh2_hat = khpm(kx, dx) + khpm(ky, dy)
@@ -128,56 +138,56 @@ class VecP(State):
         is_divergent = (s == "d")
 
         # Mask to separate inertial modes from inertia-gravity modes
+        nonzero_horizontal = (kx**2 + ky**2 != 0)
         g = (kx**2 + ky**2 != 0)
 
         # Construct the eigenvector
         q = VecQ(s, mset)
-        self.u = q.u.copy(); self.v = q.v.copy() 
-        self.w = q.w.copy(); self.b = q.b.copy()
+        from copy import deepcopy
+        self.u = deepcopy(q.u); self.v = deepcopy(q.v)
+        self.w = deepcopy(q.w); self.b = deepcopy(q.b)
 
+        # the zero horizontal wavenumber modes are the same as the eigenvector
+        # So we only need to calculate the horizontal varying modes
         if is_geostrophic:
-            # Horizontal constant geostrophic mode is same as the eigenvector
-            # Calculate the horizontal varying geostrophic modes:
-            self.u[g] = (-N0**2*ohp(kx,dx)*ohm(ky,dy)*ohp(kz,dz)*khp(ky,dy))[g]
-            self.v[g] = ( N0**2*ohm(kx,dx)*ohp(ky,dy)*ohp(kz,dz)*khp(kx,dx))[g]
-            self.w[g] = 0
-            self.b[g] = (ohpm(kx,dx)*ohpm(ky,dy)*f0*khp(kz,dz))[g]
-
+            u = -N0**2 * ohp(kx,dx) * ohm(ky,dy) * ohp(kz,dz) * khp(ky,dy)
+            v =  N0**2 * ohm(kx,dx) * ohp(ky,dy) * ohp(kz,dz) * khp(kx,dx)
+            w = 0
+            b = ohpm(kx,dx) * ohpm(ky,dy) * f0 * khp(kz,dz)
         elif is_divergent:
             # Divergent modes are the same as the eigenvector
-            pass
+            u = self.u.arr
+            v = self.v.arr
+            w = self.w.arr
+            b = self.b.arr
         else:
-            # Inertial modes are the same as the eigenvector
-            # Only calculate the inertia-gravity modes:
             # Scaling factor
-            gamma = cp.zeros_like(kx)
-            gamma[g] = (kh2_hat[g] + khpm(kz,dz)[g]) / \
-                       (dsqr * kh2_hat[g] + khpm(kz,dz)[g])
+            gamma = (kh2_hat + khpm(kz,dz)) / \
+                        (dsqr * kh2_hat + khpm(kz,dz))
 
             # Eigenvalues (frequency)
             om_hat = -s * self.grid.omega_space_discrete
 
-            self.u[g] = (khm(kz,dz) * (1j*om_hat*khp(kx,dx) + 
-                            ohp(kx,dx)*ohm(ky,dy)*f0*gamma*khp(ky,dy)))[g]
-            self.v[g] = (khm(kz,dz) * (1j*om_hat*khp(ky,dy) -
-                            ohm(kx,dx)*ohp(ky,dy)*f0*gamma*khp(kx,dx)))[g]
-            self.w[g] = (-1j*om_hat*kh2_hat)[g]
-            self.b[g] = (ohm(kz,dz) * gamma * kh2_hat)[g]
+            u = (khm(kz,dz) * (1j*om_hat*khp(kx,dx) +
+                    ohp(kx,dx)*ohm(ky,dy)*f0*gamma*khp(ky,dy)))
+            v = (khm(kz,dz) * (1j*om_hat*khp(ky,dy) -
+                    ohm(kx,dx)*ohp(ky,dy)*f0*gamma*khp(kx,dx)))
+            w = -1j * om_hat * kh2_hat
+            b = ohm(kz,dz) * gamma * kh2_hat
+
+        self.u.arr = ncp.where(nonzero_horizontal, u, self.u.arr)
+        self.v.arr = ncp.where(nonzero_horizontal, v, self.v.arr)
+        self.w.arr = ncp.where(nonzero_horizontal, w, self.w.arr)
+        self.b.arr = ncp.where(nonzero_horizontal, b, self.b.arr)
 
         # normalize the vector
-        norm = cp.abs(q.dot(self))
+        norm = ncp.abs((q.dot(self)).arr)
         # avoid division by zero
         mask = (norm > 1e-10)
-        self.u[mask] /= norm[mask]
-        self.v[mask] /= norm[mask]
-        self.w[mask] /= norm[mask]
-        self.b[mask] /= norm[mask]
-        # set to zero where the norm is zero
-        zero_mask = (norm <= 1e-10)
-        self.u[zero_mask] *= 0
-        self.v[zero_mask] *= 0
-        self.w[zero_mask] *= 0
-        self.b[zero_mask] *= 0
+        self.u.arr = ncp.where(mask, self.u.arr/norm, 0)
+        self.v.arr = ncp.where(mask, self.v.arr/norm, 0)
+        self.w.arr = ncp.where(mask, self.w.arr/norm, 0)
+        self.b.arr = ncp.where(mask, self.b.arr/norm, 0)
 
 
 class VecQAnalytical(State):
@@ -201,52 +211,60 @@ class VecQAnalytical(State):
 
         # Shortcuts
         grid = mset.grid
-        kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
+        kx, ky, kz = grid.K
         kh2 = kx**2 + ky**2
-        f0 = mset.f0; N0 = mset.N0; dsqr = mset.dsqr
+        f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
 
         # Check the mode of the eigenvector
         is_geostrophic = (s == 0)
         is_divergent = (s == "d")
 
-        # Mask to separate inertial modes from inertia-gravity modes
-        ng = (kh2 == 0)
-        g = (kh2 != 0)
-
+        # We first consider the case of nonzero horizontal wavenumbers
         if is_geostrophic:
-            # Horizontal constant geostrophic mode
-            self.u[ng] = 0
-            self.v[ng] = 0
-            self.w[ng] = 0
-            self.b[ng] = 1
-
-            # Geostrophic mode
-            self.u[g] = -ky[g]
-            self.v[g] =  kx[g]
-            self.w[g] = 0
-            self.b[g] = f0 * kz[g]
+            u = -ky
+            v =  kx
+            w = config.ncp.zeros_like(kx)
+            b = f0 * kz
         elif is_divergent:
-            # Divergent mode
-            self.u[:] = kx
-            self.v[:] = ky
-            self.w[:] = kz
-            self.b[:] = 0
+            u = kx
+            v = ky
+            w = kz
+            b = config.ncp.zeros_like(kx)
         else:
-            # Inertial modes
-            self.u[ng] = -1j*s
-            self.v[ng] = 1
-            self.w[ng] = 0
-            self.b[ng] = 0
-
-            # Inertia-gravity wave modes
             # Eigenvalues (frequency)
             om = -s * self.grid.omega_analytical
 
             # Eigenvectors of inertia-gravity wave modes
-            self.u[g] = kz[g]*(1j*om[g]*kx[g] + f0*ky[g])
-            self.v[g] = kz[g]*(1j*om[g]*ky[g] - f0*kx[g])
-            self.w[g] = -1j*om[g]*kh2[g]
-            self.b[g] = N0**2*kh2[g]
+            u = kz * (1j * om * kx + f0 * ky)
+            v = kz * (1j * om * ky - f0 * kx)
+            w = -1j * om * kh2
+            b = N0**2 * kh2
+
+        # Now we consider the case of zero horizontal wavenumbers
+        # (ov -> only vertical)
+        if is_geostrophic:
+            u_ov = 0
+            v_ov = 0
+            w_ov = 0
+            b_ov = 1
+        elif is_divergent:
+            u_ov = kx
+            v_ov = ky
+            w_ov = kz
+            b_ov = 0
+        else:
+            u_ov = -1j*s
+            v_ov = 1
+            w_ov = 0
+            b_ov = 0
+
+        # Mask to separate inertial modes from inertia-gravity modes
+        nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
+
+        self.u.arr = config.ncp.where(nonzero_horizontal, u, u_ov)
+        self.v.arr = config.ncp.where(nonzero_horizontal, v, v_ov)
+        self.w.arr = config.ncp.where(nonzero_horizontal, w, w_ov)
+        self.b.arr = config.ncp.where(nonzero_horizontal, b, b_ov)
 
 
 class VecPAnalytical(State):
@@ -269,51 +287,59 @@ class VecPAnalytical(State):
         super().__init__(mset, is_spectral=True)
 
         # Shortcuts
+        ncp = config.ncp
         grid = mset.grid
-        kx = grid.K[0]; ky = grid.K[1]; kz = grid.K[2]
+        kx, ky, kz = grid.K
         kh2 = kx**2 + ky**2
-        f0 = mset.f0; N0 = mset.N0; dsqr = mset.dsqr
+        f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
 
         # Check the mode of the eigenvector
         is_geostrophic = (s == 0)
         is_divergent = (s == "d")
 
         # Mask to separate inertial modes from inertia-gravity modes
-        g = (kh2 != 0)
+        nonzero_horizontal = (kx**2 + ky**2 != 0)
 
         # Construct the eigenvector
         q = VecQAnalytical(s, mset)
         self.u = q.u.copy(); self.v = q.v.copy() 
         self.w = q.w.copy(); self.b = q.b.copy()
 
+        # the zero horizontal wavenumber modes are the same as the eigenvector
+        # So we only need to calculate the horizontal varying modes
         if is_geostrophic:
-            # Horizontal constant geostrophic mode is same as the eigenvector
-            # Calculate the horizontal varying geostrophic modes:
-            self.u[g] = -N0**2 * ky[g]
-            self.v[g] =  N0**2 * kx[g]
-            self.w[g] = 0
-            self.b[g] = f0 * kz[g]
+            u = -N0**2 * ky
+            v =  N0**2 * kx
+            w = 0
+            b = f0 * kz
         elif is_divergent:
             # Divergent modes are the same as the eigenvector
-            pass
+            u = self.u.arr
+            v = self.v.arr
+            w = self.w.arr
+            b = self.b.arr
         else:
-            # Inertial modes are the same as the eigenvector
-            # Only calculate the inertia-gravity modes:
+            # Scaling factor
+            gamma = (kh2 + kz**2) / (dsqr * kh2 + kz**2)
 
             # Eigenvalues (frequency)
             om = -s * self.grid.omega_analytical
-            # Scaling factor
-            gamma = (kh2[g] + kz[g]**2) / (dsqr * kh2[g] + kz[g]**2)
 
-            self.u[g] = kz[g]*(1j*om[g]*kx[g] + f0*gamma*ky[g])
-            self.v[g] = kz[g]*(1j*om[g]*ky[g] - f0*gamma*kx[g])
-            self.w[g] = -1j*om[g]*kh2[g]
-            self.b[g] = gamma*kh2[g]
+            u = kz * (1j * om * kx + f0 * gamma * ky)
+            v = kz * (1j * om * ky - f0 * gamma * kx)
+            w = -1j * om * kh2
+            b = gamma*kh2
+
+        self.u.arr = ncp.where(nonzero_horizontal, u, self.u.arr)
+        self.v.arr = ncp.where(nonzero_horizontal, v, self.v.arr)
+        self.w.arr = ncp.where(nonzero_horizontal, w, self.w.arr)
+        self.b.arr = ncp.where(nonzero_horizontal, b, self.b.arr)
 
         # normalize the vector
-        norm = self.cp.abs(q.dot(self))
-        mask = (norm != 0)
-        self.u[mask] /= norm[mask]
-        self.v[mask] /= norm[mask]
-        self.w[mask] /= norm[mask]
-        self.b[mask] /= norm[mask]
+        norm = ncp.abs((q.dot(self)).arr)
+        # avoid division by zero
+        mask = (norm > 1e-10)
+        self.u.arr = ncp.where(mask, self.u.arr/norm, 0)
+        self.v.arr = ncp.where(mask, self.v.arr/norm, 0)
+        self.w.arr = ncp.where(mask, self.w.arr/norm, 0)
+        self.b.arr = ncp.where(mask, self.b.arr/norm, 0)

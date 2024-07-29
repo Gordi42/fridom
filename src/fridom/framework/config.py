@@ -210,6 +210,7 @@ enable_jax_jit: bool = True
 jax_jit_was_called: bool = False
 ncp = None  # numpy or cupy
 scp = None  # scipy or cupyx.scipy
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 def set_backend(new_backend: Backend, silent: bool = False):
     """

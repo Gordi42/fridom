@@ -5,6 +5,7 @@ from fridom.framework import utils
 if TYPE_CHECKING:
     from numpy import ndarray
     from fridom.framework.model_settings_base import ModelSettingsBase
+    from fridom.framework.grid.transform_type import TransformType
     from .diff_base import DiffBase
     from .interpolation_base import InterpolationBase
     from .position_base import PositionBase
@@ -80,7 +81,7 @@ class GridBase:
     `interpolate(arr: ndarray, origin: PositionBase, destination: PositionBase) -> ndarray`
         Interpolate an array from one position to another.
     """
-    _dynamic_attributes = ["_X", "_x_global", "_x_local", "_dx", "_dV"]
+    _dynamic_attributes = ["_X", "_x_global", "_x_local"]
     def __init__(self, n_dims: int) -> None:
 
         self.name = "GridBase"
@@ -126,7 +127,10 @@ class GridBase:
         self._interp_mod.setup(mset=mset)
         return
 
-    def fft(self, arr: 'ndarray') -> 'ndarray':
+    def fft(self, 
+            arr: 'ndarray',
+            transform_types: 'tuple[TransformType] | None' = None
+            ) -> 'ndarray':
         """
         Perform a (fast) fourier transform on the input array.
         
@@ -134,6 +138,8 @@ class GridBase:
         ----------
         `arr` : `ndarray`
             The input array.
+        `transform_types` : `tuple[TransformType]` or `None` (default: `None`)
+            The type of transform to apply to each non-periodic axis.
         
         Returns
         -------
@@ -142,7 +148,10 @@ class GridBase:
         """
         raise NotImplementedError
 
-    def ifft(self, arr:'ndarray') -> 'ndarray':
+    def ifft(self, 
+             arr:'ndarray',
+             transform_types: 'tuple[TransformType] | None' = None
+             ) -> 'ndarray':
         """
         Perform an inverse (fast) fourier transform on the input array.
         
@@ -150,6 +159,8 @@ class GridBase:
         ----------
         `arr` : `ndarray`
             The input array.
+        `transform_types` : `tuple[TransformType]` or `None` (default: `None`)
+            The type of transform to apply to each non-periodic axis.
         
         Returns
         -------

@@ -126,7 +126,7 @@ class StateBase:
         """
         ncp = config.ncp
         cell_volume = ncp.prod(ncp.array(self.grid.dx))
-        return ncp.sqrt(ncp.sum(self.dot(self)) * cell_volume)
+        return ncp.sqrt(ncp.sum(self.dot(self).arr) * cell_volume)
 
     def norm_of_diff(self, other: "StateBase") -> float:
         """

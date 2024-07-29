@@ -8,6 +8,7 @@ from fridom.framework import config, utils
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.grid.position_base import PositionBase
+    from fridom.framework.grid.transform_type import TransformType
 
 
 class FieldVariable:
@@ -31,6 +32,10 @@ class FieldVariable:
         assumed to be fully extended in all directions. If a list of booleans 
         is given, the FieldVariable has no extend in the directions where the
         corresponding entry is False.
+    `transform_types` : `tuple[TransformType]` (default None)
+        Tuple of TransformType objects that specify the type of transform
+        that should be applied to nonperiodic axes (e.g. DST1, DST2, etc.).
+        If None, the default transform type DCT2 is used.
     `arr` : `ndarray` (default None)
         The array to be wrapped
     
@@ -65,27 +70,14 @@ class FieldVariable:
         Compute the square root of the FieldVariable
     `norm_l2()`
         Compute the L2 norm of the FieldVariable
-    `pad_raw(pad_width)`
-        Return a padded version of the FieldVariable with the given padding width
-    `ave(shift, axis)`
-        Compute the average in a given direction
-    `diff_forward(axis)`
-        Compute the forward difference in a given direction
-    `diff_backward(axis)`
-        Compute the backward difference in a given direction
-    `diff_2(axis)`
-        Compute the second order difference in a given direction
     
-    
-    Examples
-    --------
-    TODO
     """
     _dynamic_attributes = set(["arr", "position"])
     def __init__(self, 
                  mset: 'ModelSettingsBase',
                  name: str,
                  position: 'PositionBase',
+                 transform_types: 'tuple[TransformType] | None' = None,
                  is_spectral=False, 
                  long_name="Unnamed", 
                  units="n/a",
@@ -115,6 +107,7 @@ class FieldVariable:
         self.name = name
         self.position = position
         self.long_name = long_name
+        self.transform_types = transform_types
         self.units = units
         self.nc_attrs = nc_attrs or {}
         self.mset = mset
@@ -136,6 +129,7 @@ class FieldVariable:
         return {"mset": self.mset, 
                 "name": self.name,
                 "position": self.position,
+                "transform_types": self.transform_types,
                 "long_name": self.long_name,
                 "units": self.units,
                 "nc_attrs": self.nc_attrs,
@@ -155,11 +149,13 @@ class FieldVariable:
 
         ncp = config.ncp
         if self.is_spectral:
-            res = ncp.array(self.grid.ifft(self.arr).real, 
-                           dtype=config.dtype_real)
+            res = ncp.array(
+                self.grid.ifft(self.arr, self.transform_types).real, 
+                dtype=config.dtype_real)
         else:
-            res = ncp.array(self.grid.fft(self.arr), 
-                           dtype=config.dtype_comp)
+            res = ncp.array(
+                self.grid.fft(self.arr, self.transform_types),
+                dtype=config.dtype_comp)
         from copy import copy
         f = copy(self)
         f.arr = res

@@ -86,11 +86,10 @@ class Grid(CartesianGridBase):
             ncp = config.ncp
             dsqr = self.mset.dsqr
 
-            # get the mean values of stratification and coriolis
-            f2 = ncp.mean(self.mset.f_coriolis)**2
-            N2 = ncp.mean(self.mset.N2)
+            f2 = self.mset.f0**2
+            N2 = self.mset.N2
 
-            if not ncp.allclose(f2, self.mset.f_coriolis**2):
+            if not ncp.allclose(f2, self.mset.f_coriolis.arr**2):
                 print("Warning: Dispersion relation may be wrong when f is varying.")
             if not ncp.allclose(N2, self.mset.N2):
                 print("Warning: Dispersion relation may be wrong when N is varying.")
@@ -124,14 +123,15 @@ class Grid(CartesianGridBase):
             kx, ky, kz = self.K
             dx, dy, dz = self.dx
 
-            # get the mean values of stratification and coriolis
-            f2 = ncp.mean(self.mset.f_coriolis)**2
-            N2 = ncp.mean(self.mset.N2)
+            f2 = self.mset.f0**2
+            N2 = self.mset.N2
 
-            if not ncp.allclose(f2, self.mset.f_coriolis**2):
-                print("Warning: Dispersion relation may be wrong when f is varying.")
+            if not ncp.allclose(f2, self.mset.f_coriolis.arr**2):
+                config.logger.warning(
+                    "Dispersion relation may be wrong when f is varying.")
             if not ncp.allclose(N2, self.mset.N2):
-                print("Warning: Dispersion relation may be wrong when N is varying.")
+                config.logger.warning(
+                    "Dispersion relation may be wrong when N is varying.")
 
             # averaging operator (one hat squared)
             ohpm = lambda kx, dx: (1 + ncp.cos(kx*dx)) / 2

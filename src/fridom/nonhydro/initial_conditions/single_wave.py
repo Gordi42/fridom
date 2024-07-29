@@ -2,13 +2,13 @@
 from typing import TYPE_CHECKING
 import numpy as np
 # Import internal modules
-from fridom.framework import config
+from fridom.framework import config, utils
 from fridom.nonhydro.state import State
 # Import type information
 if TYPE_CHECKING:
     from fridom.nonhydro.model_settings import ModelSettings
 
-class SingleWave(State):
+class SingleWave:
     """
     An initial condition that consist of a single wave with a
     given wavenumber and a given mode.
@@ -35,6 +35,8 @@ class SingleWave(State):
     
     Attributes
     ----------
+    `z` : `State`
+        The state vector
     `omega` : `complex`
         The frequency of the wave (includes effects of time discretization)
         (only for inertia-gravity modes).
@@ -44,7 +46,6 @@ class SingleWave(State):
     """
     def __init__(self, mset: 'ModelSettings', 
                  kx=6, ky=0, kz=4, s=1, phase=0, use_discrete=True) -> None:
-        super().__init__(mset)
 
         # Shortcuts
         ncp = config.ncp
@@ -59,21 +60,26 @@ class SingleWave(State):
         self.kx = grid.k_global[0][ki]
         self.ky = grid.k_global[1][kj]
         self.kz = grid.k_global[2][kk]
-        self.k_loc = (ki, kj, kk)
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
-        from fridom.framework.field_variable import FieldVariable
-        g = FieldVariable(grid, is_spectral=True)
-        g[self.k_loc] = cp.exp(1j*phase)
+        g = ncp.zeros_like(grid.K[0])
+
+        if (self.kx in grid.k_local[0] 
+            and self.ky in grid.k_local[1] 
+            and self.kz in grid.k_local[2]):
+            ki = ncp.argmin(ncp.abs(grid.k_local[0] - self.kx))
+            kj = ncp.argmin(ncp.abs(grid.k_local[1] - self.ky))
+            kk = ncp.argmin(ncp.abs(grid.k_local[2] - self.kz))
+            g = utils.modify_array(g, (ki, kj, kk), 1)
 
         # Construct the eigenvector of the corresponding mode
         if use_discrete:
             from fridom.nonhydro.eigenvectors import VecQ
-            q = VecQ(s, grid)
+            q = VecQ(s, mset)
         else:
             from fridom.nonhydro.eigenvectors import VecQAnalytical
-            q = VecQAnalytical(s, grid)
+            q = VecQAnalytical(s, mset)
 
         # Construct the state
         z = (q * g).fft()
@@ -82,8 +88,7 @@ class SingleWave(State):
         z /= z.norm_l2()
         
         # Set the state to itself
-        self.u[:] = z.u; self.v[:] = z.v
-        self.w[:] = z.w; self.b[:] = z.b
+        self.z = z
 
         # Freqency and period are calculated on demand
         self.__omega = None
@@ -131,6 +136,3 @@ class SingleWave(State):
         if self.__period is None:
             self.__period = 2*self.cp.pi/self.omega.real
         return self.__period
-
-# remove symbols from namespace
-del Grid, State

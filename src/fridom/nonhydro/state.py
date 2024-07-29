@@ -5,6 +5,7 @@ from fridom.framework import config, utils
 from fridom.framework.state_base import StateBase
 from fridom.framework.field_variable import FieldVariable
 from fridom.framework.grid import cartesian
+from fridom.framework.grid.transform_type import TransformType
 from mpi4py import MPI
 # Import type information
 if TYPE_CHECKING:
@@ -28,18 +29,54 @@ class State(StateBase):
             else:
                 raise ValueError("Unknown grid type")
 
-            u = FieldVariable(mset,
-                name="u", long_name="u-velocity",
-                units="m/s", is_spectral=is_spectral, position=u_pos)
-            v = FieldVariable(mset,
-                name="v", long_name="v-velocity",
-                units="m/s", is_spectral=is_spectral, position=v_pos)
-            w = FieldVariable(mset,
-                name="w", long_name="w-velocity",
-                units="m/s", is_spectral=is_spectral, position=w_pos)
-            b = FieldVariable(mset,
-                name="b", long_name="buoyancy", 
-                units="m^2/s^2", is_spectral=is_spectral, position=b_pos)
+            u = FieldVariable(
+                mset,
+                name="u", 
+                long_name="u-velocity",
+                units="m/s", 
+                is_spectral=is_spectral, 
+                position=u_pos,
+                transform_types=(TransformType.DST1,
+                                 TransformType.DCT2,
+                                 TransformType.DCT2)
+                )
+
+            v = FieldVariable(
+                mset,
+                name="v", 
+                long_name="v-velocity",
+                units="m/s", 
+                is_spectral=is_spectral, 
+                position=v_pos,
+                transform_types=(TransformType.DCT2,
+                                 TransformType.DST1,
+                                 TransformType.DCT2)
+                )
+
+            w = FieldVariable(
+                mset,
+                name="w", 
+                long_name="w-velocity",
+                units="m/s", 
+                is_spectral=is_spectral, 
+                position=w_pos,
+                transform_types=(TransformType.DCT2,
+                                 TransformType.DCT2,
+                                 TransformType.DST1)
+                )
+
+            b = FieldVariable(
+                mset,
+                name="b", 
+                long_name="buoyancy", 
+                units="m^2/s^2", 
+                is_spectral=is_spectral, 
+                position=b_pos,
+                transform_types=(TransformType.DST2,
+                                 TransformType.DST2,
+                                 TransformType.DST2)
+                )
+
             field_list = [u, v, w, b]
         super().__init__(mset, field_list, is_spectral)
         self.constructor = State

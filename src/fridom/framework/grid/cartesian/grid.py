@@ -14,6 +14,7 @@ from .position import Position, AxisOffset
 from fridom.framework.utils import humanize_number
 # Import type information
 if TYPE_CHECKING:
+    from fridom.framework.grid.transform_type import TransformType
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.domain_decomposition import Subdomain
     from fridom.framework.grid.diff_base import DiffBase
@@ -123,7 +124,7 @@ class Grid(GridBase):
     """
     _dynamic_attributes = GridBase._dynamic_attributes + [
         '_K', '_k_local', '_k_global', '_domain_decomp',
-        '_pfft', '_fft', '_diff_mod', '_interp_mod',]
+        '_pfft', '_fft', '_diff_mod', '_interp_mod']
     def __init__(self, 
                  N: list[int],
                  L: list[float],
@@ -262,13 +263,21 @@ class Grid(GridBase):
         self._inner_slice = domain_decomp.my_subdomain.inner_slice
         return
 
-    @utils.jaxjit
-    def fft(self, arr: np.ndarray) -> np.ndarray:
-        return self._pfft.forward_apply(arr, self._fft.forward)
+    @partial(utils.jaxjit, static_argnames=["transform_types"])
+    def fft(self, 
+            arr: np.ndarray,
+            transform_types: 'tuple[TransformType] | None' = None
+            ) -> np.ndarray:
+        f = lambda x, axes: self._fft.forward(x, axes, transform_types)
+        return self._pfft.forward_apply(arr, f)
 
-    @utils.jaxjit
-    def ifft(self, arr: np.ndarray) -> np.ndarray:
-        return self._pfft.backward_apply(arr, self._fft.backward)
+    @partial(utils.jaxjit, static_argnames=["transform_types"])
+    def ifft(self, 
+             arr: np.ndarray,
+             transform_types: 'tuple[TransformType] | None' = None
+             ) -> np.ndarray:
+        f = lambda x, axes: self._fft.backward(x, axes, transform_types)
+        return self._pfft.backward_apply(arr, f)
 
     @partial(utils.jaxjit, static_argnames=["flat_axes"])
     def sync(self, 

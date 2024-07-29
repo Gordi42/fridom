@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 # ================================================================
 if TYPE_CHECKING:
     # import modules
+    from . import fft
 
     # import classes
     from .grid import Grid
@@ -25,7 +26,9 @@ if TYPE_CHECKING:
 # Set up dictionary that maps an import to a path
 # items in the all_modules_by_origin dictionary are imported as modules
 base = "fridom.framework.grid.cartesian"
-all_modules_by_origin = {}
+all_modules_by_origin = {
+    base: ["fft"],
+}
 
 # items in the all_imports_by_origin dictionary are imported as elements of a module
 all_imports_by_origin = { 

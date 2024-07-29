@@ -17,7 +17,10 @@ def pressure_gradient_tendency(mset, p, dz):
 
     dz["u"] -= p_grad[0]
     dz["v"] -= p_grad[1]
-    dz["w"] -= p_grad[2] * mset.dsqr
+    dz["w"] -= p_grad[2] / mset.dsqr
+
+
+
     return dz
 
 class PressureGradientTendency(Module):

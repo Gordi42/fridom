@@ -2,10 +2,12 @@
 from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config, utils
+from fridom.framework.field_variable import FieldVariable
 from fridom.framework.model_settings_base import ModelSettingsBase
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
+    from numpy import ndarray
 
 class ModelSettings(ModelSettingsBase):
     """
@@ -46,7 +48,9 @@ class ModelSettings(ModelSettingsBase):
         #  Set attributes
         # ----------------------------------------------------------------
         self.model_name = "3D - Nonhydrostatic model"
-        self.f_coriolis   = dtype(1)
+        self._f0 = dtype(1)
+        self._beta = dtype(0)
+        self._f_coriolis   = None
         self.N2   = dtype(1)
         self.dsqr = dtype(1)
         self.Ro   = dtype(1)
@@ -54,6 +58,23 @@ class ModelSettings(ModelSettingsBase):
         self.bc   = bc
 
         self.set_attributes(**kwargs)
+        return
+
+    def setup(self):
+        super().setup()
+
+        # Coriolis parameter
+        from fridom.framework.grid.cartesian.position import Position, AxisOffset
+        f_coriolis = FieldVariable(
+            self, 
+            name="f",
+            long_name="Coriolis parameter",
+            units="1/s",
+            position=Position((AxisOffset.CENTER, AxisOffset.CENTER, AxisOffset.CENTER)),
+            topo=[False, True, False],
+        )
+        f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,0,:,0,None]
+        self._f_coriolis = f_coriolis
         return
 
     @property
@@ -72,6 +93,40 @@ class ModelSettings(ModelSettingsBase):
     def diagnostic_state_constructor(self):
         from fridom.nonhydro.diagnostic_state import DiagnosticState
         return DiagnosticState(self, is_spectral=False)
+
+    @property
+    def f0(self) -> 'float':
+        return self._f0
+    
+    @f0.setter
+    def f0(self, value: 'float'):
+        self._f0 = value
+        if self._f_coriolis is not None:
+            self.f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,:,None]
+        return
+
+    @property
+    def beta(self) -> 'float':
+        return self._beta
+    
+    @beta.setter
+    def beta(self, value: 'float'):
+        self._beta = value
+        if self._f_coriolis is not None:
+            self.f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,:,None]
+        return
+
+    @property
+    def f_coriolis(self) -> 'FieldVariable':
+        return self._f_coriolis
+    
+    @f_coriolis.setter
+    def f_coriolis(self, value: 'FieldVariable | float | ndarray'):
+        if isinstance(value, FieldVariable):
+            self._f_coriolis = value
+        else:
+            self._f_coriolis[:] = value
+        return
 
 
 utils.jaxify_class(ModelSettings)

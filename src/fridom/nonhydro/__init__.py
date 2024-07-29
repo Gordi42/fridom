@@ -66,6 +66,9 @@ if TYPE_CHECKING:
     # importing modules
     from . import grid
     from . import modules
+    from . import projection
+    from . import eigenvectors
+    from . import initial_conditions
 
     # importing classes
     from .model_settings import ModelSettings
@@ -93,7 +96,11 @@ if TYPE_CHECKING:
 # Set up dictionary that maps an import to a path
 # items in the all_modules_by_origin dictionary are imported as modules
 all_modules_by_origin = { 
-    "fridom.nonhydro": ["grid", "modules",],
+    "fridom.nonhydro": ["grid", 
+                        "modules", 
+                        "projection", 
+                        "eigenvectors",
+                        "initial_conditions"],
     "fridom.framework": ["config", "time_steppers", "utils"],
 }
 

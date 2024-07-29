@@ -44,10 +44,10 @@ class LinearTendency(Module):
         interp = self.interpolation.interpolate
 
         # calculate u-tendency
-        dz.u.arr = interp(v.arr, v.position, u.position) * f_cor
+        dz.u.arr = interp(v.arr, v.position, u.position) * f_cor.arr
 
         # calculate v-tendency
-        dz.v.arr = interp(u.arr, u.position, v.position) * (-f_cor)
+        dz.v.arr = interp(u.arr, u.position, v.position) * (-f_cor.arr)
 
         # calculate w-tendency
         dz.w.arr = interp(bu.arr, bu.position, w.position) / dsqr
