@@ -14,3 +14,9 @@ Code Documentation
    framework/index.rst
    nonhydro/index.rst
    shallowwater/index.rst
+
+
+.. automodule:: fridom.nonhydro.initial_conditions.wave_package
+   :members:
+   :undoc-members:
+   :show-inheritance:
