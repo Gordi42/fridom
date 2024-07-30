@@ -1,5 +1,6 @@
 PlotContainer
 =============
+
 .. automodule:: fridom.nonhydro.plot.PlotContainer
    :members:
    :undoc-members:

@@ -1,5 +1,6 @@
 cartesian
 =========
+
 .. automodule:: fridom.framework.grid.cartesian
    :members:
    :undoc-members:

@@ -1,5 +1,6 @@
 DiagnoseImbalanceBase
 =====================
+
 .. automodule:: fridom.framework.diagnose_imbalance_base.DiagnoseImbalanceBase
    :members:
    :undoc-members:

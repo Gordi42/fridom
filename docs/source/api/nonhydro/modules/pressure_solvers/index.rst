@@ -1,5 +1,6 @@
 pressure_solvers
 ================
+
 .. automodule:: fridom.nonhydro.modules.pressure_solvers
    :members:
    :undoc-members:

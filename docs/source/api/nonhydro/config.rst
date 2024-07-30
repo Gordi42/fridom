@@ -1,5 +1,6 @@
 config
 ======
+
 .. automodule:: fridom.framework.config
    :members:
    :undoc-members:

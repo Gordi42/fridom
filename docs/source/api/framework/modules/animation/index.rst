@@ -1,5 +1,6 @@
 animation
 =========
+
 .. automodule:: fridom.framework.modules.animation
    :members:
    :undoc-members:
