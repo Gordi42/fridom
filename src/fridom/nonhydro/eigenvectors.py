@@ -21,6 +21,43 @@ def khpm(kx, dx):
 def ohpm(kx, dx):
     return (1 + config.ncp.cos(kx*dx)) / 2
 
+def _set_nyquist_to_zero(z: State) -> State:
+    """
+    Set the nyquist frequency to zero in the spectral domain.
+    
+    Parameters
+    ----------
+    `z` : `State`
+        The state which nyquist frequency should be set to zero.
+    
+    Returns
+    -------
+    `State`
+        The state with the nyquist frequency set to zero.
+    """
+    ncp = config.ncp
+    grid = z.grid
+    # Set nyquist frequency to zero
+    for axis in range(grid.n_dims):
+        # We only need to consider periodic axes since nonperiodic axes
+        # work differently with cosine and sine transforms instead of
+        # Fourier transforms
+        if not grid.periodic_bounds[axis]:
+            continue
+        # We only need to consider axes with an even number of grid points
+        nx = grid.N[axis]
+        if nx % 2 != 0:
+            continue
+        # Find the position of the nyquist frequency in the local domain
+        k_nyquist = grid.k_global[axis][nx//2]
+        nyquist = (grid.K[axis] == k_nyquist)
+        # Set the nyquist frequency to zero
+        z.u.arr = ncp.where(nyquist, 0, z.u.arr)
+        z.v.arr = ncp.where(nyquist, 0, z.v.arr)
+        z.w.arr = ncp.where(nyquist, 0, z.w.arr)
+        z.b.arr = ncp.where(nyquist, 0, z.b.arr)
+    return z
+
 
 class VecQ(State):
     """
@@ -102,6 +139,9 @@ class VecQ(State):
         self.w.arr = ncp.where(nonzero_horizontal, w, w_ov)
         self.b.arr = ncp.where(nonzero_horizontal, b, b_ov)
 
+        # Set the nyquist frequency to zero
+        z = _set_nyquist_to_zero(self)
+        self.fields = z.fields
 
 class VecP(State):
     """
@@ -139,7 +179,6 @@ class VecP(State):
 
         # Mask to separate inertial modes from inertia-gravity modes
         nonzero_horizontal = (kx**2 + ky**2 != 0)
-        g = (kx**2 + ky**2 != 0)
 
         # Construct the eigenvector
         q = VecQ(s, mset)
@@ -188,6 +227,10 @@ class VecP(State):
         self.v.arr = ncp.where(mask, self.v.arr/norm, 0)
         self.w.arr = ncp.where(mask, self.w.arr/norm, 0)
         self.b.arr = ncp.where(mask, self.b.arr/norm, 0)
+
+        # Set the nyquist frequency to zero
+        z = _set_nyquist_to_zero(self)
+        self.fields = z.fields
 
 
 class VecQAnalytical(State):
@@ -266,6 +309,10 @@ class VecQAnalytical(State):
         self.w.arr = config.ncp.where(nonzero_horizontal, w, w_ov)
         self.b.arr = config.ncp.where(nonzero_horizontal, b, b_ov)
 
+        # Set the nyquist frequency to zero
+        z = _set_nyquist_to_zero(self)
+        self.fields = z.fields
+
 
 class VecPAnalytical(State):
     """
@@ -343,3 +390,7 @@ class VecPAnalytical(State):
         self.v.arr = ncp.where(mask, self.v.arr/norm, 0)
         self.w.arr = ncp.where(mask, self.w.arr/norm, 0)
         self.b.arr = ncp.where(mask, self.b.arr/norm, 0)
+
+        # Set the nyquist frequency to zero
+        z = _set_nyquist_to_zero(self)
+        self.fields = z.fields

@@ -257,6 +257,17 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
         res[where] = value
         return res
     
+def random_array(shape: tuple[int], seed=12345):
+    if config.backend_is_jax:
+        import jax
+        key = jax.random.key(seed)
+        return jax.random.normal(key, shape)
+    else:
+        ncp = config.ncp
+        default_rng = ncp.random.default_rng
+        return default_rng(seed).standard_normal(shape)
+
+
 # ================================================================
 #  JAX functions
 # ================================================================

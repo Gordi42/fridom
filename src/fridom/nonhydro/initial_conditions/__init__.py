@@ -25,10 +25,13 @@ from typing import TYPE_CHECKING
 # ================================================================
 if TYPE_CHECKING:
     from .single_wave import SingleWave
+    from .kelvin_wave import KelvinWave
     from .wave_package import WavePackage
     from .vertical_mode import VerticalMode
     from .barotropic_jet import BarotropicJet
     from .jet import Jet
+    from .geostrophic_spectra import geostrophic_energy_spectrum, \
+                                     RandomGeostrophicSpectra
     
 
 # ================================================================
@@ -43,10 +46,13 @@ all_modules_by_origin = { }
 base_path = "fridom.nonhydro.initial_conditions"
 all_imports_by_origin = { 
     f"{base_path}.single_wave": ["SingleWave"],
+    f"{base_path}.kelvin_wave": ["KelvinWave"],
     f"{base_path}.wave_package": ["WavePackage"],
     f"{base_path}.vertical_mode": ["VerticalMode"],
     f"{base_path}.barotropic_jet": ["BarotropicJet"],
     f"{base_path}.jet": ["Jet"],
+    f"{base_path}.geostrophic_spectra": ["geostrophic_energy_spectrum", 
+                                         "RandomGeostrophicSpectra"],
 }
 
 # ================================================================

@@ -79,7 +79,7 @@ class State(StateBase):
 
             field_list = [u, v, w, b]
         super().__init__(mset, field_list, is_spectral)
-        self.constructor = State
+        self.__class__ = State
         return
     
     # ======================================================================
