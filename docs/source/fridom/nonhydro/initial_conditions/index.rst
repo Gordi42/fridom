@@ -15,3 +15,5 @@ initial_conditions
    single_wave
    vertical_mode
    wave_package
+   kelvin_wave
+   random_geostrophic_spectrum
