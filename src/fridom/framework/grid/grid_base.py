@@ -81,7 +81,8 @@ class GridBase:
     `interpolate(arr: ndarray, origin: PositionBase, destination: PositionBase) -> ndarray`
         Interpolate an array from one position to another.
     """
-    _dynamic_attributes = ["_X", "_x_global", "_x_local"]
+    _dynamic_attributes = ["_X", "_x_global", "_x_local", 
+                           '_K', '_k_local', '_k_global']
     def __init__(self, n_dims: int) -> None:
 
         self.name = "GridBase"
@@ -98,6 +99,13 @@ class GridBase:
         self._dx = None
         self._dV = None
         self._mset = None
+        # spectral properties
+        self._K = None
+        self._k_global = None
+        self._k_local = None
+        self._omega_analytical = None
+        self._omega_space_discrete = None
+        self._omega_time_discrete = None
         # operator modules
         self._diff_mod: 'DiffBase' = None
         self._interp_mod: 'InterpolationBase' = None
@@ -198,6 +206,27 @@ class GridBase:
         -------
         `list[ndarray]`
             The synchronized list of arrays.
+        """
+        raise NotImplementedError
+
+    def omega(self, 
+              k: 'tuple[float] | tuple[ndarray]',
+              use_discrete: bool = False
+              ) -> 'ndarray':
+        """
+        Compute the dispersion relation of the model.
+        
+        Parameters
+        ----------
+        `k` : `tuple[float] | tuple[ndarray]`
+            The wave numbers
+        `use_discrete` : `bool` (default: False)
+            Whether to include space-discretization effects.
+        
+        Returns
+        -------
+        `ndarray`
+            The dispersion relation (omega(k)).
         """
         raise NotImplementedError
 
@@ -410,6 +439,21 @@ class GridBase:
         return self._x_local
 
     @property
+    def K(self) -> 'ndarray':
+        """The wavenumber of the grid."""
+        return self._K
+    
+    @property
+    def k_global(self) -> 'ndarray':
+        """The global wavenumber of the grid."""
+        return self._k_global
+    
+    @property
+    def k_local(self) -> 'ndarray':
+        """The local wavenumber of the grid."""
+        return self._k_local
+
+    @property
     def dx(self) -> 'tuple[ndarray]':
         """The grid spacing in each dimension."""
         return self._dx
@@ -418,6 +462,38 @@ class GridBase:
     def dV(self) -> 'ndarray':
         """The volume element of the grid."""
         return self._dV
+
+    @property
+    def omega_analytical(self):
+        """
+        Analytical dispersion relation.
+        """
+        if self._omega_analytical is None:
+            self._omega_analytical = self.omega(self.K, use_discrete=False)
+        return self._omega_analytical
+
+    @property
+    def omega_space_discrete(self):
+        """
+        Dispersion relation with space-discretization effects.
+        """
+        if self._omega_space_discrete is None:
+            self._omega_space_discrete = self.omega(self.K, use_discrete=True)
+        
+        return self._omega_space_discrete
+
+    @property
+    def omega_time_discrete(self):
+        """
+        Dispersion relation with space-time-discretization effects.
+        Warning: The computation may be very slow.
+        """
+        if self._omega_time_discrete is None:
+            om_space_discrete = self.omega_space_discrete
+            ts = self.mset.time_stepper
+            om = ts.time_discretization_effect(om_space_discrete)
+            self._omega_time_discrete = om
+        return self._omega_time_discrete
 
     # ================================================================
     #  Flags

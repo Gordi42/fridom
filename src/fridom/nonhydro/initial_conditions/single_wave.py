@@ -1,14 +1,6 @@
-# Import external modules
-from typing import TYPE_CHECKING
-import numpy as np
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.nonhydro.state import State
-# Import type information
-if TYPE_CHECKING:
-    from fridom.nonhydro.model_settings import ModelSettings
+import fridom.nonhydro as nh
 
-class SingleWave:
+class SingleWave(nh.State):
     """
     An initial condition that consist of a single wave with a
     given wavenumber and a given mode.
@@ -17,18 +9,18 @@ class SingleWave:
     ----------
     `mset` : `ModelSettings`
         The model settings.
-    `kx` : `float`
+    `kx` : `int`
         The wavenumber in the x-direction.
-    `ky` : `float`
+    `ky` : `int`
         The wavenumber in the y-direction.
-    `kz` : `float`
+    `kz` : `int`
         The wavenumber in the z-direction.
     `s` : `int`
         The mode (0, 1, -1)
         0 => geostrophic mode
         1 => positive inertia-gravity mode
         -1 => negative inertia-gravity mode
-    `phase` : `complex`
+    `phase` : `float`
         The phase of the wave. (default: 0)
     `use_discrete` : `bool` (default: True)
         Whether to use the discrete eigenvectors or the analytical ones.
@@ -43,35 +35,45 @@ class SingleWave:
     `period` : `float`
         The period of the wave (includes effects of time discretization)
         (only for inertia-gravity modes).
+
+    Examples
+    --------
+    >>> import fridom.nonhydro as nh
+    >>> import numpy as np
+    >>> grid = nh.grid.cartesian.Grid(
+    ...     N=[127]*3, L=[1]*3, periodic_bounds=(True, True, True))
+    >>> mset = nh.ModelSettings(grid=grid, dsqr=0.02)
+    >>> mset.time_stepper.dt = np.timedelta64(10, 'ms')
+    >>> mset.setup()
+    >>> z = nh.initial_conditions.SingleWave(mset, kx=2, ky=0, kz=1)
+    >>> model = nh.Model(mset)
+    >>> model.z = z
+    >>> model.run(runlen=np.timedelta64(10, 's'))
     """
-    def __init__(self, mset: 'ModelSettings', 
-                 kx=6, ky=0, kz=4, s=1, phase=0, use_discrete=True) -> None:
+    def __init__(self, 
+                 mset: nh.ModelSettings, 
+                 kx: int = 2, 
+                 ky: int = 0, 
+                 kz: int = 1, 
+                 s: int = 1, 
+                 phase: float = 0, 
+                 use_discrete: bool = True) -> None:
+        super().__init__(mset, is_spectral=False)
 
         # Shortcuts
-        ncp = config.ncp
+        ncp = nh.config.ncp
         grid = mset.grid
+        Kx, Ky, Kz = grid.K
+        Lx, Ly, Lz = grid.L
+        pi = ncp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)
-        ki = ncp.argmin(ncp.abs(grid.k_global[0] - kx))
-        kj = ncp.argmin(ncp.abs(grid.k_global[1] - ky))
-        kk = ncp.argmin(ncp.abs(grid.k_global[2] - kz))
-
-        # save the index of the wave number and the wave number itself
-        self.kx = grid.k_global[0][ki]
-        self.ky = grid.k_global[1][kj]
-        self.kz = grid.k_global[2][kk]
+        kx = 2*pi*kx/Lx; ky = 2*pi*ky/Ly; kz = 2*pi*kz/Lz
+        k_loc = (Kx == kx) & (Ky == ky) & (Kz == kz)
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
-        g = ncp.zeros_like(grid.K[0])
-
-        if (self.kx in grid.k_local[0] 
-            and self.ky in grid.k_local[1] 
-            and self.kz in grid.k_local[2]):
-            ki = ncp.argmin(ncp.abs(grid.k_local[0] - self.kx))
-            kj = ncp.argmin(ncp.abs(grid.k_local[1] - self.ky))
-            kk = ncp.argmin(ncp.abs(grid.k_local[2] - self.kz))
-            g = utils.modify_array(g, (ki, kj, kk), 1)
+        mask = ncp.where(k_loc, 1, 0)
 
         # Construct the eigenvector of the corresponding mode
         if use_discrete:
@@ -82,57 +84,23 @@ class SingleWave:
             q = VecQAnalytical(s, mset)
 
         # Construct the state
-        z = (q * g).fft()
+        z = (q * mask * ncp.exp(1j*phase)).fft()
 
         # Normalize the state
         z /= z.norm_l2()
         
-        # Set the state to itself
-        self.z = z
+        # Set the state
+        self.fields = z.fields
 
-        # Freqency and period are calculated on demand
-        self.__omega = None
-        self.__period = None
+        # Calculate the frequency and period of the wave
+        om = grid.omega((kx, ky, kz), use_discrete=True)
+        ts = mset.time_stepper
+        self.omega = ts.time_discretization_effect(om)
+        self.period = 2*pi/self.omega.real
+
+        # save the wavenumbers
+        self.kx = kx
+        self.ky = ky
+        self.kz = kz
         return
-
-    @property
-    def omega(self):
-        """
-        Calculate the complex freqency of the wave including the effects
-        of the time discretization. The real part is the frequency and
-        the imaginary part is the growth rate.
-        """
-        # Calculate the frequency only once
-        if self.__omega is None:
-            # Frequency including space discretization
-            om = self.grid.omega_space_discrete[self.k_loc]
-
-            # Start the calculation of the frequency 
-            # including time discretization
-
-            # Get the time stepping coefficients
-            coeff = [self.mset.AB1, self.mset.AB2, self.mset.AB3, self.mset.AB4]
-            coeff = np.array(coeff[self.mset.time_levels-1])
-
-            # Construct the polynomial coefficients
-            coeff = 1j * coeff * om.item() * self.mset.dt
-            coeff[0] -= 1
-            coeff = np.pad(coeff, (1,0), 'constant', constant_values=(1,0))
-            
-            # Calculate the roots of the polynomial
-            roots = np.roots(coeff[::-1])[-1]
-
-            # Calculate the complex frequency
-            self.__omega = -1j * np.log(roots)/self.mset.dt
-        return self.__omega
-
-    @property
-    def period(self):
-        """
-        Calculate the period of the wave including the effects
-        of the time discretization.
-        """
-        # Calculate the period only once
-        if self.__period is None:
-            self.__period = 2*self.cp.pi/self.omega.real
-        return self.__period
+        

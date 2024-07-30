@@ -1,7 +1,10 @@
 # Import external modules
 from typing import TYPE_CHECKING
+from numpy import ndarray
+import numpy as np
 # Import internal modules
 from fridom.framework.modules.module import Module
+from fridom.framework import config
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.state_base import StateBase
@@ -43,7 +46,44 @@ class TimeStepper(Module):
     """
     def __init__(self, name, **kwargs) -> None:
         super().__init__(name, **kwargs)
+        self._dt_float = None
+        self._dt_timedelta = None
 
     def update(self, mz: 'ModelState'):
         raise NotImplementedError
 
+    def time_discretization_effect(self, omega: ndarray) -> ndarray:
+        """
+        Compute the time discretization effect on a frequency.
+        
+        Parameters
+        ----------
+        `omega` : `ndarray | float | complex`
+            The frequency of the wave.
+        
+        Returns
+        -------
+        `ndarray`
+            The frequency of the wave including the time discretization effect.
+        """
+        config.logger.warning(
+            f"The time stepper {self.name} has no method to compute the time discretization effect."
+        )
+        return omega
+
+    @property
+    def dt(self) -> np.timedelta64:
+        """
+        Time step size.
+        """
+        return self._dt_timedelta
+
+    @dt.setter
+    def dt(self, value: np.timedelta64 | float) -> None:
+        if isinstance(value, float):
+            self._dt_float = value
+            self._dt_timedelta = np.timedelta64(int(value * 1e9), 'ns')
+        else:
+            self._dt_timedelta = value
+            self._dt_float = config.dtype_real(value / np.timedelta64(1, 's'))
+        return

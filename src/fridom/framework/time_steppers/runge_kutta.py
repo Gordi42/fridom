@@ -163,20 +163,3 @@ class RungeKutta(TimeStepper):
         mz._time += dt
         mz.it += 1
         return mz
-    
-    @property
-    def dt(self) -> np.timedelta64:
-        """
-        Time step size.
-        """
-        return self._dt_timedelta
-
-    @dt.setter
-    def dt(self, value: np.timedelta64 | float) -> None:
-        if isinstance(value, float):
-            self._dt_float = value
-            self._dt_timedelta = np.timedelta64(int(value * 1e9), 'ns')
-        else:
-            self._dt_timedelta = value
-            self._dt_float = config.dtype_real(value / np.timedelta64(1, 's'))
-        return

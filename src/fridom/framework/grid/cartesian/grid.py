@@ -10,7 +10,6 @@ from fridom.framework.domain_decomposition import ParallelFFT
 from .fft import FFT
 from .finite_differences import FiniteDifferences
 from .linear_interpolation import LinearInterpolation
-from .position import Position, AxisOffset
 from fridom.framework.utils import humanize_number
 # Import type information
 if TYPE_CHECKING:
@@ -122,8 +121,7 @@ class Grid(GridBase):
     >>> dx, dy, dz = grid.dx
 
     """
-    _dynamic_attributes = GridBase._dynamic_attributes + [
-        '_K', '_k_local', '_k_global', '_domain_decomp',
+    _dynamic_attributes = GridBase._dynamic_attributes + ['_domain_decomp',
         '_pfft', '_fft', '_diff_mod', '_interp_mod']
     def __init__(self, 
                  N: list[int],
@@ -172,16 +170,9 @@ class Grid(GridBase):
         self._L = L
         self._dx = tuple(L / N for L, N in zip(L, N))
         self._dV = np.prod(self._dx)
-        self._X: tuple | None = None
-        self._x_local: tuple | None = None
-        self._x_global: tuple | None = None
-        self._K: tuple | None = None
-        self._k_local: tuple | None = None
-        self._k_global: tuple | None = None
         self._total_grid_points = int(np.prod(N))
         self._periodic_bounds = periodic_bounds
         self._shared_axes = shared_axes
-        self._mset: 'ModelSettingsBase | None' = None
         self._domain_decomp: DomainDecomposition | None = None
         self._pfft: ParallelFFT | None = None
         self._fft: FFT | None = None
@@ -242,6 +233,7 @@ class Grid(GridBase):
             k_local = tuple(ki[global_slice[i]] for i, ki in enumerate(k))
             K = ncp.meshgrid(*k_local, indexing='ij')
         else:
+            config.logger.warning("Fourier transform not available.")
             k = None
             k_local = None
             K = None
