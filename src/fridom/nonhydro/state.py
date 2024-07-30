@@ -174,7 +174,6 @@ class State(StateBase):
         local_tot_epot = config.ncp.sum(local_epot[self.grid.inner_slice])
         global_tot_epot = MPI.COMM_WORLD.allreduce(local_tot_epot, op=MPI.SUM)
         return global_tot_epot
-
     
     def mean_etot(self) -> float:
         """

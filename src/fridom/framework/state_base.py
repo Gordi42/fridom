@@ -10,14 +10,42 @@ if TYPE_CHECKING:
 
 class StateBase:
     """
-    Base class for the state of the model, contains list of fields.
+    Base class for a model state.
     
-    Methods:
-        fft              : Fourier transform of the state.
-        project          : Project the state on a (spectral) vector.
-        dot              : Dot product of the state with another state.
-        norm_l2          : L2 norm of the state.
-        norm_of_diff     : Norm of the difference between two states.
+    Description
+    -----------
+    A model state is a collection of fields that represent the state of the model.
+    This class provides basic operations on the state, such as addition, subtraction,
+    multiplication, division, as well as dot products, norms, and fourier transforms.
+    
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings
+    `field_list` : `list[FieldVariable]` | `dict[str, FieldVariable]`
+        The list of fields that make up the state.
+    `is_spectral` : `bool`
+        Whether the state is in spectral space. (default: False)
+    
+    Attributes
+    ----------
+    `fields` : `dict[str, FieldVariable]`
+        A dictionary of fields that make up the state.
+    
+    Methods
+    -------
+    `fft()` -> `State`
+        Calculate the Fourier transform of the state.
+    `sync()` -> `None`
+        Synchronize the state. (Exchange ghost cells)
+    `project(p_vec: State, q_vec: State)` -> `State`
+        Project the state on a (spectral) vector.
+    `dot(other: State)` -> `FieldVariable`
+        Calculate the dot product of the state with another state.
+    `norm_l2()` -> `float`
+        Calculate the L2 norm of the state.
+    `norm_of_diff(other: State)` -> `float`
+        Calculate the norm of the difference between two states.
     """
     _dynamic_attributes = set(["fields"])
     # ======================================================================
@@ -26,13 +54,7 @@ class StateBase:
 
     def __init__(self, mset: 'ModelSettingsBase', 
                  field_list: list | dict, is_spectral=False) -> None:
-        """
-        Base Constructor.
-
-        Arguments:
-            field_list (list)     : List of FieldVariables.
-            is_spectral (bool)    : State is in spectral space. (default: False)
-        """
+        
         self.mset = mset
         self.is_spectral = is_spectral
         if type(field_list) is list:
@@ -41,6 +63,7 @@ class StateBase:
             self.fields = field_list
         else:
             raise TypeError("field_list must be a list or a dictionary.")
+        return
     
     # ======================================================================
     #  BASIC OPERATIONS
@@ -65,14 +88,6 @@ class StateBase:
         for field, arr in zip(self.fields.values(), arrs):
             field.arr = arr
         return
-
-    def apply_boundary_conditions(self) -> None:
-        """
-        Apply boundary conditions to the state.
-
-        This method should be implemented in the child classes.
-        """
-        pass
 
     def project(self, p_vec:"StateBase", 
                       q_vec:"StateBase") -> "StateBase":
