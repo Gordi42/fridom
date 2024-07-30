@@ -36,7 +36,7 @@ pygments_style = 'sphinx'
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
-autodoc_mock_imports = ['numpy', 'mpi4py', ]
+autodoc_mock_imports = ['numpy', 'mpi4py', 'IPython', 'jax', 'cupy']
 
 # default_role = 'literal'
 # MyST configuration

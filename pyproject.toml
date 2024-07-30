@@ -25,6 +25,7 @@ dependencies = [
   "mpi4py",
   "tqdm",
   "dill",
+  "IPython",
   "coloredlogs",
 ]
 license = {file = "LICENSE"}
