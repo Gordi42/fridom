@@ -1,3 +1,5 @@
+PolarizedWaveMaker
+==================
 .. automodule:: fridom.nonhydro.modules.forcings.polarized_wave_maker.PolarizedWaveMaker
    :members:
    :undoc-members:

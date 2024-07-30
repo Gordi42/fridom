@@ -41,6 +41,10 @@ def create_index_rst(modpath, modname, doc_path):
         module_path = os.path.join(modpath.replace(".", "/"), modname)
         import_path = module_path.replace("/", ".")
 
+        f.write(f"{modname}\n")
+        f.write("="*len(modname))
+        f.write("\n")
+
         f.write(f".. automodule:: {import_path}\n")
         f.write("   :members:\n")
         f.write("   :undoc-members:\n")
@@ -86,6 +90,10 @@ def create_import_rst(modpath, modname, doc_path):
         module_path = os.path.join(modpath.replace(".", "/"), modname)
         import_path = module_path.replace("/", ".")
 
+        f.write(f"{modname}\n")
+        f.write("="*len(modname))
+
+        f.write("\n")
         f.write(f".. automodule:: {import_path}\n")
         f.write("   :members:\n")
         f.write("   :undoc-members:\n")

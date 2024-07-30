@@ -1,3 +1,5 @@
+fridom
+======
 .. automodule:: fridom
    :members:
    :undoc-members:

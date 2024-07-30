@@ -1,3 +1,5 @@
+eigenvectors
+============
 .. automodule:: fridom.nonhydro.eigenvectors
    :members:
    :undoc-members:

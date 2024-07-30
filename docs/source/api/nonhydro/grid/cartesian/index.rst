@@ -1,3 +1,5 @@
+cartesian
+=========
 .. automodule:: fridom.nonhydro.grid.cartesian
    :members:
    :undoc-members:

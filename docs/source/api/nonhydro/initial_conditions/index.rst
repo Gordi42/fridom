@@ -1,3 +1,5 @@
+initial_conditions
+==================
 .. automodule:: fridom.nonhydro.initial_conditions
    :members:
    :undoc-members:

@@ -1,3 +1,5 @@
+grid
+====
 .. automodule:: fridom.nonhydro.grid
    :members:
    :undoc-members:
