@@ -15,6 +15,7 @@ Welcome to fridom's documentation!
    creating_own_models
    models
    fridom/index
+   api/index
 
 
 
