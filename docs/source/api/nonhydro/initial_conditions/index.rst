@@ -6,6 +6,7 @@
 .. toctree::
    :caption: Imports:
    :maxdepth: 1
+
    SingleWave
    KelvinWave
    WavePackage

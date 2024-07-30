@@ -6,4 +6,5 @@
 .. toctree::
    :caption: Submodules:
    :maxdepth: 1
+
    cartesian/index

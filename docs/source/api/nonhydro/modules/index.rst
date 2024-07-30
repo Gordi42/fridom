@@ -6,6 +6,7 @@
 .. toctree::
    :caption: Submodules:
    :maxdepth: 1
+
    advection/index
    diffusion/index
    pressure_solvers/index
@@ -15,6 +16,7 @@
 .. toctree::
    :caption: Imports:
    :maxdepth: 1
+
    BoundaryConditions
    LinearTendency
    TendencyDivergence

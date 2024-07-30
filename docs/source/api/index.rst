@@ -6,6 +6,7 @@
 .. toctree::
    :caption: Submodules:
    :maxdepth: 1
+
    framework/index
    nonhydro/index
    shallowwater/index

@@ -55,6 +55,7 @@ def create_index_rst(modpath, modname, doc_path):
             f.write(".. toctree::\n")
             f.write("   :caption: Submodules:\n")
             f.write("   :maxdepth: 1\n")
+            f.write("\n")
             for base, mods in all_mods.items():
                 for mod in mods:
                     if mod_is_package(base, mod):
@@ -70,6 +71,7 @@ def create_index_rst(modpath, modname, doc_path):
             f.write(".. toctree::\n")
             f.write("   :caption: Imports:\n")
             f.write("   :maxdepth: 1\n")
+            f.write("\n")
             for base, imports in all_imports.items():
                 for imp in imports:
                     f.write(f"   {imp}\n")

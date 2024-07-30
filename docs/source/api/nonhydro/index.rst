@@ -6,6 +6,7 @@
 .. toctree::
    :caption: Submodules:
    :maxdepth: 1
+
    grid/index
    modules/index
    projection/index
@@ -18,6 +19,7 @@
 .. toctree::
    :caption: Imports:
    :maxdepth: 1
+
    ModelSettings
    State
    Plot

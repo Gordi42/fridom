@@ -6,5 +6,6 @@
 .. toctree::
    :caption: Imports:
    :maxdepth: 1
+
    CenteredAdvection
    SecondOrderAdvection

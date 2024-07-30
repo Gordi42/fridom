@@ -6,11 +6,13 @@
 .. toctree::
    :caption: Submodules:
    :maxdepth: 1
+
    fft
 
 .. toctree::
    :caption: Imports:
    :maxdepth: 1
+
    Grid
    AxisOffset
    Position
