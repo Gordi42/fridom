@@ -1,5 +1,5 @@
 # Import external modules
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 import numpy as np
 # Import internal modules
 from fridom.framework import utils
@@ -58,7 +58,7 @@ class ModelState:
         return self.z.mset.start_time + passed_time
 
     @time.setter
-    def time(self, t: np.datetime64 | float):
+    def time(self, t: Union[np.datetime64, float]):
         if isinstance(t, np.datetime64):
             self._time = (t - self.z.mset.start_time).astype('float64')*1e-9
         else:

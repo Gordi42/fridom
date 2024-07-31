@@ -1,10 +1,13 @@
 import os
 import sys
+import os
+import inspect
+from urllib.parse import quote
 
 sys.path.insert(0, os.path.abspath('../../src'))
 
 # generate the rst files
-import generate_rst_api
+import auto_generate_api
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -24,8 +27,18 @@ release = '0.0.1'
 
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.autosummary',
+    'sphinx.ext.viewcode',
     'myst_parser',
 ]
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    'show-inheritance': True,
+}
+auto_summary_generate = True
+autosummary_generate_overwrite = False  # Prevent overwriting existing files
+autodoc_member_order = 'bysource'
 
 templates_path = ['_templates']
 exclude_patterns = []
@@ -36,10 +49,14 @@ pygments_style = 'sphinx'
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = 'sphinx_rtd_theme'
+# html_theme = 'sphinx_rtd_theme'
+html_theme = 'sphinxawesome_theme'
+ 
+
 html_static_path = ['_static']
 autodoc_mock_imports = [
-        'numpy', 'scipy', 'mpi4py', 'IPython', 'jax', 'cupy', 'coloredlogs']
+        'numpy', 'scipy', 'mpi4py', 'IPython', 'jax', 'cupy', 'coloredlogs', 
+        'netCDF4', 'matplotlib']
 
 # default_role = 'literal'
 # MyST configuration

@@ -1,5 +1,5 @@
 # Import external modules
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 from numpy import ndarray
 import numpy as np
 # Import internal modules
@@ -79,7 +79,7 @@ class TimeStepper(Module):
         return self._dt_timedelta
 
     @dt.setter
-    def dt(self, value: np.timedelta64 | float) -> None:
+    def dt(self, value: Union[np.timedelta64, float]) -> None:
         if isinstance(value, float):
             self._dt_float = value
             self._dt_timedelta = np.timedelta64(int(value * 1e9), 'ns')

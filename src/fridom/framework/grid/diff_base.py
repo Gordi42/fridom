@@ -1,5 +1,5 @@
 # Import external modules
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 import numpy as np
 # Import internal modules
 from fridom.framework.modules import Module
@@ -93,7 +93,7 @@ class DiffBase(Module):
     def grad(self, 
              arr: np.ndarray, 
              axes: list[int] | None = None,
-             **kwargs) -> list[np.ndarray | None]:
+             **kwargs) -> list[Union[np.ndarray,None]]:
         """
         Calculate the gradient of a scalar field.
         

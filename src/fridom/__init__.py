@@ -33,7 +33,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from . import framework
     from . import nonhydro
-    from . import shallowwater
+    # from . import shallowwater
 
 # ================================================================
 #  Define all the possible imports
@@ -46,7 +46,7 @@ all_modules_by_origin = {
     "fridom": [
         "framework",
         "nonhydro",
-        "shallowwater",
+        # "shallowwater",
     ],
 }
 

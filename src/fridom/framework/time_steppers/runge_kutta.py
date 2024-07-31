@@ -86,7 +86,7 @@ class RKMethods(Enum):
                         [2/9, 1/3, 4/9, 0]]),
         b = np.array([7/24, 1/4, 1/3, 1/8]),
         c = np.array([0, 1/2, 3/4, 1]),
-        b_error=np.array([2/9, 1/3, 4/9, 0])-np.array([7/24, 1/4, 1/3, 1/8])
+        b_error=np.array([2/9-7/24, 1/3-1/4, 4/9-1/3, -1/8])
     )
     RKF45 = ButcherTableau(
         A = np.array([[0, 0, 0, 0, 0, 0],

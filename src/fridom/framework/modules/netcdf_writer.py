@@ -1,5 +1,5 @@
 # Import external modules
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 import numpy as np
 import os
 from netCDF4 import Dataset
@@ -56,9 +56,9 @@ class NetCDFWriter(Module):
     def __init__(self,
                  write_interval: np.timedelta64,
                  filename: str = "snap",
-                 start_time: np.datetime64 | None = None,
-                 end_time: np.datetime64 | None = None,
-                 restart_interval: np.timedelta64 | None = None,
+                 start_time: Union[np.datetime64, None] = None,
+                 end_time: Union[np.datetime64, None] = None,
+                 restart_interval: Union[np.timedelta64, None] = None,
                  snap_slice: tuple | None = None,
                  directory: str | None = None,
                  name: str = "NetCDFWriter",
