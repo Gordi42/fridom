@@ -19,15 +19,6 @@ class ModelPlotterBase:
     overwrite the following method:
     - convert_to_img: convert the figure object to a numpy image array
     
-    Methods
-    -------
-    `create_figure()`
-        Create a figure object and return it.
-    `update_figure(fig, mz)`
-        Update the figure object with the given model state.
-    `convert_to_img(fig)`
-        Convert the figure object to a numpy image array.
-    
     Examples
     --------
     >>> TODO: add example from nonhydrostatic model

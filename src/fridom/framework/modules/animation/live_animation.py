@@ -25,13 +25,6 @@ class LiveAnimation(Module):
     `interval` : `int`, optional (default=50)
         The interval (time steps) at which the plot will be updated.
     
-    Methods
-    -------
-    `start()`
-        Initialize the figure
-    `update(mz)`
-        Update the figure from the model state and display it
-    
     Examples
     --------
     >>> TODO add example for nonhydrostatic model

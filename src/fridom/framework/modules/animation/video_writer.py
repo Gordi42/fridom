@@ -37,20 +37,43 @@ class VideoWriter(Module):
     `max_jobs` : `float`, optional (default=0.4)
         The maximum fraction of the available threads that will be used.
     
-    Methods
-    -------
-    `start()`
-        Start the video writing process.
-    `stop()`
-        Stop the video writing process.
-    `update(mz)`
-        Add a new frame to the video.
-    `show_video(width)`
-        Show the video in the Jupyter notebook.
-    
     Examples
     --------
-    >>> TODO: add example from nonhydrostatic model
+    The following example shows how to create a video from a nonhydrostatic
+    model using the SingleWave initial condition.
+
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        import numpy as np
+        import matplotlib.pyplot as plt
+
+        # create the video writer
+        class MyPlotter(nh.modules.animation.ModelPlotterBase):
+            def create_figure():
+                return plt.figure(figsize=(8, 6), tight_layout=True, dpi=100)
+
+            def update_figure(fig, mz: ModelState) -> None:
+                nh.Plot(mz.z.b).front(fig=fig)
+
+        vid_writer = nh.modules.animation.VideoWriter(
+            MyPlotter, interval=10, filename="single_wave.mp4", fps=30)
+
+        # create the model
+        grid = nh.grid.cartesian.Grid(
+            N=[128]*3, L=[1]*3, periodic_bounds=(True, True, True))
+        mset = nh.ModelSettings(grid=grid, dsqr=0.02)
+        mset.time_stepper.dt = np.timedelta64(10, 'ms')
+        # add the video writer
+        mset.diagnostics.add_module(vid_writer)
+        mset.setup()
+        z = nh.initial_conditions.SingleWave(mset, kx=2, ky=0, kz=1)
+        model = nh.Model(mset)
+        model.z = z
+        model.run(runlen=np.timedelta64(10, 's'))
+        # show the video
+        vid_writer.show_video()
+
     """
     def __init__(self, 
                  model_plotter: 'ModelPlotterBase', 
