@@ -69,7 +69,7 @@ def test_model_run(mset, netcdf_module, directory_name):
     model = fr.Model(mset)
     model.run(runlen=np.timedelta64(1, 'h'))
 
-    time = np.datetime64(1, 's')
+    time = np.datetime64(int(1*1e9), 'ns')
 
     # check that the file is created
     file_path = os.path.join(directory_name, f"test_{time}.cdf")

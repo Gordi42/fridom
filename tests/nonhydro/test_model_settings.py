@@ -22,7 +22,8 @@ def N2(request):
     return request.param
 
 def test_model_settings(grid_ini, f, N2):
-    mset = nh.ModelSettings(grid_ini, f_coriolis=f, N2=N2)
+    mset = nh.ModelSettings(grid_ini, f0=f, N2=N2)
+    mset.setup()
     assert mset.grid == grid_ini
-    assert mset.f_coriolis == f
+    assert nh.config.ncp.allclose(mset.f_coriolis.arr, f)
     assert mset.N2 == N2

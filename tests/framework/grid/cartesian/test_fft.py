@@ -1,4 +1,5 @@
 import pytest
+import fridom.framework as fr
 
 from fridom.framework import config
 from fridom.framework.grid.cartesian import FFT
@@ -38,7 +39,7 @@ def test_dct1D(backend, nx, lx, kx):
 
     # check that u_hat is zero for all but the kx mode
     assert u_hat[kx] != 0
-    u_hat[kx] = 0
+    u_hat = fr.utils.modify_array(u_hat, kx, 0)
     assert ncp.allclose(u_hat, 0)
 
 @pytest.fixture(params=[(True, True, True), 
@@ -61,7 +62,7 @@ def test_fft3D(backend, nx, periodic):
     n = [nx] * 3
 
     # set the physical space
-    u = ncp.random.rand(*n)
+    u = fr.utils.random_array(tuple(n))
 
     # transform to spectral space and back
     u_hat = fft.forward(u)
@@ -83,9 +84,8 @@ def test_fft3D_axes(backend, nx, axes, periodic):
     n = [nx] * 3
 
     # set the physical space
-    u = ncp.random.rand(*n)
+    u = fr.utils.random_array(tuple(n))
 
-    # transform to spectral space and back
     u_hat = fft.forward(u, axes=axes)
     v = fft.backward(u_hat, axes=axes)
 
@@ -122,8 +122,8 @@ def test_fft2D_mpi(backend, n, periodic2d, halo):
     pfft = ParallelFFT(domain_decomp)
 
     # set the physical space
-    u = ncp.random.rand(*domain_decomp.my_subdomain.shape)
-    domain_decomp.sync(u)
+    u = fr.utils.random_array(domain_decomp.my_subdomain.shape)
+    u = domain_decomp.sync(u)
 
     # transform to spectral space and back
     u_hat = pfft.forward_apply(u, fft.forward)

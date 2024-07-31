@@ -77,6 +77,18 @@ class ModelSettings(ModelSettingsBase):
         self._f_coriolis = f_coriolis
         return
 
+    def state_constructor(self):
+        from fridom.nonhydro.state import State
+        return State(self, is_spectral=False)
+
+    def diagnostic_state_constructor(self):
+        from fridom.nonhydro.diagnostic_state import DiagnosticState
+        return DiagnosticState(self, is_spectral=False)
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+
     @property
     def parameters(self) -> dict:
         res = super().parameters
@@ -86,16 +98,9 @@ class ModelSettings(ModelSettingsBase):
         res["Rossby number Ro"] = f"{self.Ro}"
         return res
 
-    def state_constructor(self):
-        from fridom.nonhydro.state import State
-        return State(self, is_spectral=False)
-
-    def diagnostic_state_constructor(self):
-        from fridom.nonhydro.diagnostic_state import DiagnosticState
-        return DiagnosticState(self, is_spectral=False)
-
     @property
     def f0(self) -> 'float':
+        """The constant term of the  Coriolis parameter (f=f0 + beta*y)."""
         return self._f0
     
     @f0.setter
@@ -107,6 +112,7 @@ class ModelSettings(ModelSettingsBase):
 
     @property
     def beta(self) -> 'float':
+        """The beta term of the Coriolis parameter (f=f0 + beta*y)."""
         return self._beta
     
     @beta.setter
@@ -118,6 +124,7 @@ class ModelSettings(ModelSettingsBase):
 
     @property
     def f_coriolis(self) -> 'FieldVariable':
+        """The Coriolis parameter (f=f0 + beta*y)."""
         return self._f_coriolis
     
     @f_coriolis.setter

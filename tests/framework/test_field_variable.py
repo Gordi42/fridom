@@ -93,8 +93,8 @@ def random_fields_real(mset, shape_phy, position_center):
     ncp = config.ncp
     field = fr.FieldVariable(
         mset, is_spectral=False, name="Test", position=position_center)
-    field.arr = ncp.random.rand(*shape_phy)
-    field.sync()
+    field.arr = fr.utils.random_array(shape_phy)
+    field = field.sync()
     return field
 
 def test_fft(random_fields_real):
@@ -130,7 +130,7 @@ def test_setitem(random_fields_real, n_dims):
     assert ncp.allclose(field[:], 0)
 
     # test a single value
-    ind = [0]*n_dims
+    ind = tuple([0]*n_dims)
     field[ind] = 1.0
     assert ncp.allclose(field.arr[ind], 1.0)
 
@@ -329,34 +329,35 @@ def test_f2(f2, topo2):
 def test_topo_add(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 + f2
+    print(f3)
     assert f3.topo == obtained_topo
     assert f3.shape == obtained_shape
-    assert ncp.allclose(f3, 3.0)
+    assert ncp.allclose(f3.arr, 3.0)
 
 def test_topo_sub(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 - f2
     assert f3.topo == obtained_topo
     assert f3.shape == obtained_shape
-    assert ncp.allclose(f3, -1.0)
+    assert ncp.allclose(f3.arr, -1.0)
 
 def test_topo_mul(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 * f2
     assert f3.topo == obtained_topo
     assert f3.shape == obtained_shape
-    assert ncp.allclose(f3, 2.0)
+    assert ncp.allclose(f3.arr, 2.0)
 
 def test_topo_div(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 / f2
     assert f3.topo == obtained_topo
     assert f3.shape == obtained_shape
-    assert ncp.allclose(f3, 1.0/2.0)
+    assert ncp.allclose(f3.arr, 1.0/2.0)
 
 def test_topo_pow(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 ** f2
     assert f3.topo == obtained_topo
     assert f3.shape == obtained_shape
-    assert ncp.allclose(f3, 1.0**2.0)
+    assert ncp.allclose(f3.arr, 1.0**2.0)

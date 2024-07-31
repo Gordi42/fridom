@@ -2,6 +2,7 @@
 from mpi4py import MPI
 from copy import deepcopy
 import numpy as np
+from numpy import ndarray
 from functools import partial
 # Import internal modules
 from .subdomain import Subdomain
@@ -251,7 +252,7 @@ class DomainDecomposition:
         return
 
     @partial(utils.jaxjit, static_argnames='flat_axes')
-    def sync(self, arr: np.ndarray, flat_axes: list | None = None) -> None:
+    def sync(self, arr: ndarray, flat_axes: list | None = None) -> ndarray:
         """
         # Synchronize Halos
         Synchronize the halo regions of an array between neighboring domains.
@@ -268,6 +269,11 @@ class DomainDecomposition:
             The array to synchronize.
         `flat_axes` : `list[int]`, optional (default=None)
             A list of axes to skip synchronization.
+
+        Returns
+        -------
+        `ndarray`
+            The array with the halo regions synchronized.
         
         Examples
         --------
@@ -280,7 +286,7 @@ class DomainDecomposition:
             # create a random array on the local domain
             u = config.ncp.random.rand(domain.my_subdomain.shape)
             # synchronize the halo regions between neighboring domains
-            domain.sync(u)
+            u = domain.sync(u)
         """
         return self.sync_multiple((arr,), flat_axes)[0]
 
@@ -347,8 +353,8 @@ class DomainDecomposition:
                             axis: int,) -> tuple[np.ndarray]:
         if self.n_global[axis] < self.halo:
             pad = config.ncp.pad
-            ics = self.inner[axis]
-            pad_width = self.paddings[axis]
+            ics = self._inner[axis]
+            pad_width = self._paddings[axis]
             return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
         else:
             rfn = self._recv_from_next[axis]
@@ -463,7 +469,7 @@ class DomainDecomposition:
             self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
         # apply the boundary condition to the left side
         if self.my_subdomain.is_left_edge[axis]:
-            arr[self._recv_from_prev[axis]] = bc
+            arr = utils.modify_array(arr, self._recv_from_prev[axis], bc)
         return arr
     
     @partial(utils.jaxjit, static_argnames=['axis'])
@@ -471,7 +477,7 @@ class DomainDecomposition:
             self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
         # apply the boundary condition to the right side
         if self.my_subdomain.is_right_edge[axis]:
-            arr[self._recv_from_next[axis]] = bc
+            arr = utils.modify_array(arr, self._recv_from_next[axis], bc)
         return arr
 
     def sync_with_device(self):

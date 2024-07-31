@@ -21,61 +21,33 @@ class ModelSettingsBase:
     - model_name
     - tendencies
     - diagnostics
+
+    And the following methods:
     - state_constructor
     - diagnostic_state_constructor
-
-    
-    Attributes
-    ----------
-    `model_name` : `str` (default: `"Unnamed model"`)
-        The name of the model.
-    `time_stepper` : `TimeStepperBase` (default: `AdamBashforth()`
-        The time stepper object.
-    `restart_module` : `RestartModule`
-        The restart module object.
-    `tendencies` : `ModuleContainer`
-        A container for all modules that calculate tendencies.
-    `diagnostics` : `ModuleContainer`
-        A container for all modules that calculate diagnostics.
-    `bc` : `BoundaryConditions`
-        The boundary conditions object.
-    `state_constructor` : `callable`
-        A function that constructs a state from the model settings
-    `diagnostic_state_constructor` : `callable`
-        A function that constructs a diagnostic state from the model settings
-    `enable_verbose` : `bool` (default: `False`)
-        Enable verbose output.
-    
-    
-    Methods
-    -------
-    `print_verbose(*args, **kwargs)`
-        Print function for verbose output.
-    `set_attributes(**kwargs)`
-        Set attributes from keyword arguments.
     
     Examples
     --------
     Create a new model settings class by inheriting from `ModelSettingsBase`:
 
-    >>> from fridom.framework import ModelSettingsBase
-    >>> class ModelSettings(ModelSettingsBase):
-    ...     def __init__(self, grid, **kwargs):
-    ...         super().__init__(grid)
-    ...         self.model_name = "MyModel"
-    ...         # set other parameters
-    ...         self.my_parameter = 1.0
-    ...         # set up modules and state constructors here. Eee for example 
-    ...         # the `ModelSettings` class in `shallowwater/model_settings.py`
-    ...         # Finally, set attributes from keyword arguments
-    ...         self.set_attributes(**kwargs)
-    ...     # maybe update the __str__ method to include the new parameter
-    ...     def __str__(self) -> str:
-    ...         res = super().__str__()
-    ...         res += "  My parameter: {}\\n".format(self.my_parameter)
-    ...         return res
-    >>> settings = ModelSettings(grid=..., my_parameter=2.0)
-    >>> print(settings)
+    .. code-block:: python
+
+        import fridom.framework as fr
+        class ModelSettings(fr.ModelSettingsBase):
+            def __init__(self, grid, **kwargs):
+                super().__init__(grid)
+                self.model_name = "MyModel"
+                # set other parameters
+                self.my_parameter = 1.0
+                # Finally, set attributes from keyword arguments
+                self.set_attributes(**kwargs)
+
+            # optional: override the parameters property
+            @property
+            def parameters(self):
+                res = super().parameters
+                res["my_parameter"] = self.my_parameter
+                return res
     """
     _dynamic_attributes = ["grid"]
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
@@ -151,6 +123,14 @@ class ModelSettingsBase:
 
         logger.info(self)
         return
+
+    def state_constructor(self):
+        from fridom.framework.state_base import StateBase
+        return StateBase(self, {})
+
+    def diagnostic_state_constructor(self):
+        from fridom.framework.state_base import StateBase
+        return StateBase(self, {})
 
     def __repr__(self) -> str:
         """

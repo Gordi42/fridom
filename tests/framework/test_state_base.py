@@ -42,7 +42,7 @@ def field_list(mset, is_spectral, n_fields, position):
         mset, name=f"v{i}", is_spectral=is_spectral, position=position) 
                   for i in range(n_fields)]
     for field in field_list:
-        field[:] = config.ncp.random.rand(*field.shape)
+        field.arr = fr.utils.random_array(field.arr.shape)
     return field_list
 
 @pytest.fixture()
@@ -101,6 +101,9 @@ def state_11(mset_1d, position_1d):
         mset_1d, is_spectral=False, name="v2", position=position_1d) + 1.0
     return fr.StateBase(mset_1d, [v1, v2], is_spectral=False)
 
+def fields_are_equal(f1, f2):
+    return config.ncp.allclose(f1.arr, f2.arr)
+
 def test_init(mset, field_list, state):
     assert state.mset is mset
     assert state.grid is mset.grid
@@ -124,14 +127,14 @@ def test_fft(state, dtype_in, dtype_out):
     # Don't check if the state is spectral because the data will be different
     if not state.is_spectral: 
         for f1, f2 in zip(state_fft_fft.field_list, state.field_list):
-            assert config.ncp.allclose(f1, f2)
+            assert fields_are_equal(f1, f2)
 
 @pytest.mark.mpi_skip
 def test_dot(mset_1d, ones_p, ones_s, state_01, state_11, position_1d):
     state = state_01; state2 = state_11
     dot = state.dot(state2)
     assert isinstance(dot, fr.FieldVariable)
-    assert config.ncp.allclose(dot, ones_p)
+    assert fields_are_equal(dot, ones_p)
 
     # test complex
     v1 = fr.FieldVariable(
@@ -145,7 +148,7 @@ def test_dot(mset_1d, ones_p, ones_s, state_01, state_11, position_1d):
         mset_1d, is_spectral=True, name="v2", position=position_1d) + 1 
     state2 = fr.StateBase(mset_1d, [v1, v2], is_spectral=True)
     dot = state.dot(state2)
-    assert config.ncp.allclose(dot, ones_s-2j)
+    assert fields_are_equal(dot, ones_s-2j)
 
 @pytest.mark.mpi_skip
 def test_norm_l2(mset_1d, state_01, state_11, ones_p):
@@ -186,29 +189,29 @@ def test_add(state_01, state_11, zeros_p, ones_p):
 
     # add two states
     state3 = state + state2
-    assert config.ncp.allclose(state.field_list[0], zeros_p)
-    assert config.ncp.allclose(state.field_list[1], ones_p)
+    assert fields_are_equal(state.field_list[0], zeros_p)
+    assert fields_are_equal(state.field_list[1], ones_p)
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], ones_p)
-    assert config.ncp.allclose(state3.field_list[1], ones_p + 1)
+    assert fields_are_equal(state3.field_list[0], ones_p)
+    assert fields_are_equal(state3.field_list[1], ones_p + 1)
 
     # add state and scalar
     state3 = state + 1
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], ones_p)
-    assert config.ncp.allclose(state3.field_list[1], ones_p + 1)
+    assert fields_are_equal(state3.field_list[0], ones_p)
+    assert fields_are_equal(state3.field_list[1], ones_p + 1)
 
     # add state and array
     state3 = state + ones_p
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], ones_p)
-    assert config.ncp.allclose(state3.field_list[1], ones_p + 1)
+    assert fields_are_equal(state3.field_list[0], ones_p)
+    assert fields_are_equal(state3.field_list[1], ones_p + 1)
 
     # add number and state
     state3 = 1 + state
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], ones_p)
-    assert config.ncp.allclose(state3.field_list[1], ones_p + 1)
+    assert fields_are_equal(state3.field_list[0], ones_p)
+    assert fields_are_equal(state3.field_list[1], ones_p + 1)
 
 @pytest.mark.mpi_skip
 def test_sub(ones_p, state_01, state_11):
@@ -217,26 +220,26 @@ def test_sub(ones_p, state_01, state_11):
     # subtract two states
     state3 = state - state2
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], -ones_p[:])
-    assert config.ncp.allclose(state3.field_list[1], 0)
+    assert fields_are_equal(state3.field_list[0], ones_p * -1)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 0)
 
     # subtract state and scalar
     state3 = state - 1
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], -ones_p[:])
-    assert config.ncp.allclose(state3.field_list[1], 0)
+    assert fields_are_equal(state3.field_list[0], ones_p * -1)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 0)
 
     # subtract state and array
     state3 = state - ones_p
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], -ones_p[:])
-    assert config.ncp.allclose(state3.field_list[1], 0)
+    assert fields_are_equal(state3.field_list[0], ones_p * -1)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 0)
 
     # subtract number and state
     state3 = 1 - state
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], ones_p)
-    assert config.ncp.allclose(state3.field_list[1], 0)
+    assert fields_are_equal(state3.field_list[0], ones_p)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 0)
 
 @pytest.mark.mpi_skip
 def test_mul(zeros_p, ones_p, state_01, state_11):
@@ -245,26 +248,26 @@ def test_mul(zeros_p, ones_p, state_01, state_11):
     # multiply two states
     state3 = state * state2
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], zeros_p)
-    assert config.ncp.allclose(state3.field_list[1], ones_p)
+    assert fields_are_equal(state3.field_list[0], zeros_p)
+    assert fields_are_equal(state3.field_list[1], ones_p)
 
     # multiply state and scalar
     state3 = state * 2
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], zeros_p)
-    assert config.ncp.allclose(state3.field_list[1], 2)
+    assert fields_are_equal(state3.field_list[0], zeros_p)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 2)
 
     # multiply state and array
     state3 = state * ones_p
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], zeros_p)
-    assert config.ncp.allclose(state3.field_list[1], ones_p)
+    assert fields_are_equal(state3.field_list[0], zeros_p)
+    assert fields_are_equal(state3.field_list[1], ones_p)
 
     # multiply number and state
     state3 = 2 * state
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], zeros_p)
-    assert config.ncp.allclose(state3.field_list[1], 2)
+    assert fields_are_equal(state3.field_list[0], zeros_p)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 2)
 
 @pytest.mark.mpi_skip
 def test_truediv(zeros_p, ones_p, state_01, state_11):
@@ -273,23 +276,23 @@ def test_truediv(zeros_p, ones_p, state_01, state_11):
     # divide two states
     state3 = state / state2
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], zeros_p)
-    assert config.ncp.allclose(state3.field_list[1], ones_p)
+    assert fields_are_equal(state3.field_list[0], zeros_p)
+    assert fields_are_equal(state3.field_list[1], ones_p)
 
     # divide state and scalar
     state3 = state / 2
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], zeros_p)
-    assert config.ncp.allclose(state3.field_list[1], 0.5)
+    assert fields_are_equal(state3.field_list[0], zeros_p)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 0.5)
 
     # divide state and array
     state3 = state / ones_p
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], zeros_p)
-    assert config.ncp.allclose(state3.field_list[1], 1)
+    assert fields_are_equal(state3.field_list[0], zeros_p)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 1)
 
     # divide number and state
     state3 = 2 / state2
     assert isinstance(state3, fr.StateBase)
-    assert config.ncp.allclose(state3.field_list[0], 2)
-    assert config.ncp.allclose(state3.field_list[1], 2)
+    assert fr.config.ncp.allclose(state3.field_list[0].arr, 2)
+    assert fr.config.ncp.allclose(state3.field_list[1].arr, 2)

@@ -36,7 +36,7 @@ def test_sync_topo_array(backend, flat_axis):
         n_global=(64, 64), shared_axes=[0], halo=2)
     shape = list(domain.my_subdomain.shape)
     shape[flat_axis] = 1
-    u = ncp.random.rand(*tuple(shape))
+    u = fr.utils.random_array(shape)
     domain.sync(u, flat_axes=[flat_axis])
 
 @pytest.mark.parametrize("halo", [0, 1, 2])
@@ -45,7 +45,7 @@ def test_sync_1d_array(backend, halo):
     n_global = (64, 1 , 32)
     domain = fr.domain_decomposition.DomainDecomposition(
         n_global=n_global, shared_axes=[0, 1], halo=halo)
-    u = ncp.random.rand(*domain.my_subdomain.shape)
+    u = fr.utils.random_array(domain.my_subdomain.shape)
     assert u.shape[1] == 1 + 2 * halo
     domain.sync(u)
 
@@ -66,7 +66,7 @@ def test_apply_boundary_conditions(backend, ndims, halo, axis, side):
     bc_shape = list(u.shape)
     bc_shape[axis] = 1
     u_bc = ncp.zeros(shape=bc_shape)
-    domain.apply_boundary_condition(u, u_bc, axis, side=side)
+    u = domain.apply_boundary_condition(u, u_bc, axis, side=side)
     if side == "left":
         is_edge = domain.my_subdomain.is_left_edge[axis]
         edge = slice(0, halo)

@@ -9,6 +9,20 @@ def test_set_backend(backend):
             assert fr.config.ncp.__name__ == "numpy"
         case fr.config.Backend.CUPY:
             assert fr.config.ncp.__name__ == "cupy"
+        case fr.config.Backend.JAX_CPU:
+            assert fr.config.ncp.__name__ == "jax.numpy"
+        case fr.config.Backend.JAX_GPU:
+            assert fr.config.ncp.__name__ == "jax.numpy"
+    # if the backend is JAX, check if the device is correct
+    if fr.config.backend_is_jax:
+        import jax
+        device = jax.lib.xla_bridge.get_backend().platform
+        match backend:
+            case fr.config.Backend.JAX_CPU:
+                assert device == "cpu"
+            case fr.config.Backend.JAX_GPU:
+                assert device == "gpu"
+
 
 @pytest.mark.parametrize("dtype", [fr.config.DType.FLOAT32, 
                                    fr.config.DType.FLOAT64])

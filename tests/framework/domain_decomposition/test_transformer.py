@@ -17,8 +17,8 @@ def test_transformer(backend, in_halo, out_halo, n_global,
     # construct transformer
     transformer = fr.domain_decomposition.Transformer(domain_x, domain_y)
     # create a random array
-    u = fr.config.ncp.random.rand(*domain_x.my_subdomain.shape)
-    domain_x.sync(u)
+    u = fr.utils.random_array(domain_x.my_subdomain.shape)
+    u = domain_x.sync(u)
 
     # test forward transformation
     v = transformer.forward(u)

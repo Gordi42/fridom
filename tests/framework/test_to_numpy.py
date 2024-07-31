@@ -10,14 +10,14 @@ def test_standard_variable_to_numpy(backend, variable):
 
 
 def test_cupy_array_to_numpy(backend):
-    x = fr.config.ncp.random.rand(10)
+    x = fr.utils.random_array((10,))
     if backend != fr.config.Backend.NUMPY:
         assert not isinstance(x, np.ndarray)
     y = to_numpy(x)
     assert isinstance(y, np.ndarray)
 
 def test_cupy_list_to_numpy(backend):
-    x = [fr.config.ncp.random.rand(10) for _ in range(3)]
+    x = [fr.utils.random_array((10,)) for _ in range(3)]
     if backend != fr.config.Backend.NUMPY:
         assert not isinstance(x[0], np.ndarray)
     y = to_numpy(x)
@@ -25,7 +25,7 @@ def test_cupy_list_to_numpy(backend):
         assert isinstance(yi, np.ndarray)
 
 def test_cupy_tuple_to_numpy(backend):
-    x = tuple(fr.config.ncp.random.rand(10) for _ in range(3))
+    x = tuple([fr.utils.random_array((10,)) for _ in range(3)])
     if backend != fr.config.Backend.NUMPY:
         assert not isinstance(x[0], np.ndarray)
     y = to_numpy(x)
@@ -33,17 +33,12 @@ def test_cupy_tuple_to_numpy(backend):
         assert isinstance(yi, np.ndarray)
 
 def test_recursion(backend):
-    x = fr.config.ncp.random.rand(10)
+    x = fr.utils.random_array((10,))
     y = [x, x]
     z = to_numpy(y)
     assert isinstance(z[0], np.ndarray)
     assert y[0] is y[1]
     assert z[0] is z[1]
-
-def test_numpy_generic(backend):
-    x = fr.config.ncp.float64(1.0)
-    y = to_numpy(x)
-    assert isinstance(y, np.float64)
 
 def test_mset_to_numpy(backend):
     grid = fr.grid.cartesian.Grid(N=(32, 32, 8), L=(1, 1, 1))

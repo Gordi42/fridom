@@ -152,7 +152,7 @@ def transform(domain_in: 'DomainDecomposition',
             arr_out, recv_same_proc, arr_in[send_same_proc])
 
     # synchronize halo regions
-    domain_out.sync(arr_out)
+    arr_out = domain_out.sync(arr_out)
 
     return arr_out
 
