@@ -14,7 +14,11 @@ help:
 
 .PHONY: help Makefile
 
+# Target to run the Python script that generates .rst files
+rst:
+	python generate_rst_api.py
+
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
-%: Makefile
+%: rst Makefile
 	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
