@@ -3,7 +3,10 @@ import sys
 
 sys.path.insert(0, os.path.abspath('../../src'))
 
-print("hello")
+# print current path
+print("Current path:")
+print(sys.path)
+print("Current path:")
 
 
 # Configuration file for the Sphinx documentation builder.
