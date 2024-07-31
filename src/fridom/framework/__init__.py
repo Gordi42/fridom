@@ -64,7 +64,6 @@ if TYPE_CHECKING:
     from .model_state import ModelState
     from .model import Model
     from .diagnose_imbalance_base import DiagnoseImbalanceBase
-    from .mesh_point import MeshPoint
 
 
     # import modules
@@ -90,6 +89,7 @@ if TYPE_CHECKING:
 all_modules_by_origin = {
     "fridom.framework": [
         "grid",
+        "domain_decomposition",
         "config",
         "utils",
         "time_steppers",
