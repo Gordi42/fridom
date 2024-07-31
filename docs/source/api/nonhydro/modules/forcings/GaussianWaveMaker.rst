@@ -1,7 +1,0 @@
-GaussianWaveMaker
-=================
-
-.. autoclass:: fridom.nonhydro.modules.forcings.gaussian_wave_maker.GaussianWaveMaker
-   :members:
-   :undoc-members:
-   :show-inheritance:
