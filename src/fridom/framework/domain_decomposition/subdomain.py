@@ -25,45 +25,6 @@ class Subdomain:
         The number of halo cells around the local domain for the exchange
         of boundary values.
     
-    Attributes
-    ----------
-    `n_global` : `tuple[int]`
-        The global number of grid points in each dimension.
-    `halo` : `int`
-        The number of halo cells around the local domain for the exchange of
-        boundary values.
-    `rank` : `int`
-        The global rank of the subdomains processor in the communicator.
-    `coord` : `tuple[int]`
-        The coordinates of the processor in the processor grid.
-    `is_left_edge` : `tuple[bool]`
-        A list of booleans that indicate if the processor is at the left edge
-        of the global domain.
-    `is_right_edge` : `tuple[bool]`
-        A list of booleans that indicate if the processor is at the right edge
-        of the global domain.
-    `shape` : `tuple[int]`
-        The number of grid points in the local domain including halo.
-    `inner_shape` : `tuple[int]`
-        The number of grid points in the local domain without halo.
-    `position` : `tuple[int]`
-        The position of the local domain in the global grid (index coordinates).
-    `global_slice` : `tuple[slice]`
-        The slice of the global domain that corresponds to the local domain.
-    `inner_slice` : `tuple[slice]`
-        The slice of the local domain without halo.
-    
-    Methods
-    -------
-    `has_overlap(other: 'Subdomain') -> bool`
-        Check if the local domain overlaps with another domain.
-    `get_overlap_slice(other: 'Subdomain') -> 'tuple[slice]'`
-        Get the slice of the local domain that overlaps with another domain.
-    `g2l_slice(global_slice: 'tuple[slice]') -> 'tuple[slice]'`
-        Convert a global slice to a local slice.
-    `l2g_slice(local_slice: 'tuple[slice]') -> 'tuple[slice]'`
-        Convert a local slice to a global slice.
-    
     Examples
     --------
     The following example must be run with MPI enabled and with 6 processors:
@@ -445,7 +406,7 @@ class Subdomain:
         coordinates)."""
         return self._position
 
-    @property
+    # @property
     def global_slice(self) -> 'tuple[slice]':
         """The slice of the global domain that corresponds to the local domain."""
         return self._global_slice

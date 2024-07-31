@@ -27,32 +27,19 @@ class OverlapInfo:
     `domain_out` : `DomainDecomposition`
         The output domain.
 
-    Attributes
-    ----------
-    `overlap_slices` : list[slice]
-        A list of slices that represent the overlap between the input and
-        output domains.
-    `processors` : list[int]
-        A list of the processors of the output domain that overlap with the
-        input domain.
-    `slice_same_proc` : slice
-        The slice of the input domain that overlaps with the output domain of
-        the same processor.
-    
     Examples
     --------
-    ```
-    # create two domains
-    domain1 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[0])
-    domain2 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[1])
+    .. code-block:: python
+        # create two domains
+        domain1 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[0])
+        domain2 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[1])
 
-    # get the overlap information
-    overlap_info = OverlapInfo(domain1, domain2)
+        # get the overlap information
+        overlap_info = OverlapInfo(domain1, domain2)
 
-    print(f"The slice {OverlapInfo.overlap_slices[0]} of domain1 \
-    shares an overlap with processor {OverlapInfo.processors[0]} \
-    of the domain2.")
-    ```
+        print(f"The slice {OverlapInfo.overlap_slices[0]} of domain1 \
+        shares an overlap with processor {OverlapInfo.processors[0]} \
+        of the domain2.")
     """
     _dynamic_attributes = []
     def __init__(self, 
@@ -191,45 +178,32 @@ class Transformer:
         The input domain.
     `domain_out` : `DomainDecomposition`
         The output domain.
-        
-    Attributes
-    ----------
-    `domain_in` : `DomainDecomposition`
-        The input domain.
-    `domain_out` : `DomainDecomposition`
-        The output domain.
-    
-    Methods
-    -------
-    `forward(arr_in, arr_out=None)` : `np.ndarray` or `cupy.ndarray`
-        Transform an array from the input domain to the output domain.
-    `backward(arr_in, arr_out=None)` : `np.ndarray` or `cupy.ndarray`
-        Transform an array from the output domain to the input domain.
     
     Examples
     --------
+    .. code-block:: python
 
-    >>> from fridom.framework import config
-    >>> from fridom.framework \\
-    ...     .domain_decomposition import DomainDecomposition, Transformer
-    >>> # create two domains where one shares the x-axis and the other the y-axis
-    >>> domain_x = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
-    >>> domain_y = DomainDecomposition(n_global=(128, 128), shared_axes=[1])
-    >>> 
-    >>> # create a random array on the local domain
-    >>> u = config.ncp.random.rand(*domain_x.my_subdomain.shape)
-    >>> domain_x.sync(u)
-    >>> 
-    >>> # construct transformers between the domains
-    >>> transformer = Transformer(domain_x, domain_y)
-    >>> 
-    >>> # transform the array from domain_x to domain_y
-    >>> v = transformer.forward(u)
-    >>> assert v.shape == domain_y.my_subdomain.shape
-    >>> 
-    >>> # transform the array back from domain_y to domain_x
-    >>> w = transformer.backward(v)
-    >>> assert config.ncp.allclose(u, w)
+        from fridom.framework import config
+        from fridom.framework \\
+            .domain_decomposition import DomainDecomposition, Transformer
+        # create two domains where one shares the x-axis and the other the y-axis
+        domain_x = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
+        domain_y = DomainDecomposition(n_global=(128, 128), shared_axes=[1])
+        
+        # create a random array on the local domain
+        u = config.ncp.random.rand(*domain_x.my_subdomain.shape)
+        domain_x.sync(u)
+        
+        # construct transformers between the domains
+        transformer = Transformer(domain_x, domain_y)
+        
+        # transform the array from domain_x to domain_y
+        v = transformer.forward(u)
+        assert v.shape == domain_y.my_subdomain.shape
+        
+        # transform the array back from domain_y to domain_x
+        w = transformer.backward(v)
+        assert config.ncp.allclose(u, w)
     """
     _dynamic_attributes = ["_domain_in", "_domain_out", 
                            "_overlap_info_in", "_overlap_info_out"]

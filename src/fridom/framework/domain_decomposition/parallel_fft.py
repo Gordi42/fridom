@@ -91,52 +91,36 @@ class ParallelFFT:
     `halo_out` : `int`, optional (default=0)
         The halo size of the output domain
     
-    Attributes
-    ----------
-    `domain_in` : `DomainDecomposition`
-        The domain decomposition of the input data (usually the physical domain)
-    `domain_out` : `DomainDecomposition`
-        The domain decomposition of the output data (usually the spectral domain)
-    
-    Methods
-    -------
-    `forward(u: np.ndarray) -> np.ndarray`
-        Forward Fourier Transform
-    `backward(u_hat: np.ndarray) -> np.ndarray`
-        Backward Fourier Transform (Inverse Transform)
-    `forward_apply(u: np.ndarray, apply_fun: callable) -> np.ndarray`
-        Custom Forward Transform
-    `backward_apply(u: np.ndarray, apply_fun: callable) -> np.ndarray`
-        Custom Backward Transform
-    
     Examples
     --------
-    >>> import numpy as np
-    >>> from fridom.framework \\
-    ...     .domain_decomposition import DomainDecomposition, ParallelFFT
-    >>> # Create a 3D physical domain that is decomposed along the z-axis and
-    >>> # two halo points at each side of the domain
-    >>> domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1], halo=2)
-    >>> 
-    >>> # Create a ParallelFFT with a spectral domain that is decomposed along 
-    >>> # the kx-axes and zero halo points
-    >>> pfft = ParallelFFT(domain, shared_axes_out=[1,2], halo_out=0)
-    >>> 
-    >>> # Get the spectral domain
-    >>> domain_spectral = pfft.domain_out
-    >>> 
-    >>> # Create a random field in the physical domain
-    >>> u = np.random.rand(*domain.my_subdomain.shape)
-    >>> domain.sync(u)
-    >>> 
-    >>> # Perform a forward transform
-    >>> u_hat = pfft.forward(u)
-    >>> 
-    >>> # Perform a backward transform
-    >>> v = pfft.backward(u_hat)
-    >>> 
-    >>> # Check if the data is the same
-    >>> assert np.allclose(u, v)
+    .. code-block:: python
+
+        import numpy as np
+        from fridom.framework \\
+            .domain_decomposition import DomainDecomposition, ParallelFFT
+        # Create a 3D physical domain that is decomposed along the z-axis and
+        # two halo points at each side of the domain
+        domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1], halo=2)
+        
+        # Create a ParallelFFT with a spectral domain that is decomposed along 
+        # the kx-axes and zero halo points
+        pfft = ParallelFFT(domain, shared_axes_out=[1,2], halo_out=0)
+        
+        # Get the spectral domain
+        domain_spectral = pfft.domain_out
+        
+        # Create a random field in the physical domain
+        u = np.random.rand(*domain.my_subdomain.shape)
+        domain.sync(u)
+        
+        # Perform a forward transform
+        u_hat = pfft.forward(u)
+        
+        # Perform a backward transform
+        v = pfft.backward(u_hat)
+        
+        # Check if the data is the same
+        assert np.allclose(u, v)
     """
     _dynamic_attributes = ['_domain_in', '_domain_out']
     def __init__(self, 
@@ -272,19 +256,21 @@ class ParallelFFT:
         
         Examples
         --------
-        >>> import numpy as np
-        >>> from fridom.framework \\
-        ...     .domain_decomposition import DomainDecomposition, ParallelFFT
-        >>> # Create the domain decomposition and the ParallelFFT object
-        >>> domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
-        >>> pfft = ParallelFFT(domain)
-        >>> 
-        >>> # Create a random field in the physical domain
-        >>> u = np.random.rand(*domain.my_subdomain.shape)
-        >>> domain.sync(u)
-        >>> 
-        >>> # Perform a forward transform
-        >>> u_hat = pfft.forward(u)
+        .. code-block:: python
+
+            import numpy as np
+            from fridom.framework \\
+                .domain_decomposition import DomainDecomposition, ParallelFFT
+            # Create the domain decomposition and the ParallelFFT object
+            domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
+            pfft = ParallelFFT(domain)
+            
+            # Create a random field in the physical domain
+            u = np.random.rand(*domain.my_subdomain.shape)
+            domain.sync(u)
+            
+            # Perform a forward transform
+            u_hat = pfft.forward(u)
         """
         return self.forward_apply(arr, config.ncp.fft.fftn)
 
@@ -306,22 +292,23 @@ class ParallelFFT:
         
         Examples
         --------
+        .. code-block:: python
 
-        >>> import numpy as np
-        >>> from fridom.framework \\
-        ...     .domain_decomposition import DomainDecomposition, ParallelFFT
-        >>> # Create the domain decomposition and the ParallelFFT object
-        >>> domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
-        >>> pfft = ParallelFFT(domain)
-        >>>
-        >>> # Get the spectral domain
-        >>> domain_spectral = pfft.domain_out
-        >>>
-        >>> # Create a random field in the spectral domain
-        >>> u = np.random.rand(*domain_spectral.my_subdomain.shape)
-        >>>
-        >>> # Perform a backward transform
-        >>> u = pfft.backward(u)  # will be complex
+            import numpy as np
+            from fridom.framework \\
+                .domain_decomposition import DomainDecomposition, ParallelFFT
+            # Create the domain decomposition and the ParallelFFT object
+            domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
+            pfft = ParallelFFT(domain)
+           
+            # Get the spectral domain
+            domain_spectral = pfft.domain_out
+           
+            # Create a random field in the spectral domain
+            u = np.random.rand(*domain_spectral.my_subdomain.shape)
+           
+            # Perform a backward transform
+            u = pfft.backward(u)  # will be complex
         """
         return self.backward_apply(arr, config.ncp.fft.ifftn)
 
@@ -354,30 +341,31 @@ class ParallelFFT:
         
         Examples
         --------
-        >>> from fridom.framework \\
-        ...     .domain_decomposition import DomainDecomposition, ParallelFFT
-        >>> # Create a custom transform that applies a normal fft along the x axis
-        >>> # and a cosine transform along the y axis
-        >>> import numpy as np
-        >>> from scipy.fftpack import dct
-        >>> 
-        >>> def my_custom_transform(u, axes):
-        ...     if 0 in axes:
-        ...         u = np.fft.fftn(u, axes=(0,))
-        ...     if 1 in axes:
-        ...         u = dct(u, axis=1)
-        ...     return u
-        >>> 
-        >>> # Create the domain decomposition and the ParallelFFT object
-        >>> domain = DomainDecomposition(n_global=(64, 64), shared_axes=[0])
-        >>> pfft = ParallelFFT(domain)
-        >>> 
-        >>> # Create a random field in the physical domain
-        >>> u = np.random.rand(*domain.my_subdomain.shape)
-        >>> domain.sync(u)
-        >>> 
-        >>> # Perform a custom forward transform
-        >>> u_hat = pfft.forward_apply(u, my_custom_transform)
+        .. code-block:: python
+            from fridom.framework \\
+                .domain_decomposition import DomainDecomposition, ParallelFFT
+            # Create a custom transform that applies a normal fft along the x axis
+            # and a cosine transform along the y axis
+            import numpy as np
+            from scipy.fftpack import dct
+            
+            def my_custom_transform(u, axes):
+                if 0 in axes:
+                    u = np.fft.fftn(u, axes=(0,))
+                if 1 in axes:
+                    u = dct(u, axis=1)
+                return u
+            
+            # Create the domain decomposition and the ParallelFFT object
+            domain = DomainDecomposition(n_global=(64, 64), shared_axes=[0])
+            pfft = ParallelFFT(domain)
+            
+            # Create a random field in the physical domain
+            u = np.random.rand(*domain.my_subdomain.shape)
+            domain.sync(u)
+            
+            # Perform a custom forward transform
+            u_hat = pfft.forward_apply(u, my_custom_transform)
         """
         return transform(arr, self._domain_in, self._domain_out,
                         self._forward_transforms, tuple(self._fft_axes),

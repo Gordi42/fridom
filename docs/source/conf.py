@@ -29,6 +29,8 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
     'sphinx.ext.viewcode',
+    'sphinx.ext.mathjax',
+    'sphinx_copybutton',
     'myst_parser',
 ]
 autodoc_default_options = {
