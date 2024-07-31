@@ -16,7 +16,7 @@ class KelvinWave(nh.State):
     We will find:
 
     .. math::
-        \\omega = \\sqrt{\\frac{k_h^2 N^2}{k_h^2 + k_z^2}} 
+        \\omega = \\sqrt{\\frac{k_h^2 N^2}{k_h^2 + k_z^2}} \\\\
         k_n = \\frac{k_h f_0}{\\omega}
         U = - k_z
         V = 0

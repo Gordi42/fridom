@@ -38,17 +38,6 @@ class NetCDFWriterSingleProc(Module):
     `var_unit_names` : `list`
         Unit names of the variables. (should be set by child)
     
-    Methods
-    -------
-    `start()`
-        Start the parallel writer process.
-    `update(mz)`
-        Write data to binary files and add them to the NetCDF file.
-    `stop()`
-        Stop the parallel writer process.
-    `get_variables(mz)`
-        Get the variables from the model state to write to the NetCDF file.
-    
     Examples
     --------
     >>> TODO: add example from nonhydrostatic model

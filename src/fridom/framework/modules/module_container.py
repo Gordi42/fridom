@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from .module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
-    from fridom.framework.state_base import StateBase
     from fridom.framework.model_state import ModelState
 
 class ModuleContainer(Module):
@@ -22,26 +21,6 @@ class ModuleContainer(Module):
         The name of the module container.
     `module_list` : `list`
         A list of modules to be added to the container.
-
-    Flags
-    -----
-    `mpi_available` : `bool`
-        If True, the module is available in MPI mode.
-    `required_halo` : `int`
-        The number of halo points required by the module.
-    
-    Methods
-    -------
-    `start()`
-        Start all modules.
-    `stop()`
-        Stop all modules.
-    `update()`
-        Update all modules.
-    `add_module()`
-        Append a module to the list.
-    `get()`
-        Get a module by name.
     """
     def __init__(self, name="Module Container", module_list: list = None):
         if module_list is None:

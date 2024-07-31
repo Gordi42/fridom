@@ -96,7 +96,6 @@ class Module:
     is stopped. It can for example close an output file. Make sure to wrap the
     method with the `@stop_module` decorator.
     
-    
     Parameters
     ----------
     `name` : `str`
@@ -104,45 +103,12 @@ class Module:
     `**kwargs`
         Keyword arguments that are stored as attributes of the module.
     
-    Attributes
-    ----------
-    `name` : `str`
-        The name of the module.
-    `mset` : `ModelSettingsBase`
-        The model settings.
-    `grid` : `GridBase`
-        The grid of the model.
-    `log_level` : `LogLevel | None`
-        The log level of the module. If set, the log level of the logger is
-        changed to this log level when the module is called and changed back
-        to the old log level when the module is done. If not set, the log level
-        of the logger is not changed.
-    `__enabled` : `bool`
-        Whether the module is enabled or not.
-    
     Flags
     -----
     `required_halo` : `int`
         The number of halo points required by the module.
     `mpi_available` : `bool`
         Whether the module can be run in parallel.
-    
-    Methods
-    -------
-    `start()`
-        Start the module.
-    `stop()`
-        Stop the module.
-    `reset()`
-        Stop and start the module.
-    `update(mz)`
-        Update the module.
-    `enable()`
-        Enable the module.
-    `disable()`
-        Disable the module.
-    `is_enabled()`
-        Return whether the module is enabled or not.
     
     Examples
     --------
@@ -189,7 +155,7 @@ class Module:
         ModelSettings as an attribute. Make sure to decorate the method with
         the `@setup_module` decorator
 
-        Note
+        .. note::
         ----
         The setup method should have no arguments. The model settings are set
         as attributes of the module when the setup method is called. (See the

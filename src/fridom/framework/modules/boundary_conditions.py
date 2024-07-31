@@ -33,27 +33,24 @@ class BoundaryConditions(Module):
     `name` : `str` (default="BoundaryConditions")
         Name of the module.
     
-    Methods
-    -------
-    `set_boundary_condition(field, axis, side, value)`
-        Set a boundary condition for a field.
-    
     Examples
     --------
-    >>> # import modules
-    >>> import fridom.nonhydro as nh
-    >>> ncp = nh.config.ncp
-    >>> # Create a grid and model settings
-    >>> grid = nh.grid.CartesianGrid(N=[64]*3, L=[2*ncp.pi]*3)
-    >>> mset = nh.ModelSettings(grid)
-    >>> mset.setup()
-    >>> # Set constant buoyancy boundary condition at the top
-    >>> mset.bc.set_boundary_condition("b", 1, "left", 1.0)
-    >>> # Set cosine velocity boundary condition at the right side in x-direction
-    >>> u_bc = nh.FieldVariable(mset, topo=[False, True, False])
-    >>> y = grid.X[1][0, :, 0]
-    >>> u_bc[:] = ncp.cos(y)
-    >>> mset.bc.set_boundary_condition("u", 0, "right", u_bc)
+    .. code-block:: python
+
+        # import modules
+        import fridom.nonhydro as nh
+        ncp = nh.config.ncp
+        # Create a grid and model settings
+        grid = nh.grid.CartesianGrid(N=[64]*3, L=[2*ncp.pi]*3)
+        mset = nh.ModelSettings(grid)
+        mset.setup()
+        # Set constant buoyancy boundary condition at the top
+        mset.bc.set_boundary_condition("b", 1, "left", 1.0)
+        # Set cosine velocity boundary condition at the right side in x-direction
+        u_bc = nh.FieldVariable(mset, topo=[False, True, False])
+        y = grid.X[1][0, :, 0]
+        u_bc[:] = ncp.cos(y)
+        mset.bc.set_boundary_condition("u", 0, "right", u_bc)
     """
     def __init__(self, 
                  field_names: list[str],
