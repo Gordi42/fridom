@@ -19,13 +19,6 @@ class InterpolationBase(Module):
     as input and sets up the interpolation method. The interpolation method should
     also have an `interpolate` method that takes an array, an origin position, and
     a destination position as input and returns the interpolated array.
-    
-    Methods
-    -------
-    `setup(mset: ModelSettingsBase) -> None`
-        Set up the interpolation method.
-    `interpolate(arr: ndarray, origin: PositionBase, destination: PositionBase) -> ndarray`
-        Interpolate an array from one position to another.
     """
     def __init__(self, name="Interpolation"):
         super().__init__(name=name)

@@ -9,7 +9,6 @@ from .position import Position, AxisOffset
 # Import type information
 if TYPE_CHECKING:
     from numpy import ndarray
-    from fridom.framework.model_settings_base import ModelSettingsBase
 
 
 class PolynomialInterpolation(InterpolationBase):

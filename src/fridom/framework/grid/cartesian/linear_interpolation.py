@@ -9,21 +9,11 @@ from .position import Position, AxisOffset
 # Import type information
 if TYPE_CHECKING:
     from numpy import ndarray
-    from fridom.framework.model_settings_base import ModelSettingsBase
 
 
 class LinearInterpolation(InterpolationBase):
     """
     Interpolation of the cartesian grid using linear interpolation.
-    
-    Methods
-    -------
-    `setup(mset: ModelSettingsBase) -> None`
-        Set up the interpolation method.
-    `interpolate(arr: ndarray, origin: Position, destination: Position) -> ndarray`
-        Interpolate an array from one position to another.
-    `interpolate_axis(arr: ndarray, axis: int, origin: AxisOffset, destination: AxisOffset) -> ndarray`
-        Interpolate an array along an axis from one position to another.
     """
     _dynamic_attributes = []
     def __init__(self) -> None:

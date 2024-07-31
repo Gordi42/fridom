@@ -27,59 +27,6 @@ class GridBase:
         Indicates whether the grid supports fast fourier transforms.
     `mpi_available` : `bool`
         Indicates whether the grid supports MPI parallelization.
-
-    Attributes
-    ----------
-    `n_dims` : `int`
-        The number of dimensions of the grid.
-    `N` : `tuple[int]`
-        The number of grid points in each dimension.
-    `L` : `tuple[float]`
-        The length of the grid in each dimension.
-    `total_grid_points` : `int`
-        The total number of grid points in the grid.
-    `periodic_bounds` : `tuple`
-        A tuple of booleans indicating whether the grid is periodic in each
-        dimension.
-    `inner_slice` : `tuple[slice]`
-        The slice of the grid that excludes the boundary points.
-    `X` : tuple(`ndarray`)
-        The meshgrid of the grid points.
-    `x_global` : tuple(`ndarray`)
-        The x-vector of the global grid points.
-    `x_local` : `ndarray`
-        The x-vector of the local grid points.
-    `dx` : tuple(`ndarray`)
-        The grid spacing in each dimension.
-    `dV` : `ndarray`
-        The volume element of the grid.
-    `mset` : `ModelSettingsBase | None`
-        The model settings object.
-
-    Methods
-    -------
-    `setup(mset: ModelSettingsBase)`
-        Setup the grid. (must be implemented by child classes)
-    `fft(f: ndarray) -> ndarray`
-        Perform a (fast) fourier transform on the input array.
-    `ifft(f: ndarray) -> ndarray`
-        Perform an inverse (fast) fourier transform on the input array.
-    `sync(arr: ndarray) -> ndarray`
-        Synchronize the halo (boundary) points of an array across all MPI ranks.
-    `sync_multi(f: list[ndarray]) -> list[ndarray]`
-        Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
-    `diff(arr: ndarray, axis: int, **kwargs) -> ndarray`
-        Compute the derivative of a field along an axis.
-    `div(arrs: list[ndarray], axes: list[int] | None = None, **kwargs) -> ndarray`
-        Calculate the divergence of a vector field (\\nabla \\cdot \\vec{v}).
-    `grad(arr: ndarray, axes: list[int] | None = None, **kwargs) -> list[ndarray]`
-        Calculate the gradient of a scalar field (\\nabla f).
-    `laplacian(arr: ndarray, axes: list[int] | None = None, **kwargs) -> ndarray`
-        Calculate the laplacian of a scalar field (\\nabla^2 f).
-    `curl(arrs: list[ndarray], axes: list[int] | None = None, **kwargs) -> list[ndarray]`
-        Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
-    `interpolate(arr: ndarray, origin: PositionBase, destination: PositionBase) -> ndarray`
-        Interpolate an array from one position to another.
     """
     _dynamic_attributes = ["_X", "_x_global", "_x_local", 
                            '_K', '_k_local', '_k_global']

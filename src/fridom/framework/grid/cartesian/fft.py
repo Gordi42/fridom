@@ -109,13 +109,15 @@ class FFT:
     
     Examples
     --------
-    >>> import numpy as np
-    >>> from fridom.framework.grid.cartesian import FFT
-    >>> fft = FFT(periodic=(True, True, False))
-    >>> u = np.random.rand(*(32, 32, 8))
-    >>> v = fft.forward(u)
-    >>> w = fft.backward(v).real
-    >>> assert np.allclose(u, w)
+    .. code-block:: python
+
+        import numpy as np
+        from fridom.framework.grid.cartesian import FFT
+        fft = FFT(periodic=(True, True, False))
+        u = np.random.rand(*(32, 32, 8))
+        v = fft.forward(u)
+        w = fft.backward(v).real
+        assert np.allclose(u, w)
 
     """
     _dynamic_attributes = [ ]
@@ -167,13 +169,15 @@ class FFT:
         
         Examples
         --------
-        >>> import numpy as np
-        >>> from fridom.framework.grid.cartesian import FFT
-        >>> fft = FFT(periodic=(True, True, False))
-        >>> shape = (32, 32, 8)  # Number of grid points in x,y,z
-        >>> dx = (0.1, 0.1, 0.1)  # Grid spacing in x,y,z
-        >>> kx, ky, kz = fft.get_freq(shape, dx)
-        >>> KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
+        .. code-block:: python
+
+            import numpy as np
+            from fridom.framework.grid.cartesian import FFT
+            fft = FFT(periodic=(True, True, False))
+            shape = (32, 32, 8)  # Number of grid points in x,y,z
+            dx = (0.1, 0.1, 0.1)  # Grid spacing in x,y,z
+            kx, ky, kz = fft.get_freq(shape, dx)
+            KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
         """
         ncp = config.ncp
         k = []

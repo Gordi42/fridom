@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from .diff_base import DiffBase
     from .interpolation_base import InterpolationBase
     from .position_base import PositionBase
+    from .transform_type import TransformType
     
 
 # ================================================================
@@ -53,6 +54,7 @@ all_imports_by_origin = {
     f"{base}.diff_base": ["DiffBase"],
     f"{base}.interpolation_base": ["InterpolationBase"],
     f"{base}.position_base": ["PositionBase"],
+    f"{base}.transform_type": ["TransformType"],
 }
 
 # ================================================================

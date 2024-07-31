@@ -79,14 +79,16 @@ class DiffBase(Module):
         
         Examples
         --------
-        >>> # Create diff module (Let mset be a ModelSettingsBase object)
-        >>> diff = DiffBase(...)
-        >>> diff.setup(mset)
-        >>> # let u, v, w be the components of the vector field
-        >>> # Calculate 3D divergence
-        >>> div = diff.div([u, v, w])
-        >>> # Calculate 2D horizontal divergence
-        >>> div = diff.div([u, v], axes=[0, 1])
+        .. code-block:: python
+
+            # Create diff module (Let mset be a ModelSettingsBase object)
+            diff = DiffBase(...)
+            diff.setup(mset)
+            # let u, v, w be the components of the vector field
+            # Calculate 3D divergence
+            div = diff.div([u, v, w])
+            # Calculate 2D horizontal divergence
+            div = diff.div([u, v], axes=[0, 1])
         """
         raise NotImplementedError
     
@@ -187,15 +189,17 @@ class DiffBase(Module):
 
         Examples
         --------
-        >>> # Create diff module (Let mset be a ModelSettingsBase object)
-        >>> diff = DiffBase(...)
-        >>> diff.setup(mset)
-        >>> # let u, v, w be the components of the vector field
-        >>> # Calculate 3D curl
-        >>> curl = diff.rot([u, v, w])
-        >>> # yield [dw/dy - dv/dz, du/dz - dw/dx, dv/dx - du/dy]
-        >>> # Calculate horizontal curl
-        >>> curl = diff.rot([u, v, None], axes=[2])
-        >>> # yield [None, None, dv/dx - du/dy]
+        .. code-block:: python
+
+            # Create diff module (Let mset be a ModelSettingsBase object)
+            diff = DiffBase(...)
+            diff.setup(mset)
+            # let u, v, w be the components of the vector field
+            # Calculate 3D curl
+            curl = diff.rot([u, v, w])
+            # yield [dw/dy - dv/dz, du/dz - dw/dx, dv/dx - du/dy]
+            # Calculate horizontal curl
+            curl = diff.rot([u, v, None], axes=[2])
+            # yield [None, None, dv/dx - du/dy]
         """
         raise NotImplementedError

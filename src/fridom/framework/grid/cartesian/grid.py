@@ -53,72 +53,26 @@ class Grid(GridBase):
         A module that contains the interpolation methods. Default is None
         which constructs the linear interpolation module.
     
-    Attributes
-    ----------
-    `n_dims` : `int`
-        The number of dimensions of the grid.
-    `L` : `tuple[float]`
-        Domain size in each direction.
-    `N` : `tuple[int]`
-        Number of grid points in each direction.
-    `total_grid_points` : `int` (read-only)
-        Total number of grid points.
-    `dx` : `tuple[float]` (read-only)
-        Grid spacing in each direction
-    `dV` : `float` (read-only)
-        Volume element.
-    `X` : `tuple[np.ndarray]` (read-only)
-        Physical meshgrid on the local domain (with ghost points).
-    `x_local` : `tuple[np.ndarray]` (read-only)
-        Physical x-vectors on the local domain (without ghost points).
-    `x_global` : `tuple[np.ndarray]` (read-only)
-        Global physical x-vectors.
-    `K` : `tuple[np.ndarray]` (read-only)
-        Spectral meshgrid on the local domain.
-    `k_local` : `tuple[np.ndarray]` (read-only)
-        Spectral k-vectors on the local domain.
-    `k_global` : `tuple[np.ndarray]` (read-only)
-        Global spectral k-vectors.
-    `periodic_bounds` : `tuple[bool]` (read-only)
-        A list of booleans that indicate whether the axis is periodic.
-    `inner_slice` : `tuple[slice]` (read-only)
-        The slice of the grid that excludes the boundary points.
-    
-    Methods
-    -------
-    `setup(mset: ModelSettingsBase)`
-        Setup the grid (meshgrids, etc.) using the model settings.
-    `fft(arr: np.ndarray) -> np.ndarray`
-        Forward transform from physical space to spectral space.
-    `ifft(arr: np.ndarray) -> np.ndarray`
-        Backward transform from spectral space to physical space.
-    `sync(arr: np.ndarray) -> np.ndarray`
-        Synchronize the field across MPI ranks.
-    `apply_boundary_condition(arr, axis, side, value) -> np.ndarray`
-        Apply boundary conditions to a field.
-    `get_domain_decomposition(spectral=False)`
-        Get the domain decomposition of the physical or spectral domain.
-    `get_subdomain(spectral=False)`
-        Get the subdomain of the physical or spectral domain.
-    
     Examples
     --------
-    >>> import fridom.framework as fr
-    >>> # construct a 3D grid:
-    >>> grid = fr.grid.CartesianGrid(
-    ...     N=(32, 32, 8),  # 32x32x8 grid points
-    ...     L=(100.0, 100.0, 10.0),  # 100m x 100m x 10m domain
-    ...     periodic_bounds=(True, True, False)  # non-periodic in z
-    ...     shared_axes=[0, 1]  # slab decomposition, shared in x and y
-    ...     )
-    >>> # setup the grid using the model settings
-    >>> mset = fr.ModelSettingsBase(grid)
-    >>> mset.setup()
-    >>> # get the meshgrids
-    >>> X, Y, Z = grid.X  # physical meshgrid of the local domain
-    >>> KX, KY, KZ = grid.K  # spectral meshgrid of the local domain
-    >>> # get the grid spacing
-    >>> dx, dy, dz = grid.dx
+    .. code-block:: python
+
+        import fridom.framework as fr
+        # construct a 3D grid:
+        grid = fr.grid.CartesianGrid(
+            N=(32, 32, 8),  # 32x32x8 grid points
+            L=(100.0, 100.0, 10.0),  # 100m x 100m x 10m domain
+            periodic_bounds=(True, True, False)  # non-periodic in z
+            shared_axes=[0, 1]  # slab decomposition, shared in x and y
+            )
+        # setup the grid using the model settings
+        mset = fr.ModelSettingsBase(grid)
+        mset.setup()
+        # get the meshgrids
+        X, Y, Z = grid.X  # physical meshgrid of the local domain
+        KX, KY, KZ = grid.K  # spectral meshgrid of the local domain
+        # get the grid spacing
+        dx, dy, dz = grid.dx
 
     """
     _dynamic_attributes = GridBase._dynamic_attributes + ['_domain_decomp',
