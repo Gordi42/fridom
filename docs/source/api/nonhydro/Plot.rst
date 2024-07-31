@@ -1,7 +1,7 @@
 Plot
 ====
 
-.. automodule:: fridom.nonhydro.plot.Plot
+.. autoclass:: fridom.nonhydro.plot.Plot
    :members:
    :undoc-members:
    :show-inheritance:

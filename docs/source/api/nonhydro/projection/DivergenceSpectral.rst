@@ -1,7 +1,7 @@
 DivergenceSpectral
 ==================
 
-.. automodule:: fridom.nonhydro.projection.divergence_spectral.DivergenceSpectral
+.. autoclass:: fridom.nonhydro.projection.divergence_spectral.DivergenceSpectral
    :members:
    :undoc-members:
    :show-inheritance:

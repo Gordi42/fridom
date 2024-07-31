@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 # Set up dictionary that maps an import to a path
 # items in the all_modules_by_origin dictionary are imported as modules
-all_modules_by_origin = { "path.to": ["my_module}"] }
+all_modules_by_origin = { }
 
 # items in the all_imports_by_origin dictionary are imported as elements of a module
 base_path = "fridom.framework.modules.animation"

@@ -28,5 +28,4 @@ framework
    ModelState
    Model
    DiagnoseImbalanceBase
-   MeshPoint
    to_numpy

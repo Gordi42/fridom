@@ -2,6 +2,8 @@ import sys
 import os
 import shutil
 from importlib.util import spec_from_file_location, module_from_spec
+import ast
+from enum import Enum, auto
 
 api_base_path = "docs/source/api"
 src_base_path = "src"
@@ -31,6 +33,44 @@ def mod_is_package(modpath: str, modname: str):
     path = os.path.join(src_base_path, modpath.replace(".", "/"))
     path = os.path.join(path, modname)
     return os.path.exists(os.path.join(path, "__init__.py"))
+
+class ImportType(Enum):
+    MODULE = auto()
+    PACKAGE = auto()
+    CLASS = auto()
+    FUNCTION = auto()
+    VARIABLE = auto()
+
+def get_import_type(modpath: str, impname: str):
+    file_path = os.path.join(src_base_path, modpath.replace(".", "/"))
+
+    full_path = os.path.join(file_path, impname)
+    if os.path.exists(os.path.join(full_path, "__init__.py")):
+        return ImportType.PACKAGE
+    
+    if os.path.exists(full_path + ".py"):
+        return ImportType.MODULE
+
+    if not os.path.exists(file_path + ".py"):
+        print(f"Error: {file_path}.py does not exist")
+        return ImportType.MODULE
+
+    with open(file_path + ".py") as f:
+        source = f.read()
+
+    tree = ast.parse(source)
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == impname:
+            return ImportType.CLASS
+        elif isinstance(node, ast.FunctionDef) and node.name == impname:
+            return ImportType.FUNCTION
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == impname:
+                    return ImportType.VARIABLE
+    
+    print(f"Error: {impname} not found in {file_path}.py")
+    return ImportType.MODULE
 
 def create_index_rst(modpath, modname, doc_path):
     path = os.path.join(src_base_path, modpath.replace(".", "/"))
@@ -63,7 +103,7 @@ def create_index_rst(modpath, modname, doc_path):
             f.write("\n")
             for base, mods in all_mods.items():
                 for mod in mods:
-                    if mod_is_package(base, mod):
+                    if get_import_type(base, mod) == ImportType.PACKAGE:
                         f.write(f"   {mod}/index\n")
                         create_module_rst(base, mod, os.path.join(doc_path, mod))
                     else:
@@ -85,21 +125,30 @@ def create_index_rst(modpath, modname, doc_path):
 def create_import_rst(modpath, modname, doc_path):
     path = os.path.join(src_base_path, modpath.replace(".", "/"))
     path = os.path.join(path, modname)
+    module_path = os.path.join(modpath.replace(".", "/"), modname)
+    import_path = module_path.replace("/", ".")
+    import_type = get_import_type(modpath, modname)
 
-    # create a index.rst file
-    with open(os.path.join(doc_path, f"{modname}.rst"), "w") as f:
-        module_path = os.path.join(modpath.replace(".", "/"), modname)
-        import_path = module_path.replace("/", ".")
+    f = open(os.path.join(doc_path, f"{modname}.rst"), "w")
+    f.write(f"{modname}\n")
+    f.write("="*len(modname))
+    f.write("\n")
+    f.write("\n")
 
-        f.write(f"{modname}\n")
-        f.write("="*len(modname))
-        f.write("\n")
-        f.write("\n")
-
+    if import_type == ImportType.MODULE:
         f.write(f".. automodule:: {import_path}\n")
         f.write("   :members:\n")
         f.write("   :undoc-members:\n")
         f.write("   :show-inheritance:\n")
+    elif import_type == ImportType.CLASS:
+        f.write(f".. autoclass:: {import_path}\n")
+        f.write("   :members:\n")
+        f.write("   :undoc-members:\n")
+        f.write("   :show-inheritance:\n")
+    elif import_type == ImportType.FUNCTION:
+        f.write(f".. autofunction:: {import_path}\n")
+    elif import_type == ImportType.VARIABLE:
+        f.write(f".. autodata:: {import_path}\n")
 
 def create_module_rst(modpath: str, modname: str, doc_path: str):
     os.makedirs(doc_path, exist_ok=True)

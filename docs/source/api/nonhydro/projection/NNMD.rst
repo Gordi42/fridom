@@ -1,7 +1,7 @@
 NNMD
 ====
 
-.. automodule:: fridom.nonhydro.projection.nnmd.NNMD
+.. autoclass:: fridom.nonhydro.projection.nnmd.NNMD
    :members:
    :undoc-members:
    :show-inheritance:

@@ -1,7 +1,7 @@
 Jet
 ===
 
-.. automodule:: fridom.nonhydro.initial_conditions.jet.Jet
+.. autoclass:: fridom.nonhydro.initial_conditions.jet.Jet
    :members:
    :undoc-members:
    :show-inheritance:

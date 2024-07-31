@@ -106,7 +106,6 @@ all_imports_by_origin = {
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
     "fridom.framework.diagnose_imbalance_base": ["DiagnoseImbalanceBase"],
-    "fridom.framework.mesh_point": ["MeshPoint"],
     "fridom.framework.to_numpy": ["to_numpy"],
 }
 

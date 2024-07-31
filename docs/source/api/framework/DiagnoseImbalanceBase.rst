@@ -1,7 +1,7 @@
 DiagnoseImbalanceBase
 =====================
 
-.. automodule:: fridom.framework.diagnose_imbalance_base.DiagnoseImbalanceBase
+.. autoclass:: fridom.framework.diagnose_imbalance_base.DiagnoseImbalanceBase
    :members:
    :undoc-members:
    :show-inheritance:

@@ -7,12 +7,6 @@ animation
    :show-inheritance:
 
 .. toctree::
-   :caption: Submodules:
-   :maxdepth: 1
-
-   my_module}
-
-.. toctree::
    :caption: Imports:
    :maxdepth: 1
 

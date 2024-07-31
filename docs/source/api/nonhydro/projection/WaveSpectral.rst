@@ -1,7 +1,7 @@
 WaveSpectral
 ============
 
-.. automodule:: fridom.nonhydro.projection.wave_spectral.WaveSpectral
+.. autoclass:: fridom.nonhydro.projection.wave_spectral.WaveSpectral
    :members:
    :undoc-members:
    :show-inheritance:
