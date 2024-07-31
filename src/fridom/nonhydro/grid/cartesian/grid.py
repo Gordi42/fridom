@@ -81,6 +81,8 @@ class Grid(CartesianGridBase):
         f2 = self.mset.f0**2
         N2 = self.mset.N2
         kx, ky, kz = k
+        # cast k to ndarray
+        kx = ncp.asarray(kx); ky = ncp.asarray(ky); kz = ncp.asarray(kz)
         dx, dy, dz = self.dx
 
         if not ncp.allclose(f2, self.mset.f_coriolis.arr**2):

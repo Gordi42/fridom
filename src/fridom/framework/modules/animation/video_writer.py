@@ -53,7 +53,7 @@ class VideoWriter(Module):
             def create_figure():
                 return plt.figure(figsize=(8, 6), tight_layout=True, dpi=100)
 
-            def update_figure(fig, mz: ModelState) -> None:
+            def update_figure(fig, mz: nh.ModelState) -> None:
                 nh.Plot(mz.z.b).front(fig=fig)
 
         vid_writer = nh.modules.animation.VideoWriter(
@@ -62,7 +62,7 @@ class VideoWriter(Module):
         # create the model
         grid = nh.grid.cartesian.Grid(
             N=[128]*3, L=[1]*3, periodic_bounds=(True, True, True))
-        mset = nh.ModelSettings(grid=grid, dsqr=0.02)
+        mset = nh.ModelSettings(grid=grid, dsqr=0.02, Ro=0.0)
         mset.time_stepper.dt = np.timedelta64(10, 'ms')
         # add the video writer
         mset.diagnostics.add_module(vid_writer)

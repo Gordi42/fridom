@@ -406,7 +406,7 @@ class Subdomain:
         coordinates)."""
         return self._position
 
-    # @property
+    @property
     def global_slice(self) -> 'tuple[slice]':
         """The slice of the global domain that corresponds to the local domain."""
         return self._global_slice
