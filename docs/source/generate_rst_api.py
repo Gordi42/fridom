@@ -5,11 +5,11 @@ from importlib.util import spec_from_file_location, module_from_spec
 import ast
 from enum import Enum, auto
 
-api_base_path = "docs/source/api"
-src_base_path = "src"
+api_base_path = "api"
+src_base_path = "../../src"
 
 # change working directory to the root of the project
-os.chdir(os.path.join(os.path.dirname(__file__), ".."))
+# os.chdir(os.path.join(os.path.dirname(__file__), "../.."))
 
 # remove the api directory if it exists
 shutil.rmtree(api_base_path, ignore_errors=True)

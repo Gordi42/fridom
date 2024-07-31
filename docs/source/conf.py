@@ -3,11 +3,8 @@ import sys
 
 sys.path.insert(0, os.path.abspath('../../src'))
 
-# print current path
-print("Current path:")
-print(sys.path)
-print("Current path:")
-
+# generate the rst files
+import generate_rst_api
 
 # Configuration file for the Sphinx documentation builder.
 #
