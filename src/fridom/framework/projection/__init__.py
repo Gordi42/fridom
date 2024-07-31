@@ -8,29 +8,6 @@ Description
 Projection classes are used to decompose the flow into different components.
 For example, the flow can be decomposed into geostrophic and ageostrophic
 components, or into balanced and unbalanced components.
-
-Base Projection
----------------
-`Projection`
-    Base class for projections.
-
-Linear Projections
-------------------
-`WaveSpectralBase`
-    Projection onto the linear wave mode.
-`DivergenceSpectralBase`
-    Projection onto the divergence mode.
-`GeostrophicSpectralBase`
-    Projection onto the geostrophic mode.
-`GeostrophicTimeAverage`
-    Projection onto the geostrophic mode using a time average.
-
-Nonlinear Projections
----------------------
-`OptimalBalance`
-    Balancing using the optimal balance method.
-`NNMDBase`
-    Balancing using nonlinear normal mode decomposition.
 """
 import sys
 from types import ModuleType

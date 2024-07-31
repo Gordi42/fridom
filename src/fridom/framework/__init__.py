@@ -6,47 +6,6 @@ Description
 -----------
 This module contain the base classes and functions for the FRIDOM framework.
 This module should mainly be used for developing new modules and models.
-
-Modules
--------
-'grid'
-    Contains classes for grid generation
-'domain_decomposition'
-    Contains classes for domain decomposition (parallelization)
-'config'
-    Contains the configuration settings for the framework
-'utils'
-    Contains utility functions
-'time_steppers'
-    Contains classes related to time stepping
-'modules'
-    Contains the base class for modules
-'projection'
-    Contains functions for flow decomposition
-'timing_module'
-    Contains functions for timing the model (benchmarking)
-
-Classes
--------
-'ModelSettingsBase'
-    Base class for model settings
-'FieldVariable'
-    Class for storing scalar variables
-'StateBase'
-    Base class for storing state variables
-'ModelState'
-    Class for storing model state variables
-'Model'
-    Main class for models
-'DiagnoseImbalanceBase'
-    Base class for diagnosing imbalances
-'MeshPoint'
-    Enum class for the different types of mesh points
-
-Functions
-'to_numpy(x)'
-    returns a deepcopy of x where all cupy arrays are converted to numpy arrays
-
 """
 import sys
 from types import ModuleType

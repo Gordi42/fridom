@@ -2,11 +2,6 @@
 Grids
 =====
 Module that stores all available grids for the non-hydrostatic model.
-
-Modules
--------
-`cartesian`
-    A cartesian grid with constant spacing in all directions.
 """
 import sys
 from types import ModuleType

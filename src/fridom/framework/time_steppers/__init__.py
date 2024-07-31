@@ -1,13 +1,6 @@
 """
 Time Steppers
 =============
-
-Classes
--------
-`TimeStepper`
-    Base class for all time steppers.
-`AdamBashforth`
-    Adam Bashforth time stepping up to 4th order.
 """
 import sys
 from types import ModuleType

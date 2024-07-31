@@ -7,20 +7,22 @@ class KelvinWave(nh.State):
     Description
     -----------
     Lets consider a Kelvin wave at the southern boundary of the domain with
-    the horizontal wavenumber `kh` and the vertical wavenumber `kz`. When we
-    search for a solution of the form in the linearized nonhydrostatic equations:
+    the horizontal wavenumber `kh` and the vertical wavenumber `kz`. Searching 
+    in the linearized nonhydrostatic equations for a solution of the form:
 
     .. math::
         (U, V, W, B) \\exp(- k_n y) \\exp(i(k_h x + k_z z - \\omega t))
     
-    We will find:
+    yields
 
     .. math::
-        \\omega = \\sqrt{\\frac{k_h^2 N^2}{k_h^2 + k_z^2}} \\\\
+        \\omega = \\sqrt{\\frac{k_h^2 N^2}{k_h^2 + k_z^2}} \\quad
         k_n = \\frac{k_h f_0}{\\omega}
-        U = - k_z
-        V = 0
-        W = k_h
+
+    .. math::
+        U = - k_z \\quad
+        V = 0 \\quad
+        W = k_h \\quad
         B = -i N^2 k_h / \\omega
     
     Similar polarizations can be found for the other boundaries.
@@ -40,21 +42,27 @@ class KelvinWave(nh.State):
     
     Examples
     --------
-    >>> import fridom.nonhydro as nh
-    >>> import numpy as np
-    >>> grid = nh.grid.cartesian.Grid(
-    ...     N=[127]*3, L=[1]*3, periodic_bounds=(True, False, False))
-    >>> mset = nh.ModelSettings(grid=grid)
-    >>> mset.time_stepper.dt = np.timedelta64(10, 'ms')
-    >>> mset.setup()
-    >>> z = nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=2)
-    >>> model = nh.Model(mset)
-    >>> model.z = z
-    >>> model.run(runlen=np.timedelta64(5, 's'))
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        import numpy as np
+        grid = nh.grid.cartesian.Grid(
+            N=[127]*3, L=[1]*3, periodic_bounds=(True, False, False))
+        mset = nh.ModelSettings(grid=grid)
+        mset.time_stepper.dt = np.timedelta64(10, 'ms')
+        mset.setup()
+        z = nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=2)
+        model = nh.Model(mset)
+        model.z = z
+        model.run(runlen=np.timedelta64(5, 's'))
+
 
     A vertical mode may be constructed with
-    >>> z  = nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=2)
-    >>> z += nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=-2)
+
+    .. code-block:: python
+
+        z  = nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=2)
+        z += nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=-2)
     """
     def __init__(self, 
                  mset: nh.ModelSettings, 
@@ -69,25 +77,13 @@ class KelvinWave(nh.State):
         Lx, Ly, Lz = mset.grid.L
         match side:
             case 'N':
-                Lh = Lx
-                Xn = Ly - Y
-                Xw = X
-                sign = 1
+                Lh = Lx; sign = 1;  Xn = Ly - Y; Xw = X
             case 'S':
-                Lh = Lx
-                Xn = Y
-                Xw = X
-                sign = -1
+                Lh = Lx; sign = -1; Xn = Y;      Xw = X
             case 'E':
-                Lh = Ly
-                Xn = Lx - X
-                Xw = Y
-                sign = -1
+                Lh = Ly; sign = -1; Xn = Lx - X; Xw = Y
             case 'W':
-                Lh = Ly
-                Xn = X
-                Xw = Y
-                sign = 1
+                Lh = Ly; sign = 1;  Xn = X;      Xw = Y
 
         kz = 2 * ncp.pi * kz / Lz
         kh = 2 * ncp.pi * kh / Lh

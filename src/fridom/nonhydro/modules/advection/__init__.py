@@ -1,10 +1,6 @@
 """
 # Advection module
 Contains modules to calculate advection terms.
-
-## Modules:
-- CenteredAdvection: Centered advection scheme with modular interpolation.
-- SecondOrderAdvection: Second order advection scheme.
 """
 import sys
 from types import ModuleType

@@ -8,34 +8,6 @@ Description
 -----------
 TODO
 
-Modules
--------
-`config`
-    Module that stores all configuration options for the framework.
-`utils`
-    Module that stores all utility functions for the framework.
-`grid`
-    Module that stores all available grids for the non-hydrostatic model.
-`modules`
-    Module that stores all available modules for the non-hydrostatic model.
-`time_steppers`
-    Time steppers for the non-hydrostatic model.
-
-Classes
--------
-`ModelSettings`
-    The model settings class.
-`FieldVariable`
-    A field variable class.
-`State`
-    The state class.
-`ModelState`
-    The model state class.
-`Model`
-    The model class.
-`Plot`
-    The plot class.
-
 Examples
 --------
 >>> # Provide examples of how to use this module.
