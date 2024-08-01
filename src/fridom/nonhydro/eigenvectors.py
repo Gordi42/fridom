@@ -99,10 +99,10 @@ Projection Vectors
 Projection vectors should satisfy 
 
 .. math::
-    \boldsymbol{p^s}^* \cdot \boldsymbol{q^{s'}} = \delta_{s,s'}
+    {\boldsymbol{p^s}}^* \cdot \boldsymbol{q^{s'}} = \delta_{s,s'}
 
 where the star denotes the hermitian transposed. Add divergent vector
-:math:`\boldsymbol{q^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}`
+:math:`\boldsymbol{q^d} = \begin{pmatrix} k_x & k_y & k_z & 0 \end{pmatrix}`
 such that :math:`(\boldsymbol{q^0}, \boldsymbol{q^+}, \boldsymbol{q^-}, \boldsymbol{q^d})`
 form a basis.
 
@@ -126,7 +126,7 @@ with
     \gamma = \frac{k_h^2 + k_z^2}{\delta^2 k^2}
 
 The projection vectors are normalized such that 
-:math:`\boldsymbol{p^s}^* \cdot \boldsymbol{p^s} = 1`.
+:math:`{\boldsymbol{p^s}}^* \cdot \boldsymbol{p^s} = 1`.
 
 
 Discrete Case
