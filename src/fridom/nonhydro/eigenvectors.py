@@ -128,6 +128,9 @@ with
 The projection vectors are normalized such that 
 :math:`\boldsymbol{p^s}^* \cdot \boldsymbol{p^s} = 1`.
 
+"""
+
+"""
 
 Discrete Case
 =============
@@ -182,6 +185,39 @@ and the diagnostic pressure equation:
         + \delta^{-2} i \hat{1}_z^+ \hat{k}_z^- b 
         + (\hat{k}_x^2 + \hat{k}_y^2 + \delta^{-2} \hat{k}_z^2) p
 
+System Matrix
+-------------
+Following the same procedure as in the continuous case, we obtain the discrete
+system matrix:
+
+.. math::
+    \mathbf{A} = \frac{1}{\hat{k}^2} \begin{pmatrix}
+        -i \delta^2 \hat{1}_x^- \hat{1}_y^+ \hat{k}_x^+ \hat{k}_y^- f &
+        -i f \hat{1}_x^+ \hat{1}_y^- \left( \delta^2 \hat{k}_y^2 + \hat{k}_z^2 \right ) &
+        0 &
+        i \hat{1}_z^+ \hat{k}_x^+ \hat{k}_z^- \\
+        i f \hat{1}_x^- \hat{1}_y^+ \left( \delta^2 \hat{k}_x^2 + \hat{k}_z^2 \right) &
+        i \delta^2 \hat{1}_x^+ \hat{1}_y^- \hat{k}_x^- \hat{k}_y^+ f &
+        0 &
+        i \hat{1}_z^+ \hat{k}_y^+ \hat{k}_z^- \\
+        -i \hat{1}_x^- \hat{1}_y^+ \hat{k}_y^- \hat{k}_z^+ f &
+        i \hat{1}_x^+ \hat{1}_y^- \hat{k}_x^- \hat{k}_z^+ &
+        0 &
+        -i \hat{1}_z^+ \hat{k}_h^2 \\
+        0 &
+        0 &
+        i N^2 \hat{1}_x^- \hat{k}^2 &
+        0
+    \end{pmatrix}
+
+with
+
+.. math::
+    \hat{k}^2 = \hat{k}_h^2 + \delta^{-2} \hat{k}_z^2
+    \quad \text{and} \quad
+    \hat{k}_h^2 = \hat{k}_x^2 + \hat{k}_y^2
+    \quad \text{and} \quad
+    \hat{k}_x^2 = \hat{k}_x^+ \hat{k}_x^-
 """
 from fridom.nonhydro.state import State
 from fridom.framework import config
