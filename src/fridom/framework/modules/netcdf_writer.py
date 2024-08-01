@@ -4,8 +4,7 @@ import numpy as np
 import os
 from netCDF4 import Dataset
 # Import internal modules
-from fridom.framework import config
-from fridom.framework.to_numpy import to_numpy
+from fridom.framework import config, utils
 from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
@@ -268,7 +267,7 @@ class NetCDFWriter(Module):
 
         # store the coordinates
         for i in range(n_dims):
-            x[i][:] = to_numpy(self.grid.x_global[i][self.snap_slice[i]])
+            x[i][:] = utils.to_numpy(self.grid.x_global[i][self.snap_slice[i]])
 
         # create the output variables
         for var in self.get_variables(mz):

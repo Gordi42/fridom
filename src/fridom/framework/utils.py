@@ -1,20 +1,13 @@
 """
-utils
-===
-Contains utility functions.
-
-Functions
----------
-`print_bar(char='=')`
-    Print a bar to the stdout.
-`print_job_init_info()`
-    Print the job starting time and the number of MPI processes.
+Utility functions and classes for the FRIDOM framework.
 """
 from . import config
 from .config import logger
 from mpi4py import MPI
 import time
 import numpy as np
+from copy import deepcopy
+import inspect
 
 # ================================================================
 #  Print functions
@@ -267,6 +260,131 @@ def random_array(shape: tuple[int], seed=12345):
         default_rng = ncp.random.default_rng
         return default_rng(seed).standard_normal(shape)
 
+# ================================================================
+#  Numpy Conversion functions
+# ================================================================
+def _create_numpy_copy(obj, memo):
+    # if the object has a __to_numpy__ method, call it
+    if hasattr(obj, '__to_numpy__'):
+        return obj.__to_numpy__(memo)
+
+    # if the object has a _cpu attribute which is not None, return it
+    if hasattr(obj, '_cpu'):
+        if obj._cpu is not None:
+            return obj._cpu
+
+    # if the object is a cupy array, convert it to numpy and return it
+    if isinstance(obj, config.ncp.ndarray):
+        match config.backend:
+            case config.Backend.NUMPY:
+                return deepcopy(obj)
+            case config.Backend.CUPY:
+                return config.ncp.asnumpy(obj)
+            case config.Backend.JAX_CPU:
+                return np.array(obj)
+            case config.Backend.JAX_GPU:
+                return np.array(obj)
+
+    # if the object is a numpy generic, return it
+    if isinstance(obj, (np.ndarray, np.generic)):
+        return deepcopy(obj)
+
+    # if the object is a module, return it
+    if inspect.ismodule(obj):
+        return obj
+
+    # if the object is a function, return it
+    if inspect.isfunction(obj):
+        return obj
+
+    # if the object is a method, return it
+    if inspect.ismethod(obj):
+        return obj
+
+    # if the object is a dictionary, convert all values
+    if isinstance(obj, dict):
+        return {key: to_numpy(value, memo) for key, value in obj.items()}
+
+    # if the object is a list, convert all elements
+    if isinstance(obj, list):
+        return [to_numpy(x, memo) for x in obj]
+
+    # if the object is a tuple, convert all elements
+    if isinstance(obj, tuple):
+        return tuple(to_numpy(x, memo) for x in obj)
+
+    # if the object is a set, convert all elements
+    if isinstance(obj, set):
+        return {to_numpy(x, memo) for x in obj}
+
+    # if the object is a type, return it
+    if isinstance(obj, type):
+        return deepcopy(obj)
+
+    # if the object is a MPI.Cartcomm, return it
+    if isinstance(obj, MPI.Cartcomm):
+        return obj
+
+    # if the object is not a python object, return a deepcopy
+    if not hasattr(obj, '__dict__'):
+        return deepcopy(obj)
+    
+    # if the object is a python object, convert all attributes
+    d = id(obj)
+    memo[d] = deepcopy(obj)
+    for key, value in vars(obj).items():
+        setattr(memo[d], key, to_numpy(value, memo))
+    return memo[d]
+
+def to_numpy(obj, memo=None, _nil=[]):
+    """
+    Creates a deep copy of an object with all arrays converted to numpy.
+    
+    Description
+    -----------
+    Some functions require numpy arrays as input, as for example plotting
+    with matplotlib. This function creates a deep copy of an object where
+    all arrays are converted to numpy arrays. This is computationally
+    expensive and should be used with care. Objects that should only be
+    converted once, as for example the grid variables which are usually
+    static, i.e. they do not change during the simulation, should have a
+    _cpu attribute. If the _cpu attribute is None, the object is converted
+    to numpy and cached in the _cpu attribute. If the _cpu attribute is not
+    None, the cached numpy array is returned. Objects that require a 
+    custom conversion should implement a __to_numpy__ method that returns
+    the converted object.
+    
+    Parameters
+    ----------
+    `obj` : `Any`
+        The object to convert to numpy.
+    `memo` : `dict` (default=None)
+        A dictionary to store the converted objects (used for recursion).
+    
+    Returns
+    -------
+    `Any`
+        The object with all arrays converted to numpy.
+    """
+    # if the backend is numpy, return a deepcopy
+    if config.backend == 'numpy':
+        return deepcopy(obj)
+
+    # if the object was already converted to numpy, return it (recursive call)
+    if memo is None:
+        memo = {}
+
+    d = id(obj)
+    y = memo.get(d, _nil)
+    if y is not _nil:
+        return y
+    
+    memo[d] = _create_numpy_copy(obj, memo)
+
+    if hasattr(obj, '_cpu'):
+        obj._cpu = memo[d]
+
+    return memo[d]
 
 # ================================================================
 #  JAX functions
@@ -329,7 +447,6 @@ def free_memory():
         for buf in backend.live_buffers(): buf.delete()
     return
 
-
 def _tree_flatten(self):
     # Store all attributes that are marked as dynamic
     children = tuple(getattr(self, attr) for attr in self._dynamic_attributes)
@@ -339,7 +456,6 @@ def _tree_flatten(self):
                 if key not in self._dynamic_attributes}
     
     return (children, aux_data)
-
 
 @classmethod
 def _tree_unflatten(cls, aux_data, children):
@@ -351,7 +467,6 @@ def _tree_unflatten(cls, aux_data, children):
     for key, value in aux_data.items():
         setattr(obj, key, value)
     return obj
-
 
 def jaxify_class(cls: type) -> None:
     """

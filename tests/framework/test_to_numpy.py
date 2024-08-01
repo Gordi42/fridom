@@ -1,5 +1,5 @@
 import fridom.framework as fr
-from fridom.framework.to_numpy import to_numpy
+from fridom.framework.utils import to_numpy
 import numpy as np
 import pytest
 

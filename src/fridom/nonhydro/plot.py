@@ -2,8 +2,7 @@
 from typing import TYPE_CHECKING
 # Import internal modules
 import numpy as np
-from fridom.framework import config
-from fridom.framework.to_numpy import to_numpy
+from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.field_variable import FieldVariable
@@ -247,9 +246,9 @@ class Plot:
         self.name = field.name
 
         # save field and grid information
-        self.field = to_numpy(field.arr[ics])
-        x, y, z = to_numpy(grid.x_local)
-        X, Y, Z = to_numpy(grid.X)
+        self.field = utils.to_numpy(field.arr[ics])
+        x, y, z = utils.to_numpy(grid.x_local)
+        X, Y, Z = utils.to_numpy(grid.X)
         self.x, self.y, self.z = x, y, z
         self.X, self.Y, self.Z = X[ics], Y[ics], Z[ics]
 
@@ -371,7 +370,7 @@ class Plot:
             u = None; v = None; w = None
         else:
             ics = self.ics
-            z = to_numpy(state)
+            z = utils.to_numpy(state)
             u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
 
         ax = fig.add_subplot(111)
@@ -429,7 +428,7 @@ class Plot:
             u = None; v = None; w = None
         else:
             ics = self.ics
-            z = to_numpy(state)
+            z = utils.to_numpy(state)
             u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
 
             
@@ -487,7 +486,7 @@ class Plot:
             u = None; v = None; w = None
         else:
             ics = self.ics
-            z = to_numpy(state)
+            z = utils.to_numpy(state)
             u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
         
         ax = fig.add_subplot(111)
@@ -525,7 +524,7 @@ class Plot:
             u = None; v = None; w = None
         else:
             ics = self.ics
-            z = to_numpy(state)
+            z = utils.to_numpy(state)
             u = z.u[ics]; v = z.v[ics]; w = z.w[ics]
 
         im = PlotContainer.side_on_axis(

@@ -31,9 +31,6 @@ if TYPE_CHECKING:
     from . import projection
     from . import timing_module
 
-    # import functions
-    from .to_numpy import to_numpy
-
 # ================================================================
 #  Setup lazy loading
 # ================================================================
@@ -58,7 +55,6 @@ all_imports_by_origin = {
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
     "fridom.framework.diagnose_imbalance_base": ["DiagnoseImbalanceBase"],
-    "fridom.framework.to_numpy": ["to_numpy"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

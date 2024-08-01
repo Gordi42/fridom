@@ -190,9 +190,8 @@ class AdamBashforth(TimeStepper):
             return np.roots(c)[-1]
 
         # find the roots of the polynomial
-        from fridom.framework.to_numpy import to_numpy
         # root finding only works on the CPU
-        coeff = to_numpy(coeff)
+        coeff = utils.to_numpy(coeff)
         roots = ncp.array(np.apply_along_axis(find_roots, -1, coeff))
     
         return -1j * ncp.log(roots) / self.dt

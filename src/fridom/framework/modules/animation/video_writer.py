@@ -2,13 +2,11 @@
 from typing import TYPE_CHECKING
 import warnings
 # Import internal modules
-from fridom.framework import config
-from fridom.framework.to_numpy import to_numpy
+from fridom.framework import config, utils
 from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.modules.animation import ModelPlotterBase
-    from fridom.framework.state_base import StateBase
     from fridom.framework.model_state import ModelState
 
 
@@ -182,7 +180,9 @@ class VideoWriter(Module):
         diagnostics = self.mset.diagnostics
         self.mset.diagnostics = None
 
-        kw = {"mz": to_numpy(mz), "output_queue": q, "model_plotter": self.model_plotter}
+        kw = {"mz": utils.to_numpy(mz), 
+              "output_queue": q, 
+              "model_plotter": self.model_plotter}
         job = mp.Process(target=VideoWriter.p_make_figure, kwargs=kw)
         self.mset.diagnostics = diagnostics
 
