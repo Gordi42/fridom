@@ -262,7 +262,25 @@ Projection Vectors
 Similar to the continuous case, only the projection vectors for the general case
 of nonzero horizontal wavenumbers are given here. The projection vectors are:
 
+.. math::
+    \boldsymbol{p^0} = 
+    \begin{pmatrix} 
+        - \hat{1}_x^+ \hat{1}_y^- \hat{1}_z^+ N^2 \hat{k}_y^+ \\ 
+        \hat{1}_x^- \hat{1}_y^+ \hat{1}_z^+ N^2 \hat{k}_x^+ \\ 
+        0 \\ 
+        \hat{1}_x^2 \hat{1}_y^2 f \hat{k}_z^+ 
+    \end{pmatrix} ~~, \quad \text{and} \quad
+    \boldsymbol{p^\pm} = \begin{pmatrix}
+        \hat{k}_z^- ( -i \omega^\pm \hat{k}_x^+ + \hat{1}_x^+ \hat{1}_y^- f \hat{\gamma} \hat{k}_y^+) \\
+        \hat{k}_z^- ( -i \omega^\pm \hat{k}_y^+ - \hat{1}_x^- \hat{1}_y^+ f \hat{\gamma} \hat{k}_x^+) \\
+        i \omega^\pm \hat{k}_h^2 \\
+        \hat{1}_z^- \hat{\gamma} \hat{k}_h^2
+    \end{pmatrix}
 
+with
+
+.. math::
+    \hat{\gamma} = \frac{\hat{k}_h^2 + \hat{k}_z^2}{\hat{k}^2}
 """
 from fridom.nonhydro.state import State
 from fridom.framework import config
