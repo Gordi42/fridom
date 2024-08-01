@@ -45,18 +45,16 @@ with
     \begin{pmatrix}
      -if\delta^2k_x k_y & -if\left( \delta^2k_y^2 + k_z^2 \right) & 0 & i k_x k_z \\
      if \left( \delta^2 k_x^2 + k_z^2 \right) & if\delta^2k_x k_y & 0 & i k_y k_z \\
-     -if\delta^2k_x k_y & -if\left( \delta^2k_y^2 + k_z^2 \right) & 0 & i k_x k_z \\
-     if \left( \delta^2 k_x^2 + k_z^2 \right) & if\delta^2k_x k_y & 0 & i k_y k_z \\
      -i f k_y k_z & i f k_x k_z & 0 & -i k_h^2 \\
      0 & 0 & iN^2\delta^2 k^2 & 0
     \end{pmatrix} 
 
-with
+with the wavenumbers:
 
 .. math::
-    k^2 \coloneqq k_h^2 + \delta^{-2} k_z^2 
+    k^2 = k_h^2 + \delta^{-2} k_z^2 
     \quad \text{and} \quad
-    k_h^2 \coloneqq k_x^2 + k_y^2
+    k_h^2 = k_x^2 + k_y^2
 
 
 Eigenvalues
@@ -73,6 +71,32 @@ The other two eigenvalues correspond to the inertial-gravity wave modes:
     \omega^\pm = \pm \sqrt{\frac{f^2 k_z^2 + N^2 k_h^2}{\delta^2 k^2}}
 
 Eigenvectors
+------------
+For the eigenvectors we have to separately consider the case of purely vertical,
+e.g. :math:`k_x = k_y = 0`, and the general case of nonzero horizontal wavenumbers.
+For the purely vertical case, the eigenvectors are:
+
+.. math::
+    \boldsymbol{q^0} = \begin{pmatrix} 0 \\ 0 \\ 0 \\ 1 \end{pmatrix} 
+    \quad, \quad
+    \boldsymbol{q^\pm} = \begin{pmatrix} \mp i \\ 1 \\ 0 \\ 0 \end{pmatrix}
+
+For the general case of nonzero horizontal wavenumbers, the eigenvectors are:
+
+.. math::
+
+    \boldsymbol{q^0} = \begin{pmatrix} -k_y \\ k_x \\ 0 \\ fk_z \end{pmatrix} 
+    \quad, \quad
+    \boldsymbol{q^\pm} = \begin{pmatrix}
+        k_z ( -i \omega^\pm k_x + f k_y) \\
+        k_z ( -i \omega^\pm k_y - f k_x) \\
+        i\omega^\pm k_h^2 \\
+        N^2 k_h^2
+    \end{pmatrix}
+
+Projection Vectors
+------------------
+
 
 """
 from fridom.nonhydro.state import State
