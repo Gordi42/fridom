@@ -1,3 +1,46 @@
+r"""
+Eigenvectors of the system matrix of the nonhydrostatic model.
+
+The System Matrix
+-----------------
+We start from the scaled linearized nonhydrostatic equations in spectral space:
+
+.. math::
+    \partial_t u = f v - i k_x p 
+.. math::
+    \partial_t v = -f u - i k_y p
+.. math::
+    \partial_t w = \delta^{-2} b - \delta^{-2} i k_z p
+.. math::
+    \partial_t b = -wN^2 
+
+and the diagnostic pressure equation obtained by taking the divergence of the 
+momentum equations:
+.. math::
+    0 = if (k_x v - k_y u) 
+        + \delta^{-2} i k_z b + ( k_x^2 + k_y^2 + \delta^{-2} k_z^2) p
+
+Solving the diagnostic pressure equation for the pressure and substituting it
+back into the momentum equations, we obtain the following system of equations:
+
+.. math::
+    \partial_t \boldsymbol{z} = -i \mathbf{A} \cdot \boldsymbol{z}
+with
+.. math::
+    \boldsymbol{z} = 
+    \begin{pmatrix}
+        \fft{u} \\ \fft{v} \\ \fft{w} \\ \fft{b}
+    \end{pmatrix} 
+    
+and 
+   \m A_k &\coloneqq \frac{-1}{\delta^2 k^2}
+    \begin{pmatrix}
+     -if\delta^2k_x k_y & -if\lk \delta^2k_y^2 + k_z^2 \rk & 0 & i k_x k_z \\
+     if\lk \delta^2 k_x^2 + k_z^2 \rk & if\delta^2k_x k_y & 0 & i k_y k_z \\
+     -i f k_y k_z & i f k_x k_z & 0 & -i k_h^2 \\
+     0 & 0 & iN^2\delta^2 k^2 & 0
+    \end{pmatrix} 
+"""
 from fridom.nonhydro.state import State
 from fridom.framework import config
 from fridom.nonhydro.model_settings import ModelSettings
