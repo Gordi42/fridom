@@ -84,6 +84,9 @@ class ModelSettingsBase:
         from fridom.framework.timing_module import TimingModule
         self.timer = TimingModule()
 
+        # Other parameters
+        self._nan_check_interval = 100
+
         # Set attributes from keyword arguments
         self.set_attributes(**kwargs)
 
@@ -150,6 +153,10 @@ class ModelSettingsBase:
 =================================================
         """
 
+    # ================================================================
+    #  Properties
+    # ================================================================
+
     @property
     def parameters(self) -> dict:
         """
@@ -176,6 +183,18 @@ class ModelSettingsBase:
         Return the halo size of the model.
         """
         return self.tendencies.required_halo
+
+    @property
+    def nan_check_interval(self) -> int:
+        """
+        The interval at which the model checks for NaN values
+        """
+        return self._nan_check_interval
+
+    @nan_check_interval.setter
+    def nan_check_interval(self, value: int) -> None:
+        self._nan_check_interval = value
+        return
 
 
 utils.jaxify_class(ModelSettingsBase)

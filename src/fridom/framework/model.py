@@ -93,7 +93,6 @@ class Model:
         # to implement in child class
         return
 
-
     # ============================================================
     #   RUN MODEL
     # ============================================================
@@ -220,12 +219,17 @@ class Model:
         Update the model state by one time step.
         """
         # synchronize the state vector (ghost points)
-        self.timer.get("sync").start()
-        self.z.sync()
-        self.timer.get("sync").stop()
+        with self.timer["sync"]:
+            self.z.sync()
 
         # perform the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
+
+        # check if there are any nans in the state variable
+        with self.timer["check_nan"]:
+            if self.model_state.it % self.mset.nan_check_interval == 0:
+                if self.model_state.z.has_nan():
+                    raise ValueError("State variable contains NaNs.")
 
         # apply boundary conditions to the state variable
         self.model_state = self.bc.update(mz=self.model_state)

@@ -152,6 +152,12 @@ class StateBase:
         """
         return 2 * (self - other).norm_l2() / (self.norm_l2() + other.norm_l2())
 
+    def has_nan(self) -> bool:
+        """
+        Check if the state contains NaN values.
+        """
+        return any(field.has_nan() for field in self.fields.values())
+
     # ================================================================
     #  PROPERTIES
     # ================================================================

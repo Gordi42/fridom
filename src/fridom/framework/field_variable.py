@@ -212,6 +212,12 @@ class FieldVariable:
         """
         return config.ncp.linalg.norm(self.arr)
 
+    def has_nan(self) -> bool:
+        """
+        Check if the FieldVariable contains NaN values
+        """
+        return config.ncp.any(config.ncp.isnan(self.arr))
+
     # ==================================================================
     #  SLICING
     # ==================================================================
