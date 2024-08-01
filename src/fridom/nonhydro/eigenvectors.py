@@ -128,9 +128,6 @@ with
 The projection vectors are normalized such that 
 :math:`\boldsymbol{p^s}^* \cdot \boldsymbol{p^s} = 1`.
 
-"""
-
-"""
 
 Discrete Case
 =============
