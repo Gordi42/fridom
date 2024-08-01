@@ -314,7 +314,7 @@ def _set_default_backend():
     # disable the logger temporarily
     logger_disabled = logger.disabled
     logger.disabled = True
-    set_backend(Backend.CUPY)
+    set_backend(Backend.JAX_GPU)
     # restore the logger state
     logger.disabled = logger_disabled
     return

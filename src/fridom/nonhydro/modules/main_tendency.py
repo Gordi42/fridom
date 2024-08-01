@@ -1,22 +1,8 @@
-# Import external modules
-from typing import TYPE_CHECKING
-# Import internal modules
-from fridom.framework.modules.module_container import ModuleContainer
-from fridom.framework.modules.module import Module
-from fridom.nonhydro.modules.linear_tendency import LinearTendency
-# from fridom.nonhydro.modules.advection \
-#     .second_order_advection import SecondOrderAdvection
-from fridom.nonhydro.modules.tendency_divergence import TendencyDivergence
-from fridom.nonhydro.modules \
-    .pressure_gradient_tendency import PressureGradientTendency
-from fridom.nonhydro.modules.pressure_solvers \
-    .spectral_pressure_solver import SpectralPressureSolver
-# Import type information
-if TYPE_CHECKING:
-    pass
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
 
-class MainTendency(ModuleContainer):
+class MainTendency(fr.modules.ModuleContainer):
     def __init__(self,
                  name="All Tendency Modules",
                  linear_tendency=None,
@@ -24,16 +10,17 @@ class MainTendency(ModuleContainer):
                  tendency_divergence=None,
                  pressure_solver=None,
                  pressure_gradient_tendency=None):
+        mods = nh.modules
         if linear_tendency is None:
-            linear_tendency = LinearTendency()
+            linear_tendency = mods.LinearTendency()
         if advection is None:
-            advection = Module(name="None")
+            advection = mods.advection.CenteredAdvection()
         if tendency_divergence is None:
-            tendency_divergence = TendencyDivergence()
+            tendency_divergence = mods.TendencyDivergence()
         if pressure_solver is None:
-            pressure_solver = SpectralPressureSolver()
+            pressure_solver = mods.pressure_solvers.SpectralPressureSolver()
         if pressure_gradient_tendency is None:
-            pressure_gradient_tendency = PressureGradientTendency()
+            pressure_gradient_tendency = mods.PressureGradientTendency()
 
         module_list = [
             linear_tendency,             # Always on element 0

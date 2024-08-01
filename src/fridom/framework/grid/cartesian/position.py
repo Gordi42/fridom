@@ -38,6 +38,49 @@ class Position(PositionBase):
         self.positions = positions
         return
 
+    def shift(self, axis: int, direction: str) -> 'Position':
+        """
+        Shift the position of the field along an axis.
+        
+        Parameters
+        ----------
+        `axis` : `int`
+            The axis along which to shift the field.
+        `direction` : `str`
+            The direction in which to shift the field. The direction can be
+            either `forward` or `backward`.
+        
+        Returns
+        -------
+        `Position`
+            The new position of the field.
+        """
+        if direction not in ["forward", "backward"]:
+            raise ValueError(
+                f"Invalid direction: {direction}. Must be 'forward' or 'backward'.")
+
+        positions = list(self.positions)
+        old_offset = positions[axis]
+        match old_offset:
+            case AxisOffset.LEFT:
+                if direction == "forward":
+                    offset = AxisOffset.CENTER
+                else:
+                    raise ValueError("Cannot shift field to the left.")
+            case AxisOffset.CENTER:
+                if direction == "forward":
+                    offset = AxisOffset.RIGHT
+                else:
+                    offset = AxisOffset.LEFT
+            case AxisOffset.RIGHT:
+                if direction == "forward":
+                    raise ValueError("Cannot shift field to the right.")
+                else:
+                    offset = AxisOffset.CENTER
+
+        positions[axis] = offset
+        return Position(tuple(positions))
+
     def __repr__(self) -> str:
         return f"Position({self.positions})"
 

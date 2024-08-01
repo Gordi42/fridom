@@ -1,227 +1,140 @@
-from fridom.nonhydro.state import State
-from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, start_module, update_module
-
-from fridom.nonhydro.modules.interpolation \
-    .interpolation_module import InterpolationModule
-from fridom.nonhydro.modules.interpolation \
-    .linear_interpolation import LinearInterpolation
+# Import external modules
+from typing import TYPE_CHECKING
+from functools import partial
+# Import internal modules
+from fridom.framework import config, utils
+from fridom.framework.modules.module import Module, setup_module, module_method
+# Import type information
+if TYPE_CHECKING:
+    from numpy import ndarray
+    from fridom.framework.model_state import ModelState
+    from fridom.framework.grid import InterpolationBase, DiffBase
+    from fridom.framework.field_variable import FieldVariable
 
 class CenteredAdvection(Module):
     """
     Centered advection scheme.
-    The advection term is computed by a centered finite
-    difference scheme calculating the advection term as the flux divergence.
+
+    Description
+    -----------
+    Let :math:`\\mathbf{v}` be the velocity field and :math:`q` be the quantity
+    to be advected. For a divergence-free velocity field, the advection term
+    can be written as:
+
+    .. math::
+        \\mathbf{v} \\cdot \\nabla q = \\nabla \\cdot (\\mathbf{v} q)
+
+    Lets consider the :math:`x`-component of the flux 
+    :math:`\\mathbf{F}=\\mathbf{v} q`. The flux divergence 
+    :math:`\\partial_x F_x` is calculated using forward or backward differences,
+    for that the flux is interpolated to the cell faces of the quantity :math:`q`.
+
+    Parameters
+    ----------
+    `diff` : `DiffBase | None`, (default=None)
+        Differentiation module to use.
+        If None, the differentiation module of the grid is used.
+    `interpolation` : `InterpolationBase | None`, (default=None)
+        The interpolation module to use.
+        If None, the interpolation module of the grid is used.
     """
-    def __init__(self, interpolation: InterpolationModule = LinearInterpolation()):
-        """
-        Centered advection scheme.
-        The advection term is computed by a centered finite
-        difference scheme calculating the advection term as the flux divergence.
-
-        ## Arguments:
-        - interpolation (InterpolationModule): Interpolation scheme.
-        """
-        super().__init__(name="Centered Advection", 
-                         interpolation=interpolation)
-
-
-    @start_module
-    def start(self):
-        mset = self.grid.mset
-        # grid spacing
-        self.dx1 = mset.dtype(1.0) / mset.dx
-        self.dy1 = mset.dtype(1.0) / mset.dy
-        self.dz1 = mset.dtype(1.0) / mset.dz
-
-        # boundary conditions
-        self.bcx = "wrap" if self.mset.periodic_bounds[0] else "constant"
-        self.bcy = "wrap" if self.mset.periodic_bounds[1] else "constant"
-        self.bcz = "wrap" if self.mset.periodic_bounds[2] else "constant"
-
-        # initialize the interpolation scheme
-        self.interpolation.start(grid=self.grid)
+    _dynamic_attributes = set(["mset"])
+    def __init__(self, 
+                 diff: 'DiffBase | None' = None,
+                 interpolation: 'InterpolationBase | None' = None):
+        super().__init__(name="Centered Advection")
+        self._diff = diff
+        self._interpolation = interpolation
         return
-        
-    @update_module
-    def update(self, mz: ModelState) -> None:
+
+    @setup_module
+    def setup(self):
+        # setup the differentiation modules
+        if self.diff is None:
+            self.diff = self.mset.grid._diff_mod
+        else:
+            self.diff.setup(mset=self.mset)
+
+        # setup the interpolation modules
+        if self.interpolation is None:
+            self.interpolation = self.mset.grid._interp_mod
+        else:
+            self.interpolation.setup(mset=self.mset)
+        return
+
+    @partial(utils.jaxjit, static_argnames=('directions',))
+    def flux_divergence(self, 
+                        velocity: 'tuple[FieldVariable]',
+                        quantity: 'FieldVariable',
+                        directions: 'tuple[str]') -> 'ndarray':
+        # shorthand notation
+        inter = self.interpolation.interpolate
+        q_pos = quantity.position
+
+        flux_divergence = config.ncp.zeros_like(quantity.arr)
+        for axis, (v, direction) in enumerate(zip(velocity, directions)):
+            # find the position of cell face where the flux is calculated
+            flux_pos = q_pos.shift(axis, direction)
+            # interpolate the velocity and quantity to the flux position
+            flux = (  inter(v.arr, v.position, flux_pos)
+                    * inter(quantity.arr, q_pos, flux_pos)  ) 
+            # calculate the flux divergence
+            diff_type = "forward" if direction == "backward" else "backward"
+            flux_divergence += self.diff.diff(flux, axis, type=diff_type)
+        return flux_divergence
+
+    @module_method
+    def update(self, mz: 'ModelState') -> None:
         """
         Compute the advection term of the state vector z.
-
-        Args:
-            mz (ModelState) : Model state.
         """
         # calculate the full velocity field
         # in future, this enables the use of a background velocity field
         zf = mz.z
 
         # shorthand notation
-        inter = self.interpolation
-        inter_xf = inter.sym_xf; inter_xb = inter.sym_xb
-        inter_yf = inter.sym_yf; inter_yb = inter.sym_yb
-        inter_zf = inter.sym_zf; inter_zb = inter.sym_zb
-        uf = zf.u; vf = zf.v; wf = zf.w
-        u  = mz.z.u;  v  = mz.z.v;  w  = mz.z.w
-        du = mz.dz.u; dv = mz.dz.v; dw = mz.dz.w
-        bcx = self.bcx; bcy = self.bcy; bcz = self.bcz
+        Ro = self.mset.Ro
+        velocity = (zf.u, zf.v, zf.w)
 
-        # -----------------------------------
-        #  ADVECTION OF THE U-COMPONENT
-        # -----------------------------------
-        # position of the fluxes:
-        #       ------v-----[fy]---v----[fy]        ------w-----[fz]---w----[fz]
-        #       |            |            |         |            |            |
-        #       |            |            |         |            |            |
-        #       |    [fx]    u    [fx]    u         |    [fx]    u    [fx]    u
-        #       |            |            |         |            |            | 
-        #       |            |            |         |            |            | 
-        #   ^   ------v-----[fy]---v----[fy]    ^   ------w-----[fz]---w----[fz]
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        # y |   |    [fx]    u    [fx]    u   z |   |    [fx]    u    [fx]    u 
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        #       ---------------------------         --------------------------- 
-        #
-        #         -------> x                           -------> x
+        mz.dz.u.arr -= Ro * self.flux_divergence(
+            velocity, mz.z.u, ("backward", "forward", "forward"))
+        mz.dz.v.arr -= Ro * self.flux_divergence(
+            velocity, mz.z.v, ("forward", "backward", "forward"))
+        mz.dz.w.arr -= Ro * self.flux_divergence(
+            velocity, mz.z.w, ("forward", "forward", "backward"))
+        mz.dz.b.arr -= Ro * self.flux_divergence(
+            velocity, mz.z.b, ("forward", "forward", "forward"))
 
-        # calculate the fluxes
-        fx = inter_xb(uf) * inter_xb(u)  # flux in x-direction
-        fy = inter_xf(vf) * inter_yf(u)  # flux in y-direction
-        fz = inter_xf(wf) * inter_zf(u)  # flux in z-direction
+        return mz
 
-        # calculate boundary conditions
-        fx = self.grid.cp.pad(fx, ((0,1), (0,0), (0,0)), bcx)
-        fy = self.grid.cp.pad(fy, ((0,0), (1,0), (0,0)), bcy)
-        fz = self.grid.cp.pad(fz, ((0,0), (0,0), (1,0)), bcz)
-
-        # calculate the flux divergence => tendency term
-        du[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
-
-        # -----------------------------------
-        #  ADVECTION OF THE V-COMPONENT
-        # -----------------------------------
-
-        # position of the fluxes:
-        #       ------v-----[fx]---v----[fx]        ------w-----[fz]---w----[fz]
-        #       |            |            |         |            |            |
-        #       |            |            |         |            |            |
-        #       |    [fy]    u    [fy]    u         |    [fy]    v    [fy]    v
-        #       |            |            |         |            |            | 
-        #       |            |            |         |            |            | 
-        #   ^   ------v-----[fx]---v----[fx]    ^   ------w-----[fz]---w----[fz]
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        # y |   |    [fy]    u    [fy]    u   z |   |    [fy]    v    [fy]    v 
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        #       ---------------------------         --------------------------- 
-        #
-        #         -------> x                           -------> y
-
-        # calculate the fluxes
-        fx = inter_yf(uf) * inter_xf(v)  # flux in x-direction
-        fy = inter_yb(vf) * inter_yb(v)  # flux in y-direction
-        fz = inter_yf(wf) * inter_zf(v)  # flux in z-direction
-
-        # calculate boundary conditions
-        fx = self.grid.cp.pad(fx, ((1,0), (0,0), (0,0)), bcx)
-        fy = self.grid.cp.pad(fy, ((0,0), (0,1), (0,0)), bcy)
-        fz = self.grid.cp.pad(fz, ((0,0), (0,0), (1,0)), bcz)
-
-        # calculate the flux divergence => tendency term
-        dv[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
-
-        # -----------------------------------
-        #  ADVECTION OF THE W-COMPONENT
-        # -----------------------------------
-
-        # position of the fluxes:
-        #       ------w-----[fx]---w----[fx]        ------w-----[fy]---w----[fy]
-        #       |            |            |         |            |            |
-        #       |            |            |         |            |            |
-        #       |    [fz]    u    [fz]    u         |    [fz]    v    [fz]    v
-        #       |            |            |         |            |            | 
-        #       |            |            |         |            |            | 
-        #   ^   ------w-----[fx]---w----[fx]    ^   ------w-----[fy]---w----[fy]
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        # z |   |    [fz]    u    [fz]    u   z |   |    [fz]    v    [fz]    v 
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        #       ---------------------------         --------------------------- 
-        #
-        #         -------> x                           -------> y
-
-        # calculate the fluxes
-        fx = inter_zf(uf) * inter_xf(w)  # flux in x-direction
-        fy = inter_zf(vf) * inter_yf(w)  # flux in y-direction
-        fz = inter_zb(wf) * inter_zb(w)  # flux in z-direction
-
-        # calculate boundary conditions
-        fx = self.grid.cp.pad(fx, ((1,0), (0,0), (0,0)), bcx)
-        fy = self.grid.cp.pad(fy, ((0,0), (1,0), (0,0)), bcy)
-        fz = self.grid.cp.pad(fz, ((0,0), (0,0), (0,1)), bcz)
-
-        # calculate the flux divergence => tendency term
-        dw[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
-
-        # -----------------------------------
-        #  ADVECTION OF THE B-COMPONENT (buoyancy)
-        # -----------------------------------
-
-        # position of the fluxes:
-        #       ----w,[fz]-------w,[fz]----         ----w,[fz]-------w,[fz]----
-        #       |            |            |         |            |            |
-        #       |            |            |         |            |            |
-        #       |     b   u,[fx]   b   u,[fx]       |     b   v,[fy]   b  v,[fy]
-        #       |            |            |         |            |            | 
-        #       |            |            |         |            |            | 
-        #   ^   ----w,[fz]-------w,[fz]----     ^   ----w,[fz]-------w,[fz]----
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        # z |   |     b   u,[fx]   b   u,[fx] z |   |     b   v,[fy]   b  v,[fy]
-        #   |   |            |            |     |   |            |            | 
-        #   |   |            |            |     |   |            |            | 
-        #       ---------------------------         --------------------------- 
-        #
-        #         -------> x                           -------> y
-        
-        # calculate the fluxes
-        fx = uf * inter_xf(mz.z.b)  # flux in x-direction
-        fy = vf * inter_yf(mz.z.b)  # flux in y-direction
-        fz = wf * inter_zf(mz.z.b)  # flux in z-direction
-
-        # calculate boundary conditions
-        fx = self.grid.cp.pad(fx, ((1,0), (0,0), (0,0)), bcx)
-        fy = self.grid.cp.pad(fy, ((0,0), (1,0), (0,0)), bcy)
-        fz = self.grid.cp.pad(fz, ((0,0), (0,0), (1,0)), bcz)
-
-        # calculate the flux divergence => tendency term
-        mz.dz.b[:] -= self.flux_divergence(fx, fy, fz) * self.grid.mset.Ro
-
-        return
-
-
-    def flux_divergence(self, flux_x, flux_y, flux_z):
-        """
-        Calculate the flux divergence. 
-        Assumes that fluxes are situated half a grid cell away from the center
-        in the positive direction.
-        """
-        f = slice(1,None); b = slice(None,-1)
-        divergence = (flux_x[f,:,:] - flux_x[b,:,:]) * self.dx1 + \
-                     (flux_y[:,f,:] - flux_y[:,b,:]) * self.dy1 + \
-                     (flux_z[:,:,f] - flux_z[:,:,b]) * self.dz1
-
-        return divergence
-
-    def __repr__(self):
-        res = super().__repr__()
-        res += "    scheme = Centered Advection\n"
-        res += "    interpolation = {}\n".format(self.interpolation)
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["diff"] = self.diff
+        res["interpolation"] = self.interpolation
         return res
 
-# remove symbols from the namespace
-del State, InterpolationModule, LinearInterpolation, ModelState, \
-    Module, start_module, update_module
+    @property
+    def diff(self) -> 'DiffBase':
+        """The differentiation module."""
+        return self._diff
+    
+    @diff.setter
+    def diff(self, value: 'DiffBase'):
+        self._diff = value
+        return
+
+    @property
+    def interpolation(self) -> 'InterpolationBase':
+        """The interpolation module."""
+        return self._interpolation
+
+    @interpolation.setter
+    def interpolation(self, value: 'InterpolationBase'):
+        self._interpolation = value
+        return
+
+utils.jaxify_class(CenteredAdvection)
