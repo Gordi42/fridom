@@ -128,6 +128,60 @@ with
 The projection vectors are normalized such that 
 :math:`\boldsymbol{p^s}^* \cdot \boldsymbol{p^s} = 1`.
 
+
+Discrete Case
+=============
+
+Lets define the forward and backward finite difference operators as:
+
+.. math::
+    \delta_x^+ u = \frac{u(x + \Delta x) - u(x)}{\Delta x}
+    \quad, \quad
+    \delta_x^- u = \frac{u(x) - u(x - \Delta x)}{\Delta x}
+
+A fourier transform yields the discrete spectral operators:
+
+.. math::
+    \delta_x^+ u \rightarrow \frac{e^{ik_x \Delta x} - 1}{\Delta x} =
+        i \hat{k}_x^+ u
+    \quad, \quad
+    \delta_x^- u \rightarrow \frac{1 - e^{-ik_x \Delta x}}{\Delta x} =
+        i \hat{k}_x^- u
+     
+Similarly, we define the forward and backward linear interpolation operators as:
+
+.. math::
+    \overline{u}^{x+} = \frac{u(x + \Delta x) + u(x)}{2}
+    \quad, \quad
+    \overline{u}^{x-} = \frac{u(x) + u(x - \Delta x)}{2}
+
+A fourier transform yields the discrete spectral operators:
+
+.. math::
+    \overline{u}^{x+} \rightarrow \frac{e^{ik_x \Delta x} + 1}{2} =
+        \hat{1}_x^+ u
+    \quad, \quad
+    \overline{u}^{x-} \rightarrow \frac{1 + e^{-ik_x \Delta x}}{2} =
+        \hat{1}_x^- u
+
+Using these discretization operators, the discrete linear system of equations 
+in spectral space can be written as:
+
+.. math::
+    \partial_t u = f \hat{1}_x^+ \hat{1}_y^- v - i \hat{k}_x^+ p
+.. math::
+    \partial_t v = -f \hat{1}_x^- \hat{1}_y^+ u - i \hat{k}_y^+ p
+.. math::
+    \partial_t w = \delta^{-2} \hat{1}_z^+ b - \delta^{-2} i \hat{k}_z^+ p
+.. math::
+    \partial_t b = - \hat{1}_z^- w N^2
+
+and the diagnostic pressure equation:
+    0 = i (\hat{1}_x^+ \hat{1}_y^- \hat{k}_x^- v 
+        - \hat{1}_x^- \hat{1}_y^+ \hat{k}_y^- u) 
+        + \delta^{-2} i \hat{1}_z^+ \hat{k}_z^- b 
+        + (\hat{k}_x^2 + \hat{k}_y^2 + \delta^{-2} \hat{k}_z^2) p
+
 """
 from fridom.nonhydro.state import State
 from fridom.framework import config
