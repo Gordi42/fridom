@@ -92,7 +92,8 @@ class ModelSettings(ModelSettingsBase):
     @property
     def parameters(self) -> dict:
         res = super().parameters
-        res["coriolis parameter f"] = f"{self.f_coriolis} 1/s"
+        res["coriolis parameter f0"] = f"{self.f0} 1/s"
+        res["beta term"] = f"{self.beta} 1/(m*s)"
         res["Stratification N²"] = f"{self.N2} 1/s^2"
         res["Aspect ratio dsqr"] = f"{self.dsqr}"
         res["Rossby number Ro"] = f"{self.Ro}"
