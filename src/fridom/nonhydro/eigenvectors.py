@@ -96,7 +96,37 @@ For the general case of nonzero horizontal wavenumbers, the eigenvectors are:
 
 Projection Vectors
 ------------------
+Projection vectors should satisfy 
 
+.. math::
+    \boldsymbol{p^s}^* \cdot \boldsymbol{q^{s'}} = \delta_{s,s'}
+
+where the star denotes the hermitian transposed. Add divergent vector
+:math:`\boldsymbol{q^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}`
+such that :math:`(\boldsymbol{q^0}, \boldsymbol{q^+}, \boldsymbol{q^-}, \boldsymbol{q^d)`
+form a basis.
+
+For the purely vertical case, the projection vectors are identical to the
+eigenvectors: :math:`\boldsymbol{p^s} = \boldsymbol{q^s}`. For the general case
+of nonzero horizontal wavenumbers, the projection vectors are:
+
+.. math::
+    \boldsymbol{p^0} = \begin{pmatrix} -N^2 k_y \\ N^2 k_x \\ 0 \\ f k_z \end{pmatrix} 
+    \quad, \quad
+    \boldsymbol{p^\pm} = \begin{pmatrix}
+        k_z (-i \omega^\pm k_x + f \gamma k_y) \\
+        k_z (-i \omega^\pm k_y - f \gamma k_x) \\
+        i\omega^\pm k_h^2 \\
+        \gamma k_h^2
+    \end{pmatrix}
+
+with 
+
+.. math::
+    \gamma = \frac{k_h^2 + k_z^2}{\delta^2 k^2}
+
+The projection vectors are normalized such that 
+:math:`\boldsymbol{p^s}^* \cdot \boldsymbol{p^s} = 1`.
 
 """
 from fridom.nonhydro.state import State
