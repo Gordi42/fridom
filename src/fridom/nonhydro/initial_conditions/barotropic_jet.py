@@ -18,8 +18,8 @@ class BarotropicJet(State):
     on top of it. The jet is given by:
 
     .. math::
-        u = 2.5 \\left( \\exp\\left-\\left(\\frac{y - 0.75 L_y}{\\sigma}\\right)^2\\right -
-                        \\exp\\left-\\left(\\frac{y - 0.25 L_y}{\\sigma}\\right)^2\\right 
+        u = 2.5 \\left( \\exp\\left(-\\left(\\frac{y - 0.75 L_y}{\\sigma}\\right)^2\\right) -
+                        \\exp\\left(-\\left(\\frac{y - 0.25 L_y}{\\sigma}\\right)^2\\right) 
                 \\right)
 
     where :math:`L_y` is the domain length in the y-direction, 
