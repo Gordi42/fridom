@@ -103,7 +103,7 @@ Projection vectors should satisfy
 
 where the star denotes the hermitian transposed. Add divergent vector
 :math:`\boldsymbol{q^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}`
-such that :math:`(\boldsymbol{q^0}, \boldsymbol{q^+}, \boldsymbol{q^-}, \boldsymbol{q^d)`
+such that :math:`(\boldsymbol{q^0}, \boldsymbol{q^+}, \boldsymbol{q^-}, \boldsymbol{q^d})`
 form a basis.
 
 For the purely vertical case, the projection vectors are identical to the
