@@ -177,6 +177,8 @@ in spectral space can be written as:
     \partial_t b = - \hat{1}_z^- w N^2
 
 and the diagnostic pressure equation:
+
+.. math::
     0 = i (\hat{1}_x^+ \hat{1}_y^- \hat{k}_x^- v 
         - \hat{1}_x^- \hat{1}_y^+ \hat{k}_y^- u) 
         + \delta^{-2} i \hat{1}_z^+ \hat{k}_z^- b 
@@ -215,6 +217,52 @@ with
     \hat{k}_h^2 = \hat{k}_x^2 + \hat{k}_y^2
     \quad \text{and} \quad
     \hat{k}_x^2 = \hat{k}_x^+ \hat{k}_x^-
+
+Eigenvalues
+-----------
+.. math::
+    \omega^0 = 0
+    \quad \text{and} \quad
+    \omega^\pm =
+        \sqrt{\frac{\hat{1}_x^2 \hat{1}_y^2 f^2 \hat{k}_z^2 + 
+        \hat{1}_z^2 N^2 \hat{k}_h^2}{\hat{k}^2}}
+    
+with
+
+.. math::
+    \hat{1}_x^2 = \hat{1}_x^+ \hat{1}_x^-
+
+Eigenvectors
+------------
+For the purely vertical case, the discrete eigenvectors are identical to the
+continuous eigenvectors. For the general case of nonzero horizontal wavenumbers,
+the discrete eigenvectors are:
+
+.. math::
+    \boldsymbol{q^0} = \begin{pmatrix}
+        - \hat{1}_x^+ \hat{1}_y^- \hat{1}_z^+ \hat{k}_y^+ \\
+        \hat{1}_x^- \hat{1}_y^+ \hat{1}_z^+ \hat{k}_x^+ \\
+        0 \\
+        \hat{1}_x^2 \hat{1}_y^2 f \hat{k}_z^+
+    \end{pmatrix} 
+    \quad \text{and} \quad
+    \boldsymbol{q}^\pm = \begin{pmatrix}
+        \hat{k}_z^- ( -i \omega^\pm \hat{k}_x^+ + \hat{1}_x^+ \hat{1}_y^- f \hat{k}_y^+) \\
+        \hat{k}_z^- ( -i \omega^\pm \hat{k}_y^+ - \hat{1}_x^- \hat{1}_y^+ f \hat{k}_x^+) \\
+        i \omega^\pm \hat{k}_h^2 \\
+        \hat{1}_z^- N^2 \hat{k}_h^2
+    \end{pmatrix}
+
+The divergent vector is given by :math:`\boldsymbol{q^d} = 
+(\hat{k}_x^+, \hat{k}_y^+, \hat{k}_z^+, 0`. All eigenvectors are orthogonal 
+to the divergent vector. Hence no eigenvector project onto divergent velocity fields.
+
+Projection Vectors
+------------------
+Similar to the continuous case, only the projection vectors for the general case
+of nonzero horizontal wavenumbers are given here. The projection vectors are:
+
+
 """
 from fridom.nonhydro.state import State
 from fridom.framework import config
