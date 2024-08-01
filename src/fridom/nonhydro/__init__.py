@@ -61,7 +61,7 @@ if TYPE_CHECKING:
 #  Setup lazy loading
 # ================================================================
 all_modules_by_origin = { 
-    "fridom.nonhydro": [{"g": "grid"}, 
+    "fridom.nonhydro": ["grid", 
                         "modules", 
                         "projection", 
                         "eigenvectors",
