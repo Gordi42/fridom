@@ -1,4 +1,5 @@
 from fridom.framework import config
+from contextlib import contextmanager
 
 class TimingComponent:
     """
@@ -136,6 +137,20 @@ class TimingModule:
         """
         for component in self.components:
             component.reset()
+        return
+
+    @contextmanager
+    def __getitem__(self, name:str):
+        """
+        Context manager to start and stop the timer for a component.
+
+        Arguments:
+            name (str): name of the component
+        """
+        component = self.get(name)
+        component.start()
+        yield component
+        component.stop()
         return
 
     
