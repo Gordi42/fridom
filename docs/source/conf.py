@@ -63,7 +63,7 @@ html_title = "FRIDOM - Documentation"
 html_static_path = ['_static']
 autodoc_mock_imports = [
         'numpy', 'scipy', 'mpi4py', 'IPython', 'jax', 'cupy', 'coloredlogs', 
-        'netCDF4', 'matplotlib']
+        'netCDF4', 'matplotlib', 'lazypimp']
 
 # default_role = 'literal'
 # MyST configuration

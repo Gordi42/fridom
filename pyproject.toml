@@ -19,6 +19,7 @@ classifiers = [
   "Development Status :: 2 - Pre-Alpha",
 ]
 dependencies = [
+  "lazypimp",
   "numpy",
   "scipy",
   "netCDF4",

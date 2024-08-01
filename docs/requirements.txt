@@ -1,4 +1,5 @@
 myst_parser==3.0.1
+lazypimp
 sphinx-book-theme
 sphinx-copybutton
 
