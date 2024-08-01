@@ -7,7 +7,7 @@ Welcome to fridom's documentation!
 ==================================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 4
    :caption: Contents:
 
    installation
@@ -15,7 +15,6 @@ Welcome to fridom's documentation!
    creating_own_models
    models
    reference/fridom
-   api/index
 
 
 

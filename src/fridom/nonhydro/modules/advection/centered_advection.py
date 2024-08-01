@@ -26,8 +26,8 @@ class CenteredAdvection(Module):
 
     Lets consider the :math:`x`-component of the flux 
     :math:`\\mathbf{F}=\\mathbf{v} q`. The flux divergence 
-    :math:`\\partial_x F_x` is calculated using forward or backward differences,
-    for that the flux is interpolated to the cell faces of the quantity :math:`q`.
+    :math:`\\partial_x F_x` is calculated using forward or backward differences.
+    For that the flux is interpolated to the cell faces of the quantity :math:`q`.
 
     Parameters
     ----------
