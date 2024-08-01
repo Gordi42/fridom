@@ -111,8 +111,6 @@ class RungeKutta(TimeStepper):
                  tol=1e-6):
         super().__init__("Runge-Kutta")
         self.method = method.value
-        self._dt_timedelta = None
-        self._dt_float = None
         self.dt = dt
         self.dz_list = None
         self.tol = tol
@@ -143,7 +141,7 @@ class RungeKutta(TimeStepper):
         error = 1
         while error > self.tol:
             k = []
-            dt = self._dt_float
+            dt = self.dt
             for i in range(order):
                 mod_state.time = mz._time + method.c[i] * dt
                 mod_state.z = mz.z + sum_product(method.A[i], dt, k)

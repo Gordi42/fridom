@@ -46,8 +46,7 @@ class TimeStepper(Module):
     """
     def __init__(self, name, **kwargs) -> None:
         super().__init__(name, **kwargs)
-        self._dt_float = None
-        self._dt_timedelta = None
+        self._dt = None
 
     def update(self, mz: 'ModelState'):
         raise NotImplementedError
@@ -72,18 +71,22 @@ class TimeStepper(Module):
         return omega
 
     @property
+    def info(self) -> dict:
+        res = super().info
+        res["dt"] = f"{self.dt} s"
+        return res
+
+    @property
     def dt(self) -> np.timedelta64:
         """
         Time step size.
         """
-        return self._dt_timedelta
+        return self._dt
 
     @dt.setter
     def dt(self, value: Union[np.timedelta64, float]) -> None:
-        if isinstance(value, float):
-            self._dt_float = value
-            self._dt_timedelta = np.timedelta64(int(value * 1e9), 'ns')
+        if isinstance(value, float) or isinstance(value, int):
+            self._dt = value
         else:
-            self._dt_timedelta = value
-            self._dt_float = config.dtype_real(value / np.timedelta64(1, 's'))
+            self._dt = config.dtype_real(value / np.timedelta64(1, 's'))
         return

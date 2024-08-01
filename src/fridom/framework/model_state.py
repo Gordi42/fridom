@@ -52,13 +52,28 @@ class ModelState:
         self.time = self.z.mset.start_time
         return
 
+    def add_dt(self, dt: Union[np.timedelta64, float, int]) -> None:
+        """
+        Add a time step to the model time.
+        
+        Parameters
+        ----------
+        `dt` : `float | int`
+            The time step to add.
+        """
+        if isinstance(dt, np.timedelta64):
+            self.time += dt
+        else:
+            self._time += dt
+        return
+
     @property
     def time(self):
         passed_time = np.timedelta64(int(self._time*1e9), 'ns')
         return self.z.mset.start_time + passed_time
 
     @time.setter
-    def time(self, t: Union[np.datetime64, float]):
+    def time(self, t: Union[np.datetime64, float, int]):
         if isinstance(t, np.datetime64):
             self._time = (t - self.z.mset.start_time).astype('float64')*1e-9
         else:

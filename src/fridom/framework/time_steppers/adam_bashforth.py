@@ -25,15 +25,9 @@ class AdamBashforth(TimeStepper):
         Order of the time stepping. (default 3, max 4)
     `eps` : `float`
         2nd order bashforth correction. (default 0.01)
-    
-    Attributes
-    ----------
-    `dz` : `State`
-        Tendency term at the current time level.
-    
     """
     _dynamic_attributes = set(["dz_list", "pointer", "it_count", "coeff_AB"])
-    def __init__(self, dt = np.timedelta64(1, 's'), order: int = 3, eps=0.01):
+    def __init__(self, dt = 1, order: int = 3, eps=0.01):
         # check that the order is not too high
         if order > 4:
             raise ValueError(
@@ -46,8 +40,6 @@ class AdamBashforth(TimeStepper):
         self.AB3 = [23/12, -4/3, 5/12]
         self.AB4 = [55/24, -59/24, 37/24, -3/8]
         self.it_count = None
-        self._dt_float = None
-        self._dt_timedelta = None
         self.dt = dt
         return
 
@@ -58,10 +50,10 @@ class AdamBashforth(TimeStepper):
 
         # Adam Bashforth coefficients including time step size
         self.coeffs = [
-            ncp.asarray(self.AB1, dtype=dtype) * self._dt_float, 
-            ncp.asarray(self.AB2, dtype=dtype) * self._dt_float,
-            ncp.asarray(self.AB3, dtype=dtype) * self._dt_float, 
-            ncp.asarray(self.AB4, dtype=dtype) * self._dt_float
+            ncp.asarray(self.AB1, dtype=dtype) * self.dt, 
+            ncp.asarray(self.AB2, dtype=dtype) * self.dt,
+            ncp.asarray(self.AB3, dtype=dtype) * self.dt, 
+            ncp.asarray(self.AB4, dtype=dtype) * self.dt
         ]
 
         self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
@@ -117,7 +109,7 @@ class AdamBashforth(TimeStepper):
 
         self.it_count += 1
         mz.it += 1
-        mz.time += self.dt
+        mz.add_dt(self.dt)
         return mz
 
     def update_tendency(self):
@@ -171,7 +163,7 @@ class AdamBashforth(TimeStepper):
         omega = omega[..., ncp.newaxis]
 
         # calculate the polynomial coefficients
-        coeff = ncp.multiply(omega, coeff) * 1j * self._dt_float
+        coeff = ncp.multiply(omega, coeff) * 1j * self.dt
 
         # subtract 1 from the last coefficient
         last_col = (..., 0)
@@ -203,7 +195,7 @@ class AdamBashforth(TimeStepper):
         coeff = to_numpy(coeff)
         roots = ncp.array(np.apply_along_axis(find_roots, -1, coeff))
     
-        return -1j * ncp.log(roots) / self._dt_float
+        return -1j * ncp.log(roots) / self.dt
 
     # ================================================================
     #  Properties
@@ -212,7 +204,6 @@ class AdamBashforth(TimeStepper):
     @property
     def info(self) -> dict:
         res = super().info
-        res["dt"] = f"{self.dt}"
         res["order"] = self.order
         if self.order == 2:
             res["eps"] = self.eps
