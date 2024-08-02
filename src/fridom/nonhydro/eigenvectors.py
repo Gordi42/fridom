@@ -31,9 +31,7 @@ back into the momentum equations, we obtain the following system of equations:
 .. math::
     \partial_t \boldsymbol{z} = -i \mathbf{A} \cdot \boldsymbol{z}
 
-
 with
-
 
 .. math::
     \boldsymbol{z} = 
@@ -291,7 +289,7 @@ from fridom.nonhydro.model_settings import ModelSettings
 #  Discrete spectral operators (one-hat-plus etc.)
 # ================================================================
 def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
-    """
+    r"""
     Spectral operator for the forward linear interpolation.
     
     Description
@@ -329,7 +327,7 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
     return (1 + config.ncp.exp(sign * 1j * kx * dx)) / 2
 
 def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
-    """
+    r"""
     Spectral operator for the forward finite difference.
     
     Description
@@ -367,7 +365,7 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
     return sign * 1j * (1 - config.ncp.exp(sign * 1j * kx * dx)) / dx
 
 def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
-    """
+    r"""
     Discrete spectral operator of forward - backward finite difference.
     
     Description
@@ -396,7 +394,7 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     return 2 * (1 - config.ncp.cos(kx*dx)) / dx**2
 
 def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
-    """
+    r"""
     Discrete spectral operator of forward - backward linear interpolation.
     
     Description
@@ -425,7 +423,7 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
     return (1 + config.ncp.cos(kx*dx)) / 2
 
 def _set_nyquist_to_zero(z: State) -> State:
-    """
+    r"""
     Set the nyquist frequency to zero in the spectral domain.
     
     Parameters
@@ -466,7 +464,7 @@ def _set_nyquist_to_zero(z: State) -> State:
 # ================================================================
 
 class VecQ(State):
-    """
+    r"""
     The eigenvectors of the System matrix and the divergence vector.
 
     Parameters
@@ -586,7 +584,7 @@ class VecQ(State):
         self.fields = z.fields
 
 class VecP(State):
-    """
+    r"""
     The projection vectors of the System matrix.
 
     Parameters
