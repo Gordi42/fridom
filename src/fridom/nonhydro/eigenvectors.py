@@ -282,27 +282,146 @@ with
 .. math::
     \hat{\gamma} = \frac{\hat{k}_h^2 + \hat{k}_z^2}{\hat{k}^2}
 """
+from numpy import ndarray
 from fridom.nonhydro.state import State
 from fridom.framework import config
 from fridom.nonhydro.model_settings import ModelSettings
 
-# Discrete spectral operators (one-hat-plus etc.)
-def ohp(kx, dx):
-    return (1 + config.ncp.exp(1j*kx*dx)) / 2
+# ================================================================
+#  Discrete spectral operators (one-hat-plus etc.)
+# ================================================================
+def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
+    """
+    Spectral operator for the forward linear interpolation.
+    
+    Description
+    -----------
+    The forward linear interpolation operator is defined as:
 
-def ohm(kx, dx):
-    return (1 + config.ncp.exp(-1j*kx*dx)) / 2
+    .. math::
+        \overline{u}^{x+} = \frac{u(x + \Delta x) + u(x)}{2}
 
-def khp(kx, dx):
-    return 1j * (1 - config.ncp.exp(1j*kx*dx)) / dx
+    A fourier transform yields the discrete spectral operator:
 
-def khm(kx, dx):
-    return 1j * (config.ncp.exp(-1j*kx*dx) - 1) / dx
+    .. math::
+        \overline{u}^{x+} \rightarrow \frac{e^{ik_x \Delta x} + 1}{2}u =
+            \hat{1}_x^+ u
+    
+    and similarly for the backward linear interpolation operator
+    
+    Parameters
+    ----------
+    `kx` : `ndarray`
+        The wavenumber
+    `dx` : `float`
+        The grid spacing
+    `sign` : `int`
+        The sign of the operator (+1 for forward, -1 for backward)
+    `use_discrete` : `bool`
+        If True, the discrete operator is returned. Otherwise, the continuous
+        operator is returned which is 1 for forward and backward interpolation.
+    
+    Returns
+    -------
+    `ndarray`
+        The spectral operator.
+    """
+    return (1 + config.ncp.exp(sign * 1j * kx * dx)) / 2
 
-def khpm(kx, dx):
+def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
+    """
+    Spectral operator for the forward finite difference.
+    
+    Description
+    -----------
+    The forward finite difference operator is defined as:
+
+    .. math::
+        \delta_x^+ u = \frac{u(x + \Delta x) - u(x)}{\Delta x}
+
+    A fourier transform yields the discrete spectral operator:
+
+    .. math::
+        \delta_x^+ u \rightarrow \frac{e^{ik_x \Delta x} - 1}{\Delta x}u =
+            i \hat{k}_x^+ u
+    
+    and similarly for the backward finite difference operator
+    
+    Parameters
+    ----------
+    `kx` : `ndarray`
+        The wavenumber
+    `dx` : `float`
+        The grid spacing
+    `sign` : `int`
+        The sign of the operator (+1 for forward, -1 for backward)
+    `use_discrete` : `bool`
+        If True, the discrete operator is returned. Otherwise, the continuous
+        operator is returned which is always kx.
+    
+    Returns
+    -------
+    `ndarray`
+        The spectral operator.
+    """
+    return sign * 1j * (1 - config.ncp.exp(sign * 1j * kx * dx)) / dx
+
+def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
+    """
+    Discrete spectral operator of forward - backward finite difference.
+    
+    Description
+    -----------
+    The discrete spectral operator of the forward - backward finite difference
+    is given by:
+
+    .. math::
+        2 (1 - \cos(k_x \Delta x)) / \Delta x^2
+
+    Parameters
+    ----------
+    `kx` : `ndarray`
+        The wavenumber
+    `dx` : `float`
+        The grid spacing
+    `use_discrete` : `bool`
+        If True, the discrete operator is returned. Otherwise, the continuous
+        operator is returned which is always kx**2.
+    
+    Returns
+    -------
+    `ndarray`
+        The spectral operator.
+    """
     return 2 * (1 - config.ncp.cos(kx*dx)) / dx**2
 
-def ohpm(kx, dx):
+def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
+    """
+    Discrete spectral operator of forward - backward linear interpolation.
+    
+    Description
+    -----------
+    The discrete spectral operator of the forward - backward linear interpolation
+    is given by:
+
+    .. math::
+        (1 + \cos(k_x \Delta x)) / 2
+
+    Parameters
+    ----------
+    `kx` : `ndarray`
+        The wavenumber
+    `dx` : `float`
+        The grid spacing
+    `use_discrete` : `bool`
+        If True, the discrete operator is returned. Otherwise, the continuous
+        operator is returned which is always 1.
+    
+    Returns
+    -------
+    `ndarray`
+        The spectral operator.
+    """
     return (1 + config.ncp.cos(kx*dx)) / 2
 
 def _set_nyquist_to_zero(z: State) -> State:
@@ -342,25 +461,57 @@ def _set_nyquist_to_zero(z: State) -> State:
         z.b.arr = ncp.where(nyquist, 0, z.b.arr)
     return z
 
+# ================================================================
+#  The eigenvectors
+# ================================================================
 
 class VecQ(State):
     """
-    Discrete eigenvectors of the System matrix.
-    See the documentation for more details.
+    The eigenvectors of the System matrix and the divergence vector.
+
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
+    `s` : `int`
+        The mode of the eigenvector.
+        0  => geostrophic,
+        "d" => divergent,
+        1  => positive inertial-gravity,
+        -1 => negative inertial-gravity
+    `use_discrete` : `bool` (default: True)
+        If True, the discrete eigenvectors are returned. Otherwise, the continuous
+        eigenvectors are returned.
+
+    Description
+    -----------
+    For the continuous case, and :math:`k_x = k_y = 0`, the eigenvectors are:
+
+    .. math::
+        \boldsymbol{q^0} = \begin{pmatrix} 0 \\ 0 \\ 0 \\ 1 \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{q^\pm} = \begin{pmatrix} \mp i \\ 1 \\ 0 \\ 0 \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{q^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
+
+    For the general case of nonzero horizontal wavenumbers, the eigenvectors are:
+
+    .. math::
+        \boldsymbol{q^0} = \begin{pmatrix} -k_y \\ k_x \\ 0 \\ fk_z \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{q^\pm} = \begin{pmatrix}
+            k_z ( -i \omega^\pm k_x + f k_y) \\
+            k_z ( -i \omega^\pm k_y - f k_x) \\
+            i\omega^\pm k_h^2 \\
+            N^2 k_h^2
+        \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{q^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
+
+    The discrete projection vector is given in the docstring of the eigenvectors.
     """
 
-    def __init__(self, s, mset: ModelSettings) -> None:
-        """
-        Constructor of the discrete eigenvectors of the System matrix.
-        
-        Arguments:
-            s   : The mode of the eigenvector. 
-                    (0  => geostrophic, 
-                    "d" => divergent,
-                     1  => positive inertial-gravity,
-                    -1  => negative inertial-gravity)
-            grid: The Grid object.
-        """
+    def __init__(self, mset: ModelSettings, s: int, use_discrete=True) -> None:
         super().__init__(mset, is_spectral=True)
 
         # Shortcuts
@@ -369,6 +520,13 @@ class VecQ(State):
         kx, ky, kz = grid.K
         dx, dy, dz = grid.dx
         f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
+
+        ohp = lambda k, d: one_hat(k, d, +1, use_discrete)
+        ohm = lambda k, d: one_hat(k, d, -1, use_discrete)
+        khp = lambda k, d: k_hat(k, d, +1, use_discrete)
+        khm = lambda k, d: k_hat(k, d, -1, use_discrete)
+        khpm = lambda k, d: k_hat_squared(k, d, use_discrete)
+        ohpm = lambda k, d: one_hat_squared(k, d, use_discrete)
         
         # Discrete spectral horizontal wavenumber squared
         kh2_hat = khpm(kx, dx) + khpm(ky, dy)
@@ -429,22 +587,51 @@ class VecQ(State):
 
 class VecP(State):
     """
-    Projection vector on the discrete eigenvectors of the System matrix.
-    See the documentation for more details.
+    The projection vectors of the System matrix.
+
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
+    `s` : `int`
+        The mode of the eigenvector.
+        0  => geostrophic,
+        "d" => divergent,
+        1  => positive inertial-gravity,
+        -1 => negative inertial-gravity
+    `use_discrete` : `bool` (default: True)
+        If True, the discrete eigenvectors are returned. Otherwise, the continuous
+        eigenvectors are returned.
+
+    Description
+    -----------
+    For the continuous case, and :math:`k_x = k_y = 0`, the projection vectors are:
+
+    .. math::
+        \boldsymbol{p^0} = \begin{pmatrix} 0 \\ 0 \\ 0 \\ 1 \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{p^\pm} = \begin{pmatrix} \mp i \\ 1 \\ 0 \\ 0 \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{p^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
+
+    For the general case of nonzero horizontal wavenumbers, the projection vectors are:
+
+    .. math::
+        \boldsymbol{p^0} = \begin{pmatrix} -N^2 k_y \\ N^2 k_x \\ 0 \\ f k_z \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{p^\pm} = \begin{pmatrix}
+            k_z ( -i \omega^\pm k_x + f \gamma k_y) \\
+            k_z ( -i \omega^\pm k_y - f \gamma k_x) \\
+            i\omega^\pm k_h^2 \\
+            \gamma k_h^2
+        \end{pmatrix}
+        \quad, \quad
+        \boldsymbol{p^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
+    
+    The discrete projection vector is given in the docstring of the eigenvectors.
     """
 
-    def __init__(self, s, mset: ModelSettings) -> None:
-        """
-        Constructor of the projector on the discrete eigenvectors.
-        
-        Arguments:
-            s   : The mode of the eigenvector. 
-                    (0  => geostrophic, 
-                    "d" => divergent,
-                     1  => positive inertial-gravity,
-                    -1  => negative inertial-gravity)
-            grid: The Grid object.
-        """
+    def __init__(self, mset: ModelSettings, s, use_discrete=True) -> None:
         super().__init__(mset=mset, is_spectral=True)
 
         # Shortcuts
@@ -453,6 +640,13 @@ class VecP(State):
         kx, ky, kz = grid.K
         dx, dy, dz = grid.dx
         f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
+
+        ohp = lambda k, d: one_hat(k, d, +1, use_discrete)
+        ohm = lambda k, d: one_hat(k, d, -1, use_discrete)
+        khp = lambda k, d: k_hat(k, d, +1, use_discrete)
+        khm = lambda k, d: k_hat(k, d, -1, use_discrete)
+        khpm = lambda k, d: k_hat_squared(k, d, use_discrete)
+        ohpm = lambda k, d: one_hat_squared(k, d, use_discrete)
         
         # Discrete spectral horizontal wavenumber squared
         kh2_hat = khpm(kx, dx) + khpm(ky, dy)
@@ -497,169 +691,6 @@ class VecP(State):
                     ohm(kx,dx)*ohp(ky,dy)*f0*gamma*khp(kx,dx)))
             w = -1j * om_hat * kh2_hat
             b = ohm(kz,dz) * gamma * kh2_hat
-
-        self.u.arr = ncp.where(nonzero_horizontal, u, self.u.arr)
-        self.v.arr = ncp.where(nonzero_horizontal, v, self.v.arr)
-        self.w.arr = ncp.where(nonzero_horizontal, w, self.w.arr)
-        self.b.arr = ncp.where(nonzero_horizontal, b, self.b.arr)
-
-        # normalize the vector
-        norm = ncp.abs((q.dot(self)).arr)
-        # avoid division by zero
-        mask = (norm > 1e-10)
-        self.u.arr = ncp.where(mask, self.u.arr/norm, 0)
-        self.v.arr = ncp.where(mask, self.v.arr/norm, 0)
-        self.w.arr = ncp.where(mask, self.w.arr/norm, 0)
-        self.b.arr = ncp.where(mask, self.b.arr/norm, 0)
-
-        # Set the nyquist frequency to zero
-        z = _set_nyquist_to_zero(self)
-        self.fields = z.fields
-
-
-class VecQAnalytical(State):
-    """
-    Analytical eigenvectors of the System matrix.
-    See the documentation for more details.
-    """
-    def __init__(self, s, mset: ModelSettings) -> None:
-        """
-        Constructor of the analytical eigenvectors of the System matrix.
-        
-        Arguments:
-            s   : The mode of the eigenvector. 
-                    (0  => geostrophic, 
-                    "d" => divergent,
-                     1  => positive inertial-gravity,
-                    -1  => negative inertial-gravity)
-            grid: The Grid object.
-        """
-        super().__init__(mset, is_spectral=True)
-
-        # Shortcuts
-        grid = mset.grid
-        kx, ky, kz = grid.K
-        kh2 = kx**2 + ky**2
-        f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
-
-        # Check the mode of the eigenvector
-        is_geostrophic = (s == 0)
-        is_divergent = (s == "d")
-
-        # We first consider the case of nonzero horizontal wavenumbers
-        if is_geostrophic:
-            u = -ky
-            v =  kx
-            w = config.ncp.zeros_like(kx)
-            b = f0 * kz
-        elif is_divergent:
-            u = kx
-            v = ky
-            w = kz
-            b = config.ncp.zeros_like(kx)
-        else:
-            # Eigenvalues (frequency)
-            om = -s * self.grid.omega_analytical
-
-            # Eigenvectors of inertia-gravity wave modes
-            u = kz * (1j * om * kx + f0 * ky)
-            v = kz * (1j * om * ky - f0 * kx)
-            w = -1j * om * kh2
-            b = N0**2 * kh2
-
-        # Now we consider the case of zero horizontal wavenumbers
-        # (ov -> only vertical)
-        if is_geostrophic:
-            u_ov = 0
-            v_ov = 0
-            w_ov = 0
-            b_ov = 1
-        elif is_divergent:
-            u_ov = kx
-            v_ov = ky
-            w_ov = kz
-            b_ov = 0
-        else:
-            u_ov = -1j*s
-            v_ov = 1
-            w_ov = 0
-            b_ov = 0
-
-        # Mask to separate inertial modes from inertia-gravity modes
-        nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
-
-        self.u.arr = config.ncp.where(nonzero_horizontal, u, u_ov)
-        self.v.arr = config.ncp.where(nonzero_horizontal, v, v_ov)
-        self.w.arr = config.ncp.where(nonzero_horizontal, w, w_ov)
-        self.b.arr = config.ncp.where(nonzero_horizontal, b, b_ov)
-
-        # Set the nyquist frequency to zero
-        z = _set_nyquist_to_zero(self)
-        self.fields = z.fields
-
-
-class VecPAnalytical(State):
-    """
-    Projection vector on the analytical eigenvectors of the System matrix.
-    See the documentation for more details.
-    """
-    def __init__(self, s, mset: ModelSettings) -> None:
-        """
-        Constructor of the projector on the analytical eigenvectors.
-        
-        Arguments:
-            s   : The mode of the eigenvector. 
-                    (0  => geostrophic, 
-                    "d" => divergent,
-                     1  => positive inertial-gravity,
-                    -1  => negative inertial-gravity)
-            grid: The Grid object.
-        """
-        super().__init__(mset, is_spectral=True)
-
-        # Shortcuts
-        ncp = config.ncp
-        grid = mset.grid
-        kx, ky, kz = grid.K
-        kh2 = kx**2 + ky**2
-        f0 = mset.f0; N0 = mset.N2**(1/2); dsqr = mset.dsqr
-
-        # Check the mode of the eigenvector
-        is_geostrophic = (s == 0)
-        is_divergent = (s == "d")
-
-        # Mask to separate inertial modes from inertia-gravity modes
-        nonzero_horizontal = (kx**2 + ky**2 != 0)
-
-        # Construct the eigenvector
-        q = VecQAnalytical(s, mset)
-        self.u = q.u.copy(); self.v = q.v.copy() 
-        self.w = q.w.copy(); self.b = q.b.copy()
-
-        # the zero horizontal wavenumber modes are the same as the eigenvector
-        # So we only need to calculate the horizontal varying modes
-        if is_geostrophic:
-            u = -N0**2 * ky
-            v =  N0**2 * kx
-            w = 0
-            b = f0 * kz
-        elif is_divergent:
-            # Divergent modes are the same as the eigenvector
-            u = self.u.arr
-            v = self.v.arr
-            w = self.w.arr
-            b = self.b.arr
-        else:
-            # Scaling factor
-            gamma = (kh2 + kz**2) / (dsqr * kh2 + kz**2)
-
-            # Eigenvalues (frequency)
-            om = -s * self.grid.omega_analytical
-
-            u = kz * (1j * om * kx + f0 * gamma * ky)
-            v = kz * (1j * om * ky - f0 * gamma * kx)
-            w = -1j * om * kh2
-            b = gamma*kh2
 
         self.u.arr = ncp.where(nonzero_horizontal, u, self.u.arr)
         self.v.arr = ncp.where(nonzero_horizontal, v, self.v.arr)
