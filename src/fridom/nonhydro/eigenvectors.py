@@ -252,13 +252,14 @@ the discrete eigenvectors are:
     \end{pmatrix}
 
 The divergent vector is given by :math:`\boldsymbol{q^d} = 
-(\hat{k}_x^+, \hat{k}_y^+, \hat{k}_z^+, 0`. All eigenvectors are orthogonal 
+(\hat{k}_x^+, \hat{k}_y^+, \hat{k}_z^+, 0)`. All eigenvectors are orthogonal 
 to the divergent vector. Hence no eigenvector project onto divergent velocity fields.
 
 Projection Vectors
 ------------------
-Similar to the continuous case, only the projection vectors for the general case
-of nonzero horizontal wavenumbers are given here. The projection vectors are:
+Similar to the continuous case, the projection vectors of the purely vertical
+case are identical to the eigenvectors. Hence, we only show the projection 
+vectors for the general case of nonzero horizontal wavenumbers:
 
 .. math::
     \boldsymbol{p^0} = 
@@ -278,7 +279,7 @@ of nonzero horizontal wavenumbers are given here. The projection vectors are:
 with
 
 .. math::
-    \hat{\gamma} = \frac{\hat{k}_h^2 + \hat{k}_z^2}{\hat{k}^2}
+    \hat{\gamma} = \frac{\hat{k}_h^2 + \hat{k}_z^2}{\delta^2 \hat{k}^2}
 """
 from numpy import ndarray
 from fridom.nonhydro.state import State
@@ -294,18 +295,29 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
     
     Description
     -----------
-    The forward linear interpolation operator is defined as:
+    Computes the spectral operator :math:`\hat{1}_x^\pm` that arises from the
+    discrete forward (+1) or backward (-1) linear interpolation. 
+    The linear interpolation operator on a field :math:`u` is defined as:
 
     .. math::
-        \overline{u}^{x+} = \frac{u(x + \Delta x) + u(x)}{2}
+        \overline{u}^{x\pm} = \frac{u(x \pm \Delta x) + u(x)}{2}
 
-    A fourier transform yields the discrete spectral operator:
+    where :math:`\pm` denotes the forward (+) or backward (-) linear 
+    interpolation. A fourier transform yields the discrete spectral operator:
 
     .. math::
-        \overline{u}^{x+} \rightarrow \frac{e^{ik_x \Delta x} + 1}{2}u =
-            \hat{1}_x^+ u
+        \overline{u}^{x\pm} \rightarrow \frac{e^{\pm ik_x \Delta x} + 1}{2}u =
+            \hat{1}_x^\pm u
     
-    and similarly for the backward linear interpolation operator
+    Hence, the discrete spectral operator is given by:
+
+    .. math::
+        \hat{1}_x^\pm = \frac{e^{\pm ik_x \Delta x} + 1}{2}
+
+    In the continuous case, e.g. :math:`\Delta x \rightarrow 0`, the limit yields
+
+    .. math::
+        \lim_{\Delta x \rightarrow 0} \hat{1}_x^\pm = 1
     
     Parameters
     ----------
@@ -315,7 +327,7 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
         The grid spacing
     `sign` : `int`
         The sign of the operator (+1 for forward, -1 for backward)
-    `use_discrete` : `bool`
+    `use_discrete` : `bool` (default: True)
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is 1 for forward and backward interpolation.
     
@@ -324,7 +336,10 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
     `ndarray`
         The spectral operator.
     """
-    return (1 + config.ncp.exp(sign * 1j * kx * dx)) / 2
+    if use_discrete:
+        return (1 + config.ncp.exp(sign * 1j * kx * dx)) / 2
+    else:
+        return 1
 
 def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
     r"""
@@ -332,18 +347,29 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
     
     Description
     -----------
-    The forward finite difference operator is defined as:
+    Computes the spectral operator :math:`\hat{k}_x^\pm` that arises from the
+    discrete forward (+1) or backward (-1) finite difference. The finite
+    difference operator is defined as:
 
     .. math::
-        \delta_x^+ u = \frac{u(x + \Delta x) - u(x)}{\Delta x}
+        \delta_x^\pm u = \pm \frac{u(x \pm \Delta x) - u(x)}{\Delta x}
 
+    where :math:`\pm` denotes the forward (+) or backward (-) finite difference.
     A fourier transform yields the discrete spectral operator:
 
     .. math::
-        \delta_x^+ u \rightarrow \frac{e^{ik_x \Delta x} - 1}{\Delta x}u =
-            i \hat{k}_x^+ u
+        \delta_x^\pm u \rightarrow \pm \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}u =
+            i \hat{k}_x^\pm u
     
-    and similarly for the backward finite difference operator
+    Hence, the discrete spectral operator is given by:
+
+    .. math::
+        \hat{k}_x^\pm = \mp i \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}
+
+    For the continuous case, e.g. :math:`\Delta x \rightarrow 0`, the limit yields
+
+    .. math::
+        \lim_{\Delta x \rightarrow 0} \hat{k}_x^\pm = k_x
     
     Parameters
     ----------
@@ -362,19 +388,28 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
     `ndarray`
         The spectral operator.
     """
-    return sign * 1j * (1 - config.ncp.exp(sign * 1j * kx * dx)) / dx
+    if use_discrete:
+        return sign * 1j * (1 - config.ncp.exp(sign * 1j * kx * dx)) / dx
+    else:
+        return kx
 
 def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     r"""
-    Discrete spectral operator of forward - backward finite difference.
+    Spectral operator of forward - backward finite difference.
     
     Description
     -----------
-    The discrete spectral operator of the forward - backward finite difference
-    is given by:
+    Computes the spectral operator :math:`\hat{k}_x^2` that arises from 
+    forward - backward finite difference:
 
     .. math::
-        2 (1 - \cos(k_x \Delta x)) / \Delta x^2
+        \hat{k}_x^2 = \hat{k}_x^+ \hat{k}_x^- =
+            2 \frac{1 - \cos(k_x \Delta x)}{\Delta x^2}
+
+    In the continuous case, e.g. :math:`\Delta x \rightarrow 0`, the limit yields
+    
+    .. math::
+        \lim_{\Delta x \rightarrow 0} \hat{k}_x^2 = k_x^2
 
     Parameters
     ----------
@@ -391,7 +426,10 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     `ndarray`
         The spectral operator.
     """
-    return 2 * (1 - config.ncp.cos(kx*dx)) / dx**2
+    if use_discrete:
+        return 2 * (1 - config.ncp.cos(kx*dx)) / dx**2
+    else:
+        return kx**2
 
 def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     r"""
@@ -399,11 +437,17 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
     
     Description
     -----------
-    The discrete spectral operator of the forward - backward linear interpolation
-    is given by:
+    Computes the spectral operator :math:`\hat{1}_x^2` that arises from the
+    discrete forward - backward linear interpolation:
 
     .. math::
-        (1 + \cos(k_x \Delta x)) / 2
+        \hat{1}_x^2 = \hat{1}_x^+ \hat{1}_x^- =
+            \frac{1 + \cos(k_x \Delta x)}{2}
+
+    In the continuous case, e.g. :math:`\Delta x \rightarrow 0`, the limit yields
+
+    .. math::
+        \lim_{\Delta x \rightarrow 0} \hat{1}_x^2 = 1
 
     Parameters
     ----------
@@ -420,7 +464,10 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
     `ndarray`
         The spectral operator.
     """
-    return (1 + config.ncp.cos(kx*dx)) / 2
+    if use_discrete:
+        return (1 + config.ncp.cos(kx*dx)) / 2
+    else:
+        return 1
 
 def _set_nyquist_to_zero(z: State) -> State:
     r"""
@@ -526,8 +573,8 @@ class VecQ(State):
         khpm = lambda k, d: k_hat_squared(k, d, use_discrete)
         ohpm = lambda k, d: one_hat_squared(k, d, use_discrete)
         
-        # Discrete spectral horizontal wavenumber squared
-        kh2_hat = khpm(kx, dx) + khpm(ky, dy)
+        # Horizontal wavenumber squared
+        kh2 = khpm(kx, dx) + khpm(ky, dy)
 
         # Check the mode of the eigenvector
         is_geostrophic = (s == 0)
@@ -545,15 +592,16 @@ class VecQ(State):
             w = khp(kz,dz)
             b = ncp.zeros_like(kx)
         else:
-            om_hat = -s * self.grid.omega_space_discrete
-            u = (khm(kz,dz) * (1j*om_hat*khp(kx,dx) + 
+            # calculate eigenvalue
+            om = s * self.grid.omega((kx, ky, kz), use_discrete=use_discrete)
+            u = (khm(kz,dz) * (-1j*om*khp(kx,dx) + 
                   ohp(kx,dx)*ohm(ky,dy)*f0*khp(ky,dy)))
-            v = (khm(kz,dz) * (1j*om_hat*khp(ky,dy) -
+            v = (khm(kz,dz) * (-1j*om*khp(ky,dy) -
                   ohm(kx,dx)*ohp(ky,dy)*f0*khp(kx,dx)))
-            w = -1j * om_hat * kh2_hat
-            b = ohm(kz,dz) * N0**2 * kh2_hat
+            w = 1j * om * kh2
+            b = ohm(kz,dz) * N0**2 * kh2
         
-        # Now we consider the case of zero horizontal wavenumbers
+        # Now we consider the purely vertical case
         # (ov -> only vertical)
         if is_geostrophic:
             u_ov = 0
@@ -566,7 +614,7 @@ class VecQ(State):
             w_ov = khp(kz,dz)
             b_ov = 0
         else:
-            u_ov = -1j*s
+            u_ov = -s * 1j
             v_ov = 1
             w_ov = 0
             b_ov = 0
@@ -646,8 +694,8 @@ class VecP(State):
         khpm = lambda k, d: k_hat_squared(k, d, use_discrete)
         ohpm = lambda k, d: one_hat_squared(k, d, use_discrete)
         
-        # Discrete spectral horizontal wavenumber squared
-        kh2_hat = khpm(kx, dx) + khpm(ky, dy)
+        # Horizontal wavenumber squared
+        kh2 = khpm(kx, dx) + khpm(ky, dy)
 
         # Check the mode of the eigenvector
         is_geostrophic = (s == 0)
@@ -657,7 +705,7 @@ class VecP(State):
         nonzero_horizontal = (kx**2 + ky**2 != 0)
 
         # Construct the eigenvector
-        q = VecQ(s, mset)
+        q = VecQ(mset, s, use_discrete=use_discrete)
         from copy import deepcopy
         self.u = deepcopy(q.u); self.v = deepcopy(q.v)
         self.w = deepcopy(q.w); self.b = deepcopy(q.b)
@@ -665,8 +713,8 @@ class VecP(State):
         # the zero horizontal wavenumber modes are the same as the eigenvector
         # So we only need to calculate the horizontal varying modes
         if is_geostrophic:
-            u = -N0**2 * ohp(kx,dx) * ohm(ky,dy) * ohp(kz,dz) * khp(ky,dy)
-            v =  N0**2 * ohm(kx,dx) * ohp(ky,dy) * ohp(kz,dz) * khp(kx,dx)
+            u = - ohp(kx,dx) * ohm(ky,dy) * ohp(kz,dz) * N0**2 * khp(ky,dy)
+            v =   ohm(kx,dx) * ohp(ky,dy) * ohp(kz,dz) * N0**2 * khp(kx,dx)
             w = 0
             b = ohpm(kx,dx) * ohpm(ky,dy) * f0 * khp(kz,dz)
         elif is_divergent:
@@ -677,18 +725,18 @@ class VecP(State):
             b = self.b.arr
         else:
             # Scaling factor
-            gamma = (kh2_hat + khpm(kz,dz)) / \
-                        (dsqr * kh2_hat + khpm(kz,dz))
+            gamma = (  (kh2 + khpm(kz,dz))
+                     / (dsqr * kh2 + khpm(kz,dz)) )
 
             # Eigenvalues (frequency)
-            om_hat = -s * self.grid.omega_space_discrete
+            om = s * self.grid.omega((kx, ky, kz), use_discrete=use_discrete)
 
-            u = (khm(kz,dz) * (1j*om_hat*khp(kx,dx) +
+            u = (khm(kz,dz) * (-1j*om*khp(kx,dx) +
                     ohp(kx,dx)*ohm(ky,dy)*f0*gamma*khp(ky,dy)))
-            v = (khm(kz,dz) * (1j*om_hat*khp(ky,dy) -
+            v = (khm(kz,dz) * (-1j*om*khp(ky,dy) -
                     ohm(kx,dx)*ohp(ky,dy)*f0*gamma*khp(kx,dx)))
-            w = -1j * om_hat * kh2_hat
-            b = ohm(kz,dz) * gamma * kh2_hat
+            w = 1j * om * kh2
+            b = ohm(kz,dz) * gamma * kh2
 
         self.u.arr = ncp.where(nonzero_horizontal, u, self.u.arr)
         self.v.arr = ncp.where(nonzero_horizontal, v, self.v.arr)

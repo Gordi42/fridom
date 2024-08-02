@@ -17,25 +17,18 @@ class GeostrophicSpectralBase(Projection):
         The constructor of an eigenvector.
     `VecP` : `State (constructor)`
         The constructor of the projection vector onto an eigenspace.
-    
-    Attributes
-    ----------
-    `q` : `State`
-        The eigenvector of the geostrophic subspace.
-    `p` : `State`
-        The projection vector onto the geostrophic subspace.
-    
-    Methods
-    -------
-    `__call__(z: State) -> State`
-        Project a state to the geostrophic subspace.
+    `use_discrete` : `bool` (default: `True`)
+        Whether to use discrete eigenvectors.
     """
-    def __init__(self, mset: 'ModelSettingsBase',
-                 VecQ, VecP) -> None:
+    def __init__(self, 
+                 mset: 'ModelSettingsBase',
+                 VecQ: 'StateBase',
+                 VecP: 'StateBase',
+                 use_discrete: bool = True) -> None:
         super().__init__(mset)
         # Construct the eigenvectors
-        self.q = VecQ(0, mset)
-        self.p = VecP(0, mset)
+        self.q = VecQ(mset, s=0, use_discrete=use_discrete)
+        self.p = VecP(mset, s=0, use_discrete=use_discrete)
         return
 
     def __call__(self, z: 'StateBase') -> 'StateBase':

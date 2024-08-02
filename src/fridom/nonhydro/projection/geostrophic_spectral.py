@@ -1,8 +1,10 @@
-from fridom.framework.projection \
-    .geostrophic_spectral import GeostrophicSpectralBase
-from fridom.nonhydro.model_settings import ModelSettings
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
-class GeostrophicSpectral(GeostrophicSpectralBase):
-    def __init__(self, mset: ModelSettings) -> None:
-        from fridom.nonhydro.eigenvectors import VecP, VecQ
-        super().__init__(mset, VecQ, VecP)
+class GeostrophicSpectral(fr.projection.GeostrophicSpectralBase):
+    def __init__(self, 
+                 mset: nh.ModelSettings,
+                 VecQ: nh.State = nh.eigenvectors.VecQ,
+                 VecP: nh.State = nh.eigenvectors.VecP,
+                 use_discrete: bool = True) -> None:
+        super().__init__(mset, VecQ, VecP, use_discrete)

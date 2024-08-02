@@ -1,9 +1,11 @@
-from fridom.framework.projection \
-    .divergence_spectral import DivergenceSpectralBase
-from fridom.nonhydro.model_settings import ModelSettings
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
 
-class DivergenceSpectral(DivergenceSpectralBase):
-    def __init__(self, mset: ModelSettings) -> None:
-        from fridom.nonhydro.eigenvectors import VecP, VecQ
-        super().__init__(mset, VecQ, VecP)
+class DivergenceSpectral(fr.projection.DivergenceSpectralBase):
+    def __init__(self, 
+                 mset: nh.ModelSettings,
+                 VecQ: nh.State = nh.eigenvectors.VecQ,
+                 VecP: nh.State = nh.eigenvectors.VecP,
+                 use_discrete: bool = True) -> None:
+        super().__init__(mset, VecQ, VecP, use_discrete)

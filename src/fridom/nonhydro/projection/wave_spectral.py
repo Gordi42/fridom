@@ -1,7 +1,10 @@
-from fridom.framework.projection.wave_spectral import WaveSpectralBase
-from fridom.nonhydro.model_settings import ModelSettings
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
-class WaveSpectral(WaveSpectralBase):
-    def __init__(self, mset: ModelSettings) -> None:
-        from fridom.nonhydro.eigenvectors import VecP, VecQ
-        super().__init__(mset, VecQ, VecP)
+class WaveSpectral(fr.projection.WaveSpectralBase):
+    def __init__(self, 
+                 mset: nh.ModelSettings,
+                 VecQ: nh.State = nh.eigenvectors.VecQ,
+                 VecP: nh.State = nh.eigenvectors.VecP,
+                 use_discrete: bool = True) -> None:
+        super().__init__(mset, VecQ, VecP, use_discrete)
