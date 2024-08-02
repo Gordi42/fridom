@@ -297,7 +297,7 @@ class NetCDFWriter(Module):
         for var in self.get_variables(mz):
             nc_var = self._ncfile.variables[var.name]
             arr = var[inner_slice]
-            nc_var[ind] = to_numpy(arr.T)
+            nc_var[ind] = utils.to_numpy(arr.T)
         return
 
     def _close_file(self):
