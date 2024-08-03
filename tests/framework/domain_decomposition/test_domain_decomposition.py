@@ -37,7 +37,7 @@ def test_sync_topo_array(backend, flat_axis):
     shape = list(domain.my_subdomain.shape)
     shape[flat_axis] = 1
     u = fr.utils.random_array(shape)
-    domain.sync(u, flat_axes=[flat_axis])
+    domain.sync(u, flat_axes=(flat_axis, ))
 
 @pytest.mark.parametrize("halo", [0, 1, 2])
 def test_sync_1d_array(backend, halo):

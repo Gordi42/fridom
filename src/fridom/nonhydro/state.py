@@ -139,11 +139,9 @@ class State(fr.StateBase):
         pos = self.grid.cell_center
         interp = self.grid.interpolate
         dsqr = self.mset.dsqr
-
-        # interpolate the fields to the cell center
-        u = interp(self.u.arr, self.u.position, pos)
-        v = interp(self.v.arr, self.v.position, pos)
-        w = interp(self.w.arr, self.w.position, pos)
+        u = self.u.arr
+        v = self.v.arr
+        w = self.w.arr
 
         ekin = 0.5*(u**2 + v**2 + dsqr*w**2)
         
@@ -166,11 +164,8 @@ class State(fr.StateBase):
         """
         # shortcuts
         pos = self.grid.cell_center
-        interp = self.grid.interpolate
         N2 = self.mset.N2
-
-        # interpolate the fields to the cell center
-        b = interp(self.b.arr, self.b.position, pos)
+        b = self.b.arr
 
         epot = 0.5*(b**2 / N2)
 
