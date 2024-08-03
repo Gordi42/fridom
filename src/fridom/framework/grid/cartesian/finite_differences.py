@@ -59,7 +59,7 @@ class FiniteDifferences(DiffBase):
         if axes is None:
             axes = list(range(len(arrs)))
         
-        res = config.ncp.zeros_like(arrs[axes[0]])
+        res = config.ncp.zeros(arrs[axes[0]].shape)
         for axis, arr in zip(axes, arrs):
             res += self._diff_backward(arr, axis)
         return res
@@ -85,7 +85,7 @@ class FiniteDifferences(DiffBase):
             if axes is None:
                 axes = list(range(arr.ndim))
             
-            res = config.ncp.zeros_like(arr)
+            res = config.ncp.zeros(arr.shape)
             for axis in range(axes):
                 res += self._diff_forward(self._diff_backward(arr, axis), axis)
             return res
@@ -117,7 +117,7 @@ class FiniteDifferences(DiffBase):
 
     @partial(utils.jaxjit, static_argnames=('axis',))
     def _diff_forward(self, arr: np.ndarray, axis: int) -> np.ndarray:
-        res = config.ncp.empty_like(arr)
+        res = config.ncp.empty(arr.shape)
 
         next = tuple(slice(1, None) if i == axis else slice(None) 
                      for i in range(arr.ndim))
@@ -131,7 +131,7 @@ class FiniteDifferences(DiffBase):
 
     @partial(utils.jaxjit, static_argnames=('axis',))
     def _diff_backward(self, arr: np.ndarray, axis: int) -> np.ndarray:
-        res = config.ncp.empty_like(arr)
+        res = config.ncp.empty(arr.shape)
 
         next = tuple(slice(1, None) if i == axis else slice(None) 
                      for i in range(arr.ndim))
@@ -145,7 +145,7 @@ class FiniteDifferences(DiffBase):
 
     @partial(utils.jaxjit, static_argnames=('axis',))
     def _diff_centered(self, arr: np.ndarray, axis: int) -> np.ndarray:
-        res = config.ncp.empty_like(arr)
+        res = config.ncp.empty(arr.shape)
 
         next = tuple(slice(2, None) if i == axis else slice(None) 
                      for i in range(arr.ndim))

@@ -38,17 +38,21 @@ class SingleWave(nh.State):
 
     Examples
     --------
-    >>> import fridom.nonhydro as nh
-    >>> import numpy as np
-    >>> grid = nh.grid.cartesian.Grid(
-    ...     N=[127]*3, L=[1]*3, periodic_bounds=(True, True, True))
-    >>> mset = nh.ModelSettings(grid=grid, dsqr=0.02)
-    >>> mset.time_stepper.dt = np.timedelta64(10, 'ms')
-    >>> mset.setup()
-    >>> z = nh.initial_conditions.SingleWave(mset, kx=2, ky=0, kz=1)
-    >>> model = nh.Model(mset)
-    >>> model.z = z
-    >>> model.run(runlen=np.timedelta64(10, 's'))
+
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        import numpy as np
+        grid = nh.grid.cartesian.Grid(
+            N=[127]*3, L=[1]*3, periodic_bounds=(True, True, True))
+        mset = nh.ModelSettings(grid=grid, dsqr=0.02)
+        mset.time_stepper.dt = np.timedelta64(10, 'ms')
+        mset.tendencies.advection.disable()
+        mset.setup()
+        z = nh.initial_conditions.SingleWave(mset, kx=2, ky=0, kz=1)
+        model = nh.Model(mset)
+        model.z = z
+        model.run(runlen=np.timedelta64(10, 's'))
     """
     def __init__(self, 
                  mset: nh.ModelSettings, 
@@ -76,7 +80,7 @@ class SingleWave(nh.State):
         mask = ncp.where(k_loc, 1, 0)
 
         # Construct the eigenvector of the corresponding mode
-        q = nh.eigenvectors.VecQ(mset, s, use_discrete=use_discrete)
+        q = mset.grid.vec_q(s, use_discrete=use_discrete)
 
         # Construct the state
         z = (q * mask * ncp.exp(1j*phase)).fft()

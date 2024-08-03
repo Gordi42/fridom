@@ -76,27 +76,26 @@ class RandomGeostrophicSpectra(nh.State):
     
     Examples
     --------
-    >>> import numpy as np
-    >>> import fridom.nonhydro as nh
-    >>> # Set up the model settings
-    >>> grid = nh.grid.cartesian.Grid(
-    ...     N=(128, 128, 32), 
-    ...     L=(10, 10, 1), 
-    ...     periodic_bounds=(False, True, False))
-    >>> mset = nh.ModelSettings(grid=grid, f0=1, N2=1.0, dsqr=0.2**2)
-    >>> mset.time_stepper.dt = np.timedelta64(10, 'ms')
-    >>> mset.setup()
-    >>> # Create the initial conditions
-    >>> ic = nh.initial_conditions
-    >>> def spectra(kx, ky, kz):
-    ...     s = ic.geostrophic_energy_spectrum(
-    ...             kx, ky, kz, c=0.2, k0=1.4, d=5)
-    ...     return s
-    >>> z = ic.RandomGeostrophicSpectra(mset, spectral_energy_density=spectra)
-    >>> # Create and run the model
-    >>> model = nh.Model(mset)
-    >>> model.z = z
-    >>> model.run(runlen=np.timedelta64(20, 's'))
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        # Set up the model settings
+        grid = nh.grid.cartesian.Grid(
+            N=(128, 128, 32), L=(10, 10, 1), 
+            periodic_bounds=(False, True, False))
+        mset = nh.ModelSettings(grid=grid, f0=1, N2=1.0, dsqr=0.2**2)
+        mset.time_stepper.dt = 0.1
+        mset.setup()
+        # Create the initial conditions
+        ic = nh.initial_conditions
+        def spectra(kx, ky, kz):
+            return ic.geostrophic_energy_spectrum(kx, ky, kz, c=0.2, k0=1.4, d=7)
+        z = ic.RandomGeostrophicSpectra(mset, spectral_energy_density=spectra) * 0.1
+        # Create and run the model
+        model = nh.Model(mset)
+        model.z = z
+        model.run(runlen=200.0)
+
     """
     def __init__(self, 
                  mset: nh.ModelSettings,
@@ -109,7 +108,7 @@ class RandomGeostrophicSpectra(nh.State):
         shape = kx.shape
 
         # construct the geostrophic eigenvectors
-        q = nh.eigenvectors.VecQ(s=0, mset=mset)
+        q = mset.grid.vec_q(s=0, use_discrete=True)
 
         # scale the geostrophic eigenvector such that they have energy 1
         abs = ncp.absolute

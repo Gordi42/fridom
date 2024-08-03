@@ -47,9 +47,10 @@ class KelvinWave(nh.State):
         import fridom.nonhydro as nh
         import numpy as np
         grid = nh.grid.cartesian.Grid(
-            N=[127]*3, L=[1]*3, periodic_bounds=(True, False, False))
+            N=[127]*3, L=[1]*3, periodic_bounds=(True, False, True))
         mset = nh.ModelSettings(grid=grid)
         mset.time_stepper.dt = np.timedelta64(10, 'ms')
+        mset.tendencies.advection.disable()
         mset.setup()
         z = nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=2)
         model = nh.Model(mset)

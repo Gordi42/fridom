@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 from typing import TYPE_CHECKING
 from fridom.framework import utils
@@ -176,6 +177,42 @@ class GridBase:
         -------
         `ndarray`
             The dispersion relation (omega(k)).
+        """
+        raise NotImplementedError
+
+    def vec_q(self, s: int, use_discrete: bool = True) -> fr.StateBase:
+        """
+        Computes the eigenvector of the linear operator of the mode `s`.
+        
+        Parameters
+        ----------
+        `s` : `int`
+            The mode (which eigenvalue / eigenvector to compute).
+        `use_discrete` : `bool` (default: True)
+            Whether to include space-discretization effects.
+
+        Returns
+        -------
+        `StateBase`
+            The eigenvector of the linear operator.
+        """
+        raise NotImplementedError
+
+    def vec_p(self, s: int, use_discrete: bool = True) -> fr.StateBase:
+        """
+        Computes the projection vector of the linear operator of the mode `s`.
+        
+        Parameters
+        ----------
+        `s` : `int`
+            The mode (which eigenvalue / eigenvector to compute).
+        `use_discrete` : `bool` (default: True)
+            Whether to include space-discretization effects.
+
+        Returns
+        -------
+        `StateBase`
+            The projection vector of the linear operator.
         """
         raise NotImplementedError
 

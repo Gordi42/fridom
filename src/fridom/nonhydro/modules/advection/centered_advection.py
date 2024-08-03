@@ -1,8 +1,9 @@
+import fridom.framework as fr
+import fridom.nonhydro as nh
 # Import external modules
 from typing import TYPE_CHECKING
 from functools import partial
 # Import internal modules
-import fridom.framework as fr
 from fridom.framework import config, utils
 from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
@@ -92,6 +93,19 @@ class CenteredAdvection(Module):
             flux_divergence += self.diff.diff(flux, axis, type=diff_type)
         return Ro * flux_divergence
 
+    @utils.jaxjit
+    def advect_state(self, 
+                     z: nh.State, 
+                     dz: nh.State, 
+                     velocity: tuple[fr.FieldVariable]) -> nh.State:
+        # calculate the advection term
+        for name, quantity in z.fields.items():
+            if quantity.no_adv:
+                continue
+            dz.fields[name].arr -= self.flux_divergence(velocity, quantity)
+        return dz
+
+
     @module_method
     def update(self, mz: 'ModelState') -> None:
         """
@@ -102,11 +116,7 @@ class CenteredAdvection(Module):
         zf = mz.z
         velocity = (zf.u, zf.v, zf.w)
 
-        # calculate the advection term
-        for name, quantity in zf.fields.items():
-            if quantity.no_adv:
-                continue
-            mz.dz.fields[name].arr -= self.flux_divergence(velocity, quantity)
+        mz.dz = self.advect_state(zf, mz.dz, velocity)
 
         return mz
 

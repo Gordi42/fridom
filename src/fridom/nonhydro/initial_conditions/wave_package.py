@@ -55,19 +55,21 @@ class WavePackage(nh.State):
     
     Examples
     --------
-    >>> import fridom.nonhydro as nh
-    >>> import numpy as np
-    >>> grid = nh.grid.cartesian.Grid(
-    ...     N=(256, 2, 256), L=(1, 1, 1), periodic_bounds=(True, True, True))
-    >>> mset = nh.ModelSettings(grid=grid, f0=1, N2=1, dsqr=0.01, Ro=0.0)
-    >>> mset.time_stepper.dt = np.timedelta64(10, 'ms')
-    >>> mset.setup()
-    >>> z = nh.initial_conditions.WavePackage(
-    ...     mset, mask_pos=(0.5, None, 0.5), mask_width=(0.1, None, 0.1), 
-    ...     kx=20, ky=0, kz=20)
-    >>> model = nh.Model(mset)
-    >>> model.z = z
-    >>> model.run(runlen=np.timedelta64(20, 's'))
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        import numpy as np
+        grid = nh.grid.cartesian.Grid(
+            N=(256, 2, 256), L=(1, 1, 1), periodic_bounds=(True, True, True))
+        mset = nh.ModelSettings(grid=grid, f0=1, N2=1, dsqr=0.01, Ro=0.0)
+        mset.time_stepper.dt = np.timedelta64(10, 'ms')
+        mset.setup()
+        z = nh.initial_conditions.WavePackage(
+            mset, mask_pos=(0.5, None, 0.5), mask_width=(0.1, None, 0.1), 
+            kx=20, ky=0, kz=20)
+        model = nh.Model(mset)
+        model.z = z
+        model.run(runlen=np.timedelta64(20, 's'))
     """
     def __init__(self, 
                  mset: nh.ModelSettings, 
@@ -103,8 +105,8 @@ class WavePackage(nh.State):
         z *= mask
 
         # Project onto the mode again
-        q = nh.eigenvectors.VecQ(s, mset)
-        p = nh.eigenvectors.VecP(s, mset)
+        q = grid.vec_q(s, use_discrete=True)
+        p = grid.vec_p(s, use_discrete=True)
         z = z.project(p, q)
 
         # Inertia-gravity modes have to be multiplied by 2

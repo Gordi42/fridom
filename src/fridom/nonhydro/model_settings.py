@@ -81,7 +81,7 @@ class ModelSettings(ModelSettingsBase):
         return State(self, is_spectral=False)
 
     def diagnostic_state_constructor(self):
-        from fridom.nonhydro.diagnostic_state import DiagnosticState
+        from fridom.nonhydro.state import DiagnosticState
         return DiagnosticState(self, is_spectral=False)
 
     # ================================================================

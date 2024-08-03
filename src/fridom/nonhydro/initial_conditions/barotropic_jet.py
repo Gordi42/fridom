@@ -1,14 +1,7 @@
-# Import external modules
-from typing import TYPE_CHECKING
-# Import internal modules
-from fridom.framework import config
-from fridom.nonhydro.state import State
-# Import type information
-if TYPE_CHECKING:
-    from fridom.nonhydro.model_settings import ModelSettings
+import fridom.nonhydro as nh
 
 
-class BarotropicJet(State):
+class BarotropicJet(nh.State):
     """
     Barotropic instable jet setup with 2 zonal jets
 
@@ -64,11 +57,11 @@ class BarotropicJet(State):
         model.z = z
         model.run(runlen=np.timedelta64(2, 's'))
     """
-    def __init__(self, mset: 'ModelSettings', 
+    def __init__(self, mset: nh.ModelSettings, 
                  wavenum=5, waveamp=0.1, geo_proj=True):
         super().__init__(mset)
         # Shortcuts
-        ncp = config.ncp
+        ncp = nh.config.ncp
         PI = ncp.pi
         X, Y, Z = mset.grid.X
         Lx, Ly, Lz = mset.grid.L
@@ -82,8 +75,7 @@ class BarotropicJet(State):
         self.v.arr  = waveamp * ncp.sin(kx_p*X)
 
         if geo_proj:
-            from fridom.nonhydro.projection import GeostrophicSpectral
-            proj_geo = GeostrophicSpectral(mset)
+            proj_geo = nh.projection.GeostrophicSpectral(mset)
             z_geo = proj_geo(self)
             self.fields = z_geo.fields
         return

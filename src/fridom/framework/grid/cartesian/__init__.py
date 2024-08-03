@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     # import modules
     from . import fft
+    from . import discrete_spectral_operators
 
     # import classes
     from .grid import Grid
-    from .position import AxisOffset, Position
     from .fft import FFT
     from .finite_differences import FiniteDifferences
     from .linear_interpolation import LinearInterpolation
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 base = "fridom.framework.grid.cartesian"
 
 all_modules_by_origin = {
-    base: ["fft"],
+    base: ["fft", "discrete_spectral_operators"],
 }
 
 all_imports_by_origin = { 

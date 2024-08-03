@@ -22,7 +22,7 @@ class Projection:
     @abstractmethod
     def __call__(self, z: 'StateBase') -> 'StateBase':
         """
-        Abstract method for projecting a state to a subspace. All subclasses must implement this method.
+        Project the state on the given subspace.
 
         Parameters
         ----------

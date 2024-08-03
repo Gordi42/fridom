@@ -496,6 +496,7 @@ class State(fr.StateBase):
             long_name="Horizontal CFL",
             position=self.grid.cell_center)
 
+    @property
     def cfl_v(self) -> fr.FieldVariable:
         r"""
         Vertical CFL number.
@@ -514,15 +515,61 @@ class State(fr.StateBase):
         dx, dy, dz = self.grid.dx
         dt = self.mset.time_stepper.dt
 
-        cfl_v = w.arr.abs() * dt / dz
+        cfl_v = fr.config.ncp.abs(w.arr) * dt / dz
 
         # Create the field variable
         return fr.FieldVariable(
             self.mset, 
-            arr=cfl_v.arr,
+            arr=cfl_v,
             is_spectral=self.is_spectral, 
             name="ver CFL",
             long_name="Vertical CFL",
-            position=cfl_v.position)
+            position=w.position)
 
 fr.utils.jaxify_class(State)
+
+
+class DiagnosticState(fr.StateBase):
+    def __init__(self, mset: nh.ModelSettings, is_spectral=False, field_list=None) -> None:
+        from fridom.framework.field_variable import FieldVariable
+        if field_list is None:
+            p = FieldVariable(
+                mset, 
+                name="p", 
+                long_name="Pressure",
+                units="m²/s",
+                is_spectral=is_spectral, 
+                position=mset.grid.cell_center)
+
+            div = FieldVariable(
+                mset,
+                name="div", 
+                long_name="Divergence",
+                units="1/s",
+                is_spectral=is_spectral, 
+                position=mset.grid.cell_center)
+
+            field_list = [p, div]
+        super().__init__(mset, field_list, is_spectral)
+        self.constructor = DiagnosticState
+        return
+
+    @property
+    def p(self) -> fr.FieldVariable:
+        """The pressure field."""
+        return self.fields["p"]
+
+    @p.setter
+    def p(self, value: fr.FieldVariable) -> None:
+        self.fields["p"] = value
+    
+    @property
+    def div(self) -> fr.FieldVariable:
+        """The divergence field."""
+        return self.fields["div"]
+    
+    @div.setter
+    def div(self, value: fr.FieldVariable) -> None:
+        self.fields["div"] = value
+
+fr.utils.jaxify_class(DiagnosticState)

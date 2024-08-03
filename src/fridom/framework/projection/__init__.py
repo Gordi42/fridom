@@ -20,9 +20,7 @@ if TYPE_CHECKING:
     from .projection import Projection
 
     # linear projections
-    from .wave_spectral import WaveSpectralBase
-    from .divergence_spectral import DivergenceSpectralBase
-    from .geostrophic_spectral import GeostrophicSpectralBase
+    from .spectral_projections import GeostrophicSpectral, WaveSpectral, DivergenceSpectral
     from .geostrophic_time_average import GeostrophicTimeAverage
 
     # nonlinear projections
@@ -38,9 +36,8 @@ all_modules_by_origin = { }
 
 all_imports_by_origin = { 
     f"{base_path}.projection": ["Projection"],
-    f"{base_path}.wave_spectral": ["WaveSpectralBase"],
-    f"{base_path}.divergence_spectral": ["DivergenceSpectralBase"],
-    f"{base_path}.geostrophic_spectral": ["GeostrophicSpectralBase"],
+    f"{base_path}.spectral_projections": [
+        "GeostrophicSpectral", "WaveSpectral", "DivergenceSpectral"],
     f"{base_path}.geostrophic_time_average": ["GeostrophicTimeAverage"],
     f"{base_path}.nnmd": ["NNMDBase"],
     f"{base_path}.optimal_balance": ["OptimalBalance"],

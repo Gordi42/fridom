@@ -1,42 +1,11 @@
-# Import external modules
-from typing import TYPE_CHECKING
-import numpy as np
 from numpy import ndarray
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.grid.cartesian import Grid as CartesianGridBase
-# Import type information
-if TYPE_CHECKING:
-    from fridom.nonhydro.model_settings import ModelSettings
+import fridom.nonhydro as nh
+import fridom.framework as fr
 
-class Grid(CartesianGridBase):
-    """
-    Cartesian grid for the 3D non-hydrostatic model.
-    
-    Parameters
-    ----------
-    `N` : `list[int]`
-        Number of grid points in each direction.
-    `L` : `list[int]`
-        Domain size in each direction (in meters).
-    `periodic_bounds` : `list[bool]`
-        Whether the domain is periodic in each direction.
-    `decomposition` : `str`
-        The decomposition of the domain ('slab' or 'pencil').
-    
-    Attributes
-    ----------
-    `omega_analytical` : `np.ndarray`
-        Analytical dispersion relation (omega(kx, ky, kz)).
-    `omega_space_discrete` : `np.ndarray`
-        Dispersion relation with space-discretization effects
-    `omega_time_discrete` : `np.ndarray`
-        Dispersion relation with space-time-discretization effects
-    """
+class Grid(fr.grid.cartesian.Grid):
     # update the list of dynamic attributes
-    _dynamic_attributes = CartesianGridBase._dynamic_attributes + [
-        'k2_hat', 'k2_hat_zero',
-        '_omega_analytical', '_omega_space_discrete', '_omega_time_discrete']
+    _dynamic_attributes = fr.grid.cartesian.Grid._dynamic_attributes + [
+        'k2_hat', 'k2_hat_zero']
     
     def __init__(self, N: list[int], L: list[int],
                  periodic_bounds: list[bool] = [True, True, True],
@@ -49,20 +18,20 @@ class Grid(CartesianGridBase):
             raise ValueError(f"Unknown decomposition {decomposition}")
         super().__init__(N, L, periodic_bounds, shared_axes)
 
-    def setup(self, mset: 'ModelSettings'):
+    def setup(self, mset: nh.ModelSettings):
         super().setup(mset)
 
-        ncp = config.ncp
-
         # discretized wave number squared
-        k_dis = [2 * (1 - ncp.cos(kx * dx)) / dx**2 
-                  for (kx,dx) in zip(self.K, self.dx)]
+
+        from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
+        k_dis = [dso.k_hat_squared(kx, dx, use_discrete=True)
+                 for (kx,dx) in zip(self.K, self.dx)]
 
         # scaled discretized wave number squared
         k2_hat = k_dis[0] + k_dis[1] + k_dis[2] / mset.dsqr
 
-        k2_hat_zero = config.ncp.where(k2_hat == 0)
-        utils.modify_array(k2_hat, k2_hat_zero, 1)
+        k2_hat_zero = fr.config.ncp.where(k2_hat == 0)
+        fr.utils.modify_array(k2_hat, k2_hat_zero, 1)
 
         # ----------------------------------------------------------------
         #  Set attributes
@@ -75,46 +44,15 @@ class Grid(CartesianGridBase):
               k: tuple[float] | tuple[ndarray],
               use_discrete: bool = False
               ) -> ndarray:
-        # shorthand notation
-        ncp = config.ncp
-        dsqr = self.mset.dsqr
-        f2 = self.mset.f0**2
-        N2 = self.mset.N2
-        kx, ky, kz = k
-        # cast k to ndarray
-        kx = ncp.asarray(kx); ky = ncp.asarray(ky); kz = ncp.asarray(kz)
-        dx, dy, dz = self.dx
+        return nh.grid.cartesian.eigenvectors.omega(
+            mset=self.mset, s=1, k=k, use_discrete=use_discrete)
 
-        if not ncp.allclose(f2, self.mset.f_coriolis.arr**2):
-            config.logger.warning(
-                "Dispersion relation may be wrong when f is varying.")
-        if not ncp.allclose(N2, self.mset.N2):
-            config.logger.warning(
-                "Dispersion relation may be wrong when N is varying.")
+    def vec_q(self, s: int, use_discrete=True) -> nh.State:
+        return nh.grid.cartesian.eigenvectors.vec_q(
+            mset=self.mset, s=s, use_discrete=use_discrete)
 
-        if use_discrete:
-            # averaging operator (one hat squared)
-            ohpm = lambda kx, dx: (1 + ncp.cos(kx*dx)) / 2
-            # difference operator (k hat squared)
-            khpm = lambda kx, dx: 2 * (1 - ncp.cos(kx*dx)) / dx**2
-            # horizontal wave number squared
-            kh2_hat = khpm(kx, dx) + khpm(ky, dy)
+    def vec_p(self, s: int, use_discrete=True) -> nh.State:
+        return nh.grid.cartesian.eigenvectors.vec_p(
+            mset=self.mset, s=s, use_discrete=use_discrete)
 
-            with np.errstate(divide='ignore'):
-                coriolis_part = ohpm(kx,dx) * ohpm(ky,dy) * f2 * khpm(kz,dz)
-                buoyancy_part = ohpm(kz,dz) * N2 * kh2_hat
-                denominator = dsqr * kh2_hat + khpm(kz,dz)
-        else:
-            with np.errstate(divide='ignore'):
-                coriolis_part = f2 * kz**2
-                buoyancy_part = N2 * (kx**2 + ky**2)
-                denominator = dsqr * (kx**2 + ky**2) + kz**2
-
-        om = ncp.sqrt((coriolis_part + buoyancy_part) / denominator)
-
-        # set the result to zero where the denominator is zero
-        s = (kx**2 + ky**2 + kz**2 > 0)
-        om = ncp.where(s, om, 0)
-        return om
-
-utils.jaxify_class(Grid)
+fr.utils.jaxify_class(Grid)
