@@ -11,7 +11,7 @@ from fridom.framework import config, utils
 if TYPE_CHECKING:
     import xarray as xr
     from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.grid.position_base import PositionBase
+    from fridom.framework.grid.position import PositionBase
     from fridom.framework.grid.transform_type import TransformType
 
 
@@ -88,7 +88,9 @@ class FieldVariable:
                  units="n/a",
                  nc_attrs=None,
                  topo=None,
-                 arr=None) -> None:
+                 arr=None,
+                 flags: dict | None = None,
+                 ) -> None:
 
         ncp = config.ncp
         dtype = config.dtype_comp if is_spectral else config.dtype_real
@@ -104,6 +106,20 @@ class FieldVariable:
             data = ncp.zeros(shape=shape, dtype=dtype)
         else:
             data = ncp.array(arr, dtype=dtype)
+
+        # ----------------------------------------------------------------
+        #  Set flags
+        # ----------------------------------------------------------------
+        self.no_adv = False  # whether the field should be advected
+        available_flags = ["no_adv"]
+        if flags is not None:
+            for flag, value in flags.items():
+                if flag not in available_flags:
+                    config.logger.warning(f"Flag {flag} not available")
+                    config.logger.warning(f"Available flags: {available_flags}")
+                else:
+                    setattr(self, flag, value)
+        self.flags = flags
 
         # ----------------------------------------------------------------
         #  Set attributes
@@ -139,7 +155,8 @@ class FieldVariable:
                 "units": self.units,
                 "nc_attrs": self.nc_attrs,
                 "is_spectral": self.is_spectral, 
-                "topo": self.topo,}
+                "topo": self.topo,
+                "flags": self.flags}
 
     def fft(self) -> "FieldVariable":
         """

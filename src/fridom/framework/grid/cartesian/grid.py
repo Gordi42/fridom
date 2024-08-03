@@ -124,8 +124,8 @@ class Grid(GridBase):
         # private attributes
         self._N = N
         self._L = L
-        offsets = [fr.grid.cartesian.AxisOffset.CENTER for _ in range(n_dims)]
-        self._cell_center = fr.grid.cartesian.Position(tuple(offsets))
+        offsets = [fr.grid.AxisPosition.CENTER for _ in range(n_dims)]
+        self._cell_center = fr.grid.Position(tuple(offsets))
         self._dx = tuple(L / N for L, N in zip(L, N))
         self._dV = np.prod(self._dx)
         self._total_grid_points = int(np.prod(N))

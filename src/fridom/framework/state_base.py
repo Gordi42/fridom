@@ -169,7 +169,6 @@ class StateBase:
         """
         return self.xrs[:]
 
-
     @property
     def xrs(self):
         """
@@ -181,6 +180,21 @@ class StateBase:
             return xr.Dataset(dvs)
         return fr.utils.SliceableAttribute(slicer)
 
+    # ================================================================
+    #  FieldVariable access
+    # ================================================================
+    def __getitem__(self, key):
+        """
+        Access the state by field name.
+        """
+        return self.fields[key]
+
+    def __setitem__(self, key, value):
+        """
+        Set the state by field name.
+        """
+        self.fields[key] = value
+        return
 
     # ================================================================
     #  PROPERTIES

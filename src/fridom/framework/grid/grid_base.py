@@ -6,10 +6,10 @@ if TYPE_CHECKING:
     from numpy import ndarray
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.grid.transform_type import TransformType
-    from fridom.framework.grid.position_base import PositionBase
+    from fridom.framework.grid.position import PositionBase
     from .diff_base import DiffBase
     from .interpolation_base import InterpolationBase
-    from .position_base import PositionBase
+    from .position import PositionBase
 
 class GridBase:
     """

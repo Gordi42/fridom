@@ -80,6 +80,7 @@ class ModelSettingsBase:
 
         # Other parameters
         self._nan_check_interval = 100
+        self.custom_fields = []
 
         # Set attributes from keyword arguments
         self.set_attributes(**kwargs)
@@ -146,6 +147,40 @@ class ModelSettingsBase:
 # Diagnostics: {self.diagnostics}
 =================================================
         """
+
+    def add_field_to_state(self, kwargs: dict) -> None:
+        """
+        Add a field variable to the state vector.
+
+        Description
+        -----------
+        This method can be used to extend the state vector with a new field 
+        variable, for example when adding a new tracer to the model.
+
+        Parameters
+        ----------
+        `kwargs` : `dict`
+            Dictionary that contains the arguments required to construct 
+            the field.
+        """
+        # check if a name is provided
+        if "name" not in kwargs: 
+            logger.critical("Error occurred while adding a field to the state.")
+            logger.critical("Field name not provided")
+            logger.critical("Please provide a name in the kwargs dictionary.")
+            raise ValueError
+        name = kwargs["name"]
+        all_names = [field["name"] for field in self.custom_fields]
+        # check if the field name already exists
+        if name in all_names:
+            logger.critical("Error occurred while adding a field to the state.")
+            logger.critical(f"Field name {name} already exists")
+            logger.critical(f"Used names: {all_names}")
+            logger.critical("Please provide a unique name in the kwargs dictionary.")
+            raise ValueError
+
+        self.custom_fields.append(kwargs)
+        return
 
     # ================================================================
     #  Properties

@@ -2,10 +2,10 @@
 from typing import TYPE_CHECKING
 from functools import partial
 # Import internal modules
+import fridom.framework as fr
 from fridom.framework import config, utils
 from fridom.framework.modules import setup_module, module_method
 from fridom.framework.grid.interpolation_base import InterpolationBase
-from .position import Position, AxisOffset
 # Import type information
 if TYPE_CHECKING:
     from numpy import ndarray
@@ -33,8 +33,8 @@ class LinearInterpolation(InterpolationBase):
     @partial(utils.jaxjit, static_argnames=('origin', 'destination'))
     def interpolate(self, 
                     arr: 'ndarray', 
-                    origin: Position, 
-                    destination: Position) -> 'ndarray':
+                    origin: fr.grid.Position, 
+                    destination: fr.grid.Position) -> 'ndarray':
         for axis in range(arr.ndim):
             arr = self.interpolate_axis(
                 arr, 
@@ -48,31 +48,31 @@ class LinearInterpolation(InterpolationBase):
     def interpolate_axis(self, 
                          arr: 'ndarray', 
                          axis: int,
-                         origin: AxisOffset, 
-                         destination: AxisOffset) -> 'ndarray':
+                         origin: fr.grid.AxisPosition, 
+                         destination: fr.grid.AxisPosition) -> 'ndarray':
 
         if arr.shape[axis] == 1:
             # no interpolation when the axis has only one cell
             return arr
 
         match origin, destination:
-            case AxisOffset.LEFT, AxisOffset.LEFT:
+            case fr.grid.AxisPosition.LEFT, fr.grid.AxisPosition.LEFT:
                 return arr
-            case AxisOffset.LEFT, AxisOffset.CENTER:
+            case fr.grid.AxisPosition.LEFT, fr.grid.AxisPosition.CENTER:
                 return self._half_forward(arr, axis)
-            case AxisOffset.LEFT, AxisOffset.RIGHT:
+            case fr.grid.AxisPosition.LEFT, fr.grid.AxisPosition.RIGHT:
                 return self._full_forward(arr, axis)
-            case AxisOffset.CENTER, AxisOffset.LEFT:
+            case fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.LEFT:
                 return self._half_backward(arr, axis)
-            case AxisOffset.CENTER, AxisOffset.CENTER:
+            case fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.CENTER:
                 return arr
-            case AxisOffset.CENTER, AxisOffset.RIGHT:
+            case fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.RIGHT:
                 return self._half_forward(arr, axis)
-            case AxisOffset.RIGHT, AxisOffset.LEFT:
+            case fr.grid.AxisPosition.RIGHT, fr.grid.AxisPosition.LEFT:
                 return self._full_backward(arr, axis)
-            case AxisOffset.RIGHT, AxisOffset.CENTER:
+            case fr.grid.AxisPosition.RIGHT, fr.grid.AxisPosition.CENTER:
                 return self._half_backward(arr, axis)
-            case AxisOffset.RIGHT, AxisOffset.RIGHT:
+            case fr.grid.AxisPosition.RIGHT, fr.grid.AxisPosition.RIGHT:
                 return arr
 
     @partial(utils.jaxjit, static_argnames=('axis'))

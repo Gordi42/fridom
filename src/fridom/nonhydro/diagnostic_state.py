@@ -8,17 +8,22 @@ class DiagnosticState(StateBase):
     def __init__(self, mset: ModelSettings, is_spectral=False, field_list=None) -> None:
         from fridom.framework.field_variable import FieldVariable
         if field_list is None:
-            # specify the positions of the fields
-            if isinstance(mset.grid, cartesian.Grid):
-                pos = cartesian.AxisOffset
-                position = cartesian.Position(
-                    (pos.CENTER, pos.CENTER, pos.CENTER))
-            else:
-                raise ValueError("Unknown grid type")
-            p = FieldVariable(mset, 
-                name="Pressure p", is_spectral=is_spectral, position=position)
-            div = FieldVariable(mset,
-                name="Divergence", is_spectral=is_spectral, position=position)
+            p = FieldVariable(
+                mset, 
+                name="p", 
+                long_name="Pressure",
+                units="m²/s",
+                is_spectral=is_spectral, 
+                position=mset.grid.cell_center)
+
+            div = FieldVariable(
+                mset,
+                name="div", 
+                long_name="Divergence",
+                units="1/s",
+                is_spectral=is_spectral, 
+                position=mset.grid.cell_center)
+
             field_list = [p, div]
         super().__init__(mset, field_list, is_spectral)
         self.constructor = DiagnosticState
@@ -26,19 +31,19 @@ class DiagnosticState(StateBase):
 
     @property
     def p(self) -> FieldVariable:
-        return self.fields["Pressure p"]
+        return self.fields["p"]
 
     @p.setter
     def p(self, value: FieldVariable) -> None:
-        self.fields["Pressure p"] = value
+        self.fields["p"] = value
     
     @property
     def div(self) -> FieldVariable:
-        return self.fields["Divergence"]
+        return self.fields["div"]
     
     @div.setter
     def div(self, value: FieldVariable) -> None:
-        self.fields["Divergence"] = value
+        self.fields["div"] = value
 
 
 utils.jaxify_class(DiagnosticState)

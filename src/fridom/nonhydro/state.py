@@ -8,12 +8,7 @@ class State(fr.StateBase):
                  field_list = None) -> None:
 
         if field_list is None:
-            # specify the positions of the fields
             cell_center = mset.grid.cell_center
-            u_pos = cell_center.shift(axis=0, direction="forward")
-            v_pos = cell_center.shift(axis=1, direction="forward")
-            w_pos = cell_center.shift(axis=2, direction="forward")
-            b_pos = cell_center
 
             u = fr.FieldVariable(
                 mset,
@@ -21,7 +16,7 @@ class State(fr.StateBase):
                 long_name="u - velocity",
                 units="m/s", 
                 is_spectral=is_spectral, 
-                position=u_pos,
+                position=cell_center.shift(axis=0, direction="forward"),
                 transform_types=(fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DCT2)
@@ -33,7 +28,7 @@ class State(fr.StateBase):
                 long_name="v - velocity",
                 units="m/s", 
                 is_spectral=is_spectral, 
-                position=v_pos,
+                position=cell_center.shift(axis=1, direction="forward"),
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2)
@@ -45,7 +40,7 @@ class State(fr.StateBase):
                 long_name="w - velocity",
                 units="m/s", 
                 is_spectral=is_spectral, 
-                position=w_pos,
+                position=cell_center.shift(axis=2, direction="forward"),
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1)
@@ -57,13 +52,29 @@ class State(fr.StateBase):
                 long_name="buoyancy", 
                 units="TODO", 
                 is_spectral=is_spectral, 
-                position=b_pos,
+                position=cell_center,
                 transform_types=(fr.grid.TransformType.DST2,
                                  fr.grid.TransformType.DST2,
                                  fr.grid.TransformType.DST2)
                 )
 
             field_list = [u, v, w, b]
+
+            # add the fields from the custom field list
+            for kw in mset.custom_fields:
+                # Set default parameters if not provided
+                if "position" not in kw:
+                    # default position is cell center
+                    kw["position"] = cell_center
+                if "transform_types" not in kw:
+                    # default transform type is DCT2
+                    kw["transform_types"] = (fr.grid.TransformType.DCT2,
+                                             fr.grid.TransformType.DCT2,
+                                             fr.grid.TransformType.DCT2)
+                kw["mset"] = mset
+                kw["is_spectral"] = is_spectral
+                field_list.append(fr.FieldVariable(**kw))
+
         super().__init__(mset, field_list, is_spectral)
         self.__class__ = State
         return

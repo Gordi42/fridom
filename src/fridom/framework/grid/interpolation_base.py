@@ -1,11 +1,11 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
+import fridom.framework as fr
 from fridom.framework.modules import Module
 # Import type information
 if TYPE_CHECKING:
     from numpy import ndarray
-    from .position_base import PositionBase
     from fridom.framework.model_settings_base import ModelSettingsBase
 
 class InterpolationBase(Module):
@@ -29,8 +29,8 @@ class InterpolationBase(Module):
 
     def interpolate(self, 
                     arr: 'ndarray', 
-                    origin: 'PositionBase', 
-                    destination: 'PositionBase') -> 'ndarray':
+                    origin: fr.grid.Position, 
+                    destination: fr.grid.Position) -> 'ndarray':
         """
         Interpolate an array from one position to another.
         

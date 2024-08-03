@@ -3,46 +3,39 @@ import fridom.nonhydro as nh
 
 
 class MainTendency(fr.modules.ModuleContainer):
-    def __init__(self,
-                 name="All Tendency Modules",
-                 linear_tendency=None,
-                 advection=None,
-                 tendency_divergence=None,
-                 pressure_solver=None,
-                 pressure_gradient_tendency=None):
+    def __init__(self, name="All Tendency Modules"):
         mods = nh.modules
-        if linear_tendency is None:
-            linear_tendency = mods.LinearTendency()
-        if advection is None:
-            advection = mods.advection.CenteredAdvection()
-        if tendency_divergence is None:
-            tendency_divergence = mods.TendencyDivergence()
-        if pressure_solver is None:
-            pressure_solver = mods.pressure_solvers.SpectralPressureSolver()
-        if pressure_gradient_tendency is None:
-            pressure_gradient_tendency = mods.PressureGradientTendency()
+        self._reset_tendency = mods.ResetTendency()
+        self._linear_tendency = mods.LinearTendency()
+        self._advection = mods.advection.CenteredAdvection()
+        self._tendency_divergence = mods.TendencyDivergence()
+        self._pressure_solver = mods.pressure_solvers.SpectralPressureSolver()
+        self._pressure_gradient_tendency = mods.PressureGradientTendency()
+        self._additional_modules = []
+        self._set_module_list()
 
-        module_list = [
-            linear_tendency,             # Always on element 0
-            advection,                   # Always on element 1
-            tendency_divergence,         # Always on element -3
-            pressure_solver,             # Always on element -2
-            pressure_gradient_tendency,  # Always on element -1
-        ]
-        super().__init__(name=name, module_list=module_list)
-        self.additional_modules = []
+        super().__init__(name=name, module_list=self.module_list)
         return
 
     def add_module(self, module):
-        # add the module to the additional_modules list
-        self.additional_modules.append(module)
-        # update the module list
-        # we need to make sure that the pressure solver and the pressure 
-        # gradient tendency are always in the last two positions
+        self._additional_modules.append(module)
+        self._set_module_list()
+        return
+
+    def _set_module_list(self):
+        """
+        Set the module list.
+        
+        Description
+        -----------
+        This function make sure that the pressure solver and the pressure
+        gradient tendency are always in the last two positions.
+        """
         module_list = []
+        module_list.append(self._reset_tendency)
         module_list.append(self.linear_tendency)
         module_list.append(self.advection)
-        module_list += self.additional_modules
+        module_list += self._additional_modules
         module_list.append(self.tendency_divergence)
         module_list.append(self.pressure_solver)
         module_list.append(self.pressure_gradient_tendency)
@@ -55,45 +48,50 @@ class MainTendency(fr.modules.ModuleContainer):
 
     @property
     def linear_tendency(self):
-        return self.module_list[0]
+        """The core linear momentum tendency module."""
+        return self._linear_tendency
     
     @linear_tendency.setter
     def linear_tendency(self, value):
-        self.module_list[0] = value
+        self._linear_tendency = value
         return
     
     @property
     def advection(self):
-        return self.module_list[1]
+        """The advection module (nonlinear + linear by backgound state)."""
+        return self._advection
     
     @advection.setter
     def advection(self, value):
-        self.module_list[1] = value
+        self._advection = value
         return
 
     @property
     def tendency_divergence(self):
-        return self.module_list[-3]
+        """The divergence of the momentum tendency, for the pressure solver"""
+        return self._tendency_divergence
     
     @tendency_divergence.setter
     def tendency_divergence(self, value):
-        self.module_list[-3] = value
+        self._tendency_divergence = value
         return
 
     @property
     def pressure_solver(self):
-        return self.module_list[-2]
+        """The pressure solver module."""
+        return self._pressure_solver
     
     @pressure_solver.setter
     def pressure_solver(self, value):
-        self.module_list[-2] = value
+        self._pressure_solver = value
         return
     
     @property
     def pressure_gradient_tendency(self):
-        return self.module_list[-1]
+        """The pressure gradient tendency module."""
+        return self._pressure_gradient_tendency
     
     @pressure_gradient_tendency.setter
     def pressure_gradient_tendency(self, value):
-        self.module_list[-1] = value
+        self._pressure_gradient_tendency = value
         return

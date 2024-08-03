@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     # importing classes
     from fridom.framework.modules.netcdf_writer import NetCDFWriter
     from fridom.framework.modules.restart_module import RestartModule
+    from fridom.framework.modules.reset_tendency import ResetTendency
 
 # ================================================================
 #  Setup lazy loading
@@ -58,6 +59,7 @@ all_imports_by_origin = {
     f"{base_path}.diagnostics": ["Diagnostics"],
     f"{fr_base_path}.netcdf_writer": ["NetCDFWriter"],
     f"{fr_base_path}.restart_module": ["RestartModule"], 
+    f"{fr_base_path}.reset_tendency": ["ResetTendency"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

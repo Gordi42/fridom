@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from .boundary_conditions import BoundaryConditions
     from .netcdf_writer_single_proc import NetCDFWriterSingleProc
     from .netcdf_writer import NetCDFWriter
+    from .reset_tendency import ResetTendency
 
     # importing the functions
     from .module import setup_module, module_method
@@ -36,6 +37,7 @@ all_imports_by_origin = {
     f"{base_path}.boundary_conditions": ["BoundaryConditions"],
     f"{base_path}.netcdf_writer_single_proc": ["NetCDFWriterSingleProc"],
     f"{base_path}.netcdf_writer": ["NetCDFWriter"],
+    f"{base_path}.reset_tendency": ["ResetTendency"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

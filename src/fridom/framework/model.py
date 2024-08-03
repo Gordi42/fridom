@@ -267,6 +267,10 @@ class Model:
         with self.timer["sync"]:
             self.z.sync()
 
+        # set the current tendency term to zero
+        if self.model_state.dz is not None:
+            self.model_state.dz *= 0
+
         # perform the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
 

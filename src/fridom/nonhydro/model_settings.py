@@ -64,13 +64,12 @@ class ModelSettings(ModelSettingsBase):
         super().setup()
 
         # Coriolis parameter
-        from fridom.framework.grid.cartesian.position import Position, AxisOffset
         f_coriolis = FieldVariable(
             self, 
             name="f",
             long_name="Coriolis parameter",
             units="1/s",
-            position=Position((AxisOffset.CENTER, AxisOffset.CENTER, AxisOffset.CENTER)),
+            position=self.grid.cell_center,
             topo=[False, True, False],
         )
         f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,0,:,0,None]
