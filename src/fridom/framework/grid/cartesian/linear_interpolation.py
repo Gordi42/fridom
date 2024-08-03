@@ -50,6 +50,11 @@ class LinearInterpolation(InterpolationBase):
                          axis: int,
                          origin: AxisOffset, 
                          destination: AxisOffset) -> 'ndarray':
+
+        if arr.shape[axis] == 1:
+            # no interpolation when the axis has only one cell
+            return arr
+
         match origin, destination:
             case AxisOffset.LEFT, AxisOffset.LEFT:
                 return arr

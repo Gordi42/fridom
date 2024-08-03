@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .wave_package import WavePackage
     from .barotropic_jet import BarotropicJet
     from .jet import Jet
+    from .coherent_eddy import CoherentEddy
     from .geostrophic_spectra import geostrophic_energy_spectrum, \
                                      RandomGeostrophicSpectra
     
@@ -29,6 +30,7 @@ all_imports_by_origin = {
     f"{base_path}.wave_package": ["WavePackage"],
     f"{base_path}.barotropic_jet": ["BarotropicJet"],
     f"{base_path}.jet": ["Jet"],
+    f"{base_path}.coherent_eddy": ["CoherentEddy"],
     f"{base_path}.geostrophic_spectra": ["geostrophic_energy_spectrum", 
                                          "RandomGeostrophicSpectra"],
 }

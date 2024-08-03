@@ -109,7 +109,7 @@ class AdamBashforth(TimeStepper):
 
         self.it_count += 1
         mz.it += 1
-        mz.add_dt(self.dt)
+        mz.time += self.dt
         return mz
 
     def update_tendency(self):

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from fridom.framework.model_state import ModelState
 
-class ModelPlotterBase:
+class ModelPlotter:
     """
     A model plotter contains the logic for creating and updating a figure object
     
@@ -12,16 +12,22 @@ class ModelPlotterBase:
     -----------
     The Model Plotter must be overwriten by child classes to implement the
     following methods:
-    - create_figure: create a figure object (e.g. matplotlib figure)
-    - update_figure: update the figure object
-    By default, the model plotter base assumes that matplotlib is used for 
-    plotting. However, when using a different plotting library, the user must
-    overwrite the following method:
-    - convert_to_img: convert the figure object to a numpy image array
+
+    `create_figure()`: 
+        create a figure object (e.g. matplotlib figure)
+
+    `prepare_arguments(mz: ModelState) -> dict`:
+        prepare the arguments for the update_figure method (e.g. extract the
+        field to be plotted and convert it to numpy/xarray)
     
-    Examples
-    --------
-    >>> TODO: add example from nonhydrostatic model
+    `update_figure(fig, **kwargs)`:
+        update the figure object with the given arguments from the
+        prepare_arguments method 
+    
+    `convert_to_img(fig)`:
+        convert the figure object to a numpy image array. If matplotlib is used,
+        this method does not need to be overwritten. However, if a different
+        plotting library is used, this method must be overwritten.
     """
     def __init__(self):
         return
@@ -31,9 +37,16 @@ class ModelPlotterBase:
         This method should create a figure object 
         (e.g. matplotlib figure) and return it.
         """
+        import matplotlib.pyplot as plt
+        return plt.figure()
+
+    def prepare_arguments(mz: 'ModelState') -> dict:
+        """
+        This method should prepare the arguments for the update_figure method.
+        """
         raise NotImplementedError
 
-    def update_figure(fig, mz: 'ModelState') -> None:
+    def update_figure(fig, **kwargs) -> None:
         """
         This method should update the figure object with the
         given model state.

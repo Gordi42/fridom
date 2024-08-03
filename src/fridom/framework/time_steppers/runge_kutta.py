@@ -158,6 +158,6 @@ class RungeKutta(TimeStepper):
                 error = 0
 
         mz.z += sum_product(method.b, dt, k)
-        mz._time += dt
+        mz.time += dt
         mz.it += 1
         return mz

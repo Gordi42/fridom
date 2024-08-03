@@ -76,12 +76,7 @@ class SingleWave(nh.State):
         mask = ncp.where(k_loc, 1, 0)
 
         # Construct the eigenvector of the corresponding mode
-        if use_discrete:
-            from fridom.nonhydro.eigenvectors import VecQ
-            q = VecQ(s, mset)
-        else:
-            from fridom.nonhydro.eigenvectors import VecQAnalytical
-            q = VecQAnalytical(s, mset)
+        q = nh.eigenvectors.VecQ(mset, s, use_discrete=use_discrete)
 
         # Construct the state
         z = (q * mask * ncp.exp(1j*phase)).fft()

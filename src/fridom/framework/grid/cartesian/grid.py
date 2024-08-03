@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 from typing import TYPE_CHECKING
 import numpy as np
@@ -119,9 +120,12 @@ class Grid(GridBase):
         # public attributes
         self._n_dims = n_dims
 
+
         # private attributes
         self._N = N
         self._L = L
+        offsets = [fr.grid.cartesian.AxisOffset.CENTER for _ in range(n_dims)]
+        self._cell_center = fr.grid.cartesian.Position(tuple(offsets))
         self._dx = tuple(L / N for L, N in zip(L, N))
         self._dV = np.prod(self._dx)
         self._total_grid_points = int(np.prod(N))

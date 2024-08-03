@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 # ================================================================
 if TYPE_CHECKING:
     # import classes
-    from .model_plotter import ModelPlotterBase
+    from .model_plotter import ModelPlotter
     from .live_animation import LiveAnimation
     from .video_writer import VideoWriter
     
@@ -21,7 +21,7 @@ base_path = "fridom.framework.modules.animation"
 all_modules_by_origin = { }
 
 all_imports_by_origin = { 
-    f"{base_path}.model_plotter": ["ModelPlotterBase"],
+    f"{base_path}.model_plotter": ["ModelPlotter"],
     f"{base_path}.live_animation": ["LiveAnimation"],
     f"{base_path}.video_writer": ["VideoWriter"], 
 }

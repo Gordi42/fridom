@@ -109,6 +109,8 @@ class Module:
         The number of halo points required by the module.
     `mpi_available` : `bool`
         Whether the module can be run in parallel.
+    `execute_at_start` : `bool`
+        Whether the module should be executed before the first time step.
     
     Examples
     --------
@@ -136,6 +138,7 @@ class Module:
         # Set the flags
         self.required_halo = 0  # The required halo for the module
         self.mpi_available = True  # Whether the module can be run in parallel
+        self.execute_at_start = False
         # The grid should be set by the model when the module is started
         self.mset: 'ModelSettingsBase | None' = None
         self.timer: 'TimingModule | None' = None

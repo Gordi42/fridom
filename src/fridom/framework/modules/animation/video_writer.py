@@ -47,12 +47,17 @@ class VideoWriter(Module):
         import matplotlib.pyplot as plt
 
         # create the video writer
-        class MyPlotter(nh.modules.animation.ModelPlotterBase):
+        class MyPlotter(nh.modules.animation.ModelPlotter):
             def create_figure():
-                return plt.figure(figsize=(8, 6), tight_layout=True, dpi=100)
+                return plt.figure(figsize=(8, 6))
 
-            def update_figure(fig, mz: nh.ModelState) -> None:
-                nh.Plot(mz.z.b).front(fig=fig)
+            def prepare_arguments(mz: nh.ModelState) -> dict:
+                return {"b": mz.z.b.xrs[:,0,:], "z": mz.z.xrs[::4, 0, ::4]}
+
+            def update_figure(fig, b, z) -> None:
+                ax = fig.add_subplot(111)
+                b.plot(ax=ax, cmap="RdBu_r", vmin=-0.5, vmax=0.5)
+                z.plot.quiver("x", "z", "u", "w", scale=50)
 
         vid_writer = nh.modules.animation.VideoWriter(
             MyPlotter, interval=10, filename="single_wave.mp4", fps=30)
@@ -78,7 +83,7 @@ class VideoWriter(Module):
                  interval: int=50,
                  filename: str="output.mp4", 
                  fps: int=30,
-                 parallel: bool=False,
+                 parallel: bool=True,
                  max_jobs: float=0.4,
                  name="Video Writer") -> None:
         import os
@@ -180,7 +185,7 @@ class VideoWriter(Module):
         diagnostics = self.mset.diagnostics
         self.mset.diagnostics = None
 
-        kw = {"mz": utils.to_numpy(mz), 
+        kw = {"kwargs": self.model_plotter.prepare_arguments(mz),
               "output_queue": q, 
               "model_plotter": self.model_plotter}
         job = mp.Process(target=VideoWriter.p_make_figure, kwargs=kw)
@@ -199,9 +204,13 @@ class VideoWriter(Module):
             self.fig = self.model_plotter.create_figure()
         else:
             self.fig.clear()
-        self.model_plotter.update_figure(fig=self.fig, mz=mz)
+        kw = self.model_plotter.prepare_arguments(mz)
+
+        self.model_plotter.update_figure(fig=self.fig, **kw)
         img = self.model_plotter.convert_to_img(self.fig)
-        self.writer.append_data(img)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            self.writer.append_data(img)
         return
 
     def collect_figures(self):
@@ -212,7 +221,9 @@ class VideoWriter(Module):
                 break
 
             # add the figure to the video
-            self.writer.append_data(img)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                self.writer.append_data(img)
 
             # remove the finished job and queue
             self.running_jobs[0].join()
@@ -260,12 +271,12 @@ class VideoWriter(Module):
             modelplot (ModelPlotter): model plotter object
             output_queue (mp.Queue) : output queue
         """
-        config.set_backend(config.Backend.NUMPY, silent=True)
         # get output queue
         output_queue = kwargs["output_queue"]
         model_plotter = kwargs["model_plotter"]
+        kw = kwargs["kwargs"]
         fig = model_plotter.create_figure()
-        model_plotter.update_figure(fig=fig, mz=kwargs["mz"])
+        model_plotter.update_figure(fig=fig, **kw)
 
         img = model_plotter.convert_to_img(fig)
         output_queue.put(img)

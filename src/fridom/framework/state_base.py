@@ -1,6 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
+import fridom.framework as fr
 from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
@@ -157,6 +158,29 @@ class StateBase:
         Check if the state contains NaN values.
         """
         return any(field.has_nan() for field in self.fields.values())
+
+    # ================================================================
+    #  xarray conversion
+    # ================================================================
+    @property
+    def xr(self):
+        """
+        State as xarray dataset
+        """
+        return self.xrs[:]
+
+
+    @property
+    def xrs(self):
+        """
+        State of sliced domain as xarray dataset 
+        """
+        import xarray as xr
+        def slicer(key):
+            dvs = {field.name: field.xrs[key] for field in self.fields.values()}
+            return xr.Dataset(dvs)
+        return fr.utils.SliceableAttribute(slicer)
+
 
     # ================================================================
     #  PROPERTIES

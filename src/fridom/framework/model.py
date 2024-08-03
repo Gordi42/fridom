@@ -1,7 +1,8 @@
 # Import external modules
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 from mpi4py import MPI
 import numpy as np
+import fridom.framework as fr
 # Import internal modules
 from fridom.framework import config
 # Import type information
@@ -65,6 +66,7 @@ class Model:
         self.diagnostics.start()
         self.time_stepper.start()
         self.bc.start()
+        self.model_state.panicked = False
         return
 
     def stop(self):
@@ -98,25 +100,25 @@ class Model:
     # ============================================================
 
     def run(self, 
-            steps=None, 
-            runlen=None, 
-            start_time=np.datetime64(0, 's'),
-            end_time=None,
+            steps: int | None = None, 
+            runlen: Union[np.timedelta64, float, int, None] = None,
+            start_time: Union[np.datetime64, float, int] = 0,
+            end_time: Union[np.datetime64, float, int, None] = None,
             progress_bar=True) -> None:
         """
         Run the model
         
         Parameters
         ----------
-        `steps` : `int`
+        `steps` : `int` (default: None)
             Number of steps to run.
-        `runlen` : `np.timedelta64`
+        `runlen` : `np.timedelta64 | float | int` (default: None)
             Length of the run.
-        `start_time` : `np.datetime64` (default np.datetime64(0, 's'))
+        `start_time` : `np.datetime64 | float | int` (default: 0)
             Start time of the run.
-        `end_time` : `np.datetime64`
+        `end_time` : `np.datetime64 | float | int` (default: None)
             End time of the run.
-        `progress_bar` : `bool`
+        `progress_bar` : `bool` (default: True)
             Show progress bar.
         
         Raises
@@ -133,15 +135,40 @@ class Model:
                 end_time is not None]) > 1:
             raise ValueError("Only one of steps, runlen or end_time can be given.")
 
+        # ----------------------------------------------------------------
+        #  Convert time parameters to seconds
+        # ----------------------------------------------------------------
+        self.model_state.start_time = start_time
+        datetime_formatting = False
+        if isinstance(start_time, np.datetime64):
+            datetime_formatting = True
+            start_time = fr.utils.to_seconds(start_time)
+        if isinstance(end_time, np.datetime64):
+            datetime_formatting = True
+            end_time = fr.utils.to_seconds(end_time)
+        if isinstance(runlen, np.timedelta64):
+            runlen = fr.utils.to_seconds(runlen)
+
         # set the start time
         self.model_state.time = start_time
+
+        # ----------------------------------------------------------------
+        #  Create the postfix formatter
+        # ----------------------------------------------------------------
+        if datetime_formatting:
+            def postfix_formatter(mz):
+                return f"It: {mz.it} - Time: {np.datetime64(int(mz.time), 's')}"
+        else:
+            def postfix_formatter(mz):
+                human_time = fr.utils.humanize_number(mz.time, unit="seconds")
+                return f"It: {mz.it} - Time: {human_time}"
 
         # ----------------------------------------------------------------
         #  Calculate number of steps / end time
         # ----------------------------------------------------------------
         # calculate end time if runlen is given
         if runlen is not None:
-            end_time = self.model_state.time + runlen
+            end_time = start_time + runlen
 
         # calculate the final iteration step if steps is given
         if steps is not None:
@@ -165,6 +192,13 @@ class Model:
         self.start()
 
         # ----------------------------------------------------------------
+        #  Initial diagnostics
+        # ----------------------------------------------------------------
+        for module in self.diagnostics.module_list:
+            if module.execute_at_start:
+                self.model_state = module.update(self.model_state)
+
+        # ----------------------------------------------------------------
         #  Main loop: Given number of setps
         # ----------------------------------------------------------------
         if steps is not None:
@@ -176,11 +210,16 @@ class Model:
             for i in range(start_it, final_it):
                 self.step()
 
+                if self.model_state.panicked:
+                    config.logger.warning(
+                        "Something went wrong. Stopping model.")
+                    break
+
                 # update the progress bar
                 mz = self.model_state
                 pbar.update(
                     value = 100 * (i-first_it+1) / steps,
-                    postfix = f"It: {mz.it} - Time: {mz.time}")
+                    postfix = postfix_formatter(mz))
 
         # ----------------------------------------------------------------
         #  Main loop: Given run length
@@ -192,11 +231,17 @@ class Model:
             # loop until the end time is reached
             while self.model_state.time < end_time:
                 self.step()
+
+                if self.model_state.panicked:
+                    config.logger.warning(
+                        "Something went wrong. Stopping model.")
+                    break
+
                 # update the progress bar
                 mz = self.model_state
                 pbar.update(
                     value = 100*(mz.time-start_time) / (end_time-start_time),
-                    postfix = f"It: {mz.it} - Time: {mz.time}")
+                    postfix = postfix_formatter(mz))
         
         # close the progress bar
         pbar.close()
@@ -229,7 +274,9 @@ class Model:
         with self.timer["check_nan"]:
             if self.model_state.it % self.mset.nan_check_interval == 0:
                 if self.model_state.z.has_nan():
-                    raise ValueError("State variable contains NaNs.")
+                    config.logger.critical(
+                        "State variable contains NaNs. Stopping model.")
+                    self.model_state.panicked = True
 
         # apply boundary conditions to the state variable
         self.model_state = self.bc.update(mz=self.model_state)

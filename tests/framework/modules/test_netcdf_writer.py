@@ -69,7 +69,7 @@ def test_model_run(mset, netcdf_module, directory_name):
     model = fr.Model(mset)
     model.run(runlen=np.timedelta64(1, 'h'))
 
-    time = np.datetime64(int(1*1e9), 'ns')
+    time = fr.utils.humanize_number(0, "seconds")
 
     # check that the file is created
     file_path = os.path.join(directory_name, f"test_{time}.cdf")
@@ -86,4 +86,4 @@ def test_model_run(mset, netcdf_module, directory_name):
         assert "var2" in ncfile.variables
         assert ncfile.variables["var1"].units == "unit1"
         assert ncfile.variables["var2"].units == "unit2"
-        assert ncfile.variables["var1"].shape == (60, 64, 128)
+        assert ncfile.variables["var1"].shape == (61, 64, 128)

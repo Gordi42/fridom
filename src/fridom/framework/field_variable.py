@@ -2,13 +2,18 @@
 from typing import TYPE_CHECKING
 from copy import deepcopy
 from functools import partial
+from mpi4py import MPI
+import numpy as np
 # Import internal modules
+import fridom.framework as fr
 from fridom.framework import config, utils
 # Import type information
 if TYPE_CHECKING:
+    import xarray as xr
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.grid.position_base import PositionBase
     from fridom.framework.grid.transform_type import TransformType
+
 
 
 class FieldVariable:
@@ -253,6 +258,57 @@ class FieldVariable:
     # ==================================================================
     #  ARITHMETIC OPERATIONS
     # ==================================================================
+    def sum(self):
+        """
+        Global sum of the FieldVariable
+        """
+        ics = self.grid.inner_slice
+        sum = self.arr[ics].sum()
+        sum = MPI.COMM_WORLD.allreduce(sum, op=MPI.SUM)
+        return sum
+
+    def __sum__(self):
+        return self.sum()
+
+    def abs(self):
+        """
+        Absolute values of the FieldVariable
+        """
+        return FieldVariable(arr=config.ncp.abs(self.arr), **self.get_kw())
+
+    def __abs__(self):
+        return self.abs()
+    
+    def max(self):
+        """
+        Maximum value of the FieldVariable over the whole domain
+        """
+        ics = self.grid.inner_slice
+        my_max = self.arr[ics].max()
+        return MPI.COMM_WORLD.allreduce(my_max, op=MPI.MAX)
+
+    def __max__(self):
+        return self.max()
+    
+    def min(self):
+        """
+        Minimum value of the FieldVariable over the whole domain
+        """
+        ics = self.grid.inner_slice
+        my_min = self.arr[ics].min()
+        return MPI.COMM_WORLD.allreduce(my_min, op=MPI.MIN)
+    
+    def __min__(self):
+        return self.min()
+
+    def int(self):
+        """
+        Global integral of the FieldVariable
+        """
+        ics = self.grid.inner_slice
+        integral = (self.arr * self.grid.dV)[ics].sum()
+        return MPI.COMM_WORLD.allreduce(integral, op=MPI.SUM)
+
 
     def __add__(self, other):
         """
@@ -381,6 +437,96 @@ class FieldVariable:
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    # ================================================================
+    #  xarray conversion
+    # ================================================================
+    @property
+    def xr(self) -> 'xr.DataArray':
+        """
+        Conversion to xarray DataArray
+        """
+        return self.xrs[:]
+
+    @property
+    def xrs(self):
+        """
+        Conversion to xarray DataArray for a selected slice
+        """
+        def slicer(key):
+            import xarray as xr
+            fv = self
+            # convert key to tuple
+            ndim = fv.grid.n_dims
+            if not isinstance(key, (tuple, list)):
+                key = [key]
+            else:
+                key = list(key)
+            key += [slice(None)] * (ndim - len(key))
+
+            # get the inner of the field
+            if fv.is_spectral:
+                # no inner slice for spectral fields
+                ics = [slice(None)] * ndim
+            else:
+                ics = list(fv.grid.inner_slice)
+
+            for i in range(ndim):
+                # set non-extended axes to 0
+                if not fv.topo[i]:
+                    ics[i] = slice(0,1)
+                    key[i] = slice(0,1)
+                if isinstance(key[i], int):
+                    key[i] = slice(key[i], key[i]+1)
+
+            arr = fr.utils.to_numpy(fv.arr[tuple(ics)][tuple(key)])
+
+            # get the coordinates
+            if ndim <= 3:
+                if fv.is_spectral:
+                    all_dims = tuple(["kx", "ky", "kz"][:ndim])
+                else:
+                    all_dims = tuple(["x", "y", "z"][:ndim])
+            else:
+                if fv.is_spectral:
+                    all_dims = tuple(f"k{i}" for i in range(ndim))
+                else:
+                    all_dims = tuple(f"x{i}" for i in range(ndim))
+
+            dims = []
+            coords = {}
+            for axis in range(fv.grid.n_dims):
+                if arr.shape[axis] == 1:
+                    # skip non-extended axes
+                    continue
+
+                dim = all_dims[axis]
+                dims.append(dim)
+                if fv.is_spectral:
+                    x_sel = fv.grid.k_local[axis][key[axis]]
+                else:
+                    x_sel = fv.grid.x_local[axis][key[axis]]
+                coords[dim] = fr.utils.to_numpy(x_sel)
+
+            # reverse the dimensions
+            dims = dims[::-1]
+    
+            dv = xr.DataArray(
+                np.squeeze(arr).T, 
+                coords=coords, 
+                dims=tuple(dims),
+                name=fv.name,
+                attrs={"long_name": fv.long_name, "units": fv.units})
+    
+            if fv.is_spectral:
+                x_unit = "1/m"
+            else:
+                x_unit = "m"
+            for dim in dims:
+                dv[dim].attrs["units"] = x_unit
+            return dv
+        return fr.utils.SliceableAttribute(slicer)
+
 
     # ================================================================
     #  Properties

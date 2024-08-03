@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from numpy import ndarray
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.grid.transform_type import TransformType
+    from fridom.framework.grid.position_base import PositionBase
     from .diff_base import DiffBase
     from .interpolation_base import InterpolationBase
     from .position_base import PositionBase
@@ -40,6 +41,7 @@ class GridBase:
         self._total_grid_points = None
         self._periodic_bounds = None
         self._inner_slice = slice(None)
+        self._cell_center = None
         self._X = None
         self._x_global = None
         self._x_local = None
@@ -369,6 +371,16 @@ class GridBase:
     def inner_slice(self) -> tuple[slice]:
         """The slice of the grid that excludes the boundary points."""
         return self._inner_slice
+
+    @property
+    def cell_center(self) -> 'PositionBase':
+        """The position of the cell centers."""
+        return self._cell_center
+
+    @cell_center.setter
+    def cell_center(self, value: 'PositionBase') -> None:
+        self._cell_center = value
+        return
 
     @property
     def X(self) -> 'tuple[ndarray]':

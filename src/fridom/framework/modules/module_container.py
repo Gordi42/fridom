@@ -25,7 +25,8 @@ class ModuleContainer(Module):
     def __init__(self, name="Module Container", module_list: list = None):
         if module_list is None:
             module_list = []
-        super().__init__(name=name, module_list=module_list)
+        super().__init__(name=name)
+        self.module_list = module_list
 
     @setup_module
     def setup(self) -> None:

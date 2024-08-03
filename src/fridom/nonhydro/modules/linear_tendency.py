@@ -43,11 +43,14 @@ class LinearTendency(Module):
         N2 = self.mset.N2
         interp = self.interpolation.interpolate
 
+        # interpolate the coriolis parameter to the u position
+        f = interp(f_cor.arr, f_cor.position, u.position)
+
         # calculate u-tendency
-        dz.u.arr = interp(v.arr, v.position, u.position) * f_cor.arr
+        dz.u.arr = f * interp(v.arr, v.position, u.position)
 
         # calculate v-tendency
-        dz.v.arr = interp(u.arr, u.position, v.position) * (-f_cor.arr)
+        dz.v.arr = -interp(f * u.arr, u.position, v.position)
 
         # calculate w-tendency
         dz.w.arr = interp(bu.arr, bu.position, w.position) / dsqr

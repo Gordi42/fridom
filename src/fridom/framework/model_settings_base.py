@@ -1,5 +1,5 @@
 # Import external modules
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 import numpy as np
 # Import internal modules
 from fridom.framework import utils
@@ -73,12 +73,6 @@ class ModelSettingsBase:
         self.diagnostics = ModuleContainer(name="All Diagnostic Modules")
         # Boundary conditions  (should be set by the child class)
         self.bc = BoundaryConditions(field_names=[])
-
-        # Output
-        self.enable_verbose = False   # Enable verbose output
-        
-        # Starttime
-        self.start_time = np.datetime64(0, 's')
 
         # Timer
         from fridom.framework.timing_module import TimingModule

@@ -1,10 +1,12 @@
 """
 Utility functions and classes for the FRIDOM framework.
 """
+from typing import Union
 from . import config
 from .config import logger
 from mpi4py import MPI
 import time
+import datetime
 import numpy as np
 from copy import deepcopy
 import inspect
@@ -62,6 +64,36 @@ def humanize_number(value, unit):
             return f"{value:.2f} m"
         else:
             return f"{value/1e3:.2f} km"
+
+    elif unit == "seconds":
+        delta = datetime.timedelta(seconds=value)
+        days = delta.days
+        formatted_time = ""
+        if days > 0:
+            years, days = divmod(days, 365)
+            if years > 0:
+                formatted_time += f"{years}y "
+            if days > 0:
+                formatted_time += f"{days}d "
+
+        hours, remainder = divmod(delta.seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        milliseconds = delta.microseconds // 1000
+        microseconds = delta.microseconds % 1000
+
+        if hours > 0 or days > 0:
+            formatted_time += f"{hours}:"
+        if minutes > 0 or hours > 0 or days > 0:
+            formatted_time += f"{minutes}:"
+        if seconds > 0 or minutes > 0 or hours > 0 or days > 0:
+            formatted_time += f"{seconds}s "
+        if milliseconds > 0 or microseconds > 0:
+            formatted_time += f"{milliseconds}"
+            if microseconds > 0:
+                formatted_time += f".{microseconds}"
+            formatted_time += "ms"
+        return formatted_time.strip()
+
     else:
         raise NotImplementedError(f"Unit '{unit}' not implemented.")
 
@@ -188,6 +220,9 @@ class ProgressBar:
         self._last_call = now
         elapsed = f"{int(elapsed*1e3)} ms/it"
 
+        # clamp the value between 0 and 100
+        value = max(0, min(100, value))
+
         # update the progress bar
         self._pbar.n = value
         self._pbar.set_postfix_str(f"{elapsed}  at {postfix}")
@@ -260,6 +295,21 @@ def random_array(shape: tuple[int], seed=12345):
         default_rng = ncp.random.default_rng
         return default_rng(seed).standard_normal(shape)
 
+
+class SliceableAttribute:
+    """
+    Class to make an object sliceable.
+    
+    Parameters
+    ----------
+    `slicer` : `callable`
+        The slicer function.
+    """
+    def __init__(self, slicer: callable):
+        self.slicer = slicer
+
+    def __getitem__(self, key):
+        return self.slicer(key)
 # ================================================================
 #  Numpy Conversion functions
 # ================================================================
@@ -385,6 +435,32 @@ def to_numpy(obj, memo=None, _nil=[]):
         obj._cpu = memo[d]
 
     return memo[d]
+
+def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
+    """
+    Convert a time to seconds.
+    
+    Description
+    -----------
+    This function converts a time to seconds. The time can be given as a
+    float, a np.datetime64 or a np.timedelta64.
+    
+    Parameters
+    ----------
+    `t` : `Union[float, np.datetime64, np.timedelta64]`
+        The time to convert to seconds.
+    
+    Returns
+    -------
+    `float`
+        The time in seconds.
+    """
+    if isinstance(t, (float, int)):
+        return t
+    elif isinstance(t, (np.datetime64, np.timedelta64)):
+        return float(t.astype('timedelta64[s]').astype(float))
+    else:
+        raise TypeError(f"Unsupported type '{type(t)}' for time.")
 
 # ================================================================
 #  JAX functions

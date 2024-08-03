@@ -39,22 +39,6 @@ class Position(PositionBase):
         return
 
     def shift(self, axis: int, direction: str) -> 'Position':
-        """
-        Shift the position of the field along an axis.
-        
-        Parameters
-        ----------
-        `axis` : `int`
-            The axis along which to shift the field.
-        `direction` : `str`
-            The direction in which to shift the field. The direction can be
-            either `forward` or `backward`.
-        
-        Returns
-        -------
-        `Position`
-            The new position of the field.
-        """
         if direction not in ["forward", "backward"]:
             raise ValueError(
                 f"Invalid direction: {direction}. Must be 'forward' or 'backward'.")

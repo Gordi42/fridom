@@ -4,6 +4,7 @@ import numpy as np
 import os
 from netCDF4 import Dataset
 # Import internal modules
+import fridom.framework as fr
 from fridom.framework import config, utils
 from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
@@ -69,11 +70,11 @@ class NetCDFWriter(Module):
 
     """
     def __init__(self,
-                 write_interval: np.timedelta64,
+                 write_interval: Union[np.timedelta64, float],
                  filename: str = "snap",
-                 start_time: Union[np.datetime64, None] = None,
-                 end_time: Union[np.datetime64, None] = None,
-                 restart_interval: Union[np.timedelta64, None] = None,
+                 start_time: Union[np.datetime64, float] = 0,
+                 end_time: Union[np.datetime64, float, None] = None,
+                 restart_interval: Union[np.timedelta64, float, None] = None,
                  snap_slice: tuple | None = None,
                  directory: str | None = None,
                  name: str = "NetCDFWriter",
@@ -82,6 +83,17 @@ class NetCDFWriter(Module):
         directory = directory or "snapshots"
         filename = os.path.join(directory, filename)
         super().__init__(name = name)
+        self.execute_at_start = True
+
+        # Convert the times to seconds
+        if isinstance(write_interval, np.timedelta64):
+            write_interval = utils.to_seconds(write_interval)
+        if isinstance(restart_interval, np.timedelta64):
+            restart_interval = utils.to_seconds(restart_interval)
+        if isinstance(start_time, np.datetime64):
+            start_time = utils.to_seconds(start_time)
+        if isinstance(end_time, np.datetime64):
+            end_time = utils.to_seconds(end_time)
 
         if get_variables is None:
             def get_variables(mz: 'ModelState'):
@@ -213,7 +225,11 @@ class NetCDFWriter(Module):
         ext = ext.lower()
         base = base if ext in [".nc", ".cdf"] else self.filename
         ext = ext if ext in [".nc", ".cdf"] else ".cdf"
-        filename = f"{base}_{self._current_start_time}{ext}"
+        tot_time = mz.total_time
+        if not isinstance(tot_time, np.datetime64):
+            tot_time = fr.utils.humanize_number(tot_time, unit="seconds")
+            tot_time = tot_time.replace(" ", "-")
+        filename = f"{base}_{tot_time}{ext}"
 
         # ----------------------------------------------------------------
         #  Create the NetCDF file
@@ -259,7 +275,7 @@ class NetCDFWriter(Module):
             xi.units = "m"
             xi.long_name = f"{name} coordinate"
 
-        time.units = f"seconds since {self.start_time}"
+        time.units = f"seconds since {mz.start_time}"
         time.long_name = "UTC time"
         time.calendar = "standard"
         time.standard_name = "time"
@@ -293,7 +309,7 @@ class NetCDFWriter(Module):
         inner_slice = self.grid.get_subdomain().inner_slice
         ind = time_ind, *global_slice[::-1]
 
-        time[time_ind] = mz.time
+        time[time_ind] = mz._passed_time
         for var in self.get_variables(mz):
             nc_var = self._ncfile.variables[var.name]
             arr = var[inner_slice]
