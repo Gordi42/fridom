@@ -1,58 +1,113 @@
-from fridom.nonhydro.state import State
-from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+import fridom.framework as fr
+import fridom.nonhydro as nh
+from numpy import ndarray
 
 
-class HarmonicFriction(Module):
+class HarmonicFriction(fr.modules.Module):
+    r"""
+    Harmonic friction module
+
+    Description
+    -----------
+    The tendency of the harmonic friction module on velocity field :math:`u` 
+    is given by:
+    .. math::
+        \Delta u = \nabla \cdot \left (\boldsymbol{A} \cdot \nabla u \right)
+
+    with:
+    .. math::
+        \boldsymbol{A} = \begin{bmatrix} a_h \\ a_h \\ a_v \end{bmatrix}
+
+    where :math:`a_h` is the horizontal harmonic friction coefficient and
+    :math:`k_h` is the vertical harmonic friction coefficient. For
+    :math:`v` and :math:`w` the same equation applies.
+
+    Parameters
+    ----------
+    `ah` : `float`
+        Horizontal harmonic friction coefficient.
+    `av` : `float`
+        Vertical harmonic friction coefficient.
+    `diff` : `fr.grid.DiffBase | None`, (default=None)
+        Differentiation module to use. If None, the differentiation module of
+        the grid is used.
     """
-    This class computes the harmonic friction tendency of the model.
+    _dynamic_attributes = ["mset", "ah", "av"]
+    def __init__(self, 
+                 ah: float = 0, 
+                 av: float = 0,
+                 diff: fr.grid.DiffBase | None = None):
+        super().__init__(name="Harmonic Friction")
+        self.ah = fr.config.ncp.array(ah)
+        self.av = fr.config.ncp.array(av)
+        self._diff = diff
 
-    Computes:
-    $ dz.u += ah \\nabla^2 u + kh \\partial_z^2 u $
-    $ dz.v += ah \\nabla^2 v + kh \\partial_z^2 v $
-    $ dz.w += ah \\nabla^2 w + kh \\partial_z^2 w $
-    where:
-    - `ah`: Horizontal harmonic friction coefficient.
-    - `av`: Vertical harmonic friction coefficient.
-    """
-    def __init__(self, ah: float = 0, av: float = 0):
-        """
-        ## Arguments:
-        - `ah`: Horizontal harmonic friction coefficient.
-        - `av`: Vertical harmonic friction coefficient.
-        """
-        super().__init__(name="Harmonic Friction", ah=ah, av=av)
-
-    @start_module
-    def start(self):
-        # cast the parameters to the correct data type
-        self.ah = self.mset.dtype(self.ah)
-        self.av = self.mset.dtype(self.av)
+    @fr.modules.setup_module
+    def setup(self):
+        # setup the differentiation modules
+        if self.diff is None:
+            self.diff = self.mset.grid._diff_mod
+        else:
+            self.diff.setup(mset=self.mset)
         return
 
-    @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
+    @fr.utils.jaxjit
+    def harmonic(self, arr: ndarray) -> ndarray:
+        r"""
+        Compute the harmonic second order derivative.
+
+        Description
+        -----------
+        Computes the harmonic friction term for the given field variable.
+
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The field variable.
+
+        Returns
+        -------
+        `ndarray`
+            The harmonic friction term.
         """
-        Compute the harmonic friction tendency of the model.
+        # calculate the gradient of the field variable
+        grad = self.diff.grad(arr)
+        # multiply the gradient with the harmonic friction coefficients
+        grad = [self.ah * grad[0], self.ah * grad[1], self.av * grad[2]]
+        # return the divergence of the gradient
+        return self.diff.div(grad)
 
-        Args:
-            mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
+    @fr.utils.jaxjit
+    def friction(self, z: nh.State, dz: nh.State) -> nh.State:
         """
-        # compute the harmonic friction tendency
-        u = mz.z.u; v = mz.z.v; w = mz.z.w
-        ah = self.ah; av = self.av; 
+        Compute the harmonic friction term.
+        """
+        dz.u.arr += self.harmonic(z.u.arr)
+        dz.v.arr += self.harmonic(z.v.arr)
+        dz.w.arr += self.harmonic(z.w.arr)
+        return dz
 
-        # [TODO] boundary conditions
-        dz.u += (u.diff_2(0) + u.diff_2(1))*ah + u.diff_2(2)*av
-        dz.v += (v.diff_2(0) + v.diff_2(1))*ah + v.diff_2(2)*av
-        dz.w += (w.diff_2(0) + w.diff_2(1))*ah + w.diff_2(2)*av
-        return 
+    @fr.modules.module_method
+    def update(self, mz: nh.ModelState) -> nh.ModelState:
+        mz.dz = self.friction(mz.z, mz.dz)
+        return mz
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    ah: {self.ah}\n    av: {self.av}"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["ah"] = self.ah
+        res["av"] = self.av
+        res["diff"] = self.diff
         return res
 
-# remove symbols from the namespace
-del State, ModelState, Module, update_module, start_module
+    @property
+    def diff(self) -> fr.grid.DiffBase:
+        """The differentiation module."""
+        return self._diff
+    
+    @diff.setter
+    def diff(self, value: fr.grid.DiffBase):
+        self._diff = value
+        return
+
+fr.utils.jaxify_class(HarmonicFriction)

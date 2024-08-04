@@ -1,54 +1,114 @@
-from fridom.nonhydro.state import State
-from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+import fridom.framework as fr
+import fridom.nonhydro as nh
+from numpy import ndarray
 
 
-class HarmonicMixing(Module):
+class HarmonicMixing(fr.modules.Module):
+    r"""
+    Harmonic mixing module
+
+    Description
+    -----------
+    The harmonic mixing module on a scalar field :math:`b` is given by:
+
+    .. math::
+        \Delta b = \nabla \cdot \left (\boldsymbol{K} \cdot \nabla b \right)
+
+    with:
+    .. math::
+        \boldsymbol{K} = \begin{bmatrix} k_h \\ k_h \\ k_v \end{bmatrix}
+
+    where :math:`k_h` is the horizontal harmonic mixing coefficient and
+    :math:`k_v` is the vertical harmonic mixing coefficient. All components
+    with the flag "ENABLE_MIXING" are mixed.
+
+    Parameters
+    ----------
+    `kh` : `float`
+        Horizontal harmonic mixing coefficient.
+    `kv` : `float`
+        Vertical harmonic mixing coefficient.
+    `diff` : `fr.grid.DiffBase | None`, (default=None)
+        Differentiation module to use. If None, the differentiation module of
+        the grid is used.
     """
-    This class computes the harmonic mixing tendency of the model.
+    _dynamic_attributes = ["mset", "kh", "kv"]
+    def __init__(self, 
+                 kh: float = 0, 
+                 kv: float = 0,
+                 diff: fr.grid.DiffBase | None = None):
+        super().__init__(name="Harmonic Mixing")
+        self.kh = fr.config.ncp.array(kh)
+        self.kv = fr.config.ncp.array(kv)
+        self._diff = diff
 
-    Computes:
-    $ dz.b += kh \\nabla^2 b + kv \\partial_z^2 b $
-    where:
-    - `kh`: Horizontal harmonic mixing coefficient.
-    - `kv`: Vertical harmonic mixing coefficient.
-    """
-    def __init__(self, kh: float = 0, kv: float = 0):
-        """
-        ## Arguments:
-        - `kh`: Horizontal harmonic mixing coefficient.
-        - `kv`: Vertical harmonic mixing coefficient.
-        """
-        super().__init__(name="Harmonic Mixing", kh=kh, kv=kv)
-
-    @start_module
-    def start(self):
-        # cast the parameters to the correct data type
-        self.kh = self.mset.dtype(self.kh)
-        self.kv = self.mset.dtype(self.kv)
+    @fr.modules.setup_module
+    def setup(self):
+        # setup the differentiation modules
+        if self.diff is None:
+            self.diff = self.mset.grid._diff_mod
+        else:
+            self.diff.setup(mset=self.mset)
         return
 
-    @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
+    @fr.utils.jaxjit
+    def harmonic(self, arr: ndarray) -> ndarray:
+        r"""
+        Compute the harmonic second order derivative.
+
+        Description
+        -----------
+        Computes the harmonic friction term for the given field variable.
+
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The field variable.
+
+        Returns
+        -------
+        `ndarray`
+            The harmonic friction term.
         """
-        Compute the harmonic mixing tendency of the model.
+        # calculate the gradient of the field variable
+        grad = self.diff.grad(arr)
+        # multiply the gradient with the harmonic friction coefficients
+        grad = [self.kh * grad[0], self.kh * grad[1], self.kv * grad[2]]
+        # return the divergence of the gradient
+        return self.diff.div(grad)
 
-        Args:
-            mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
+    @fr.utils.jaxjit
+    def mixing(self, z: nh.State, dz: nh.State) -> nh.State:
+        r"""
+        Compute the harmonic mixing term.
         """
-        # compute the harmonic friction tendency
-        b = mz.z.b
-        kh = self.kh; kv = self.kv; 
+        z = self.mset.bc.apply_boundary_conditions(z)
+        for name, field in z.fields.items():
+            if field.flags["ENABLE_MIXING"]:
+                dz.fields[name].arr += self.harmonic(field.arr)
+        return self.mset.bc.apply_boundary_conditions(dz)
 
-        # [TODO] boundary conditions
-        dz.b += (b.diff_2(0) + b.diff_2(1))*kh + b.diff_2(2)*kv
-        return 
+    @fr.modules.module_method
+    def update(self, mz: nh.ModelState) -> nh.ModelState:
+        mz.dz = self.mixing(mz.z, mz.dz)
+        return mz
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    kh: {self.kh}\n    kv: {self.kv}"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["ah"] = self.ah
+        res["av"] = self.av
+        res["diff"] = self.diff
         return res
 
-# remove symbols from the namespace
-del State, ModelState, Module, update_module, start_module
+    @property
+    def diff(self) -> fr.grid.DiffBase:
+        """The differentiation module."""
+        return self._diff
+    
+    @diff.setter
+    def diff(self, value: fr.grid.DiffBase):
+        self._diff = value
+        return
+
+fr.utils.jaxify_class(HarmonicMixing)

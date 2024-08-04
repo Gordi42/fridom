@@ -1,4 +1,4 @@
-"""
+r"""
 Operators for spectral analysis of discrete Cartesian grids.
 
 Averaging operators

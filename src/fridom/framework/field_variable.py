@@ -89,7 +89,7 @@ class FieldVariable:
                  nc_attrs=None,
                  topo=None,
                  arr=None,
-                 flags: dict | None = None,
+                 flags: dict | list | None = None,
                  ) -> None:
 
         ncp = config.ncp
@@ -110,16 +110,17 @@ class FieldVariable:
         # ----------------------------------------------------------------
         #  Set flags
         # ----------------------------------------------------------------
-        self.no_adv = False  # whether the field should be advected
-        available_flags = ["no_adv"]
-        if flags is not None:
-            for flag, value in flags.items():
-                if flag not in available_flags:
+        self.flags = {"NO_ADV": False, 
+                      "ENABLE_MIXING": False}
+        if isinstance(flags, dict):
+            self.flags.update(flags)
+        elif isinstance(flags, list):
+            for flag in flags:
+                if flag not in self.flags:
                     config.logger.warning(f"Flag {flag} not available")
-                    config.logger.warning(f"Available flags: {available_flags}")
-                else:
-                    setattr(self, flag, value)
-        self.flags = flags
+                    config.logger.warning(f"Available flags: {self.flags}")
+                    raise ValueError
+                self.flags[flag] = True
 
         # ----------------------------------------------------------------
         #  Set attributes

@@ -100,7 +100,7 @@ class CenteredAdvection(Module):
                      velocity: tuple[fr.FieldVariable]) -> nh.State:
         # calculate the advection term
         for name, quantity in z.fields.items():
-            if quantity.no_adv:
+            if quantity.flags["NO_ADV"]:
                 continue
             dz.fields[name].arr -= self.flux_divergence(velocity, quantity)
         return dz

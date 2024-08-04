@@ -97,6 +97,15 @@ class Position:
         new_positions[axis] = self[axis].shift(direction)
         return Position(tuple(new_positions))
 
+    def __hash__(self) -> int:
+        return hash(self.positions)
+
+    def __eq__(self, value: object) -> bool:
+        for my_pos, other_pos in zip(self.positions, value.positions):
+            if my_pos != other_pos:
+                return False
+        return True
+
     def __getitem__(self, key: int) -> AxisPosition:
         """
         Get the position of the field along an axis.

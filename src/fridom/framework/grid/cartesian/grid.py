@@ -139,7 +139,6 @@ class Grid(GridBase):
         return
 
     def setup(self, mset: 'ModelSettingsBase'):
-        super().setup(mset)
         ncp = config.ncp
         n_dims = self.n_dims
         dtype = config.dtype_real
@@ -211,6 +210,11 @@ class Grid(GridBase):
         self._k_local = k_local
         self._k_global = k
         self._inner_slice = domain_decomp.my_subdomain.inner_slice
+
+        # call the setup method of the base class
+        # This is called last since some of the setup methods of the grid base
+        # class depend on the attributes set here.
+        super().setup(mset)
         return
 
     @partial(utils.jaxjit, static_argnames=["transform_types"])

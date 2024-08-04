@@ -1,10 +1,10 @@
 import fridom.framework as fr
+from numpy import ndarray
 # Import external modules
 from typing import TYPE_CHECKING
 from fridom.framework import utils
 # Import type information
 if TYPE_CHECKING:
-    from numpy import ndarray
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.grid.transform_type import TransformType
     from fridom.framework.grid.position import PositionBase
@@ -49,6 +49,7 @@ class GridBase:
         self._dx = None
         self._dV = None
         self._mset = None
+        self._water_mask = fr.grid.WaterMask()
         # spectral properties
         self._K = None
         self._k_global = None
@@ -83,6 +84,7 @@ class GridBase:
         """       
         self._diff_mod.setup(mset=mset)
         self._interp_mod.setup(mset=mset)
+        self._water_mask.setup(mset=mset)
         return
 
     def fft(self, 
@@ -215,6 +217,35 @@ class GridBase:
             The projection vector of the linear operator.
         """
         raise NotImplementedError
+
+    def get_subdomain(self, spectral=False) -> fr.domain_decomposition.Subdomain:
+        """
+        Get the local subdomain of the processor in the physical or spectral 
+        domain decomposition.
+
+        Parameters
+        ----------
+        `spectral` : `bool`, optional
+            If True, return the subdomain of the spectral domain.
+            Default is False.
+        """
+        raise NotImplementedError
+
+    def get_water_mask(self, position: fr.grid.Position) -> 'ndarray':
+        """
+        Get the water mask at a specific position.
+        
+        Parameters
+        ----------
+        `position` : `Position`
+            The position of the mask.
+        
+        Returns
+        -------
+        `ndarray`
+            The water mask.
+        """
+        return self._water_mask.get_mask(position)
 
     def __repr__(self) -> str:
         """
@@ -365,6 +396,42 @@ class GridBase:
     # ----------------------------------------------------------------
     #  Grid properties
     # ----------------------------------------------------------------
+    @property
+    def diff_mod(self) -> fr.grid.DiffBase:
+        """The differential operator module."""
+        return self._diff_mod
+    
+    @diff_mod.setter
+    def diff_mod(self, value: fr.grid.DiffBase) -> None:
+        if not isinstance(value, fr.grid.DiffBase):
+            raise ValueError("The differential operator module must be a DiffBase object")
+        self._diff_mod = value
+        return
+    
+    @property
+    def interp_mod(self) -> fr.grid.InterpolationBase:
+        """The interpolation operator module."""
+        return self._interp_mod
+    
+    @interp_mod.setter
+    def interp_mod(self, value: fr.grid.InterpolationBase) -> None:
+        if not isinstance(value, fr.grid.InterpolationBase):
+            raise ValueError("The interpolation operator module must be an InterpolationBase object")
+        self._interp_mod = value
+        return
+
+    @property
+    def water_mask(self) -> ndarray:
+        """
+        Get the water mask.
+        """
+        return self._water_mask.water_mask
+
+    @water_mask.setter
+    def water_mask(self, mask: ndarray) -> None:
+        self._water_mask = mask
+        return
+
     @property
     def info(self) -> dict:
         """

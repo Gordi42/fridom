@@ -55,7 +55,8 @@ class State(fr.StateBase):
                 position=cell_center,
                 transform_types=(fr.grid.TransformType.DST2,
                                  fr.grid.TransformType.DST2,
-                                 fr.grid.TransformType.DST2)
+                                 fr.grid.TransformType.DST2),
+                flags=["ENABLE_MIXING"],
                 )
 
             field_list = [u, v, w, b]
