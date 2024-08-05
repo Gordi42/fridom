@@ -14,5 +14,5 @@ class TendencyDivergence(fr.modules.Module):
     def update(self, mz: fr.ModelState) -> fr.ModelState:
         dz = mz.dz
         dz.sync()
-        mz.z_diag.div = self.grid.diff_mod.div((dz.u, dz.v, dz.w))
+        mz.z_diag.div.arr = self.grid.diff_mod.div((dz.u, dz.v, dz.w)).arr
         return mz
