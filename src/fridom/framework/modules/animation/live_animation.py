@@ -1,13 +1,7 @@
-# Import external modules
-from typing import TYPE_CHECKING
-# Import internal modules
-from fridom.framework.modules.module import Module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from .model_plotter import ModelPlotterBase
-    from fridom.framework.model_state import ModelState
+import fridom.framework as fr
 
-class LiveAnimation(Module):
+
+class LiveAnimation(fr.modules.Module):
     """
     Create a live plot of the model that gets updated at regular intervals 
     during the simulation.
@@ -17,6 +11,10 @@ class LiveAnimation(Module):
     To create a live animation of the model, one must provide a `ModelPlotter`
     that will be used to create the figure. Note that live animations only work
     in Jupyter notebooks (no MPI support).
+
+    .. warning::
+        The live animation module clashes with the Progress bar module. Make
+        sure to disable the progress bar module when using the live animation.
     
     Parameters
     ----------
@@ -24,32 +22,28 @@ class LiveAnimation(Module):
         The model plotter that will be used to create the figure.
     `interval` : `int`, optional (default=50)
         The interval (time steps) at which the plot will be updated.
-    
-    Examples
-    --------
-    >>> TODO add example for nonhydrostatic model
     """
     def __init__(self, 
-                 model_plotter: 'ModelPlotterBase',
+                 model_plotter: fr.modules.animation.ModelPlotter,
                  interval: int = 50,
                  ) -> None:
-        super().__init__(
-            name="Live Animation",
-            model_plotter=model_plotter,
-            interval=interval)
+        super().__init__(name="Live Animation")
+
+        self.interval = interval
+        self.model_plotter = model_plotter
         self.mpi_available = False
         self.fig = None
         return
 
-    @module_method
+    @fr.modules.module_method
     def start(self) -> None:
         """
         Initialize the figure.
         """
         self.fig = self.model_plotter.create_figure()
 
-    @module_method
-    def update(self, mz: 'ModelState') -> 'ModelState':
+    @fr.modules.module_method
+    def update(self, mz: fr.ModelState) -> fr.ModelState:
         """
         Update the figure from the model state and display it.
         
@@ -57,8 +51,6 @@ class LiveAnimation(Module):
         ----------
         `mz` : `ModelState`
             The model state to be used to update the figure.
-        `dz` : `StateBase`
-            The tendency state (not used in this method)
         """
         # check if its time to update the plot
         if mz.it % self.interval != 0:
@@ -67,7 +59,8 @@ class LiveAnimation(Module):
         # first clear the figure
         self.fig.clf()
         # update the figure
-        self.model_plotter.update_figure(fig=self.fig, mz=mz)
+        args = self.model_plotter.prepare_arguments(mz)
+        self.model_plotter.update_figure(fig=self.fig, **args)
         # display the figure
         from IPython import display
         display.display(self.fig)

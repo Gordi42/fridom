@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 from typing import TYPE_CHECKING, Union
 import numpy as np
@@ -65,6 +66,8 @@ class ModelSettingsBase:
         from fridom.framework.modules.restart_module import RestartModule
         from fridom.framework.modules.module_container import ModuleContainer
         from fridom.framework.modules.boundary_conditions import BoundaryConditions
+        # Progress bar module
+        self.progress_bar = fr.modules.ProgressBar()
         # Restart module
         self.restart_module = RestartModule()
         # List of modules that calculate tendencies
@@ -114,6 +117,7 @@ class ModelSettingsBase:
         logger.verbose("Setting up model settings")
         self.grid.setup(mset=self)
         self.grid.water_mask.setup(mset=self)
+        self.progress_bar.setup(mset=self)
         self.restart_module.setup(mset=self)
         self.tendencies.setup(mset=self)
         self.diagnostics.setup(mset=self)

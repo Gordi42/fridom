@@ -46,6 +46,7 @@ class Model:
         self.timer = mset.timer
 
         # Modules
+        self.progress_bar = mset.progress_bar
         self.restart_module = mset.restart_module
         self.tendencies  = mset.tendencies
         self.diagnostics = mset.diagnostics
@@ -77,6 +78,9 @@ class Model:
         self.tendencies.update(mz)
         fr.config.logger.notice(
             f"Compilation finished in {time()-start_time:.2f} seconds")
+
+        # start the progress bar at the very end
+        self.progress_bar.start()
         return
 
     def stop(self):
@@ -89,6 +93,7 @@ class Model:
         self.time_stepper.stop()
         self.bc.stop()
         self.timer.total.stop()
+        self.progress_bar.stop()
         return
         
     def reset(self) -> None:
@@ -163,17 +168,6 @@ class Model:
         self.model_state.time = start_time
 
         # ----------------------------------------------------------------
-        #  Create the postfix formatter
-        # ----------------------------------------------------------------
-        if datetime_formatting:
-            def postfix_formatter(mz):
-                return f"It: {mz.it} - Time: {np.datetime64(int(mz.time), 's')}"
-        else:
-            def postfix_formatter(mz):
-                human_time = fr.utils.humanize_number(mz.time, unit="seconds")
-                return f"It: {mz.it} - Time: {human_time}"
-
-        # ----------------------------------------------------------------
         #  Calculate number of steps / end time
         # ----------------------------------------------------------------
         # calculate end time if runlen is given
@@ -182,8 +176,13 @@ class Model:
 
         # calculate the final iteration step if steps is given
         if steps is not None:
-            first_it = self.model_state.it
-            final_it = first_it + steps
+            main_loop_type = "for loop"
+            start_value = self.model_state.it
+            final_value = start_value + steps
+        else:
+            main_loop_type = "while loop"
+            start_value = start_time
+            final_value = end_time
             
         # ----------------------------------------------------------------
         #  Load the model
@@ -194,12 +193,13 @@ class Model:
 
         # start the model
         self.start()
-        
-        # ----------------------------------------------------------------
-        #  Set up the progress bar
-        # ----------------------------------------------------------------
-        from fridom.framework.utils import ProgressBar
-        pbar = ProgressBar(disable=not progress_bar)
+
+        # Set the progress bar options
+        self.progress_bar.set_options(
+            main_loop_type=main_loop_type,
+            datetime_formatting=datetime_formatting,
+            start_value=start_value,
+            final_value=final_value)
 
         # ----------------------------------------------------------------
         #  Initial diagnostics
@@ -214,23 +214,16 @@ class Model:
         if steps is not None:
             start_it = self.model_state.it
             config.logger.info(
-                f"Running model from iteration {start_it} to {final_it}")
+                f"Running model from iteration {start_value} to {final_value}")
             
             # loop over the given number of steps
-            for i in range(start_it, final_it):
+            for _ in range(start_it, final_value):
                 self.step()
 
                 if self.model_state.panicked:
                     config.logger.warning(
                         "Something went wrong. Stopping model.")
                     break
-
-                # update the progress bar
-                with self.timer["Progress Bar"]:
-                    mz = self.model_state
-                    pbar.update(
-                        value = 100 * (i-first_it+1) / steps,
-                        postfix = postfix_formatter(mz))
 
         # ----------------------------------------------------------------
         #  Main loop: Given run length
@@ -247,16 +240,6 @@ class Model:
                     config.logger.warning(
                         "Something went wrong. Stopping model.")
                     break
-
-                # update the progress bar
-                with self.timer["Progress Bar"]:
-                    mz = self.model_state
-                    pbar.update(
-                        value = 100*(mz.time-start_time) / (end_time-start_time),
-                        postfix = postfix_formatter(mz))
-        
-        # close the progress bar
-        pbar.close()
 
         # stop the model
         self.stop()
@@ -292,6 +275,9 @@ class Model:
 
         # make diagnostics
         self.model_state = self.diagnostics.update(self.model_state)
+
+        # Update the progress bar
+        self.progress_bar.update(self.model_state)
 
         # check if the model should restart
         if self.restart_module.should_restart(self.model_state):
