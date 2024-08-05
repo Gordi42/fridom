@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from .tendency_divergence import TendencyDivergence
     from .pressure_gradient_tendency import PressureGradientTendency
     from .main_tendency import MainTendency
-    from .netcdf_writer_single_proc import NetCDFWriterSingleProc
     from .diagnostics import Diagnostics
 
     # ----------------------------------------------------------------
@@ -30,9 +29,7 @@ if TYPE_CHECKING:
     from fridom.framework.modules import animation
 
     # importing classes
-    from fridom.framework.modules.netcdf_writer import NetCDFWriter
-    from fridom.framework.modules.restart_module import RestartModule
-    from fridom.framework.modules.reset_tendency import ResetTendency
+    from fridom.framework.modules import NetCDFWriter, RestartModule, ResetTendency
 
 # ================================================================
 #  Setup lazy loading
@@ -55,11 +52,8 @@ all_imports_by_origin = {
     f"{base_path}.tendency_divergence": ["TendencyDivergence"],
     f"{base_path}.pressure_gradient_tendency": ["PressureGradientTendency"],
     f"{base_path}.main_tendency": ["MainTendency"],
-    f"{base_path}.netcdf_writer_single_proc": ["NetCDFWriterSingleProc"],
     f"{base_path}.diagnostics": ["Diagnostics"],
-    f"{fr_base_path}.netcdf_writer": ["NetCDFWriter"],
-    f"{fr_base_path}.restart_module": ["RestartModule"], 
-    f"{fr_base_path}.reset_tendency": ["ResetTendency"],
+    f"{fr_base_path}": ["NetCDFWriter", "RestartModule", "ResetTendency"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
