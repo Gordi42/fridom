@@ -33,7 +33,9 @@ class ModelState:
     `dz` : `State`
         The state vector tendency.
     """
-    _dynamic_attributes = set(["z", "z_diag", "dz", "it", "_time"])
+    _dynamic_attributes = set(["z", "z_diag", "dz", "it",
+                               "_start_time", "_start_time_in_seconds",
+                               "_passed_time"])
     def __init__(self, mset: 'ModelSettingsBase') -> None:
         self.mset = mset
         self.z = mset.state_constructor()

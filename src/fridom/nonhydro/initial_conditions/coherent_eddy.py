@@ -77,7 +77,14 @@ class CoherentEddy(nh.State):
         psi = amplitude * ncp.exp(
             -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
 
-        self.u.arr = grid.diff(psi, 1, type="backward")
-        self.v.arr = -grid.diff(psi, 0, type="backward")
+        # psi is positioned at the cell face in x and y
+        CENTER = nh.grid.AxisPosition.CENTER; FACE = nh.grid.AxisPosition.FACE
+        position = nh.grid.Position((FACE, FACE, CENTER))
+
+        psi = nh.FieldVariable(
+            mset, arr=psi, position=position, name="psi")
+
+        self.u.arr = psi.diff(axis=1).arr
+        self.v.arr = - psi.diff(axis=0).arr
         
         return

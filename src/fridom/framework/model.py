@@ -67,6 +67,16 @@ class Model:
         self.time_stepper.start()
         self.bc.start()
         self.model_state.panicked = False
+
+        # compile the modules
+        from time import time
+        fr.config.logger.notice("Compiling tendency modules")
+        start_time = time()
+        mz = fr.ModelState(self.mset)
+        mz.dz = self.mset.state_constructor()
+        self.tendencies.update(mz)
+        fr.config.logger.notice(
+            f"Compilation finished in {time()-start_time:.2f} seconds")
         return
 
     def stop(self):
@@ -181,15 +191,15 @@ class Model:
         # check if the model needs to be reloaded
         if self.restart_module.should_reload():
             self.load(self.restart_module.file)
+
+        # start the model
+        self.start()
         
         # ----------------------------------------------------------------
         #  Set up the progress bar
         # ----------------------------------------------------------------
         from fridom.framework.utils import ProgressBar
         pbar = ProgressBar(disable=not progress_bar)
-
-        # start the model
-        self.start()
 
         # ----------------------------------------------------------------
         #  Initial diagnostics
@@ -216,10 +226,11 @@ class Model:
                     break
 
                 # update the progress bar
-                mz = self.model_state
-                pbar.update(
-                    value = 100 * (i-first_it+1) / steps,
-                    postfix = postfix_formatter(mz))
+                with self.timer["Progress Bar"]:
+                    mz = self.model_state
+                    pbar.update(
+                        value = 100 * (i-first_it+1) / steps,
+                        postfix = postfix_formatter(mz))
 
         # ----------------------------------------------------------------
         #  Main loop: Given run length
@@ -238,10 +249,11 @@ class Model:
                     break
 
                 # update the progress bar
-                mz = self.model_state
-                pbar.update(
-                    value = 100*(mz.time-start_time) / (end_time-start_time),
-                    postfix = postfix_formatter(mz))
+                with self.timer["Progress Bar"]:
+                    mz = self.model_state
+                    pbar.update(
+                        value = 100*(mz.time-start_time) / (end_time-start_time),
+                        postfix = postfix_formatter(mz))
         
         # close the progress bar
         pbar.close()

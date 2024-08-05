@@ -164,7 +164,7 @@ def _setup_logging():
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    set_log_level(LogLevel.SILENT)
+    set_log_level(LogLevel.NOTICE)
 
     # add verbose and notice methods
     def verbose(message: str, *args, **kwargs) -> None:

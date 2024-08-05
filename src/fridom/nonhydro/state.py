@@ -147,48 +147,43 @@ class State(fr.StateBase):
         .. math::
             E_{kin} = \frac{1}{2} (u^2 + v^2 + \delta^2 w^2)
         """
-        # shortcuts
-        pos = self.grid.cell_center
-        interp = self.grid.interpolate
-        dsqr = self.mset.dsqr
-        u = self.u.arr
-        v = self.v.arr
-        w = self.w.arr
+        ekin = 0.5*(self.u**2 + self.v**2 + self.mset.dsqr*self.w**2)
 
-        ekin = 0.5*(u**2 + v**2 + dsqr*w**2)
-        
-        return fr.FieldVariable(
-            self.mset, 
-            is_spectral=self.is_spectral, 
-            name="ekin", 
-            long_name="Kinetic Energy",
-            units="m^2/s^2",
-            arr=ekin, 
-            position=pos)
+        # Set the attributes
+        ekin.name = "ekin"
+        ekin.long_name = "Kinetic Energy"
+        ekin.units = "m^2/s^2"
+        ekin.position = self.grid.cell_center
+        return ekin
 
     @property
     def epot(self) -> fr.FieldVariable:
         r"""
         The potential energy
 
+        If the background stratification is set, the potential energy is
+        calculated as:
         .. math::
             E_{pot} = \frac{1}{2} \frac{b^2}{N^2}
+
+        If the background stratification is not set, the potential energy is
+        calculated as:
+        .. math::
+            E_{pot} = b z
+
+        where :math:`z` is the vertical coordinate.
         """
-        # shortcuts
-        pos = self.grid.cell_center
-        N2 = self.mset.N2
-        b = self.b.arr
+        if self.mset.N2 != 0:
+            epot = 0.5*(self.b**2 / self.mset.N2)
+        else:
+            epot = self.b * self.grid.X[2]
 
-        epot = 0.5*(b**2 / N2)
-
-        return fr.FieldVariable(
-            self.mset, 
-            is_spectral=self.is_spectral,
-            name="epot", 
-            long_name="Potential Energy",
-            units="m^2/s^2",
-            arr=epot, 
-            position=pos)
+        # Set the attributes
+        epot.name = "epot"
+        epot.long_name = "Potential Energy"
+        epot.units = "m^2/s^2"
+        epot.position = self.grid.cell_center
+        return epot
     
     @property
     def etot(self) -> fr.FieldVariable:
@@ -199,14 +194,13 @@ class State(fr.StateBase):
             E_{tot} = E_{kin} + E_{pot}
         """
         etot = self.ekin + self.epot
-        return fr.FieldVariable(
-            self.mset, 
-            is_spectral=self.is_spectral,
-            name="etot", 
-            long_name="Total Energy",
-            units="m^2/s^2",
-            arr=etot.arr,
-            position=etot.position)
+
+        # Set the attributes
+        etot.name = "etot"
+        etot.long_name = "Total Energy"
+        etot.units = "m^2/s^2"
+        etot.position = self.grid.cell_center
+        return etot
 
     # ----------------------------------------------------------------
     #  Vorticity
@@ -230,36 +224,15 @@ class State(fr.StateBase):
         .. math::
             \zeta_x = \delta^2 \partial_y w - \partial_z v
         """
-        # shortcuts
-        dsqr = self.mset.dsqr
-        interp = self.grid.interpolate
-        diff = self.grid.diff
+        dwdy = self.w.diff(axis=1)
+        dvdz = self.v.diff(axis=2).interpolate(dwdy.position)
+        rel_vort_x = dwdy * self.mset.dsqr - dvdz
 
-        dwdy = diff(self.w.arr, axis=1, type="forward")
-        dwdy_pos = self.w.position.shift(axis=1, direction="forward")
-
-        dvdz = diff(self.v.arr, axis=2, type="forward")
-        dvdz_pos = self.v.position.shift(axis=2, direction="forward")
-
-        # if the positions do not match, interpolate the fields to cell centers
-        if dwdy_pos != dvdz_pos:
-            pos = self.grid.cell_center
-            dwdy = interp(dwdy, dwdy_pos, pos)
-            dvdz = interp(dvdz, dvdz_pos, pos)
-        else:
-            pos = dwdy_pos
-        
-        rel_vort_x = dsqr*dwdy - dvdz
-            
-        # Create the field variable
-        return fr.FieldVariable(
-            self.mset, 
-            is_spectral=False, 
-            name="vort_x", 
-            long_name="x component of relative vorticity",
-            units="1/s",
-            arr=rel_vort_x,
-            position=pos)
+        # Set the attributes
+        rel_vort_x.name = "vort_x"
+        rel_vort_x.long_name = "x component of relative vorticity"
+        rel_vort_x.units = "1/s"
+        return rel_vort_x
 
     @property
     def rel_vort_y(self) -> fr.FieldVariable:
@@ -269,36 +242,15 @@ class State(fr.StateBase):
         .. math::
             \zeta_y = \partial_z u - \delta^2 \partial_x w
         """
-        # shortcuts
-        dsqr = self.mset.dsqr
-        interp = self.grid.interpolate
-        diff = self.grid.diff
+        dudz = self.u.diff(axis=2)
+        dwdx = self.w.diff(axis=0).interpolate(dudz.position)
+        rel_vort_y = dudz - dwdx * self.mset.dsqr
 
-        dudz = diff(self.u.arr, axis=2, type="forward")
-        dudz_pos = self.u.position.shift(axis=2, direction="forward")
-
-        dwdx = diff(self.w.arr, axis=0, type="forward")
-        dwdx_pos = self.w.position.shift(axis=0, direction="forward")
-
-        # if the positions do not match, interpolate the fields to cell centers
-        if dudz_pos != dwdx_pos:
-            pos = self.grid.cell_center
-            dudz = interp(dudz, dudz_pos, pos)
-            dwdx = interp(dwdx, dwdx_pos, pos)
-        else:
-            pos = dudz_pos
-        
-        rel_vort_y = dudz - dsqr*dwdx
-            
-        # Create the field variable
-        return fr.FieldVariable(
-            self.mset, 
-            is_spectral=False, 
-            name="vort_y", 
-            long_name="y component of relative vorticity",
-            units="1/s",
-            arr=rel_vort_y,
-            position=pos)
+        # Set the attributes
+        rel_vort_y.name = "vort_y"
+        rel_vort_y.long_name = "y component of relative vorticity"
+        rel_vort_y.units = "1/s"
+        return rel_vort_y
 
     @property
     def rel_vort_z(self) -> fr.FieldVariable:
@@ -308,35 +260,15 @@ class State(fr.StateBase):
         .. math::
             \zeta_z = \partial_x v - \partial_y u
         """
-        # shortcuts
-        interp = self.grid.interpolate
-        diff = self.grid.diff
-
-        dvdx = diff(self.v.arr, axis=0, type="forward")
-        dvdx_pos = self.v.position.shift(axis=0, direction="forward")
-
-        dudy = diff(self.u.arr, axis=1, type="forward")
-        dudy_pos = self.u.position.shift(axis=1, direction="forward")
-
-        # if the positions do not match, interpolate the fields to cell centers
-        if dvdx_pos != dudy_pos:
-            pos = self.grid.cell_center
-            dvdx = interp(dvdx, dvdx_pos, pos)
-            dudy = interp(dudy, dudy_pos, pos)
-        else:
-            pos = dvdx_pos
-        
+        dvdx = self.v.diff(axis=0)
+        dudy = self.u.diff(axis=1).interpolate(dvdx.position)
         rel_vort_z = dvdx - dudy
-            
-        # Create the field variable
-        return fr.FieldVariable(
-            self.mset, 
-            is_spectral=False, 
-            name="vort_z", 
-            long_name="horizontal vorticity",
-            units="1/s",
-            arr=rel_vort_z,
-            position=pos)
+
+        # Set the attributes
+        rel_vort_z.name = "vort_z"
+        rel_vort_z.long_name = "horizontal vorticity"
+        rel_vort_z.units = "1/s"
+        return rel_vort_z
 
     @property
     def pot_vort(self) -> fr.FieldVariable:
@@ -358,7 +290,6 @@ class State(fr.StateBase):
 
         # shortcuts
         f0 = self.mset.f0; N2 = self.mset.N2; Ro = self.mset.Ro
-        interp = self.grid.interpolate
 
         # calculate the horizontal vorticity
         ver_vort_x = self.rel_vort_x * Ro
@@ -366,36 +297,27 @@ class State(fr.StateBase):
         ver_vort_z = self.rel_vort_z * Ro
 
         # calculate the buoyancy gradient
-        buo_grad_x, buo_grad_y, buo_grad_z = self.grid.grad(self.b.arr * Ro)
+        buo_grad_x, buo_grad_y, buo_grad_z = (self.b * Ro).grad()
 
         # interpolate the buoyancy gradient to the voriticities
-        buo_grad_x_pos = self.b.position.shift(axis=0, direction="forward")
-        buo_grad_y_pos = self.b.position.shift(axis=1, direction="forward")
-        buo_grad_z_pos = self.b.position.shift(axis=2, direction="forward")
-        buo_grad_x = interp(buo_grad_x, buo_grad_x_pos, ver_vort_x.position)
-        buo_grad_y = interp(buo_grad_y, buo_grad_y_pos, ver_vort_y.position)
-        buo_grad_z = interp(buo_grad_z, buo_grad_z_pos, ver_vort_z.position)
+        buo_grad_x = buo_grad_x.interpolate(ver_vort_x.position)
+        buo_grad_y = buo_grad_y.interpolate(ver_vort_y.position)
+        buo_grad_z = buo_grad_z.interpolate(ver_vort_z.position)
 
+        # Calculate each component of the potential vorticity
         x_part = ver_vort_x * buo_grad_x
         y_part = ver_vort_y * buo_grad_y
-        z_part = (f0 + ver_vort_z) * (N2 + buo_grad_z)
-
-        # interpolate the fields to the cell center
-        x_part = interp(x_part, x_part.position, self.grid.cell_center)
-        y_part = interp(y_part, y_part.position, self.grid.cell_center)
-        z_part = interp(z_part, z_part.position, self.grid.cell_center)
+        z_part = (ver_vort_z + f0) * (N2 + buo_grad_z)
 
         pot_vort = x_part + y_part + z_part
 
-        # Create the field variable
-        return fr.FieldVariable(
-            self.mset, 
-            is_spectral=False, 
-            name="pot_vort",
-            long_name="Potential Vorticity",
-            units="TODO",
-            arr=pot_vort,
-            position=self.grid.cell_center)
+        # Set the attributes
+        pot_vort.name = "pot_vort"
+        pot_vort.long_name = "Potential Vorticity"
+        pot_vort.units = "n/a"
+        pot_vort.position = self.grid.cell_center
+
+        return pot_vort
 
     @property
     def linear_pot_vort(self) -> fr.FieldVariable:
@@ -412,24 +334,18 @@ class State(fr.StateBase):
         """
         # shortcuts
         f0 = self.mset.f0; N2 = self.mset.N2; Ro = self.mset.Ro
-        interp = self.grid.interpolate
 
-        hor_vort = self.rel_vort_z
-        hor_vort = interp(hor_vort, hor_vort.position, self.grid.cell_center)
-
-        dbdz = self.grid.diff(self.b.arr, axis=2, type="forward")
-        dbdz_pos = self.b.position.shift(axis=2, direction="forward")
-        dbdz = interp(dbdz, dbdz_pos, self.grid.cell_center)
-
+        hor_vort = self.rel_vort_z.interpolate(self.grid.cell_center)
+        dbdz = self.b.diff(axis=2).interpolate(self.grid.cell_center)
         pot_vort = Ro * (f0/N2 * dbdz + hor_vort)
-        return fr.FieldVariable(
-            self.mset,
-            is_spectral=self.is_spectral,
-            name="linear PV",
-            long_name="Linear Potential Vorticity",
-            units="TODO",
-            arr=pot_vort,
-            position=self.grid.cell_center)
+
+        # Set the attributes
+        pot_vort.name = "linear pot vort"
+        pot_vort.long_name = "Linear Potential Vorticity"
+        pot_vort.units = "n/a"
+        pot_vort.position = self.grid.cell_center
+
+        return pot_vort
 
     @property
     def local_Ro(self) -> fr.FieldVariable:
@@ -446,86 +362,51 @@ class State(fr.StateBase):
         # shortcuts
         f = self.mset.f_coriolis; Ro = self.mset.Ro
 
-        hor_vort = self.rel_vort_z
-        local_Ro = Ro * hor_vort / f
+        local_Ro = Ro * self.rel_vort_z / f
 
-        # calculate the local Rossby number
-        return fr.FieldVariable(
-            self.mset,
-            is_spectral=self.is_spectral,
-            name="loc Ro",
-            long_name="Local Rossby Number",
-            units="1",
-            arr=local_Ro,
-            position=local_Ro.position)
+        # Set the attributes
+        local_Ro.name = "loc Ro"
+        local_Ro.long_name = "Local Rossby Number"
+        local_Ro.units = "1"
+        
+        return local_Ro
 
     # ----------------------------------------------------------------
     #  CFL numbers
     # ----------------------------------------------------------------
 
     @property
-    def cfl_h(self) -> fr.FieldVariable:
+    def cfl(self) -> fr.FieldVariable:
         r"""
-        The horizontal CFL number.
+        The CFL number.
 
         .. math::
-            CFL_h = \sqrt{u^2 + v^2} \frac{\Delta t}{\Delta}
+            CFL = \max\left\{ \frac{u}{\Delta x}, \frac{v}{\Delta y, 
+                              \frac{w}{\Delta z}} \right\} \Delta t
 
-        where :math:`\Delta t` is the time step and :math:`\Delta` is a 
-        horizontal grid spacing:
-
-        .. math::
-            \Delta = \min(\Delta x, \Delta y)
+        where :math:`\Delta t` is the time step and :math:`\Delta x` is the
+        grid spacing. 
 
         Returns:
-            cfl_h (FieldVariable)  : Horizontal CFL number.
+            cfl (FieldVariable)  : Horizontal CFL number.
         """
-        # shortcuts
-        u = self.u; v = self.v
         dx, dy, dz = self.grid.dx
-        dx = min(dx, dy)
         dt = self.mset.time_stepper.dt
+        cfl_u = self.u.abs() * dt / dx
+        cfl_v = self.v.abs() * dt / dy
+        cfl_w = self.w.abs() * dt / dz
 
-        cfl_h = (u**2 + v**2)**0.5 * dt / dx
+        cfl = fr.config.ncp.maximum(cfl_u.arr, cfl_v.arr)
+        cfl = fr.config.ncp.maximum(cfl, cfl_w.arr)
 
         # Create the field variable
         return fr.FieldVariable(
             self.mset, 
-            arr=cfl_h.arr,
+            arr=cfl,
             is_spectral=self.is_spectral, 
-            name="hor CFL",
-            long_name="Horizontal CFL",
+            name="cfl",
+            long_name="CFL Number",
             position=self.grid.cell_center)
-
-    @property
-    def cfl_v(self) -> fr.FieldVariable:
-        r"""
-        Vertical CFL number.
-
-        .. math::
-            CFL_v = \sqrt{w^2} \frac{\Delta t}{\Delta z}
-
-        where :math:`\Delta t` is the time step and :math:`\Delta z` is a 
-        vertical grid spacing.
-
-        Returns:
-            cfl_v (FieldVariable)  : Vertical CFL number.
-        """
-        # shortcuts
-        w = self.w
-        dx, dy, dz = self.grid.dx
-        dt = self.mset.time_stepper.dt
-
-        cfl_v = fr.config.ncp.abs(w.arr) * dt / dz
-
-        # Create the field variable
-        return fr.FieldVariable(
-            self.mset, 
-            arr=cfl_v,
-            is_spectral=self.is_spectral, 
-            name="ver CFL",
-            long_name="Vertical CFL",
-            position=w.position)
 
 fr.utils.jaxify_class(State)
 

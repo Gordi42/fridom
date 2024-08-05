@@ -66,7 +66,7 @@ def humanize_number(value, unit):
             return f"{value/1e3:.2f} km"
 
     elif unit == "seconds":
-        delta = datetime.timedelta(seconds=value)
+        delta = datetime.timedelta(seconds=float(value))
         days = delta.days
         formatted_time = ""
         if days > 0:
@@ -455,12 +455,9 @@ def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
     `float`
         The time in seconds.
     """
-    if isinstance(t, (float, int)):
-        return t
-    elif isinstance(t, (np.datetime64, np.timedelta64)):
+    if isinstance(t, (np.datetime64, np.timedelta64)):
         return float(t.astype('timedelta64[s]').astype(float))
-    else:
-        raise TypeError(f"Unsupported type '{type(t)}' for time.")
+    return t
 
 # ================================================================
 #  JAX functions

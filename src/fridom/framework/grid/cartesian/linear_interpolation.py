@@ -33,7 +33,7 @@ class LinearInterpolation(fr.grid.InterpolationModule):
         for axis in range(f.arr.ndim):
             f = self.interpolate_axis(f, axis, destination.positions[axis])
         mask = self.water_mask.get_mask(destination)
-        f.arr *= mask
+        f.arr = f.arr * mask
         return f
 
     @partial(fr.utils.jaxjit, static_argnames=('axis', 'destination'))
