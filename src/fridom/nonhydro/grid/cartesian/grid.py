@@ -18,6 +18,9 @@ class Grid(fr.grid.cartesian.Grid):
             raise ValueError(f"Unknown decomposition {decomposition}")
         super().__init__(N, L, periodic_bounds, shared_axes)
 
+        self.k2_hat = None
+        self.k2_hat_zero = None
+
     def setup(self, mset: nh.ModelSettings):
         super().setup(mset)
 

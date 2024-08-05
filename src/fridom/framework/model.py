@@ -267,10 +267,6 @@ class Model:
         with self.timer["sync"]:
             self.z.sync()
 
-        # set the current tendency term to zero
-        if self.model_state.dz is not None:
-            self.model_state.dz *= 0
-
         # perform the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
 
@@ -281,9 +277,6 @@ class Model:
                     config.logger.critical(
                         "State variable contains NaNs. Stopping model.")
                     self.model_state.panicked = True
-
-        # apply boundary conditions to the state variable
-        self.model_state = self.bc.update(mz=self.model_state)
 
         # make diagnostics
         self.model_state = self.diagnostics.update(self.model_state)

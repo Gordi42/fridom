@@ -1,6 +1,7 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
 from numpy import ndarray
+from functools import partial
 
 
 class HarmonicFriction(fr.modules.Module):
@@ -32,7 +33,7 @@ class HarmonicFriction(fr.modules.Module):
         Differentiation module to use. If None, the differentiation module of
         the grid is used.
     """
-    _dynamic_attributes = ["mset", "ah", "av"]
+    _dynamic_attributes = ["mset", "ah", "av", "water_mask"]
     def __init__(self, 
                  ah: float = 0, 
                  av: float = 0,
@@ -49,10 +50,11 @@ class HarmonicFriction(fr.modules.Module):
             self.diff = self.mset.grid._diff_mod
         else:
             self.diff.setup(mset=self.mset)
+        self.water_mask = self.grid._water_mask
         return
 
-    @fr.utils.jaxjit
-    def harmonic(self, arr: ndarray) -> ndarray:
+    @partial(fr.utils.jaxjit, static_argnames=("pos"))
+    def harmonic(self, arr: ndarray, pos: fr.grid.Position) -> ndarray:
         r"""
         Compute the harmonic second order derivative.
 
@@ -70,21 +72,39 @@ class HarmonicFriction(fr.modules.Module):
         `ndarray`
             The harmonic friction term.
         """
-        # calculate the gradient of the field variable
-        grad = self.diff.grad(arr)
-        # multiply the gradient with the harmonic friction coefficients
-        grad = [self.ah * grad[0], self.ah * grad[1], self.av * grad[2]]
-        # return the divergence of the gradient
-        return self.diff.div(grad)
+        # div = fr.config.ncp.zeros_like(arr)
+        # a = [self.ah, self.ah, self.av]
+        # for axis in range(3):
+        #     # match pos[axis]:
+        #     #     case fr.grid.AxisPosition.CENTER:
+        #     #         first_dif = "forward"
+        #     #         second_dif = "backward"
+        #     #     case fr.grid.AxisPosition.RIGHT:
+        #     first_dif = "backward"
+        #     second_dif = "forward"
+        #     #     case fr.grid.AxisPosition.LEFT:
+        #     # first_dif = "forward"
+        #     # second_dif = "backward"
 
-    @fr.utils.jaxjit
+        #     # new_pos = pos.shift(axis, first_dif)
+        #     print("yo")
+        #     print(new_pos)
+        #     print("yo")
+        #     grad = mask * self.diff.diff(arr, axis, first_dif) * a[axis]
+        #     div += self.diff.diff(grad, axis, second_dif)
+        # mask = self.grid.get_water_mask(pos)
+        new_pos = self.grid.cell_center
+        mask = self.water_mask.get_mask(new_pos)
+        return mask * arr
+
+    # @fr.utils.jaxjit
     def friction(self, z: nh.State, dz: nh.State) -> nh.State:
         """
         Compute the harmonic friction term.
         """
-        dz.u.arr += self.harmonic(z.u.arr)
-        dz.v.arr += self.harmonic(z.v.arr)
-        dz.w.arr += self.harmonic(z.w.arr)
+        dz.u.arr += self.harmonic(z.u.arr, z.u.position)
+        dz.v.arr += self.harmonic(z.v.arr, z.v.position)
+        # dz.w.arr += self.harmonic(z.w.arr, z.w.position)
         return dz
 
     @fr.modules.module_method

@@ -17,8 +17,6 @@ if TYPE_CHECKING:
     from fridom.framework.grid.transform_type import TransformType
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.domain_decomposition import Subdomain
-    from fridom.framework.grid.diff_base import DiffBase
-    from fridom.framework.grid.interpolation_base import InterpolationBase
 
 
 class Grid(GridBase):
@@ -29,10 +27,7 @@ class Grid(GridBase):
     -----------
     The cartesian grid is a regular grid with constant grid spacing in each
     direction. The grid can be periodic in some directions and non-periodic in
-    others. When performing a fourier transform, ffts are applied to the
-    periodic axes and discrete cosine transforms to the non-periodic axes. When
-    constructing the grid with MPI initialized, the grid will be distributed
-    among the MPI ranks.
+    others. 
     
     Parameters
     ----------
@@ -40,19 +35,19 @@ class Grid(GridBase):
         Number of grid points in each direction.
     `L` : `tuple[float]`
         Domain size in meters in each direction.
-    `periodic_bounds` : `tuple[bool]`, optional
+    `periodic_bounds` : `tuple[bool]`, (default: None)
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
         Default is True for all axes.
-    `shared_axes` : `list[int]`, optional
+    `shared_axes` : `list[int]`, (default: None)
         A list of integers that indicate which axes are shared among MPI ranks.
         Default is None, which means that no fourier transforms are available.
-    `diff_mod` : `DiffBase`, optional
-        A module that contains the differentiation operators. Default is None
-        which constructs the finite differences module.
-    `interp_mod` : `InterpolationBase`, optional
-        A module that contains the interpolation methods. Default is None
-        which constructs the linear interpolation module.
+    `diff_mod` : `DiffModule`, (default: None)
+        A module that contains the differentiation operators.
+        If None, the finite differences module is used.
+    `interp_mod` : `InterpolationModule`, (default: None)
+        A module that contains the interpolation methods. 
+        If None, the linear interpolation module is used.
     
     Examples
     --------
@@ -83,8 +78,8 @@ class Grid(GridBase):
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
                  shared_axes: list[int] | None = None,
-                 diff_mod: 'DiffBase | None' = None,
-                 interp_mod: 'InterpolationBase | None' = None
+                 diff_mod: fr.grid.DiffModule | None = None,
+                 interp_mod: fr.grid.InterpolationModule | None = None
                  ) -> None:
         super().__init__(len(N))
         self.name = "Cartesian Grid"
@@ -124,8 +119,6 @@ class Grid(GridBase):
         # private attributes
         self._N = N
         self._L = L
-        offsets = [fr.grid.AxisPosition.CENTER for _ in range(n_dims)]
-        self._cell_center = fr.grid.Position(tuple(offsets))
         self._dx = tuple(L / N for L, N in zip(L, N))
         self._dV = np.prod(self._dx)
         self._total_grid_points = int(np.prod(N))
@@ -233,7 +226,7 @@ class Grid(GridBase):
         f = lambda x, axes: self._fft.backward(x, axes, transform_types)
         return self._pfft.backward_apply(arr, f)
 
-    @partial(utils.jaxjit, static_argnames=["flat_axes"])
+    # @partial(utils.jaxjit, static_argnames=["flat_axes"])
     def sync(self, 
              arr: np.ndarray, 
              flat_axes: list[int] | None = None) -> np.ndarray:
@@ -266,15 +259,6 @@ class Grid(GridBase):
         return self._domain_decomp.apply_boundary_condition(arr, value, axis, side)
 
     def get_domain_decomposition(self, spectral=False) -> DomainDecomposition:
-        """
-        Get the domain decomposition of the physical or spectral domain.
-
-        Parameters
-        ----------
-        `spectral` : `bool`, optional
-            If True, return the domain decomposition of the spectral domain.
-            Default is False.
-        """
         if spectral:
             return self._pfft.domain_out
         else:

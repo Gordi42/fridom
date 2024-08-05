@@ -3,132 +3,114 @@ import fridom.framework as fr
 
 class AxisPosition(Enum):
     """
-    The position of a field along an axis relative to the grid cell.
+    The position of a field along an axis on the staggered grid.
 
     Options
     -------
-    `LEFT` : 
-        The field is located at the left edge of the grid cell.
     `CENTER` :
-        The field is located at the center of the grid cell.
-    `RIGHT` :
-        The field is located at the right edge of the grid cell.
-    """
-    LEFT = auto()
-    CENTER = auto()
-    RIGHT = auto()
+        Center of the grid cell.
+    `FACE` :
+        Face of the grid cell (right edge of the cell).
 
-    def shift(self, direction: str) -> 'AxisPosition':
+    ::
+
+          CENTER
+             ↓
+        |    x    |    x    |    x    |
+                  ↑
+                FACE
+        → positive direction
+    """
+    CENTER = auto()
+    FACE = auto()
+
+    def shift(self) -> 'AxisPosition':
         """
-        Shift the position of the field
-        
-        Parameters
-        ----------
-        `direction` : `str`
-            The direction in which to shift the field. The direction can be
-            either `forward` or `backward`.
-        
+        Shift the position of the field. Center -> Face and vice versa
+
         Returns
         -------
-        `AxisPosition`
+        `AxisPositionNew`
             The new axis position of the field.
         """
         match self:
-            case AxisPosition.LEFT:
-                if direction == "forward":
-                    return AxisPosition.CENTER
-                else:
-                    raise ValueError("Cannot shift field to the left.")
             case AxisPosition.CENTER:
-                if direction == "forward":
-                    return AxisPosition.RIGHT
-                else:
-                    return AxisPosition.LEFT
-            case AxisPosition.RIGHT:
-                if direction == "forward":
-                    raise ValueError("Cannot shift field to the right.")
-                else:
-                    return AxisPosition.CENTER
+                return AxisPosition.FACE
+            case AxisPosition.FACE:
+                return AxisPosition.CENTER
 
 
 class Position:
     """
     The position of a field on a staggered grid.
     
-    Description
-    -----------
-    This class represents the position of a field on a staggered grid. The
-    position is defined by the offset of the field along each axis relative to
-    the grid cell. The offset can be one of three values: `LEFT`, `CENTER`, or
-    `RIGHT`.
-    
     Parameters
     ----------
     `positions` : `tuple[AxisPosition]`
-        The offset of the field along each axis.
+        The positions of the field along each axis.
     """
-    _dynamic_attributes = set([])
+    _dynamic_attributes = []
     def __init__(self, positions: tuple[AxisPosition]) -> None:
-        self.positions = positions
+        self._positions = positions
         return
 
-    def shift(self, axis: int, direction: str) -> 'Position':
+    def shift(self, axis: int) -> 'Position':
         """
         Shift the position of the field along an axis.
+
+        The position of the field along the specified axis is shifted from
+        center to face or vice versa.
         
         Parameters
         ----------
         `axis` : `int`
             The axis along which to shift the field.
-        `direction` : `str`
-            The direction in which to shift the field. The direction can be
-            either `forward` or `backward`.
         
         Returns
         -------
         `Position`
             The new position of the field.
         """
-        if direction not in ["forward", "backward"]:
-            raise ValueError(
-                f"Invalid direction: {direction}. Must be 'forward' or 'backward'.")
-
-        new_positions = list(self.positions)
-        new_positions[axis] = self[axis].shift(direction)
+        new_positions = list(self._positions)
+        new_positions[axis] = new_positions[axis].shift()
         return Position(tuple(new_positions))
 
+    # ----------------------------------------------------------------
+    #  Overloaded operators
+    # ----------------------------------------------------------------
+
     def __hash__(self) -> int:
-        return hash(self.positions)
+        return hash(self._positions)
 
     def __eq__(self, value: object) -> bool:
+        if not isinstance(value, Position):
+            return False
+
         for my_pos, other_pos in zip(self.positions, value.positions):
             if my_pos != other_pos:
                 return False
         return True
 
     def __getitem__(self, key: int) -> AxisPosition:
-        """
-        Get the position of the field along an axis.
-        
-        Parameters
-        ----------
-        `key` : `int`
-            The axis along which to get the position of the field.
-        
-        Returns
-        -------
-        `AxisPosition`
-            The position of the field along the axis.
-        """
         return self.positions[key]
-    
+
     def __setitem__(self, key: int, value: AxisPosition) -> None:
-        positions = list(self.positions)
+        positions = list(self._positions)
         positions[key] = value
-        self.positions = tuple(positions)
+        self._positions = tuple(positions)
         return
 
     def __repr__(self) -> str:
-        return f"Position({self.positions})"
+        return f"Position: {self._positions}"
+
+    # ----------------------------------------------------------------
+    #  Properties
+    # ----------------------------------------------------------------
+    @property
+    def positions(self) -> tuple[AxisPosition]:
+        """
+        The positions of the field along each axis.
+        """
+        return self._positions
 
 fr.utils.jaxify_class(Position)

@@ -1,29 +1,8 @@
-# Import external modules
-from typing import TYPE_CHECKING
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.modules.module import Module, setup_module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_state import ModelState
-    from fridom.nonhydro.state import State
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
-@utils.jaxjit
-def pressure_gradient_tendency(mset, p, dz):
-    """
-    Compute the pressure gradient tendency of the model.
-    """
-    p_grad = mset.grid.grad(p)
-
-    dz["u"] -= p_grad[0]
-    dz["v"] -= p_grad[1]
-    dz["w"] -= p_grad[2] / mset.dsqr
-
-
-
-    return dz
-
-class PressureGradientTendency(Module):
+class PressureGradientTendency(fr.modules.Module):
+    _dynamic_attributes = set(["mset"])
     """
     This class computes the pressure gradient tendency of the model.
     """
@@ -31,14 +10,23 @@ class PressureGradientTendency(Module):
         super().__init__(name="Pressure Gradient")
         self.required_halo = 1
 
-    @module_method
-    def update(self, mz: 'ModelState') -> 'ModelState':
-        mz.dz.arr_dict = pressure_gradient_tendency(
-            self.mset, mz.z_diag.p.arr, mz.dz.arr_dict)
+    @fr.modules.module_method
+    def update(self, mz: fr.ModelState) -> fr.ModelState:
+        mz.dz = self.pressure_gradient_tendency(mz.z_diag.p, mz.dz)
         return mz
 
-    @property
-    def info(self) -> dict:
-        res = super().info
-        res["Discretization"] = "Finite Difference"
-        return res
+    @fr.utils.jaxjit
+    def pressure_gradient_tendency(
+            self, p: fr.FieldVariable, dz: nh.State) -> nh.State:
+        """Compute the pressure gradient tendency of the model."""
+        # compute gradient of pressure
+        p_grad = p.grad()
+
+        # remove the gradient from the velocity tendency
+        dz.u -= p_grad[0]
+        dz.v -= p_grad[1]
+        dz.w -= p_grad[2] / self.mset.dsqr
+
+        return dz
+
+fr.utils.jaxify_class(PressureGradientTendency)

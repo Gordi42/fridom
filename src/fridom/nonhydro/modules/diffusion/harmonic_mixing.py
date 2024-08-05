@@ -1,6 +1,7 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
 from numpy import ndarray
+from functools import partial
 
 
 class HarmonicMixing(fr.modules.Module):
@@ -51,8 +52,49 @@ class HarmonicMixing(fr.modules.Module):
             self.diff.setup(mset=self.mset)
         return
 
-    @fr.utils.jaxjit
-    def harmonic(self, arr: ndarray) -> ndarray:
+    # @partial(fr.utils.jaxjit, static_argnames=("pos"))
+    # def harmonic(self, arr: ndarray, pos: fr.grid.Position) -> ndarray:
+    #     r"""
+    #     Compute the harmonic second order derivative.
+
+    #     Description
+    #     -----------
+    #     Computes the harmonic friction term for the given field variable.
+
+    #     Parameters
+    #     ----------
+    #     `arr` : `ndarray`
+    #         The field variable.
+
+    #     Returns
+    #     -------
+    #     `ndarray`
+    #         The harmonic friction term.
+    #     """
+    #     # calculate the gradient of the field variable
+    #     div = fr.config.ncp.zeros_like(arr)
+    #     k = [self.kh, self.kh, self.kv]
+    #     for axis in range(3):
+    #         # new_pos = pos.shift(axis, "forward")
+    #         # mask = self.grid.get_water_mask(new_pos)
+    #         grad = self.diff.diff(arr, axis, "forward") * k[axis] #* mask
+    #         div += self.diff.diff(grad, axis, "backward")
+    #     # mask = self.grid.get_water_mask(pos)
+    #     return div# * mask
+
+    # @fr.utils.jaxjit
+    # def mixing(self, z: nh.State, dz: nh.State) -> nh.State:
+    #     r"""
+    #     Compute the harmonic mixing term.
+    #     """
+    #     # z = self.mset.bc.apply_boundary_conditions(z)
+    #     for name, field in z.fields.items():
+    #         if field.flags["ENABLE_MIXING"]:
+    #             dz.fields[name].arr += self.harmonic(field.arr, field.position)
+    #     return dz
+
+    @partial(fr.utils.jaxjit)
+    def harmonic(self, field):
         r"""
         Compute the harmonic second order derivative.
 
@@ -71,27 +113,38 @@ class HarmonicMixing(fr.modules.Module):
             The harmonic friction term.
         """
         # calculate the gradient of the field variable
-        grad = self.diff.grad(arr)
-        # multiply the gradient with the harmonic friction coefficients
-        grad = [self.kh * grad[0], self.kh * grad[1], self.kv * grad[2]]
-        # return the divergence of the gradient
-        return self.diff.div(grad)
+        div = fr.config.ncp.zeros_like(field.arr)
+        k = [self.kh, self.kh, self.kv]
+        for axis in range(3):
+            # new_pos = field.position.shift(axis, "forward")
+            # mask = self.grid.get_water_mask(new_pos)
+            grad = self.diff.diff(field.arr, axis, "forward") * k[axis] #* mask
+            div += self.diff.diff(grad, axis, "backward")
+        # mask = self.grid.get_water_mask(field.position)
+        new_field = fr.FieldVariable(arr=div, **field.get_kw())
+        return new_field
 
     @fr.utils.jaxjit
     def mixing(self, z: nh.State, dz: nh.State) -> nh.State:
         r"""
         Compute the harmonic mixing term.
         """
-        z = self.mset.bc.apply_boundary_conditions(z)
+        # z = self.mset.bc.apply_boundary_conditions(z)
         for name, field in z.fields.items():
             if field.flags["ENABLE_MIXING"]:
-                dz.fields[name].arr += self.harmonic(field.arr)
-        return self.mset.bc.apply_boundary_conditions(dz)
+                dz.fields[name].arr += self.harmonic(field).arr
+        return dz
+
+    def intermediate(self, mz: nh.ModelState) -> nh.ModelState:
+        mz.dz = self.mixing(mz.z, mz.dz)
+        mz.dz.b.arr.block_until_ready()
+        return mz
 
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:
-        mz.dz = self.mixing(mz.z, mz.dz)
-        return mz
+        # wait untils jax array is read
+        mz.z.b.arr.block_until_ready()
+        return self.intermediate(mz)
 
     @property
     def info(self) -> dict:

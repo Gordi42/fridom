@@ -1,24 +1,17 @@
-# Import external modules
-from typing import TYPE_CHECKING
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.modules.module import Module, setup_module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_state import ModelState
-    from fridom.framework.grid import InterpolationBase
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
 
-class LinearTendency(Module):
+class LinearTendency(fr.modules.Module):
     """
     This class computes the linear tendency of the model.
     """
     _dynamic_attributes = set(["mset"])
-    def __init__(self, interpolation: 'InterpolationBase | None' = None):
+    def __init__(self, interpolation: fr.grid.InterpolationModule | None = None):
         super().__init__(name="Linear Tendency")
         self.interpolation = interpolation
 
-    @setup_module
+    @fr.modules.setup_module
     def setup(self):
         if self.interpolation is None:
             self.interpolation = self.mset.grid._interp_mod
@@ -26,49 +19,34 @@ class LinearTendency(Module):
             self.interpolation.setup(mset=self.mset)
         return
 
-    @module_method
-    def update(self, mz: 'ModelState') -> 'ModelState':
+    @fr.modules.module_method
+    def update(self, mz: fr.ModelState) -> fr.ModelState:
         mz.dz = self.linear_tendency(mz.z, mz.dz)
         return mz
 
-    @utils.jaxjit
-    def linear_tendency(self, z, dz):
+    @fr.utils.jaxjit
+    def linear_tendency(self, z: nh.State, dz: nh.State) -> nh.State:
         """
         Compute the linear tendency of the model.
         """
-        # compute the linear tendency
-        u = z.u; v = z.v; w = z.w; bu = z.b
-        dsqr = self.mset.dsqr
-        f_cor = self.mset.f_coriolis
-        N2 = self.mset.N2
         interp = self.interpolation.interpolate
 
         # interpolate the coriolis parameter to the u position
-        f = interp(f_cor.arr, f_cor.position, u.position)
+        f = interp(self.mset.f_coriolis, z.u.position)
 
         # calculate u-tendency
-        dz.u.arr = f * interp(v.arr, v.position, u.position)
-
-        # calculate v-tendency
-        dz.v.arr = -interp(f * u.arr, u.position, v.position)
-
-        # calculate w-tendency
-        dz.w.arr = interp(bu.arr, bu.position, w.position) / dsqr
-
-        # calculate b-tendency
-        dz.b.arr = - interp(w.arr, w.position, bu.position) * N2
+        dz.u +=   interp(z.v, z.u.position) * f
+        dz.v += - interp(z.u * f, z.v.position)
+        dz.w +=   interp(z.b, z.w.position) / self.mset.dsqr
+        dz.b += - interp(z.w, z.b.position) * self.mset.N2
 
         return dz
 
     @property
-    def info(self) -> dict:
-        res = super().info
-        res["Discretization"] = "Finite Difference"
-        return res
-
-    @property
     def required_halo(self) -> int:
         if self.interpolation is None:
+            # while the interpolation module is not set up, we cannot determine
+            # the required halo
             return 0
         else:
             return self.interpolation.required_halo
@@ -77,4 +55,4 @@ class LinearTendency(Module):
     def required_halo(self, value: int):
         return
 
-utils.jaxify_class(LinearTendency)
+fr.utils.jaxify_class(LinearTendency)

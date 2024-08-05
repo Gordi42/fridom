@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
     # import classes
     from .grid_base import GridBase
-    from .diff_base import DiffBase
-    from .interpolation_base import InterpolationBase
+    from .diff_module import DiffModule
+    from .interpolation_module import InterpolationModule
     from .position import AxisPosition, Position
     from .water_mask import WaterMask
     from .transform_type import TransformType
@@ -28,8 +28,8 @@ all_modules_by_origin = { base: ["cartesian"] }
 
 all_imports_by_origin = { 
     f"{base}.grid_base": ["GridBase"],
-    f"{base}.diff_base": ["DiffBase"],
-    f"{base}.interpolation_base": ["InterpolationBase"],
+    f"{base}.diff_module": ["DiffModule"],
+    f"{base}.interpolation_module": ["InterpolationModule"],
     f"{base}.position": ["AxisPosition", "Position"],
     f"{base}.water_mask": ["WaterMask"],
     f"{base}.transform_type": ["TransformType"],

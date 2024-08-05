@@ -1,16 +1,6 @@
 import fridom.framework as fr
 from numpy import ndarray
-# Import external modules
-from typing import TYPE_CHECKING
-from fridom.framework import utils
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.grid.transform_type import TransformType
-    from fridom.framework.grid.position import PositionBase
-    from .diff_base import DiffBase
-    from .interpolation_base import InterpolationBase
-    from .position import PositionBase
+from abc import abstractmethod
 
 class GridBase:
     """
@@ -30,7 +20,7 @@ class GridBase:
     `mpi_available` : `bool`
         Indicates whether the grid supports MPI parallelization.
     """
-    _dynamic_attributes = ["_X", "_x_global", "_x_local", 
+    _dynamic_attributes = ["_X", "_x_global", "_x_local",
                            '_K', '_k_local', '_k_global']
     def __init__(self, n_dims: int) -> None:
 
@@ -42,7 +32,6 @@ class GridBase:
         self._total_grid_points = None
         self._periodic_bounds = None
         self._inner_slice = slice(None)
-        self._cell_center = None
         self._X = None
         self._x_global = None
         self._x_local = None
@@ -50,6 +39,9 @@ class GridBase:
         self._dV = None
         self._mset = None
         self._water_mask = fr.grid.WaterMask()
+        # The cell center
+        CENTER = fr.grid.AxisPosition.CENTER
+        self._cell_center = fr.grid.Position(tuple([CENTER] * n_dims))
         # spectral properties
         self._K = None
         self._k_global = None
@@ -58,8 +50,8 @@ class GridBase:
         self._omega_space_discrete = None
         self._omega_time_discrete = None
         # operator modules
-        self._diff_mod: 'DiffBase' = None
-        self._interp_mod: 'InterpolationBase' = None
+        self._diff_mod: fr.grid.DiffModule = None
+        self._interp_mod: fr.grid.InterpolationModule = None
 
         # prepare for numpy conversion (the numpy copy will be stored here)
         self._cpu = None
@@ -72,7 +64,7 @@ class GridBase:
 
         return
 
-    def setup(self, mset: 'ModelSettingsBase') -> None:
+    def setup(self, mset: fr.ModelSettingsBase) -> None:
         """
         Initialize the grid from the model settings.
         
@@ -84,13 +76,17 @@ class GridBase:
         """       
         self._diff_mod.setup(mset=mset)
         self._interp_mod.setup(mset=mset)
-        self._water_mask.setup(mset=mset)
         return
 
+    # ----------------------------------------------------------------
+    #  Fourier Transform Methods
+    # ----------------------------------------------------------------
+
+    @abstractmethod
     def fft(self, 
-            arr: 'ndarray',
-            transform_types: 'tuple[TransformType] | None' = None
-            ) -> 'ndarray':
+            arr: ndarray,
+            transform_types: tuple[fr.grid.TransformType] | None = None
+            ) -> ndarray:
         """
         Perform a (fast) fourier transform on the input array.
         
@@ -108,10 +104,11 @@ class GridBase:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def ifft(self, 
-             arr:'ndarray',
-             transform_types: 'tuple[TransformType] | None' = None
-             ) -> 'ndarray':
+             arr: ndarray,
+             transform_types: tuple[fr.grid.TransformType] | None = None
+             ) -> ndarray:
         """
         Perform an inverse (fast) fourier transform on the input array.
         
@@ -129,42 +126,15 @@ class GridBase:
         """
         raise NotImplementedError
 
-    def sync(self, arr: 'ndarray') -> 'ndarray':
-        """
-        Synchronize the halo (boundary) points of an array across all MPI ranks.
-        
-        Parameters
-        ----------
-        `arr` : `ndarray`
-            The array to synchronize.
+    # ----------------------------------------------------------------
+    #  Spectral Analysis Tools
+    # ----------------------------------------------------------------
 
-        Returns
-        -------
-        `ndarray`
-            The synchronized array.
-        """
-        raise NotImplementedError
-
-    def sync_multi(self, arrs: 'list[ndarray]') -> 'list[ndarray]':
-        """
-        Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
-        
-        Parameters
-        ----------
-        `arrs` : `list[ndarray]`
-            The list of arrays to synchronize.
-        
-        Returns
-        -------
-        `list[ndarray]`
-            The synchronized list of arrays.
-        """
-        raise NotImplementedError
-
+    @abstractmethod
     def omega(self, 
-              k: 'tuple[float] | tuple[ndarray]',
+              k: tuple[float] | tuple[ndarray],
               use_discrete: bool = False
-              ) -> 'ndarray':
+              ) -> ndarray:
         """
         Compute the dispersion relation of the model.
         
@@ -182,6 +152,7 @@ class GridBase:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def vec_q(self, s: int, use_discrete: bool = True) -> fr.StateBase:
         """
         Computes the eigenvector of the linear operator of the mode `s`.
@@ -200,6 +171,7 @@ class GridBase:
         """
         raise NotImplementedError
 
+    @abstractmethod
     def vec_p(self, s: int, use_discrete: bool = True) -> fr.StateBase:
         """
         Computes the projection vector of the linear operator of the mode `s`.
@@ -218,6 +190,43 @@ class GridBase:
         """
         raise NotImplementedError
 
+    @property
+    def omega_analytical(self) -> ndarray:
+        """
+        Analytical dispersion relation.
+        """
+        if self._omega_analytical is None:
+            self._omega_analytical = self.omega(self.K, use_discrete=False)
+        return self._omega_analytical
+
+    @property
+    def omega_space_discrete(self) -> ndarray:
+        """
+        Dispersion relation with space-discretization effects.
+        """
+        if self._omega_space_discrete is None:
+            self._omega_space_discrete = self.omega(self.K, use_discrete=True)
+        
+        return self._omega_space_discrete
+
+    @property
+    def omega_time_discrete(self):
+        """
+        Dispersion relation with space-time-discretization effects.
+        Warning: The computation may be very slow.
+        """
+        if self._omega_time_discrete is None:
+            om_space_discrete = self.omega_space_discrete
+            ts = self.mset.time_stepper
+            om = ts.time_discretization_effect(om_space_discrete)
+            self._omega_time_discrete = om
+        return self._omega_time_discrete
+
+    # ----------------------------------------------------------------
+    #  Domain Decomposition Methods
+    # ----------------------------------------------------------------
+
+    @abstractmethod
     def get_subdomain(self, spectral=False) -> fr.domain_decomposition.Subdomain:
         """
         Get the local subdomain of the processor in the physical or spectral 
@@ -225,212 +234,62 @@ class GridBase:
 
         Parameters
         ----------
-        `spectral` : `bool`, optional
+        `spectral` : `bool`, (default is False)
             If True, return the subdomain of the spectral domain.
-            Default is False.
         """
         raise NotImplementedError
 
-    def get_water_mask(self, position: fr.grid.Position) -> 'ndarray':
+    @abstractmethod
+    def get_domain_decomposition(
+            self, spectral=False
+            ) -> fr.domain_decomposition.DomainDecomposition:
         """
-        Get the water mask at a specific position.
-        
+        Get the domain decomposition of the grid.
+
         Parameters
         ----------
-        `position` : `Position`
-            The position of the mask.
+        `spectral` : `bool`, (default is False)
+            If True, return the domain decomposition of the spectral domain.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def sync(self, arr: ndarray) -> ndarray:
+        """
+        Synchronize the halo (boundary) points of an array across all MPI ranks.
         
-        Returns
-        -------
-        `ndarray`
-            The water mask.
-        """
-        return self._water_mask.get_mask(position)
-
-    def __repr__(self) -> str:
-        """
-        String representation of the grid.
-        """
-        res = self.name
-        for key, value in self.info.items():
-            res += "\n  - {}: {}".format(key, value)
-        return res
-
-    # ================================================================
-    #  Operators
-    # ================================================================
-
-    def diff(self, 
-             arr: 'ndarray', 
-             axis: int, 
-             **kwargs) -> 'ndarray':
-        """
-        Compute the derivative of a field along an axis.
-
         Parameters
         ----------
         `arr` : `ndarray`
-            The field to differentiate.
-        `axis` : `int`
-            The axis to differentiate along.
+            The array to synchronize.
 
         Returns
         -------
         `ndarray`
-            The derivative of the field along the specified axis. 
-            (same shape as `arr`)
+            The synchronized array.
         """
-        return self._diff_mod.diff(arr, axis, **kwargs)
+        raise NotImplementedError
 
-    def div(self,
-            arrs: 'list[ndarray]',
-            axes: list[int] | None = None,
-            **kwargs) -> 'ndarray':
+    @abstractmethod
+    def sync_multi(self, arrs: list[ndarray]) -> list[ndarray]:
         """
-        Calculate the divergence of a vector field (\\nabla \\cdot \\vec{v}).
-
+        Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
+        
         Parameters
         ----------
         `arrs` : `list[ndarray]`
-            The list of arrays representing the vector field.
-        `axes` : `list[int]` or `None` (default: `None`)
-            The axes along which to compute the divergence. If `None`, the
-            divergence is computed along all axes.
-
-        Returns
-        -------
-        `ndarray`
-            The divergence of the vector field.
-        """
-        return self._diff_mod.div(arrs, axes, **kwargs)
-    
-    def grad(self,
-             arr: 'ndarray',
-             axes: list[int] | None = None,
-             **kwargs) -> 'list[ndarray]':
-            """
-            Calculate the gradient of a scalar field (\\nabla f).
-    
-            Parameters
-            ----------
-            `arr` : `ndarray`
-                The array representing the scalar field.
-            `axes` : `list[int]` or `None` (default: `None`)
-                The axes along which to compute the gradient. If `None`, the
-                gradient is computed along all axes.
-    
-            Returns
-            -------
-            `list[ndarray]`
-                The gradient of the scalar field.
-            """
-            return self._diff_mod.grad(arr, axes, **kwargs)
-
-    def laplacian(self,
-                  arr: 'ndarray',
-                  axes: list[int] | None = None,
-                  **kwargs) -> 'ndarray':
-            """
-            Calculate the laplacian of a scalar field (\\nabla^2 f).
-    
-            Parameters
-            ----------
-            `arr` : `ndarray`
-                The array representing the scalar field.
-            `axes` : `list[int]` or `None` (default: `None`)
-                The axes along which to compute the laplacian. If `None`, the
-                laplacian is computed along all axes.
-    
-            Returns
-            -------
-            `ndarray`
-                The laplacian of the scalar field.
-            """
-            return self._diff_mod.laplacian(arr, axes, **kwargs)
-
-    def curl(self,
-             arrs: 'list[ndarray]',
-             axes: list[int] | None = None,
-             **kwargs) -> 'list[ndarray]':
-            """
-            Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
-    
-            Parameters
-            ----------
-            `arrs` : `list[ndarray]`
-                The list of arrays representing the vector field.
-            `axes` : `list[int]` or `None` (default: `None`)
-                The axes along which to compute the curl. If `None`, the
-                curl is computed along all axes.
-    
-            Returns
-            -------
-            `list[ndarray]`
-                The curl of the vector field.
-            """
-            return self._diff_mod.curl(arrs, axes, **kwargs)
-
-    def interpolate(self, 
-                    arr: 'ndarray', 
-                    origin: 'PositionBase', 
-                    destination: 'PositionBase') -> 'ndarray':
-        """
-        Interpolate an array from one position to another.
-        
-        Parameters
-        ----------
-        `arr` : `ndarray`
-            The array to interpolate.
-        `origin` : `Position`
-            The position of the array.
-        `destination` : `Position`
-            The position to interpolate to.
+            The list of arrays to synchronize.
         
         Returns
         -------
-        `ndarray`
-            The interpolated array.
+        `list[ndarray]`
+            The synchronized list of arrays.
         """
-        return self._interp_mod.interpolate(arr, origin, destination)
+        raise NotImplementedError
 
     # ----------------------------------------------------------------
-    #  Grid properties
+    #  Display methods
     # ----------------------------------------------------------------
-    @property
-    def diff_mod(self) -> fr.grid.DiffBase:
-        """The differential operator module."""
-        return self._diff_mod
-    
-    @diff_mod.setter
-    def diff_mod(self, value: fr.grid.DiffBase) -> None:
-        if not isinstance(value, fr.grid.DiffBase):
-            raise ValueError("The differential operator module must be a DiffBase object")
-        self._diff_mod = value
-        return
-    
-    @property
-    def interp_mod(self) -> fr.grid.InterpolationBase:
-        """The interpolation operator module."""
-        return self._interp_mod
-    
-    @interp_mod.setter
-    def interp_mod(self, value: fr.grid.InterpolationBase) -> None:
-        if not isinstance(value, fr.grid.InterpolationBase):
-            raise ValueError("The interpolation operator module must be an InterpolationBase object")
-        self._interp_mod = value
-        return
-
-    @property
-    def water_mask(self) -> ndarray:
-        """
-        Get the water mask.
-        """
-        return self._water_mask.water_mask
-
-    @water_mask.setter
-    def water_mask(self, mask: ndarray) -> None:
-        self._water_mask = mask
-        return
 
     @property
     def info(self) -> dict:
@@ -444,6 +303,64 @@ class GridBase:
         used to print the grid in the `__repr__` method.
         """
         return {}
+
+    def __repr__(self) -> str:
+        """
+        String representation of the grid.
+        """
+        res = self.name
+        for key, value in self.info.items():
+            res += "\n  - {}: {}".format(key, value)
+        return res
+
+    # ----------------------------------------------------------------
+    #  Grid Modules
+    # ----------------------------------------------------------------
+
+    @property
+    def diff_mod(self) -> fr.grid.DiffModule:
+        """The differential operator module."""
+        return self._diff_mod
+    
+    @diff_mod.setter
+    def diff_mod(self, value: fr.grid.DiffModule) -> None:
+        if not isinstance(value, fr.grid.DiffModule):
+            raise ValueError("The differential operator module must be a DiffBase object")
+        self._diff_mod = value
+        return
+    
+    @property
+    def interp_mod(self) -> fr.grid.InterpolationModule:
+        """The interpolation operator module."""
+        return self._interp_mod
+    
+    @interp_mod.setter
+    def interp_mod(self, value: fr.grid.InterpolationModule) -> None:
+        if not isinstance(value, fr.grid.InterpolationModule):
+            raise ValueError("The interpolation operator module must be an InterpolationBase object")
+        self._interp_mod = value
+        return
+
+    @property
+    def water_mask(self) -> fr.grid.WaterMask:
+        """
+        Get the water mask.
+        """
+        return self._water_mask
+
+    @water_mask.setter
+    def water_mask(self, value: fr.grid.WaterMask) -> None:
+        self._water_mask = value
+        return
+
+    # ----------------------------------------------------------------
+    #  Properties
+    # ----------------------------------------------------------------
+
+    @property
+    def mset(self) -> fr.ModelSettingsBase | None:
+        """The model settings object."""
+        return self._mset
 
     @property
     def n_dims(self) -> int:
@@ -477,86 +394,49 @@ class GridBase:
         return self._inner_slice
 
     @property
-    def cell_center(self) -> 'PositionBase':
+    def cell_center(self) -> fr.grid.Position:
         """The position of the cell centers."""
         return self._cell_center
 
-    @cell_center.setter
-    def cell_center(self, value: 'PositionBase') -> None:
-        self._cell_center = value
-        return
-
     @property
-    def X(self) -> 'tuple[ndarray]':
+    def X(self) -> tuple[ndarray]:
         """The meshgrid of the grid points."""
         return self._X
 
     @property
-    def x_global(self) -> 'tuple[ndarray]':
+    def x_global(self) -> tuple[ndarray]:
         """The x-vector of the global grid points."""
         return self._x_global
 
     @property
-    def x_local(self) -> 'ndarray':
+    def x_local(self) -> ndarray:
         """The x-vector of the local grid points."""
         return self._x_local
 
     @property
-    def K(self) -> 'ndarray':
+    def K(self) -> ndarray:
         """The wavenumber of the grid."""
         return self._K
     
     @property
-    def k_global(self) -> 'ndarray':
+    def k_global(self) -> ndarray:
         """The global wavenumber of the grid."""
         return self._k_global
     
     @property
-    def k_local(self) -> 'ndarray':
+    def k_local(self) -> ndarray:
         """The local wavenumber of the grid."""
         return self._k_local
 
     @property
-    def dx(self) -> 'tuple[ndarray]':
+    def dx(self) -> tuple[ndarray]:
         """The grid spacing in each dimension."""
         return self._dx
 
     @property
-    def dV(self) -> 'ndarray':
+    def dV(self) -> ndarray:
         """The volume element of the grid."""
         return self._dV
-
-    @property
-    def omega_analytical(self):
-        """
-        Analytical dispersion relation.
-        """
-        if self._omega_analytical is None:
-            self._omega_analytical = self.omega(self.K, use_discrete=False)
-        return self._omega_analytical
-
-    @property
-    def omega_space_discrete(self):
-        """
-        Dispersion relation with space-discretization effects.
-        """
-        if self._omega_space_discrete is None:
-            self._omega_space_discrete = self.omega(self.K, use_discrete=True)
-        
-        return self._omega_space_discrete
-
-    @property
-    def omega_time_discrete(self):
-        """
-        Dispersion relation with space-time-discretization effects.
-        Warning: The computation may be very slow.
-        """
-        if self._omega_time_discrete is None:
-            om_space_discrete = self.omega_space_discrete
-            ts = self.mset.time_stepper
-            om = ts.time_discretization_effect(om_space_discrete)
-            self._omega_time_discrete = om
-        return self._omega_time_discrete
 
     # ================================================================
     #  Flags
@@ -566,6 +446,7 @@ class GridBase:
     def fourier_transform_available(self) -> bool:
         """Indicates whether the grid supports fast fourier transforms."""
         return self._fourier_transform_available
+
     @fourier_transform_available.setter
     def fourier_transform_available(self, value: bool) -> None:
         self._fourier_transform_available = value
@@ -574,13 +455,10 @@ class GridBase:
     def mpi_available(self) -> bool:
         """Indicates whether the grid supports MPI parallelization."""
         return self._mpi_available
+
     @mpi_available.setter
     def mpi_available(self, value: bool) -> None:
         self._mpi_available = value
 
-    @property
-    def mset(self) -> 'ModelSettingsBase | None':
-        """The model settings object."""
-        return self._mset
 
-utils.jaxify_class(GridBase)
+fr.utils.jaxify_class(GridBase)

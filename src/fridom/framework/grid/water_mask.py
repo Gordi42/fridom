@@ -1,5 +1,6 @@
 import fridom.framework as fr
 from numpy import ndarray
+import itertools
 
 
 class WaterMask:
@@ -38,16 +39,21 @@ class WaterMask:
             [0, 1, 1]           [0, 1, 0]           [0, 0, 1]
     
     """
+    _dynamic_attributes = ["_water_mask", "_cache"]
     def __init__(self):
         self.name = "Water Mask"
         self._water_mask = None
-        self._masks_at_faces = {}
+        self._cache = {}
+        self._domain_decomposition: fr.domain_decomposition.DomainDecomposition = None
+        self._periodic_bounds = None
         return
 
     def setup(self, mset: fr.ModelSettingsBase) -> None:
-        self.mset = mset
-        self.grid = mset.grid
-        self.water_mask = fr.config.ncp.ones(self.grid.X[0].shape, dtype=bool)
+        # we can't set mset or grid as attributes due to recursion issues
+        # with jaxjit, so we only set the attributes we need
+        self._domain_decomposition = mset.grid.get_domain_decomposition(spectral=False)
+        self._periodic_bounds = mset.grid.periodic_bounds
+        self.water_mask = fr.config.ncp.ones(mset.grid.X[0].shape, dtype=bool)
         return
 
     def get_mask(self, position: fr.grid.Position) -> ndarray:
@@ -55,9 +61,9 @@ class WaterMask:
         Get the water mask at the given position.
         """
         id = hash(position)
-        if id not in self._masks_at_faces:
-            self._masks_at_faces[id] = self.create_mask_at_position(position)
-        return self._masks_at_faces[id]
+        if id not in self._cache:
+            self._cache[id] = self.create_mask_at_position(position)
+        return self._cache[id]
 
     def create_mask_at_position(self, position: fr.grid.Position) -> ndarray:
         """
@@ -117,44 +123,39 @@ class WaterMask:
             The new position of the mask along the axis
         """
         match axpos:
-            case fr.grid.AxisPosition.LEFT:
-                # find out left and right side of the mask
-                right_side = mask
-                left_side = fr.config.ncp.roll(right_side, 1, axis)
-                # both sides must be water (True) for the new mask to be water
-                new_mask = right_side * left_side
             case fr.grid.AxisPosition.CENTER:
                 # nothing to do
                 new_mask = mask
-            case fr.grid.AxisPosition.RIGHT:
+            case fr.grid.AxisPosition.FACE:
                 # find out left and right side of the mask
                 left_side = mask
                 right_side = fr.config.ncp.roll(left_side, -1, axis)
                 # both sides must be water (True) for the new mask to be water
                 new_mask = right_side * left_side
-        new_mask = self.grid.sync(new_mask)
+        new_mask = self._domain_decomposition.sync(new_mask)
         new_mask = self.fill_halo(new_mask)
         return new_mask
 
+    @fr.utils.jaxjit
     def fill_halo(self, mask: ndarray) -> ndarray:
         """
         Fill the halo cells with land (0) if the boundary is not periodic.
         """
-        grid = self.grid
-        subdomain = self.grid.get_subdomain(spectral=False)
+        subdomain = self._domain_decomposition.my_subdomain
         left = slice(0, subdomain.halo)
         right = slice(-subdomain.halo, None)
-        for axis in range(grid.n_dims):
+        ndim = mask.ndim
+        for axis in range(ndim):
             # skip periodic boundaries
-            if grid.periodic_bounds[axis]:
+            if self._periodic_bounds[axis]:
                 continue
             if subdomain.is_left_edge[axis]:
-                left_side = [slice(None)] * grid.n_dims
+                left_side = [slice(None)] * ndim
                 left_side[axis] = left
                 left_side = tuple(left_side)
                 mask = fr.utils.modify_array(mask, left_side, False)
             if subdomain.is_right_edge[axis]:
-                right_side = [slice(None)] * grid.n_dims
+                right_side = [slice(None)] * ndim
                 right_side[axis] = right
                 right_side = tuple(right_side)
                 mask = fr.utils.modify_array(mask, right_side, False)
@@ -169,9 +170,16 @@ class WaterMask:
 
     @water_mask.setter
     def water_mask(self, mask: ndarray) -> None:
-        mask = self.grid.get_domain_decomposition(spectral=False).sync(mask)
+        mask = self._domain_decomposition.sync(mask)
         mask = self.fill_halo(mask)
         self._water_mask = mask
         # clear the cache
-        self._masks_at_faces = {}
+        self._cache = {}
+        # construct all possible masks
+        ndim = mask.ndim
+        CENTER = fr.grid.AxisPosition.CENTER; FACE = fr.grid.AxisPosition.FACE
+        for position in itertools.product([CENTER, FACE], repeat=ndim):
+            self.get_mask(fr.grid.Position(position))
         return
+
+fr.utils.jaxify_class(WaterMask)

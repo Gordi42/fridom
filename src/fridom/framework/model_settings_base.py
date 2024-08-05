@@ -113,6 +113,7 @@ class ModelSettingsBase:
     def setup(self):
         logger.verbose("Setting up model settings")
         self.grid.setup(mset=self)
+        self.grid.water_mask.setup(mset=self)
         self.restart_module.setup(mset=self)
         self.tendencies.setup(mset=self)
         self.diagnostics.setup(mset=self)

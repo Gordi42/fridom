@@ -1,18 +1,51 @@
-# Import external modules
-from typing import TYPE_CHECKING
-from functools import partial
-# Import internal modules
 import fridom.framework as fr
-from fridom.framework import config, utils
-from fridom.framework.modules import setup_module, module_method
-from fridom.framework.grid.interpolation_base import InterpolationBase
-# Import type information
-if TYPE_CHECKING:
-    from numpy import ndarray
+from functools import partial
 
 
-class PolynomialInterpolation(InterpolationBase):
-    _dynamic_attributes = []
+class PolynomialInterpolation(fr.grid.InterpolationModule):
+    r"""
+    Polynomial interpolation for cartesian grids.
+
+    Description
+    -----------
+    Consider the following grid points:
+
+    .. math::
+        x_i = (i - n/2) \Delta x, \quad i = 0, 1, \ldots, n
+
+    where :math:`n` is the (odd) order of the polynomial interpolation. For
+    example for :math:`n = 3` we have the following grid points:
+
+    ::
+
+            We want to interpolate the field to this point (x=0)
+                                    ↓
+                |   x_0   |   x_1   |   x_2   |   x_3   |
+        x/dx =     -3/2      -1/2       1/2       3/2
+
+    Let :math:`f_i` be the field values at :math:`x_i`. We define the
+    continuous extension of the field as:
+
+    .. math::
+        f(x) = \sum_{i=0}^{n} \left(
+            \prod_{j=0, j \neq i}^{n} \left(
+                \frac{x - x_j}{x_i - x_j} f_i
+            \right)
+        \right)
+
+    By definition, :math:`f(x_i) = f_i` holds. Finally, to interpolate the 
+    field to the point :math:`x=0`, we insert :math:`x=0` into the above
+    expression. Note that the grid spacing :math:`\Delta x` cancels out.
+
+    .. math::
+        f(0) = \sum_{i=0}^{n} c_i f_i
+
+    with the coefficients :math:`c_i` given by:
+    
+    .. math::
+        c_i = \prod_{j=0, j \neq i}^{n} \frac{j-n/2}{j - i}
+    """
+    _dynamic_attributes = ["water_mask"]
     def __init__(self, order: int = 1):
         super().__init__(name="Polynomial Interpolation")
         # order must be an odd number
@@ -24,34 +57,24 @@ class PolynomialInterpolation(InterpolationBase):
         self._slices = None
         self._nexts = None
         self._prevs = None
+        self.water_mask = None
         return
 
-    @setup_module
+    @fr.modules.setup_module
     def setup(self) -> None:
         self.ndim = ndim = self.mset.grid.n_dims
         # coefficients for the polynomial interpolation
-
-        # Let n be the order of the polynomial interpolation.
-        # We consider the grid points x_i = (i - n/2) * dx, i = 0, 1, ..., n.
-        # The polynomial interpolation is given by:
-        # f(x) = \sum_{i=0}^{n} (
-        #   \prod_{j=0, j!=i}^{n} (
-        #       (x - x_j) / (x_i - x_j) * f(x_i)
-        #   )
-        # )
-        # The coefficients for f(x_i) at x = 0 are given by:
-        # c_i = \prod_{j=0, j!=i}^{n} (x_j / (x_j - x_i))
-        #     = \prod_{j=0, j!=i}^{n} (j - n/2) / (j - i)
         order = self.order
         coeffs = []
         for i in range(order+1):
-            c = config.dtype_real(1)
+            c = fr.config.dtype_real(1)
             for j in range(order+1):
                 if j != i:
                     c *= (j - order/2) / (j - i)
             coeffs.append(c)
         self._coeffs = coeffs
 
+        # slices to get certain parts of the array
         slices = [slice(i, -order + i) for i in range(order)]
         slices.append(slice(order, None))
 
@@ -67,73 +90,50 @@ class PolynomialInterpolation(InterpolationBase):
 
         self._nexts = tuple(self._get_slices(axis)[0] for axis in range(ndim))
         self._prevs = tuple(self._get_slices(axis)[1] for axis in range(ndim))
+
+        # water mask
+        self.water_mask = self.mset.grid.water_mask
         return
 
-    @partial(utils.jaxjit, static_argnames=('origin', 'destination'))
+    @fr.utils.jaxjit
     def interpolate(self, 
-                    arr: 'ndarray', 
-                    origin: fr.grid.Position, 
-                    destination: fr.grid.Position) -> 'ndarray':
-        for axis in range(arr.ndim):
-            arr = self.interpolate_axis(
-                arr, 
-                axis, 
-                origin.positions[axis], 
-                destination.positions[axis])
-        return arr
+                    f: fr.FieldVariable,
+                    destination: fr.grid.Position) -> fr.FieldVariable:
+        for axis in range(f.arr.ndim):
+            f = self.interpolate_axis(f, axis, destination.positions[axis])
+        mask = self.water_mask.get_mask(destination)
+        f.arr *= mask
+        return f
     
-    @partial(utils.jaxjit, static_argnames=('axis', 'origin', 'destination'))
-    @module_method
+    @partial(fr.utils.jaxjit, static_argnames=('axis', 'destination'))
     def interpolate_axis(self, 
-                         arr: 'ndarray', 
+                         f: fr.FieldVariable,
                          axis: int,
-                         origin: fr.grid.AxisPosition, 
-                         destination: fr.grid.AxisPosition) -> 'ndarray':
+                         destination: fr.grid.AxisPosition) -> fr.FieldVariable:
 
-        if arr.shape[axis] == 1:
-            # no interpolation when the axis has only one cell
-            return arr
+        if not f.topo[axis]:
+            # no interpolation when the field has no extend along the axis
+            return f
+
+        if f.position[axis] == destination:
+            # no interpolation needed
+            return f
+
+        res = fr.FieldVariable(**f.get_kw())
+        average = sum(f.arr[s] * self._coeffs[i] 
+                      for i, s in enumerate(self._slices[axis]))
+
+        # get the destination slice
+        match destination:
+            case fr.grid.AxisPosition.CENTER:
+                dest_slice = self._nexts[axis]
+            case fr.grid.AxisPosition.FACE:
+                dest_slice = self._prevs[axis]
         
-        match origin, destination:
-            case fr.grid.AxisPosition.LEFT, fr.grid.AxisPosition.LEFT:
-                return arr
-            case fr.grid.AxisPosition.LEFT, fr.grid.AxisPosition.CENTER:
-                return self._half_forward(arr, axis)
-            case fr.grid.AxisPosition.LEFT, fr.grid.AxisPosition.RIGHT:
-                return self._full_forward(arr, axis)
-            case fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.LEFT:
-                return self._half_backward(arr, axis)
-            case fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.CENTER:
-                return arr
-            case fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.RIGHT:
-                return self._half_forward(arr, axis)
-            case fr.grid.AxisPosition.RIGHT, fr.grid.AxisPosition.LEFT:
-                return self._full_backward(arr, axis)
-            case fr.grid.AxisPosition.RIGHT, fr.grid.AxisPosition.CENTER:
-                return self._half_backward(arr, axis)
-            case fr.grid.AxisPosition.RIGHT, fr.grid.AxisPosition.RIGHT:
-                return arr
+        res.arr = fr.utils.modify_array(res.arr, dest_slice, average)
+        res.position = f.position.shift(axis)
+        return res
 
-    def _raw_interpolate(self, arr: 'ndarray', axis: int) -> 'ndarray':
-        return sum(arr[s] * self._coeffs[i] 
-                   for i, s in enumerate(self._slices[axis]))
-
-    def _half_forward(self, arr: 'ndarray', axis: int) -> 'ndarray':
-        return utils.modify_array(
-            arr, self._prevs[axis], self._raw_interpolate(arr, axis))
-    
-    def _half_backward(self, arr: 'ndarray', axis: int) -> 'ndarray':
-        return utils.modify_array(
-            arr, self._nexts[axis], self._raw_interpolate(arr, axis))
-    
-    def _full_forward(self, arr: 'ndarray', axis: int) -> 'ndarray':
-        return utils.modify_array(
-            arr, self._prevs[axis], self._raw_interpolate(arr, axis))
-    
-    def _full_backward(self, arr: 'ndarray', axis: int) -> 'ndarray':
-        return utils.modify_array(
-            arr, self._nexts[axis], self._raw_interpolate(arr, axis))
-    
     def _get_slices(self, axis):
         n = self.order // 2
         if n == 0:
@@ -146,4 +146,4 @@ class PolynomialInterpolation(InterpolationBase):
                      for i in range(self.ndim))
         return next, prev
 
-utils.jaxify_class(PolynomialInterpolation)
+fr.utils.jaxify_class(PolynomialInterpolation)

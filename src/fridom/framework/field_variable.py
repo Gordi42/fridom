@@ -1,19 +1,12 @@
-# Import external modules
+import fridom.framework as fr
 from typing import TYPE_CHECKING
 from copy import deepcopy
-from functools import partial
 from mpi4py import MPI
+from numpy import ndarray
 import numpy as np
-# Import internal modules
-import fridom.framework as fr
-from fridom.framework import config, utils
-# Import type information
+
 if TYPE_CHECKING:
     import xarray as xr
-    from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.grid.position import PositionBase
-    from fridom.framework.grid.transform_type import TransformType
-
 
 
 class FieldVariable:
@@ -44,57 +37,30 @@ class FieldVariable:
     `arr` : `ndarray` (default None)
         The array to be wrapped
     
-    Attributes
-    ----------
-    `name` : `str`
-        The name of the FieldVariable
-    `long_name` : `str`
-        The long name of the FieldVariable
-    `units` : `str`
-        The unit of the FieldVariable
-    `nc_attrs` : `dict`
-        Dictionary with additional attributes for the NetCDF file
-    `mset` : `ModelSettings`
-        ModelSettings object
-    `grid` : `Grid`
-        Grid object
-    `is_spectral` : `bool`
-        True if the FieldVariable is in spectral space
-    `topo` : `list[bool]`
-        Topology of the FieldVariable
-    `arr` : `ndarray`
-        The underlying array
-    
-    Methods
-    -------
-    `fft()`
-        Compute forward and backward Fourier transform of the FieldVariable
-    `sync()`
-        Synchronize the FieldVariable (exchange boundary values)
-    `sqrt()`
-        Compute the square root of the FieldVariable
-    `norm_l2()`
-        Compute the L2 norm of the FieldVariable
-    
     """
-    _dynamic_attributes = set(["arr", "position"])
+    _dynamic_attributes = set(["_arr", "_position"])
     def __init__(self, 
-                 mset: 'ModelSettingsBase',
+                 mset: fr.ModelSettingsBase,
                  name: str,
-                 position: 'PositionBase',
-                 transform_types: 'tuple[TransformType] | None' = None,
-                 is_spectral=False, 
-                 long_name="Unnamed", 
-                 units="n/a",
-                 nc_attrs=None,
-                 topo=None,
-                 arr=None,
+                 position: fr.grid.Position,
+                 arr: ndarray | None = None,
+                 long_name: str = "Unnamed", 
+                 units: str = "n/a",
+                 nc_attrs: dict | None = None,
+                 is_spectral: bool = False, 
+                 topo: list[bool] | None = None,
                  flags: dict | list | None = None,
+                 transform_types: tuple[fr.grid.TransformType] | None = None,
                  ) -> None:
 
-        ncp = config.ncp
-        dtype = config.dtype_comp if is_spectral else config.dtype_real
+        # shortcuts
+        ncp = fr.config.ncp
+        dtype = fr.config.dtype_comp if is_spectral else fr.config.dtype_real
+
+        # Topology
         topo = topo or [True] * mset.grid.n_dims
+
+        # The underlying array
         if arr is None:
             # get the shape of the array
             if is_spectral:
@@ -117,8 +83,8 @@ class FieldVariable:
         elif isinstance(flags, list):
             for flag in flags:
                 if flag not in self.flags:
-                    config.logger.warning(f"Flag {flag} not available")
-                    config.logger.warning(f"Available flags: {self.flags}")
+                    fr.config.logger.warning(f"Flag {flag} not available")
+                    fr.config.logger.warning(f"Available flags: {self.flags}")
                     raise ValueError
                 self.flags[flag] = True
 
@@ -126,42 +92,40 @@ class FieldVariable:
         #  Set attributes
         # ----------------------------------------------------------------
 
-        self.name = name
-        self.position = position
-        self.long_name = long_name
-        self.transform_types = transform_types
-        self.units = units
-        self.nc_attrs = nc_attrs or {}
-        self.mset = mset
-        self.is_spectral = is_spectral
-        self.topo = topo
-        self.arr = data
-
+        self._arr = data
+        self._name = name
+        self._long_name = long_name
+        self._units = units
+        self._nc_attrs = nc_attrs or {}
+        self._is_spectral = is_spectral
+        self._topo = topo
+        self._position = position
+        self._transform_types = transform_types
+        self._mset = mset
         return
-        
-    # ==================================================================
-    #  OTHER METHODS
-    # ==================================================================
 
     def get_kw(self):
         """
         Return a dictionary with the keyword arguments for the
         FieldVariable constructor
         """
-        return {"mset": self.mset, 
-                "name": self.name,
-                "position": self.position,
-                "transform_types": self.transform_types,
-                "long_name": self.long_name,
-                "units": self.units,
-                "nc_attrs": self.nc_attrs,
-                "is_spectral": self.is_spectral, 
-                "topo": self.topo,
-                "flags": self.flags}
+        return {"mset": self._mset, 
+                "name": self._name,
+                "position": self._position,
+                "long_name": self._long_name,
+                "units": self._units,
+                "nc_attrs": self._nc_attrs,
+                "is_spectral": self._is_spectral, 
+                "topo": self._topo,
+                "flags": self._flags,
+                "transform_types": self._transform_types}
 
     def fft(self) -> "FieldVariable":
         """
-        Compute forward and backward Fourier transform of the FieldVariable
+        Fourier transform of the FieldVariable
+
+        If the FieldVariable is already in spectral space, the inverse
+        Fourier transform is returned.
 
         Returns:
             FieldVariable: Fourier transform of the FieldVariable
@@ -170,19 +134,19 @@ class FieldVariable:
             raise NotImplementedError(
                 "Fourier transform not available for this grid")
 
-        ncp = config.ncp
+        ncp = fr.config.ncp
         if self.is_spectral:
             res = ncp.array(
                 self.grid.ifft(self.arr, self.transform_types).real, 
-                dtype=config.dtype_real)
+                dtype=fr.config.dtype_real)
         else:
             res = ncp.array(
                 self.grid.fft(self.arr, self.transform_types),
-                dtype=config.dtype_comp)
+                dtype=fr.config.dtype_comp)
         from copy import copy
         f = copy(self)
         f.arr = res
-        f.is_spectral = not self.is_spectral
+        f._is_spectral = not self.is_spectral
 
         return f
 
@@ -190,66 +154,131 @@ class FieldVariable:
         """
         Synchronize the FieldVariable (exchange boundary values)
         """
-        f = self
-        f.arr = self.grid.sync(self.arr)
-        return f
+        self.arr = self.grid.sync(self.arr)
+        return self
 
-    def apply_boundary_conditions(self, 
-                                  axis: int, 
-                                  side: str, 
-                                  value: 'float | np.ndarray | FieldVariable'
-                                  ) -> 'FieldVariable':
-        """
-        Apply boundary conditions to the FieldVariable
-        
+
+    # ================================================================
+    #  Differential Operators
+    # ================================================================
+
+    def diff(self, axis: int, order: int = 1) -> 'FieldVariable':
+        r"""
+        Compute the partial derivative along an axis.
+
+        .. math::
+            \partial_i^n f
+
+        with axis :math:`i` and order :math:`n`.
+
         Parameters
         ----------
         `axis` : `int`
-            Axis along which to apply the boundary condition
-        `side` : `str`
-            Side of the axis along which to apply the boundary condition
-            (either "left" or "right")
-        `value` : `float | np.ndarray | FieldVariable`
-            The value of the boundary condition. If a float is provided, the
-            boundary condition will be set to a constant value. If an array is
-            provided, the boundary condition will be set to the array.
+            The axis along which to differentiate.
+        `order` : `int`
+            The order of the derivative. Default is 1.
+
+        Returns
+        -------
+        `FieldVariable`
+            The derivative of the field along the specified axis.
+        """
+        return self.grid.diff_mod.diff(self, axis, order)
+
+    def grad(self, axes: list[int] | None = None ) -> 'tuple[FieldVariable | None]':
+        r"""
+        Compute the gradient.
+
+        .. math::
+            \nabla f = 
+            \begin{pmatrix} \partial_1 f \\ \dots \\ \partial_n f \end{pmatrix}
+
+        Parameters
+        ----------
+        `axes` : `list[int] | None` (default is None)
+            The axes along which to compute the gradient. If `None`, the
+            gradient is computed along all axes.
+
+        Returns
+        -------
+        `tuple[FieldVariable | None]`
+            The gradient of the field along the specified axes. The list contains 
+            the gradient components along each axis. Axis which are not included 
+            in `axes` will have a value of `None`. 
+            E.g. for a 3D grid, `diff.grad(f, axes=[0, 2])` will return
+            `[df/dx, None, df/dz]`.
+        """
+        return self.grid.diff_mod.grad(self, axes)
+
+    def laplacian(self, 
+                  axes: tuple[int] | None = None
+                  ) -> 'FieldVariable':
+        r"""
+        Compute the Laplacian.
+
+        .. math::
+            \nabla^2 f = \sum_{i=1}^n \partial_i^2 f
+
+        Parameters
+        ----------
+        `axes` : `tuple[int] | None` (default is None)
+            The axes along which to compute the Laplacian. If `None`, the
+            Laplacian is computed along all axes.
+
+        Returns
+        -------
+        `FieldVariable`
+            The Laplacian of the field.
+        """
+        return self.grid.diff_mod.laplacian(self, axes)
+
+    def curl(self,
+             arrs: 'list[ndarray]',
+             axes: list[int] | None = None,
+             **kwargs) -> 'list[ndarray]':
+            """
+            Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
+    
+            Parameters
+            ----------
+            `arrs` : `list[ndarray]`
+                The list of arrays representing the vector field.
+            `axes` : `list[int]` or `None` (default: `None`)
+                The axes along which to compute the curl. If `None`, the
+                curl is computed along all axes.
+    
+            Returns
+            -------
+            `list[ndarray]`
+                The curl of the vector field.
+            """
+            return self._diff_mod.curl(arrs, axes, **kwargs)
+
+    def interpolate(self, destination: fr.grid.Position) -> 'FieldVariable':
+        """
+        Interpolate the field to the destination position.
         
-        Raises
-        ------
-        `NotImplementedError`
-            If the FieldVariable is in spectral space
+        Parameters
+        ----------
+        `destination` : `fr.grid.Position`
+            The position to interpolate to.
+        
+        Returns
+        -------
+        `FieldVariable`
+            The interpolated field.
         """
-        if self.is_spectral:
-            raise NotImplementedError(
-                "Boundary conditions not available in spectral space")
-        f = self
-        f.arr = self.grid.apply_boundary_condition(self.arr, axis, side, value)
-        return f
-
-    def norm_l2(self) -> float:
-        """
-        Compute the L2 norm of the FieldVariable
-
-        Returns:
-            float: L2 norm of the FieldVariable
-        """
-        return config.ncp.linalg.norm(self.arr)
-
-    def has_nan(self) -> bool:
-        """
-        Check if the FieldVariable contains NaN values
-        """
-        return config.ncp.any(config.ncp.isnan(self.arr))
+        return self.grid.interp_mod.interpolate(self, destination)
 
     # ==================================================================
     #  SLICING
     # ==================================================================
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> ndarray:
         return self.arr[key]
     
     def __setitem__(self, key, value):
-        new_arr = utils.modify_array(self.arr, key, value)
+        new_arr = fr.utils.modify_array(self.arr, key, value)
         self.arr = new_arr
 
     def __getattr__(self, name):
@@ -261,7 +290,10 @@ class FieldVariable:
         except AttributeError:
             raise AttributeError(f"FieldVariable has no attribute {name}")
 
-    # For pickling
+    # ================================================================
+    #  Pickling
+    # ================================================================
+
     def __getstate__(self):
         state = self.__dict__.copy()
         return state
@@ -269,207 +301,60 @@ class FieldVariable:
     def __setstate__(self, state):
         self.__dict__.update(state)
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict) -> 'FieldVariable':
         return FieldVariable(arr=deepcopy(self.arr, memo), 
                              **deepcopy(self.get_kw(), memo))
 
     # ==================================================================
-    #  ARITHMETIC OPERATIONS
-    # ==================================================================
-    def sum(self):
-        """
-        Global sum of the FieldVariable
-        """
-        ics = self.grid.inner_slice
-        sum = self.arr[ics].sum()
-        sum = MPI.COMM_WORLD.allreduce(sum, op=MPI.SUM)
-        return sum
-
-    def __sum__(self):
-        return self.sum()
-
-    def abs(self):
-        """
-        Absolute values of the FieldVariable
-        """
-        return FieldVariable(arr=config.ncp.abs(self.arr), **self.get_kw())
-
-    def __abs__(self):
-        return self.abs()
-    
-    def max(self):
-        """
-        Maximum value of the FieldVariable over the whole domain
-        """
-        ics = self.grid.inner_slice
-        my_max = self.arr[ics].max()
-        return MPI.COMM_WORLD.allreduce(my_max, op=MPI.MAX)
-
-    def __max__(self):
-        return self.max()
-    
-    def min(self):
-        """
-        Minimum value of the FieldVariable over the whole domain
-        """
-        ics = self.grid.inner_slice
-        my_min = self.arr[ics].min()
-        return MPI.COMM_WORLD.allreduce(my_min, op=MPI.MIN)
-    
-    def __min__(self):
-        return self.min()
-
-    def int(self):
-        """
-        Global integral of the FieldVariable
-        """
-        ics = self.grid.inner_slice
-        integral = (self.arr * self.grid.dV)[ics].sum()
-        return MPI.COMM_WORLD.allreduce(integral, op=MPI.SUM)
-
-
-    def __add__(self, other):
-        """
-        Add A FieldVariable to another FieldVariable or a scalar
-
-        # Arguments:
-            other        : FieldVariable or array or scalar
-
-        Returns:
-            FieldVariable: Sum of self and other (inherits from self)
-        """
-        kwargs = self.get_kw()
-        # Check that the other object is a FieldVariable
-        if isinstance(other, FieldVariable):
-            topo = [p or q for p, q in zip(self.topo, other.topo)]
-            kwargs["topo"] = topo
-            sum = self.arr + other.arr
-        else:
-            sum = self.arr + other
-
-        return FieldVariable(arr=sum, **kwargs)
-    
-    def __radd__(self, other):
-        return self.__add__(other)
-
-    def __sub__(self, other):
-        """
-        Subtract A FieldVariable to another FieldVariable or a scalar
-
-        Arguments:
-            other        : FieldVariable or array or scalar
-
-        Returns:
-            FieldVariable: Difference of self and other (inherits from self)
-        """
-        kwargs = self.get_kw()
-        # Check that the other object is a FieldVariable
-        if isinstance(other, FieldVariable):
-            topo = [p or q for p, q in zip(self.topo, other.topo)]
-            kwargs["topo"] = topo
-            diff = self.arr - other.arr
-        else:
-            diff = self.arr - other
-
-        return FieldVariable(arr=diff, **kwargs)
-    
-    def __rsub__(self, other):
-        res = other - self.arr
-        return FieldVariable(arr=res, **self.get_kw())
-
-    def __mul__(self, other):
-        """
-        Multiply A FieldVariable to another FieldVariable or a scalar
-
-        Arguments:
-            other        : FieldVariable or array or scalar
-
-        Returns:
-            FieldVariable: Product of self and other (inherits from self)
-        """
-        kwargs = self.get_kw()
-        # Check that the other object is a FieldVariable
-        if isinstance(other, FieldVariable):
-            topo = [p or q for p, q in zip(self.topo, other.topo)]
-            kwargs["topo"] = topo
-            prod = self.arr * other.arr
-        else:
-            prod = self.arr * other
-
-        return FieldVariable(arr=prod, **kwargs)
-    
-    def __rmul__(self, other):
-        return self.__mul__(other)
-    
-    def __truediv__(self, other):
-        """
-        Divide A FieldVariable to another FieldVariable or a scalar
-
-        Arguments:
-            other        : FieldVariable or array or scalar
-
-        Returns:
-            FieldVariable: Quotient of self and other (inherits from self)
-        """
-        kwargs = self.get_kw()
-        # Check that the other object is a FieldVariable
-        if isinstance(other, FieldVariable):
-            topo = [p or q for p, q in zip(self.topo, other.topo)]
-            kwargs["topo"] = topo
-            quot = self.arr / other.arr
-        else:
-            quot = self.arr / other
-
-        return FieldVariable(arr=quot, **kwargs)
-    
-    def __rtruediv__(self, other):
-        return FieldVariable(arr=other / self.arr, **self.get_kw())
-
-    def __pow__(self, other):
-        """
-        Raise A FieldVariable to another FieldVariable or a scalar
-
-        Arguments:
-            other        : FieldVariable or array or scalar
-
-        Returns:
-            FieldVariable: Power of self and other (inherits from self)
-        """
-        kwargs = self.get_kw()
-        # Check that the other object is a FieldVariable
-        if isinstance(other, FieldVariable):
-            topo = [p or q for p, q in zip(self.topo, other.topo)]
-            kwargs["topo"] = topo
-            pow = self.arr ** other.arr
-        else:
-            pow = self.arr ** other
-
-        return FieldVariable(arr=pow, **kwargs)
-
-    # ==================================================================
-    #  STRING REPRESENTATION
+    #  Display methods
     # ==================================================================
 
-    def __str__(self) -> str:
-        return f"FieldVariable: {self.name} \n {self.arr}"
+    @property
+    def info(self) -> dict:
+        """
+        Dictionary with information about the field.
+        """
+        res = {}
+        res["name"] = self.name
+        res["long_name"] = self.long_name
+        res["units"] = self.units
+        res["is_spectral"] = self.is_spectral
+        res["position"] = self.position
+        res["topo"] = self.topo
+        res["transform_types"] = self.transform_types
+        enabled_flags = [key for key, value in self.flags.items() if value]
+        res["enabled_flags"] = enabled_flags
+        return res
 
     def __repr__(self) -> str:
-        return self.__str__()
+        res = "FieldVariable"
+        for key, value in self.info.items():
+            res += "\n  - {}: {}".format(key, value)
+        return res
 
     # ================================================================
     #  xarray conversion
     # ================================================================
+
     @property
     def xr(self) -> 'xr.DataArray':
-        """
-        Conversion to xarray DataArray
-        """
+        """Convert to xarray DataArray"""
         return self.xrs[:]
 
     @property
-    def xrs(self):
+    def xrs(self) -> fr.utils.SliceableAttribute:
         """
-        Conversion to xarray DataArray for a selected slice
+        Convert a slice of the FieldVariable to xarray DataArray
+
+        Example
+        -------
+        Let `f` be a large 3D FieldVariable and we want to convert the top 
+        of the field to an xarray DataArray. To avoid loading the whole field 
+        into memory, we can use slicing:
+
+        .. code-block:: python
+
+            data_array = f.xrs[:,:,-1]  # Only the top of the field
         """
         def slicer(key):
             import xarray as xr
@@ -528,13 +413,16 @@ class FieldVariable:
 
             # reverse the dimensions
             dims = dims[::-1]
+
+            all_attrs = deepcopy(fv.nc_attrs)
+            all_attrs.update({"long_name": fv.long_name, "units": fv.units})
     
             dv = xr.DataArray(
                 np.squeeze(arr).T, 
                 coords=coords, 
                 dims=tuple(dims),
                 name=fv.name,
-                attrs={"long_name": fv.long_name, "units": fv.units})
+                attrs=all_attrs)
     
             if fv.is_spectral:
                 x_unit = "1/m"
@@ -545,14 +433,253 @@ class FieldVariable:
             return dv
         return fr.utils.SliceableAttribute(slicer)
 
+    # ==================================================================
+    #  OTHER METHODS
+    # ==================================================================
+
+    def has_nan(self) -> bool:
+        """Check if the FieldVariable contains NaN values"""
+        return fr.config.ncp.any(fr.config.ncp.isnan(self.arr))
 
     # ================================================================
     #  Properties
     # ================================================================
     @property
+    def arr(self) -> ndarray:
+        """The underlying array"""
+        return self._arr
+
+    @arr.setter
+    def arr(self, arr: ndarray):
+        self._arr = arr
+
+    @property
+    def name(self) -> str:
+        """The name of the FieldVariable"""
+        return self._name
+
+    @name.setter
+    def name(self, name: str):
+        self._name = name
+
+    @property
+    def long_name(self) -> str:
+        """The long name of the FieldVariable"""
+        return self._long_name
+
+    @long_name.setter
+    def long_name(self, long_name: str):
+        self._long_name = long_name
+    
+    @property
+    def units(self) -> str:
+        """The unit of the FieldVariable"""
+        return self._units
+
+    @units.setter
+    def units(self, units: str):
+        self._units = units
+    
+    @property
+    def nc_attrs(self) -> dict:
+        """Dictionary with additional attributes for the NetCDF file or xarray"""
+        return self._nc_attrs
+
+    @nc_attrs.setter
+    def nc_attrs(self, nc_attrs: dict):
+        self._nc_attrs = nc_attrs
+
+    @property
+    def is_spectral(self) -> bool:
+        """True if the FieldVariable is in spectral space"""
+        return self._is_spectral
+
+    @property
+    def topo(self) -> list[bool]:
+        """Topology of the FieldVariable
+        
+        Description
+        -----------
+        Field Variables do not have to be extended in all directions. For
+        example, one might want to create a 2D forcing field for a 3D simulation,
+        that only depends on x and y. In this case, the topo of the FieldVariable
+        would be [True, True, False].
+        """
+        return self._topo
+
+    @property
+    def position(self) -> fr.grid.Position:
+        """The position of the FieldVariable on the staggered grid"""
+        return self._position
+
+    @position.setter
+    def position(self, position: fr.grid.Position):
+        self._position = position
+
+    @property
+    def transform_types(self) -> tuple[fr.grid.TransformType] | None:
+        """The transform types for nonperiodic axes"""
+        return self._transform_types
+
+    @transform_types.setter
+    def transform_types(self, transform_types: tuple[fr.grid.TransformType] | None):
+        self._transform_types = transform_types
+
+    @property
+    def flags(self) -> dict:
+        """Dictionary with flag options for the FieldVariable"""
+        return self._flags
+
+    @flags.setter
+    def flags(self, flags: dict):
+        self._flags = flags
+
+    @property
+    def mset(self) -> fr.ModelSettingsBase:
+        """The model settings object"""
+        return self._mset
+
+    @property
     def grid(self):
-        """Return the grid of the FieldVariable"""
-        return self.mset.grid
+        """The grid object"""
+        return self._mset.grid
 
+    # ==================================================================
+    #  ARITHMETIC OPERATIONS
+    # ==================================================================
 
-utils.jaxify_class(FieldVariable)
+    def abs(self) -> 'FieldVariable':
+        """Absolute values of the FieldVariable"""
+        return FieldVariable(arr=fr.config.ncp.abs(self.arr), **self.get_kw())
+
+    def __abs__(self) -> 'FieldVariable':
+        return self.abs()
+
+    def sum(self) -> float:
+        """Global sum of the FieldVariable"""
+        ics = self.grid.inner_slice
+        sum = self.arr[ics].sum()
+        sum = MPI.COMM_WORLD.allreduce(sum, op=MPI.SUM)
+        return sum
+
+    def __sum__(self) -> float:
+        return self.sum()
+    
+    def max(self) -> float:
+        """Maximum value of the FieldVariable over the whole domain"""
+        ics = self.grid.inner_slice
+        my_max = self.arr[ics].max()
+        return MPI.COMM_WORLD.allreduce(my_max, op=MPI.MAX)
+
+    def __max__(self) -> float:
+        return self.max()
+    
+    def min(self) -> float:
+        """Minimum value of the FieldVariable over the whole domain"""
+        ics = self.grid.inner_slice
+        my_min = self.arr[ics].min()
+        return MPI.COMM_WORLD.allreduce(my_min, op=MPI.MIN)
+    
+    def __min__(self) -> float:
+        return self.min()
+
+    def integrate(self) -> float:
+        """Global integral of the FieldVariable"""
+        ics = self.grid.inner_slice
+        integral = (self.arr * self.grid.dV)[ics].sum()
+        return MPI.COMM_WORLD.allreduce(integral, op=MPI.SUM)
+
+    def norm_l2(self) -> float:
+        """Compute the numpy.linalg.norm of the FieldVariable"""
+        ics = self.grid.inner_slice
+        local_norm = fr.config.ncp.linalg.norm(self.arr[ics])**2
+        global_norm = MPI.COMM_WORLD.allreduce(local_norm, op=MPI.SUM)
+        return fr.config.ncp.sqrt(global_norm)
+
+    def __add__(self, other: any) -> 'FieldVariable':
+        """Add something to the FieldVariable"""
+        kwargs = self.get_kw()
+        # Check that the other object is a FieldVariable
+        if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
+            sum = self.arr + other.arr
+        else:
+            sum = self.arr + other
+
+        return FieldVariable(arr=sum, **kwargs)
+    
+    def __radd__(self, other: any) -> 'FieldVariable':
+        """Add a FieldVariable to something"""
+        return self.__add__(other)
+
+    def __sub__(self, other: any) -> 'FieldVariable':
+        """Subtract something from the FieldVariable"""
+        kwargs = self.get_kw()
+        # Check that the other object is a FieldVariable
+        if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
+            diff = self.arr - other.arr
+        else:
+            diff = self.arr - other
+
+        return FieldVariable(arr=diff, **kwargs)
+    
+    def __rsub__(self, other: any) -> 'FieldVariable':
+        """Subtract the FieldVariable from something"""
+        res = other - self.arr
+        return FieldVariable(arr=res, **self.get_kw())
+
+    def __mul__(self, other: any) -> 'FieldVariable':
+        """Multiply the FieldVariable with something"""
+        kwargs = self.get_kw()
+        # Check that the other object is a FieldVariable
+        if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
+            prod = self.arr * other.arr
+        else:
+            prod = self.arr * other
+
+        return FieldVariable(arr=prod, **kwargs)
+    
+    def __rmul__(self, other: any) -> 'FieldVariable':
+        """Multiply something with the FieldVariable"""
+        return self.__mul__(other)
+    
+    def __truediv__(self, other: any) -> 'FieldVariable':
+        """Divide the FieldVariable by something"""
+        kwargs = self.get_kw()
+        # Check that the other object is a FieldVariable
+        if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
+            quot = self.arr / other.arr
+        else:
+            quot = self.arr / other
+
+        return FieldVariable(arr=quot, **kwargs)
+    
+    def __rtruediv__(self, other: any) -> 'FieldVariable':
+        """Divide something by the FieldVariable"""
+        return FieldVariable(arr=other / self.arr, **self.get_kw())
+
+    def __pow__(self, other: any) -> 'FieldVariable':
+        """Raise the FieldVariable to a power"""
+        kwargs = self.get_kw()
+        # Check that the other object is a FieldVariable
+        if isinstance(other, FieldVariable):
+            topo = [p or q for p, q in zip(self.topo, other.topo)]
+            kwargs["topo"] = topo
+            pow = self.arr ** other.arr
+        else:
+            pow = self.arr ** other
+
+        return FieldVariable(arr=pow, **kwargs)
+
+    def __neg__(self) -> 'FieldVariable':
+        """Negate the FieldVariable"""
+        return FieldVariable(arr=-self.arr, **self.get_kw())
+
+fr.utils.jaxify_class(FieldVariable)

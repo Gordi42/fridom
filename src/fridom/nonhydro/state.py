@@ -16,7 +16,7 @@ class State(fr.StateBase):
                 long_name="u - velocity",
                 units="m/s", 
                 is_spectral=is_spectral, 
-                position=cell_center.shift(axis=0, direction="forward"),
+                position=cell_center.shift(axis=0),
                 transform_types=(fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DCT2)
@@ -28,7 +28,7 @@ class State(fr.StateBase):
                 long_name="v - velocity",
                 units="m/s", 
                 is_spectral=is_spectral, 
-                position=cell_center.shift(axis=1, direction="forward"),
+                position=cell_center.shift(axis=1),
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2)
@@ -40,7 +40,7 @@ class State(fr.StateBase):
                 long_name="w - velocity",
                 units="m/s", 
                 is_spectral=is_spectral, 
-                position=cell_center.shift(axis=2, direction="forward"),
+                position=cell_center.shift(axis=2),
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1)
