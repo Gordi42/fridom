@@ -1,5 +1,5 @@
 import fridom.framework as fr
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 from copy import deepcopy
 from mpi4py import MPI
 from numpy import ndarray
@@ -43,7 +43,7 @@ class FieldVariable:
                  mset: fr.ModelSettingsBase,
                  name: str,
                  position: fr.grid.Position,
-                 arr: ndarray | None = None,
+                 arr: Union[ndarray, None] = None,
                  long_name: str = "Unnamed", 
                  units: str = "n/a",
                  nc_attrs: dict | None = None,

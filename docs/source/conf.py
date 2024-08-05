@@ -53,9 +53,13 @@ pygments_style = 'sphinx'
 
 # html_theme = 'sphinx_rtd_theme'
 html_theme = "sphinx_book_theme"
+html_logo = "_static/fridom-title.png"
 html_theme_options = {
     "repository_url": "https://github.com/Gordi42/FRIDOM",
     "use_repository_button": True,
+    "logo": {
+        "image_dark": "_static/fridom-title-dark.png",
+    }
 }
 html_title = "FRIDOM - Documentation"
  
