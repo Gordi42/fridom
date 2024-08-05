@@ -1,7 +1,5 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
-from numpy import ndarray
-from functools import partial
 
 
 class HarmonicMixing(fr.modules.Module):
@@ -16,6 +14,7 @@ class HarmonicMixing(fr.modules.Module):
         \Delta b = \nabla \cdot \left (\boldsymbol{K} \cdot \nabla b \right)
 
     with:
+
     .. math::
         \boldsymbol{K} = \begin{bmatrix} k_h \\ k_h \\ k_v \end{bmatrix}
 
@@ -29,7 +28,7 @@ class HarmonicMixing(fr.modules.Module):
         Horizontal harmonic mixing coefficient.
     `kv` : `float`
         Vertical harmonic mixing coefficient.
-    `diff` : `fr.grid.DiffBase | None`, (default=None)
+    `diff` : `fr.grid.DiffModule | None`, (default=None)
         Differentiation module to use. If None, the differentiation module of
         the grid is used.
     """
