@@ -1,6 +1,7 @@
 # Import external modules
 import numpy as np
 from typing import TYPE_CHECKING
+from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
 from fridom.framework.time_steppers.time_stepper import TimeStepper
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 # ================================================================
 #  ADAM BASHFORTH TIME STEPPING
 # ================================================================
+@partial(utils.jaxify, dynamic=('dz_list', 'pointer', 'it_count', 'coeff_AB'))
 class AdamBashforth(TimeStepper):
     """
     Adam Bashforth time stepping up to 4th order.
@@ -26,7 +28,6 @@ class AdamBashforth(TimeStepper):
     `eps` : `float`
         2nd order bashforth correction. (default 0.01)
     """
-    _dynamic_attributes = set(["dz_list", "pointer", "it_count", "coeff_AB"])
     def __init__(self, dt = 1, order: int = 3, eps=0.01):
         # check that the order is not too high
         if order > 4:
@@ -222,5 +223,3 @@ class AdamBashforth(TimeStepper):
         """
         self.dz_list[self.pointer[0]] = value
         return
-
-utils.jaxify_class(AdamBashforth)
