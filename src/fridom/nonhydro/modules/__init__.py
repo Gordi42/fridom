@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     # importing modules
     from . import advection
     from . import closures
-    from . import diffusion
     from . import pressure_solvers
     from . import forcings
 
@@ -41,7 +40,6 @@ all_modules_by_origin = {
     base_path: [
         "advection", 
         "closures",
-        "diffusion", 
         "pressure_solvers", 
         "forcings"], 
     fr_base_path: ["animation"],

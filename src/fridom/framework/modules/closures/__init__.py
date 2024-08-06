@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     # import classes
     from .harmonic_diffusion import HarmonicDiffusion
+    from .biharmonic_diffusion import BiharmonicDiffusion
 
     # import modules
 
@@ -23,6 +24,7 @@ all_modules_by_origin = {}
 base = "fridom.framework.modules.closures"
 all_imports_by_origin = {
     f"{base}.harmonic_diffusion": ["HarmonicDiffusion"],
+    f"{base}.biharmonic_diffusion": ["BiharmonicDiffusion"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

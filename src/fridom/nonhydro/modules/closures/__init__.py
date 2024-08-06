@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # import classes
-    from .diffusion import HarmonicMixing, HarmonicFriction
+    from .diffusion import HarmonicMixing, HarmonicFriction, \
+        BiharmonicMixing, BiharmonicFriction
 
     # import modules
 
@@ -21,7 +22,9 @@ all_modules_by_origin = {}
 
 base = "fridom.nonhydro.modules.closures"
 all_imports_by_origin = {
-    f"{base}.diffusion": ["HarmonicMixing", "HarmonicFriction"],
+    f"{base}.diffusion": [
+        "HarmonicMixing", "HarmonicFriction",
+        "BiharmonicMixing", "BiharmonicFriction"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

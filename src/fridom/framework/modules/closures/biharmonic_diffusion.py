@@ -1,27 +1,33 @@
 import fridom.framework as fr
 
+@fr.utils.jaxjit
+def _get_coefficients(diffusion_coefficients):
+    ncp = fr.config.ncp
+    coeffs = []
+    for coeff in diffusion_coefficients:
+        if isinstance(coeff, fr.FieldVariable):
+            kappa = ncp.sqrt(ncp.abs(coeff.arr))
+            kappa = fr.FieldVariable(arr=kappa, **coeff.get_kw())
+        else:
+            kappa = ncp.sqrt(ncp.abs(coeff))
+        coeffs.append(kappa)
+    return coeffs
 
-class HarmonicDiffusion(fr.modules.Module):
+class BiharmonicDiffusion(fr.modules.Module):
     r"""
-    Harmonic diffusion module
+    Biharmonic diffusion module
 
     Description
     -----------
-    The harmonic diffusion operator :math:`\mathcal{H}` on a scalar field 
-    :math:`u` is given by:
+    Following Griffiies et al. (2000), the biharmonic mixing operator 
+    :math:`\mathcal{B}` iterates twice over the harmonic mixing operator
+    :math:`\mathcal{H}`. For a scalar field :math:`u` it is given by:
 
     .. math::
-        \mathcal{H}(u) = \nabla \cdot \left (\mathbf{A} \cdot \nabla u \right)
+        \mathcal{B}(u) = - \mathcal{H} \left( \mathcal{H}(u) \right)
 
-    with the diagonal diffusion tensor :math:`\mathbf{A}` given by:
-    
-    .. math::
-        \mathbf{A} = \begin{pmatrix} \kappa_1 & \dots  & 0 \\ 
-                                     \vdots   & \ddots & \vdots \\ 
-                                     0        & \dots  & \kappa_n \end{pmatrix}
-
-    where :math:`\kappa_i` is the harmonic diffusion coefficient in the 
-    :math:`i`-th direction.
+    where we use the biharmonic diffusion coefficient :math:`\sqrt{|\kappa_i|}`. 
+    The index :math:`i` refers to the direction of the diffusion.
 
     Parameters
     ----------
@@ -41,15 +47,23 @@ class HarmonicDiffusion(fr.modules.Module):
     `name` : `str`, (default="Harmonic Diffusion")
         Name of the module.
     """
-    _dynamic_attributes = ["mset", "diffusion_coefficients"]
-    def __init__(self, 
-                 field_flags: list[str], 
-                 diffusion_coefficients: list[float | fr.FieldVariable], 
+    _dynamic_attributes = ["mset", "_diffusion_coefficients"]
+
+    def __init__(self,
+                 field_flags: list[str],
+                 diffusion_coefficients: list[float | fr.FieldVariable],
                  diff_module: fr.grid.DiffModule | None = None, 
                  interp_module: fr.grid.InterpolationModule | None = None,
-                 name: str = "Harmonic Diffusion"):
+                 name: str = "Biharmonic Diffusion"):
         super().__init__(name)
         self.field_flags = field_flags
+
+        self.harmonic = fr.modules.closures.HarmonicDiffusion(
+            field_flags=field_flags,
+            diffusion_coefficients=_get_coefficients(diffusion_coefficients),
+            diff_module=diff_module,
+            interp_module=interp_module)
+
         self.diffusion_coefficients = diffusion_coefficients
         self.diff_module = diff_module
         self.interp_module = interp_module
@@ -66,27 +80,20 @@ class HarmonicDiffusion(fr.modules.Module):
             self.interp_module = self.mset.grid._interp_mod
         else:
             self.interp_module.setup(mset=self.mset)
+        self.harmonic.setup(mset=self.mset)
         return
 
     @fr.utils.jaxjit
     def diffusion_operator(self, u: fr.FieldVariable) -> fr.FieldVariable:
         r"""
-        Applies the harmonic diffusion operator on a scalar field :math:`u`.
+        Applies the biharmonic diffusion operator on a scalar field :math:`u`.
         """
-        # compute the gradient of the field
-        grad_u = list(self.diff_module.grad(u))
-        # multiply the gradient with the diffusion coefficients
-        for i, coeff in enumerate(self.diffusion_coefficients):
-            if isinstance(coeff, fr.FieldVariable):
-                # interpolate the diffusion coefficient to the position of the field
-                c = self.interp_module.interpolate(coeff, grad_u[i].position)
-            else:
-                c = coeff
-            grad_u[i] *= c
-        # compute the divergence of the gradient
-        div_u = self.diff_module.div(tuple(grad_u))
-        return div_u
-
+        # apply the first harmonic diffusion operator
+        div1 = self.harmonic.diffusion_operator(u)
+        # apply the second harmonic diffusion operator
+        div2 = self.harmonic.diffusion_operator(div1)
+        return div2
+    
     @fr.utils.jaxjit
     def diffuse(self, z: fr.StateBase, dz: fr.StateBase) -> fr.StateBase:
         # loop over all fields
@@ -96,14 +103,15 @@ class HarmonicDiffusion(fr.modules.Module):
                 continue
 
             # apply the diffusion operator
-            dz.fields[name] += self.diffusion_operator(field)
+            dz.fields[name] -= self.diffusion_operator(field)
         return dz
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
         mz.dz = self.diffuse(mz.z, mz.dz)
         return mz
-        
+
+
     # ----------------------------------------------------------------
     #  Properties
     # ----------------------------------------------------------------
@@ -125,6 +133,7 @@ class HarmonicDiffusion(fr.modules.Module):
     
     @diff_module.setter
     def diff_module(self, value):
+        self.harmonic.diff_module = value
         self._diff_module = value
         return
 
@@ -135,6 +144,7 @@ class HarmonicDiffusion(fr.modules.Module):
 
     @interp_module.setter
     def interp_module(self, value):
+        self.harmonic.interp_module = value
         self._interp_module = value
         return
 
@@ -145,7 +155,8 @@ class HarmonicDiffusion(fr.modules.Module):
     
     @diffusion_coefficients.setter
     def diffusion_coefficients(self, value):
+        self.harmonic.diffusion_coefficients = _get_coefficients(value)
         self._diffusion_coefficients = value
         return
-
-fr.utils.jaxify_class(HarmonicDiffusion)
+    
+fr.utils.jaxify_class(BiharmonicDiffusion)
