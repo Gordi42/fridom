@@ -124,13 +124,8 @@ class DiffModule(fr.modules.Module):
             # Calculate 2D horizontal divergence
             div = diff.div((u, v, None))
         """
-        for f in vec:
-            if f is not None:
-                template = f
-        div = fr.FieldVariable(**template.get_kw())
-        for axis, f in enumerate(vec):
-            if f is not None:
-                div += self.diff(f, axis)
+        div = sum(self.diff(f, axis) 
+                  for axis, f in enumerate(vec) if f is not None)
         return div
 
     @partial(fr.utils.jaxjit, static_argnames=('axes',))
