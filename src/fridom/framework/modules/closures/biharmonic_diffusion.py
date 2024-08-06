@@ -1,4 +1,5 @@
 import fridom.framework as fr
+from functools import partial
 
 @fr.utils.jaxjit
 def _get_coefficients(diffusion_coefficients):
@@ -13,6 +14,8 @@ def _get_coefficients(diffusion_coefficients):
         coeffs.append(kappa)
     return coeffs
 
+
+@partial(fr.utils.jaxify, dynamic=("_diffusion_coefficients",))
 class BiharmonicDiffusion(fr.modules.Module):
     r"""
     Biharmonic diffusion module
@@ -47,7 +50,6 @@ class BiharmonicDiffusion(fr.modules.Module):
     `name` : `str`, (default="Harmonic Diffusion")
         Name of the module.
     """
-    _dynamic_attributes = ["mset", "_diffusion_coefficients"]
 
     def __init__(self,
                  field_flags: list[str],
@@ -159,4 +161,3 @@ class BiharmonicDiffusion(fr.modules.Module):
         self._diffusion_coefficients = value
         return
     
-fr.utils.jaxify_class(BiharmonicDiffusion)

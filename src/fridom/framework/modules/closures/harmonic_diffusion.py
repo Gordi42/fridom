@@ -1,6 +1,8 @@
 import fridom.framework as fr
+from functools import partial
 
 
+@partial(fr.utils.jaxify, dynamic=("_diffusion_coefficients",))
 class HarmonicDiffusion(fr.modules.Module):
     r"""
     Harmonic diffusion module
@@ -41,7 +43,6 @@ class HarmonicDiffusion(fr.modules.Module):
     `name` : `str`, (default="Harmonic Diffusion")
         Name of the module.
     """
-    _dynamic_attributes = ["mset", "diffusion_coefficients"]
     def __init__(self, 
                  field_flags: list[str], 
                  diffusion_coefficients: list[float | fr.FieldVariable], 
@@ -147,5 +148,3 @@ class HarmonicDiffusion(fr.modules.Module):
     def diffusion_coefficients(self, value):
         self._diffusion_coefficients = value
         return
-
-fr.utils.jaxify_class(HarmonicDiffusion)

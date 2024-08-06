@@ -1,5 +1,7 @@
 import fridom.framework as fr
 
+
+@fr.utils.jaxify
 class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
     r"""
     Harmonic mixing module
@@ -58,9 +60,8 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
         self.diffusion_coefficients = coeffs
         return
 
-fr.utils.jaxify_class(HarmonicMixing)
 
-
+@fr.utils.jaxify
 class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
     r"""
     Harmonic friction module
@@ -119,9 +120,8 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
         self.diffusion_coefficients = coeffs
         return
 
-fr.utils.jaxify_class(HarmonicFriction)
 
-
+@fr.utils.jaxify
 class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
     r"""
     Biharmonic mixing module
@@ -180,9 +180,8 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
         self.diffusion_coefficients = coeffs
         return
 
-fr.utils.jaxify_class(BiharmonicMixing)
 
-
+@fr.utils.jaxify
 class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
     r"""
     Biharmonic friction module
@@ -240,5 +239,3 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
         coeffs = [self.diffusion_coefficients[0], self.diffusion_coefficients[1], value]
         self.diffusion_coefficients = coeffs
         return
-
-fr.utils.jaxify_class(BiharmonicFriction)
