@@ -19,7 +19,8 @@ class State(fr.StateBase):
                 position=cell_center.shift(axis=0),
                 transform_types=(fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2,
-                                 fr.grid.TransformType.DCT2)
+                                 fr.grid.TransformType.DCT2),
+                flags=["ENABLE_FRICTION"],
                 )
 
             v = fr.FieldVariable(
@@ -31,7 +32,8 @@ class State(fr.StateBase):
                 position=cell_center.shift(axis=1),
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1,
-                                 fr.grid.TransformType.DCT2)
+                                 fr.grid.TransformType.DCT2),
+                flags=["ENABLE_FRICTION"],
                 )
 
             w = fr.FieldVariable(
@@ -43,7 +45,8 @@ class State(fr.StateBase):
                 position=cell_center.shift(axis=2),
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DCT2,
-                                 fr.grid.TransformType.DST1)
+                                 fr.grid.TransformType.DST1),
+                flags=["ENABLE_FRICTION"],
                 )
 
             b = fr.FieldVariable(

@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:
-    from .harmonic_friction import HarmonicFriction
-    from .harmonic_mixing import HarmonicMixing
     from .biharmonic_friction import BiharmonicFriction
     from .biharmonic_mixing import BiharmonicMixing
 
@@ -21,8 +19,6 @@ base_path = "fridom.nonhydro.modules.diffusion"
 all_modules_by_origin = { }
 
 all_imports_by_origin = { 
-    f"{base_path}.harmonic_friction": ["HarmonicFriction"],
-    f"{base_path}.harmonic_mixing": ["HarmonicMixing"],
     f"{base_path}.biharmonic_friction": ["BiharmonicFriction"],
     f"{base_path}.biharmonic_mixing": ["BiharmonicMixing"],
 }

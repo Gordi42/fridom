@@ -77,7 +77,8 @@ class FieldVariable:
         #  Set flags
         # ----------------------------------------------------------------
         self.flags = {"NO_ADV": False, 
-                      "ENABLE_MIXING": False}
+                      "ENABLE_MIXING": False,
+                      "ENABLE_FRICTION": False,}
         if isinstance(flags, dict):
             self.flags.update(flags)
         elif isinstance(flags, list):
