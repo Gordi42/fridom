@@ -445,7 +445,7 @@ def jaxify(cls: type, dynamic: tuple[str] | None = None) -> type:
     dynamic = list(dynamic) or []
     
     # check if the class has a _dynamic_attributes attribute
-    if hasattr(cls, "_dynamic_jax_attributes"):
+    if hasattr(cls, "_dynamic_jax_attrs"):
         dynamic += list(cls._dynamic_jax_attrs)
 
     # remove duplicates
