@@ -1,6 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING, Union
 import numpy as np
+from functools import partial
 # Import internal modules
 import fridom.framework as fr
 from fridom.framework import utils
@@ -8,6 +9,9 @@ from fridom.framework import utils
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
 
+
+@partial(utils.jaxify, dynamic=('z', 'z_diag', 'dz', 'it', '_start_time', 
+                                '_start_time_in_seconds', '_passed_time'))
 class ModelState:
     """
     Stores the model state variables and the time information.
@@ -33,9 +37,6 @@ class ModelState:
     `dz` : `State`
         The state vector tendency.
     """
-    _dynamic_attributes = set(["z", "z_diag", "dz", "it",
-                               "_start_time", "_start_time_in_seconds",
-                               "_passed_time"])
     def __init__(self, mset: 'ModelSettingsBase') -> None:
         self.mset = mset
         self.z = mset.state_constructor()
@@ -127,5 +128,3 @@ class ModelState:
     @time.setter
     def time(self, value: float) -> None:
         self._passed_time = value - self._start_time_in_seconds
-
-utils.jaxify_class(ModelState)

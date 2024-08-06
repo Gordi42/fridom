@@ -1,5 +1,6 @@
 # Import external modules
 from typing import TYPE_CHECKING
+from functools import partial
 # Import internal modules
 import fridom.framework as fr
 from fridom.framework import config, utils
@@ -9,6 +10,7 @@ if TYPE_CHECKING:
     from fridom.framework.field_variable import FieldVariable
     from fridom.framework.model_settings_base import ModelSettingsBase
 
+@partial(utils.jaxify, dynamic=("fields",))
 class StateBase:
     """
     Base class for a model state.
@@ -48,7 +50,6 @@ class StateBase:
     `norm_of_diff(other: State)` -> `float`
         Calculate the norm of the difference between two states.
     """
-    _dynamic_attributes = set(["fields"])
     # ======================================================================
     #  STATE CONSTRUCTORS
     # ======================================================================
@@ -328,6 +329,3 @@ class StateBase:
         Return the grid of the model.
         """
         return self.mset.grid
-
-
-utils.jaxify_class(StateBase)

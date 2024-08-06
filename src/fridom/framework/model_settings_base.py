@@ -1,4 +1,5 @@
 import fridom.framework as fr
+from functools import partial
 # Import external modules
 from typing import TYPE_CHECKING, Union
 import numpy as np
@@ -9,6 +10,8 @@ from fridom.framework.config import logger
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
 
+
+@partial(utils.jaxify, dynamic=('grid',))
 class ModelSettingsBase:
     """
     Base class for model settings container.
@@ -50,7 +53,6 @@ class ModelSettingsBase:
                 res["my_parameter"] = self.my_parameter
                 return res
     """
-    _dynamic_attributes = ["grid"]
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
         # grid
         self.grid = grid
@@ -225,6 +227,3 @@ class ModelSettingsBase:
     def nan_check_interval(self, value: int) -> None:
         self._nan_check_interval = value
         return
-
-
-utils.jaxify_class(ModelSettingsBase)
