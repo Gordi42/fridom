@@ -35,6 +35,7 @@ class RestartModule(Module):
             config.logger.verbose(
                 "No interval is set in RestartModule. Disabling the module.")
             self.disable()
+            return
 
         # ----------------------------------------------------------------
         #  Check the filename
@@ -56,16 +57,23 @@ class RestartModule(Module):
         # ----------------------------------------------------------------
         if restart_command is None:
             job_id = os.getenv('SLURM_JOB_ID')
-            import subprocess
-            job_info = subprocess.run(['scontrol', 'show', 'job', job_id], capture_output=True, text=True)
-            command = None
-            for line in job_info.stdout.split('\n'):
-                if line.strip().startswith('Command='):
-                    command = line.split('=', 1)[1].strip()
-            if command is None:
+            if job_id is None:
                 config.logger.warning(
                     "No restart command is set. The model will not be able to restart.")
-            restart_command = f"sbatch {command}"
+                restart_command = None
+            else:
+                job_info = subprocess.run(
+                        ['scontrol', 'show', 'job', job_id],
+                        capture_output=True,
+                        text=True)
+                command = None
+                for line in job_info.stdout.split('\n'):
+                    if line.strip().startswith('Command='):
+                        command = line.split('=', 1)[1].strip()
+                if command is None:
+                    config.logger.warning(
+                        "No restart command is set. The model will not be able to restart.")
+                restart_command = f"sbatch {command}"
 
         # ----------------------------------------------------------------
         #  Set attributes
