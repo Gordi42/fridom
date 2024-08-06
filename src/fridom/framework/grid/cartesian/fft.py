@@ -78,6 +78,8 @@ def idst_type2(x, axis, N):
     weights = 2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*N))
     return _apply_weights(x, weights, axis) / (2 * N)
 
+
+@utils.jaxify
 class FFT:
     """
     Class for performing fourier transforms on a cartesian grid.
@@ -120,7 +122,6 @@ class FFT:
         assert np.allclose(u, w)
 
     """
-    _dynamic_attributes = [ ]
     def __init__(self, 
                  periodic: tuple[bool]) -> None:
         
@@ -293,5 +294,3 @@ class FFT:
                     u = idst_type2(u, axis, u.shape[axis])
 
         return u
-
-utils.jaxify_class(FFT)

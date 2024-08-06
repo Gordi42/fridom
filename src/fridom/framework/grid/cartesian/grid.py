@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from fridom.framework.domain_decomposition import Subdomain
 
 
+@partial(utils.jaxify, dynamic=('_domain_decomp', '_pfft', '_fft', 
+                                '_diff_mod', '_interp_mod'))
 class Grid(GridBase):
     """
     An n-dimensional cartesian grid with capabilities for fourier transforms.
@@ -71,8 +73,6 @@ class Grid(GridBase):
         dx, dy, dz = grid.dx
 
     """
-    _dynamic_attributes = GridBase._dynamic_attributes + ['_domain_decomp',
-        '_pfft', '_fft', '_diff_mod', '_interp_mod']
     def __init__(self, 
                  N: list[int],
                  L: list[float],
@@ -337,5 +337,3 @@ class Grid(GridBase):
     def k_global(self) -> tuple | None:
         """Global spectral k-vectors."""
         return self._k_global
-
-utils.jaxify_class(Grid)

@@ -1,6 +1,8 @@
 import fridom.framework as fr
 from abc import abstractmethod
 
+
+@fr.utils.jaxify
 class InterpolationModule(fr.modules.Module):
     """
     The base class for interpolation methods.

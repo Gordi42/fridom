@@ -1,6 +1,7 @@
 from enum import Enum, auto
 import fridom.framework as fr
 
+
 class AxisPosition(Enum):
     """
     The position of a field along an axis on the staggered grid.
@@ -40,6 +41,7 @@ class AxisPosition(Enum):
                 return AxisPosition.CENTER
 
 
+@fr.utils.jaxify
 class Position:
     """
     The position of a field on a staggered grid.
@@ -49,7 +51,6 @@ class Position:
     `positions` : `tuple[AxisPosition]`
         The positions of the field along each axis.
     """
-    _dynamic_attributes = []
     def __init__(self, positions: tuple[AxisPosition]) -> None:
         self._positions = positions
         return
@@ -112,5 +113,3 @@ class Position:
         The positions of the field along each axis.
         """
         return self._positions
-
-fr.utils.jaxify_class(Position)

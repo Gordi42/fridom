@@ -1,8 +1,10 @@
 import fridom.framework as fr
 from numpy import ndarray
 import itertools
+from functools import partial
 
 
+@partial(fr.utils.jaxify, dynamic=('_water_mask', '_cache'))
 class WaterMask:
     """
     Water mask for the grid cells (for boundary conditions).
@@ -39,7 +41,6 @@ class WaterMask:
             [0, 1, 1]           [0, 1, 0]           [0, 0, 1]
     
     """
-    _dynamic_attributes = ["_water_mask", "_cache"]
     def __init__(self):
         self.name = "Water Mask"
         self._water_mask = None
@@ -181,5 +182,3 @@ class WaterMask:
         for position in itertools.product([CENTER, FACE], repeat=ndim):
             self.get_mask(fr.grid.Position(position))
         return
-
-fr.utils.jaxify_class(WaterMask)

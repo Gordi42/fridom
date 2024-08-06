@@ -1,12 +1,10 @@
 from numpy import ndarray
 import fridom.nonhydro as nh
 import fridom.framework as fr
+from functools import partial
 
+@partial(fr.utils.jaxify, dynamic=('k2_hat', 'k2_hat_zero'))
 class Grid(fr.grid.cartesian.Grid):
-    # update the list of dynamic attributes
-    _dynamic_attributes = fr.grid.cartesian.Grid._dynamic_attributes + [
-        'k2_hat', 'k2_hat_zero']
-    
     def __init__(self, N: list[int], L: list[int],
                  periodic_bounds: list[bool] = [True, True, True],
                  decomposition: str = 'slab'):
@@ -57,5 +55,3 @@ class Grid(fr.grid.cartesian.Grid):
     def vec_p(self, s: int, use_discrete=True) -> nh.State:
         return nh.grid.cartesian.eigenvectors.vec_p(
             mset=self.mset, s=s, use_discrete=use_discrete)
-
-fr.utils.jaxify_class(Grid)

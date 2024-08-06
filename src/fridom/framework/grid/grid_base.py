@@ -1,7 +1,11 @@
 import fridom.framework as fr
 from numpy import ndarray
 from abc import abstractmethod
+from functools import partial
 
+
+@partial(fr.utils.jaxify, dynamic=('_X', '_x_global', '_x_local', 
+                                   '_K', '_k_local', '_k_global'))
 class GridBase:
     """
     Base class for all grids in the framework.
@@ -20,8 +24,6 @@ class GridBase:
     `mpi_available` : `bool`
         Indicates whether the grid supports MPI parallelization.
     """
-    _dynamic_attributes = ["_X", "_x_global", "_x_local",
-                           '_K', '_k_local', '_k_global']
     def __init__(self, n_dims: int) -> None:
 
         self.name = "GridBase"
@@ -459,6 +461,3 @@ class GridBase:
     @mpi_available.setter
     def mpi_available(self, value: bool) -> None:
         self._mpi_available = value
-
-
-fr.utils.jaxify_class(GridBase)

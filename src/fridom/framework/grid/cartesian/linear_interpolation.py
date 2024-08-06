@@ -2,6 +2,7 @@ import fridom.framework as fr
 from functools import partial
 
 
+@partial(fr.utils.jaxify, dynamic=('water_mask',))
 class LinearInterpolation(fr.grid.InterpolationModule):
     r"""
     Simple linear interpolation for cartesian grids.
@@ -9,7 +10,6 @@ class LinearInterpolation(fr.grid.InterpolationModule):
     .. math::
         f(x + 0.5 \Delta x) = \frac{1}{2} (f(x) + f(x + \Delta x))
     """
-    _dynamic_attributes = ["water_mask"]
     def __init__(self) -> None:
         super().__init__(name="Linear Interpolation")
         self.ndim: int = None
@@ -70,5 +70,3 @@ class LinearInterpolation(fr.grid.InterpolationModule):
         prev = tuple(slice(None, -1) if i == axis else slice(None) 
                      for i in range(self.ndim))
         return next, prev
-
-fr.utils.jaxify_class(LinearInterpolation)

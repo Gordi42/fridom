@@ -2,6 +2,7 @@ import fridom.framework as fr
 from functools import partial
 
 
+@partial(fr.utils.jaxify, dynamic=('water_mask', ))
 class PolynomialInterpolation(fr.grid.InterpolationModule):
     r"""
     Polynomial interpolation for cartesian grids.
@@ -45,7 +46,6 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
     .. math::
         c_i = \prod_{j=0, j \neq i}^{n} \frac{j-n/2}{j - i}
     """
-    _dynamic_attributes = ["water_mask"]
     def __init__(self, order: int = 1):
         super().__init__(name="Polynomial Interpolation")
         # order must be an odd number
@@ -145,5 +145,3 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
         prev = tuple(slice(n, -1-n) if i == axis else slice(None) 
                      for i in range(self.ndim))
         return next, prev
-
-fr.utils.jaxify_class(PolynomialInterpolation)

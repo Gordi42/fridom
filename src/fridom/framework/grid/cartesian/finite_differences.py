@@ -2,10 +2,8 @@ import fridom.framework as fr
 from functools import partial
 
 
+@partial(fr.utils.jaxify, dynamic=('_dx1', 'water_mask'))
 class FiniteDifferences(fr.grid.DiffModule):
-    _dynamic_attributes = fr.grid.DiffModule._dynamic_attributes + [
-        '_dx1', 'water_mask']
-
     def __init__(self) -> None:
         super().__init__(name="Finite Differences")
         # ----------------------------------------------------------------
@@ -81,5 +79,3 @@ class FiniteDifferences(fr.grid.DiffModule):
         res.position = new_pos
 
         return res
-
-fr.utils.jaxify_class(FiniteDifferences)
