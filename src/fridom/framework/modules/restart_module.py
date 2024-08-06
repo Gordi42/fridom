@@ -62,6 +62,7 @@ class RestartModule(Module):
                     "No restart command is set. The model will not be able to restart.")
                 restart_command = None
             else:
+                import subprocess
                 job_info = subprocess.run(
                         ['scontrol', 'show', 'job', job_id],
                         capture_output=True,
