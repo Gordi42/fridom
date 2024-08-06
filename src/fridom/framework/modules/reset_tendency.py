@@ -1,6 +1,7 @@
 import fridom.framework as fr
 
 
+@fr.utils.jaxify
 class ResetTendency(fr.modules.Module):
     """
     A module that resets the tendency of a model state.
@@ -12,7 +13,6 @@ class ResetTendency(fr.modules.Module):
     the tendency state before updating it. It should always be the first module
     of the tendencies list.
     """
-    _dynamic_attributes = set(["mset"])
     def __init__(self, name="Reset Tendency"):
         super().__init__(name=name)
 
@@ -28,5 +28,3 @@ class ResetTendency(fr.modules.Module):
         """
         dz *= 0
         return dz
-
-fr.utils.jaxify_class(ResetTendency)
