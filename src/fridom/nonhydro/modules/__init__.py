@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from . import forcings
 
     # importing classes
-    from .boundary_conditions import BoundaryConditions
     from .linear_tendency import LinearTendency
     from .tendency_divergence import TendencyDivergence
     from .pressure_gradient_tendency import PressureGradientTendency
@@ -47,7 +46,6 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = { 
-    f"{base_path}.boundary_conditions": ["BoundaryConditions"],
     f"{base_path}.linear_tendency": ["LinearTendency"],
     f"{base_path}.tendency_divergence": ["TendencyDivergence"],
     f"{base_path}.pressure_gradient_tendency": ["PressureGradientTendency"],

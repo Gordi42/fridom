@@ -65,7 +65,6 @@ class ModelSettingsBase:
         # modules
         from fridom.framework.modules.restart_module import RestartModule
         from fridom.framework.modules.module_container import ModuleContainer
-        from fridom.framework.modules.boundary_conditions import BoundaryConditions
         # Progress bar module
         self.progress_bar = fr.modules.ProgressBar()
         # Restart module
@@ -74,8 +73,6 @@ class ModelSettingsBase:
         self.tendencies = ModuleContainer(name="All Tendency Modules")
         # List of modules that do diagnostics
         self.diagnostics = ModuleContainer(name="All Diagnostic Modules")
-        # Boundary conditions  (should be set by the child class)
-        self.bc = BoundaryConditions(field_names=[])
 
         # Timer
         from fridom.framework.timing_module import TimingModule
@@ -121,7 +118,6 @@ class ModelSettingsBase:
         self.restart_module.setup(mset=self)
         self.tendencies.setup(mset=self)
         self.diagnostics.setup(mset=self)
-        self.bc.setup(mset=self)
         self.time_stepper.setup(mset=self)
 
         logger.info(self)

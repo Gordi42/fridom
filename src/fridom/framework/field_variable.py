@@ -155,6 +155,14 @@ class FieldVariable:
         Synchronize the FieldVariable (exchange boundary values)
         """
         self.arr = self.grid.sync(self.arr)
+        self.apply_water_mask()
+        return self
+
+    def apply_water_mask(self) -> 'FieldVariable':
+        """
+        Apply boundary conditions to the FieldVariable
+        """
+        self.arr *= self.grid.water_mask.get_mask(self.position)
         return self
 
 

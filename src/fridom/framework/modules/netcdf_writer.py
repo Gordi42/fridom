@@ -275,7 +275,8 @@ class NetCDFWriter(Module):
             xi.units = "m"
             xi.long_name = f"{name} coordinate"
 
-        time.units = f"seconds since {mz.start_time}"
+        # time.units = f"seconds since {mz.start_time}"
+        time.units = f"seconds"
         time.long_name = "UTC time"
         time.calendar = "standard"
         time.standard_name = "time"

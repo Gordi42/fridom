@@ -40,10 +40,6 @@ class ModelSettings(ModelSettingsBase):
         from fridom.nonhydro.modules.main_tendency import MainTendency
         tendencies = MainTendency()
 
-        # boundary condition
-        from fridom.nonhydro.modules.boundary_conditions import BoundaryConditions
-        bc = BoundaryConditions()
-
         # ----------------------------------------------------------------
         #  Set attributes
         # ----------------------------------------------------------------
@@ -55,7 +51,6 @@ class ModelSettings(ModelSettingsBase):
         self.dsqr = dtype(1)
         self.Ro   = dtype(1)
         self.tendencies = tendencies
-        self.bc   = bc
 
         self.set_attributes(**kwargs)
         return

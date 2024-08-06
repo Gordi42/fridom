@@ -32,7 +32,7 @@ class BiharmonicMixing(fr.modules.Module):
         Horizontal biharmonic mixing coefficient.
     `kv` : `float`
         Vertical biharmonic mixing coefficient.
-    `diff` : `fr.grid.DiffBase | None`, (default=None)
+    `diff` : `fr.grid.DiffModule | None`, (default=None)
         Differentiation module to use. If None, the differentiation module of
         the grid is used.
     """
@@ -74,7 +74,7 @@ class BiharmonicMixing(fr.modules.Module):
     @fr.utils.jaxjit
     def mixing(self, z: nh.State, dz: nh.State) -> nh.State:
         r"""
-        Compute the harmonic mixing term.
+        Compute the biharmonic mixing term.
         """
         for name, field in z.fields.items():
             if field.flags["ENABLE_MIXING"]:
@@ -91,7 +91,7 @@ class BiharmonicMixing(fr.modules.Module):
 
     @property
     def kh(self) -> float:
-        """The horizontal harmonic mixing coefficient."""
+        """The horizontal biharmonic mixing coefficient."""
         return self._kh ** 2
     
     @kh.setter
@@ -101,7 +101,7 @@ class BiharmonicMixing(fr.modules.Module):
 
     @property
     def kv(self) -> float:
-        """The vertical harmonic mixing coefficient."""
+        """The vertical biharmonic mixing coefficient."""
         return self._kv ** 2
     
     @kv.setter
@@ -113,8 +113,8 @@ class BiharmonicMixing(fr.modules.Module):
     def info(self) -> dict:
         res = super().info
         res["diff"] = self.diff
-        res["ah"] = self.ah
-        res["av"] = self.av
+        res["kh"] = self.kh
+        res["kv"] = self.kv
         return res
 
     @property

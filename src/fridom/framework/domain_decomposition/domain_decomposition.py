@@ -423,63 +423,6 @@ class DomainDecomposition:
             arr[self._recv_from_prev[axis]] = buf_recv_prev_list[i]
         return arrs
 
-    @partial(utils.jaxjit, static_argnames=['axis', 'side'])
-    def apply_boundary_condition(
-            self, 
-            arr: np.ndarray, 
-            bc: np.ndarray, 
-            axis: int, 
-            side: str
-            ) -> np.ndarray:
-        """
-        Apply boundary condition to the halo regions of an array.
-        
-        Parameters
-        ----------
-        `arr` : `np.ndarray`
-            The array to apply the boundary condition to.
-        `bc` : `np.ndarray`
-            The boundary condition to apply.
-        `axis` : `int`
-            The dimension to apply the boundary condition to.
-        `side` : `str`
-            The side to apply the boundary condition to. left or right.
-
-        Returns
-        -------
-        `np.ndarray`
-            The array with the boundary condition applied.
-        
-        Raises
-        ------
-        `ValueError`
-            f `side` is not either 'left' or 'right'.
-        """
-        if self.halo == 0:
-            return arr  # nothing to do if there are no halo regions
-        if side == "left":
-            return self._apply_left_boundary_condition(arr, bc, axis)
-        elif side == "right":
-            return self._apply_right_boundary_condition(arr, bc, axis)
-        else:
-            raise ValueError("side must be either 'left' or 'right'.")
-
-    @partial(utils.jaxjit, static_argnames=['axis'])
-    def _apply_left_boundary_condition(
-            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
-        # apply the boundary condition to the left side
-        if self.my_subdomain.is_left_edge[axis]:
-            arr = utils.modify_array(arr, self._recv_from_prev[axis], bc)
-        return arr
-    
-    @partial(utils.jaxjit, static_argnames=['axis'])
-    def _apply_right_boundary_condition(
-            self, arr: np.ndarray, bc: np.ndarray, axis: int) -> np.ndarray:
-        # apply the boundary condition to the right side
-        if self.my_subdomain.is_right_edge[axis]:
-            arr = utils.modify_array(arr, self._recv_from_next[axis], bc)
-        return arr
-
     def sync_with_device(self):
         """
         Synchronize the gpu device with the processor.

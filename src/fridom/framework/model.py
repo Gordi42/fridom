@@ -50,7 +50,6 @@ class Model:
         self.restart_module = mset.restart_module
         self.tendencies  = mset.tendencies
         self.diagnostics = mset.diagnostics
-        self.bc = mset.bc
 
         # Time stepper
         self.time_stepper = mset.time_stepper
@@ -66,7 +65,6 @@ class Model:
         self.tendencies.start()
         self.diagnostics.start()
         self.time_stepper.start()
-        self.bc.start()
         self.model_state.panicked = False
 
         # compile the modules
@@ -91,7 +89,6 @@ class Model:
         self.tendencies.stop()
         self.diagnostics.stop()
         self.time_stepper.stop()
-        self.bc.stop()
         self.timer.total.stop()
         self.progress_bar.stop()
         return
@@ -104,7 +101,6 @@ class Model:
         self.tendencies.reset()
         self.diagnostics.reset()
         self.time_stepper.reset()
-        self.bc.reset()
         self.model_state.reset()
         self.timer.reset()
         # to implement in child class

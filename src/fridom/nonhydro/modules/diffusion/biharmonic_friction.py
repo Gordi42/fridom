@@ -1,104 +1,129 @@
-from fridom.nonhydro.state import State
-from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
 
-class BiharmonicFriction(Module):
+class BiharmonicFriction(fr.modules.Module):
+    r"""
+    Biharmonic friction module
+
+    Description
+    -----------
+    Following Griffiies et al. (2000), the biharmonic friction operator iterates 
+    twice over the harmonic friction operator. For a velocity scalar field 
+    :math:`u` it is given by:
+
+    .. math::
+        \Delta b = - \nabla \cdot \left (\boldsymbol{A} \cdot \nabla b 
+            \nabla \cdot \left (\boldsymbol{A} \cdot \nabla b \right)
+            \right)
+
+    with:
+
+    .. math::
+        \boldsymbol{A} = \begin{pmatrix} \sqrt{a_h} \\ \sqrt{a_h} \\ \sqrt{a_v} \end{pmatrix}
+
+    where :math:`a_h` is the horizontal biharmonic friction coefficient and
+    :math:`a_v` is the vertical biharmonic friction coefficient. The biharmonic
+    operator is applied to all velocity components (u, v, w).
+
+    Parameters
+    ----------
+    `ah` : `float`
+        Horizontal biharmonic friction coefficient.
+    `av` : `float`
+        Vertical biharmonic friction coefficient.
+    `diff` : `fr.grid.DiffModule | None`, (default=None)
+        Differentiation module to use. If None, the differentiation module of
+        the grid is used.
     """
-    This class computes the biharmonic friction tendency of the model.
-
-    Computes:
-    $ dz.u -= ah \\nabla^4 u + kh \\partial_z^4 u $
-    $ dz.v -= ah \\nabla^4 v + kh \\partial_z^4 v $
-    $ dz.w -= ah \\nabla^4 w + kh \\partial_z^4 w $
-    where:
-    - `ah`: Horizontal biharmonic friction coefficient.
-    - `av`: Vertical biharmonic friction coefficient.
-    """
-    def __init__(self, ah: float = 0, av: float = 0):
-        """
-        ## Arguments:
-        - `ah`: Horizontal harmonic friction coefficient.
-        - `av`: Vertical harmonic friction coefficient.
-        """
-        super().__init__(name="Biharmonic Friction", ah=ah, av=av)
-
-    @start_module
-    def start(self):
-        # cast the parameters to the correct data type
-        self.ah = self.mset.dtype(self.ah)
-        self.av = self.mset.dtype(self.av)
-
-        # compute the grid spacing
-        mset = self.mset
-        self.dx2 = mset.dtype(1.0) / mset.dx**2
-        self.dy2 = mset.dtype(1.0) / mset.dy**2
-        self.dz2 = mset.dtype(1.0) / mset.dz**2
+    _dynamic_attributes = ["mset", "_ah", "_av"]
+    def __init__(self, 
+                 ah: float = 0, 
+                 av: float = 0,
+                 diff: fr.grid.DiffModule | None = None):
+        super().__init__(name="Harmonic Mixing")
+        self.required_halo = 2
+        self._ah = None
+        self._av = None
+        self._diff = diff
+        # set the coefficients
+        self.ah = ah
+        self.av = av
         return
 
-    @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
+    @fr.modules.setup_module
+    def setup(self):
+        # setup the differentiation modules
+        if self.diff is None:
+            self.diff = self.mset.grid._diff_mod
+        else:
+            self.diff.setup(mset=self.mset)
+        return
+
+    @fr.utils.jaxjit
+    def harmonic_friction(self, f: fr.FieldVariable) -> fr.FieldVariable:
         """
-        Compute the biharmonic friction tendency of the model.
-
-        Args:
-            mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
+        Compute the harmonic friction term.
         """
-        # shorthand notation
-        dx2 = self.dx2; dy2 = self.dy2; dz2 = self.dz2
-        ah = self.ah; av = self.av
+        ah = self._ah; av = self._av
+        dfdx, dfdy, dfdz = self.diff.grad(f)
+        dfdx *= ah; dfdy *= ah; dfdz *= av
+        div = self.diff.div((dfdx, dfdy, dfdz))
+        return div
 
-        # Slices
-        c = slice(1,-1); f = slice(2,None); b = slice(None,-2)
-        xf = (f,c,c); xb = (b,c,c)
-        yf = (c,f,c); yb = (c,b,c)
-        zf = (c,c,f); zb = (c,c,b)
-        cc = (c,c,c)
+    @fr.utils.jaxjit
+    def friction(self, z: nh.State, dz: nh.State) -> nh.State:
+        r"""
+        Compute the biharmonic friction term.
+        """
+        for name in ["u", "v", "w"]:
+            div1 = self.harmonic_friction(z.fields[name])
+            div2 = self.harmonic_friction(div1)
+            dz.fields[name] -= div2
+            dz.fields[name]
+        return dz
 
-        def biharmonic_function(p, h_coeff, v_coeff):
-            """
-            Calculate biharmonic friction / mixing.
+    @fr.modules.module_method
+    def update(self, mz: nh.ModelState) -> nh.ModelState:
+        mz.dz = self.friction(mz.z, mz.dz)
+        return mz
 
-            Args:
-                p (FieldVariable)   : Field variable.
+    @property
+    def ah(self) -> float:
+        """The horizontal biharmonic friction coefficient."""
+        return self._ah ** 2
+    
+    @ah.setter
+    def ah(self, value: float):
+        self._ah = fr.config.ncp.sqrt(value)
+        return
 
-            Returns:
-                res (FieldVariable) : Biharmonic friction / mixing.
-            """
-            # Padding with periodic boundary conditions
-            p = self.grid.cp.pad(p, ((2,2), (2,2), (2,2)), 'wrap')
+    @property
+    def av(self) -> float:
+        """The vertical biharmonic friction coefficient."""
+        return self._kv ** 2
+    
+    @av.setter
+    def av(self, value: float):
+        self._av = fr.config.ncp.sqrt(value)
+        return
 
-            # Apply boundary conditions
-            if not self.mset.periodic_bounds[0]:
-                p[:2,:,:]  = 0; p[-2:,:,:] = 0
-            if not self.mset.periodic_bounds[1]:
-                p[:,:2,:]  = 0; p[:,-2:,:] = 0
-            if not self.mset.periodic_bounds[2]:
-                p[:,:,:2]  = 0; p[:,:,-2:] = 0
-
-            # first two derivatives
-            tmp_h = (p[xf] - 2*p[cc] + p[xb])*dx2*h_coeff + \
-                    (p[yf] - 2*p[cc] + p[yb])*dy2*h_coeff
-            tmp_v = (p[zf] - 2*p[cc] + p[zb])*dz2*v_coeff
-
-            # last two derivatives
-            res = (tmp_h[xf] - 2*tmp_h[cc] + tmp_h[xb])*dx2 + \
-                  (tmp_h[yf] - 2*tmp_h[cc] + tmp_h[yb])*dy2 + \
-                  (tmp_v[zf] - 2*tmp_v[cc] + tmp_v[zb])*dz2
-            return res
-
-
-        # biharmonic friction 
-        dz.u[:] -= biharmonic_function(mz.z.u, ah, av)
-        dz.v[:] -= biharmonic_function(mz.z.v, ah, av)
-        dz.w[:] -= biharmonic_function(mz.z.w, ah, av)
-        return 
-
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    ah: {self.ah}\n    av: {self.av}"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["diff"] = self.diff
+        res["ah"] = self.ah
+        res["av"] = self.av
         return res
 
-# remove symbols from the namespace
-del State, ModelState, Module, update_module, start_module
+    @property
+    def diff(self) -> fr.grid.DiffModule:
+        """The differentiation module."""
+        return self._diff
+    
+    @diff.setter
+    def diff(self, value: fr.grid.DiffModule):
+        self._diff = value
+        return
+
+fr.utils.jaxify_class(BiharmonicFriction)

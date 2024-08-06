@@ -74,8 +74,8 @@ class HarmonicMixing(fr.modules.Module):
     def info(self) -> dict:
         res = super().info
         res["diff"] = self.diff
-        res["ah"] = self.ah
-        res["av"] = self.av
+        res["kh"] = self.kh
+        res["kv"] = self.kv
         return res
 
     @property
