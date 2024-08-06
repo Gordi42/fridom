@@ -9,6 +9,8 @@ from fridom.framework import config, utils
 if TYPE_CHECKING:
     from .domain_decomposition import DomainDecomposition
 
+
+@utils.jaxify
 class OverlapInfo:
     """
     Get information about which processors of the output domain overlaps with
@@ -41,7 +43,6 @@ class OverlapInfo:
         shares an overlap with processor {OverlapInfo.processors[0]} \
         of the domain2.")
     """
-    _dynamic_attributes = []
     def __init__(self, 
                  domain_in: 'DomainDecomposition', 
                  domain_out: 'DomainDecomposition') -> None:
@@ -70,8 +71,6 @@ class OverlapInfo:
         self.processors = processors
         self.slice_same_proc = slice_same_proc
         return
-
-utils.jaxify_class(OverlapInfo)
 
 
 @partial(utils.jaxjit, static_argnames=["same_domain"])
@@ -157,6 +156,8 @@ def transform(domain_in: 'DomainDecomposition',
     return arr_out
 
 
+@partial(utils.jaxify, dynamic=("_domain_in", "_domain_out", 
+                                "_overlap_info_in", "_overlap_info_out"))
 class Transformer:
     """
     Transformation module that transforms data from one domain to another.
@@ -205,8 +206,6 @@ class Transformer:
         w = transformer.backward(v)
         assert config.ncp.allclose(u, w)
     """
-    _dynamic_attributes = ["_domain_in", "_domain_out", 
-                           "_overlap_info_in", "_overlap_info_out"]
     def __init__(self, 
                  domain_in: 'DomainDecomposition', 
                  domain_out: 'DomainDecomposition') -> None:
@@ -287,6 +286,3 @@ class Transformer:
     def domain_out(self) -> 'DomainDecomposition':
         """The domain decomposition of the output domain."""
         return self._domain_out
-
-
-utils.jaxify_class(Transformer)

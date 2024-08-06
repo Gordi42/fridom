@@ -70,6 +70,8 @@ def transform(arr_in: np.ndarray,
         arr_out = domain_out.sync(arr_out)
     return arr_out 
 
+
+@partial(utils.jaxify, dynamic=('_domain_in', '_domain_out'))
 class ParallelFFT:
     """
     A class to perform fourier transforms on decomposed domains.
@@ -122,7 +124,6 @@ class ParallelFFT:
         # Check if the data is the same
         assert np.allclose(u, v)
     """
-    _dynamic_attributes = ['_domain_in', '_domain_out']
     def __init__(self, 
                  domain_in: DomainDecomposition, 
                  shared_axes_out : 'list[int]' = None,
@@ -407,6 +408,3 @@ class ParallelFFT:
     def domain_out(self) -> DomainDecomposition:
         """The domain decomposition of the output data"""
         return self._domain_out
-
-
-utils.jaxify_class(ParallelFFT)

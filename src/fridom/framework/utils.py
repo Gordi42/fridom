@@ -439,6 +439,9 @@ def jaxify(cls: type, dynamic: tuple[str] | None = None) -> type:
         config.logger.error(f"use dynamic=('attr',) instead of dynamic=('attr').")
         raise TypeError
 
+    if dynamic is None:
+        dynamic = []
+
     dynamic = list(dynamic) or []
     
     # check if the class has a _dynamic_attributes attribute

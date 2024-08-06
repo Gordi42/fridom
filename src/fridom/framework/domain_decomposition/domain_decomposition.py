@@ -80,6 +80,7 @@ def set_device():
 
 
 
+@utils.jaxify
 class DomainDecomposition:
     """
     Construct a grid of processors and decompose a global domain into subdomains.
@@ -141,7 +142,6 @@ class DomainDecomposition:
         # synchronize the halo regions between neighboring domains
         dom_x.sync(u)
     """
-    _dynamic_attributes = []
     def __init__(self, 
                  n_global: 'tuple[int]', 
                  halo: int = 0,
@@ -523,5 +523,3 @@ class DomainDecomposition:
     def my_subdomain(self) -> Subdomain:
         """The local domain of the current processor."""
         return self._my_subdomain
-
-utils.jaxify_class(DomainDecomposition)
