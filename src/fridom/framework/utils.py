@@ -405,28 +405,74 @@ def free_memory():
         for buf in backend.live_buffers(): buf.delete()
     return
 
-def _tree_flatten(self):
-    # Store all attributes that are marked as dynamic
-    children = tuple(getattr(self, attr) for attr in self._dynamic_attributes)
-    
-    # Store all other attributes as aux_data
-    aux_data = {key: att for key, att in self.__dict__.items() 
-                if key not in self._dynamic_attributes}
-    
-    return (children, aux_data)
-
-@classmethod
-def _tree_unflatten(cls, aux_data, children):
-    obj = object.__new__(cls)
-    # set dynamic attributes
-    for i, attr in enumerate(cls._dynamic_attributes):
-        setattr(obj, attr, children[i])
-    # set static attributes
-    for key, value in aux_data.items():
-        setattr(obj, key, value)
-    return obj
-
 def jaxify(cls: type, dynamic: tuple[str] | None = None) -> type:
+    """
+    Add JAX pytree support to a class (for jit compilation).
+    
+    Description
+    -----------
+    In order to use jax.jit on custom classes, the class must be registered
+    to jax. This decorator adds the necessary methods to the class to make it
+    compatible with jax.jit.
+    By default, all attributes of an object are considered static, i.e., they
+    they will not be traced by jax. Attributes that should be dynamic must
+    be marked specified with the `dynamic` argument.
+
+    .. note::
+        The `dynamic` argument must be a tuple of attribute names. If you only
+        have one dynamic attribute, use dynamic=('attr',) instead of dynamic=('attr').
+
+    .. note::
+        If a static attribute is changed, all jit compiled functions of the class
+        must be recompiled. Hence, such attributes should be marked as dynamic.
+        However, marking an attribute as dynamic will increase the computational
+        cost. So, it is advisable to only mark attributes as dynamic that are
+        actually changing during the simulation.
+
+    .. warning::
+        Methods that are jit compiled with fr.utils.jaxjit will not modify the
+        object in place.
+    
+    Parameters
+    ----------
+    `cls` : `type`
+        The class to add jax support to.
+    `dynamic` : `tuple[str] | None` (default=None)
+        A tuple of attribute names that should be considered dynamic.
+    
+    Examples
+    --------
+    A class with no dynamic attributes:
+    .. code-block:: python
+
+        import fridom.framework as fr
+
+        @fr.utils.jaxify
+        class MyClass:
+            _dynamic_attributes = ["x",]
+            def __init__(self, power):
+                self.power = power
+       
+            @fr.utils.jaxjit
+            def raise_to_power(self, arr):
+                return arr**self.power
+
+    A class with dynamic attributes:
+    .. code-block:: python
+
+        import fridom.framework as fr
+        from functools import partial
+
+        @partial(fr.utils.jaxify, dynamic=('arr',))
+        class MyClass:
+            def __init__(self, arr, power):
+                self.power = power
+                self.arr = arr
+       
+            @fr.utils.jaxjit
+            def raise_to_power(self):
+                return self.arr**self.power
+    """
     # if the backend is not jax, return the class as it is
     if not config.backend_is_jax:
         return cls
@@ -485,48 +531,3 @@ def jaxify(cls: type, dynamic: tuple[str] | None = None) -> type:
 
     return cls
 
-
-
-
-def jaxify_class(cls: type) -> None:
-    """
-    Add JAX pytree support to a class (for jit compilation).
-    
-    Description
-    -----------
-    In order to use jax.jit on custom classes, the class must be registered
-    to jax. This function adds the necessary methods to the class to make it
-    compatible with jax.jit. 
-    By default, all attributes of an object are considered static, i.e., they
-    they will not be traced by jax. Attributes that should be dynamic must
-    be marked in the class definition inside the `_dynamic_attributes` list
-    (see example).
-    
-    Parameters
-    ----------
-    `cls` : `type`
-        The class to add jax support to.
-    
-    Examples
-    --------
-    >>> import fridom.framework as fr
-    >>> class MyClass:
-    ...     _dynamic_attributes = ["x",]
-    ...     def __init__(self, x):
-    ...         self.x = x
-    ...         self.my_static_attribute = 42
-    ...
-    ...     @fr.utils.jaxjit
-    ...     def my_method(self):
-    ...         return self.x**2
-    ...
-    >>> fr.utils.jaxify_class(MyClass)
-    """
-    if config.backend_is_jax:
-        try:
-            import jax
-            cls._tree_unflatten = _tree_unflatten
-            jax.tree_util.register_pytree_node(cls, _tree_flatten, cls._tree_unflatten)
-        except ImportError:
-            pass
-    return

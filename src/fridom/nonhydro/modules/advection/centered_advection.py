@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from fridom.framework.field_variable import FieldVariable
 
 
-@partial(fr.utils.jaxify, dynamic=("mset", ))
+@fr.utils.jaxify
 class CenteredAdvection(Module):
     """
     Centered advection scheme.

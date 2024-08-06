@@ -116,3 +116,4 @@ class WavePackage(nh.State):
         # save the state
         self.fields = z.fields
         return
+        

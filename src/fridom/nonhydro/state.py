@@ -1,6 +1,8 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
+
+@fr.utils.jaxify
 class State(fr.StateBase):
     def __init__(self, 
                  mset: nh.ModelSettings, 
@@ -411,9 +413,8 @@ class State(fr.StateBase):
             long_name="CFL Number",
             position=self.grid.cell_center)
 
-fr.utils.jaxify_class(State)
 
-
+@fr.utils.jaxify
 class DiagnosticState(fr.StateBase):
     def __init__(self, mset: nh.ModelSettings, is_spectral=False, field_list=None) -> None:
         from fridom.framework.field_variable import FieldVariable
@@ -456,5 +457,3 @@ class DiagnosticState(fr.StateBase):
     @div.setter
     def div(self, value: fr.FieldVariable) -> None:
         self.fields["div"] = value
-
-fr.utils.jaxify_class(DiagnosticState)

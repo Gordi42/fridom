@@ -1,15 +1,17 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
+from functools import partial
 
 
+@partial(fr.utils.jaxify, dynamic=("f_coriolis", ))
 class LinearTendency(fr.modules.Module):
     """
     This class computes the linear tendency of the model.
     """
-    _dynamic_attributes = set(["mset"])
     def __init__(self, interpolation: fr.grid.InterpolationModule | None = None):
         super().__init__(name="Linear Tendency")
         self.interpolation = interpolation
+        self.f_coriolis = None
 
     @fr.modules.setup_module
     def setup(self):
@@ -54,5 +56,3 @@ class LinearTendency(fr.modules.Module):
     @required_halo.setter
     def required_halo(self, value: int):
         return
-
-fr.utils.jaxify_class(LinearTendency)

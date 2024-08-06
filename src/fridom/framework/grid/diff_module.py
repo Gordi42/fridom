@@ -3,6 +3,7 @@ from abc import abstractmethod
 from functools import partial
 
 
+@fr.utils.jaxify
 class DiffModule(fr.modules.Module):
     """
     Base class for differentiation modules.
@@ -18,7 +19,6 @@ class DiffModule(fr.modules.Module):
     `name` : `str` (default is "Differentiation")
         The name of the differentiation module.
     """
-    _dynamic_attributes = []
     def __init__(self, name="Differentiation"):
         super().__init__(name=name)
         return
@@ -160,5 +160,3 @@ class DiffModule(fr.modules.Module):
         for axis in axes:
             laplace += self.diff(f, axis, order=2)
         return laplace
-
-fr.utils.jaxify_class(DiffModule)

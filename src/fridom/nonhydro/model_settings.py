@@ -1,3 +1,4 @@
+from functools import partial
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
@@ -9,6 +10,7 @@ if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
     from numpy import ndarray
 
+@partial(utils.jaxify, dynamic=("f_coriolis", "N2", "dsqr", "Ro"))
 class ModelSettings(ModelSettingsBase):
     """
     Model settings for the 3D non-hydrostatic model.
@@ -29,8 +31,6 @@ class ModelSettings(ModelSettingsBase):
     `Ro` : `float`
         Rossby number.
     """
-    _dynamic_attributes = ModelSettingsBase._dynamic_attributes + [
-        "f_coriolis", "N2", "dsqr", "Ro" ]
     def __init__(self, grid: 'GridBase', **kwargs):
         super().__init__(grid)
         dtype = config.dtype_real
@@ -129,6 +129,3 @@ class ModelSettings(ModelSettingsBase):
         else:
             self._f_coriolis[:] = value
         return
-
-
-utils.jaxify_class(ModelSettings)

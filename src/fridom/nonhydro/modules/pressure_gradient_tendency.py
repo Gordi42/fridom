@@ -1,6 +1,8 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
+
+@fr.utils.jaxify
 class PressureGradientTendency(fr.modules.Module):
     _dynamic_attributes = set(["mset"])
     """
@@ -28,5 +30,3 @@ class PressureGradientTendency(fr.modules.Module):
         dz.w -= p_grad[2] / self.mset.dsqr
 
         return dz
-
-fr.utils.jaxify_class(PressureGradientTendency)
