@@ -426,6 +426,65 @@ def _tree_unflatten(cls, aux_data, children):
         setattr(obj, key, value)
     return obj
 
+def jaxify(cls: type, dynamic: tuple[str] | None = None) -> type:
+    # if the backend is not jax, return the class as it is
+    if not config.backend_is_jax:
+        return cls
+    import jax
+
+    # make sure dynamic is either a tuple or None:
+    if not isinstance(dynamic, (tuple, type(None))):
+        config.logger.error(f"dynamic must be a tuple or None, not {type(dynamic)}")
+        config.logger.error(f"In case you only have one dynamic attribute, ")
+        config.logger.error(f"use dynamic=('attr',) instead of dynamic=('attr').")
+        raise TypeError
+
+    dynamic = list(dynamic) or []
+    
+    # check if the class has a _dynamic_attributes attribute
+    if hasattr(cls, "_dynamic_jax_attributes"):
+        dynamic += list(cls._dynamic_jax_attrs)
+
+    # remove duplicates
+    dynamic = set(dynamic)
+
+    # set the new attributes
+    cls._dynamic_jax_attrs = dynamic
+
+    # define a function to flatten the class
+    def _tree_flatten(self):
+        # Store all attributes that are marked as dynamic
+        children = tuple(getattr(self, attr) for attr in self._dynamic_jax_attrs)
+    
+        # Store all other attributes as aux_data
+        aux_data = {key: att for key, att in self.__dict__.items() 
+                    if key not in self._dynamic_jax_attrs}
+    
+        return (children, aux_data)
+
+    # define a function to unflatten the class
+    @classmethod
+    def _tree_unflatten(cls, aux_data, children):
+        obj = object.__new__(cls)
+        # set dynamic attributes
+        for i, attr in enumerate(cls._dynamic_jax_attrs):
+            setattr(obj, attr, children[i])
+        # set static attributes
+        for key, value in aux_data.items():
+            setattr(obj, key, value)
+        return obj
+
+    # set the new method to the class
+    cls._tree_unflatten = _tree_unflatten
+
+    # register the class with jax
+    jax.tree_util.register_pytree_node(cls, _tree_flatten, cls._tree_unflatten)
+
+    return cls
+
+
+
+
 def jaxify_class(cls: type) -> None:
     """
     Add JAX pytree support to a class (for jit compilation).

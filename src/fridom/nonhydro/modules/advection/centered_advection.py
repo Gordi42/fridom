@@ -8,11 +8,12 @@ from fridom.framework import config, utils
 from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
-    from numpy import ndarray
     from fridom.framework.model_state import ModelState
     from fridom.framework.grid import InterpolationModule, DiffBase
     from fridom.framework.field_variable import FieldVariable
 
+
+@partial(fr.utils.jaxify, dynamic=("mset", ))
 class CenteredAdvection(Module):
     """
     Centered advection scheme.
@@ -40,7 +41,6 @@ class CenteredAdvection(Module):
         The interpolation module to use.
         If None, the interpolation module of the grid is used.
     """
-    _dynamic_attributes = set(["mset"])
     def __init__(self, 
                  diff: 'DiffBase | None' = None,
                  interpolation: 'InterpolationModule | None' = None):
@@ -139,5 +139,3 @@ class CenteredAdvection(Module):
     def interpolation(self, value: 'InterpolationModule'):
         self._interpolation = value
         return
-
-utils.jaxify_class(CenteredAdvection)

@@ -4,11 +4,13 @@ from copy import deepcopy
 from mpi4py import MPI
 from numpy import ndarray
 import numpy as np
+from functools import partial
 
 if TYPE_CHECKING:
     import xarray as xr
 
 
+@partial(fr.utils.jaxify, dynamic=("_arr", "_position"))
 class FieldVariable:
     """
     Class for field variables in the framework.
@@ -38,7 +40,6 @@ class FieldVariable:
         The array to be wrapped
     
     """
-    _dynamic_attributes = set(["_arr", "_position"])
     def __init__(self, 
                  mset: fr.ModelSettingsBase,
                  name: str,
@@ -690,5 +691,3 @@ class FieldVariable:
     def __neg__(self) -> 'FieldVariable':
         """Negate the FieldVariable"""
         return FieldVariable(arr=-self.arr, **self.get_kw())
-
-fr.utils.jaxify_class(FieldVariable)
