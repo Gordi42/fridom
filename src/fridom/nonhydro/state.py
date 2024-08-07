@@ -386,8 +386,8 @@ class State(fr.StateBase):
         The CFL number.
 
         .. math::
-            CFL = \max\left\{ \frac{u}{\Delta x}, \frac{v}{\Delta y, 
-                              \frac{w}{\Delta z}} \right\} \Delta t
+            CFL = \max\left\{ \frac{u}{\Delta x}, \frac{v}{\Delta y}, 
+                              \frac{w}{\Delta z} \right\} \Delta t
 
         where :math:`\Delta t` is the time step and :math:`\Delta x` is the
         grid spacing. 

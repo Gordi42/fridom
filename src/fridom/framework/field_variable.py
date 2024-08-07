@@ -242,28 +242,6 @@ class FieldVariable:
         """
         return self.grid.diff_mod.laplacian(self, axes)
 
-    def curl(self,
-             arrs: 'list[ndarray]',
-             axes: list[int] | None = None,
-             **kwargs) -> 'list[ndarray]':
-            """
-            Calculate the curl of a vector field (\\nabla \\times \\vec{v}).
-    
-            Parameters
-            ----------
-            `arrs` : `list[ndarray]`
-                The list of arrays representing the vector field.
-            `axes` : `list[int]` or `None` (default: `None`)
-                The axes along which to compute the curl. If `None`, the
-                curl is computed along all axes.
-    
-            Returns
-            -------
-            `list[ndarray]`
-                The curl of the vector field.
-            """
-            return self._diff_mod.curl(arrs, axes, **kwargs)
-
     def interpolate(self, destination: fr.grid.Position) -> 'FieldVariable':
         """
         Interpolate the field to the destination position.
