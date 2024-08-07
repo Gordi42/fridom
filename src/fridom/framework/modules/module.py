@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 from typing import TYPE_CHECKING
 from functools import wraps
@@ -5,7 +6,6 @@ from functools import wraps
 from fridom.framework import config
 # Import type information
 if TYPE_CHECKING:
-    from fridom.framework.grid.grid_base import GridBase
     from fridom.framework.model_settings_base import ModelSettingsBase
     from fridom.framework.model_state import ModelState
     from fridom.framework.timing_module import TimingModule
@@ -274,8 +274,20 @@ class Module:
         return {}
 
     @property
-    def grid(self) -> 'GridBase':
+    def mset(self) -> 'ModelSettingsBase':
         """
-        Return the grid of the model.
+        The model settings
+        """
+        return self._mset
+    
+    @mset.setter
+    def mset(self, mset: 'ModelSettingsBase') -> None:
+        self._mset = mset
+        return
+
+    @property
+    def grid(self) -> 'fr.grid.GridBase':
+        """
+        The grid of the model settings
         """
         return self.mset.grid
