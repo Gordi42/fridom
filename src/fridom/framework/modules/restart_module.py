@@ -35,7 +35,6 @@ class RestartModule(Module):
             config.logger.verbose(
                 "No interval is set in RestartModule. Disabling the module.")
             self.disable()
-            return
 
         # ----------------------------------------------------------------
         #  Check the filename
