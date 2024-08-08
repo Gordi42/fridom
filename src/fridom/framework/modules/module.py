@@ -106,7 +106,7 @@ class Module:
         # The log level
         self.log_level: fr.config.LogLevel | None = None
         # Set the flags
-        self.required_halo = 0  # The required halo for the module
+        self._required_halo = None  # The number of halo points required by the module
         self.mpi_available = True  # Whether the module can be run in parallel
         self.execute_at_start = False
         # The grid should be set by the model when the module is started
@@ -249,7 +249,46 @@ class Module:
         dictionary with information about the time stepper. This information is
         used to print the time stepper in the `__repr__` method.
         """
-        return {}
+        info = {}
+        # Check if the grid is set
+        grid_is_set = self.mset is not None
+
+        # ----------------------------------------------------------------
+        #  Check if the differentiation module should be printed
+        # ----------------------------------------------------------------
+
+        print_diff = False
+        diff_is_set = self.diff_module is not None
+        if diff_is_set and grid_is_set:
+            if self.diff_module is not self.grid.diff_mod:
+                print_diff = True
+        elif diff_is_set:
+            print_diff = True
+        if print_diff:
+            info["Diff. Module"] = self.diff_module.name
+
+        # ----------------------------------------------------------------
+        #  Check if the differentiation module should be printed
+        # ----------------------------------------------------------------
+
+        print_interp = False
+        interp_is_set = self.interp_module is not None
+        if interp_is_set and grid_is_set:
+            if self.interp_module is not self.grid.interp_mod:
+                print_interp = True
+        elif interp_is_set:
+            print_interp = True
+        if print_interp:
+            info["Interp. Module"] = self.interp_module.name
+
+        # ----------------------------------------------------------------
+        #  Check if the required halo should be printed
+        # ----------------------------------------------------------------
+
+        print_halo = self._required_halo is not None
+        if print_halo:
+            info["Required Halo"] = self.required_halo
+        return info
 
     @property
     def mset(self) -> 'fr.ModelSettingsBase':
@@ -288,4 +327,23 @@ class Module:
     @interp_module.setter
     def interp_module(self, value):
         self._interp_module = value
+        return
+
+    @property
+    def required_halo(self) -> int:
+        # Return the required halo if it is set
+        if self._required_halo is not None:
+            return self._required_halo
+        # If it is not set, check the differentiation and interpolation modules
+        # If they are not set, return 0
+        req_halo = 0
+        if self.diff_module is not None:
+            req_halo = self.diff_module.required_halo
+        if self.interp_module is not None:
+            req_halo = max(req_halo, self.interp_module.required_halo)
+        return req_halo
+    
+    @required_halo.setter
+    def required_halo(self, value: int):
+        self._required_halo = value
         return
