@@ -101,6 +101,7 @@ class Module:
     ...        self.number = None  # sets the number to None
     """
     name = "Base Module"
+    _is_mod_submodule = False
     def __init__(self) -> None:
         # The module is enabled by default
         self.__enabled = True
@@ -128,18 +129,19 @@ class Module:
         ModelSettings as well as the differentiation and interpolation modules. 
         """
         self.mset = mset
-        # setup the differentiation modules
-        if self.diff_module is None:
-            self.diff_module = mset.grid.diff_mod
-        else:
-            self.diff_module.setup(mset=mset)
+        if not self._is_mod_submodule:
+            # setup the differentiation and interpolation modules
+            self._setup_submodule("diff_module", mset)
+            self._setup_submodule("interp_module", mset)
+        return
 
-        # setup the interpolation modules
-        if self.interp_module is None:
-            self.interp_module = mset.grid.interp_mod
+    def _setup_submodule(self, name, mset):
+        submodule = getattr(self, name)
+        if submodule is None:
+            submodule = getattr(mset.grid, name)
+            setattr(self, name, submodule)
         else:
-            self.interp_module.setup(mset=mset)
-
+            submodule.setup(mset=mset)
         return
 
     def start(self) -> None:
@@ -258,7 +260,7 @@ class Module:
         print_diff = False
         diff_is_set = self.diff_module is not None
         if diff_is_set and grid_is_set:
-            if self.diff_module is not self.grid.diff_mod:
+            if self.diff_module is not self.grid.diff_module:
                 print_diff = True
         elif diff_is_set:
             print_diff = True
@@ -272,7 +274,7 @@ class Module:
         print_interp = False
         interp_is_set = self.interp_module is not None
         if interp_is_set and grid_is_set:
-            if self.interp_module is not self.grid.interp_mod:
+            if self.interp_module is not self.grid.interp_module:
                 print_interp = True
         elif interp_is_set:
             print_interp = True

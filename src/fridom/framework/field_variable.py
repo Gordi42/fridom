@@ -193,7 +193,7 @@ class FieldVariable:
         `FieldVariable`
             The derivative of the field along the specified axis.
         """
-        return self.grid.diff_mod.diff(self, axis, order)
+        return self.grid.diff_module.diff(self, axis, order)
 
     def grad(self, axes: list[int] | None = None ) -> 'tuple[FieldVariable | None]':
         r"""
@@ -218,7 +218,7 @@ class FieldVariable:
             E.g. for a 3D grid, `diff.grad(f, axes=[0, 2])` will return
             `[df/dx, None, df/dz]`.
         """
-        return self.grid.diff_mod.grad(self, axes)
+        return self.grid.diff_module.grad(self, axes)
 
     def laplacian(self, 
                   axes: tuple[int] | None = None
@@ -240,7 +240,7 @@ class FieldVariable:
         `FieldVariable`
             The Laplacian of the field.
         """
-        return self.grid.diff_mod.laplacian(self, axes)
+        return self.grid.diff_module.laplacian(self, axes)
 
     def interpolate(self, destination: fr.grid.Position) -> 'FieldVariable':
         """
@@ -256,7 +256,7 @@ class FieldVariable:
         `FieldVariable`
             The interpolated field.
         """
-        return self.grid.interp_mod.interpolate(self, destination)
+        return self.grid.interp_module.interpolate(self, destination)
 
     # ==================================================================
     #  SLICING

@@ -13,6 +13,7 @@ class InterpolationModule(fr.modules.Module):
     to another. For example, from the cell face to the cell center.
     """
     name = "Interpolation Module"
+    _is_mod_submodule = True
     
     @abstractmethod
     def interpolate(self, 

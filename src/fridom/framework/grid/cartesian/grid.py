@@ -19,8 +19,7 @@ if TYPE_CHECKING:
     from fridom.framework.domain_decomposition import Subdomain
 
 
-@partial(utils.jaxify, dynamic=('_domain_decomp', '_pfft', '_fft', 
-                                '_diff_mod', '_interp_mod'))
+@fr.utils.jaxify
 class Grid(GridBase):
     """
     An n-dimensional cartesian grid with capabilities for fourier transforms.
@@ -127,8 +126,8 @@ class Grid(GridBase):
         self._domain_decomp: DomainDecomposition | None = None
         self._pfft: ParallelFFT | None = None
         self._fft: FFT | None = None
-        self._diff_mod = diff_mod or FiniteDifferences()
-        self._interp_mod = interp_mod or LinearInterpolation()
+        self._diff_module = diff_mod or FiniteDifferences()
+        self._interp_module = interp_mod or LinearInterpolation()
         return
 
     def setup(self, mset: 'ModelSettingsBase'):
@@ -139,7 +138,7 @@ class Grid(GridBase):
         # --------------------------------------------------------------
         #  Initialize the domain decomposition
         # --------------------------------------------------------------
-        req_halo = max(self._diff_mod.required_halo, self._interp_mod.required_halo)
+        req_halo = max(self._diff_module.required_halo, self._interp_module.required_halo)
         req_halo = max(req_halo, mset.halo)
         domain_decomp = DomainDecomposition(
             self._N, req_halo, shared_axes=self._shared_axes)

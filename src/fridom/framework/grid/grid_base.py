@@ -52,8 +52,8 @@ class GridBase:
         self._omega_space_discrete = None
         self._omega_time_discrete = None
         # operator modules
-        self._diff_mod: fr.grid.DiffModule = None
-        self._interp_mod: fr.grid.InterpolationModule = None
+        self._diff_module: fr.grid.DiffModule = None
+        self._interp_module: fr.grid.InterpolationModule = None
 
         # prepare for numpy conversion (the numpy copy will be stored here)
         self._cpu = None
@@ -76,8 +76,8 @@ class GridBase:
             The model settings object. This is for example needed to
             determine the required halo size.
         """       
-        self._diff_mod.setup(mset=mset)
-        self._interp_mod.setup(mset=mset)
+        self._diff_module.setup(mset=mset)
+        self._interp_module.setup(mset=mset)
         return
 
     # ----------------------------------------------------------------
@@ -320,27 +320,27 @@ class GridBase:
     # ----------------------------------------------------------------
 
     @property
-    def diff_mod(self) -> fr.grid.DiffModule:
+    def diff_module(self) -> fr.grid.DiffModule:
         """The differential operator module."""
-        return self._diff_mod
+        return self._diff_module
     
-    @diff_mod.setter
-    def diff_mod(self, value: fr.grid.DiffModule) -> None:
+    @diff_module.setter
+    def diff_module(self, value: fr.grid.DiffModule) -> None:
         if not isinstance(value, fr.grid.DiffModule):
             raise ValueError("The differential operator module must be a DiffBase object")
-        self._diff_mod = value
+        self._diff_module = value
         return
     
     @property
-    def interp_mod(self) -> fr.grid.InterpolationModule:
+    def interp_module(self) -> fr.grid.InterpolationModule:
         """The interpolation operator module."""
-        return self._interp_mod
+        return self._interp_module
     
-    @interp_mod.setter
-    def interp_mod(self, value: fr.grid.InterpolationModule) -> None:
+    @interp_module.setter
+    def interp_module(self, value: fr.grid.InterpolationModule) -> None:
         if not isinstance(value, fr.grid.InterpolationModule):
             raise ValueError("The interpolation operator module must be an InterpolationBase object")
-        self._interp_mod = value
+        self._interp_module = value
         return
 
     @property

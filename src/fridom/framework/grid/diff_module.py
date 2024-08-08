@@ -15,6 +15,7 @@ class DiffModule(fr.modules.Module):
     of a field, or divergence of a vector etc.
     """
     name = "Diff. Module"
+    _is_mod_submodule = True
 
     @abstractmethod
     def diff(self,
