@@ -446,6 +446,7 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     Examples
     --------
     A class with no dynamic attributes:
+
     .. code-block:: python
 
         import fridom.framework as fr
@@ -461,6 +462,7 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
                 return arr**self.power
 
     A class with dynamic attributes:
+
     .. code-block:: python
 
         import fridom.framework as fr
