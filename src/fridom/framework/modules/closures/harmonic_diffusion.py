@@ -35,38 +35,16 @@ class HarmonicDiffusion(fr.modules.Module):
     `diffusion_coefficients` : `tuple[float | fr.FieldVariable]`
         A tuple of diffusion coefficients. The length of the tuple must match
         the number of dimensions of the grid.
-    `diff_module` : `fr.grid.DiffModule | None`, (default=None)
-        Differentiation module to use. If None, the differentiation module of
-        the grid is used.
-    `interp_module` : `fr.grid.InterpolationModule | None`, (default=None)
-        Interpolation module to interpolate the diffusion coefficients.
     `name` : `str`, (default="Harmonic Diffusion")
         Name of the module.
     """
     def __init__(self, 
                  field_flags: list[str], 
                  diffusion_coefficients: list[float | fr.FieldVariable], 
-                 diff_module: fr.grid.DiffModule | None = None, 
-                 interp_module: fr.grid.InterpolationModule | None = None,
                  name: str = "Harmonic Diffusion"):
         super().__init__(name)
         self.field_flags = field_flags
         self.diffusion_coefficients = diffusion_coefficients
-        self.diff_module = diff_module
-        self.interp_module = interp_module
-        return
-
-    @fr.modules.setup_module
-    def setup(self):
-        # setup the differentiation modules
-        if self.diff_module is None:
-            self.diff_module = self.mset.grid._diff_mod
-        else:
-            self.diff_module.setup(mset=self.mset)
-        if self.interp_module is None:
-            self.interp_module = self.mset.grid._interp_mod
-        else:
-            self.interp_module.setup(mset=self.mset)
         return
 
     @fr.utils.jaxjit
@@ -117,26 +95,6 @@ class HarmonicDiffusion(fr.modules.Module):
     @field_flags.setter
     def field_flags(self, value):
         self._field_flags = value
-        return
-
-    @property
-    def diff_module(self) -> fr.grid.DiffModule:
-        """The differentiation module."""
-        return self._diff_module
-    
-    @diff_module.setter
-    def diff_module(self, value):
-        self._diff_module = value
-        return
-
-    @property
-    def interp_module(self) -> fr.grid.InterpolationModule:
-        """The interpolation module to interpolate the diffusion coefficients."""
-        return self._interp_module
-
-    @interp_module.setter
-    def interp_module(self, value):
-        self._interp_module = value
         return
 
     @property

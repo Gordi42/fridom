@@ -18,23 +18,13 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
         Horizontal harmonic mixing coefficient.
     `kv` : `float | fr.FieldVariable`
         Vertical harmonic mixing coefficient.
-    `diff` : `fr.grid.DiffModule | None`, (default=None)
-        Differentiation module to use. If None, the differentiation module of
-        the grid is used.
-    `interp` : `fr.grid.InterpolationModule | None`, (default=None)
-        Interpolation module to use. If None, the interpolation module of
-        the grid is used.
     """
     def __init__(self, 
                  kh: float | fr.FieldVariable,
-                 kv: float | fr.FieldVariable,
-                 diff_module: fr.grid.DiffModule | None = None,
-                 interp_module: fr.grid.InterpolationModule | None = None):
+                 kv: float | fr.FieldVariable):
         diffusion_coefficients = [kh, kh, kv]
         super().__init__(field_flags=["ENABLE_MIXING"],
                          diffusion_coefficients=diffusion_coefficients,
-                         diff_module=diff_module,
-                         interp_module=interp_module,
                          name="Harmonic Mixing")
         return
 
@@ -78,23 +68,13 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
         Horizontal harmonic friction coefficient.
     `av` : `float | fr.FieldVariable`
         Vertical harmonic friction coefficient.
-    `diff` : `fr.grid.DiffModule | None`, (default=None)
-        Differentiation module to use. If None, the differentiation module of
-        the grid is used.
-    `interp` : `fr.grid.InterpolationModule | None`, (default=None)
-        Interpolation module to use. If None, the interpolation module of
-        the grid is used.
     """
     def __init__(self, 
                  ah: float | fr.FieldVariable,
-                 av: float | fr.FieldVariable,
-                 diff_module: fr.grid.DiffModule | None = None,
-                 interp_module: fr.grid.InterpolationModule | None = None):
+                 av: float | fr.FieldVariable):
         diffusion_coefficients = [ah, ah, av]
         super().__init__(field_flags=["ENABLE_FRICTION"],
                          diffusion_coefficients=diffusion_coefficients,
-                         diff_module=diff_module,
-                         interp_module=interp_module,
                          name="Harmonic Friction")
         return
 
@@ -138,23 +118,13 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
         Horizontal mixing coefficient.
     `kv` : `float | fr.FieldVariable`
         Vertical mixing coefficient.
-    `diff` : `fr.grid.DiffModule | None`, (default=None)
-        Differentiation module to use. If None, the differentiation module of
-        the grid is used.
-    `interp` : `fr.grid.InterpolationModule | None`, (default=None)
-        Interpolation module to use. If None, the interpolation module of
-        the grid is used.
     """
     def __init__(self, 
                  kh: float | fr.FieldVariable,
-                 kv: float | fr.FieldVariable,
-                 diff_module: fr.grid.DiffModule | None = None,
-                 interp_module: fr.grid.InterpolationModule | None = None):
+                 kv: float | fr.FieldVariable):
         diffusion_coefficients = [kh, kh, kv]
         super().__init__(field_flags=["ENABLE_MIXING"],
                          diffusion_coefficients=diffusion_coefficients,
-                         diff_module=diff_module,
-                         interp_module=interp_module,
                          name="Biharmonic Mixing")
         return
 
@@ -198,23 +168,13 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
         Horizontal friction coefficient.
     `av` : `float | fr.FieldVariable`
         Vertical friction coefficient.
-    `diff` : `fr.grid.DiffModule | None`, (default=None)
-        Differentiation module to use. If None, the differentiation module of
-        the grid is used.
-    `interp` : `fr.grid.InterpolationModule | None`, (default=None)
-        Interpolation module to use. If None, the interpolation module of
-        the grid is used.
     """
     def __init__(self, 
                  ah: float | fr.FieldVariable,
-                 av: float | fr.FieldVariable,
-                 diff_module: fr.grid.DiffModule | None = None,
-                 interp_module: fr.grid.InterpolationModule | None = None):
+                 av: float | fr.FieldVariable):
         diffusion_coefficients = [ah, ah, av]
         super().__init__(field_flags=["ENABLE_FRICTION"],
                          diffusion_coefficients=diffusion_coefficients,
-                         diff_module=diff_module,
-                         interp_module=interp_module,
                          name="Biharmonic Friction")
         return
 
