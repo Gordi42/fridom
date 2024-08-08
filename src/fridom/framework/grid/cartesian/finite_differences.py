@@ -12,8 +12,9 @@ class FiniteDifferences(fr.grid.DiffModule):
         self._dx1 = None
         self.water_mask = None
 
-    @fr.modules.setup_module
-    def setup(self) -> None:
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         from .grid import Grid
         if not isinstance(self.mset.grid, Grid):
             raise ValueError("Finite differences only work with Cartesian grids.")

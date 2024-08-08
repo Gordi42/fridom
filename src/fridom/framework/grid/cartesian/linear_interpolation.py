@@ -18,8 +18,9 @@ class LinearInterpolation(fr.grid.InterpolationModule):
         self.water_mask = None
         return
 
-    @fr.modules.setup_module
-    def setup(self) -> None:
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         self.ndim = ndim = self.mset.grid.n_dims
         self._nexts = tuple(self._get_slices(axis)[0] for axis in range(ndim))
         self._prevs = tuple(self._get_slices(axis)[1] for axis in range(ndim))

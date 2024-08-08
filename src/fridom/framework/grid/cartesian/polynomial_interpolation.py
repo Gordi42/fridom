@@ -60,8 +60,9 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
         self.water_mask = None
         return
 
-    @fr.modules.setup_module
-    def setup(self) -> None:
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         self.ndim = ndim = self.mset.grid.n_dims
         # coefficients for the polynomial interpolation
         order = self.order
