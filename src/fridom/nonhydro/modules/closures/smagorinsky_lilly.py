@@ -101,15 +101,17 @@ class SmagorinskyLilly(fr.modules.Module):
         self.buoyancy_multiplier = buoyancy_multiplier or 1 / turbulent_prandtl_number
         return
 
-    @fr.modules.setup_module
-    def setup(self) -> None:
+    @fr.modules.module_method
+    def setup(self, mset: 'nh.ModelSettings') -> None:
+        super().setup(mset)
         self.filter_width = self.grid.dV**(1/3)
+        return
 
     @fr.utils.jaxjit
     def smagorinsky_lilly_operator(self, z: nh.State, dz: nh.State) -> nh.State:
         self.mset
 
-        diff_mod = self.grid.diff_mod
+        diff_mod = self.diff_module
         ncp = fr.config.ncp
 
         # Compute the velocity gradients
