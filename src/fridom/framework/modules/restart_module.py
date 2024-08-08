@@ -1,19 +1,11 @@
 import fridom.framework as fr
-# Import external modules
-from typing import TYPE_CHECKING
 import os
 from mpi4py import MPI
 import time
 import numpy as np
-# Import internal modules
-from fridom.framework import config
-from .module import Module, setup_module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_state import ModelState
 
 
-class RestartModule(Module):
+class RestartModule(fr.modules.Module):
     def __init__(self,
                  realtime_interval: 'np.timedelta64 | None' = None,
                  modeltime_interval: 'np.timedelta64 | None' = None,
@@ -33,7 +25,7 @@ class RestartModule(Module):
 
         if num_interval_args == 0:
             # No interval is set. Disable the module.
-            config.logger.verbose(
+            fr.config.logger.verbose(
                 "No interval is set in RestartModule. Disabling the module.")
             self.disable()
 
@@ -42,7 +34,7 @@ class RestartModule(Module):
         # ----------------------------------------------------------------
 
         if "-" in filename:
-            config.logger.warning(
+            fr.config.logger.warning(
                 "The filename should not contain the character '-'.",
                 "Replacing '-' with '_' in the filename.")
             filename = filename.replace("-", "_")
@@ -58,7 +50,7 @@ class RestartModule(Module):
         if restart_command is None:
             job_id = os.getenv('SLURM_JOB_ID')
             if job_id is None:
-                config.logger.warning(
+                fr.config.logger.warning(
                     "No restart command is set. The model will not be able to restart.")
                 restart_command = None
             else:
@@ -72,7 +64,7 @@ class RestartModule(Module):
                     if line.strip().startswith('Command='):
                         command = line.split('=', 1)[1].strip()
                 if command is None:
-                    config.logger.warning(
+                    fr.config.logger.warning(
                         "No restart command is set. The model will not be able to restart.")
                 restart_command = f"sbatch {command}"
 
@@ -94,20 +86,20 @@ class RestartModule(Module):
     @fr.modules.module_method
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         super().setup(mset)
-        config.logger.verbose("Touching the restart directory.")
+        fr.config.logger.verbose("Touching the restart directory.")
         os.makedirs(self.directory, exist_ok=True)
         return
 
-    @module_method
-    def should_restart(self, mz: 'ModelState') -> bool:
+    @fr.modules.module_method
+    def should_restart(self, mz: 'fr.ModelState') -> bool:
         # ----------------------------------------------------------------
         #  Realtime interval
         # ----------------------------------------------------------------
         if self.realtime_interval is not None:
             # get elapsed time
-            elapsed_time = np.timedelta64(int(time.time() - config.load_time), 's')
+            elapsed_time = np.timedelta64(int(time.time() - fr.config.load_time), 's')
             if elapsed_time >= self.realtime_interval:
-                config.logger.info(
+                fr.config.logger.info(
                     "Realtime restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
                 return True
@@ -119,7 +111,7 @@ class RestartModule(Module):
                 self._last_restart_modeltime = mz.time
             elapsed_time = mz.time - self._last_restart_modeltime
             if elapsed_time >= self.modeltime_interval:
-                config.logger.info(
+                fr.config.logger.info(
                     "Modeltime restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
                 self._last_restart_modeltime = mz.time
@@ -133,7 +125,7 @@ class RestartModule(Module):
                 self._last_restart_iteration = mz.it
             elapsed_time = mz.it - self._last_restart_iteration
             if elapsed_time >= self.iteration_interval:
-                config.logger.info(
+                fr.config.logger.info(
                     "Iteration restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
                 self._last_restart_modeltime = mz.time
@@ -141,21 +133,21 @@ class RestartModule(Module):
                 return True
         return False
 
-    @module_method
+    @fr.modules.module_method
     def should_reload(self) -> bool:
-        config.logger.verbose("Checking if restart files exist.")
+        fr.config.logger.verbose("Checking if restart files exist.")
         files = os.listdir(self.directory)
         files = [f for f in files if f.startswith(self.filename)]
         if len(files) > 0:
-            config.logger.info("Found restart files. Model will reload.")
+            fr.config.logger.info("Found restart files. Model will reload.")
             its = [int(f.split("_")[1]) for f in files]
             self.set_full_filename(max(its))
             return True
         else:
-            config.logger.info("No restart files found. Model will not reload.")
+            fr.config.logger.info("No restart files found. Model will not reload.")
             return False
 
-    @module_method
+    @fr.modules.module_method
     def reset(self) -> None:
         self._last_restart_modeltime = None
         self._last_restart_iteration = None

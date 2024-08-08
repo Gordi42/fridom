@@ -1,17 +1,10 @@
-# Import external modules
-from typing import TYPE_CHECKING, Union
+import fridom.framework as fr
+from typing import Union
 import numpy as np
 import os
 from netCDF4 import Dataset
-# Import internal modules
-import fridom.framework as fr
-from fridom.framework import config, utils
-from fridom.framework.modules.module import Module, setup_module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_state import ModelState
 
-class NetCDFWriter(Module):
+class NetCDFWriter(fr.modules.Module):
     """
     Writing model output to NetCDF files.
     
@@ -87,16 +80,16 @@ class NetCDFWriter(Module):
 
         # Convert the times to seconds
         if isinstance(write_interval, np.timedelta64):
-            write_interval = utils.to_seconds(write_interval)
+            write_interval = fr.utils.to_seconds(write_interval)
         if isinstance(restart_interval, np.timedelta64):
-            restart_interval = utils.to_seconds(restart_interval)
+            restart_interval = fr.utils.to_seconds(restart_interval)
         if isinstance(start_time, np.datetime64):
-            start_time = utils.to_seconds(start_time)
+            start_time = fr.utils.to_seconds(start_time)
         if isinstance(end_time, np.datetime64):
-            end_time = utils.to_seconds(end_time)
+            end_time = fr.utils.to_seconds(end_time)
 
         if get_variables is None:
-            def get_variables(mz: 'ModelState'):
+            def get_variables(mz: 'fr.ModelState'):
                 return mz.z.field_list
 
         if snap_slice is not None:
@@ -126,7 +119,7 @@ class NetCDFWriter(Module):
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         super().setup(mset)
         # create snapshot folder if it doesn't exist
-        config.logger.verbose(f"Touching snapshot directory: {self.directory}")
+        fr.config.logger.verbose(f"Touching snapshot directory: {self.directory}")
         os.makedirs(self.directory, exist_ok=True)
 
         # snap slice:
@@ -135,16 +128,16 @@ class NetCDFWriter(Module):
         return
 
 
-    @module_method
+    @fr.modules.module_method
     def start(self):
         if self._file_is_open:
-            config.logger.warning(
+            fr.config.logger.warning(
                 "NetCDFWriter: start() called while a file is already open.",
                 "Continue with closing the file")
             self._close_file()
         return
 
-    @module_method
+    @fr.modules.module_method
     def stop(self):
         if self._file_is_open:
             self._close_file()
@@ -153,8 +146,8 @@ class NetCDFWriter(Module):
         self._last_write_time = None
         return
 
-    @module_method
-    def update(self, mz: 'ModelState') -> 'ModelState':
+    @fr.modules.module_method
+    def update(self, mz: 'fr.ModelState') -> 'fr.ModelState':
         time = mz.time
         # ----------------------------------------------------------------
         #  Check if the model time is in the writing range
@@ -218,7 +211,7 @@ class NetCDFWriter(Module):
         self._last_write_time = time
         return mz
 
-    def _create_file(self, mz: 'ModelState'):
+    def _create_file(self, mz: 'fr.ModelState'):
         # ----------------------------------------------------------------
         #  Create the filename
         # ----------------------------------------------------------------
@@ -235,15 +228,15 @@ class NetCDFWriter(Module):
         # ----------------------------------------------------------------
         #  Create the NetCDF file
         # ----------------------------------------------------------------
-        config.logger.info(f"Creating NetCDF file: {filename}")
+        fr.config.logger.info(f"Creating NetCDF file: {filename}")
         try:
             ncfile = Dataset(filename, "w", format="NETCDF4", parallel=True)
         except: 
-            config.logger.warning(
+            fr.config.logger.warning(
                 "Failed to create NetCDF file in parallel mode. Trying parallel=False")
             ncfile = Dataset(filename, "w", format="NETCDF4", parallel=False)
 
-        dtype = config.dtype_real
+        dtype = fr.config.dtype_real
         n_dims = self.grid.n_dims
         if n_dims <= 3:
             x_names = ['x', 'y', 'z'][:n_dims]
@@ -285,7 +278,7 @@ class NetCDFWriter(Module):
 
         # store the coordinates
         for i in range(n_dims):
-            x[i][:] = utils.to_numpy(self.grid.x_global[i][self.snap_slice[i]])
+            x[i][:] = fr.utils.to_numpy(self.grid.x_global[i][self.snap_slice[i]])
 
         # create the output variables
         for var in self.get_variables(mz):
@@ -304,7 +297,7 @@ class NetCDFWriter(Module):
         self._ncfile = ncfile
         return
 
-    def _write_data(self, mz: 'ModelState'):
+    def _write_data(self, mz: 'fr.ModelState'):
         time = self._ncfile.variables["time"]
         time_ind = time.size
         global_slice = self.grid.get_subdomain().global_slice
@@ -315,7 +308,7 @@ class NetCDFWriter(Module):
         for var in self.get_variables(mz):
             nc_var = self._ncfile.variables[var.name]
             arr = var[inner_slice]
-            nc_var[ind] = utils.to_numpy(arr.T)
+            nc_var[ind] = fr.utils.to_numpy(arr.T)
         return
 
     def _close_file(self):

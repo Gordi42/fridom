@@ -1,17 +1,8 @@
 import fridom.framework as fr
-# Import external modules
-from typing import TYPE_CHECKING
 import warnings
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.modules.module import Module, setup_module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.modules.animation import ModelPlotter
-    from fridom.framework.model_state import ModelState
 
 
-class VideoWriter(Module):
+class VideoWriter(fr.modules.Module):
     """
     Create a mp4 video from the model.
     
@@ -80,7 +71,7 @@ class VideoWriter(Module):
 
     """
     def __init__(self, 
-                 model_plotter: 'ModelPlotter', 
+                 model_plotter: 'fr.ModelPlotter', 
                  interval: int=50,
                  filename: str="output.mp4", 
                  fps: int=30,
@@ -108,12 +99,12 @@ class VideoWriter(Module):
         import os
         # create video folder if it does not exist
         if not os.path.exists("videos"):
-            config.logger.info("Creating videos folder")
+            fr.config.logger.info("Creating videos folder")
             os.makedirs("videos")
 
         # delete the file if it already exists
         if os.path.exists(self.filename):
-            config.logger.notice(f"Deleting existing video file {self.filename}")
+            fr.config.logger.notice(f"Deleting existing video file {self.filename}")
             os.remove(self.filename)
 
         # use maximum of 40% the available threads
@@ -123,7 +114,7 @@ class VideoWriter(Module):
         self.fig = None
         return
 
-    @module_method
+    @fr.modules.module_method
     def start(self):
         """
         Method to start the writer process.
@@ -134,7 +125,7 @@ class VideoWriter(Module):
 
         # start the writer
         if self.writer is not None and not self.writer.closed:
-            config.logger.warning(
+            fr.config.logger.warning(
                 "VideoWriter.start() called without closing the previous writer.",
                 "Continue with the previous writer.")
         else:
@@ -142,14 +133,14 @@ class VideoWriter(Module):
             self.writer = imageio.get_writer(self.filename, fps=self.fps)
         return
 
-    @module_method
+    @fr.modules.module_method
     def stop(self):
         """
         Method to stop the writer process.
         """
         # collect all figures
         while len(self.running_jobs) > 0:
-            config.logger.info("Collecting remaining figures")
+            fr.config.logger.info("Collecting remaining figures")
             self.collect_figures()
         self.writer.close()
         if self.fig is not None:
@@ -158,8 +149,8 @@ class VideoWriter(Module):
             self.fig = None
         return
 
-    @module_method
-    def update(self, mz: 'ModelState') -> 'ModelState':
+    @fr.modules.module_method
+    def update(self, mz: 'fr.ModelState') -> 'fr.ModelState':
         """
         Update method of the parallel animated model.
         """
@@ -173,7 +164,7 @@ class VideoWriter(Module):
             self.single_update(mz)
         return mz
 
-    def parallel_update(self, mz: 'ModelState'):
+    def parallel_update(self, mz: 'fr.ModelState'):
         # collect finished figures
         self.collect_figures()
 
@@ -201,7 +192,7 @@ class VideoWriter(Module):
         self.running_jobs.append(job)
         return
     
-    def single_update(self, mz: 'ModelState'):
+    def single_update(self, mz: 'fr.ModelState'):
         if self.fig is None:
             self.fig = self.model_plotter.create_figure()
         else:

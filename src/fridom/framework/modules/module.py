@@ -1,39 +1,5 @@
 import fridom.framework as fr
-# Import external modules
-from typing import TYPE_CHECKING
 from functools import wraps
-# Import internal modules
-from fridom.framework import config
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.model_state import ModelState
-    from fridom.framework.timing_module import TimingModule
-
-def setup_module(method):
-    """
-    Decorator for the setup method of a module. 
-    Sets mset as attribute of the module if the module is
-    enabled.
-    """
-    @wraps(method)
-    def wrapper(self, **kwargs):
-        if self.is_enabled():
-            # if the log level is set, change the log level for the module
-            if self.log_level is not None:
-                old_log_level = config.logger.level
-                config.set_log_level(self.log_level.value)
-
-            config.logger.verbose(f"Setup module: {self.name}")
-            
-            mset = kwargs.get('mset')
-            self.mset = mset
-            method(self)
-
-            # if the log level was set, change it back to the old log level
-            if self.log_level is not None:
-                config.set_log_level(old_log_level)
-    return wrapper
 
 def module_method(method):
     """
@@ -49,10 +15,10 @@ def module_method(method):
         if self.is_enabled():
             # if the log level is set, change the log level for the module
             if self.log_level is not None:
-                old_log_level = config.logger.level
-                config.set_log_level(self.log_level.value)
+                old_log_level = fr.config.logger.level
+                fr.config.set_log_level(self.log_level.value)
 
-            config.logger.debug(
+            fr.config.logger.debug(
                 f"Calling '{method.__name__}' of: {self.name}")
 
             # check if the model settings are already set
@@ -64,7 +30,7 @@ def module_method(method):
 
             # if the log level was set, change it back to the old log level
             if self.log_level is not None:
-                config.set_log_level(old_log_level)
+                fr.config.set_log_level(old_log_level)
             return result
         else:
             if method.__name__ == "update":
@@ -138,14 +104,14 @@ class Module:
         # The module is enabled by default
         self.__enabled = True
         # The log level
-        self.log_level: config.LogLevel | None = None
+        self.log_level: fr.config.LogLevel | None = None
         # Set the flags
         self.required_halo = 0  # The required halo for the module
         self.mpi_available = True  # Whether the module can be run in parallel
         self.execute_at_start = False
         # The grid should be set by the model when the module is started
-        self.mset: 'ModelSettingsBase | None' = None
-        self.timer: 'TimingModule | None' = None
+        self.mset: 'fr.ModelSettingsBase | None' = None
+        self.timer: 'fr.timing_module.TimingModule | None' = None
         # Differentiation and interpolation modules
         self._diff_module = None
         self._interp_module = None
@@ -161,14 +127,7 @@ class Module:
         Description
         -----------
         This method is called by the ModelSettings.setup() and sets the 
-        ModelSettings as an attribute. Make sure to decorate the method with
-        the `@setup_module` decorator
-
-        .. note::
-        ----
-        The setup method should have no arguments. The model settings are set
-        as attributes of the module when the setup method is called. (See the
-        `setup_module` decorator.)
+        ModelSettings as well as the differentiation and interpolation modules. 
         """
         self.mset = mset
         # setup the differentiation modules
@@ -211,7 +170,7 @@ class Module:
         """
         return
 
-    def update(self, mz: 'ModelState') -> 'ModelState':
+    def update(self, mz: 'fr.ModelState') -> 'fr.ModelState':
         """
         Update the module
         
@@ -223,12 +182,12 @@ class Module:
         
         Parameters
         ----------
-        `mz` : `ModelState`
+        `mz` : `fr.ModelState`
             The model state at the current time step.
 
         Returns
         -------
-        `ModelState`
+        `fr.ModelState`
             The updated model state.
         """
         return mz
@@ -293,14 +252,14 @@ class Module:
         return {}
 
     @property
-    def mset(self) -> 'ModelSettingsBase':
+    def mset(self) -> 'fr.ModelSettingsBase':
         """
         The model settings
         """
         return self._mset
     
     @mset.setter
-    def mset(self, mset: 'ModelSettingsBase') -> None:
+    def mset(self, mset: 'fr.ModelSettingsBase') -> None:
         self._mset = mset
         return
 

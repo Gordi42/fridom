@@ -1,13 +1,6 @@
 import fridom.framework as fr
-# Import external modules
-from typing import TYPE_CHECKING
-# Import internal modules
-from .module import Module, setup_module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_state import ModelState
 
-class ModuleContainer(Module):
+class ModuleContainer(fr.modules.Module):
     """
     A module container that can hold multiple modules.
     
@@ -39,7 +32,7 @@ class ModuleContainer(Module):
             module.setup(mset=mset)
         return
 
-    @module_method
+    @fr.modules.module_method
     def start(self) -> None:
         """
         Start all modules.
@@ -48,7 +41,7 @@ class ModuleContainer(Module):
             module.start()
         return
 
-    @module_method
+    @fr.modules.module_method
     def stop(self) -> None:
         """
         Stop all modules.
@@ -65,8 +58,8 @@ class ModuleContainer(Module):
             module.reset()
         return
 
-    @module_method
-    def update(self, mz: 'ModelState') -> 'ModelState':
+    @fr.modules.module_method
+    def update(self, mz: 'fr.ModelState') -> 'fr.ModelState':
         """
         Update all modules.
         """

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from .reset_tendency import ResetTendency
 
     # importing the functions
-    from .module import setup_module, module_method
+    from .module import module_method
     
 # ================================================================
 #  Setup lazy loading
@@ -31,7 +31,7 @@ base_path = "fridom.framework.modules"
 all_modules_by_origin = { base_path: ["animation", "closures"] }
 
 all_imports_by_origin = { 
-    f"{base_path}.module": ["Module", "setup_module", "module_method"],
+    f"{base_path}.module": ["Module", "module_method"],
     f"{base_path}.module_container": ["ModuleContainer"],
     f"{base_path}.progress_bar": ["ProgressBar"],
     f"{base_path}.restart_module": ["RestartModule"],
