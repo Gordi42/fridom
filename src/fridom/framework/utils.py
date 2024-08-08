@@ -1,7 +1,7 @@
 """
 Utility functions and classes for the FRIDOM framework.
 """
-from typing import Union
+from typing import Union, TypeVar, Generic
 from . import config
 from .config import logger
 from mpi4py import MPI
@@ -10,6 +10,9 @@ import datetime
 import numpy as np
 from copy import deepcopy
 import inspect
+
+# Create a generic type variable
+T = TypeVar('T')
 
 # ================================================================
 #  Print functions
@@ -405,7 +408,7 @@ def free_memory():
         for buf in backend.live_buffers(): buf.delete()
     return
 
-def jaxify(cls: type, dynamic: tuple[str] | None = None) -> type:
+def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     """
     Add JAX pytree support to a class (for jit compilation).
     
