@@ -142,13 +142,15 @@ class Module:
         # The grid should be set by the model when the module is started
         self.mset: 'ModelSettingsBase | None' = None
         self.timer: 'TimingModule | None' = None
+        # Differentiation and interpolation modules
+        self._diff_module = None
+        self._interp_module = None
         # Update the attributes with the keyword arguments
         self.__dict__.update(kwargs)
         self.name = name
         return
 
-    @setup_module
-    def setup(self) -> None:
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         """
         Start the module
 
@@ -164,6 +166,19 @@ class Module:
         as attributes of the module when the setup method is called. (See the
         `setup_module` decorator.)
         """
+        self.mset = mset
+        # setup the differentiation modules
+        if self.diff_module is None:
+            self.diff_module = mset.grid.diff_mod
+        else:
+            self.diff_module.setup(mset=mset)
+
+        # setup the interpolation modules
+        if self.interp_module is None:
+            self.interp_module = mset.grid.interp_mod
+        else:
+            self.interp_module.setup(mset=mset)
+
         return
 
     def start(self) -> None:
@@ -291,3 +306,23 @@ class Module:
         The grid of the model settings
         """
         return self.mset.grid
+
+    @property
+    def diff_module(self) -> 'fr.grid.DiffModule':
+        """The differentiation module to be used by this module."""
+        return self._diff_module
+    
+    @diff_module.setter
+    def diff_module(self, value):
+        self._diff_module = value
+        return
+
+    @property
+    def interp_module(self) -> 'fr.grid.InterpolationModule':
+        """The interpolation module to be used by this module."""
+        return self._interp_module
+
+    @interp_module.setter
+    def interp_module(self, value):
+        self._interp_module = value
+        return
