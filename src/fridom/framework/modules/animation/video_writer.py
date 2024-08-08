@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 from typing import TYPE_CHECKING
 import warnings
@@ -6,7 +7,7 @@ from fridom.framework import config, utils
 from fridom.framework.modules.module import Module, setup_module, module_method
 # Import type information
 if TYPE_CHECKING:
-    from fridom.framework.modules.animation import ModelPlotterBase
+    from fridom.framework.modules.animation import ModelPlotter
     from fridom.framework.model_state import ModelState
 
 
@@ -22,7 +23,7 @@ class VideoWriter(Module):
     
     Parameters
     ----------
-    `model_plotter` : `ModelPlotterBase`
+    `model_plotter` : `ModelPlotter`
         The model plotter that will be used to create the figure.
     `interval` : `int`, optional (default=50)
         The interval (time steps) at which the plot will be updated.
@@ -79,7 +80,7 @@ class VideoWriter(Module):
 
     """
     def __init__(self, 
-                 model_plotter: 'ModelPlotterBase', 
+                 model_plotter: 'ModelPlotter', 
                  interval: int=50,
                  filename: str="output.mp4", 
                  fps: int=30,
@@ -101,8 +102,9 @@ class VideoWriter(Module):
         self.fig = None
         return
 
-    @setup_module
-    def setup(self):
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         import os
         # create video folder if it does not exist
         if not os.path.exists("videos"):
