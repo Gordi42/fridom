@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
@@ -28,13 +29,14 @@ class ModuleContainer(Module):
         super().__init__(name=name)
         self.module_list = module_list
 
-    @setup_module
-    def setup(self) -> None:
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         """
         Setup all modules.
         """
+        super().setup(mset)
         for module in self.module_list:
-            module.setup(mset=self.mset)
+            module.setup(mset=mset)
         return
 
     @module_method

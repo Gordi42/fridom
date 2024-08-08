@@ -122,8 +122,9 @@ class NetCDFWriter(Module):
         self._ncfile = None
         return
 
-    @setup_module
-    def setup(self) -> None:
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         # create snapshot folder if it doesn't exist
         config.logger.verbose(f"Touching snapshot directory: {self.directory}")
         os.makedirs(self.directory, exist_ok=True)

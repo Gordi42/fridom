@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 from typing import TYPE_CHECKING
 import os
@@ -90,8 +91,9 @@ class RestartModule(Module):
         self._last_restart_modeltime = None
         self._last_restart_iteration = None
 
-    @setup_module
-    def setup(self):
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         config.logger.verbose("Touching the restart directory.")
         os.makedirs(self.directory, exist_ok=True)
         return
