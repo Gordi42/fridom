@@ -83,6 +83,7 @@ class ModelSettingsBase:
         # Other parameters
         self._nan_check_interval = 100
         self.custom_fields = []
+        self.nonlinear_scaling = 1
 
         # Set attributes from keyword arguments
         self.set_attributes(**kwargs)
@@ -226,4 +227,24 @@ class ModelSettingsBase:
     @nan_check_interval.setter
     def nan_check_interval(self, value: int) -> None:
         self._nan_check_interval = value
+        return
+
+    @property
+    def nonlinear_scaling(self) -> float:
+        """
+        A scaling factor for the nonlinear terms (default: 1.0)
+
+        Description
+        -----------
+        Some modules require to scale the nonlinear terms, as for example the
+        optimal balance projection 
+        (:py:class:`fridom.framework.projection.OptimalBalance`). This parameter
+        provides an interface to set this scaling factor. Modules that compute
+        nonlinear terms should use this scaling factor.
+        """
+        return self._nonlinear_scaling
+    
+    @nonlinear_scaling.setter
+    def nonlinear_scaling(self, value: float) -> None:
+        self._nonlinear_scaling = value
         return
