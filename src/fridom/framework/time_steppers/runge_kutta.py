@@ -1,15 +1,7 @@
-# Import external modules
+import fridom.framework as fr
 import numpy as np
-from typing import TYPE_CHECKING
 from enum import Enum
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.time_steppers.time_stepper import TimeStepper
-from fridom.framework.modules.module import setup_module, module_method
-from fridom.framework.model_state import ModelState
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.state_base import StateBase
+
 
 class ButcherTableau:
     """
@@ -100,11 +92,11 @@ class RKMethods(Enum):
         b_error = np.array([-1/360, 0, 128/4275,  2197/75240, -1/50, -2/55])
     )
 
-@utils.jaxjit
+@fr.utils.jaxjit
 def sum_product(coeefs, dt, k):
     return sum(coeefs[i] * dt * k[i] for i in range(len(k)))
 
-class RungeKutta(TimeStepper):
+class RungeKutta(fr.time_steppers.TimeStepper):
     def __init__(self, 
                  dt: np.timedelta64 = np.timedelta64(1, 's'), 
                  method: RKMethods = RKMethods.RK4,
@@ -116,16 +108,17 @@ class RungeKutta(TimeStepper):
         self.tol = tol
         return
 
-    @setup_module
-    def setup(self) -> None:
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         self.dz_list = [self.mset.state_constructor() for _ in range(self.method.order)]
         return
 
-    def calculate_tendency(self, mz: 'ModelState') -> 'StateBase':
+    def calculate_tendency(self, mz: 'fr.ModelState') -> 'fr.StateBase':
         return self.mset.tendencies.update(mz).dz
 
-    @module_method
-    def update(self, mz: 'ModelState') -> None:
+    @fr.modules.module_method
+    def update(self, mz: 'fr.ModelState') -> None:
         """
         Update the model state to the next time level.
         
@@ -137,7 +130,7 @@ class RungeKutta(TimeStepper):
         """
         method = self.method
         order = method.order
-        mod_state = ModelState(self.mset)
+        mod_state = fr.ModelState(self.mset)
         error = 1
         while error > self.tol:
             k = []

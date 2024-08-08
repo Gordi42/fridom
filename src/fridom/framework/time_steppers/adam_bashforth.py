@@ -1,21 +1,10 @@
-# Import external modules
+import fridom.framework as fr
 import numpy as np
-from typing import TYPE_CHECKING
 from functools import partial
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.time_steppers.time_stepper import TimeStepper
-from fridom.framework.modules.module import setup_module, module_method
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_state import ModelState
-    from fridom.framework.state_base import StateBase
 
-# ================================================================
-#  ADAM BASHFORTH TIME STEPPING
-# ================================================================
-@partial(utils.jaxify, dynamic=('dz_list', 'pointer', 'it_count', 'coeff_AB'))
-class AdamBashforth(TimeStepper):
+
+@partial(fr.utils.jaxify, dynamic=('dz_list', 'pointer', 'it_count', 'coeff_AB'))
+class AdamBashforth(fr.time_steppers.TimeStepper):
     """
     Adam Bashforth time stepping up to 4th order.
     
@@ -44,10 +33,11 @@ class AdamBashforth(TimeStepper):
         self.dt = dt
         return
 
-    @setup_module
-    def setup(self):
-        ncp = config.ncp
-        dtype = config.dtype_real
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
+        ncp = fr.config.ncp
+        dtype = fr.config.dtype_real
 
         # Adam Bashforth coefficients including time step size
         self.coeffs = [
@@ -72,9 +62,9 @@ class AdamBashforth(TimeStepper):
         return
 
     
-    @utils.jaxjit
-    def _update_state(self, z: 'StateBase', dz_list: 'list[StateBase]'
-                      ) -> 'StateBase':
+    @fr.utils.jaxjit
+    def _update_state(self, z: 'fr.StateBase', dz_list: 'list[fr.StateBase]'
+                      ) -> 'fr.StateBase':
         """
         Jax jitted time stepping function for Adam-Bashforth.
     
@@ -93,8 +83,8 @@ class AdamBashforth(TimeStepper):
             z += dz_list[i] * self.coeff_AB[i]
         return z
 
-    @module_method
-    def update(self, mz: 'ModelState'):
+    @fr.modules.module_method
+    def update(self, mz: 'fr.ModelState'):
         """
         Update the time stepper.
         """
@@ -140,13 +130,13 @@ class AdamBashforth(TimeStepper):
         coeffs = self.coeffs
 
         # choose Adam-Bashforth coefficients of current time level
-        self.coeff_AB = utils.modify_array(self.coeff_AB, slice(None), 0)
-        self.coeff_AB = utils.modify_array(self.coeff_AB, slice(ctl+1), coeffs[ctl])
+        self.coeff_AB = fr.utils.modify_array(self.coeff_AB, slice(None), 0)
+        self.coeff_AB = fr.utils.modify_array(self.coeff_AB, slice(ctl+1), coeffs[ctl])
         return
     
     def time_discretization_effect(self, omega: np.ndarray) -> np.ndarray:
         # shorthand notation
-        ncp = config.ncp
+        ncp = fr.config.ncp
 
         # cast omega to ndarray
         omega = ncp.array(omega)
@@ -168,7 +158,7 @@ class AdamBashforth(TimeStepper):
 
         # subtract 1 from the last coefficient
         last_col = (..., 0)
-        coeff = utils.modify_array(coeff, last_col, coeff[last_col] - 1)
+        coeff = fr.utils.modify_array(coeff, last_col, coeff[last_col] - 1)
 
         # leading coefficient is 1
         paddings = [(0,0)] * len(coeff.shape)
@@ -192,7 +182,7 @@ class AdamBashforth(TimeStepper):
 
         # find the roots of the polynomial
         # root finding only works on the CPU
-        coeff = utils.to_numpy(coeff)
+        coeff = fr.utils.to_numpy(coeff)
         roots = ncp.array(np.apply_along_axis(find_roots, -1, coeff))
     
         return -1j * ncp.log(roots) / self.dt
