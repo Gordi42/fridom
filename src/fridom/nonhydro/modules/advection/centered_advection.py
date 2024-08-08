@@ -32,7 +32,6 @@ class CenteredAdvection(fr.modules.Module):
     """
     def __init__(self):
         super().__init__(name="Centered Advection")
-        self.required_halo = 2
         return
 
     @fr.utils.jaxjit
