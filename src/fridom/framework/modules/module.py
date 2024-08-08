@@ -55,8 +55,12 @@ def module_method(method):
             config.logger.debug(
                 f"Calling '{method.__name__}' of: {self.name}")
 
-            with self.mset.timer[self.name]:
+            # check if the model settings are already set
+            if self.mset is None:
                 result = method(self, *args, **kwargs)
+            else:
+                with self.mset.timer[self.name]:
+                    result = method(self, *args, **kwargs)
 
             # if the log level was set, change it back to the old log level
             if self.log_level is not None:
