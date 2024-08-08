@@ -17,7 +17,7 @@ class TendencyDivergence(fr.modules.Module):
         Compute the divergence of the tendency.
         """
         dz.sync()
-        div = self.grid.diff_mod.div((dz.u, dz.v, dz.w))
+        div = self.diff_module.div((dz.u, dz.v, dz.w))
         return div
 
     @fr.modules.module_method

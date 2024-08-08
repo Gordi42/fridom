@@ -13,8 +13,9 @@ class LinearTendency(fr.modules.Module):
         self.interpolation = interpolation
         self.f_coriolis = None
 
-    @fr.modules.setup_module
-    def setup(self):
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         if self.interpolation is None:
             self.interpolation = self.mset.grid._interp_mod
         else:
