@@ -20,19 +20,8 @@ class CenteredAdvection(fr.modules.Module):
     :math:`\\mathbf{F}=\\mathbf{v} q`. The flux divergence 
     :math:`\\partial_x F_x` is calculated using forward or backward differences.
     For that the flux is interpolated to the cell faces of the quantity :math:`q`.
-
-    Parameters
-    ----------
-    `diff` : `DiffBase | None`, (default=None)
-        Differentiation module to use.
-        If None, the differentiation module of the grid is used.
-    `interpolation` : `InterpolationBase | None`, (default=None)
-        The interpolation module to use.
-        If None, the interpolation module of the grid is used.
     """
-    def __init__(self):
-        super().__init__(name="Centered Advection")
-        return
+    name = "Centered Advection"
 
     @fr.utils.jaxjit
     def flux_divergence(self, 

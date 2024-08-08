@@ -38,11 +38,11 @@ class HarmonicDiffusion(fr.modules.Module):
     `name` : `str`, (default="Harmonic Diffusion")
         Name of the module.
     """
+    name = "Harmonic Diffusion"
     def __init__(self, 
                  field_flags: list[str], 
-                 diffusion_coefficients: list[float | fr.FieldVariable], 
-                 name: str = "Harmonic Diffusion"):
-        super().__init__(name)
+                 diffusion_coefficients: list[float | fr.FieldVariable]):
+        super().__init__()
         self.field_flags = field_flags
         self.diffusion_coefficients = diffusion_coefficients
         return

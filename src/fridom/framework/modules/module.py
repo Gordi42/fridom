@@ -100,7 +100,8 @@ class Module:
     ...    def stop(self):
     ...        self.number = None  # sets the number to None
     """
-    def __init__(self, name, **kwargs) -> None:
+    name = "Base Module"
+    def __init__(self) -> None:
         # The module is enabled by default
         self.__enabled = True
         # The log level
@@ -113,11 +114,8 @@ class Module:
         self.mset: 'fr.ModelSettingsBase | None' = None
         self.timer: 'fr.timing_module.TimingModule | None' = None
         # Differentiation and interpolation modules
-        self._diff_module = None
-        self._interp_module = None
-        # Update the attributes with the keyword arguments
-        self.__dict__.update(kwargs)
-        self.name = name
+        self._diff_module: 'fr.grid.DiffModule | None' = None
+        self._interp_module: 'fr.grid.InterpolationModule | None' = None
         return
 
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:

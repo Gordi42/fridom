@@ -6,6 +6,7 @@ import numpy as np
 
 
 class RestartModule(fr.modules.Module):
+    name = "Restart Module"
     def __init__(self,
                  realtime_interval: 'np.timedelta64 | None' = None,
                  modeltime_interval: 'np.timedelta64 | None' = None,
@@ -13,7 +14,7 @@ class RestartModule(fr.modules.Module):
                  restart_command: str | None = None,
                  filename: str = "model",
                  directory: str = "restart") -> None:
-        super().__init__(name="RestartModule")
+        super().__init__()
 
         # ----------------------------------------------------------------
         #  Check the restart interval input

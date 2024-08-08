@@ -2,16 +2,17 @@ from fridom.framework.modules.module import Module, module_method
 from fridom.framework.model_state import ModelState
 
 class Diagnostics(Module):
+    name = "Diagnostics"
     def __init__(self, 
                  interval = 50,
                  energy_info = True,
                  cfl_info = True,
                  ):
-        super().__init__(
-            name="Diagnostics",
-            interval=interval,
-            energy_info=energy_info,
-            cfl_info=cfl_info,)
+        super().__init__()
+        self.interval = interval
+        self.energy_info = energy_info
+        self.cfl_info = cfl_info
+        return
 
     @module_method
     def update(self, mz: ModelState) -> ModelState:

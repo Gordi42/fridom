@@ -11,15 +11,8 @@ class InterpolationModule(fr.modules.Module):
     -----------
     An interpolation module is a class that interpolates a field from one position
     to another. For example, from the cell face to the cell center.
-
-    Parameters
-    ----------
-    `name` : `str` (default is "Interpolation")
-        The name of the interpolation module.
     """
-    def __init__(self, name="Interpolation"):
-        super().__init__(name=name)
-        return
+    name = "Interpolation Module"
     
     @abstractmethod
     def interpolate(self, 

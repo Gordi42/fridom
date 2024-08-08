@@ -3,7 +3,8 @@ import fridom.nonhydro as nh
 
 
 class MainTendency(fr.modules.ModuleContainer):
-    def __init__(self, name="All Tendency Modules"):
+    name = "Main Tendencies: Nonhydrostatic Model"
+    def __init__(self):
         mods = nh.modules
         self._reset_tendency = mods.ResetTendency()
         self._linear_tendency = mods.LinearTendency()
@@ -14,7 +15,7 @@ class MainTendency(fr.modules.ModuleContainer):
         self._additional_modules = []
         self._set_module_list()
 
-        super().__init__(name=name, module_list=self.module_list)
+        super().__init__(module_list=self.module_list)
         return
 
     def add_module(self, module):

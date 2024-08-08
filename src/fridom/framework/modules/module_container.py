@@ -11,16 +11,13 @@ class ModuleContainer(fr.modules.Module):
     
     Parameters
     ----------
-    `name` : `str`
-        The name of the module container.
     `module_list` : `list`
         A list of modules to be added to the container.
     """
-    def __init__(self, name="Module Container", module_list: list = None):
-        if module_list is None:
-            module_list = []
-        super().__init__(name=name)
-        self.module_list = module_list
+    name = "Module Container"
+    def __init__(self, module_list: list | None = None):
+        super().__init__()
+        self.module_list = module_list or []
 
     @fr.modules.module_method
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
@@ -106,14 +103,12 @@ class ModuleContainer(fr.modules.Module):
         """
         The maximum required halo points of all modules.
         """
+        if self._required_halo is not None:
+            return self._required_halo
         # check if module_list is empty
         if not self.module_list:
             return 0
         return max([module.required_halo for module in self.module_list])
-    
-    @required_halo.setter
-    def required_halo(self, value: int) -> None:
-        pass  # do nothing
     
     @property
     def mpi_available(self) -> bool:

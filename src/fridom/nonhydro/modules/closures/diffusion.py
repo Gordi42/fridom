@@ -19,13 +19,13 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
     `kv` : `float | fr.FieldVariable`
         Vertical harmonic mixing coefficient.
     """
+    name = "Harmonic Mixing"
     def __init__(self, 
                  kh: float | fr.FieldVariable,
                  kv: float | fr.FieldVariable):
         diffusion_coefficients = [kh, kh, kv]
         super().__init__(field_flags=["ENABLE_MIXING"],
-                         diffusion_coefficients=diffusion_coefficients,
-                         name="Harmonic Mixing")
+                         diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
@@ -69,13 +69,13 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
     `av` : `float | fr.FieldVariable`
         Vertical harmonic friction coefficient.
     """
+    name = "Harmonic Friction"
     def __init__(self, 
                  ah: float | fr.FieldVariable,
                  av: float | fr.FieldVariable):
         diffusion_coefficients = [ah, ah, av]
         super().__init__(field_flags=["ENABLE_FRICTION"],
-                         diffusion_coefficients=diffusion_coefficients,
-                         name="Harmonic Friction")
+                         diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
@@ -119,13 +119,13 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
     `kv` : `float | fr.FieldVariable`
         Vertical mixing coefficient.
     """
+    name = "Biharmonic Mixing"
     def __init__(self, 
                  kh: float | fr.FieldVariable,
                  kv: float | fr.FieldVariable):
         diffusion_coefficients = [kh, kh, kv]
         super().__init__(field_flags=["ENABLE_MIXING"],
-                         diffusion_coefficients=diffusion_coefficients,
-                         name="Biharmonic Mixing")
+                         diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
@@ -169,13 +169,13 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
     `av` : `float | fr.FieldVariable`
         Vertical friction coefficient.
     """
+    name = "Biharmonic Friction"
     def __init__(self, 
                  ah: float | fr.FieldVariable,
                  av: float | fr.FieldVariable):
         diffusion_coefficients = [ah, ah, av]
         super().__init__(field_flags=["ENABLE_FRICTION"],
-                         diffusion_coefficients=diffusion_coefficients,
-                         name="Biharmonic Friction")
+                         diffusion_coefficients=diffusion_coefficients)
         return
 
     @property

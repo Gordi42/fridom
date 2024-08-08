@@ -13,8 +13,7 @@ class ResetTendency(fr.modules.Module):
     the tendency state before updating it. It should always be the first module
     of the tendencies list.
     """
-    def __init__(self, name="Reset Tendency"):
-        super().__init__(name=name)
+    name = "Reset Tendency"
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:

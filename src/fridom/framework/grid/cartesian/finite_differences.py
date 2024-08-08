@@ -4,11 +4,13 @@ from functools import partial
 
 @partial(fr.utils.jaxify, dynamic=('_dx1', 'water_mask'))
 class FiniteDifferences(fr.grid.DiffModule):
+    name = "Finite Differences"
     def __init__(self) -> None:
-        super().__init__(name="Finite Differences")
+        super().__init__()
         # ----------------------------------------------------------------
         #  Set attributes
         # ----------------------------------------------------------------
+        self.required_halo = 1
         self._dx1 = None
         self.water_mask = None
 

@@ -23,11 +23,12 @@ class LiveAnimation(fr.modules.Module):
     `interval` : `int`, optional (default=50)
         The interval (time steps) at which the plot will be updated.
     """
+    name = "Live Animation"
     def __init__(self, 
                  model_plotter: fr.modules.animation.ModelPlotter,
                  interval: int = 50,
                  ) -> None:
-        super().__init__(name="Live Animation")
+        super().__init__()
 
         self.interval = interval
         self.model_plotter = model_plotter

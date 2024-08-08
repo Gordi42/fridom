@@ -17,14 +17,16 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     `eps` : `float`
         2nd order bashforth correction. (default 0.01)
     """
+    name = "Adam Bashforth"
     def __init__(self, dt = 1, order: int = 3, eps=0.01):
         # check that the order is not too high
         if order > 4:
             raise ValueError(
                 "Adam Bashforth Time Stepping only supports orders up to 4.")
         
-        super().__init__("Adam Bashforth", 
-                         order=order, eps=eps)
+        super().__init__()
+        self.order = order
+        self.eps = eps
         self.AB1 = [1]
         self.AB2 = [3/2 + eps, -1/2 - eps]
         self.AB3 = [23/12, -4/3, 5/12]

@@ -28,18 +28,12 @@ class TimeStepper(fr.modules.Module):
     stepping has finished. It can be used to deallocate memory or clean up.
     Make sure to wrap the method with the `@stop_module` decorator from the
     `Module` class.
-    
-    Parameters
-    ----------
-    `name` : `str`
-        The name of the time stepper.
-    **kwargs
-        Additional keyword arguments.
-    
     """
-    def __init__(self, name, **kwargs) -> None:
-        super().__init__(name, **kwargs)
-        self._dt = None
+    name = "Time Stepper"
+    def __init__(self) -> None:
+        super().__init__()
+        self._dt = None  # set the time step size
+        return
 
     def time_discretization_effect(self, omega: ndarray) -> ndarray:
         """

@@ -19,8 +19,9 @@ class ProgressBar(fr.modules.Module):
     `disable` : `bool`
         Whether to disable the progress bar.
     """
+    name = "Progress Bar"
     def __init__(self) -> None:
-        super().__init__(name="Progress Bar")
+        super().__init__()
         self._pbar = None
         self._file_output = None
         self._output = None

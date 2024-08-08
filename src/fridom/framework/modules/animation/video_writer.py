@@ -70,6 +70,7 @@ class VideoWriter(fr.modules.Module):
         vid_writer.show_video()
 
     """
+    name = "Video Writer"
     def __init__(self, 
                  model_plotter: 'fr.ModelPlotter', 
                  interval: int=50,
@@ -77,15 +78,15 @@ class VideoWriter(fr.modules.Module):
                  fps: int=30,
                  parallel: bool=True,
                  max_jobs: float=0.4,
-                 name="Video Writer") -> None:
+                 ) -> None:
         import os
-        filename = os.path.join("videos", filename)
-        super().__init__(name=name, 
-                         model_plotter=model_plotter,
-                         interval=interval,
-                         filename=filename,
-                         fps=fps,
-                         max_jobs=max_jobs)
+        super().__init__()
+
+        self.model_plotter = model_plotter
+        self.interval = interval
+        self.filename = os.path.join("videos", filename)
+        self.fps = fps
+        self.max_jobs = max_jobs
         # set the flag for MPI availability
         self.mpi_available = False
         self.writer = None

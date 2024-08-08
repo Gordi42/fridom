@@ -29,10 +29,7 @@ class CenteredAdvection(fr.modules.Module):
         The interpolation module to use.
         If None, the interpolation module of the grid is used.
     """
-    def __init__(self):
-        super().__init__(name="Centered Advection")
-        self.required_halo = 2
-        return
+    name = "Centered Advection"
 
     @fr.utils.jaxjit
     def flux_divergence(self, 

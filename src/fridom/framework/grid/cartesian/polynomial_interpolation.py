@@ -46,8 +46,9 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
     .. math::
         c_i = \prod_{j=0, j \neq i}^{n} \frac{j-n/2}{j - i}
     """
+    name = "Polynomial Interpolation"
     def __init__(self, order: int = 1):
-        super().__init__(name="Polynomial Interpolation")
+        super().__init__()
         # order must be an odd number
         assert order % 2 == 1
 

@@ -13,15 +13,8 @@ class DiffModule(fr.modules.Module):
     A differentiation module is a class that computes derivatives of a field,
     for example the partial derivative in a specific direction, or the gradient
     of a field, or divergence of a vector etc.
-
-    Parameters
-    ----------
-    `name` : `str` (default is "Differentiation")
-        The name of the differentiation module.
     """
-    def __init__(self, name="Differentiation"):
-        super().__init__(name=name)
-        return
+    name = "Diff. Module"
 
     @abstractmethod
     def diff(self,

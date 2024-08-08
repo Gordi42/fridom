@@ -24,8 +24,6 @@ class NetCDFWriter(fr.modules.Module):
         The interval at which a new file should be created. Default is None.
     `snap_slice` : `tuple`, optional
         The slice of the grid that should be written to the file. Default is None.
-    `name` : `str`, optional
-        The name of the module. Default is "NetCDFWriter".
     `get_variables` : `callable`, (default: None)
         A function that returns a list of field variables that should be written 
         to the file. If None, all fields of the State object will be written.
@@ -62,6 +60,7 @@ class NetCDFWriter(fr.modules.Module):
         model.run(runlen=np.timedelta64(10, 's'))
 
     """
+    name = "NetCDFWriter"
     def __init__(self,
                  write_interval: Union[np.timedelta64, float],
                  filename: str = "snap",
@@ -70,12 +69,12 @@ class NetCDFWriter(fr.modules.Module):
                  restart_interval: Union[np.timedelta64, float, None] = None,
                  snap_slice: tuple | None = None,
                  directory: str | None = None,
-                 name: str = "NetCDFWriter",
                  get_variables: 'callable | None' = None,
                  ):
+        super().__init__()
+
         directory = directory or "snapshots"
         filename = os.path.join(directory, filename)
-        super().__init__(name = name)
         self.execute_at_start = True
 
         # Convert the times to seconds

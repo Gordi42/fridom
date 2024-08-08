@@ -55,9 +55,7 @@ class ModelSettings(ModelSettingsBase):
         self.set_attributes(**kwargs)
         return
 
-    def setup(self):
-        super().setup()
-
+    def setup_settings_parameters(self):
         # Coriolis parameter
         f_coriolis = FieldVariable(
             self, 

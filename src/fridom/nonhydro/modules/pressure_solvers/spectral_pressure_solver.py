@@ -6,9 +6,7 @@ class SpectralPressureSolver(fr.modules.Module):
     """
     This class solves the pressure field with a spectral solver.
     """
-    def __init__(self):
-        super().__init__(name="Pressure Solver")
-        self.required_halo = 0
+    name = "Spectral Pressure Solver"
 
     @fr.utils.jaxjit
     def solve_for_pressure(self, div: fr.FieldVariable) -> fr.FieldVariable:

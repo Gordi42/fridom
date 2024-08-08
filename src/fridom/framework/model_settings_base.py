@@ -72,9 +72,10 @@ class ModelSettingsBase:
         # Restart module
         self.restart_module = RestartModule()
         # List of modules that calculate tendencies
-        self.tendencies = ModuleContainer(name="All Tendency Modules")
+        self.tendencies = ModuleContainer()
         # List of modules that do diagnostics
-        self.diagnostics = ModuleContainer(name="All Diagnostic Modules")
+        self.diagnostics = ModuleContainer()
+        self.diagnostics.name = "All Diagnostics"
 
         # Timer
         from fridom.framework.timing_module import TimingModule
@@ -113,16 +114,34 @@ class ModelSettingsBase:
             setattr(self, key, value)
         return
 
-    def setup(self):
-        logger.verbose("Setting up model settings")
+    def setup_grid(self):
+        """
+        Setup the grid object.
+        """
         self.grid.setup(mset=self)
+        return
+    
+    def setup_all_modules(self):
         self.grid.water_mask.setup(mset=self)
         self.progress_bar.setup(mset=self)
         self.restart_module.setup(mset=self)
         self.tendencies.setup(mset=self)
         self.diagnostics.setup(mset=self)
         self.time_stepper.setup(mset=self)
+        return
 
+    def setup_settings_parameters(self):
+        """
+        Setup the model settings parameters.
+        """
+        return
+
+
+    def setup(self):
+        logger.verbose("Setting up model settings")
+        self.setup_grid()
+        self.setup_settings_parameters()
+        self.setup_all_modules()
         logger.info(self)
         return
 

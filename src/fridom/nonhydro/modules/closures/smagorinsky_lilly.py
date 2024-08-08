@@ -86,6 +86,7 @@ class SmagorinskyLilly(fr.modules.Module):
         The buoyancy multiplier. If None, the buoyancy multiplier is set to
         :math:`1 / \text{turbulent_prandtl_number}`.
     """
+    name = "Smagorinsky-Lilly"
     def __init__(self, 
                  background_viscosity: float = 1.05e-6,
                  background_diffusivity: float = 1.46e-7,
@@ -93,7 +94,7 @@ class SmagorinskyLilly(fr.modules.Module):
                  smagorinsky_constant: float = 0.16,
                  buoyancy_multiplier: float | None = None
                  ):
-        super().__init__(name="Smagorinsky-Lilly")
+        super().__init__()
         self.background_viscosity = background_viscosity
         self.background_diffusivity = background_diffusivity
         self.turbulent_prandtl_number = turbulent_prandtl_number

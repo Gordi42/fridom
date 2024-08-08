@@ -97,11 +97,12 @@ def sum_product(coeefs, dt, k):
     return sum(coeefs[i] * dt * k[i] for i in range(len(k)))
 
 class RungeKutta(fr.time_steppers.TimeStepper):
+    name = "Runge-Kutta"
     def __init__(self, 
                  dt: np.timedelta64 = np.timedelta64(1, 's'), 
                  method: RKMethods = RKMethods.RK4,
                  tol=1e-6):
-        super().__init__("Runge-Kutta")
+        super().__init__()
         self.method = method.value
         self.dt = dt
         self.dz_list = None

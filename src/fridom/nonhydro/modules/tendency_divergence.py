@@ -7,9 +7,7 @@ class TendencyDivergence(fr.modules.Module):
     This class computes the divergence of the tendency of the model.
     The divergence of the tendency is required for the pressure solver.
     """
-    def __init__(self):
-        super().__init__(name="Tendency Divergence")
-        self.required_halo = 1
+    name = "Tendency Divergence"
 
     @fr.utils.jaxjit
     def compute_divergence(self, dz: fr.StateBase) -> fr.FieldVariable:

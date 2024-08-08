@@ -10,12 +10,14 @@ class LinearInterpolation(fr.grid.InterpolationModule):
     .. math::
         f(x + 0.5 \Delta x) = \frac{1}{2} (f(x) + f(x + \Delta x))
     """
+    name = "Linear Interpolation"
     def __init__(self) -> None:
-        super().__init__(name="Linear Interpolation")
+        super().__init__()
         self.ndim: int = None
         self._nexts: tuple[slice] = None
         self._prevs: tuple[slice] = None
         self.water_mask = None
+        self.required_halo = 1
         return
 
     @fr.modules.module_method

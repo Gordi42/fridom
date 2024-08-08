@@ -4,13 +4,10 @@ import fridom.nonhydro as nh
 
 @fr.utils.jaxify
 class PressureGradientTendency(fr.modules.Module):
-    _dynamic_attributes = set(["mset"])
     """
     This class computes the pressure gradient tendency of the model.
     """
-    def __init__(self):
-        super().__init__(name="Pressure Gradient")
-        self.required_halo = 1
+    name = "Pressure Gradient"
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
@@ -22,7 +19,7 @@ class PressureGradientTendency(fr.modules.Module):
             self, p: fr.FieldVariable, dz: nh.State) -> nh.State:
         """Compute the pressure gradient tendency of the model."""
         # compute gradient of pressure
-        p_grad = p.grad()
+        p_grad = self.diff_module.grad(p)
 
         # remove the gradient from the velocity tendency
         dz.u -= p_grad[0]

@@ -28,16 +28,8 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
     `diffusion_coefficients` : `tuple[float | fr.FieldVariable]`
         A tuple of diffusion coefficients. The length of the tuple must match
         the number of dimensions of the grid.
-    `name` : `str`, (default="Biharmonic Diffusion")
-        Name of the module.
     """
-    def __init__(self,
-                 field_flags: list[str],
-                 diffusion_coefficients: list[float | fr.FieldVariable],
-                 name: str = "Biharmonic Diffusion"):
-        # scaled_coeffs = _get_coefficients(diffusion_coefficients)
-        super().__init__(field_flags, diffusion_coefficients, name)
-        return
+    name = "Biharmonic Diffusion"
     
     @fr.utils.jaxjit
     def diffusion_operator(self, u: fr.FieldVariable) -> fr.FieldVariable:

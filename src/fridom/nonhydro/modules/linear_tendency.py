@@ -8,18 +8,15 @@ class LinearTendency(fr.modules.Module):
     """
     This class computes the linear tendency of the model.
     """
-    def __init__(self, interpolation: fr.grid.InterpolationModule | None = None):
-        super().__init__(name="Linear Tendency")
-        self.interpolation = interpolation
+    name = "Linear Tendency"
+    def __init__(self):
+        super().__init__()
         self.f_coriolis = None
 
     @fr.modules.module_method
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         super().setup(mset)
-        if self.interpolation is None:
-            self.interpolation = self.mset.grid._interp_mod
-        else:
-            self.interpolation.setup(mset=self.mset)
+        self.f_coriolis = self.mset.f_coriolis
         return
 
     @fr.modules.module_method
@@ -32,10 +29,10 @@ class LinearTendency(fr.modules.Module):
         """
         Compute the linear tendency of the model.
         """
-        interp = self.interpolation.interpolate
+        interp = self.interp_module.interpolate
 
         # interpolate the coriolis parameter to the u position
-        f = interp(self.mset.f_coriolis, z.u.position)
+        f = interp(self.f_coriolis, z.u.position)
 
         # calculate u-tendency
         dz.u +=   interp(z.v, z.u.position) * f
@@ -44,16 +41,3 @@ class LinearTendency(fr.modules.Module):
         dz.b += - interp(z.w, z.b.position) * self.mset.N2
 
         return dz
-
-    @property
-    def required_halo(self) -> int:
-        if self.interpolation is None:
-            # while the interpolation module is not set up, we cannot determine
-            # the required halo
-            return 0
-        else:
-            return self.interpolation.required_halo
-    
-    @required_halo.setter
-    def required_halo(self, value: int):
-        return
