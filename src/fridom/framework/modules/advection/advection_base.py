@@ -26,7 +26,8 @@ class AdvectionBase(fr.modules.Module):
     with `NO_ADV`:
     
     .. math::
-        \partial_t q += \rho \mathcal{A}(\boldsymbol{v}, q)
+        \partial_t q \leftarrow \partial_t q 
+                            + \rho \mathcal{A}(\boldsymbol{v}, q)
 
     where :math:`\rho` is the nonlinear scaling factor.
     """
