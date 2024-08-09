@@ -269,15 +269,6 @@ class FieldVariable:
         new_arr = fr.utils.modify_array(self.arr, key, value)
         self.arr = new_arr
 
-    def __getattr__(self, name):
-        """
-        Forward attribute access to the underlying array (e.g. shape)
-        """
-        try:
-            return getattr(self.arr, name)
-        except AttributeError:
-            raise AttributeError(f"FieldVariable has no attribute {name}")
-
     # ================================================================
     #  Pickling
     # ================================================================
