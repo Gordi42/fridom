@@ -5,7 +5,7 @@ import fridom.nonhydro as nh
 @fr.utils.jaxify
 class State(fr.StateBase):
     def __init__(self, 
-                 mset: nh.ModelSettings, 
+                 mset: 'nh.ModelSettings', 
                  is_spectral: bool = False, 
                  field_list = None) -> None:
 
@@ -416,7 +416,10 @@ class State(fr.StateBase):
 
 @fr.utils.jaxify
 class DiagnosticState(fr.StateBase):
-    def __init__(self, mset: nh.ModelSettings, is_spectral=False, field_list=None) -> None:
+    def __init__(self, 
+                 mset: 'nh.ModelSettings', 
+                 is_spectral=False, 
+                 field_list=None) -> None:
         from fridom.framework.field_variable import FieldVariable
         if field_list is None:
             p = FieldVariable(
