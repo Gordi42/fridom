@@ -11,7 +11,7 @@ class WavePackage(nh.State):
     `mask_pos` with a width of `mask_width`:
 
     .. math::
-        M(x) = \\prod_{i=1}^{3} \\exp\\left(\\frac{(x_i - p_i)^2}{w_i^2}\\right)
+        M(x) = \\prod_{i=1}^{3} \\exp\\left(-\\frac{(x_i - p_i)^2}{w_i^2}\\right)
     
     where :math:`p_i` is the position and :math:`w_i` is the width of the mask
     in the :math:`i`-th direction. The final wave package is given by:
