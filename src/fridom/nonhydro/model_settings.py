@@ -1,3 +1,4 @@
+import fridom.nonhydro as nh
 from functools import partial
 # Import external modules
 from typing import TYPE_CHECKING
@@ -19,41 +20,15 @@ class ModelSettings(ModelSettingsBase):
     ----------
     `grid` : `Grid`
         The grid object.
-    
-    Attributes
-    ----------
-    `f_coriolis` : `float | np.ndarray`
-        Coriolis parameter.
-    `N2` : `float | np.ndarray`
-        Background stratification (squara of Brunt-Vaisala frequency)
-    `dsqr` : `float`
-        Square of aspect ratio.
-    `Ro` : `float`
-        Rossby number.
     """
-    def __init__(self, grid: 'GridBase', **kwargs):
-        super().__init__(grid)
-        dtype = config.dtype_real
-
-
-        # main tendency
-        from fridom.nonhydro.modules.main_tendency import MainTendency
-        tendencies = MainTendency()
-
-        # ----------------------------------------------------------------
-        #  Set attributes
-        # ----------------------------------------------------------------
-        self.model_name = "3D - Nonhydrostatic model"
-        self._f0 = dtype(1)
-        self._beta = dtype(0)
-        self._f_coriolis   = None
-        self.N2   = dtype(1)
-        self.dsqr = dtype(1)
-        self.Ro   = dtype(1)
-        self.tendencies = tendencies
-
-        self.set_attributes(**kwargs)
-        return
+    model_name = "3D - Nonhydrostatic model"
+    _tendencies = nh.modules.MainTendency()
+    _f0 = 1             # constant coriolis parameter f0
+    _beta = 0           # beta term d(f)/dy
+    _f_coriolis = None  # the coriolis parameter field
+    _N2 = 1             # stratification N²
+    _dsqr = 1           # aspect ratio
+    _Ro = 1             # Rossby number
 
     def setup_settings_parameters(self):
         # Coriolis parameter
@@ -67,6 +42,8 @@ class ModelSettings(ModelSettingsBase):
         )
         f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,0,:,0,None]
         self._f_coriolis = f_coriolis
+        # make sure that the advection term is scaled by the Rossby number
+        self.tendencies.advection.scaling = self.Ro
         return
 
     def state_constructor(self):
@@ -126,4 +103,36 @@ class ModelSettings(ModelSettingsBase):
             self._f_coriolis = value
         else:
             self._f_coriolis[:] = value
+        return
+
+    @property
+    def N2(self) -> 'float':
+        """The stratification N²."""
+        return self._N2
+    
+    @N2.setter
+    def N2(self, value: 'float'):
+        self._N2 = value
+        return
+
+    @property
+    def Ro(self) -> 'float':
+        """The Rossby number."""
+        return self._Ro
+    
+    @Ro.setter
+    def Ro(self, value: 'float'):
+        self._Ro = value
+        # scale the advection term
+        self.tendencies.advection.scaling = value
+        return
+
+    @property
+    def dsqr(self) -> 'float':
+        r"""The aspect ratio. :math:`\delta^2`."""
+        return self._dsqr
+    
+    @dsqr.setter
+    def dsqr(self, value: 'float'):
+        self._dsqr = value
         return

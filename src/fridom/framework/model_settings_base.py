@@ -53,41 +53,22 @@ class ModelSettingsBase:
                 res["my_parameter"] = self.my_parameter
                 return res
     """
+    model_name      = "Unnamed model"
+    _grid           = None
+    _time_stepper   = fr.time_steppers.AdamBashforth()
+    _progress_bar   = fr.modules.ProgressBar()
+    _tendencies     = fr.modules.ModuleContainer("All Tendencies")
+    _diagnostics    = fr.modules.ModuleContainer("All Diagnostics")
+    _restart_module = fr.modules.RestartModule()
+    _timer          = fr.timing_module.TimingModule()
+    _nan_check_interval = 100
+    _custom_fields  = []
+    _halo           = None
+
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
-        # grid
         self.grid = grid
-
-        # model name
-        self.model_name = "Unnamed model"
-
-        # time parameters
-        from fridom.framework.time_steppers.adam_bashforth import AdamBashforth
-        self.time_stepper = AdamBashforth()
-
-        # modules
-        from fridom.framework.modules.restart_module import RestartModule
-        from fridom.framework.modules.module_container import ModuleContainer
-        # Progress bar module
-        self.progress_bar = fr.modules.ProgressBar()
-        # Restart module
-        self.restart_module = RestartModule()
-        # List of modules that calculate tendencies
-        self.tendencies = ModuleContainer()
-        # List of modules that do diagnostics
-        self.diagnostics = ModuleContainer()
-        self.diagnostics.name = "All Diagnostics"
-
-        # Timer
-        from fridom.framework.timing_module import TimingModule
-        self.timer = TimingModule()
-
-        # Other parameters
-        self._nan_check_interval = 100
-        self.custom_fields = []
-        self.nonlinear_scaling = 1
-
-        # Set attributes from keyword arguments
         self.set_attributes(**kwargs)
+        return
 
     def set_attributes(self, **kwargs):
         """
@@ -135,7 +116,6 @@ class ModelSettingsBase:
         Setup the model settings parameters.
         """
         return
-
 
     def setup(self):
         logger.verbose("Setting up model settings")
@@ -230,11 +210,96 @@ class ModelSettingsBase:
         return res
 
     @property
-    def halo(self) -> int:
+    def grid(self) -> 'GridBase':
         """
-        Return the halo size of the model.
+        The spatial grid.
         """
-        return self.tendencies.required_halo
+        return self._grid
+
+    @grid.setter
+    def grid(self, value: 'GridBase') -> None:
+        self._grid = value
+        return
+
+    # ----------------------------------------------------------------
+    #  Module properties
+    # ----------------------------------------------------------------
+
+    @property
+    def time_stepper(self):
+        """
+        The time stepper object (default: AdamBashforth).
+        """
+        return self._time_stepper
+
+    @time_stepper.setter
+    def time_stepper(self, value):
+        self._time_stepper = value
+        return
+
+    @property
+    def progress_bar(self):
+        """
+        The progress bar object (default: ProgressBar).
+        """
+        return self._progress_bar
+
+    @progress_bar.setter
+    def progress_bar(self, value):
+        self._progress_bar = value
+        return
+
+    @property
+    def tendencies(self):
+        """
+        The module container for all tendencies.
+        """
+        return self._tendencies
+    
+    @tendencies.setter
+    def tendencies(self, value):
+        self._tendencies = value
+        return
+    
+    @property
+    def diagnostics(self):
+        """
+        The module container for all diagnostics.
+        """
+        return self._diagnostics
+    
+    @diagnostics.setter
+    def diagnostics(self, value):
+        self._diagnostics = value
+        return
+    
+    @property
+    def restart_module(self):
+        """
+        The restart module.
+        """
+        return self._restart_module
+    
+    @restart_module.setter
+    def restart_module(self, value):
+        self._restart_module = value
+        return
+
+    @property
+    def timer(self):
+        """
+        The timing module.
+        """
+        return self._timer
+    
+    @timer.setter
+    def timer(self, value):
+        self._timer = value
+        return
+
+    # ----------------------------------------------------------------
+    #  Other properties
+    # ----------------------------------------------------------------
 
     @property
     def nan_check_interval(self) -> int:
@@ -249,21 +314,28 @@ class ModelSettingsBase:
         return
 
     @property
-    def nonlinear_scaling(self) -> float:
+    def custom_fields(self) -> list:
         """
-        A scaling factor for the nonlinear terms (default: 1.0)
-
-        Description
-        -----------
-        Some modules require to scale the nonlinear terms, as for example the
-        optimal balance projection 
-        (:py:class:`fridom.framework.projection.OptimalBalance`). This parameter
-        provides an interface to set this scaling factor. Modules that compute
-        nonlinear terms should use this scaling factor.
+        List of custom fields to be added to the state vector.
         """
-        return self._nonlinear_scaling
+        return self._custom_fields
     
-    @nonlinear_scaling.setter
-    def nonlinear_scaling(self, value: float) -> None:
-        self._nonlinear_scaling = value
+    @custom_fields.setter
+    def custom_fields(self, value: list) -> None:
+        self._custom_fields = value
+        return
+
+
+    @property
+    def halo(self) -> int:
+        """
+        Return the halo size of the model.
+        """
+        if self._halo is not None:
+            return self._halo
+        return self.tendencies.required_halo
+
+    @halo.setter
+    def halo(self, value: int) -> None:
+        self._halo = value
         return
