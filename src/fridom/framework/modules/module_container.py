@@ -11,12 +11,16 @@ class ModuleContainer(fr.modules.Module):
     
     Parameters
     ----------
+    `name` : `str`
+        Name of the module container.
     `module_list` : `list`
         A list of modules to be added to the container.
     """
-    name = "Module Container"
-    def __init__(self, module_list: list | None = None):
+    def __init__(self, 
+                 name: str = "Module Container",
+                 module_list: list | None = None):
         super().__init__()
+        self.name = name
         self.module_list = module_list or []
 
     @fr.modules.module_method
