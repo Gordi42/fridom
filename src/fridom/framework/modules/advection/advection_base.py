@@ -16,7 +16,7 @@ class AdvectionBase(fr.modules.Module):
     method to calculate the advection term:
 
     .. math::
-        F(\boldsymbol{v}, q) = -\boldsymbol{v} \cdot \nabla q
+        \mathcal{A}(\boldsymbol{v}, q) = -\boldsymbol{v} \cdot \nabla q
 
     where :math:`q` is the quantity to be advected and :math:`\boldsymbol{v}` is
     the velocity field, which is the sum of the velocity field in the state vector
@@ -26,7 +26,7 @@ class AdvectionBase(fr.modules.Module):
     with `NO_ADV`:
     
     .. math::
-        \partial_t q += \rho F(\boldsymbol{v}, q)
+        \partial_t q += \rho \mathcal{A}(\boldsymbol{v}, q)
 
     where :math:`\rho` is the nonlinear scaling factor.
     """
