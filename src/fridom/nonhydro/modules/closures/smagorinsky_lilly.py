@@ -1,5 +1,6 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
+import numpy as np
 
 
 @fr.utils.jaxify
@@ -137,7 +138,8 @@ class SmagorinskyLilly(fr.modules.Module):
         N2 = ncp.maximum(N2, 0.0)
 
         # Compute the resolved Richardson number
-        Ri = N2 / sigma2
+        with np.errstate(divide='ignore', invalid='ignore'):
+            Ri = N2 / sigma2
 
         # Compute the stratification damping factor
         gamma = ncp.sqrt(1 - ncp.minimum(self.buoyancy_multiplier * Ri, 1.0))
@@ -155,9 +157,9 @@ class SmagorinskyLilly(fr.modules.Module):
                                   + self.background_diffusivity )
 
         # Compute the stress tensor
-        tau_11 = nu_t * s_11; tau_12 = nu_t * s_12; tau_13 = nu_t * s_13
-        tau_21 = tau_12     ; tau_22 = nu_t * s_22; tau_23 = nu_t * s_23
-        tau_31 = tau_13     ; tau_32 = tau_23     ; tau_33 = nu_t * s_33
+        tau_11 = s_11 * nu_t; tau_12 = s_12 * nu_t; tau_13 = s_13 * nu_t
+        tau_21 = tau_12     ; tau_22 = s_22 * nu_t; tau_23 = s_23 * nu_t
+        tau_31 = tau_13     ; tau_32 = tau_23     ; tau_33 = s_33 * nu_t
 
         # Compute the friction terms
         dz.u += diff_mod.div((tau_11, tau_12, tau_13))
@@ -174,7 +176,7 @@ class SmagorinskyLilly(fr.modules.Module):
             df = diff_mod.grad(field)
 
             # multiply the gradient with the turbulent diffusivity
-            df = tuple(kappa_t * d for d in df)
+            df = tuple(d * kappa_t for d in df)
 
             # Compute the divergence of the gradient
             dz.fields[name] += diff_mod.div(df)
