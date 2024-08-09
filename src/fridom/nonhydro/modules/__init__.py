@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 # ================================================================
 if TYPE_CHECKING:
     # importing modules
-    from . import advection
+    # from . import advection
     from . import closures
     from . import pressure_solvers
     from . import forcings
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     # ----------------------------------------------------------------
     # importing modules
     from fridom.framework.modules import animation
+    from fridom.framework.modules import advection
 
     # importing classes
     from fridom.framework.modules import NetCDFWriter, RestartModule, ResetTendency
@@ -42,7 +43,7 @@ all_modules_by_origin = {
         "closures",
         "pressure_solvers", 
         "forcings"], 
-    fr_base_path: ["animation"],
+    fr_base_path: ["animation", "advection"],
 }
 
 all_imports_by_origin = { 
