@@ -1,9 +1,37 @@
 import fridom.framework as fr
 from abc import abstractmethod
+from functools import partial
 
 
+@partial(fr.utils.jaxify, dynamic=("_scaling", "_background"))
 class AdvectionBase(fr.modules.Module):
+    r"""
+    Base class for advection schemes.
+
+    Description
+    -----------
+    This class implements the base interface for 1D, 2D, and 3D advection schemes.
+    For that, it is assumed that the velocity field is stored in the state vector
+    as the components `u`, `v`, and `w`. Child classes must implement the `advection`
+    method to calculate the advection term:
+
+    .. math::
+        F(\boldsymbol{v}, q) = -\boldsymbol{v} \cdot \nabla q
+
+    where :math:`q` is the quantity to be advected and :math:`\boldsymbol{v}` is
+    the velocity field, which is the sum of the velocity field in the state vector
+    and the background velocity field, stored in the `background` attribute.
+    This update routine of this module adds the advection term multiplied by the
+    nonlinear scaling factor to the tendency term of all fields that are not flagged
+    with `NO_ADV`:
+    
+    .. math::
+        \partial_t q += \rho F(\boldsymbol{v}, q)
+
+    where :math:`\rho` is the nonlinear scaling factor.
+    """
     name = "Advection Base"
+    _scaling = 1
     _background = None
     _disable_nonlinear = False
 
@@ -35,14 +63,11 @@ class AdvectionBase(fr.modules.Module):
         elif self.grid.n_dims == 3:
             velocity = (zf.u, zf.v, zf.w)
 
-        # get the scaling factor
-        scaling = self.mset.nonlinear_scaling
-
         # calculate the advection term
         for name, quantity in z.fields.items():
             if quantity.flags["NO_ADV"]:
                 continue
-            dz.fields[name] += scaling * self.advection(velocity, quantity)
+            dz.fields[name] += self.scaling * self.advection(velocity, quantity)
         return dz
 
     @fr.modules.module_method
@@ -66,6 +91,24 @@ class AdvectionBase(fr.modules.Module):
     @disable_nonlinear.setter
     def disable_nonlinear(self, value):
         self._disable_nonlinear = value
+
+    @property
+    def scaling(self):
+        """
+        A scaling factor for the nonlinear terms (default: 1.0)
+
+        Description
+        -----------
+        Some modules require to scale the nonlinear terms, as for example the
+        optimal balance projection 
+        (:py:class:`fridom.framework.projection.OptimalBalance`). This parameter
+        provides an interface to set this scaling factor.
+        """
+        return self._scaling
+    
+    @scaling.setter
+    def scaling(self, value):
+        self._scaling = value
 
     @property
     def background(self) -> 'fr.StateBase':
