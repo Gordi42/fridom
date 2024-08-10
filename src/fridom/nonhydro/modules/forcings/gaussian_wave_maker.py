@@ -55,7 +55,6 @@ class GaussianWaveMaker(fr.modules.Module):
             periodic_bounds=(True, True, False))
         mset = nh.ModelSettings(
             grid=grid, f0=1e-4, N2=2.5e-5)
-        mset.grid = grid
         mset.time_stepper.dt = np.timedelta64(1, 'm')
 
         # create a NetCDF writer to save the output
