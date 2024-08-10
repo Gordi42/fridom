@@ -56,8 +56,6 @@ class ModelSettingsBase:
     model_name      = "Unnamed model"
 
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
-        self.grid = grid
-        self._grid           = None
         self._time_stepper   = fr.time_steppers.AdamBashforth()
         self._progress_bar   = fr.modules.ProgressBar()
         self._tendencies     = fr.modules.ModuleContainer("All Tendencies")
@@ -67,6 +65,7 @@ class ModelSettingsBase:
         self._nan_check_interval = 100
         self._custom_fields  = []
         self._halo           = None
+        self.grid = grid
         self.set_attributes(**kwargs)
         return
 
