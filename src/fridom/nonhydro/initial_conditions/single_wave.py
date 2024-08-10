@@ -1,20 +1,44 @@
 import fridom.nonhydro as nh
 
 class SingleWave(nh.State):
-    """
+    r"""
     An initial condition that consist of a single wave with a
     given wavenumber and a given mode.
+
+    Description
+    -----------
+    Creates a polarized wave from the eigenvectors of the linearized
+    equations of motion. The wave is initizalized in spectral space as:
+
+    .. math::
+        z(\boldsymbol{k}) = \boldsymbol{q}_s(\boldsymbol{k})
+                         \delta_{\boldsymbol{k}, \boldsymbol{k}_0} \exp(i\phi)
+
+    where :math:`\boldsymbol{q}_s` is the eigenvector of the mode `s`
+    (see :py:class:`fridom.nonhydro.grid.eigenvectors.vec_q`), and
+    :math:`\delta_{\boldsymbol{k}, \boldsymbol{k}_0}` is the Kronecker delta
+    function:
+
+    .. math::
+        \delta_{\boldsymbol{k}, \boldsymbol{k}_0} = \begin{cases}
+            1 & \text{if } \boldsymbol{k} = 2\pi\boldsymbol{k}_0/\boldsymbol{L} \\
+            0 & \text{otherwise}
+        \end{cases}
+
+    with :math:`\boldsymbol{L}` the domain size in the x, y, and z directions
+    and :math:`\boldsymbol{k}_0` the wavenumber that is passed as an argument.
+    The phase :math:`\phi` is also passed as an argument. Finally, the state
+    is fourier transformed to physical space and normalized so that its 
+    L2 norm is equal to 1.
     
     Parameters
     ----------
     `mset` : `ModelSettings`
         The model settings.
-    `kx` : `int`
-        The wavenumber in the x-direction.
-    `ky` : `int`
-        The wavenumber in the y-direction.
-    `kz` : `int`
-        The wavenumber in the z-direction.
+    `k` : `tuple[int]`
+        The wavenumber in the x, y, and z directions.
+        A wavenumber of one means that the wave has a wavelength equal to the
+        domain size in that direction.
     `s` : `int`
         The mode (0, 1, -1)
         0 => geostrophic mode
@@ -24,17 +48,6 @@ class SingleWave(nh.State):
         The phase of the wave. (default: 0)
     `use_discrete` : `bool` (default: True)
         Whether to use the discrete eigenvectors or the analytical ones.
-    
-    Attributes
-    ----------
-    `z` : `State`
-        The state vector
-    `omega` : `complex`
-        The frequency of the wave (includes effects of time discretization)
-        (only for inertia-gravity modes).
-    `period` : `float`
-        The period of the wave (includes effects of time discretization)
-        (only for inertia-gravity modes).
 
     Examples
     --------
@@ -49,16 +62,13 @@ class SingleWave(nh.State):
         mset.time_stepper.dt = np.timedelta64(10, 'ms')
         mset.tendencies.advection.disable()
         mset.setup()
-        z = nh.initial_conditions.SingleWave(mset, kx=2, ky=0, kz=1)
         model = nh.Model(mset)
-        model.z = z
+        model.z = nh.initial_conditions.SingleWave(mset, k=(2, 0, 1))
         model.run(runlen=np.timedelta64(10, 's'))
     """
     def __init__(self, 
                  mset: nh.ModelSettings, 
-                 kx: int = 2, 
-                 ky: int = 0, 
-                 kz: int = 1, 
+                 k: tuple[int],
                  s: int = 1, 
                  phase: float = 0, 
                  use_discrete: bool = True) -> None:
@@ -68,6 +78,7 @@ class SingleWave(nh.State):
         ncp = nh.config.ncp
         grid = mset.grid
         Kx, Ky, Kz = grid.K
+        kx, ky, kz = k
         Lx, Ly, Lz = grid.L
         pi = ncp.pi
 
