@@ -1,110 +1,145 @@
-from fridom.nonhydro.state import State
-from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
 
-class PolarizedWaveMaker(Module):
+@fr.utils.jaxify
+class PolarizedWaveMaker(fr.modules.Module):
+    r"""
+    A wave maker that creates a polarized wave.
+
+    Description
+    -----------
+    The source term is constructed from WavePackage initial condition (see
+    :py:class:`fridom.nonhydro.initial_conditions.WavePackage`):
+
+    .. math::
+        S(\boldsymbol{x}, t) = A \sin(\omega t) \boldsymbol{z}_W(\boldsymbol{x})
+
+    where :math:`A` is the amplitude, :math:`\omega` is the frequency of the wave,
+    that is computed from the dispersion relation (including 
+    discretization errors due to spatial and temporal discretization), and
+    :math:`\boldsymbol{z}_W` is the WavePackage initial condition. The source
+    term is added to the state vector tendencies:
+
+    .. math::
+        \partial_t \boldsymbol{z} \leftarrow \partial_t \boldsymbol{z} 
+                                              + S(\boldsymbol{x}, t)
+    
+    Examples
+    --------
+
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        import numpy as np
+        grid = nh.grid.cartesian.Grid(
+            N=(512, 1, 512), L=(200, 1, 200), periodic_bounds=(True, True, True))
+        mset = nh.ModelSettings(grid=grid, f0=1e-4, N2=2.5e-5)
+        mset.time_stepper.dt = np.timedelta64(1, 'm')
+        mset.tendencies.advection.disable()
+
+        # create a NetCDF writer to save the output
+        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
+            get_variables = lambda mz: mz.z.field_list + [mz.z.etot, mz.z.ekin],
+            write_interval = np.timedelta64(20, 'm')))
+
+
+        mset.tendencies.add_module(nh.modules.forcings.PolarizedWaveMaker(
+            position = (50, None, 100),
+            width = (10, None, 10),
+            k = (40, 0, -40)))
+
+        mset.tendencies.add_module(s)
+        mset.setup()
+
+        model = nh.Model(mset)
+        model.run(runlen=np.timedelta64(2, 'D'))
+
+    When changing the boundary condition in z to non-periodic. The wave in the
+    wave maker would be a vertical mode. The wave ray would then propagate 
+    upwards and downwards. To create a purely downward / upward propagating wave
+    ray, we need to apply a trick by creating the wave maker for a periodic
+    grid and then insert the wave maker into the non-periodic setup. 
+    The following code demonstrates this for the above example:
+
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        import numpy as np
+        grid = nh.grid.cartesian.Grid(
+            N=(512, 1, 512), L=(200, 1, 200), periodic_bounds=(True, True, False))
+        mset = nh.ModelSettings(grid=grid, f0=1e-4, N2=2.5e-5)
+        mset.time_stepper.dt = np.timedelta64(1, 'm')
+        mset.tendencies.advection.disable()
+
+        # create a NetCDF writer to save the output
+        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
+            get_variables = lambda mz: mz.z.field_list + [mz.z.etot, mz.z.ekin],
+            write_interval = np.timedelta64(20, 'm')))
+        mset.setup()
+
+        # Add the source term (but from a new modelsettings with periodic boundaries)
+        grid_periodic = nh.grid.cartesian.Grid(
+            N=(512, 1, 512), L=(200, 1, 200), periodic_bounds=(True, True, True))
+        mset_periodic = nh.ModelSettings(grid=grid_periodic, f0=1e-4, N2=2.5e-5)
+
+        s = nh.modules.forcings.PolarizedWaveMaker(
+            position = (50, None, 100),
+            width = (10, None, 10),
+            k = (40, 0, -40))
+        mset_periodic.tendencies.add_module(s)
+        mset_periodic.setup()
+
+        # Now we add the source term to the original modelsettings
+        mset.tendencies.add_module(s)
+
+        model = nh.Model(mset)
+        model.run(runlen=np.timedelta64(2, 'D'))
     """
-    A polarized wave maker
-    """
+    name = "Polarized Wave Maker"
+
     def __init__(self, 
-                 kx: float = 6.0,
-                 ky: float = 0.0,
-                 kz: float = 4.0,
-                 s: int = 1,
+                 position: tuple[float | None],
+                 width: tuple[float | None],
+                 k: tuple[int],
                  amplitude: float = 1.0,
-                 mask_pos: tuple = (0.5, None, 0.5),
-                 mask_width: tuple = (0.2, None, 0.2)):
-        """
-        Constructor of the wave maker source term.
-
-        ## Arguments:
-            kx (float)            : The wavenumber in the x-direction.
-            ky (float)            : The wavenumber in the y-direction.
-            kz (float)            : The wavenumber in the z-direction.
-            s (int)               : The mode (0, 1, -1)
-                                    0 => geostrophic mode
-                                    1 => positive inertia-gravity mode
-                                   -1 => negative inertia-gravity mode
-            amplitude (float)     : The amplitude of the wave.
-            mask_pos (tuple)      : The position of the mask.
-            mask_width (tuple)    : The width of the mask.
-        """
-        super().__init__(name="Polarized Wave Maker",
-                         kx=kx,
-                         ky=ky,
-                         kz=kz,
-                         s=s,
-                         amplitude=amplitude,
-                         mask_pos=mask_pos,
-                         mask_width=mask_width)
-    
-    @start_module
-    def start(self):
-        # Shortcuts
-        cp = self.grid.cp
-
-
-        # Construct the polarized wave
-        from fridom.nonhydro.initial_conditions import SingleWave
-        z = SingleWave(self.grid, self.kx, self.ky, self.kz, self.s)
-        self.omega = z.omega.real
-
-
-        # set mask
-        mask = cp.ones_like(self.grid.X[0])
-        for x, pos, width in zip(self.grid.X, self.mask_pos, self.mask_width):
-            if pos is not None and width is not None:
-                mask *= cp.exp(-(x - pos)**2 / width**2)
-
-        mask *= self.amplitude
-
-        z.u *= mask
-        z.v *= mask
-        z.w *= mask
-        z.b *= mask
-
-        self.z_mask = z.copy()
-
-        # project again on wave mode
-        from fridom.nonhydro.eigenvectors import VecQ, VecP
-        q = VecQ(self.s, self.grid)
-        p = VecP(self.s, self.grid)
-        z = z.fft()
-        proj = z.dot(p)
-        z_real = (q*proj).fft()
-        z_imag = (q*(proj*(-1j))).fft()
-
-        # save the state
-        self.z_real = z_real
-        self.z_imag = z_imag
-        return
-    
-    @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
-        """
-        Update the state with the source term.
-
-        Args:
-            mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
-        """
-        cp = self.grid.cp
-        phase = mz.time * self.omega
-        z = self.z_real * cp.cos(phase) + self.z_imag * cp.sin(phase)
-        dz += z
+                 ) -> None:
+        super().__init__()
+        self.position = position
+        self.width = width
+        self.amplitude = amplitude
+        self.frequency = None
+        self.k = k
         return
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    kx: {self.kx}\n"
-        res += f"    ky: {self.ky}\n"
-        res += f"    kz: {self.kz}\n"
-        res += f"    s: {self.s}\n"
-        res += f"    amplitude: {self.amplitude}\n"
-        res += f"    mask_pos: {self.mask_pos}\n"
-        res += f"    mask_width: {self.mask_width}\n"
+    @fr.modules.module_method
+    def setup(self, mset: 'nh.ModelSettings'):
+        super().setup(mset)
+        source = nh.initial_conditions.WavePackage(
+            mset, 
+            mask_pos=self.position,
+            mask_width=self.width,
+            k=self.k)
+        self.source = source * self.amplitude
+        self.frequency = source.omega.real
+        return
+
+    @fr.utils.jaxjit
+    def add_source_term(self, dz: nh.State, time: float) -> nh.State:
+        ncp = fr.config.ncp
+        dz += self.source * ncp.sin(self.frequency * time)
+        return dz
+
+    @fr.modules.module_method
+    def update(self, mz: nh.ModelState) -> nh.ModelState:
+        mz.dz = self.add_source_term(mz.dz, mz.time)
+        return mz
+
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["position"] = self.position
+        res["width"] = self.width
+        res["frequency"] = self.frequency
+        res["amplitude"] = self.amplitude
         return res
-    
-# remove symbols from namespace
-del State, ModelState, Module, update_module, start_module
