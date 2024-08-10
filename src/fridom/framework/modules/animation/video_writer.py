@@ -1,5 +1,8 @@
 import fridom.framework as fr
+import numpy as np
+from typing import Union
 import warnings
+import os
 
 
 class VideoWriter(fr.modules.Module):
@@ -16,8 +19,8 @@ class VideoWriter(fr.modules.Module):
     ----------
     `model_plotter` : `ModelPlotter`
         The model plotter that will be used to create the figure.
-    `interval` : `int`, optional (default=50)
-        The interval (time steps) at which the plot will be updated.
+    `write_interval` : `np.timedelta64 | float`
+        The interval at which the data should be written to the file.
     `filename` : `str`, optional (default="output.mp4")
         The filename of the video (will be stored in videos/filename).
     `fps` : `int`, optional (default=30)
@@ -73,17 +76,20 @@ class VideoWriter(fr.modules.Module):
     name = "Video Writer"
     def __init__(self, 
                  model_plotter: 'fr.ModelPlotter', 
-                 interval: int=50,
+                 write_interval: Union[np.timedelta64, float],
                  filename: str="output.mp4", 
                  fps: int=30,
                  parallel: bool=True,
                  max_jobs: float=0.4,
                  ) -> None:
-        import os
         super().__init__()
 
+        # Convert the times to seconds
+        if isinstance(write_interval, np.timedelta64):
+            write_interval = fr.utils.to_seconds(write_interval)
+
         self.model_plotter = model_plotter
-        self.interval = interval
+        self.write_interval = write_interval
         self.filename = os.path.join("videos", filename)
         self.fps = fps
         self.max_jobs = max_jobs
@@ -92,12 +98,13 @@ class VideoWriter(fr.modules.Module):
         self.writer = None
         self.parallel = parallel
         self.fig = None
+        self._last_write_time = None
+        self._last_checkpoint_time = None
         return
 
     @fr.modules.module_method
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         super().setup(mset)
-        import os
         # create video folder if it does not exist
         if not os.path.exists("videos"):
             fr.config.logger.info("Creating videos folder")
@@ -148,6 +155,8 @@ class VideoWriter(fr.modules.Module):
             import matplotlib.pyplot as plt
             plt.close(self.fig)
             self.fig = None
+        self._last_write_time = None
+        self._last_checkpoint_time = None
         return
 
     @fr.modules.module_method
@@ -155,9 +164,24 @@ class VideoWriter(fr.modules.Module):
         """
         Update method of the parallel animated model.
         """
-        # check if its time to update the plot
-        if mz.it % self.interval != 0:
+        time = mz.time
+        # ----------------------------------------------------------------
+        #  Check if it is time to write
+        # ----------------------------------------------------------------
+        if self._last_write_time is None or self._last_checkpoint_time is None:
+            time_to_write = True
+        else:
+            next_write_time = self._last_write_time + self.write_interval
+            if (self._last_checkpoint_time < next_write_time and
+                time >= next_write_time):
+                time_to_write = True
+            else:
+                time_to_write = False
+        self._last_checkpoint_time = time
+
+        if not time_to_write:
             return mz
+        self._last_write_time = time
 
         if self.parallel:
             self.parallel_update(mz)
