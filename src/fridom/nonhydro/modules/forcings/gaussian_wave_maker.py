@@ -1,68 +1,125 @@
-from fridom.nonhydro.state import State
-from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+import fridom.framework as fr
+import fridom.nonhydro as nh
 
 
-class GaussianWaveMaker(Module):
-    """
+@fr.utils.jaxify
+class GaussianWaveMaker(fr.modules.Module):
+    r"""
     A Gaussian wave maker that forces the u-component of the velocity field.
+
+    Description
+    -----------
+    Creates a gaussian source term of the form:
+
+    .. math::
+        M(\boldsymbol{x}) = \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
+
+    .. math::
+        S(\boldsymbol{x}, t) = A \sin(2\pi f t) M(\boldsymbol{x})
+
+    where :math:`A` is the amplitude, :math:`x_i` is the x coordinate, 
+    :math:`p_i` is the position, :math:`w_i` is the width and :math:`f` 
+    is the frequency of the wave maker. The source term is added to the
+    u-component of the velocity field:
+
+    .. math::
+        \partial_t u \leftarrow \partial_t u + S(\boldsymbol{x}, t)
+
+    Parameters
+    ----------
+    `position` : `tuple[float | None]`
+        The position of the wave maker (center of the gaussian).
+        The wave maker is constant over axis with `position[axis]=None`.
+    `width` : `tuple[float | None]`
+        The width of the wave maker (width of the gaussian).
+        The wave maker is constant over axis with `width[axis]=None`.
+    `frequency` : `float`
+        The frequency of the wave maker.
+    `amplitude` : `float`
+        The amplitude of the wave maker.
+    `variable` : `str`
+        The variable to force. (Default: "u")
+
+    Examples
+    --------
+
+    .. code-block:: python
+
+        import fridom.nonhydro as nh
+        import numpy as np
+
+        # Create the grid and model settings
+        grid = nh.grid.cartesian.Grid(
+            N=(512, 1, 512), 
+            L=(1000, 1, 200), 
+            periodic_bounds=(True, True, False))
+        mset = nh.ModelSettings(
+            grid=grid, f0=1e-4, N2=2.5e-5)
+        mset.grid = grid
+        mset.time_stepper.dt = np.timedelta64(1, 'm')
+
+        # create a NetCDF writer to save the output
+        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
+            get_variables = lambda mz: mz.z.field_list + [mz.z.etot, mz.z.ekin],
+            write_interval = np.timedelta64(4, 'm')))
+
+        # add a Gaussian wave maker
+        mset.tendencies.add_module(nh.modules.forcings.GaussianWaveMaker(
+            position = (500, None, 100),
+            width = (5, None, 5),
+            frequency = 1/(45 * 60), 
+            amplitude = 1e-5))
+
+        # Setup and run the model
+        mset.setup()
+        model = nh.Model(mset)
+        model.run(runlen=np.timedelta64(6, 'h'))
     """
+    name = "Gaussian Wave Maker"
 
     def __init__(self, 
-                 position: tuple, 
-                 width: tuple, 
+                 position: tuple[float | None],
+                 width: tuple[float | None], 
                  frequency: float,
-                 amplitude: float):
-        """
-        Constructor of the wave maker source term.
-        Adds an unpolarized gaussian signal to the u-component of the velocity field.
+                 amplitude: float,
+                 variable: str = "u"):
+        super().__init__()
+        self.position = position
+        self.width = width
+        self.frequency = frequency
+        self.amplitude = amplitude
+        self.variable = variable
 
-        ## Arguments:
-            position (tuple):                   position of the source term
-            width (tuple):                      width of the source term
-            frequency (float):                  frequency of the source term
-            amplitude (float):                  amplitude of the source term
-        """
-        super().__init__(name="Gaussian Wave Maker",
-                         position=position,
-                         width=width,
-                         frequency=frequency,
-                         amplitude=amplitude)
-
-    @start_module
-    def start(self):
-        # shorthand
-        cp = self.grid.cp
-        X, Y, Z = tuple(self.grid.X)
-
-        # Create gaussian mask
-        self.mask = cp.exp(-((X - self.position[0])**2 / self.width[0]**2 +
-                             (Y - self.position[1])**2 / self.width[1]**2 +
-                             (Z - self.position[2])**2 / self.width[2]**2))
-        self.mask *= self.amplitude
+    @fr.modules.module_method
+    def setup(self, mset: 'nh.ModelSettings'):
+        super().setup(mset)
+        ncp = fr.config.ncp
+        # Construct mask
+        mask = ncp.ones_like(self.grid.X[0])
+        for x, pos, width in zip(self.grid.X, self.position, self.width):
+            if pos is not None and width is not None:
+                mask *= ncp.exp(-(x - pos)**2 / width**2)
+        mask *= self.amplitude
+        self.mask = mask
         return
 
-    @update_module
-    def update(self, mz: ModelState, dz: State) -> None:
-        """
-        Update the state with the source term.
+    @fr.utils.jaxjit
+    def add_source_term(self, dz: nh.State, time: float) -> nh.State:
+        ncp = fr.config.ncp
+        tendency = self.mask * ncp.sin(2 * ncp.pi * self.frequency * time)
+        dz.fields[self.variable] += tendency
+        return dz
 
-        Args:
-            mz (ModelState) : Model state.
-            dz (State)      : Tendency of the state.
-        """
-        cp = self.grid.cp
-        dz.u += self.mask * cp.sin(2 * cp.pi * self.frequency * mz.time)
-        return
+    @fr.modules.module_method
+    def update(self, mz: nh.ModelState) -> nh.ModelState:
+        mz.dz = self.add_source_term(mz.dz, mz.time)
+        return mz
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    position: {self.position}\n"
-        res += f"    width: {self.width}\n"
-        res += f"    frequency: {self.frequency}\n"
-        res += f"    amplitude: {self.amplitude}\n"
+    @property
+    def info(self) -> dict:
+        res = super().info
+        res["position"] = self.position
+        res["width"] = self.width
+        res["frequency"] = self.frequency
+        res["amplitude"] = self.amplitude
         return res
-
-
-# remove symbols from namespace
-del State, ModelState, Module, update_module, start_module
