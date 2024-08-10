@@ -85,7 +85,10 @@ class SingleWave(nh.State):
 
         # Find index of the wavenumber in the grid (nearest neighbor)
         kx = 2*pi*kx/Lx; ky = 2*pi*ky/Ly; kz = 2*pi*kz/Lz
-        k_loc = (Kx == kx) & (Ky == ky) & (Kz == kz)
+        is_kx = ncp.isclose(Kx, kx)
+        is_ky = ncp.isclose(Ky, ky)
+        is_kz = ncp.isclose(Kz, kz)
+        k_loc = is_kx & is_ky & is_kz
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
