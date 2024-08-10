@@ -10,7 +10,7 @@ class NetCDFWriter(fr.modules.Module):
     
     Parameters
     ----------
-    `write_interval` : `np.timedelta64`
+    `write_interval` : `np.timedelta64 | float`
         The interval at which the data should be written to the file.
     `filename` : `str`, optional
         The name of the file to write to. Default is "snap" (no directory).
