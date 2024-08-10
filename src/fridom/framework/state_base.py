@@ -121,14 +121,9 @@ class StateBase:
         Arguments:
             other (State)  : Other state (gets complex conjugated).
         """
-        my_fields = self.field_list
-        other_fields = other.field_list
-        result = my_fields[0] * other_fields[0].conj()
-        if len(my_fields) > 1:
-            for i in range(1, len(my_fields)):
-                result += my_fields[i] * other_fields[i].conj()
-        
-        return result
+        return sum(my_field * other_field.arr.conj() 
+                   for my_field, other_field in 
+                   zip(self.field_list, other.field_list))
 
     def norm_l2(self) -> float:
         """
@@ -141,7 +136,7 @@ class StateBase:
             norm (float)  : L2 norm of the state.
         """
         ncp = config.ncp
-        cell_volume = ncp.prod(ncp.array(self.grid.dx))
+        cell_volume = self.grid.dV
         return ncp.sqrt(ncp.sum(self.dot(self).arr) * cell_volume)
 
     def norm_of_diff(self, other: "StateBase") -> float:
