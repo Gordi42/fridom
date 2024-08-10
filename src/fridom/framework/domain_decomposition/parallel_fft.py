@@ -343,6 +343,7 @@ class ParallelFFT:
         Examples
         --------
         .. code-block:: python
+
             from fridom.framework \\
                 .domain_decomposition import DomainDecomposition, ParallelFFT
             # Create a custom transform that applies a normal fft along the x axis
