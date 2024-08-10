@@ -46,11 +46,6 @@ def create_package_rst(file):
 
     f.write(".. currentmodule:: " + rst + "\n\n")
 
-    f.write("Module Documentation\n")
-    f.write("--------------------\n")
-    f.write(".. automodule:: " + rst + "\n")
-    f.write("    :no-members:\n\n")
-
     all_mods, all_imports = open_init(rst)
     if all_mods:
         f.write("Submodules\n")
@@ -71,6 +66,12 @@ def create_package_rst(file):
         for base, imports in all_imports.items():
             for imp in imports:
                 f.write(f"    {imp}\n")
+
+    f.write("Module Documentation\n")
+    f.write("--------------------\n")
+    f.write(".. automodule:: " + rst + "\n")
+    f.write("    :no-members:\n\n")
+
 
 
 for init_file in init_files:
