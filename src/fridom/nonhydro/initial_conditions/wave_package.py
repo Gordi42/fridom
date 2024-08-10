@@ -1,26 +1,26 @@
 import fridom.nonhydro as nh
 
 class WavePackage(nh.State):
-    """
+    r"""
     Wave package initial condition.
     
     Description
     -----------
-    Creates a polarized single wave (`nh.initial_conditions.SingleWave`) and 
-    applies a mask to it. The mask is a Gaussian function centered at 
+    Creates a polarized single wave (:py:class:`nh.initial_conditions.SingleWave`) 
+    and applies a mask to it. The mask is a Gaussian function centered at 
     `mask_pos` with a width of `mask_width`:
 
     .. math::
-        M(x) = \\prod_{i=1}^{3} \\exp\\left(-\\frac{(x_i - p_i)^2}{w_i^2}\\right)
+        M(\boldsymbol x) = \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
     
     where :math:`p_i` is the position and :math:`w_i` is the width of the mask
     in the :math:`i`-th direction. The final wave package is given by:
 
     .. math::
-        z = \\mathbf{P}_s \cdot \\left( S(x) M(x) \\right)
+        z = \mathbf{P}_s \cdot \left( S(\boldsymbol{x}) M(\boldsymbol{x}) \right)
     
-    where :math:`S(x)` is the single wave and :math:`\\mathbf{P}_s` is the
-    projection operator onto the mode `s`.
+    where :math:`S(\boldsymbol{x})` is the single wave and :math:`\\mathbf{P}_s` 
+    is the projection operator onto the mode `s`.
     
     Parameters
     ----------
@@ -66,7 +66,7 @@ class WavePackage(nh.State):
         mset.setup()
         z = nh.initial_conditions.WavePackage(
             mset, mask_pos=(0.5, None, 0.5), mask_width=(0.1, None, 0.1), 
-            kx=20, ky=0, kz=20)
+            k=(20, 0, 20))
         model = nh.Model(mset)
         model.z = z
         model.run(runlen=np.timedelta64(20, 's'))
@@ -75,9 +75,7 @@ class WavePackage(nh.State):
                  mset: nh.ModelSettings, 
                  mask_pos: tuple[float | None],
                  mask_width: tuple[float | None],
-                 kx: int = 0, 
-                 ky: int = 0, 
-                 kz: int = 0, 
+                 k: tuple[int],
                  s: int = 1, 
                  phase: float = 0, 
                  ) -> None:
@@ -88,8 +86,7 @@ class WavePackage(nh.State):
         grid = mset.grid
 
         # Construct single wave
-        ic = nh.initial_conditions
-        z = ic.SingleWave(mset, kx, ky, kz, s, phase)
+        z = nh.initial_conditions.SingleWave(mset, k, s, phase)
 
         if s != 0:
             self.omega = z.omega
