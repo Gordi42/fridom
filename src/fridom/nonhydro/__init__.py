@@ -45,28 +45,24 @@ with:
 
 Meaning of Pressure and Buoyancy
 --------------------------------
-TL;DR:
+**TL;DR:**
 
-- The model pressure :math:`p` is defined as:
+The pressure :math:`p`, buoyancy :math:`b`, and buoyancy frequency :math:`N`
+are related to the real pressure and density by the following equations:
 
-    .. math::
-        p = \frac{\pi - \pi_s}{\rho_0}
+.. math::
+    p = \frac{\pi - \pi_s}{\rho_0}
+    ~ , \quad
+    b = -\frac{g}{\rho_0} \rho'
+    ~ , \quad
+    N^2 = -\frac{g}{\rho_0} \partial_z \rho_s = \partial_z b_s
 
-    where :math:`\pi` is the real pressure, and :math:`\pi_s` is the hydrostatic
-    background pressure. 
-- The model buoyancy :math:`b` is defined as:
-
-    .. math::
-        b = -\frac{g}{\rho_0} \rho'
-
-    where :math:`\rho'` is the density perturbation, and :math:`\rho_0` is the
-    constant Boussinesq density.
-- The buoyancy frequency :math:`N` is defined as:
-
-    .. math::
-        N^2 = -\frac{g}{\rho_0} \partial_z \rho_s = \partial_z b_s
-
-    where :math:`\rho_s` is the background density profile.
+with:
+    - :math:`\pi` the real pressure,
+    - :math:`\pi_s` the hydrostatic background pressure,
+    - :math:`\rho'` the density perturbation,
+    - :math:`\rho_0` the constant Boussinesq density,
+    - :math:`\rho_s` the background density profile.
 
 Let :math:`\rho` be the real density (the one that we would measure in a
 real fluid), and :math:`\pi` be the real pressure. In this section, we
@@ -242,7 +238,7 @@ a given time level. This is done by first computing the tendency terms
 Poisson equation for the pressure. And finally, we remove the pressure gradient
 term from the tendency terms to obtain the right hand side of the equations.
 For more details on the pressure solver, see 
-:py:mod:`fridom.nonhydro.modules.pressure_solver`.
+:py:mod:`fridom.nonhydro.modules.pressure_solvers`.
 """
 from lazypimp import setup
 from typing import TYPE_CHECKING
