@@ -54,19 +54,19 @@ class ModelSettingsBase:
                 return res
     """
     model_name      = "Unnamed model"
-    _grid           = None
-    _time_stepper   = fr.time_steppers.AdamBashforth()
-    _progress_bar   = fr.modules.ProgressBar()
-    _tendencies     = fr.modules.ModuleContainer("All Tendencies")
-    _diagnostics    = fr.modules.ModuleContainer("All Diagnostics")
-    _restart_module = fr.modules.RestartModule()
-    _timer          = fr.timing_module.TimingModule()
-    _nan_check_interval = 100
-    _custom_fields  = []
-    _halo           = None
 
     def __init__(self, grid: 'GridBase', **kwargs) -> None:
         self.grid = grid
+        self._grid           = None
+        self._time_stepper   = fr.time_steppers.AdamBashforth()
+        self._progress_bar   = fr.modules.ProgressBar()
+        self._tendencies     = fr.modules.ModuleContainer("All Tendencies")
+        self._diagnostics    = fr.modules.ModuleContainer("All Diagnostics")
+        self._restart_module = fr.modules.RestartModule()
+        self._timer          = fr.timing_module.TimingModule()
+        self._nan_check_interval = 100
+        self._custom_fields  = []
+        self._halo           = None
         self.set_attributes(**kwargs)
         return
 

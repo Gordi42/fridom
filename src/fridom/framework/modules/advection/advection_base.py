@@ -32,9 +32,13 @@ class AdvectionBase(fr.modules.Module):
     where :math:`\rho` is the nonlinear scaling factor.
     """
     name = "Advection Base"
-    _scaling = 1
-    _background = None
-    _disable_nonlinear = False
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._scaling = 1
+        self._background = None
+        self._disable_nonlinear = False
+        return
 
     @abstractmethod
     def advection(self,

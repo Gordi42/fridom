@@ -1,3 +1,4 @@
+from fridom.framework.grid.grid_base import GridBase
 import fridom.nonhydro as nh
 from functools import partial
 # Import external modules
@@ -22,13 +23,20 @@ class ModelSettings(ModelSettingsBase):
         The grid object.
     """
     model_name = "3D - Nonhydrostatic model"
-    _tendencies = nh.modules.MainTendency()
-    _f0 = 1             # constant coriolis parameter f0
-    _beta = 0           # beta term d(f)/dy
-    _f_coriolis = None  # the coriolis parameter field
-    _N2 = 1             # stratification N²
-    _dsqr = 1           # aspect ratio
-    _Ro = 1             # Rossby number
+
+    def __init__(self, grid: GridBase, **kwargs) -> None:
+        super().__init__(grid)
+        # Set standard parameters
+        self._tendencies = nh.modules.MainTendency()
+        self._f0 = 1             # constant coriolis parameter f0
+        self._beta = 0           # beta term d(f)/dy
+        self._f_coriolis = None  # the coriolis parameter field
+        self._N2 = 1             # stratification N²
+        self._dsqr = 1           # aspect ratio
+        self._Ro = 1             # Rossby number
+
+        # Finally, set attributes from keyword arguments
+        self.set_attributes(**kwargs)
 
     def setup_settings_parameters(self):
         # Coriolis parameter
