@@ -85,11 +85,11 @@ def humanize_number(value, unit):
         microseconds = delta.microseconds % 1000
 
         if hours > 0 or days > 0:
-            formatted_time += f"{hours}:"
+            formatted_time += f"{hours:02d}:"
         if minutes > 0 or hours > 0 or days > 0:
-            formatted_time += f"{minutes}:"
+            formatted_time += f"{minutes:02d}:"
         if seconds > 0 or minutes > 0 or hours > 0 or days > 0:
-            formatted_time += f"{seconds}s "
+            formatted_time += f"{seconds:02d}s "
         if milliseconds > 0 or microseconds > 0:
             formatted_time += f"{milliseconds}"
             if microseconds > 0:
