@@ -1,4 +1,5 @@
 import fridom.nonhydro as nh
+nh.grid.cartesian
 
 class SingleWave(nh.State):
     r"""
@@ -15,7 +16,7 @@ class SingleWave(nh.State):
                          \delta_{\boldsymbol{k}, \boldsymbol{k}_0} \exp(i\phi)
 
     where :math:`\boldsymbol{q}_s` is the eigenvector of the mode `s`
-    (see :py:class:`fridom.nonhydro.grid.eigenvectors.vec_q`), and
+    (see :py:mod:`fridom.nonhydro.grid.cartesian.eigenvectors`), and
     :math:`\delta_{\boldsymbol{k}, \boldsymbol{k}_0}` is the Kronecker delta
     function:
 
