@@ -55,7 +55,7 @@ class State(fr.StateBase):
                 mset,
                 name="b", 
                 long_name="buoyancy", 
-                units="TODO", 
+                units="m/s²", 
                 is_spectral=is_spectral, 
                 position=cell_center,
                 transform_types=(fr.grid.TransformType.DST2,
