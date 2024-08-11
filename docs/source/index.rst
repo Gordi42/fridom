@@ -6,16 +6,18 @@
 Welcome to fridom's documentation!
 ==================================
 
+.. youtube:: Fotni4P2ZQs
+   :width: 100%
+
 .. toctree::
    :maxdepth: 4
    :caption: Contents:
 
    installation
    getting_started
+   auto_examples/index
    creating_own_models
-   models
-   reference/fridom
-
+   fridom_api
 
 
 Indices and tables
