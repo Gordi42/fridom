@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from .geostrophic_time_average import GeostrophicTimeAverage
 
     # nonlinear projections
-    from .nnmd import NNMDBase
     from .optimal_balance import OptimalBalance
 
 # ================================================================
@@ -39,7 +38,6 @@ all_imports_by_origin = {
     f"{base_path}.spectral_projections": [
         "GeostrophicSpectral", "WaveSpectral", "DivergenceSpectral"],
     f"{base_path}.geostrophic_time_average": ["GeostrophicTimeAverage"],
-    f"{base_path}.nnmd": ["NNMDBase"],
     f"{base_path}.optimal_balance": ["OptimalBalance"],
 }
 
