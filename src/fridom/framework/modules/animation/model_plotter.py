@@ -29,8 +29,10 @@ class ModelPlotter:
         this method does not need to be overwritten. However, if a different
         plotting library is used, this method must be overwritten.
     """
-    def __init__(self):
-        return
+    def __new__(cls, mz: 'ModelState'):
+        fig = cls.create_figure()
+        cls.update_figure(fig, **cls.prepare_arguments(mz))
+        return fig
 
     def create_figure():
         """
