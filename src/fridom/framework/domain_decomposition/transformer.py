@@ -31,7 +31,9 @@ class OverlapInfo:
 
     Examples
     --------
+
     .. code-block:: python
+
         # create two domains
         domain1 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[0])
         domain2 = DomainDecomposition(n_global=tuple([128]*3), shared_axes=[1])
@@ -185,8 +187,7 @@ class Transformer:
     .. code-block:: python
 
         from fridom.framework import config
-        from fridom.framework \\
-            .domain_decomposition import DomainDecomposition, Transformer
+        from fridom.framework.domain_decomposition import DomainDecomposition, Transformer
         # create two domains where one shares the x-axis and the other the y-axis
         domain_x = DomainDecomposition(n_global=(128, 128), shared_axes=[0])
         domain_y = DomainDecomposition(n_global=(128, 128), shared_axes=[1])

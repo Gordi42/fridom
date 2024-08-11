@@ -7,6 +7,7 @@ from urllib.parse import quote
 from unittest.mock import patch, MagicMock
 from jinja2.filters import FILTERS
 from importlib.util import spec_from_file_location, module_from_spec
+from pil_scraper import pil_scraper
 
 src_base_path = "../../src"
 
@@ -43,13 +44,17 @@ extensions = [
     'sphinx_copybutton',
     'sphinx_gallery.gen_gallery',
     'sphinxcontrib.youtube',
+    "sphinx_codeautolink",
     'myst_parser',
 ]
 sphinx_gallery_conf = {
     'examples_dirs': '../../examples',   # path to your example scripts
     'gallery_dirs': 'auto_examples',  # path to where to save gallery generated output
     'download_all_examples': False,
-    'plot_gallery': 'False',
+    'plot_gallery': 'True',
+    'remove_config_comments': True,  # Removes comments from the config block
+    'filename_pattern': '/',
+    'image_scrapers': (pil_scraper,),
     'show_signature': False,
     "notebook_extensions": {},
     "default_thumb_file": "_static/fridom-title.png",
@@ -104,6 +109,8 @@ myst_enable_extensions = [
 
 # Optional: configure other MyST options
 myst_heading_anchors = 3  # create anchors for headers up to level 3
+
+
 
 
 # Create custom Jinja2 filters

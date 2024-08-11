@@ -98,8 +98,7 @@ class ParallelFFT:
     .. code-block:: python
 
         import numpy as np
-        from fridom.framework \\
-            .domain_decomposition import DomainDecomposition, ParallelFFT
+        from fridom.framework.domain_decomposition import DomainDecomposition, ParallelFFT
         # Create a 3D physical domain that is decomposed along the z-axis and
         # two halo points at each side of the domain
         domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1], halo=2)
@@ -260,8 +259,7 @@ class ParallelFFT:
         .. code-block:: python
 
             import numpy as np
-            from fridom.framework \\
-                .domain_decomposition import DomainDecomposition, ParallelFFT
+            from fridom.framework.domain_decomposition import DomainDecomposition, ParallelFFT
             # Create the domain decomposition and the ParallelFFT object
             domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
             pfft = ParallelFFT(domain)
@@ -296,8 +294,7 @@ class ParallelFFT:
         .. code-block:: python
 
             import numpy as np
-            from fridom.framework \\
-                .domain_decomposition import DomainDecomposition, ParallelFFT
+            from fridom.framework.domain_decomposition import DomainDecomposition, ParallelFFT
             # Create the domain decomposition and the ParallelFFT object
             domain = DomainDecomposition(n_global=(64, 64, 64), shared_axes=[0,1])
             pfft = ParallelFFT(domain)
@@ -344,8 +341,7 @@ class ParallelFFT:
         --------
         .. code-block:: python
 
-            from fridom.framework \\
-                .domain_decomposition import DomainDecomposition, ParallelFFT
+            from fridom.framework.domain_decomposition import DomainDecomposition, ParallelFFT
             # Create a custom transform that applies a normal fft along the x axis
             # and a cosine transform along the y axis
             import numpy as np

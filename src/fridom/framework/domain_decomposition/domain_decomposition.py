@@ -36,14 +36,17 @@ def _make_slice_tuple(s: slice, n_dims: int):
         
     Examples
     --------
-    >>> halo = 2
-    >>> n_dims = 2
-    >>> send_to_next = _make_slice_tuple(slice(-2*halo, -halo))
-    >>> send_to_next
-    >>> # ((slice(-4, -2), slice(None)), (slice(None), slice(-4, -2)))
-    >>> # send_to_next[0] is used to send data to the next processor in the
-    >>> # first dimension, send_to_next[1] is used to send data to the next
-    >>> # processor in the second dimension
+
+    .. code-block:: python
+
+        halo = 2
+        n_dims = 2
+        send_to_next = _make_slice_tuple(slice(-2*halo, -halo))
+        send_to_next
+        # ((slice(-4, -2), slice(None)), (slice(None), slice(-4, -2)))
+        # send_to_next[0] is used to send data to the next processor in the
+        # first dimension, send_to_next[1] is used to send data to the next
+        # processor in the second dimension
     """
     slice_list = []
     for i in range(n_dims):
@@ -137,10 +140,10 @@ class DomainDecomposition:
             n_global=(128, 128), halo=2, shared_axes=[0])
         
         # create a random array on the local domain
-        u = config.ncp.random.rand(*dom_x.my_subdomain.shape)
+        u = config.ncp.random.rand(*dom.my_subdomain.shape)
         
         # synchronize the halo regions between neighboring domains
-        dom_x.sync(u)
+        dom.sync(u)
     """
     def __init__(self, 
                  n_global: 'tuple[int]', 

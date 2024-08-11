@@ -43,7 +43,7 @@ class Grid(fr.grid.GridBase):
         grid = fr.grid.CartesianGrid(
             N=(32, 32, 8),  # 32x32x8 grid points
             L=(100.0, 100.0, 10.0),  # 100m x 100m x 10m domain
-            periodic_bounds=(True, True, False)  # non-periodic in z
+            periodic_bounds=(True, True, False),  # non-periodic in z
             shared_axes=[0, 1]  # slab decomposition, shared in x and y
             )
         # setup the grid using the model settings

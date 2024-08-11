@@ -84,21 +84,23 @@ class Module:
     
     Examples
     --------
-    >>> :# Provide examples of how to use this class.}
-    >>> import fridom.framework as fr
-    >>> class Increment(fr.modules.Module):
-    ...    def __init__(self):
-    ...        # sets the module name to "Increment", and the number to None
-    ...        super().__init__("Increment", number=None)
-    ...    @fr.modules.start_module
-    ...    def start(self):
-    ...        self.number = 0  # sets the number to 0
-    ...    @fr.modules.update_module
-    ...    def update(self, mz: fr.ModelSettingsBase) -> None:
-    ...        self.number += 1  # increments the number by 1
-    ...    @fr.modules.stop_module
-    ...    def stop(self):
-    ...        self.number = None  # sets the number to None
+
+    .. code-block:: python
+
+        import fridom.framework as fr
+        class Increment(fr.modules.Module):
+           def __init__(self):
+               # sets the module name to "Increment", and the number to None
+               super().__init__("Increment", number=None)
+           @fr.modules.start_module
+           def start(self):
+               self.number = 0  # sets the number to 0
+           @fr.modules.update_module
+           def update(self, mz: fr.ModelSettingsBase) -> None:
+               self.number += 1  # increments the number by 1
+           @fr.modules.stop_module
+           def stop(self):
+               self.number = None  # sets the number to None
     """
     name = "Base Module"
     _is_mod_submodule = False
