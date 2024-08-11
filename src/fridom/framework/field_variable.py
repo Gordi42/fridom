@@ -41,9 +41,9 @@ class FieldVariable:
     
     """
     def __init__(self, 
-                 mset: fr.ModelSettingsBase,
+                 mset: 'fr.ModelSettingsBase',
                  name: str,
-                 position: fr.grid.Position,
+                 position: 'fr.grid.Position',
                  arr: Union[ndarray, None] = None,
                  long_name: str = "Unnamed", 
                  units: str = "n/a",
@@ -51,7 +51,7 @@ class FieldVariable:
                  is_spectral: bool = False, 
                  topo: list[bool] | None = None,
                  flags: dict | list | None = None,
-                 transform_types: tuple[fr.grid.TransformType] | None = None,
+                 transform_types: 'tuple[fr.grid.TransformType] | None' = None,
                  ) -> None:
 
         # shortcuts
@@ -242,7 +242,7 @@ class FieldVariable:
         """
         return self.grid.diff_module.laplacian(self, axes)
 
-    def interpolate(self, destination: fr.grid.Position) -> 'FieldVariable':
+    def interpolate(self, destination: 'fr.grid.Position') -> 'FieldVariable':
         """
         Interpolate the field to the destination position.
         
@@ -321,7 +321,7 @@ class FieldVariable:
         return self.xrs[:]
 
     @property
-    def xrs(self) -> fr.utils.SliceableAttribute:
+    def xrs(self) -> 'fr.utils.SliceableAttribute':
         """
         Convert a slice of the FieldVariable to xarray DataArray
 
@@ -487,21 +487,21 @@ class FieldVariable:
         return self._topo
 
     @property
-    def position(self) -> fr.grid.Position:
+    def position(self) -> 'fr.grid.Position':
         """The position of the FieldVariable on the staggered grid"""
         return self._position
 
     @position.setter
-    def position(self, position: fr.grid.Position):
+    def position(self, position: 'fr.grid.Position'):
         self._position = position
 
     @property
-    def transform_types(self) -> tuple[fr.grid.TransformType] | None:
+    def transform_types(self) -> 'tuple[fr.grid.TransformType] | None':
         """The transform types for nonperiodic axes"""
         return self._transform_types
 
     @transform_types.setter
-    def transform_types(self, transform_types: tuple[fr.grid.TransformType] | None):
+    def transform_types(self, transform_types: 'tuple[fr.grid.TransformType] | None'):
         self._transform_types = transform_types
 
     @property
@@ -514,7 +514,7 @@ class FieldVariable:
         self._flags = flags
 
     @property
-    def mset(self) -> fr.ModelSettingsBase:
+    def mset(self) -> 'fr.ModelSettingsBase':
         """The model settings object"""
         return self._mset
 
