@@ -23,7 +23,8 @@ def print_bar(char='='):
     Print a bar to the log file.
 
     Parameters
-    char: str
+    ----------
+    `char`: `str`
         Character to use for the bar.
     """
     if MPI.COMM_WORLD.Get_rank() == 0:
