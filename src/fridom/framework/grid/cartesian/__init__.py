@@ -27,7 +27,6 @@ all_modules_by_origin = {
 
 all_imports_by_origin = { 
     f"{base}.grid": ["Grid"],
-    f"{base}.position": ["AxisOffset", "Position"],
     f"{base}.fft": ["FFT"],
     f"{base}.finite_differences": ["FiniteDifferences"],
     f"{base}.linear_interpolation": ["LinearInterpolation"],
