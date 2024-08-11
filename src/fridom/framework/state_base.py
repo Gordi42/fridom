@@ -140,12 +140,11 @@ class StateBase:
         return ncp.sqrt(ncp.sum(self.dot(self).arr) * cell_volume)
 
     def norm_of_diff(self, other: "StateBase") -> float:
-        """
-        Calculate the norm of the difference between two states.
-        $$ 2 \frac{||z - z'||_2}{||z||_2 + ||z'||_2} $$
+        r"""
+        The norm of the difference between two states.
 
-        Returns:
-            norm (float)  : Norm of the difference between two states.
+        .. math::
+            2 \frac{||z - z'||_2}{||z||_2 + ||z'||_2}
         """
         return 2 * (self - other).norm_l2() / (self.norm_l2() + other.norm_l2())
 
