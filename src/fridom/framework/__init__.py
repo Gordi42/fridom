@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from .state_base import StateBase
     from .model_state import ModelState
     from .model import Model
-    from .diagnose_imbalance_base import DiagnoseImbalanceBase
 
     # import modules
     from . import grid
@@ -54,7 +53,6 @@ all_imports_by_origin = {
     "fridom.framework.state_base": ["StateBase"],
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
-    "fridom.framework.diagnose_imbalance_base": ["DiagnoseImbalanceBase"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
