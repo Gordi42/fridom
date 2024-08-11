@@ -168,11 +168,13 @@ class State(fr.StateBase):
 
         If the background stratification is set, the potential energy is
         calculated as:
+
         .. math::
             E_{pot} = \frac{1}{2} \frac{b^2}{N^2}
 
         If the background stratification is not set, the potential energy is
         calculated as:
+
         .. math::
             E_{pot} = b z
 

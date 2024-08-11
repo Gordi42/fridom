@@ -42,7 +42,7 @@ class WavePackage(nh.State):
         The mode (0, 1, -1)
         0 => geostrophic mode
         1 => positive inertia-gravity mode
-         -1 => negative inertia-gravity mode
+        -1 => negative inertia-gravity mode
     `phase` : `real`
         The phase of the wave. (Default: 0)
     

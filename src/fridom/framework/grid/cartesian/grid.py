@@ -1,26 +1,10 @@
 import fridom.framework as fr
-# Import external modules
-from typing import TYPE_CHECKING
 import numpy as np
 from functools import partial
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.grid.grid_base import GridBase
-from fridom.framework.domain_decomposition import DomainDecomposition
-from fridom.framework.domain_decomposition import ParallelFFT
-from .fft import FFT
-from .finite_differences import FiniteDifferences
-from .linear_interpolation import LinearInterpolation
-from fridom.framework.utils import humanize_number
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.grid.transform_type import TransformType
-    from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.domain_decomposition import Subdomain
 
 
 @fr.utils.jaxify
-class Grid(GridBase):
+class Grid(fr.grid.GridBase):
     """
     An n-dimensional cartesian grid with capabilities for fourier transforms.
     
@@ -123,24 +107,24 @@ class Grid(GridBase):
         self._total_grid_points = int(np.prod(N))
         self._periodic_bounds = periodic_bounds
         self._shared_axes = shared_axes
-        self._domain_decomp: DomainDecomposition | None = None
-        self._pfft: ParallelFFT | None = None
-        self._fft: FFT | None = None
-        self._diff_module = diff_mod or FiniteDifferences()
-        self._interp_module = interp_mod or LinearInterpolation()
+        self._domain_decomp: fr.domain_decomposition.DomainDecomposition | None = None
+        self._pfft: fr.domain_decomposition.ParallelFFT | None = None
+        self._fft: fr.grid.cartesian.FFT | None = None
+        self._diff_module = diff_mod or fr.grid.cartesian.FiniteDifferences()
+        self._interp_module = interp_mod or fr.grid.cartesian.LinearInterpolation()
         return
 
-    def setup(self, mset: 'ModelSettingsBase'):
-        ncp = config.ncp
+    def setup(self, mset: 'fr.ModelSettingsBase'):
+        ncp = fr.config.ncp
         n_dims = self.n_dims
-        dtype = config.dtype_real
+        dtype = fr.config.dtype_real
 
         # --------------------------------------------------------------
         #  Initialize the domain decomposition
         # --------------------------------------------------------------
         req_halo = max(self._diff_module.required_halo, self._interp_module.required_halo)
         req_halo = max(req_halo, mset.halo)
-        domain_decomp = DomainDecomposition(
+        domain_decomp = fr.domain_decomposition.DomainDecomposition(
             self._N, req_halo, shared_axes=self._shared_axes)
 
 
@@ -148,8 +132,8 @@ class Grid(GridBase):
         #  Initialize the fourier transform
         # --------------------------------------------------------------
         if self.fourier_transform_available:
-            pfft = ParallelFFT(domain_decomp)
-            fft = FFT(self._periodic_bounds)
+            pfft = fr.domain_decomposition.ParallelFFT(domain_decomp)
+            fft = fr.grid.cartesian.FFT(self._periodic_bounds)
         else:
             pfft = None
             fft = None
@@ -168,7 +152,7 @@ class Grid(GridBase):
         X = [ncp.zeros(domain_decomp.my_subdomain.shape, dtype=dtype) 
              for _ in range(n_dims)]
         for i in range(n_dims):
-            X[i] = utils.modify_array(
+            X[i] = fr.utils.modify_array(
                 X[i], domain_decomp.my_subdomain.inner_slice, X_inner[i])
         X = domain_decomp.sync_multiple(tuple(X))
 
@@ -182,7 +166,7 @@ class Grid(GridBase):
             k_local = tuple(ki[global_slice[i]] for i, ki in enumerate(k))
             K = ncp.meshgrid(*k_local, indexing='ij')
         else:
-            config.logger.warning("Fourier transform not available.")
+            fr.config.logger.warning("Fourier transform not available.")
             k = None
             k_local = None
             K = None
@@ -209,35 +193,35 @@ class Grid(GridBase):
         super().setup(mset)
         return
 
-    @partial(utils.jaxjit, static_argnames=["transform_types"])
+    @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
     def fft(self, 
             arr: np.ndarray,
-            transform_types: 'tuple[TransformType] | None' = None
+            transform_types: 'tuple[fr.grid.TransformType] | None' = None
             ) -> np.ndarray:
         f = lambda x, axes: self._fft.forward(x, axes, transform_types)
         return self._pfft.forward_apply(arr, f)
 
-    @partial(utils.jaxjit, static_argnames=["transform_types"])
+    @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
     def ifft(self, 
              arr: np.ndarray,
-             transform_types: 'tuple[TransformType] | None' = None
+             transform_types: 'tuple[fr.grid.TransformType] | None' = None
              ) -> np.ndarray:
         f = lambda x, axes: self._fft.backward(x, axes, transform_types)
         return self._pfft.backward_apply(arr, f)
 
-    # @partial(utils.jaxjit, static_argnames=["flat_axes"])
+    # @partial(fr.utils.jaxjit, static_argnames=["flat_axes"])
     def sync(self, 
              arr: np.ndarray, 
              flat_axes: list[int] | None = None) -> np.ndarray:
         return self._domain_decomp.sync(arr, flat_axes=flat_axes)
 
-    @partial(utils.jaxjit, static_argnames=["flat_axes"])
+    @partial(fr.utils.jaxjit, static_argnames=["flat_axes"])
     def sync_multi(self, 
                    arrs: tuple[np.ndarray], 
                    flat_axes: list[int] | None = None) -> tuple[np.ndarray]:
         return self._domain_decomp.sync_multiple(arrs, flat_axes=flat_axes)
 
-    @partial(utils.jaxjit, static_argnames=["axis", "side"])
+    @partial(fr.utils.jaxjit, static_argnames=["axis", "side"])
     def apply_boundary_condition(
             self, arr: 'np.ndarray', axis: int, side: str, 
             value: 'float | np.ndarray') -> np.ndarray:
@@ -257,13 +241,14 @@ class Grid(GridBase):
         """
         return self._domain_decomp.apply_boundary_condition(arr, value, axis, side)
 
-    def get_domain_decomposition(self, spectral=False) -> DomainDecomposition:
+    def get_domain_decomposition(self, spectral=False
+                                 ) -> fr.domain_decomposition.DomainDecomposition:
         if spectral:
             return self._pfft.domain_out
         else:
             return self._domain_decomp
 
-    def get_subdomain(self, spectral=False) -> 'Subdomain':
+    def get_subdomain(self, spectral=False) -> 'fr.domain_decomposition.Subdomain':
         """
         Get the local subdomain of the processor in the physical or spectral 
         domain decomposition.
@@ -286,13 +271,13 @@ class Grid(GridBase):
     def info(self) -> dict:
         res = super().info
         res["N"] = f"{self.N[0]}"
-        res["L"] = humanize_number(self.L[0], "meters")
-        res["dx"] = humanize_number(self.dx[0], "meters")
+        res["L"] = fr.utils.humanize_number(self.L[0], "meters")
+        res["dx"] = fr.utils.humanize_number(self.dx[0], "meters")
         res["Periodic"] = f"{self.periodic_bounds[0]}"
         for i in range(1, self.n_dims):
             res["N"] += f" x {self.N[i]}"
-            res["L"] += f" x {humanize_number(self.L[i], 'meters')}"
-            res["dx"] += f" x {humanize_number(self.dx[i], 'meters')}"
+            res["L"] += f" x {fr.utils.humanize_number(self.L[i], 'meters')}"
+            res["dx"] += f" x {fr.utils.humanize_number(self.dx[i], 'meters')}"
             res["Periodic"] += f" x {self.periodic_bounds[i]}"
         if self._domain_decomp is not None:
             res["Processors"] = f"{self._domain_decomp.n_procs[0]}"

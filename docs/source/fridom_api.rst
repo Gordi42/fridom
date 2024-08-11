@@ -5,3 +5,4 @@ Fridom API
     :toctree: auto_api
 
     fridom.framework
+    fridom.nonhydro

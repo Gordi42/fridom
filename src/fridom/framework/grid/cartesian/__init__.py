@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 # ================================================================
 if TYPE_CHECKING:
     # import modules
-    from . import fft
     from . import discrete_spectral_operators
 
     # import classes
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 base = "fridom.framework.grid.cartesian"
 
 all_modules_by_origin = {
-    base: ["fft", "discrete_spectral_operators"],
+    base: ["discrete_spectral_operators"],
 }
 
 all_imports_by_origin = { 

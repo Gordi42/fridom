@@ -1,5 +1,8 @@
 {{ fullname | item_name | escape | underline}}
 
+This is applies
+
+
 .. currentmodule:: {{ module }}
 
 .. autoclass:: {{ objname }}
@@ -28,5 +31,5 @@
    {% endif %}
    {% endblock %}
 
-   .. minigallery:: {{fullname}}
-       :add-heading:
+   .. minigallery:: {{fullname | shorten }}
+      :add-heading:

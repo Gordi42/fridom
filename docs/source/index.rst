@@ -10,7 +10,7 @@ Welcome to fridom's documentation!
    :width: 100%
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
    :caption: Contents:
 
    installation

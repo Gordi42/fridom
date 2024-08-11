@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 # ================================================================
 if TYPE_CHECKING:
     from .spectral_pressure_solver import SpectralPressureSolver
-    from .cg_pressure_solver import CGPressureSolver
 
 # ================================================================
 #  Setup lazy loading
@@ -21,7 +20,6 @@ all_modules_by_origin = { }
 
 all_imports_by_origin = {
     f"{base_path}.spectral_pressure_solver": ["SpectralPressureSolver"],
-    f"{base_path}.cg_pressure_solver": ["CGPressureSolver"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

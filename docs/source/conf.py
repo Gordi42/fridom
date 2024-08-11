@@ -137,6 +137,23 @@ def get_submodules(fullname):
         except ImportError:
             return []
 
+def can_import_from_package(base, imp):
+    try:
+        modname = ".".join(base.split(".")[:-1])
+        mod = __import__(modname, fromlist=[''])
+        cls = getattr(mod, imp)
+        return True
+    except:
+        return False
+
+def can_import(base, imp):
+    try:
+        mod = __import__(base, fromlist=[''])
+        cls = getattr(mod, imp)
+        return True
+    except:
+        return False
+
 def get_imports(fullname):
     with patch.dict('sys.modules', mocks):
         try:
@@ -145,12 +162,21 @@ def get_imports(fullname):
             all_imports_dict = module.all_imports_by_origin
             all_imports_list = []
             for base, imports in all_imports_dict.items():
-                # remove the last part of the base
-                base = ".".join(base.split(".")[:-1])
+                if not can_import(base, imports[0]):
+                    base = ".".join(base.split(".")[:-1])
+                # if can_import_from_package(base, imports[0]):
+                #     base = ".".join(base.split(".")[:-1])
                 all_imports_list.extend(base + "." + imp for imp in imports)
+            print(fullname, all_imports_list)
             return all_imports_list
         except ImportError:
             return []
+
+def shorten(fullname):
+    base, imp = fullname.rsplit(".", 1)
+    if can_import_from_package(base, imp):
+        base = ".".join(base.split(".")[:-1])
+    return base + "." + imp
 
 def doc_summary_module(fullname):
     with patch.dict('sys.modules', mocks):
@@ -183,9 +209,29 @@ def doc_summary_import(fullname):
             print(e)
             return ""
 
+def split_by_parent(fullnames: list):
+    bases, imps = zip(*[imp.rsplit(".", 1) for imp in fullnames])
+    c = {}
+    # Iterate over both lists simultaneously to sort the imports by their base
+    for key, value in zip(bases, imps):
+        # If the key already exists in the dictionary, append the value to the list
+        if key in c:
+            c[key].append(value)
+        # If the key doesn't exist, create a new list with the current value
+        else:
+            c[key] = [value]
+
+    # Convert the dictionary to a list of tuples
+    vars = []
+    for key, value in c.items():
+        vars.append((key, value))
+    return vars
+
 FILTERS['is_init'] = is_init
 FILTERS['item_name'] = item_name
 FILTERS['get_submodules'] = get_submodules
 FILTERS['get_imports'] = get_imports
 FILTERS['doc_summary_module'] = doc_summary_module
 FILTERS['doc_summary_import'] = doc_summary_import
+FILTERS['split_by_parent'] = split_by_parent
+FILTERS['shorten'] = shorten

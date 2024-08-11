@@ -1,8 +1,16 @@
 {{ fullname | item_name | escape | underline}}
 
+Module: :py:mod:`{{ fullname }}`
+
+.. ==================================================
+..  Template for modules that are __init__.py files
+.. ==================================================
+
 {% if fullname | is_init %}
 
-Module: :py:mod:`{{ fullname }}`
+.. --------------------------------------------------
+..  Submodules Section
+.. --------------------------------------------------
 
 {% block submodules %}
 {% set all_subs = fullname | get_submodules %}
@@ -37,21 +45,32 @@ Module: :py:mod:`{{ fullname }}`
 {% endif %}
 {% endblock %}
 
+.. --------------------------------------------------
+..  Classes, Functions, and Variables Section
+.. --------------------------------------------------
+
 {% block imports %}
 {% set all_imports = fullname | get_imports %}
 {% if all_imports %}
 
-.. rubric:: {{ _('Imports') }}
+.. rubric:: {{ _('Classes, Functions, and Variables') }}
 
+{% set imp_by_parent = all_imports | split_by_parent %}
+{% set multiple_parents = imp_by_parent | count > 1 %}
+
+{% for parent, childrens in imp_by_parent %}
+.. currentmodule:: {{ parent }}
 
 .. autosummary::
    :toctree:
    :recursive:
-   {% for item in all_imports %}
+   {% for item in childrens %}
    {{ item }}
    {%- endfor %}
 
-
+{% endfor %}
+{% endif %}
+{% endblock %}
 
 .. automodule:: {{ fullname }}
    :no-members:
@@ -60,68 +79,88 @@ Module: :py:mod:`{{ fullname }}`
    :no-private-members:
    :undoc-members:
 
+.. ==================================================
+..  Template for modules that are no __init__.py files
+.. ==================================================
+
+{% else %}
+
+.. currentmodule:: {{ fullname }}
+
+.. --------------------------------------------------
+..  Attributes
+.. --------------------------------------------------
+
+{% block attributes %}
+{% if attributes %}
+.. rubric:: {{ _('Module Attributes') }}
+
+.. autosummary::
+{% for item in attributes %}
+   {{ item }}
+{%- endfor %}
 {% endif %}
 {% endblock %}
 
+.. --------------------------------------------------
+..  Functions
+.. --------------------------------------------------
 
+{% block functions %}
+{% if functions %}
+.. rubric:: {{ _('Functions') }}
 
-{% else %}
-.. automodule:: {{ fullname }}
+.. autosummary::
+{% for item in functions %}
+   {{ item }}
 
-   {% block attributes %}
-   {% if attributes %}
-   .. rubric:: {{ _('Module Attributes') }}
+   .. _sphx_glr_backref_{{fullname | shorten}}.{{item}}:
 
-   .. autosummary::
-   {% for item in attributes %}
-      {{ item }}
-   {%- endfor %}
-   {% endif %}
-   {% endblock %}
+   .. minigallery:: {{fullname | shorten}}.{{item}}
 
-   {% block functions %}
-   {% if functions %}
-   .. rubric:: {{ _('Functions') }}
+      :add-heading:
+{%- endfor %}
+{% endif %}
+{% endblock %}
 
-   .. autosummary::
-   {% for item in functions %}
-      {{ item }}
+.. --------------------------------------------------
+..  Classes
+.. --------------------------------------------------
 
-   .. _sphx_glr_backref_{{fullname}}.{{item}}:
+{% block classes %}
+{% if classes %}
+.. rubric:: {{ _('Classes') }}
 
-   .. minigallery:: {{fullname}}.{{item}}
+.. autosummary::
+{% for item in classes %}
+   {{ item }}
 
-       :add-heading:
-   {%- endfor %}
-   {% endif %}
-   {% endblock %}
+   .. _sphx_glr_backref_{{fullname | shorten}}.{{item}}:
 
-   {% block classes %}
-   {% if classes %}
-   .. rubric:: {{ _('Classes') }}
+   .. minigallery:: {{fullname | shorten}}.{{item}}
 
-   .. autosummary::
-   {% for item in classes %}
-      {{ item }}
+{%- endfor %}
+{% endif %}
+{% endblock %}
 
-   .. _sphx_glr_backref_{{fullname}}.{{item}}:
+.. --------------------------------------------------
+..  Exceptions
+.. --------------------------------------------------
 
-   .. minigallery:: {{fullname}}.{{item}}
+{% block exceptions %}
+{% if exceptions %}
+.. rubric:: {{ _('Exceptions') }}
 
-   {%- endfor %}
-   {% endif %}
-   {% endblock %}
+.. autosummary::
+{% for item in exceptions %}
+   {{ item }}
+{%- endfor %}
+{% endif %}
+{% endblock %}
 
-   {% block exceptions %}
-   {% if exceptions %}
-   .. rubric:: {{ _('Exceptions') }}
-
-   .. autosummary::
-   {% for item in exceptions %}
-      {{ item }}
-   {%- endfor %}
-   {% endif %}
-   {% endblock %}
+.. --------------------------------------------------
+..  Modules
+.. --------------------------------------------------
 
 {% block modules %}
 {% if modules %}
@@ -135,5 +174,11 @@ Module: :py:mod:`{{ fullname }}`
 {%- endfor %}
 {% endif %}
 {% endblock %}
+
+.. --------------------------------------------------
+..  Module Documentation
+.. --------------------------------------------------
+
+.. automodule:: {{ fullname }}
 
 {% endif %}
