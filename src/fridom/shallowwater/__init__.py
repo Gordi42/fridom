@@ -172,6 +172,7 @@ if TYPE_CHECKING:
     #  Importing model specific classes and modules
     # ----------------------------------------------------------------
     # importing modules
+    from . import grid
     from . import modules
 
     # importing classes
@@ -194,17 +195,18 @@ if TYPE_CHECKING:
 # ================================================================
 #  Setup lazy loading
 # ================================================================
+base_fr = "fridom.framework"
 base_sw = "fridom.shallowwater"
 all_modules_by_origin = { 
-    "fridom.framework": ["config", "time_steppers", "utils", "projection"],
-    base_sw: ["modules"],
+    base_fr: ["config", "time_steppers", "utils", "projection"],
+    base_sw: ["grid", "modules"],
 }
 
 all_imports_by_origin = { 
     f"{base_sw}.state": ["State"],
-    "fridom.framework.field_variable": ["FieldVariable"],
-    "fridom.framework.model_state": ["ModelState"],
-    "fridom.framework.model": ["Model"],
+    f"{base_fr}.field_variable": ["FieldVariable"],
+    f"{base_fr}.model_state": ["ModelState"],
+    f"{base_fr}.model": ["Model"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
