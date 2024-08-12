@@ -140,6 +140,36 @@ Plot(model.z.ekin())(model.z)           # plot top view of final kinetic energy
 ## Gallery
 https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc78bdd6b
 
+## Roadmap
+### Todos for version 0.1.0:
+- [ ] parallelization using jaxDecomp
+- [ ] make mpi4py dependency optional
+- [ ] adapt shallowwater to new model structure
+- [ ] adapt optimal balance to new model structure
+- [ ] make NNMD work
+- [ ] fix the CG pressure solver in nonhydro model
+- [ ] refactor diagnose imbalance experiment
+
+### Long term Todos:
+**Grid:**
+- [ ] Add a rectilinear grid with variable $\Delta x(x)$
+- [ ] Add a (pseudo) spherical grid
+- [ ] Add unstructured grids.
+
+**Models:**
+- [ ] Add a hydrostatic primitive equations model (like pyOM2)
+- [ ] Add a quasi-geostrophic model
+- [ ] Add a compressible flow solver
+
+**Time Steppers:**
+- [ ] Adding implicit and semi implicit time steppers
+
+**Advection Schemes:**
+- [ ] Add higher order advection schemes like WENO
+
+**Others:**
+- [ ] Optimize parallelization for CPUs
+- [ ] Add possibility to couple multiple fridom models
 
 ## Author
     * Silvano Rosenau
