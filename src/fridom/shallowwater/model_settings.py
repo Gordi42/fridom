@@ -1,130 +1,158 @@
+import fridom.framework as fr
+import fridom.shallowwater as sw
 import numpy as np
-from typing import TYPE_CHECKING
-from fridom.framework.model_settings_base import ModelSettingsBase
 
-if TYPE_CHECKING:
-    from fridom.framework.grid.grid_base import GridBase
 
-class ModelSettings(ModelSettingsBase):
+class ModelSettings(fr.ModelSettingsBase):
     """
-    Settings container for the model.
-
-    Attributes:
-        dtype (np.dtype)       : Data type for real.         
-        ctype (np.dtype)       : Data type for complex.       
-        gpu (bool)             : Switch for GPU.              
-        csqr (dtype)           : Square of phase speed (Burger number).
-        f0 (dtype)             : Coriolis parameter.         
-        beta (dtype)           : Beta term for Coriolis parameter.
-        Ro (dtype)             : Rossby number.                
-        L (list)               : Domain size in each direction.
-        N (list)               : Grid points in each direction.
-        dx (dtype)             : Grid spacing in x-direction.
-        dy (dtype)             : Grid spacing in y-direction.
-        dz (dtype)             : Grid spacing in z-direction.
-        periodic_bounds (list) : List of bools for periodic boundaries.
-
-        enable_varying_f (bool) : Enable varying Coriolis parameter.
-        enable_tqdm (bool)      : Enable progress bar.
-        enable_verbose (bool)   : Enable verbose output.
+    Model settings for the 2D shallow water model.
+    
+    Parameters
+    ----------
+    `grid` : `Grid`
+        The grid object.
     """
-    def __init__(self, grid: 'GridBase', dtype=np.float64, ctype=np.complex128, **kwargs):
-        """
-        Constructor.
+    model_name = "ShallowWater"
 
-        Args:
-            dtype (np.dtype)   : Data type for real.         
-            ctype (np.dtype)   : Data type for complex.
-        """
-        super().__init__(grid, n_dims=2, dtype=dtype, ctype=ctype)
-        self.model_name = "ShallowWater"
-        self.L = [2*np.pi, 2*np.pi]
-        self.N = [63, 63]
+    def __init__(self, grid: 'fr.grid.GridBase', **kwargs) -> None:
+        super().__init__(grid)
 
-        # physical parameters
-        self.csqr = dtype(1)
-        self.f0   = dtype(1)
-        self.beta = dtype(0)
-        self.Ro   = dtype(0.1)
+        # Set standard parameters
+        self._tendencies = sw.modules.MainTendency()
+        self._f0 = 1             # constant coriolis parameter f0
+        self._beta = 0           # beta term d(f)/dy
+        self._f_coriolis = None  # the coriolis parameter field
+        self._csqr = 1           # speed of waves squared
+        self._csqr_field = None  # c² field (for varying depth)
+        self._Ro = 1             # Rossby number
 
-        # main tendency
-        from fridom.shallowwater.modules.main_tendency import MainTendency
-        self.tendencies = MainTendency()
+        # Finally, set attributes from keyword arguments
+        self.set_attributes(**kwargs)
 
-        # state constructor
-        from fridom.shallowwater.state import State
-        self.state_constructor = lambda grid: State(grid, is_spectral=False)
+    def setup_settings_parameters(self):
+        # Coriolis parameter
+        f_coriolis = fr.FieldVariable(
+            self, 
+            name="f",
+            long_name="Coriolis parameter",
+            units="1/s",
+            position=self.grid.cell_center,
+            topo=[False, True],
+        )
+        f_coriolis.arr = self._f0 + self._beta * self.grid.X[1][None,0,:,0,None]
+        self._f_coriolis = f_coriolis
 
-        # ------------------------------------------------------------------
-        #   SWITCHES
-        
-        # Physics
-        self.enable_varying_f  = False   # Enable varying Coriolis parameter
+        # Speed of waves squared
+        csqr_field = fr.FieldVariable(
+            self,
+            name="csqr",
+            long_name="Speed of waves squared",
+            units="m²/s²",
+            position=self.grid.cell_center,
+        )
+        csqr_field += self._csqr
+        self._csqr_field = csqr_field
+    
+        # make sure that the advection term is scaled by the Rossby number
+        self.tendencies.advection.scaling = self.Ro
+        return
 
-        # TODO: Use method from ModelSettingsBase instead
-        # self.set_attributes(**kwargs)
+    def state_constructor(self):
+        return sw.State(self, is_spectral=False)
 
-        # Set attributes from keyword arguments
-        for key, value in kwargs.items():
-            # Check if attribute exists
-            if not hasattr(self, key):
-                raise AttributeError("ModelSettings has no attribute '{}'".format(key))
-            setattr(self, key, value)
+    # ================================================================
+    #  Properties
+    # ================================================================
 
-    def __str__(self) -> str:
-        """
-        String representation of the model settings.
-
-        Returns:
-            res (str): String representation of the model settings.
-        """
-        res = super().__str__()
-        res += "  Physical parameters:\n"
-        res += "    csqr = {:.3f}\n".format(self.csqr)
-        res += "    f0   = {:.3f}\n".format(self.f0)
-        res += "    beta = {:.3f}\n".format(self.beta)
-        res += "    Ro   = {:.3f}\n".format(self.Ro)
-        res += "  Switches:\n"
-        res += "    enable_varying_f  = {}\n".format(self.enable_varying_f)
-        res += "================================================\n"
+    @property
+    def parameters(self) -> dict:
+        res = super().parameters
+        res["coriolis parameter f0"] = f"{self.f0} s⁻¹"
+        res["beta term"] = f"{self.beta} m⁻¹ s⁻¹)"
+        res["Phase velocity c²"] = f"{self._csqr} m²s⁻²"
+        res["Rossby number Ro"] = f"{self.Ro}"
         return res
 
-    def __repr__(self) -> str:
-        """
-        String representation of the model settings (for IPython).
-
-        Returns:
-            res (str): String representation of the model settings.
-        """
-        return self.__str__()
-
-
-    # ==================================================================
-    #  GETTER AND SETTER FOR PRIVATE VARIABLES
-    # ==================================================================
     @property
-    def N(self) -> list:
-        """Grid points in each direction."""
-        return self._N
+    def f0(self) -> 'float':
+        """The constant term f0 of the  Coriolis parameter (f=f0 + beta*y)."""
+        return self._f0
     
-    @N.setter
-    def N(self, value: list):
-        self._N = [int(val) for val in value]
-        self._dg = [L / N for L, N in zip(self._L, self._N)]
-        self._total_grid_points = 1
-        for n in self._N:
-            self._total_grid_points *= n
-        self.max_cg_iter = max(self._N)
-    
-    @property
-    def dx(self) -> float:
-        """Grid spacing in x-direction."""
-        return self.dg[0]
-    
-    @property
-    def dy(self) -> float:
-        """Grid spacing in y-direction."""
-        return self.dg[1]
+    @f0.setter
+    def f0(self, value: 'float'):
+        self._f0 = value
+        if self._f_coriolis is not None:
+            self.f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,:,None]
+        return
 
-# remove symbols from namespace
-del ModelSettingsBase
+    @property
+    def beta(self) -> 'float':
+        """The beta term of the Coriolis parameter (f=f0 + beta*y)."""
+        return self._beta
+    
+    @beta.setter
+    def beta(self, value: 'float'):
+        self._beta = value
+        if self._f_coriolis is not None:
+            self.f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,:,None]
+        return
+
+    @property
+    def f_coriolis(self) -> 'fr.FieldVariable':
+        """The variable coriolis parameter field"""
+        return self._f_coriolis
+    
+    @f_coriolis.setter
+    def f_coriolis(self, value: 'fr.FieldVariable | float | np.ndarray'):
+        if isinstance(value, fr.FieldVariable):
+            self._f_coriolis = value
+        else:
+            self._f_coriolis[:] = value
+        return
+
+    @property
+    def csqr(self) -> 'float':
+        """The phase speed of the gravity waves."""
+        return self._csqr
+    
+    @csqr.setter
+    def csqr(self, value: 'float'):
+        self._csqr = value
+        if self._csqr_field is not None:
+            self.csqr_field[:] = value
+        return
+
+    @property
+    def csqr_field(self) -> 'fr.FieldVariable':
+        """The variable c²(x,y) field."""
+        return self._csqr_field
+
+    @csqr_field.setter
+    def csqr_field(self, value: 'fr.FieldVariable | float | np.ndarray'):
+        if isinstance(value, fr.FieldVariable):
+            self._csqr_field = value
+        else:
+            self._csqr_field[:] = value
+        return
+
+    @property
+    def Ro(self) -> 'float':
+        """The Rossby number."""
+        return self._Ro
+    
+    @Ro.setter
+    def Ro(self, value: 'float'):
+        self._Ro = value
+        # scale the advection term
+        self.tendencies.advection.scaling = value
+        return
+
+    @property
+    def dsqr(self) -> 'float':
+        r"""The aspect ratio. :math:`\delta^2`."""
+        return self._dsqr
+    
+    @dsqr.setter
+    def dsqr(self, value: 'float'):
+        self._dsqr = value
+        return
