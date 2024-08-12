@@ -1,25 +1,41 @@
 """
-# Model Modules for the Shallow Water Model
-See fridom/framework/modules/__init__.py for more information.
-
-## Available Modules:
-    - NonlinearTendency: Nonlinear tendency term
-    - NetCDFWriter: NetCDF writer module
-    - Diagnostics: Diagnostic module
-    - animation: Contains animation modules
-    - advection: Contains advection modules
-    - linear_tendency: Contains linear tendency modules
-    - diffusion: Contains diffusion modules
-    - forcings: Contains forcing modules
+A collection of modules for the shallow water model.
 """
+from lazypimp import setup
+from typing import TYPE_CHECKING
 
-from .netcdf_writer import NetCDFWriter
-from .diagnostics import Diagnostics
+# ================================================================
+#  Disable lazy loading for type checking
+# ================================================================
+if TYPE_CHECKING:
+    # importing modules
+    # from . import advection
 
-# move the animation module into the nonhydro namespace
-from fridom.framework.modules import animation
+    # importing classes
+    from .main_tendency import MainTendency
 
-from . import linear_tendency
-from . import advection
-from . import diffusion
-from . import forcings
+    # ----------------------------------------------------------------
+    #  Importing generic classes and modules
+    # ----------------------------------------------------------------
+    # importing modules
+    from fridom.framework.modules import animation
+
+    # importing classes
+    from fridom.framework.modules import NetCDFWriter, RestartModule, ResetTendency
+
+# ================================================================
+#  Setup lazy loading
+# ================================================================
+base_path = "fridom.shallowwater.modules"
+fr_base_path = "fridom.framework.modules"
+
+all_modules_by_origin = { 
+    fr_base_path: ["animation"],
+}
+
+all_imports_by_origin = { 
+    f"{base_path}.main_tendency": ["MainTendency"],
+    f"{fr_base_path}": ["NetCDFWriter", "RestartModule", "ResetTendency"],
+}
+
+setup(__name__, all_modules_by_origin, all_imports_by_origin)
