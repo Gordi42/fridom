@@ -1,12 +1,138 @@
+import fridom.framework as fr
+import fridom.shallowwater as sw
+
+
+@fr.utils.jaxify
+class SadournyAdvection(fr.modules.advection.AdvectionBase):
+    """
+    # Advection scheme by Sadourny (1975).
+    This advection scheme conserves the total energy of the system.
+    """
+    name = "Sadourny Advection"
+
+    @fr.utils.jaxjit
+    def advection(self, 
+                  velocity: 'tuple[fr.FieldVariable]',
+                  quantity: 'fr.FieldVariable') -> 'fr.FieldVariable':
+        # shorthand notation
+        inter = self.interp_module.interpolate
+        diff = self.diff_module.diff
+        q_pos = quantity.position
+
+        res = fr.FieldVariable(**quantity.get_kw())
+
+        for axis, v in enumerate(velocity):
+            # the flux position should be shifted from the quantity position
+            flux_pos = q_pos.shift(axis)
+            flux = inter(v, flux_pos) * inter(quantity, flux_pos)
+            res -= diff(flux, axis, order=1)
+        return res
+
+    @partial(fr.utils.jaxjit, static_argnames=("correct_divergence",))
+    def advect_field(self, 
+                      velocity: 'tuple[fr.FieldVariable]',
+                      f: 'fr.FieldVariable',
+                      correct_divergence: bool,
+                      ) -> 'fr.FieldVariable':
+        """
+        Advect a field using the given velocity field.
+
+        Computes the advection term of a field :math:`f` using the velocity field
+
+        .. math::
+            \mathcal{A}(\boldsymbol{v}, f) 
+                = - \nabla \cdot (\boldsymbol{v} f)
+                  + \gamma f \nabla \cdot \boldsymbol{v}
+
+        where :math:`\gamma` is a switch that is one if `correct_divergence` 
+        is `True`
+
+        Parameters
+        ----------
+        velocity : tuple[fr.FieldVariable]
+            Velocity field.
+        f : fr.FieldVariable
+            Field to be advected.
+        correct_divergence : bool
+            Flag to correct the divergence of the velocity field.
+        """
+        diff_mod = self.diff_module
+        interp = self.interp_module.interpolate
+        # ----------------------------------------------------------------
+        #  Flux divergence of the field: ∇ (vf)
+        # ----------------------------------------------------------------
+        fe_pos = f.position.shift(0)
+        fe = interp(velocity[0], fe_pos) * interp(f, fe_pos)
+        fn_pos = f.position.shift(1)
+        fn = interp(velocity[1], fn_pos) * interp(f, fn_pos)
+        df = - diff_mod.div((fe, fn))
+
+        # ----------------------------------------------------------------
+        #  Correct the divergence of the velocity field
+        # ----------------------------------------------------------------
+        if correct_divergence:
+            div = diff_mod.div(velocity)
+            df += f * div
+        return df
+
+    @fr.utils.jaxjit
+    def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:
+        if self.background is None and self.disable_nonlinear:
+            return dz
+        if self.disable_nonlinear:
+            zf = self.background
+        else:
+            # Compute the full state vector (including the background)
+            if self.background is not None:
+                zf = z + self.background
+            else:
+                zf = z
+        diff_mod = self.diff_module
+        interp = self.interp_module.interpolate
+
+        # ----------------------------------------------------------------
+        #  Nonlinear term of the pressure equation: ∇ (vp)
+        # ----------------------------------------------------------------
+        fe_pos = z.h.position.shift(0)
+        fe = zf.u * interp(z.h, fe_pos)
+        fn_pos = z.h.position.shift(1)
+        fn = zf.v * interp(z.h, fn_pos)
+        dh = - diff_mod.div((fe, fn))
+        
+
+
+        # Compute the velocity field
+        if self.grid.n_dims == 1:
+            velocity = (zf.u,)
+        elif self.grid.n_dims == 2:
+            velocity = (zf.u, zf.v)
+        elif self.grid.n_dims == 3:
+            velocity = (zf.u, zf.v, zf.w)
+
+        # calculate the advection term
+        for name, quantity in z.fields.items():
+            if quantity.flags["NO_ADV"]:
+                continue
+            dz.fields[name] += self.scaling * self.advection(velocity, quantity)
+        return dz
+
+
+
+
+
+
+
+
+
+
+
+
+
 from fridom.shallowwater.state import State
 from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, update_module
 
 class SadournyAdvection(Module):
-    """
-    # Advection scheme by Sadourny (1975).
-    This advection scheme conserves the total energy of the system.
-    """
     def __init__(self):
         super().__init__(name="Advection")
 
