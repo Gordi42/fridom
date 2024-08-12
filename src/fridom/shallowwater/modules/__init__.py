@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
     # importing classes
     from .main_tendency import MainTendency
+    from .linear_tendency import LinearTendency
 
     # ----------------------------------------------------------------
     #  Importing generic classes and modules
@@ -35,6 +36,7 @@ all_modules_by_origin = {
 
 all_imports_by_origin = { 
     f"{base_path}.main_tendency": ["MainTendency"],
+    f"{base_path}.linear_tendency": ["LinearTendency"],
     f"{fr_base_path}": ["NetCDFWriter", "RestartModule", "ResetTendency"],
 }
 
