@@ -176,6 +176,7 @@ if TYPE_CHECKING:
     from . import modules
 
     # importing classes
+    from .model_settings import ModelSettings
     from .state import State
 
     # ----------------------------------------------------------------
@@ -203,6 +204,7 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = { 
+    f"{base_sw}.model_settings": ["ModelSettings"],
     f"{base_sw}.state": ["State"],
     f"{base_fr}.field_variable": ["FieldVariable"],
     f"{base_fr}.model_state": ["ModelState"],
