@@ -1,248 +1,290 @@
-from fridom.shallowwater.model_settings import ModelSettings
-from fridom.shallowwater.grid import Grid
-from fridom.framework.field_variable import FieldVariable
-from fridom.framework.state_base import StateBase
+import fridom.framework as fr
+import fridom.shallowwater as sw
 
 
-class State(StateBase):
+@fr.utils.jaxify
+class State(fr.StateBase):
+    r"""
+    State vector of the 2D shallow water model.
+
+    .. math::
+        \boldsymbol{z} = \begin{pmatrix} u \\ v \\ p \end{pmatrix}
+
+    where :math:`u` and :math:`v` are the velocity components in the 
+    x- and y-directions, and :math:`p=g\eta` is the pressure field, with
+    :math:`\eta` the free surface elevation.
+    """
     def __init__(self, 
-                 grid: Grid, 
-                 is_spectral=False, 
-                 field_list=None) -> None:
+                 mset: 'sw.ModelSettings', 
+                 is_spectral: bool = False, 
+                 field_list = None) -> None:
+
         if field_list is None:
-            from fridom.framework.field_variable import FieldVariable
-            u = FieldVariable(grid,
-                name="Velocity u", is_spectral=is_spectral)
-            v = FieldVariable(grid,
-                name="Velocity v", is_spectral=is_spectral)
-            h = FieldVariable(grid,
-                name="Layer Thickness h", is_spectral=is_spectral)
-            field_list = [u, v, h]
-        super().__init__(grid, field_list, is_spectral)
-        self.mset = grid.mset
-        self.constructor = State
+            cell_center = mset.grid.cell_center
+
+            u = fr.FieldVariable(
+                mset,
+                name="u", 
+                long_name="u - velocity",
+                units="m/s", 
+                is_spectral=is_spectral, 
+                position=cell_center.shift(axis=0),
+                transform_types=(fr.grid.TransformType.DST1,
+                                 fr.grid.TransformType.DCT2),
+                flags=["ENABLE_FRICTION"],
+                )
+
+            v = fr.FieldVariable(
+                mset,
+                name="v", 
+                long_name="v - velocity",
+                units="m/s", 
+                is_spectral=is_spectral, 
+                position=cell_center.shift(axis=1),
+                transform_types=(fr.grid.TransformType.DCT2,
+                                 fr.grid.TransformType.DST1),
+                flags=["ENABLE_FRICTION"],
+                )
+
+            p = fr.FieldVariable(
+                mset,
+                name="p", 
+                long_name="pressure", 
+                units="m²/s²", 
+                is_spectral=is_spectral, 
+                position=cell_center,
+                transform_types=(fr.grid.TransformType.DST2,
+                                 fr.grid.TransformType.DST2),
+                )
+
+            field_list = [u, v, p]
+
+            # add the fields from the custom field list
+            for kw in mset.custom_fields:
+                # Set default parameters if not provided
+                if "position" not in kw:
+                    # default position is cell center
+                    kw["position"] = cell_center
+                if "transform_types" not in kw:
+                    # default transform type is DCT2
+                    kw["transform_types"] = (fr.grid.TransformType.DCT2,
+                                             fr.grid.TransformType.DCT2,
+                                             fr.grid.TransformType.DCT2)
+                kw["mset"] = mset
+                kw["is_spectral"] = is_spectral
+                field_list.append(fr.FieldVariable(**kw))
+
+        super().__init__(mset, field_list, is_spectral)
+        self.__class__ = State
         return
-    
-    # ======================================================================
-    #  ENERGY
-    # ======================================================================
 
-    def ekin(self) -> FieldVariable:
-        """
-        Calculate the kinetic energy field.
-        $ ekin = 0.5 * Ro * h_full * (u^2 + v^2) $
-        $ h_full = c^2 + Ro * h $
-
-        Returns:
-            ekin (FieldVariable)  : Kinetic energy field.
-        """
-        # First transform to physical space if necessary
-        z = self
-        if self.is_spectral:
-            z = self.fft()
-
-        csqr = self.mset.csqr; Ro = self.mset.Ro
-        h_full = csqr + Ro * self.h
-        ekin = 0.5 * Ro**2 * h_full * (z.u**2 + z.v**2)
-        from fridom.framework.field_variable import FieldVariable
-        return FieldVariable(self.grid, is_spectral=False, 
-                             name="Kinetic Energy", arr=ekin)
-
-    def epot(self) -> FieldVariable:
-        """
-        Calculate the potential energy field.
-        $ epot = 0.5 * h_full * h $
-        $ h_full = c^2 + Ro * h $
-
-        Returns:
-            epot (FieldVariable)  : Potential energy field.
-        """
-        # First transform to physical space if necessary
-        z = self
-        if self.is_spectral:
-            z = self.fft()
-
-        csqr = self.mset.csqr; Ro = self.mset.Ro
-        h_full = csqr + Ro * z.h
-        epot = 0.5 * h_full ** 2
-
-        from fridom.framework.field_variable import FieldVariable
-        return FieldVariable(self.grid, is_spectral=False,
-                             name="Potential Energy", arr=epot)
-    
-    def etot(self) -> FieldVariable:
-        """
-        Calculate the total energy field.
-        $ etot = ekin + epot $
-
-        Returns:
-            etot (FieldVariable)  : Total energy field.
-        """
-        etot = (self.ekin() + self.epot()).arr
-        from fridom.framework.field_variable import FieldVariable
-        return FieldVariable(self.grid, is_spectral=False,
-                             name="Total Energy", arr=etot)
-
-    def mean_ekin(self) -> float:
-        """
-        Calculate the mean kinetic energy.
-
-        Returns:
-            mean_ekin (float)  : Mean kinetic energy.
-        """
-        return self.cp.mean(self.ekin())
-    
-    def mean_epot(self) -> float:
-        """
-        Calculate the mean potential energy.
-
-        Returns:
-            mean_epot (float)  : Mean potential energy.
-        """
-        return self.cp.mean(self.epot())
-    
-    def mean_etot(self) -> float:
-        """
-        Calculate the mean total energy.
-
-        Returns:
-            mean_etot (float)  : Mean total energy.
-        """
-        return self.cp.mean(self.etot())
-
-    # ======================================================================
-    #  VORTICITY
-    # ======================================================================
-
-    def hor_vort(self) -> FieldVariable:
-        """
-        Calculate the horizontal vorticity field.
-        $ hor_vort = \partial_x v - \partial_y u $
-
-        Returns:
-            hor_vort (FieldVariable)  : Horizontal vorticity field.
-        """
-        # shortcuts
-        u  = self.u
-        v  = self.v
-
-        # calculate the horizontal vorticity
-        vort = ((v.diff_forward(0) -  u.diff_forward(1))
-                ).ave(-1, 0).ave(-1, 1)
-
-        # Create the field variable
-        from fridom.framework.field_variable import FieldVariable
-        field = FieldVariable(self.grid, is_spectral=False, 
-                              name="Horizontal Vorticity", arr=vort)
-        return field
-
-    def pot_vort(self) -> FieldVariable:
-        """
-        Calculate the potential vorticity field.
-        q = (Zeta + f0) / (c² + Ro*h)
-
-        Returns:
-            pot_vort (FieldVariable)  : Scaled potential vorticity field.
-        """
-
-        # shortcuts
-        f0 = self.mset.f0; 
-        Ro = self.mset.Ro; csqr = self.mset.csqr
-
-        rel_vort = self.hor_vort()
-        h_full = csqr + Ro * self.h
-        pot_vort = (rel_vort + f0) / h_full
-
-        # Create the field variable
-        from fridom.framework.field_variable import FieldVariable
-        field = FieldVariable(self.grid, arr=pot_vort,
-                              is_spectral=False, name="Potential Vorticity")
-        return field
-
-    # ======================================================================
-    #  SOME MATH FUNCTIONS
-    # ======================================================================
-
-    def rot90(self):
-        """
-        Rotate the state by 90 degrees. (mathematically positive direction)
-        """
-        z_phy = self.fft() if self.is_spectral else self
-        z_rot = State(self.mset, self.grid, is_spectral=False)
-        z_rot.h[:] = self.cp.rot90(z_phy.h)
-        z_rot.u[:-1,:] = -self.cp.rot90(z_phy.v[:,:-1])
-        if self.mset.periodic_bounds[1]:
-            z_rot.u[-1,:] = -z_phy.v[:,-1]
-        z_rot.v[:] = self.cp.rot90(z_phy.u)
-        return z_rot.fft() if self.is_spectral else z_rot
-
-    def rot180(self):
-        """
-        Rotate the state by 180 degrees. (mathematically positive direction)
-        """
-        rot90 = self.cp.rot90
-        z_phy = self.fft() if self.is_spectral else self
-        z_rot = State(self.mset, self.grid, is_spectral=False)
-        z_rot.h[:] = rot90(rot90(z_phy.h))
-        z_rot.u[:-1,:] = -rot90(rot90(z_phy.u[:-1,:]))
-        z_rot.v[:,:-1] = -rot90(rot90(z_phy.v[:,:-1]))
-        return z_rot.fft() if self.is_spectral else z_rot
-
-
-    # ======================================================================
-    #  CFL AND PECLET NUMBERS
-    # ======================================================================
-
-    def max_cfl(self) -> float:
-        """
-        Calculate the maximum horizontal CFL number.
-
-        Returns:
-            max_cfl (float)  : Maximum horizontal CFL number.
-        """
-        u = self.u; v = self.v
-        sqrt = self.cp.sqrt; maxi = self.cp.max
-        dx = min(self.mset.dx, self.mset.dy)
-        return sqrt(maxi(u**2 + v**2)) * self.mset.dt / dx
-
-    def pecl(self) -> float:
-        """
-        Calculate the horizontal Peclet number.
-
-        Returns:
-            pecl (float)  : Horizontal Peclet number.
-        """
-        umax = self.cp.max(self.u**2 + self.v**2)
-        res = min(umax*self.mset.dx/(1e-32 + self.mset.ah),
-                  umax*self.mset.dx**3/(1e-32 + self.mset.ahbi))
-        return res
+    # ----------------------------------------------------------------
+    #  State Variables
+    # ----------------------------------------------------------------
 
     @property
-    def u(self) -> FieldVariable:
-        return self.field_list[0]
+    def u(self) -> fr.FieldVariable:
+        """
+        Velocity in the x-direction.
+        """
+        return self.fields["u"]
     
     @u.setter
-    def u(self, value: FieldVariable):
-        self.field_list[0] = value
+    def u(self, value: fr.FieldVariable):
+        self.fields["u"] = value
         return
     
     @property
-    def v(self) -> FieldVariable:
-        return self.field_list[1]
+    def v(self) -> fr.FieldVariable:
+        """
+        Velocity in the y-direction.
+        """
+        return self.fields["v"]
     
     @v.setter
-    def v(self, value: FieldVariable):
-        self.field_list[1] = value
+    def v(self, value: fr.FieldVariable):
+        """
+        Velocity in the y-direction.
+        """
+        self.fields["v"] = value
         return
     
     @property
-    def h(self) -> FieldVariable:
-        return self.field_list[2]
+    def p(self) -> fr.FieldVariable:
+        """
+        Pressure p = g \eta, where \eta is the free surface elevation.
+        """
+        return self.fields["w"]
 
-    @h.setter
-    def h(self, value: FieldVariable):
-        self.field_list[2] = value
+    @p.setter
+    def p(self, value: fr.FieldVariable):
+        self.fields["p"] = value
         return
+
+    # ----------------------------------------------------------------
+    #  Energy Variables
+    # ----------------------------------------------------------------
+
+    @property
+    def ekin(self) -> fr.FieldVariable:
+        r"""
+        Vertically integrated kinetic energy
+
+        .. math::
+            E_{\text{kin}} = \frac{Ro^2}{2} h_{\text{full}} (u^2 + v^2)
+
+        with
+
+        .. math::
+            h_{\text{full}} = c^2 + Ro p
+
+        Note:
+            The energy is scaled with the gravity acceleration g.
+        """
+        if self.is_spectral:
+            raise NotImplementedError("The kinetic energy is not implemented for spectral fields.")
+
+        csqr = self.mset.csqr_field
+        Ro = self.mset.Ro
+        h_full = csqr + Ro * self.h
+        ekin = 0.5 * Ro**2 * h_full * (self.u**2 + self.v**2)
+        
+        # Set the attributes
+        ekin.name = "ekin"
+        ekin.long_name = "Kinetic Energy"
+        ekin.units = "m^2/s^2"
+        ekin.position = self.grid.cell_center
+        return ekin
+
+    @property
+    def epot(self) -> fr.FieldVariable:
+        r"""
+        Vertically integrated kinetic energy
+
+        .. math::
+            E_{\text{pot}} = \frac{1}{2} h_{\text{full}}^2
+
+        with
+
+        .. math::
+            h_{\text{full}} = c^2 + Ro p
+
+        Note:
+            The energy is scaled with the gravity acceleration g.
+        """
+        if self.is_spectral:
+            raise NotImplementedError("The kinetic energy is not implemented for spectral fields.")
+
+        csqr = self.mset.csqr_field
+        Ro = self.mset.Ro
+        h_full = csqr + Ro * self.h
+        epot = 0.5 * h_full ** 2
+
+        # Set the attributes
+        epot.name = "epot"
+        epot.long_name = "Potential Energy"
+        epot.units = "m^2/s^2"
+        epot.position = self.grid.cell_center
+        return epot
     
-# remove symbols from namespace
-del ModelSettings, Grid, FieldVariable, StateBase
+    @property
+    def etot(self) -> fr.FieldVariable:
+        r"""
+        The total energy
+
+        .. math::
+            E_{tot} = E_{kin} + E_{pot}
+        """
+        etot = self.ekin + self.epot
+
+        # Set the attributes
+        etot.name = "etot"
+        etot.long_name = "Total Energy"
+        etot.units = "m^2/s^2"
+        etot.position = self.grid.cell_center
+        return etot
+
+    # ----------------------------------------------------------------
+    #  Vorticity
+    # ----------------------------------------------------------------
+
+    @property
+    def rel_vort_z(self) -> fr.FieldVariable:
+        r"""
+        Horizontal vorticity
+
+        .. math::
+            \zeta = \partial_x v - \partial_y u
+        """
+        dvdx = self.v.diff(axis=0)
+        dudy = self.u.diff(axis=1).interpolate(dvdx.position)
+        hor_vort = dvdx - dudy
+
+        # Set the attributes
+        hor_vort.name = "hor_vort"
+        hor_vort.long_name = "horizontal vorticity"
+        hor_vort.units = "1/s"
+        return hor_vort
+
+    @property
+    def pot_vort(self) -> fr.FieldVariable:
+        r"""
+        Scaled potential vorticity field.
+
+        .. math::
+            Q = \frac{\zeta + f \right}{c^2 + Ro p}
+        
+        where :math:`f` is the Coriolis parameter, and :math:`\zeta` is the 
+        relative vorticity.
+        """
+        if self.is_spectral:
+            raise NotImplementedError(
+                "Potential vorticity is not implemented for spectral fields.")
+
+        # shortcuts
+        f = self.mset.f_coriolis
+        csqr = self.mset.csqr_field
+        Ro = self.mset.Ro
+
+        pot_vort = (self.rel_vort_z + f) / (csqr + Ro * self.p)
+
+        # Set the attributes
+        pot_vort.name = "pot_vort"
+        pot_vort.long_name = "Potential Vorticity"
+        pot_vort.units = "s/m²"
+        pot_vort.position = self.grid.cell_center
+
+        return pot_vort
+
+    # ----------------------------------------------------------------
+    #  CFL numbers
+    # ----------------------------------------------------------------
+
+    @property
+    def cfl(self) -> fr.FieldVariable:
+        r"""
+        The CFL number.
+
+        .. math::
+            CFL = \max  \left\{ 
+                            \frac{u}{\Delta x}, \frac{v}{\Delta y} 
+                        \right\} \Delta t
+
+        where :math:`\Delta t` is the time step and :math:`\Delta x` is the
+        grid spacing. 
+        """
+        dx, dy = self.grid.dx
+        dt = self.mset.time_stepper.dt
+        cfl_u = self.u.abs() * dt / dx
+        cfl_v = self.v.abs() * dt / dy
+
+        cfl = fr.config.ncp.maximum(cfl_u.arr, cfl_v.arr)
+
+        # Create the field variable
+        return fr.FieldVariable(
+            self.mset, 
+            arr=cfl,
+            is_spectral=self.is_spectral, 
+            name="cfl",
+            long_name="CFL Number",
+            position=self.grid.cell_center)
