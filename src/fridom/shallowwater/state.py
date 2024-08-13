@@ -111,10 +111,10 @@ class State(fr.StateBase):
     
     @property
     def p(self) -> fr.FieldVariable:
+        r"""
+        Pressure :math:`p = g \eta`, where :math:`\eta` is the free surface elevation.
         """
-        Pressure p = g \eta, where \eta is the free surface elevation.
-        """
-        return self.fields["w"]
+        return self.fields["p"]
 
     @p.setter
     def p(self, value: fr.FieldVariable):
@@ -209,7 +209,7 @@ class State(fr.StateBase):
     # ----------------------------------------------------------------
 
     @property
-    def rel_vort_z(self) -> fr.FieldVariable:
+    def hor_vort(self) -> fr.FieldVariable:
         r"""
         Horizontal vorticity
 

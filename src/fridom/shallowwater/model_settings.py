@@ -39,7 +39,7 @@ class ModelSettings(fr.ModelSettingsBase):
             position=self.grid.cell_center,
             topo=[False, True],
         )
-        f_coriolis.arr = self._f0 + self._beta * self.grid.X[1][None,0,:,0,None]
+        f_coriolis.arr = self._f0 + self._beta * self.grid.X[1][None,0,:]
         self._f_coriolis = f_coriolis
 
         # Speed of waves squared

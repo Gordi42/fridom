@@ -174,6 +174,7 @@ if TYPE_CHECKING:
     # importing modules
     from . import grid
     from . import modules
+    from . import initial_conditions
 
     # importing classes
     from .model_settings import ModelSettings
@@ -200,7 +201,7 @@ base_fr = "fridom.framework"
 base_sw = "fridom.shallowwater"
 all_modules_by_origin = { 
     base_fr: ["config", "time_steppers", "utils", "projection"],
-    base_sw: ["grid", "modules"],
+    base_sw: ["grid", "modules", "initial_conditions"],
 }
 
 all_imports_by_origin = { 

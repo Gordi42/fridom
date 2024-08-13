@@ -20,8 +20,8 @@ class MainTendency(fr.modules.ModuleContainer):
     def __init__(self):
         mods = sw.modules
         self._reset_tendency = mods.ResetTendency()
-        # self._linear_tendency = mods.LinearTendency()
-        # self._advection = mods.advection.CenteredAdvection()
+        self._linear_tendency = mods.LinearTendency()
+        self._advection = mods.SadournyAdvection()
         self._additional_modules = []
         self._set_module_list()
 

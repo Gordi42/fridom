@@ -1,24 +1,24 @@
 """
-# Initial Conditions for the Nonhydrostatic Model
-
-## Available Initial Conditions:
-    - SingleWave: A single polarized sine wave in the whole domain
-    - WavePackage: A polarized wave package with a Gaussian profile 
-    - Random: A random field with a given energy spectrum
-    - WaveSpectra: A random field with a GM-like wave spectrum
-    - GeostrophicSpectra: A random field with a geostrophic spectrum
-    - RandomPhase: WaveSpectra + GeostrophicSpectra
-    - Jet: An unstable jet
+Initial Conditions for the shallow water model
 """
-# Waves
-from .single_wave import SingleWave
-from .wave_package import WavePackage
+from lazypimp import setup
+from typing import TYPE_CHECKING
 
-# Random initial conditions
-from .random import Random
-from .wave_spectra import WaveSpectra
-from .geostrophic_spectra import GeostrophicSpectra
-from .random_phase import RandomPhase
+# ================================================================
+#  Disable lazy loading for type checking
+# ================================================================
+if TYPE_CHECKING:
+    from .jet import Jet
+    
+# ================================================================
+#  Setup lazy loading
+# ================================================================
+base_path = "fridom.shallowwater.initial_conditions"
 
-# Jet
-from .jet import Jet
+all_modules_by_origin = { }
+
+all_imports_by_origin = { 
+    f"{base_path}.jet": ["Jet"],
+}
+
+setup(__name__, all_modules_by_origin, all_imports_by_origin)

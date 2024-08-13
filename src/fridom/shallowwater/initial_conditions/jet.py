@@ -1,51 +1,71 @@
-from fridom.shallowwater.grid import Grid
-from fridom.shallowwater.state import State
+import fridom.shallowwater as sw
 
 
-class Jet(State):
+class Jet(sw.State):
     """
-    A Barotropic instable jet setup with 2 zonal jets and a perturbation
-    on top of it. The jet positions in the y-direction are 
-    at (1/4, 3/4)*Ly (opposing sign).
-    """
-    def __init__(self, grid:Grid, 
-                 wavenum=5, waveamp=0.1, jet_pos=(0.25, 0.75), jet_width=0.04,
-                 geo_proj=True):
-        """
-        Constructor of the Barotropic Jet initial condition with 2 zonal jets.
+    Two opposing instable jets.
 
-        Arguments:
-            grid              : The grid.
-            wavenum           : The wavenumber of the perturbation.
-            waveamp           : The amplitude of the perturbation.
-            geo_proj          : Whether to project the initial condition
-                                to the geostrophic subspace. Default: True.
-        """
-        super().__init__(grid)
+    Description
+    -----------
+    An instable jet setup with 2 zonal jets and a small pressure perturbation
+    on top of it. The jet is given by:
+
+    .. math::
+        u = 2.5 \\left( \\exp\\left(-\\left(\\frac{y - 0.75 L_y}{\\sigma}\\right)^2\\right) -
+                        \\exp\\left(-\\left(\\frac{y - 0.25 L_y}{\\sigma}\\right)^2\\right) 
+                \\right)
+
+    where :math:`L_y` is the domain length in the y-direction, 
+    and :math:`\\sigma = 0.04 \\pi` is the width of the jet. The perturbation
+    is given by:
+
+    .. math::
+        p = A \\sin \\left( \\frac{2 \\pi}{L_x} k_p x \\right)
+
+    where :math:`A` is the amplitude of the perturbation and :math:`k_p` is the
+    wavenumber of the perturbation. When `geo_proj` is set to True, the initial
+    condition is projected to the geostrophic subspace using the geostrophic
+    eigenvectors.
+
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
+    `wavenum` : `int`
+        The relative wavenumber of the perturbation.
+    `waveamp` : `float`
+        The amplitude of the perturbation.
+    `jet_pos` : `tuple`
+        The relative position of the jets in the y-direction
+    `jet_width` : `float`
+        The width of the jets.
+    `geo_proj` : `bool`
+        Whether to project the initial condition to the geostrophic subspace.
+    """
+    def __init__(self, 
+                 mset: sw.ModelSettings, 
+                 wavenum: int = 5, 
+                 waveamp: float = 0.1, 
+                 jet_pos: tuple[float] = (0.25, 0.75), 
+                 jet_width: float = 0.04,
+                 geo_proj: bool = True):
+        super().__init__(mset)
         # Shortcuts
-        cp = self.cp
-        mset = grid.mset
-        PI = cp.pi
-        x, y = tuple(grid.X)
-        x = x + 0.5*mset.dg[0]
-        y = y + 0.5*mset.dg[1]
-        Lx, Ly = tuple(mset.L)
+        ncp = sw.config.ncp
+        PI = ncp.pi
+        X, Y = self.grid.X
+        Lx, Ly = self.grid.L
 
         # Construct the zonal jets
-        self.u[:]  = 2.5*( cp.exp(-((y - jet_pos[1]*Ly)/(jet_width*PI))**2) - 
-                           cp.exp(-((y - jet_pos[0]*Ly)/(jet_width*PI))**2) )
+        self.u.arr = 2.5*( ncp.exp(-((Y - jet_pos[1]*Ly)/(jet_width*PI))**2) - 
+                           ncp.exp(-((Y - jet_pos[0]*Ly)/(jet_width*PI))**2) )
 
         # Construct the perturbation
-        kx_p = 2*PI/Lx * wavenum
-        self.h[:]  = waveamp * cp.sin(kx_p*x)
+        kx_p = 2 * PI / Lx * wavenum
+        self.p.arr = waveamp * ncp.sin(kx_p*X)
 
         if geo_proj:
-            from fridom.shallowwater.projection import GeostrophicSpectral
-            proj_geo = GeostrophicSpectral(grid)
+            proj_geo = sw.projection.GeostrophicSpectral(mset)
             z_geo = proj_geo(self)
-            self.u[:] = z_geo.u; self.v[:] = z_geo.v; self.h[:] = z_geo.h
+            self.fields = z_geo.fields
         return
-
-
-# remove symbols from namespace
-del Grid, State

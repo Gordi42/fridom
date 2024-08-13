@@ -5,7 +5,7 @@ from functools import partial
 
 @partial(fr.utils.jaxify, dynamic=("f_coriolis", "csqr"))
 class LinearTendency(fr.modules.Module):
-    """
+    r"""
     Computes the linear tendency of the shallow water model.
 
     The linear tendency is given by:
