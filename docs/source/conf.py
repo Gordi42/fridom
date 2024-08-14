@@ -3,16 +3,17 @@ import sys
 import os
 import inspect
 import shutil
-from urllib.parse import quote
 from unittest.mock import patch, MagicMock
 from jinja2.filters import FILTERS
-from importlib.util import spec_from_file_location, module_from_spec
-from pil_scraper import pil_scraper
+from custom_scraper import copy_media_files
 
 src_base_path = "../../src"
 
 sys.path.insert(0, os.path.abspath(src_base_path))
 sys.path.insert(0, os.path.abspath('../..'))
+
+# set the env variable to generate the examples
+os.environ['FRIDOM_DOC_GENERATION'] = 'True'
 
 
 # generate the rst files
@@ -55,7 +56,7 @@ sphinx_gallery_conf = {
     'plot_gallery': 'True',
     'remove_config_comments': True,  # Removes comments from the config block
     'filename_pattern': '/',
-    'image_scrapers': (pil_scraper,),
+    'image_scrapers': (copy_media_files),
     'show_signature': False,
     "notebook_extensions": {},
     "default_thumb_file": "_static/fridom-title.png",
@@ -93,7 +94,9 @@ html_theme_options = {
     }
 }
 html_title = "FRIDOM - Documentation"
- 
+html_css_files = [
+    'css/custom.css',
+]
 
 html_static_path = ['_static']
 autodoc_mock_imports = [
