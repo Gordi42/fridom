@@ -134,6 +134,37 @@ def stdout_is_file():
 # ================================================================
 #  Example helper functions
 # ================================================================
+def skip_on_doc_build(func: callable) -> callable:
+    """
+    Skip a function when building the documentation.
+    
+    Description
+    -----------
+    This decorator skips a function when building the documentation. This is
+    useful to avoid expensive computations during the documentation build.
+    
+    Parameters
+    ----------
+    `func` : `callable`
+        The function to skip.
+    
+    Returns
+    -------
+    `callable`
+        The function that is skipped when building the documentation.
+    
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> @fr.utils.skip_on_doc_build
+    ... def my_function():
+    ...     return "This function is skipped when building the documentation."
+    """
+    # check if we are building the documentation
+    import os
+    if os.getenv('FRIDOM_DOC_GENERATION') == 'True':
+        return lambda: None
+    return func
 
 def cache_figure(
         func: callable, 
