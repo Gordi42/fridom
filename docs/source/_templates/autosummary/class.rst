@@ -1,8 +1,5 @@
 {{ fullname | item_name | escape | underline}}
 
-This is applies
-
-
 .. currentmodule:: {{ module }}
 
 .. autoclass:: {{ objname }}
