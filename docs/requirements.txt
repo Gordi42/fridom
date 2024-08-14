@@ -2,6 +2,9 @@ myst_parser==3.0.1
 lazypimp
 sphinx-book-theme
 sphinx-copybutton
+sphinx_gallery
+sphinxcontrib-youtube
+sphinx-codeautolink
 
 # sphinx-rtd-theme==2.0.0
 # sphinxawesome-theme
