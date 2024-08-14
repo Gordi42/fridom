@@ -4,6 +4,7 @@ gdrive/
 
 # Clean up the example folder
 examples/**/*.mp4
+examples/**/*.png
 examples/**/*.nc
 
 
