@@ -14,14 +14,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from functools import partial
 
+nh.config.set_backend(nh.config.Backend.NUMPY)
 # ----------------------------------------------------------------
 #  Settings
 # ----------------------------------------------------------------
 exp_name    = "multiple_wave_makers"
-make_video  = True
+make_video  = False
 fps         = 5
 make_netcdf = False
-resolution  = 1024                       # number of grid points in x,z
+resolution  = 64                         # number of grid points in x,z
 wave_length = 5                          # wave length in meters
 wave_angles = [65, 45, 25]               # angle(kx, kz) in degrees
 run_length  = np.timedelta64(12, 'h')    # simulation run length
@@ -57,8 +58,12 @@ class Plotter(nh.modules.animation.ModelPlotter):
 # ----------------------------------------------------------------
 #  The main model
 # ----------------------------------------------------------------
-@partial(nh.utils.cache_figure, name=exp_name, force_recompute=True)
+# @partial(nh.utils.cache_figure, name=exp_name, force_recompute=True)
+@partial(nh.utils.sync_with_gdrive, 
+         filenames=[f"figures/{exp_name}.png"],)
 def main():
+
+    print("start")
     grid = nh.grid.cartesian.Grid(
         N=(resolution, 1, resolution), L=(300, 1, 200), 
         periodic_bounds=(True, True, True))
@@ -101,9 +106,12 @@ def main():
     model.run(runlen=run_length)
 
     # plot the final state
+    import os
+    os.makedirs("figures", exist_ok=True)
     fig = Plotter(model.model_state)
-    return fig
+    fig.savefig(f"figures/{exp_name}.png")
+    return
 
 
 if __name__ == "__main__":
-    img = main()
+    _ = main()
