@@ -60,6 +60,7 @@ sphinx_gallery_conf = {
     "default_thumb_file": "_static/fridom-title.png",
     'backreferences_dir'  : 'gen_modules/backreferences',
     'doc_module'          : ('fridom', ),
+    'only_warn_on_example_error': True
 }
 
 autodoc_default_options = {
