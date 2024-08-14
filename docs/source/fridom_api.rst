@@ -6,3 +6,4 @@ Fridom API
 
     fridom.framework
     fridom.nonhydro
+    fridom.shallowwater
