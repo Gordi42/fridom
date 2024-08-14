@@ -3,6 +3,7 @@ import numpy as np
 from typing import Union
 import warnings
 import os
+from pathlib import Path
 
 
 class VideoWriter(fr.modules.Module):
@@ -80,7 +81,7 @@ class VideoWriter(fr.modules.Module):
                  filename: str="output.mp4", 
                  fps: int=30,
                  parallel: bool=True,
-                 max_jobs: float=0.4,
+                 max_jobs: float=0.2,
                  ) -> None:
         super().__init__()
 
@@ -90,6 +91,11 @@ class VideoWriter(fr.modules.Module):
                 model_time_per_second)
         # Compute the write interval
         write_interval = model_time_per_second / fps
+
+        # add .mp4 extension if it is not there
+        path = Path(filename)
+        if not path.suffix:
+            filename += ".mp4"
 
         self.model_plotter = model_plotter
         self.write_interval = write_interval
