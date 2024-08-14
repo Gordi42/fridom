@@ -88,27 +88,25 @@ class State(fr.StateBase):
         Velocity in the x-direction.
         """
         return self.fields["u"]
-    
+
     @u.setter
     def u(self, value: fr.FieldVariable):
         self.fields["u"] = value
-        return
-    
+
     @property
     def v(self) -> fr.FieldVariable:
         """
         Velocity in the y-direction.
         """
         return self.fields["v"]
-    
+
     @v.setter
     def v(self, value: fr.FieldVariable):
         """
         Velocity in the y-direction.
         """
         self.fields["v"] = value
-        return
-    
+
     @property
     def p(self) -> fr.FieldVariable:
         r"""
@@ -119,7 +117,6 @@ class State(fr.StateBase):
     @p.setter
     def p(self, value: fr.FieldVariable):
         self.fields["p"] = value
-        return
 
     # ----------------------------------------------------------------
     #  Energy Variables
@@ -146,9 +143,9 @@ class State(fr.StateBase):
 
         csqr = self.mset.csqr_field
         Ro = self.mset.Ro
-        h_full = csqr + Ro * self.h
+        h_full = csqr + Ro * self.p
         ekin = 0.5 * Ro**2 * h_full * (self.u**2 + self.v**2)
-        
+
         # Set the attributes
         ekin.name = "ekin"
         ekin.long_name = "Kinetic Energy"
@@ -177,7 +174,7 @@ class State(fr.StateBase):
 
         csqr = self.mset.csqr_field
         Ro = self.mset.Ro
-        h_full = csqr + Ro * self.h
+        h_full = csqr + Ro * self.p
         epot = 0.5 * h_full ** 2
 
         # Set the attributes
@@ -209,22 +206,22 @@ class State(fr.StateBase):
     # ----------------------------------------------------------------
 
     @property
-    def hor_vort(self) -> fr.FieldVariable:
+    def rel_vort(self) -> fr.FieldVariable:
         r"""
-        Horizontal vorticity
+        Relative vorticity
 
         .. math::
             \zeta = \partial_x v - \partial_y u
         """
         dvdx = self.v.diff(axis=0)
         dudy = self.u.diff(axis=1).interpolate(dvdx.position)
-        hor_vort = dvdx - dudy
+        rel_vort = dvdx - dudy
 
         # Set the attributes
-        hor_vort.name = "hor_vort"
-        hor_vort.long_name = "horizontal vorticity"
-        hor_vort.units = "1/s"
-        return hor_vort
+        rel_vort.name = "rel_vort"
+        rel_vort.long_name = "relative vorticity"
+        rel_vort.units = "1/s"
+        return rel_vort
 
     @property
     def pot_vort(self) -> fr.FieldVariable:
@@ -246,7 +243,7 @@ class State(fr.StateBase):
         csqr = self.mset.csqr_field
         Ro = self.mset.Ro
 
-        pot_vort = (self.rel_vort_z + f) / (csqr + Ro * self.p)
+        pot_vort = (self.rel_vort + f) / (csqr + Ro * self.p)
 
         # Set the attributes
         pot_vort.name = "pot_vort"
