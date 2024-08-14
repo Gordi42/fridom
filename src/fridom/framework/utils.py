@@ -131,6 +131,30 @@ def stdout_is_file():
         res = False  # output is ipython
     return res
 
+# ================================================================
+#  Example helper functions
+# ================================================================
+
+def cache_figure(
+        func: callable, 
+        name: str = None,
+        force_recompute: bool = False,
+        dpi: int = 200) -> callable:
+    def wrapper():
+        import os
+        from PIL import Image
+        # Find out the main file name
+        filename = f"figures/{name.split('.')[0]}.png"
+        # Create the cache directory if it does not exist
+        os.makedirs("figures", exist_ok=True)
+        # Check if we need to compute the figure
+        if force_recompute or not os.path.exists(filename):
+            fig = func()
+            fig.savefig(filename, dpi=dpi)
+
+        img = Image.open(filename)
+        return img
+    return wrapper
 
 # ================================================================
 #  Array functions
