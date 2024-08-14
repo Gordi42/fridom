@@ -76,7 +76,7 @@ class VideoWriter(fr.modules.Module):
     name = "Video Writer"
     def __init__(self, 
                  model_plotter: 'fr.ModelPlotter', 
-                 write_interval: Union[np.timedelta64, float],
+                 model_time_per_second: Union[np.timedelta64, float],
                  filename: str="output.mp4", 
                  fps: int=30,
                  parallel: bool=True,
@@ -85,8 +85,11 @@ class VideoWriter(fr.modules.Module):
         super().__init__()
 
         # Convert the times to seconds
-        if isinstance(write_interval, np.timedelta64):
-            write_interval = fr.utils.to_seconds(write_interval)
+        if isinstance(model_time_per_second, np.timedelta64):
+            model_time_per_second = fr.utils.to_seconds(
+                model_time_per_second)
+        # Compute the write interval
+        write_interval = model_time_per_second / fps
 
         self.model_plotter = model_plotter
         self.write_interval = write_interval
