@@ -1,5 +1,6 @@
 .vscode/
 testing/
+gdrive/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
