@@ -13,6 +13,11 @@ build:
     # nodejs: "20"
     # rust: "1.70"
     # golang: "1.20"
+  commands:
+    - apt-get update && apt-get install -y git-lfs  # Install Git LFS
+    - git lfs install  # Initialize Git LFS in the build environment
+    - git lfs pull  # Pull LFS files
+
 
 # Build documentation in the "docs/" directory with Sphinx
 sphinx:
