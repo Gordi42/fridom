@@ -9,6 +9,7 @@ Welcome to fridom's documentation!
 .. video:: _static/fridom_bright.mp4
    :autoplay:
    :loop:
+   :width: 100%
 
 .. toctree::
    :maxdepth: 2
