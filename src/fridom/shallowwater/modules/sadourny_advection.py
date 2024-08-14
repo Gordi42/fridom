@@ -42,6 +42,7 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
     def setup(self, mset: sw.ModelSettings) -> None:
         super().setup(mset)
         self.csqr = mset.csqr_field
+        self._required_halo = 2
         return
 
     @fr.utils.jaxjit
@@ -118,7 +119,7 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
             return dz
         
         # compute the potential vorticity
-        zeta = z.hor_vort
+        zeta = z.rel_vort
         h_full = self.csqr + scale * z.p  # check if we should use scale or Ro here
         q = zeta / interp(h_full, NORTHEAST)
 
