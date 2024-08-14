@@ -44,6 +44,7 @@ extensions = [
     'sphinx_copybutton',
     'sphinx_gallery.gen_gallery',
     'sphinxcontrib.youtube',
+    "sphinxcontrib.video",
     "sphinx_codeautolink",
     'myst_parser',
 ]

@@ -6,8 +6,9 @@
 Welcome to fridom's documentation!
 ==================================
 
-.. youtube:: Fotni4P2ZQs
-   :width: 100%
+.. video:: _static/fridom_bright.mp4
+   :autoplay:
+   :loop:
 
 .. toctree::
    :maxdepth: 2
