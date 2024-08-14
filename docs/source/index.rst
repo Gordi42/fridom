@@ -6,10 +6,12 @@
 Welcome to fridom's documentation!
 ==================================
 
-.. video:: _static/fridom_bright.mp4
-   :autoplay:
-   :loop:
-   :width: 100%
+.. raw:: html
+
+   <video width="100%" controls autoplay loop>
+     <source src="_static/fridom_bright.mp4" type="video/mp4">
+     Your browser does not support the video tag.
+   </video>
 
 .. toctree::
    :maxdepth: 2
