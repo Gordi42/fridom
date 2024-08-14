@@ -125,6 +125,7 @@ Using these discretization operators, the discrete linear system matrix is:
 Eigenvalues
 -----------
 The eigenvalues of the discrete system matrix are:
+
 .. math::
     \omega^0 = 0
     \quad \text{and} \quad
