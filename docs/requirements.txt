@@ -5,6 +5,7 @@ sphinx-copybutton
 sphinx_gallery
 sphinxcontrib-youtube
 sphinx-codeautolink
+matplotlib
 
 # sphinx-rtd-theme==2.0.0
 # sphinxawesome-theme
