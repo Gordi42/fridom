@@ -15,16 +15,6 @@ sys.path.insert(0, os.path.abspath(src_base_path))
 sys.path.insert(0, os.path.abspath('../..'))
 
 
-# print the content of the _static folder (including the file size)
-print("\n\n\n\n")
-for root, dirs, files in os.walk("_static"):
-    for file in files:
-        print(f"{root}/{file} - {os.path.getsize(os.path.join(root, file))} bytes")
-print("\n\n\n\n")
-
-assert False
-
-
 # generate the rst files
 # import auto_examples
 import load_modules
