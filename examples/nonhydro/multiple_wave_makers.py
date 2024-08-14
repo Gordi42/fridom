@@ -8,31 +8,33 @@ In this example we add three polarized wave makers to the model. Each wave maker
 has a different angle and is located at a different position in the x-direction.
 The phase and group velocity of the waves depend on the angle of the wave vector,
 and hence differ between the different wave makers.
+
+.. video:: videos/multiple_wave_makers.mp4
 """
 import fridom.nonhydro as nh
 import numpy as np
 import matplotlib.pyplot as plt
-from functools import partial
 
-nh.config.set_backend(nh.config.Backend.NUMPY)
 # ----------------------------------------------------------------
 #  Settings
 # ----------------------------------------------------------------
-exp_name    = "multiple_wave_makers"
-make_video  = False
-fps         = 5
+make_video  = True
+fps         = 30
 make_netcdf = False
-resolution  = 64                         # number of grid points in x,z
+resolution  = 1024                       # number of grid points in x,z
 wave_length = 5                          # wave length in meters
 wave_angles = [65, 45, 25]               # angle(kx, kz) in degrees
 run_length  = np.timedelta64(12, 'h')    # simulation run length
+
+exp_name    = "multiple_wave_makers"
+thumbnail   = f"figures/{exp_name}.png"
 
 # ----------------------------------------------------------------
 #  Plotting
 # ----------------------------------------------------------------
 class Plotter(nh.modules.animation.ModelPlotter):
     def create_figure():
-        return plt.figure(figsize=(12.8, 7.2))
+        return plt.figure(figsize=(12.8, 7.2), dpi=200)
 
     def prepare_arguments(mz: nh.ModelState) -> dict:
         return {"b": mz.z.b.xr, "t": mz.time}
@@ -58,12 +60,9 @@ class Plotter(nh.modules.animation.ModelPlotter):
 # ----------------------------------------------------------------
 #  The main model
 # ----------------------------------------------------------------
-# @partial(nh.utils.cache_figure, name=exp_name, force_recompute=True)
-@partial(nh.utils.sync_with_gdrive, 
-         filenames=[f"figures/{exp_name}.png"],)
+@nh.utils.skip_on_doc_build
 def main():
 
-    print("start")
     grid = nh.grid.cartesian.Grid(
         N=(resolution, 1, resolution), L=(300, 1, 200), 
         periodic_bounds=(True, True, True))
@@ -76,7 +75,7 @@ def main():
         mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
             Plotter, 
             model_time_per_second=np.timedelta64(1, "h"),
-            filename=exp_name, fps=60))
+            filename=exp_name, fps=fps))
 
     # create a NetCDF writer to save the output
     if make_netcdf:
@@ -105,13 +104,13 @@ def main():
     model = nh.Model(mset)
     model.run(runlen=run_length)
 
-    # plot the final state
+    # plot the final state (thumbnail)
     import os
     os.makedirs("figures", exist_ok=True)
     fig = Plotter(model.model_state)
-    fig.savefig(f"figures/{exp_name}.png")
+    fig.savefig(thumbnail, dpi=200)
     return
 
 
 if __name__ == "__main__":
-    _ = main()
+    main()
