@@ -39,40 +39,6 @@ class GaussianWaveMaker(fr.modules.Module):
         The amplitude of the wave maker.
     `variable` : `str`
         The variable to force. (Default: "u")
-
-    Examples
-    --------
-
-    .. code-block:: python
-
-        import fridom.nonhydro as nh
-        import numpy as np
-
-        # Create the grid and model settings
-        grid = nh.grid.cartesian.Grid(
-            N=(512, 1, 512), 
-            L=(1000, 1, 200), 
-            periodic_bounds=(True, True, False))
-        mset = nh.ModelSettings(
-            grid=grid, f0=1e-4, N2=2.5e-5)
-        mset.time_stepper.dt = np.timedelta64(1, 'm')
-
-        # create a NetCDF writer to save the output
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables = lambda mz: mz.z.field_list + [mz.z.etot, mz.z.ekin],
-            write_interval = np.timedelta64(4, 'm')))
-
-        # add a Gaussian wave maker
-        mset.tendencies.add_module(nh.modules.forcings.GaussianWaveMaker(
-            position = (500, None, 100),
-            width = (5, None, 5),
-            frequency = 1/(45 * 60), 
-            amplitude = 1e-5))
-
-        # Setup and run the model
-        mset.setup()
-        model = nh.Model(mset)
-        model.run(runlen=np.timedelta64(6, 'h'))
     """
     name = "Gaussian Wave Maker"
 
