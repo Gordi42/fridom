@@ -53,23 +53,6 @@ class WavePackage(nh.State):
     `period` : `float`
         The period of the wave (only for inertia-gravity modes).
     
-    Examples
-    --------
-    .. code-block:: python
-
-        import fridom.nonhydro as nh
-        import numpy as np
-        grid = nh.grid.cartesian.Grid(
-            N=(256, 2, 256), L=(1, 1, 1), periodic_bounds=(True, True, True))
-        mset = nh.ModelSettings(grid=grid, f0=1, N2=1, dsqr=0.01, Ro=0.0)
-        mset.time_stepper.dt = np.timedelta64(10, 'ms')
-        mset.setup()
-        z = nh.initial_conditions.WavePackage(
-            mset, mask_pos=(0.5, None, 0.5), mask_width=(0.1, None, 0.1), 
-            k=(20, 0, 20))
-        model = nh.Model(mset)
-        model.z = z
-        model.run(runlen=np.timedelta64(20, 's'))
     """
     def __init__(self, 
                  mset: nh.ModelSettings, 
