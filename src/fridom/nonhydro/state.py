@@ -54,7 +54,7 @@ class State(fr.StateBase):
             b = fr.FieldVariable(
                 mset,
                 name="b", 
-                long_name="buoyancy", 
+                long_name="Buoyancy", 
                 units="m/s²", 
                 is_spectral=is_spectral, 
                 position=cell_center,
@@ -157,7 +157,7 @@ class State(fr.StateBase):
         # Set the attributes
         ekin.name = "ekin"
         ekin.long_name = "Kinetic Energy"
-        ekin.units = "m^2/s^2"
+        ekin.units = "m²/s²"
         ekin.position = self.grid.cell_center
         return ekin
 
@@ -188,7 +188,7 @@ class State(fr.StateBase):
         # Set the attributes
         epot.name = "epot"
         epot.long_name = "Potential Energy"
-        epot.units = "m^2/s^2"
+        epot.units = "m²/s²"
         epot.position = self.grid.cell_center
         return epot
     
@@ -205,7 +205,7 @@ class State(fr.StateBase):
         # Set the attributes
         etot.name = "etot"
         etot.long_name = "Total Energy"
-        etot.units = "m^2/s^2"
+        etot.units = "m²/s²"
         etot.position = self.grid.cell_center
         return etot
 
