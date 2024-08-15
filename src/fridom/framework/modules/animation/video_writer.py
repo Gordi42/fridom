@@ -30,48 +30,6 @@ class VideoWriter(fr.modules.Module):
         If True, the video writer will use parallelism to create the video.
     `max_jobs` : `float`, optional (default=0.4)
         The maximum fraction of the available threads that will be used.
-    
-    Examples
-    --------
-    The following example shows how to create a video from a nonhydrostatic
-    model using the SingleWave initial condition.
-
-    .. code-block:: python
-
-        import fridom.nonhydro as nh
-        import numpy as np
-        import matplotlib.pyplot as plt
-
-        # create the video writer
-        class MyPlotter(nh.modules.animation.ModelPlotter):
-            def create_figure():
-                return plt.figure(figsize=(8, 6))
-
-            def prepare_arguments(mz: nh.ModelState) -> dict:
-                return {"b": mz.z.b.xrs[:,0,:], "z": mz.z.xrs[::4, 0, ::4]}
-
-            def update_figure(fig, b, z) -> None:
-                ax = fig.add_subplot(111)
-                b.plot(ax=ax, cmap="RdBu_r", vmin=-0.5, vmax=0.5)
-                z.plot.quiver("x", "z", "u", "w", scale=50)
-
-        vid_writer = nh.modules.animation.VideoWriter(
-            MyPlotter, interval=10, filename="single_wave.mp4", fps=30)
-
-        # create the model
-        grid = nh.grid.cartesian.Grid(
-            N=[128]*3, L=[1]*3, periodic_bounds=(True, True, True))
-        mset = nh.ModelSettings(grid=grid, dsqr=0.02, Ro=0.0)
-        mset.time_stepper.dt = np.timedelta64(10, 'ms')
-        # add the video writer
-        mset.diagnostics.add_module(vid_writer)
-        mset.setup()
-        z = nh.initial_conditions.SingleWave(mset, kx=2, ky=0, kz=1)
-        model = nh.Model(mset)
-        model.z = z
-        model.run(runlen=np.timedelta64(10, 's'))
-        # show the video
-        vid_writer.show_video()
 
     """
     name = "Video Writer"
@@ -159,7 +117,9 @@ class VideoWriter(fr.modules.Module):
         while len(self.running_jobs) > 0:
             fr.config.logger.info("Collecting remaining figures")
             self.collect_figures()
+        fr.config.logger.debug("Closing the video writer")
         self.writer.close()
+        fr.config.logger.debug("Video writer closed")
         if self.fig is not None:
             import matplotlib.pyplot as plt
             plt.close(self.fig)
