@@ -1,8 +1,8 @@
 r"""
-Single Internal Wave
-====================
+Reflecting Wave Package
+=======================
 
-A polarized internal wave package in a triple periodic domain.
+A polarized internal wave package reflecting on the bottom.
 
 This example shows the :py:class:`WavePackage <fridom.nonhydro.initial_conditions.WavePackage>`
 initial condition.
