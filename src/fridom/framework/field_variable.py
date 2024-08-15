@@ -359,7 +359,10 @@ class FieldVariable:
                     ics[i] = slice(0,1)
                     key[i] = slice(0,1)
                 if isinstance(key[i], int):
-                    key[i] = slice(key[i], key[i]+1)
+                    if key[i] < 0:
+                        key[i] = slice(key[i]-1, key[i])
+                    else:
+                        key[i] = slice(key[i], key[i]+1)
 
             arr = fr.utils.to_numpy(fv.arr[tuple(ics)][tuple(key)])
 
