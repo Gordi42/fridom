@@ -50,22 +50,6 @@ class SingleWave(nh.State):
     `use_discrete` : `bool` (default: True)
         Whether to use the discrete eigenvectors or the analytical ones.
 
-    Examples
-    --------
-
-    .. code-block:: python
-
-        import fridom.nonhydro as nh
-        import numpy as np
-        grid = nh.grid.cartesian.Grid(
-            N=[127]*3, L=[1]*3, periodic_bounds=(True, True, True))
-        mset = nh.ModelSettings(grid=grid, dsqr=0.02)
-        mset.time_stepper.dt = np.timedelta64(10, 'ms')
-        mset.tendencies.advection.disable()
-        mset.setup()
-        model = nh.Model(mset)
-        model.z = nh.initial_conditions.SingleWave(mset, k=(2, 0, 1))
-        model.run(runlen=np.timedelta64(10, 's'))
     """
     def __init__(self, 
                  mset: nh.ModelSettings, 
