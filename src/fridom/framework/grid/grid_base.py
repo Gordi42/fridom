@@ -80,6 +80,33 @@ class GridBase:
         self._interp_module.setup(mset=mset)
         return
 
+    def get_mesh(self, 
+                 position: fr.grid.Position | None = None,
+                 spectral: bool = False
+    ) -> tuple[ndarray]:
+        """
+        Get the meshgrid of the grid points.
+        
+        Parameters
+        ----------
+        `position` : `Position` or `None` (default: `None`)
+            The position of the field.
+        `spectral` : `bool` (default: `False`)
+            Whether to return the meshgrid of the spectral domain.
+        
+        Returns
+        -------
+        `tuple[ndarray]`
+            The meshgrid of the grid points.
+        """
+        if position is None:
+            position = self.cell_center
+        if position != self.cell_center:
+            raise NotImplementedError("Not implemented for this grid")
+        if spectral:
+            return self._K
+        return self._X
+
     # ----------------------------------------------------------------
     #  Fourier Transform Methods
     # ----------------------------------------------------------------

@@ -167,6 +167,11 @@ class FieldVariable:
         self.arr *= self.grid.water_mask.get_mask(self.position)
         return self
 
+    def get_mesh(self) -> 'tuple[ndarray]':
+        """
+        Get the meshgrid of the FieldVariable
+        """
+        return self.grid.get_mesh(self.position, self.is_spectral)
 
     # ================================================================
     #  Differential Operators
