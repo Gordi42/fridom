@@ -270,7 +270,7 @@ class Model:
                     self.model_state.panicked = True
 
         # make diagnostics
-        self.model_state = self.diagnostics.update(self.model_state)
+        self.model_state = self.diagnostics.update(mz=self.model_state)
 
         # Update the progress bar
         self.progress_bar.update(self.model_state)
