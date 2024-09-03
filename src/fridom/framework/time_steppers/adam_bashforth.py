@@ -3,7 +3,7 @@ import numpy as np
 from functools import partial
 
 
-@partial(fr.utils.jaxify, dynamic=('dz_list', 'pointer', 'it_count', 'coeff_AB'))
+@partial(fr.utils.jaxify, dynamic=('dz_list', 'pointer', 'it_count', 'coeff_AB', 'coeffs'))
 class AdamBashforth(fr.time_steppers.TimeStepper):
     """
     Adam Bashforth time stepping up to 4th order.
@@ -60,7 +60,7 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         return
 
     def reset(self):
-        self.setup()
+        self.setup(self.mset)
         return
 
     
