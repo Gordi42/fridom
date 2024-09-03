@@ -57,7 +57,7 @@ class ModelState:
         """
         self.z *= 0.0
         self.z_diag *= 0.0
-        self.dz *= 0.0
+        self.dz = None
         self.it = 0
         self.time = 0
         return
