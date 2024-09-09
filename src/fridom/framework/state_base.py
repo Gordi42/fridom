@@ -227,6 +227,35 @@ class StateBase:
             mset=self.mset, 
             field_list=field_list, 
             is_spectral=self.is_spectral)
+
+    # ----------------------------------------------------------------
+    #  NetCDF I/O
+    # ----------------------------------------------------------------
+    def to_netcdf(self, path: str) -> None:
+        """
+        Write the state to a NetCDF file.
+        """
+        self.xr.to_netcdf(path)
+
+    @classmethod
+    def from_netcdf(cls, 
+                    mset: 'ModelSettingsBase',
+                    path: str) -> None:
+        """
+        Read the state from a NetCDF file.
+        """
+        import xarray as xr
+        ncp = fr.config.ncp
+
+        ds = xr.open_dataset(path)
+        z = cls(mset)
+        ics = mset.grid.inner_slice
+        for key in z.fields.keys():
+            z.fields[key].arr = utils.modify_array(
+                z.fields[key].arr, ics, ncp.array(ds[key]).T)
+        z.sync()
+        return z
+
     # ======================================================================
     #  OPERATOR OVERLOADING
     # ======================================================================
