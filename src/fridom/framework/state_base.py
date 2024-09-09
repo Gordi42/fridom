@@ -1,6 +1,7 @@
 # Import external modules
 from typing import TYPE_CHECKING
 from functools import partial
+from copy import copy
 # Import internal modules
 import fridom.framework as fr
 from fridom.framework import config, utils
@@ -217,6 +218,15 @@ class StateBase:
             field.arr = arr_dict[key]
         return
 
+    # ================================================================
+    #  Creating copies
+    # ================================================================
+    def __copy__(self):
+        field_list = [copy(field) for field in self.field_list]
+        return self.__class__(
+            mset=self.mset, 
+            field_list=field_list, 
+            is_spectral=self.is_spectral)
     # ======================================================================
     #  OPERATOR OVERLOADING
     # ======================================================================
