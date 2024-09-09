@@ -1,13 +1,14 @@
 import fridom.framework as fr
 import numpy as np
 from functools import partial
+from typing import Union
 
 
 @partial(fr.utils.jaxify, dynamic=('dz_list', 'pointer', 'it_count', 'coeff_AB', 'coeffs'))
 class AdamBashforth(fr.time_steppers.TimeStepper):
-    """
+    r"""
     Adam Bashforth time stepping up to 4th order.
-    
+
     Parameters
     ----------
     `dt` : `float`
@@ -16,6 +17,80 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         Order of the time stepping. (default 3, max 4)
     `eps` : `float`
         2nd order bashforth correction. (default 0.01)
+
+    Description
+    -----------
+    The Adam Bashforth time stepping scheme is a multi-step explicit time stepping
+    scheme. It solves a given PDE
+
+    .. math::
+        \partial_t \boldsymbol{z} = \boldsymbol{F}(\boldsymbol{z}, t)
+
+    by using the following scheme of order :math:`n`
+
+    .. math::
+        \boldsymbol{z}^{n+1} = \boldsymbol{z}^n 
+            + \Delta t \sum_{j=0}^{n-1} \alpha_j 
+                \boldsymbol{F}(\boldsymbol{z}^{n-j}, t^{n-j})
+
+    where :math:`\alpha_i` are the Adam Bashforth coefficients, :math:`\Delta t` 
+    is the time step size, :math:`\boldsymbol{z}^j` is the state at time 
+    :math:`t^j = t_0 + j \Delta t`. The coefficients for orders 1 to 4 are
+    given in the table below.
+
+    +-------+-------------------+-------------------+-------------------+-------------------+
+    | Order | :math:`\alpha_1`  | :math:`\alpha_2`  | :math:`\alpha_3`  | :math:`\alpha_4`  |
+    +=======+===================+===================+===================+===================+
+    | 1     | 1                 |                   |                   |                   |
+    +-------+-------------------+-------------------+-------------------+-------------------+
+    | 2     | 3/2 + \epsilon    | -1/2 - \epsilon   |                   |                   |
+    +-------+-------------------+-------------------+-------------------+-------------------+
+    | 3     | 23/12             | -4/3              | 5/12              |                   |
+    +-------+-------------------+-------------------+-------------------+-------------------+
+    | 4     | 55/24             | -59/24            | 37/24             | -3/8              |
+    +-------+-------------------+-------------------+-------------------+-------------------+
+
+    Stability Analysis
+    ******************
+    Let :math:`\lambda` be the eigenvalues of the right-hand side
+    of the PDE, e.g:
+
+    .. math::
+        \partial_t \boldsymbol{z} = \boldsymbol{F}(\boldsymbol{z}, t)
+        = -i \lambda \boldsymbol{z}
+    
+    Inserting this into the Adam Bashforth scheme gives:
+
+    .. math::
+        \boldsymbol{z}^{n+1} = \sum_{j=0}^{n-1} c_j \boldsymbol{z}^{n-j}
+    
+    where 
+
+    .. math::
+        c_j = \begin{cases}
+            1 - i \Delta t \lambda & \text{if } j = 0 \\
+            -i \Delta t \lambda & \text{if } j > 0
+        \end{cases}
+
+    We now insert the Ansatz:
+
+    .. math::
+        \boldsymbol{z}^n = \boldsymbol{z}_0 e^{-i \omega n \Delta t}
+                         = \boldsymbol{z}_0 x^n
+                    
+    with :math:`x = e^{-i \omega \Delta t}`. This yields a polynomial equation
+    for :math:`x`:
+    
+    .. math::
+        x^{n+1} = \sum_{j=0}^{n-1} c_j x^{n-j}
+
+    Finally, we find the eigenvalues of the time stepping scheme by solving
+    the polynomial equation for :math:`x` numerically and taking the logarithm:
+
+    .. math::
+        \omega = -i \log(x) / \Delta t
+
+    
     """
     name = "Adam Bashforth"
     def __init__(self, dt = 1, order: int = 3, eps=0.01):
@@ -192,6 +267,18 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     # ================================================================
     #  Properties
     # ================================================================
+    @property
+    def dt(self) -> np.timedelta64:
+        return self._dt
+
+    @dt.setter
+    def dt(self, value: Union[np.timedelta64, float]) -> None:
+        if isinstance(value, float) or isinstance(value, int):
+            self._dt = value
+        else:
+            self._dt = fr.config.dtype_real(value / np.timedelta64(1, 's'))
+        if self.mset is not None:
+            self.setup(self.mset)
 
     @property
     def info(self) -> dict:
