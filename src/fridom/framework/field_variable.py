@@ -1,6 +1,6 @@
 import fridom.framework as fr
 from typing import TYPE_CHECKING, Union
-from copy import deepcopy
+from copy import copy, deepcopy
 from mpi4py import MPI
 from numpy import ndarray
 import numpy as np
@@ -145,7 +145,6 @@ class FieldVariable:
             res = ncp.array(
                 self.grid.fft(self.arr, self.transform_types),
                 dtype=fr.config.dtype_comp)
-        from copy import copy
         f = copy(self)
         f.arr = res
         f._is_spectral = not self.is_spectral
@@ -284,6 +283,10 @@ class FieldVariable:
 
     def __setstate__(self, state):
         self.__dict__.update(state)
+
+    def __copy__(self) -> 'FieldVariable':
+        return FieldVariable(arr=deepcopy(self.arr),
+                             **self.get_kw())
 
     def __deepcopy__(self, memo: dict) -> 'FieldVariable':
         return FieldVariable(arr=deepcopy(self.arr, memo), 
