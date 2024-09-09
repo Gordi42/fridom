@@ -6,6 +6,8 @@ gdrive/
 examples/**/*.nc
 examples/**/*.cdf
 
+# Remove the scripts folder for now
+scripts/**
 
 
 # Byte-compiled / optimized / DLL files
