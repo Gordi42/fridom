@@ -122,9 +122,8 @@ class StateBase:
         Arguments:
             other (State)  : Other state (gets complex conjugated).
         """
-        return sum(my_field * other_field.arr.conj() 
-                   for my_field, other_field in 
-                   zip(self.field_list, other.field_list))
+        return sum(self.fields[key] * other.fields[key].arr.conj() 
+                   for key in self.fields.keys())
 
     def norm_l2(self) -> float:
         """
