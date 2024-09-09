@@ -1,15 +1,10 @@
-# Import external modules
-from typing import TYPE_CHECKING
+import fridom.framework as fr
+from typing import Union
+from copy import copy, deepcopy
 import numpy as np
-# Import internal modules
-from fridom.framework.projection.projection import Projection
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.state_base import StateBase
 
 
-class OptimalBalance(Projection):
+class OptimalBalance(fr.projection.Projection):
     """
     Nonlinear balancing using the optimal balance method.
 
@@ -19,11 +14,12 @@ class OptimalBalance(Projection):
         The model settings.
     `base_proj` : `Projection`
         The projection onto the base point.
+    `ramp_period` : `np.timedelta64 | float | int` (default: None)
+        The ramping period.
     `mset_backwards` : `ModelSettings`
         The model settings for the backward ramping. If None, the forward model
-        settings are used.
-    `ramp_period` : `float`
-        The ramping period (not scaled).
+        settings are used. This option is useful when the backwards ramping should
+        be done with a different setup (e.g. negative viscosity).
     `ramp_type` : `str`
         The ramping type. Choose from "exp", "pow", "cos", "lin".
     `disable_diagnostic` : `bool`
@@ -36,16 +32,17 @@ class OptimalBalance(Projection):
     `stop_criterion` : `float`
         The stopping criterion.
     """
-    def __init__(self, mset: 'ModelSettingsBase',
-                 base_proj:Projection,
-                 mset_backwards: 'ModelSettingsBase' = None,
-                 ramp_period=1,
-                 ramp_type="exp",
-                 disable_diagnostic=True,
-                 update_base_point=True,
-                 max_it=3,
-                 stop_criterion=1e-9,
-                 return_details=False) -> None:
+    def __init__(self, mset: 'fr.ModelSettingsBase',
+                 base_proj: 'fr.projection.Projection',
+                 ramp_period: Union[np.timedelta64, float, int, None],
+                 mset_backwards: 'fr.ModelSettingsBase' = None,
+                 ramp_type: str = "exp",
+                 update_base_point: bool = True,
+                 max_it: int = 3,
+                 stop_criterion: float = 1e-9,
+                 disable_diagnostic: bool = True,
+                 return_details: bool = False) -> None:
+        mset = deepcopy(mset)
         super().__init__(mset)
         self.mset_backwards = mset_backwards or mset
 
@@ -53,9 +50,8 @@ class OptimalBalance(Projection):
         self.return_details = return_details
         
         # initialize the model
-        from fridom.framework.model import Model
-        self.model_forward = Model(mset)
-        self.model_backward = Model(mset_backwards or mset)
+        self.model_forward = fr.Model(self.mset)
+        self.model_backward = fr.Model(self.mset_backwards)
 
         if disable_diagnostic:
             self.model_forward.diagnostics.disable()
@@ -68,23 +64,20 @@ class OptimalBalance(Projection):
         self.max_it         = max_it
         self.stop_criterion = stop_criterion
         self.update_base_point = update_base_point
-
-        # save the rossby number
-        self.rossby = float(mset.Ro)
+        self.default_scaling = mset.tendencies.advection.scaling
 
         # prepare the balancing
         self.z_base = None
         return
 
-    def calc_base_coord(self, z: 'StateBase') -> None:
+    def calc_base_coord(self, z: 'fr.StateBase') -> None:
         self.z_base = self.base_proj(z)
         return
 
-    def forward_to_nonlinear(self, z: 'StateBase') -> 'StateBase':
+    def forward_to_nonlinear(self, z: 'fr.StateBase') -> 'fr.StateBase':
         """
         Perform forward ramping from linear model to nonlinear model.
         """
-
         model = self.model_forward
         model.reset()
         mset = model.mset
@@ -94,15 +87,15 @@ class OptimalBalance(Projection):
         time_stepper.dt = np.abs(time_stepper.dt)
 
         # initialize the model
-        model.z = z.copy()
+        model.z = copy(z)
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            mset.Ro = self.rossby * self.ramp_func(n / self.ramp_steps)
+            mset.tendencies.advection.scaling = self.ramp_func(n / self.ramp_steps) * self.default_scaling
             model.step()
         return model.z
     
-    def backward_to_linear(self, z: 'StateBase') -> 'StateBase':
+    def backward_to_linear(self, z: 'fr.StateBase') -> 'fr.StateBase':
         """
         Perform backward ramping from nonlinear model to linear model.
         """
@@ -114,15 +107,15 @@ class OptimalBalance(Projection):
         model.time_stepper.dt = - np.abs(model.time_stepper.dt)
 
         # initialize the model
-        model.z = z.copy()
+        model.z = copy(z)
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            mset.Ro = self.rossby * self.ramp_func(1 - n / self.ramp_steps)
+            mset.tendencies.advection.scaling = self.ramp_func(1 - n / self.ramp_steps) * self.default_scaling
             model.step()
         return model.z
 
-    def forward_to_linear(self, z: 'StateBase') -> 'StateBase':
+    def forward_to_linear(self, z: 'fr.StateBase') -> 'fr.StateBase':
         """
         Perform forward ramping from nonlinear model to linear model.
         """
@@ -134,15 +127,15 @@ class OptimalBalance(Projection):
         model.time_stepper.dt = np.abs(model.time_stepper.dt)
 
         # initialize the model
-        model.z = z.copy()
+        model.z = copy(z)
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            mset.Ro = self.rossby * self.ramp_func(n / self.ramp_steps)
+            mset.tendencies.advection.scaling = self.ramp_func(n / self.ramp_steps) * self.default_scaling
             model.step()
         return model.z
 
-    def backward_to_nonlinear(self, z: 'StateBase') -> 'StateBase':
+    def backward_to_nonlinear(self, z: 'fr.StateBase') -> 'fr.StateBase':
         """
         Perform backward ramping from linear model to nonlinear model.
         """
@@ -154,12 +147,13 @@ class OptimalBalance(Projection):
         model.time_stepper.dt = - np.abs(model.time_stepper.dt)
 
         # initialize the model
-        model.z = z.copy()
+        model.z = copy(z)
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            mset.Ro = self.rossby * self.ramp_func(1 - n / self.ramp_steps)
+            mset.tendencies.advection.scaling = self.ramp_func(1 - n / self.ramp_steps) * self.default_scaling
             model.step()
+
         return model.z
 
     def get_ramp_func(ramp_type):
@@ -183,7 +177,7 @@ class OptimalBalance(Projection):
         return ramp_func
         
 
-    def __call__(self, z: 'StateBase') -> 'StateBase':
+    def __call__(self, z: 'fr.StateBase') -> 'fr.StateBase':
         """
         Project a state to the balanced subspace using optimal balance.
         
@@ -197,7 +191,7 @@ class OptimalBalance(Projection):
         `State`
             The projection of the state onto the balanced subspace.
         """
-        verbose = self.mset.print_verbose
+        logger = fr.config.logger
 
         iterations = np.arange(self.max_it)
         errors     = np.ones(self.max_it)
@@ -205,20 +199,20 @@ class OptimalBalance(Projection):
         # save the base coordinate
         self.calc_base_coord(z)
 
-        z_res = z.copy()
+        z_res = copy(z)
 
         # start the iterations
-        verbose("Starting optimal balance iterations")
+        logger.info("Starting optimal balance iterations")
 
         for it in iterations:
-            verbose(f"Starting iteration {it}")
+            logger.verbose(f"Starting iteration {it}")
             # backward ramping
-            verbose("Performing backward ramping")
+            logger.verbose("Performing backward ramping")
             z_lin = self.backward_to_linear(z_res)
             # project to the base point
             z_lin = self.base_proj(z_lin)
             # forward ramping
-            verbose("Performing forward ramping")
+            logger.verbose("Performing forward ramping")
             z_bal = self.forward_to_nonlinear(z_lin)
             # exchange base point coordinate
             z_new = z_bal - self.base_proj(z_bal) + self.z_base
@@ -226,19 +220,19 @@ class OptimalBalance(Projection):
             # calculate the error
             errors[it] = error = z_new.norm_of_diff(z_res)
 
-            verbose(f"Difference to previous iteration: {error:.2e}")
+            logger.verbose(f"Difference to previous iteration: {error:.2e}")
 
             # update the state
             z_res = z_new
 
             # check the stopping criterion
             if error < self.stop_criterion:
-                verbose("Stopping criterion reached.")
+                logger.info("Stopping criterion reached.")
                 break
 
             # check if the error is increasing
             if it > 0 and error > errors[it-1]:
-                verbose("WARNING: Error is increasing. Stopping iterations.")
+                logger.warning("Error is increasing. Stopping iterations.")
                 break
 
             # recalculate the base coordinate if needed
