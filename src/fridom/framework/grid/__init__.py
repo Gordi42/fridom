@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .position import AxisPosition, Position
     from .water_mask import WaterMask
     from .transform_type import TransformType
+    from .fft_padding import FFTPadding
     
 # ================================================================
 #  Setup lazy loading
@@ -35,6 +36,7 @@ all_imports_by_origin = {
     f"{base}.position": ["AxisPosition", "Position"],
     f"{base}.water_mask": ["WaterMask"],
     f"{base}.transform_type": ["TransformType"],
+    f"{base}.fft_padding": ["FFTPadding"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
