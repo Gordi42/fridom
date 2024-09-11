@@ -114,7 +114,8 @@ class GridBase:
     @abstractmethod
     def fft(self, 
             arr: ndarray,
-            transform_types: tuple[fr.grid.TransformType] | None = None
+            transform_types: tuple[fr.grid.TransformType] | None = None,
+            padding = fr.grid.FFTPadding.NOPADDING,
             ) -> ndarray:
         """
         Perform a (fast) fourier transform on the input array.
@@ -136,7 +137,8 @@ class GridBase:
     @abstractmethod
     def ifft(self, 
              arr: ndarray,
-             transform_types: tuple[fr.grid.TransformType] | None = None
+             transform_types: tuple[fr.grid.TransformType] | None = None,
+             padding = fr.grid.FFTPadding.NOPADDING,
              ) -> ndarray:
         """
         Perform an inverse (fast) fourier transform on the input array.

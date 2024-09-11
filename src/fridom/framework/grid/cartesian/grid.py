@@ -215,16 +215,22 @@ class Grid(fr.grid.GridBase):
     @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
     def fft(self, 
             arr: np.ndarray,
-            transform_types: 'tuple[fr.grid.TransformType] | None' = None
+            transform_types: 'tuple[fr.grid.TransformType] | None' = None,
+            padding = fr.grid.FFTPadding.NOPADDING,
             ) -> np.ndarray:
+        if padding != fr.grid.FFTPadding.NOPADDING:
+            raise ValueError("Padding is not supported for cartesian grids.")
         f = lambda x, axes: self._fft.forward(x, axes, transform_types)
         return self._pfft.forward_apply(arr, f)
 
     @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
     def ifft(self, 
              arr: np.ndarray,
-             transform_types: 'tuple[fr.grid.TransformType] | None' = None
+             transform_types: 'tuple[fr.grid.TransformType] | None' = None,
+             padding = fr.grid.FFTPadding.NOPADDING,
              ) -> np.ndarray:
+        if padding != fr.grid.FFTPadding.NOPADDING:
+            raise ValueError("Padding is not supported for cartesian grids.")
         f = lambda x, axes: self._fft.backward(x, axes, transform_types)
         return self._pfft.backward_apply(arr, f)
 

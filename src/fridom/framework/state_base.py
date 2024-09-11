@@ -72,12 +72,13 @@ class StateBase:
     #  BASIC OPERATIONS
     # ======================================================================
         
-    def fft(self) -> "StateBase":
+    def fft(self,
+            padding = fr.grid.FFTPadding.NOPADDING) -> "StateBase":
         """
         Calculate the Fourier transform of the state. (forward and backward)
         """
         # loop over all fields in self.field_dict
-        fields_fft = [field.fft() for field in self.fields.values()]
+        fields_fft = [field.fft(padding) for field in self.fields.values()]
         z = self.__class__(
             self.mset, field_list=fields_fft, 
             is_spectral=not self.is_spectral)

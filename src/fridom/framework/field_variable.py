@@ -122,7 +122,8 @@ class FieldVariable:
                 "flags": self._flags,
                 "transform_types": self._transform_types}
 
-    def fft(self) -> "FieldVariable":
+    def fft(self,
+            padding = fr.grid.FFTPadding.NOPADDING) -> "FieldVariable":
         """
         Fourier transform of the FieldVariable
 
@@ -139,11 +140,12 @@ class FieldVariable:
         ncp = fr.config.ncp
         if self.is_spectral:
             res = ncp.array(
-                self.grid.ifft(self.arr, self.transform_types).real, 
+                self.grid.ifft(
+                    self.arr, self.transform_types, padding).real, 
                 dtype=fr.config.dtype_real)
         else:
             res = ncp.array(
-                self.grid.fft(self.arr, self.transform_types),
+                self.grid.fft(self.arr, self.transform_types, padding),
                 dtype=fr.config.dtype_comp)
         f = copy(self)
         f.arr = res
