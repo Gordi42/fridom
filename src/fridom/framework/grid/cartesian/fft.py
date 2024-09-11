@@ -1,3 +1,4 @@
+import fridom.framework as fr
 # Import external modules
 import numpy as np
 from functools import partial
@@ -100,15 +101,6 @@ class FFT:
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
     
-    Methods
-    -------
-    `get_freq(shape: tuple, dx: tuple)`
-        Get (kx, ky, ...) frequencies for the given shape and dx.
-    `forward(u: np.ndarray, axes: list[int] | None = None) -> np.ndarray`
-        Forward transform from physical space to spectral space.
-    `backward(u_hat: np.ndarray, axes: list[int] | None = None) -> np.ndarray`
-        Backward transform from spectral space to physical space.
-    
     Examples
     --------
     .. code-block:: python
@@ -120,7 +112,6 @@ class FFT:
         v = fft.forward(u)
         w = fft.backward(v).real
         assert np.allclose(u, w)
-
     """
     def __init__(self, 
                  periodic: tuple[bool]) -> None:
