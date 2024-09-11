@@ -114,7 +114,11 @@ class Grid(fr.grid.GridBase):
         self._interp_module = interp_mod or fr.grid.cartesian.LinearInterpolation()
         return
 
-    def setup(self, mset: 'fr.ModelSettingsBase'):
+    def setup(self, 
+              mset: 'fr.ModelSettingsBase', 
+              req_halo: int | None = None,
+              fft_module: 'fr.grid.cartesian.FFT' | None = None
+              ) -> None:
         ncp = fr.config.ncp
         n_dims = self.n_dims
         dtype = fr.config.dtype_real
@@ -122,8 +126,10 @@ class Grid(fr.grid.GridBase):
         # --------------------------------------------------------------
         #  Initialize the domain decomposition
         # --------------------------------------------------------------
-        req_halo = max(self._diff_module.required_halo, self._interp_module.required_halo)
-        req_halo = max(req_halo, mset.halo)
+        if req_halo is None:
+            req_halo = max(self._diff_module.required_halo, 
+                           self._interp_module.required_halo)
+            req_halo = max(req_halo, mset.halo)
         domain_decomp = fr.domain_decomposition.DomainDecomposition(
             self._N, req_halo, shared_axes=self._shared_axes)
 
@@ -133,7 +139,7 @@ class Grid(fr.grid.GridBase):
         # --------------------------------------------------------------
         if self.fourier_transform_available:
             pfft = fr.domain_decomposition.ParallelFFT(domain_decomp)
-            fft = fr.grid.cartesian.FFT(self._periodic_bounds)
+            fft = fft_module or fr.grid.cartesian.FFT(self._periodic_bounds)
         else:
             pfft = None
             fft = None
