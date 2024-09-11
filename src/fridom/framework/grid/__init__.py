@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     # import modules
     from . import cartesian
+    from . import spectral
 
     # import classes
     from .grid_base import GridBase
@@ -24,7 +25,8 @@ if TYPE_CHECKING:
 # ================================================================
 base = "fridom.framework.grid"
 
-all_modules_by_origin = { base: ["cartesian"] }
+all_modules_by_origin = { base: ["cartesian", 
+                                 "spectral"] }
 
 all_imports_by_origin = { 
     f"{base}.grid_base": ["GridBase"],
