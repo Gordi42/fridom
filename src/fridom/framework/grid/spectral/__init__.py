@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 # ================================================================
 #  Setup lazy loading
 # ================================================================
-base = "fridom.framework.grid.cartesian"
+base = "fridom.framework.grid.spectral"
 
 all_modules_by_origin = {
 }
