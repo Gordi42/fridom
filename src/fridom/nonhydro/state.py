@@ -1,6 +1,8 @@
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
+NEUMANN = fr.grid.BCType.NEUMANN
+DIRICHLET = fr.grid.BCType.DIRICHLET
 
 @fr.utils.jaxify
 class State(fr.StateBase):
@@ -22,6 +24,7 @@ class State(fr.StateBase):
                 transform_types=(fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DCT2),
+                bc_types=(DIRICHLET, NEUMANN, NEUMANN),
                 flags=["ENABLE_FRICTION"],
                 )
 
@@ -35,6 +38,7 @@ class State(fr.StateBase):
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2),
+                bc_types=(NEUMANN, DIRICHLET, NEUMANN),
                 flags=["ENABLE_FRICTION"],
                 )
 
@@ -48,6 +52,7 @@ class State(fr.StateBase):
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1),
+                bc_types=(NEUMANN, NEUMANN, DIRICHLET),
                 flags=["ENABLE_FRICTION"],
                 )
 
@@ -61,6 +66,7 @@ class State(fr.StateBase):
                 transform_types=(fr.grid.TransformType.DST2,
                                  fr.grid.TransformType.DST2,
                                  fr.grid.TransformType.DST2),
+                bc_types=(DIRICHLET, DIRICHLET, DIRICHLET),
                 flags=["ENABLE_MIXING"],
                 )
 
@@ -77,6 +83,8 @@ class State(fr.StateBase):
                     kw["transform_types"] = (fr.grid.TransformType.DCT2,
                                              fr.grid.TransformType.DCT2,
                                              fr.grid.TransformType.DCT2)
+                if "bc_types" not in kw:
+                    kw["bc_types"] = (NEUMANN, NEUMANN, NEUMANN)
                 kw["mset"] = mset
                 kw["is_spectral"] = is_spectral
                 field_list.append(fr.FieldVariable(**kw))

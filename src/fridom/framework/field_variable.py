@@ -34,6 +34,9 @@ class FieldVariable:
         assumed to be fully extended in all directions. If a list of booleans 
         is given, the FieldVariable has no extend in the directions where the
         corresponding entry is False.
+    `bc_types` : `tuple[BCType]` (default None)
+        Tuple of BCType objects that specify the type of boundary condition
+        in each direction. If None, the default boundary conditions is Neumann.
     `transform_types` : `tuple[TransformType]` (default None)
         Tuple of TransformType objects that specify the type of transform
         that should be applied to nonperiodic axes (e.g. DST1, DST2, etc.).
@@ -54,6 +57,7 @@ class FieldVariable:
                  topo: list[bool] | None = None,
                  flags: dict | list | None = None,
                  transform_types: 'tuple[fr.grid.TransformType] | None' = None,
+                 bc_types: 'tuple[fr.grid.BCType] | None' = None,
                  ) -> None:
 
         # shortcuts
@@ -65,6 +69,9 @@ class FieldVariable:
 
         # Topology
         topo = topo or [True] * mset.grid.n_dims
+
+        # transform types
+        bc_types = bc_types or [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
 
         # The underlying array
         if arr is None:
@@ -108,6 +115,7 @@ class FieldVariable:
         self._topo = topo
         self._position = position
         self._transform_types = transform_types
+        self._bc_types = tuple(bc_types)
         self._mset = mset
         return
 
@@ -316,6 +324,7 @@ class FieldVariable:
         res["position"] = self.position
         res["topo"] = self.topo
         res["transform_types"] = self.transform_types
+        res["bc_types"] = self.bc_types
         enabled_flags = [key for key, value in self.flags.items() if value]
         res["enabled_flags"] = enabled_flags
         return res
@@ -521,6 +530,15 @@ class FieldVariable:
     @transform_types.setter
     def transform_types(self, transform_types: 'tuple[fr.grid.TransformType] | None'):
         self._transform_types = transform_types
+
+    @property
+    def bc_types(self) -> 'tuple[fr.grid.BCType] | None':
+        """The boundary condition types for the FieldVariable"""
+        return self._bc_types
+    
+    @bc_types.setter
+    def bc_types(self, bc_types: 'tuple[fr.grid.BCType] | None'):
+        self._bc_types = bc_types
 
     @property
     def flags(self) -> dict:

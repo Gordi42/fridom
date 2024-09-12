@@ -1,6 +1,8 @@
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
+NEUMANN = fr.grid.BCType.NEUMANN
+DIRICHLET = fr.grid.BCType.DIRICHLET
 
 @fr.utils.jaxify
 class State(fr.StateBase):
@@ -31,6 +33,7 @@ class State(fr.StateBase):
                 position=cell_center.shift(axis=0),
                 transform_types=(fr.grid.TransformType.DST1,
                                  fr.grid.TransformType.DCT2),
+                bc_types=(DIRICHLET, NEUMANN),
                 flags=["ENABLE_FRICTION"],
                 )
 
@@ -43,6 +46,7 @@ class State(fr.StateBase):
                 position=cell_center.shift(axis=1),
                 transform_types=(fr.grid.TransformType.DCT2,
                                  fr.grid.TransformType.DST1),
+                bc_types=(NEUMANN, DIRICHLET),
                 flags=["ENABLE_FRICTION"],
                 )
 
@@ -55,6 +59,7 @@ class State(fr.StateBase):
                 position=cell_center,
                 transform_types=(fr.grid.TransformType.DST2,
                                  fr.grid.TransformType.DST2),
+                bc_types=(DIRICHLET, DIRICHLET),
                 )
 
             field_list = [u, v, p]
@@ -68,8 +73,9 @@ class State(fr.StateBase):
                 if "transform_types" not in kw:
                     # default transform type is DCT2
                     kw["transform_types"] = (fr.grid.TransformType.DCT2,
-                                             fr.grid.TransformType.DCT2,
                                              fr.grid.TransformType.DCT2)
+                if "bc_types" not in kw:
+                    kw["bc_types"] = (NEUMANN, NEUMANN)
                 kw["mset"] = mset
                 kw["is_spectral"] = is_spectral
                 field_list.append(fr.FieldVariable(**kw))
