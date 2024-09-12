@@ -117,7 +117,7 @@ class Grid(fr.grid.GridBase):
     def setup(self, 
               mset: 'fr.ModelSettingsBase', 
               req_halo: int | None = None,
-              fft_module: 'fr.grid.cartesian.FFT' | None = None
+              fft_module: 'fr.grid.cartesian.FFT | None' = None
               ) -> None:
         ncp = fr.config.ncp
         n_dims = self.n_dims
@@ -212,7 +212,7 @@ class Grid(fr.grid.GridBase):
                 X[i] += 0.5 * self.dx[i]
         return tuple(X)
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
+    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
     def fft(self, 
             arr: np.ndarray,
             transform_types: 'tuple[fr.grid.TransformType] | None' = None,
@@ -223,7 +223,7 @@ class Grid(fr.grid.GridBase):
         f = lambda x, axes: self._fft.forward(x, axes, transform_types)
         return self._pfft.forward_apply(arr, f)
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
+    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
     def ifft(self, 
              arr: np.ndarray,
              transform_types: 'tuple[fr.grid.TransformType] | None' = None,
