@@ -38,17 +38,30 @@ class Grid(fr.grid.cartesian.Grid):
         # extend option
         extend_first_halfs = []
         extend_second_halfs = []
+        extend_paddings = []
+        extend_unpad_slices = []
         for i in range(self.n_dims):
             first_half = [slice(None)] * self.n_dims
             first_half[i] = slice(0, int((self.N[i]+1)/2))
+            extend_first_halfs.append(tuple(first_half))
+
             second_half = [slice(None)] * self.n_dims
             second_half[i] = slice(-int(self.N[i]/2), None)
-            extend_first_halfs.append(tuple(first_half))
             extend_second_halfs.append(tuple(second_half))
+
+            paddings = [(0,0)] * self.n_dims
+            paddings[i] = (0, int((self.N[i]+1)/2))
+            extend_paddings.append(tuple(paddings))
+
+            sl = [slice(None)] * self.n_dims
+            sl[i] = slice(0, self.N[i])
+            extend_unpad_slices.append(tuple(sl))
 
         self.pad_trim_zero_slice: tuple[slice] = tuple(trim_zero_slice)
         self.extend_first_halfs: tuple[tuple[slice]] = tuple(extend_first_halfs)
         self.extend_second_halfs: tuple[tuple[slice]] = tuple(extend_second_halfs)
+        self.extend_pad: tuple[tuple[int]] = tuple(extend_paddings)
+        self.extend_unpad_slices: tuple[tuple[slice]] = tuple(extend_unpad_slices)
 
 
     def get_mesh(self, 
@@ -56,7 +69,7 @@ class Grid(fr.grid.cartesian.Grid):
                  spectral: bool = False ) -> tuple[np.ndarray]:
         return super().get_mesh(position=self.cell_center, spectral=spectral)
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
+    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
     def fft(self, 
             arr: np.ndarray,
             transform_types: 'tuple[fr.grid.TransformType] | None' = None,
@@ -68,59 +81,46 @@ class Grid(fr.grid.cartesian.Grid):
         
         # Apply padding if necessary
         if padding == fr.grid.FFTPadding.EXTEND:
-            u_hat = u_hat[self.pad_extend_inner]
+            u_hat = self.unpad_extend(u_hat)
         return u_hat
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types"])
+    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
     def ifft(self, 
              arr: np.ndarray,
-             transform_types: 'tuple[fr.grid.TransformType] | None' = None
+             transform_types: 'tuple[fr.grid.TransformType] | None' = None,
+             padding = fr.grid.FFTPadding.NOPADDING,
              ) -> np.ndarray:
-        ncp = fr.config.ncp
         # Apply padding if necessary
-        match self._padding:
+        match padding:
             case fr.grid.FFTPadding.NOPADDING:
                 u = arr
             case fr.grid.FFTPadding.TRIM:
                 u = fr.utils.modify_array(arr, self.pad_trim_zero_slice, 0)
             case fr.grid.FFTPadding.EXTEND:
-                u = ncp.pad(arr, self.pad_extend, mode='constant')
+                u = self.pad_extend(arr)
 
         f = lambda x, axes: self._fft.backward(x, axes, transform_types)
         return self._pfft.backward_apply(u, f)
 
     def _pad_extend_axis(self, arr: np.ndarray, axis: int) -> np.ndarray:
         ncp = fr.config.ncp
-        N = self.N[axis]
         if self._periodic_bounds[axis]:
-            sl_first_half = [slice(None)] * self.n_dims
-            sl_first_half[axis] = slice(0, int((N+1)/2))
-            sl_second_half = [slice(None)] * self.n_dims
-            sl_second_half[axis] = slice(-int(N/2), None)
-            first_part = arr[tuple(sl_first_half)]
-            paddings = [(0,0)] * self.n_dims
-            paddings[axis] = (0, int((N+1)/2))
-            first_part = ncp.pad(first_part, paddings, mode='constant')
-            arr = ncp.concatenate((first_part, arr[tuple(sl_second_half)]), axis=axis)
+            first_part = arr[self.extend_first_halfs[axis]]
+            second_part = arr[self.extend_second_halfs[axis]]
+            first_part = ncp.pad(first_part, self.extend_pad[axis], mode='constant')
+            arr = ncp.concatenate((first_part, second_part), axis=axis)
         else:
-            paddings = [(0,0)] * self.n_dims
-            paddings[axis] = (0, int((N+1)/2))
-            arr = ncp.pad(arr, paddings, mode='constant')
+            arr = ncp.pad(arr, self.extend_pad[axis], mode='constant')
         return arr
 
     def _unpad_extend_axis(self, arr: np.ndarray, axis: int) -> np.ndarray:
         ncp = fr.config.ncp
-        N = self.N[axis]
         if self._periodic_bounds[axis]:
-            sl_first_half = [slice(None)] * self.n_dims
-            sl_first_half[axis] = slice(0, int((N+1)/2))
-            sl_second_half = [slice(None)] * self.n_dims
-            sl_second_half[axis] = slice(-int(N/2), None)
-            arr = ncp.concatenate((arr[tuple(sl_first_half)], arr[tuple(sl_second_half)]), axis=axis)
+            arr = ncp.concatenate(
+                (arr[self.extend_first_halfs[axis]], 
+                 arr[self.extend_second_halfs[axis]]), axis=axis)
         else:
-            sl = [slice(None)] * self.n_dims
-            sl[axis] = slice(0, N)
-            arr = arr[tuple(sl)]
+            arr = arr[self.extend_unpad_slices[axis]]
         return arr
 
     def pad_extend(self, arr: np.ndarray) -> np.ndarray:
