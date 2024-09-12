@@ -23,10 +23,12 @@ class FieldVariable:
     ----------
     `mset` : `ModelSettings`
         ModelSettings object
-    `is_spectral` : `bool`
-        True if the FieldVariable should be initialized in spectral space
     `name` : `str` 
         Name of the FieldVariable
+    `position` : `fr.grid.Position` (default cell_center)
+        Position of the FieldVariable on the grid
+    `is_spectral` : `bool`
+        True if the FieldVariable should be initialized in spectral space
     `topo` : `list[bool]` (default None)
         Topology of the FieldVariable. If None, the FieldVariable is
         assumed to be fully extended in all directions. If a list of booleans 
@@ -43,7 +45,7 @@ class FieldVariable:
     def __init__(self, 
                  mset: 'fr.ModelSettingsBase',
                  name: str,
-                 position: 'fr.grid.Position',
+                 position: 'fr.grid.Position | None' = None,
                  arr: Union[ndarray, None] = None,
                  long_name: str = "Unnamed", 
                  units: str = "n/a",
@@ -57,6 +59,9 @@ class FieldVariable:
         # shortcuts
         ncp = fr.config.ncp
         dtype = fr.config.dtype_comp if is_spectral else fr.config.dtype_real
+
+        # position
+        position = position or mset.grid.cell_center
 
         # Topology
         topo = topo or [True] * mset.grid.n_dims
