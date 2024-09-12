@@ -212,26 +212,30 @@ class Grid(fr.grid.GridBase):
                 X[i] += 0.5 * self.dx[i]
         return tuple(X)
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
+    @partial(fr.utils.jaxjit, 
+             static_argnames=["bc_types", "padding", "positions"])
     def fft(self, 
             arr: np.ndarray,
-            transform_types: 'tuple[fr.grid.TransformType] | None' = None,
             padding = fr.grid.FFTPadding.NOPADDING,
+            bc_types: tuple[fr.grid.BCType] | None = None,
+            positions: tuple[fr.grid.AxisPosition] | None = None,
             ) -> np.ndarray:
         if padding != fr.grid.FFTPadding.NOPADDING:
             raise ValueError("Padding is not supported for cartesian grids.")
-        f = lambda x, axes: self._fft.forward(x, axes, transform_types)
+        f = lambda x, axes: self._fft.forward(x, axes, bc_types, positions)
         return self._pfft.forward_apply(arr, f)
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
+    @partial(fr.utils.jaxjit, 
+             static_argnames=["bc_types", "padding", "positions"])
     def ifft(self, 
              arr: np.ndarray,
-             transform_types: 'tuple[fr.grid.TransformType] | None' = None,
              padding = fr.grid.FFTPadding.NOPADDING,
+             bc_types: tuple[fr.grid.BCType] | None = None,
+             positions: tuple[fr.grid.AxisPosition] | None = None,
              ) -> np.ndarray:
         if padding != fr.grid.FFTPadding.NOPADDING:
             raise ValueError("Padding is not supported for cartesian grids.")
-        f = lambda x, axes: self._fft.backward(x, axes, transform_types)
+        f = lambda x, axes: self._fft.backward(x, axes, bc_types, positions)
         return self._pfft.backward_apply(arr, f)
 
     # @partial(fr.utils.jaxjit, static_argnames=["flat_axes"])

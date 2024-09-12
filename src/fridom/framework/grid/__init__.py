@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from .position import AxisPosition, Position
     from .water_mask import WaterMask
     from .boundary_type import BCType
-    from .transform_type import TransformType
     from .fft_padding import FFTPadding
     
 # ================================================================
@@ -36,7 +35,6 @@ all_imports_by_origin = {
     f"{base}.interpolation_module": ["InterpolationModule"],
     f"{base}.position": ["AxisPosition", "Position"],
     f"{base}.water_mask": ["WaterMask"],
-    f"{base}.transform_type": ["TransformType"],
     f"{base}.boundary_type": ["BCType"],
     f"{base}.fft_padding": ["FFTPadding"],
 }

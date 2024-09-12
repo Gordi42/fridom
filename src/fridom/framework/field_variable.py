@@ -37,10 +37,6 @@ class FieldVariable:
     `bc_types` : `tuple[BCType]` (default None)
         Tuple of BCType objects that specify the type of boundary condition
         in each direction. If None, the default boundary conditions is Neumann.
-    `transform_types` : `tuple[TransformType]` (default None)
-        Tuple of TransformType objects that specify the type of transform
-        that should be applied to nonperiodic axes (e.g. DST1, DST2, etc.).
-        If None, the default transform type DCT2 is used.
     `arr` : `ndarray` (default None)
         The array to be wrapped
     
@@ -56,7 +52,6 @@ class FieldVariable:
                  is_spectral: bool = False, 
                  topo: list[bool] | None = None,
                  flags: dict | list | None = None,
-                 transform_types: 'tuple[fr.grid.TransformType] | None' = None,
                  bc_types: 'tuple[fr.grid.BCType] | None' = None,
                  ) -> None:
 
@@ -70,7 +65,7 @@ class FieldVariable:
         # Topology
         topo = topo or [True] * mset.grid.n_dims
 
-        # transform types
+        # Boundary conditions
         bc_types = bc_types or [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
 
         # The underlying array
@@ -114,7 +109,6 @@ class FieldVariable:
         self._is_spectral = is_spectral
         self._topo = topo
         self._position = position
-        self._transform_types = transform_types
         self._bc_types = tuple(bc_types)
         self._mset = mset
         return
@@ -132,8 +126,7 @@ class FieldVariable:
                 "nc_attrs": self._nc_attrs,
                 "is_spectral": self._is_spectral, 
                 "topo": self._topo,
-                "flags": self._flags,
-                "transform_types": self._transform_types}
+                "flags": self._flags}
 
     def fft(self,
             padding = fr.grid.FFTPadding.NOPADDING) -> "FieldVariable":
@@ -154,11 +147,11 @@ class FieldVariable:
         if self.is_spectral:
             res = ncp.array(
                 self.grid.ifft(
-                    self.arr, self.transform_types, padding).real, 
+                    self.arr, self.bc_types, padding, self.position.positions),
                 dtype=fr.config.dtype_real)
         else:
             res = ncp.array(
-                self.grid.fft(self.arr, self.transform_types, padding),
+                self.grid.fft(self.arr, self.bc_types, padding, self.position.positions),
                 dtype=fr.config.dtype_comp)
         f = copy(self)
         f.arr = res
@@ -323,7 +316,6 @@ class FieldVariable:
         res["is_spectral"] = self.is_spectral
         res["position"] = self.position
         res["topo"] = self.topo
-        res["transform_types"] = self.transform_types
         res["bc_types"] = self.bc_types
         enabled_flags = [key for key, value in self.flags.items() if value]
         res["enabled_flags"] = enabled_flags
@@ -521,15 +513,6 @@ class FieldVariable:
     @position.setter
     def position(self, position: 'fr.grid.Position'):
         self._position = position
-
-    @property
-    def transform_types(self) -> 'tuple[fr.grid.TransformType] | None':
-        """The transform types for nonperiodic axes"""
-        return self._transform_types
-
-    @transform_types.setter
-    def transform_types(self, transform_types: 'tuple[fr.grid.TransformType] | None'):
-        self._transform_types = transform_types
 
     @property
     def bc_types(self) -> 'tuple[fr.grid.BCType] | None':

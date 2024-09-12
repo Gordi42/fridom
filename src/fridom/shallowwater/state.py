@@ -31,8 +31,6 @@ class State(fr.StateBase):
                 units="m/s", 
                 is_spectral=is_spectral, 
                 position=cell_center.shift(axis=0),
-                transform_types=(fr.grid.TransformType.DST1,
-                                 fr.grid.TransformType.DCT2),
                 bc_types=(DIRICHLET, NEUMANN),
                 flags=["ENABLE_FRICTION"],
                 )
@@ -44,8 +42,6 @@ class State(fr.StateBase):
                 units="m/s", 
                 is_spectral=is_spectral, 
                 position=cell_center.shift(axis=1),
-                transform_types=(fr.grid.TransformType.DCT2,
-                                 fr.grid.TransformType.DST1),
                 bc_types=(NEUMANN, DIRICHLET),
                 flags=["ENABLE_FRICTION"],
                 )
@@ -57,8 +53,6 @@ class State(fr.StateBase):
                 units="m²/s²", 
                 is_spectral=is_spectral, 
                 position=cell_center,
-                transform_types=(fr.grid.TransformType.DST2,
-                                 fr.grid.TransformType.DST2),
                 bc_types=(DIRICHLET, DIRICHLET),
                 )
 
@@ -70,10 +64,6 @@ class State(fr.StateBase):
                 if "position" not in kw:
                     # default position is cell center
                     kw["position"] = cell_center
-                if "transform_types" not in kw:
-                    # default transform type is DCT2
-                    kw["transform_types"] = (fr.grid.TransformType.DCT2,
-                                             fr.grid.TransformType.DCT2)
                 if "bc_types" not in kw:
                     kw["bc_types"] = (NEUMANN, NEUMANN)
                 kw["mset"] = mset

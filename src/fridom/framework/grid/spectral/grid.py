@@ -70,14 +70,14 @@ class Grid(fr.grid.cartesian.Grid):
                  spectral: bool = False ) -> tuple[np.ndarray]:
         return super().get_mesh(position=self.cell_center, spectral=spectral)
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
+    @partial(fr.utils.jaxjit, static_argnames=["bc_types", "padding"])
     def fft(self, 
             arr: np.ndarray,
-            transform_types: 'tuple[fr.grid.TransformType] | None' = None,
+            bc_types: 'tuple[fr.grid.BCTypes] | None' = None,
             padding = fr.grid.FFTPadding.NOPADDING,
             ) -> np.ndarray:
         # Forward transform the array
-        f = lambda x, axes: self._fft.forward(x, axes, transform_types)
+        f = lambda x, axes: self._fft.forward(x, axes, bc_types)
         u_hat = self._pfft.forward_apply(arr, f)
         
         # Apply padding if necessary
@@ -85,10 +85,10 @@ class Grid(fr.grid.cartesian.Grid):
             u_hat = self.unpad_extend(u_hat)
         return u_hat
 
-    @partial(fr.utils.jaxjit, static_argnames=["transform_types", "padding"])
+    @partial(fr.utils.jaxjit, static_argnames=["bc_types", "padding"])
     def ifft(self, 
              arr: np.ndarray,
-             transform_types: 'tuple[fr.grid.TransformType] | None' = None,
+             bc_types: 'tuple[fr.grid.BCType] | None' = None,
              padding = fr.grid.FFTPadding.NOPADDING,
              ) -> np.ndarray:
         # Apply padding if necessary
@@ -100,7 +100,7 @@ class Grid(fr.grid.cartesian.Grid):
             case fr.grid.FFTPadding.EXTEND:
                 u = self.pad_extend(arr)
 
-        f = lambda x, axes: self._fft.backward(x, axes, transform_types)
+        f = lambda x, axes: self._fft.backward(x, axes, bc_types)
         return self._pfft.backward_apply(u, f)
 
     def _pad_extend_axis(self, arr: np.ndarray, axis: int) -> np.ndarray:

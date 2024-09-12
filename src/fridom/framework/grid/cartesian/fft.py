@@ -4,7 +4,6 @@ import numpy as np
 from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
-from fridom.framework.grid.transform_type import TransformType
 
 
 def _create_kn_mesh(N: int):
@@ -180,11 +179,12 @@ class FFT:
                 k.append(ncp.linspace(0, ncp.pi/dx[i], shape[i], endpoint=False))
         return tuple(k)
 
-    @partial(utils.jaxjit, static_argnames=['axes', 'transform_types'])
+    @partial(utils.jaxjit, static_argnames=['axes', 'bc_types', 'positions'])
     def forward(self, 
                 u: np.ndarray, 
                 axes: list[int] | None = None,
-                transform_types: tuple[TransformType] | None = None,
+                bc_types: tuple[fr.grid.BCType] | None = None,
+                positions: tuple[fr.grid.AxisPosition] | None = None,
                 ) -> np.ndarray:
         """
         Forward transform from physical space to spectral space.
@@ -195,8 +195,10 @@ class FFT:
             The array to transform from physical space to spectral space.
         `axes` : `list[int] | None`
             The axes to transform. If None, all axes are transformed.
-        `transform_types` : `tuple[TransformType] | None`
-            The type of transform to apply for each axis which is not periodic.
+        `bc_types` : `tuple[fr.grid.BCType] | None`
+            The type of boundary conditions for each axis.
+        `positions` : `tuple[fr.grid.AxisPosition] | None`
+            The position of the variable in each direction.
         
         Returns
         -------
@@ -214,31 +216,36 @@ class FFT:
             dct_axes = list(set(axes) & set(self._dct_axes))
 
         u_hat = u
-        if transform_types is None:
-            transform_types = tuple(TransformType.DCT2 for _ in range(u.ndim))
+        if bc_types is None:
+            bc_types = tuple(fr.grid.BCType.NEUMANN for _ in range(u.ndim))
+
+        if positions is None:
+            positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
         
         # discrete cosine transform
         for axis in dct_axes:
-            match transform_types[axis]:
-                case TransformType.DCT2:
-                    if config.backend_is_jax:
-                        u_hat = dct_type2(u_hat, axis, u_hat.shape[axis])
-                    else:
-                        u_hat = scp.fft.dct(u_hat, axis=axis)
-                case TransformType.DST1:
-                    u_hat = dst_type1(u_hat, axis, u_hat.shape[axis])
-                case TransformType.DST2:
+            if bc_types[axis] == fr.grid.BCType.NEUMANN:
+                if config.backend_is_jax:
+                    u_hat = dct_type2(u_hat, axis, u_hat.shape[axis])
+                else:
+                    u_hat = scp.fft.dct(u_hat, axis=axis)
+            
+            if bc_types[axis] == fr.grid.BCType.DIRICHLET:
+                if positions[axis] == fr.grid.AxisPosition.CENTER:
                     u_hat = dst_type2(u_hat, axis, u_hat.shape[axis])
+                if positions[axis] == fr.grid.AxisPosition.FACE:
+                    u_hat = dst_type1(u_hat, axis, u_hat.shape[axis])
 
         # fourier transform for periodic boundary conditions
         u_hat = ncp.fft.fftn(u_hat, axes=fft_axes)
 
         return u_hat
 
-    @partial(utils.jaxjit, static_argnames=['axes', 'transform_types'])
+    @partial(utils.jaxjit, static_argnames=['axes', 'bc_types', 'positions'])
     def backward(self, u_hat: np.ndarray, 
                  axes: list[int] | None = None,
-                 transform_types: tuple[TransformType] | None = None,
+                 bc_types: tuple[fr.grid.BCType] | None = None,
+                 positions: tuple[fr.grid.AxisPosition] | None = None,
                  ) -> np.ndarray:
         """
         Backward transform from spectral space to physical space.
@@ -249,8 +256,10 @@ class FFT:
             The array to transform from spectral space to physical space.
         `axes` : `list[int] | None`
             The axes to transform. If None, all axes are transformed.
-        `transform_types` : `tuple[TransformType] | None`
-            The type of transform to apply for each axis which is not periodic.
+        `bc_types` : `tuple[fr.grid.BCType] | None`
+            The type of boundary conditions for each axis.
+        `positions` : `tuple[fr.grid.AxisPosition] | None`
+            The position of the variable in each direction.
         
         Returns
         -------
@@ -268,20 +277,24 @@ class FFT:
         # fourier transform for periodic boundary conditions
         u = ncp.fft.ifftn(u_hat, axes=fft_axes)
 
-        if transform_types is None:
-            transform_types = tuple(TransformType.DCT2 for _ in range(u.ndim))
+        if bc_types is None:
+            bc_types = tuple(fr.grid.BCType.NEUMANN for _ in range(u.ndim))
+
+        if positions is None:
+            positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
         
         # discrete cosine transform
         for axis in dct_axes:
-            match transform_types[axis]:
-                case TransformType.DCT2:
-                    if config.backend_is_jax:
-                        u = idct_type2(u, axis, u.shape[axis])
-                    else:
-                        u = scp.fft.idct(u, axis=axis)
-                case TransformType.DST1:
-                    u = idst_type1(u, axis, u.shape[axis])
-                case TransformType.DST2:
+            if bc_types[axis] == fr.grid.BCType.NEUMANN:
+                if config.backend_is_jax:
+                    u = idct_type2(u, axis, u.shape[axis])
+                else:
+                    u = scp.fft.idct(u, axis=axis)
+            
+            if bc_types[axis] == fr.grid.BCType.DIRICHLET:
+                if positions[axis] == fr.grid.AxisPosition.CENTER:
                     u = idst_type2(u, axis, u.shape[axis])
+                if positions[axis] == fr.grid.AxisPosition.FACE:
+                    u = idst_type1(u, axis, u.shape[axis])
 
         return u

@@ -113,9 +113,10 @@ class GridBase:
 
     @abstractmethod
     def fft(self, 
-            arr: ndarray,
-            transform_types: tuple[fr.grid.TransformType] | None = None,
-            padding = fr.grid.FFTPadding.NOPADDING,
+             arr: ndarray,
+             padding = fr.grid.FFTPadding.NOPADDING,
+             bc_types: tuple[fr.grid.BCType] | None = None,
+             positions: tuple[fr.grid.AxisPosition] | None = None,
             ) -> ndarray:
         """
         Perform a (fast) fourier transform on the input array.
@@ -124,8 +125,10 @@ class GridBase:
         ----------
         `arr` : `ndarray`
             The input array.
-        `transform_types` : `tuple[TransformType]` or `None` (default: `None`)
-            The type of transform to apply to each non-periodic axis.
+        `bc_types` : `tuple[BCType]` or `None` (default: `None`)
+            The boundary conditions to apply to each axis.
+        `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
+            The position of the field.
         
         Returns
         -------
@@ -137,8 +140,9 @@ class GridBase:
     @abstractmethod
     def ifft(self, 
              arr: ndarray,
-             transform_types: tuple[fr.grid.TransformType] | None = None,
              padding = fr.grid.FFTPadding.NOPADDING,
+             bc_types: tuple[fr.grid.BCType] | None = None,
+             positions: tuple[fr.grid.AxisPosition] | None = None,
              ) -> ndarray:
         """
         Perform an inverse (fast) fourier transform on the input array.
@@ -147,8 +151,10 @@ class GridBase:
         ----------
         `arr` : `ndarray`
             The input array.
-        `transform_types` : `tuple[TransformType]` or `None` (default: `None`)
-            The type of transform to apply to each non-periodic axis.
+        `bc_types` : `tuple[BCType]` or `None` (default: `None`)
+            The boundary conditions to apply to each axis.
+        `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
+            The position of the field.
         
         Returns
         -------
