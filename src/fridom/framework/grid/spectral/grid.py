@@ -2,7 +2,6 @@ import fridom.framework as fr
 import numpy as np
 from functools import partial
 
-
 @fr.utils.jaxify
 class Grid(fr.grid.cartesian.Grid):
     def __init__(self, 
@@ -28,12 +27,14 @@ class Grid(fr.grid.cartesian.Grid):
         # first the outer padding of trim option
         trim_zero_slice = []
         for i in range(self.n_dims):
+            slices = [slice(None)] * self.n_dims
             if self._periodic_bounds[i]:
                 new_kmax = int(2/3 * int(self.N[i]/2))
-                trim_zero_slice.append(slice(new_kmax+1,-new_kmax))
+                slices[i] = slice(new_kmax+1, -new_kmax)
             else:
                 new_kmax = int(2/3 * (self.N[i]-1))
-                trim_zero_slice.append(slice(new_kmax+1, None))
+                slices[i] = slice(new_kmax+1, None)
+            trim_zero_slice.append(tuple(slices))
 
         # extend option
         extend_first_halfs = []
@@ -95,7 +96,7 @@ class Grid(fr.grid.cartesian.Grid):
             case fr.grid.FFTPadding.NOPADDING:
                 u = arr
             case fr.grid.FFTPadding.TRIM:
-                u = fr.utils.modify_array(arr, self.pad_trim_zero_slice, 0)
+                u = self.pad_trim(arr)
             case fr.grid.FFTPadding.EXTEND:
                 u = self.pad_extend(arr)
 
@@ -131,4 +132,9 @@ class Grid(fr.grid.cartesian.Grid):
     def unpad_extend(self, arr: np.ndarray) -> np.ndarray:
         for axis in range(self.n_dims):
             arr = self._unpad_extend_axis(arr, axis)
+        return arr
+
+    def pad_trim(self, arr: np.ndarray) -> np.ndarray:
+        for axis in range(self.n_dims):
+            arr = fr.utils.modify_array(arr, self.pad_trim_zero_slice[axis], 0)
         return arr
