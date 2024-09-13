@@ -125,6 +125,8 @@ class GridBase:
         ----------
         `arr` : `ndarray`
             The input array.
+        `padding` : `FFTPadding` (default: `FFTPadding.NOPADDING`)
+            The padding to apply to the array.
         `bc_types` : `tuple[BCType]` or `None` (default: `None`)
             The boundary conditions to apply to each axis.
         `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
@@ -151,6 +153,8 @@ class GridBase:
         ----------
         `arr` : `ndarray`
             The input array.
+        `padding` : `FFTPadding` (default: `FFTPadding.NOPADDING`)
+            The padding to apply to the array.
         `bc_types` : `tuple[BCType]` or `None` (default: `None`)
             The boundary conditions to apply to each axis.
         `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
