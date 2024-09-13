@@ -147,11 +147,18 @@ class FieldVariable:
         if self.is_spectral:
             res = ncp.array(
                 self.grid.ifft(
-                    self.arr, self.bc_types, padding, self.position.positions),
+                    arr=self.arr, 
+                    padding=padding, 
+                    bc_types=self.bc_types, 
+                    positions=self.position.positions).real,
                 dtype=fr.config.dtype_real)
         else:
             res = ncp.array(
-                self.grid.fft(self.arr, self.bc_types, padding, self.position.positions),
+                self.grid.fft(
+                    arr=self.arr, 
+                    padding=padding, 
+                    bc_types=self.bc_types, 
+                    positions=self.position.positions),
                 dtype=fr.config.dtype_comp)
         f = copy(self)
         f.arr = res
