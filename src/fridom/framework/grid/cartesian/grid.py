@@ -178,6 +178,43 @@ class Grid(fr.grid.GridBase):
             K = None
 
         # ----------------------------------------------------------------
+        #  Prepare padding for FFT
+        # ----------------------------------------------------------------
+        # first the outer padding of trim option
+        trim_zero_slice = []
+        for i in range(self.n_dims):
+            slices = [slice(None)] * self.n_dims
+            if self._periodic_bounds[i]:
+                new_kmax = int(2/3 * int(self.N[i]/2))
+                slices[i] = slice(new_kmax+1, -new_kmax)
+            else:
+                new_kmax = int(2/3 * (self.N[i]-1))
+                slices[i] = slice(new_kmax+1, None)
+            trim_zero_slice.append(tuple(slices))
+
+        # extend option
+        extend_first_halfs = []
+        extend_second_halfs = []
+        extend_paddings = []
+        extend_unpad_slices = []
+        for i in range(self.n_dims):
+            first_half = [slice(None)] * self.n_dims
+            first_half[i] = slice(0, int((self.N[i]+1)/2))
+            extend_first_halfs.append(tuple(first_half))
+
+            second_half = [slice(None)] * self.n_dims
+            second_half[i] = slice(-int(self.N[i]/2), None)
+            extend_second_halfs.append(tuple(second_half))
+
+            paddings = [(0,0)] * self.n_dims
+            paddings[i] = (0, int((self.N[i]+1)/2))
+            extend_paddings.append(tuple(paddings))
+
+            sl = [slice(None)] * self.n_dims
+            sl[i] = slice(0, self.N[i])
+            extend_unpad_slices.append(tuple(sl))
+
+        # ----------------------------------------------------------------
         #  Store the attributes
         # ----------------------------------------------------------------
 
@@ -192,6 +229,11 @@ class Grid(fr.grid.GridBase):
         self._k_local = k_local
         self._k_global = k
         self._inner_slice = domain_decomp.my_subdomain.inner_slice
+        self._pad_trim_zero_slice: tuple[slice] = tuple(trim_zero_slice)
+        self._extend_first_halfs: tuple[tuple[slice]] = tuple(extend_first_halfs)
+        self._extend_second_halfs: tuple[tuple[slice]] = tuple(extend_second_halfs)
+        self._extend_pad: tuple[tuple[int]] = tuple(extend_paddings)
+        self._extend_unpad_slices: tuple[tuple[slice]] = tuple(extend_unpad_slices)
 
         # call the setup method of the base class
         # This is called last since some of the setup methods of the grid base
@@ -212,6 +254,9 @@ class Grid(fr.grid.GridBase):
                 X[i] += 0.5 * self.dx[i]
         return tuple(X)
 
+    # ================================================================
+    #  Fourier Transforms
+    # ================================================================
     @partial(fr.utils.jaxjit, 
              static_argnames=["bc_types", "padding", "positions"])
     def fft(self, 
@@ -220,10 +265,14 @@ class Grid(fr.grid.GridBase):
             bc_types: tuple[fr.grid.BCType] | None = None,
             positions: tuple[fr.grid.AxisPosition] | None = None,
             ) -> np.ndarray:
-        if padding != fr.grid.FFTPadding.NOPADDING:
-            raise ValueError("Padding is not supported for cartesian grids.")
+        # Forward transform the array
         f = lambda x, axes: self._fft.forward(x, axes, bc_types, positions)
-        return self._pfft.forward_apply(arr, f)
+        u_hat = self._pfft.forward_apply(arr, f)
+        
+        # Apply padding if necessary
+        if padding == fr.grid.FFTPadding.EXTEND:
+            u_hat = self.unpad_extend(u_hat)
+        return u_hat
 
     @partial(fr.utils.jaxjit, 
              static_argnames=["bc_types", "padding", "positions"])
@@ -233,10 +282,57 @@ class Grid(fr.grid.GridBase):
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              ) -> np.ndarray:
-        if padding != fr.grid.FFTPadding.NOPADDING:
-            raise ValueError("Padding is not supported for cartesian grids.")
+        # Apply padding if necessary
+        match padding:
+            case fr.grid.FFTPadding.NOPADDING:
+                u = arr
+            case fr.grid.FFTPadding.TRIM:
+                u = self.pad_trim(arr)
+            case fr.grid.FFTPadding.EXTEND:
+                u = self.pad_extend(arr)
+
         f = lambda x, axes: self._fft.backward(x, axes, bc_types, positions)
-        return self._pfft.backward_apply(arr, f)
+        return self._pfft.backward_apply(u, f)
+
+    def _pad_extend_axis(self, arr: np.ndarray, axis: int) -> np.ndarray:
+        ncp = fr.config.ncp
+        if self._periodic_bounds[axis]:
+            first_part = arr[self._extend_first_halfs[axis]]
+            second_part = arr[self._extend_second_halfs[axis]]
+            first_part = ncp.pad(first_part, self._extend_pad[axis], mode='constant')
+            arr = ncp.concatenate((first_part, second_part), axis=axis)
+        else:
+            arr = ncp.pad(arr, self._extend_pad[axis], mode='constant')
+        return arr
+
+    def _unpad_extend_axis(self, arr: np.ndarray, axis: int) -> np.ndarray:
+        ncp = fr.config.ncp
+        if self._periodic_bounds[axis]:
+            arr = ncp.concatenate(
+                (arr[self._extend_first_halfs[axis]], 
+                 arr[self._extend_second_halfs[axis]]), axis=axis)
+        else:
+            arr = arr[self._extend_unpad_slices[axis]]
+        return arr
+
+    def pad_extend(self, arr: np.ndarray) -> np.ndarray:
+        for axis in range(self.n_dims):
+            arr = self._pad_extend_axis(arr, axis)
+        return arr
+
+    def unpad_extend(self, arr: np.ndarray) -> np.ndarray:
+        for axis in range(self.n_dims):
+            arr = self._unpad_extend_axis(arr, axis)
+        return arr
+
+    def pad_trim(self, arr: np.ndarray) -> np.ndarray:
+        for axis in range(self.n_dims):
+            arr = fr.utils.modify_array(arr, self._pad_trim_zero_slice[axis], 0)
+        return arr
+
+    # ================================================================
+    #  Syncing and Boundary Conditions
+    # ================================================================
 
     # @partial(fr.utils.jaxjit, static_argnames=["flat_axes"])
     def sync(self, 
