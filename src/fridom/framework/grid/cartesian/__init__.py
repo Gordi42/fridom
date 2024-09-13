@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from .grid import Grid
     from .fft import FFT
     from .finite_differences import FiniteDifferences
+    from .spectral_diff import SpectralDiff
     from .linear_interpolation import LinearInterpolation
     from .polynomial_interpolation import PolynomialInterpolation
     
@@ -28,6 +29,7 @@ all_imports_by_origin = {
     f"{base}.grid": ["Grid"],
     f"{base}.fft": ["FFT"],
     f"{base}.finite_differences": ["FiniteDifferences"],
+    f"{base}.spectral_diff": ["SpectralDiff"],
     f"{base}.linear_interpolation": ["LinearInterpolation"],
     f"{base}.polynomial_interpolation": ["PolynomialInterpolation"],
 }
