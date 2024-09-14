@@ -6,7 +6,8 @@ class CoherentEddy(nh.State):
 
     Description
     -----------
-    The streamfunction of the eddy be given by:
+    There are two versions of the coherent eddy. In the first version, the
+    streamfunction of the eddy is given by an gaussian function:
 
     .. math::
         \psi = A \exp\left(
@@ -19,6 +20,18 @@ class CoherentEddy(nh.State):
 
     .. math::
         u = \partial_y \psi, \quad v = -\partial_x \psi
+
+    The second version of the coherent eddy prescribes the horizontal velocity
+    as a gaussian function:
+
+    .. math::
+        \zeta = A \exp\left(
+        -\frac{(x - p_x L_x)^2 + (y - p_y L_y)^2}{(\sigma L_x)^2}\right)
+
+    Then the streamfunction is computed in spectral space:
+
+    .. math::
+        \hat{\psi} = \frac{\hat{\zeta}}{k_x^2 + k_y^2}
 
     Parameters
     ----------
@@ -34,6 +47,9 @@ class CoherentEddy(nh.State):
     `amplitude` : `float`, optional (default=1)
         The amplitude of the eddy. When the amplitude negative, the eddy
         rotates clockwise. Otherwise, it rotates counterclockwise.
+    `gauss_field` : `str`, optional (default='vorticity')
+        The field that is prescribed as a gaussian function. It can be either
+        'vorticity' or 'streamfunction'.
 
     Examples
     --------
@@ -66,23 +82,39 @@ class CoherentEddy(nh.State):
                  pos_x: float = 0.5,
                  pos_y: float = 0.5,
                  width: float = 0.1,
-                 amplitude: float = 1 ) -> None:
+                 amplitude: float = 1,
+                 gauss_field: str = 'streamfunction'
+                 ) -> None:
         super().__init__(mset)
 
         ncp = nh.config.ncp
         grid = self.grid
-        X, Y, Z = grid.X
         Lx, Ly, Lz = grid.L
 
-        psi = amplitude * ncp.exp(
-            -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
-
-        # psi is positioned at the cell face in x and y
         CENTER = nh.grid.AxisPosition.CENTER; FACE = nh.grid.AxisPosition.FACE
         position = nh.grid.Position((FACE, FACE, CENTER))
 
-        psi = nh.FieldVariable(
-            mset, arr=psi, position=position, name="psi")
+        DIRICHLET = nh.grid.BCType.DIRICHLET; NEUMANN = nh.grid.BCType.NEUMANN
+        bc_types = (DIRICHLET, DIRICHLET, NEUMANN)
+
+        field = nh.FieldVariable(
+            mset, position=position, name="psi", bc_types=bc_types)
+
+        X, Y, Z = field.get_mesh()
+        field.arr = amplitude * ncp.exp(
+            -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
+
+        if gauss_field == 'vorticity':
+            kx, ky, kz = grid.K
+            k2 = kx**2 + ky**2
+            psi = field.fft() / k2
+            psi.arr = ncp.where(k2 == 0, 0, psi.arr)
+            psi = psi.fft()
+            self.psi = psi
+        elif gauss_field == 'streamfunction':
+            psi = field
+        else:
+            raise ValueError(f"Unknown gauss_field: {gauss_field}")
 
         self.u.arr = psi.diff(axis=1).arr
         self.v.arr = - psi.diff(axis=0).arr
