@@ -1,6 +1,7 @@
 import fridom.framework as fr
 import numpy as np
 from enum import Enum
+from typing import Union
 
 
 class ButcherTableau:
@@ -99,12 +100,14 @@ def sum_product(coeefs, dt, k):
 class RungeKutta(fr.time_steppers.TimeStepper):
     name = "Runge-Kutta"
     def __init__(self, 
-                 dt: np.timedelta64 = np.timedelta64(1, 's'), 
+                 dt: Union[np.timedelta64, float] = 1, 
                  method: RKMethods = RKMethods.RK4,
+                 max_dt: Union[np.timedelta64, float, None] = None, 
                  tol=1e-6):
         super().__init__()
         self.method = method.value
         self.dt = dt
+        self.max_dt = max_dt
         self.dz_list = None
         self.tol = tol
         return
@@ -137,17 +140,19 @@ class RungeKutta(fr.time_steppers.TimeStepper):
             k = []
             dt = self.dt
             for i in range(order):
-                mod_state.time = mz._time + method.c[i] * dt
+                mod_state.time += method.c[i] * dt
                 mod_state.z = mz.z + sum_product(method.A[i], dt, k)
                 mod_state.dz = self.dz_list[i]
                 dz = self.calculate_tendency(mod_state)
-                dz = self.mset.bc.apply_boundary_conditions(dz)
                 k.append(dz)
             
             if method.b_error is not None:
                 te = sum_product(method.b_error, dt, k)
                 error = sum(f.norm_l2() for f in te.field_list)
-                self.dt = float(0.9 * dt * (self.tol / error) ** (1 / order))
+                if self.max_dt is not None:
+                    self.dt = min(float(0.9 * dt * (self.tol / error) ** (1 / order)), self.max_dt)
+                else:
+                    self.dt = float(0.9 * dt * (self.tol / error) ** (1 / order))
             else:
                 error = 0
 
@@ -155,3 +160,21 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         mz.time += dt
         mz.it += 1
         return mz
+
+    @property
+    def max_dt(self) -> np.timedelta64:
+        """
+        Time step size.
+        """
+        return self._max_dt
+
+    @max_dt.setter
+    def max_dt(self, value: Union[np.timedelta64, float, None]) -> None:
+        if value is None:
+            self._max_dt = None
+            return
+        if isinstance(value, float) or isinstance(value, int):
+            self._max_dt = value
+        else:
+            self._max_dt = fr.config.dtype_real(value / np.timedelta64(1, 's'))
+        self.dt = self._max_dt
