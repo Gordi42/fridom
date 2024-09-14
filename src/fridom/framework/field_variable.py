@@ -126,6 +126,7 @@ class FieldVariable:
                 "nc_attrs": self._nc_attrs,
                 "is_spectral": self._is_spectral, 
                 "topo": self._topo,
+                "bc_types": self._bc_types,
                 "flags": self._flags}
 
     def fft(self,
