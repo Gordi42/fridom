@@ -55,6 +55,7 @@ class MainTendency(fr.modules.ModuleContainer):
     @linear_tendency.setter
     def linear_tendency(self, value):
         self._linear_tendency = value
+        self._set_module_list()
         return
     
     @property
@@ -65,6 +66,7 @@ class MainTendency(fr.modules.ModuleContainer):
     @advection.setter
     def advection(self, value):
         self._advection = value
+        self._set_module_list()
         return
 
     @property
@@ -75,6 +77,7 @@ class MainTendency(fr.modules.ModuleContainer):
     @tendency_divergence.setter
     def tendency_divergence(self, value):
         self._tendency_divergence = value
+        self._set_module_list()
         return
 
     @property
@@ -85,6 +88,7 @@ class MainTendency(fr.modules.ModuleContainer):
     @pressure_solver.setter
     def pressure_solver(self, value):
         self._pressure_solver = value
+        self._set_module_list()
         return
     
     @property
@@ -95,4 +99,5 @@ class MainTendency(fr.modules.ModuleContainer):
     @pressure_gradient_tendency.setter
     def pressure_gradient_tendency(self, value):
         self._pressure_gradient_tendency = value
+        self._set_module_list()
         return
