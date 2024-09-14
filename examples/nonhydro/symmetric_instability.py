@@ -128,25 +128,6 @@ Nz = 2**resolution_factor        # Number of grid points in z
 
 
 # ----------------------------------------------------------------
-#  Create a tendency module that includes the background state
-# ----------------------------------------------------------------
-@nh.utils.jaxify
-class BackgroundAdvection(nh.modules.Module):
-    name = "Background Advection"
-    @nh.modules.module_method
-    def update(self, mz: nh.ModelState) -> nh.ModelState:
-        mz.dz = self.advect(mz.z, mz.dz)
-        return mz
-
-    @nh.utils.jaxjit
-    def advect(self, z: nh.State, dz: nh.State) -> nh.State:
-        interp = self.interp_module.interpolate
-        dz.v += interp(z.w, z.v.position) * M2 / f0
-        dz.b += interp(z.u, z.b.position) * M2
-        return dz
-
-
-# ----------------------------------------------------------------
 #  Create a plotting module for the animation and thumbnail
 # ----------------------------------------------------------------
 class Plotter(nh.modules.animation.ModelPlotter):
@@ -189,6 +170,24 @@ def perform_experiment(richardson_number, make_thumbnail=False):
     time_stepper = nh.time_steppers.RungeKutta(
         method=nh.time_steppers.RKMethods.RKF45)
     mset = nh.ModelSettings(grid=grid, f0=f0, N2=N2, dsqr=1, time_stepper=time_stepper)
+
+    # ----------------------------------------------------------------
+    #  Create a tendency module that includes the background state
+    # ----------------------------------------------------------------
+    @nh.utils.jaxify
+    class BackgroundAdvection(nh.modules.Module):
+        name = "Background Advection"
+        @nh.modules.module_method
+        def update(self, mz: nh.ModelState) -> nh.ModelState:
+            mz.dz = self.advect(mz.z, mz.dz)
+            return mz
+
+        @nh.utils.jaxjit
+        def advect(self, z: nh.State, dz: nh.State) -> nh.State:
+            interp = self.interp_module.interpolate
+            dz.v += interp(z.w, z.v.position) * M2 / f0
+            dz.b += interp(z.u, z.b.position) * M2
+            return dz
 
     # ----------------------------------------------------------------
     #  Add custom modules to the model settings
