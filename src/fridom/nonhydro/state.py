@@ -54,7 +54,7 @@ class State(fr.StateBase):
                 units="m/s²", 
                 is_spectral=is_spectral, 
                 position=cell_center,
-                bc_types=(DIRICHLET, DIRICHLET, DIRICHLET),
+                bc_types=(NEUMANN, NEUMANN, DIRICHLET),
                 flags=["ENABLE_MIXING"],
                 )
 

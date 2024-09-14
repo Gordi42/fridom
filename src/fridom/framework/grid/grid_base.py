@@ -63,6 +63,7 @@ class GridBase:
         # ---------------------------------------------------------------------
         self._fourier_transform_available = False
         self._mpi_available = False
+        self._spectral_grid = False
 
         return
 
@@ -500,3 +501,13 @@ class GridBase:
     @mpi_available.setter
     def mpi_available(self, value: bool) -> None:
         self._mpi_available = value
+
+    @property
+    def spectral_grid(self) -> bool:
+        """Indicates whether the grid is a spectral grid."""
+        return self._spectral_grid
+    
+    @spectral_grid.setter
+    def spectral_grid(self, value: bool) -> None:
+        self._spectral_grid = value
+        return

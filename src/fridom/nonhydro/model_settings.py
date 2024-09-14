@@ -32,6 +32,7 @@ class ModelSettings(ModelSettingsBase):
         self._beta = 0           # beta term d(f)/dy
         self._f_coriolis = None  # the coriolis parameter field
         self._N2 = 1             # stratification N²
+        self._N2_field = None    # stratification N² field
         self._dsqr = 1           # aspect ratio
         self._Ro = 1             # Rossby number
 
@@ -56,11 +57,11 @@ class ModelSettings(ModelSettingsBase):
 
     def state_constructor(self):
         from fridom.nonhydro.state import State
-        return State(self, is_spectral=False)
+        return State(self, is_spectral=self.grid.spectral_grid)
 
     def diagnostic_state_constructor(self):
         from fridom.nonhydro.state import DiagnosticState
-        return DiagnosticState(self, is_spectral=False)
+        return DiagnosticState(self, is_spectral=self.grid.spectral_grid)
 
     # ================================================================
     #  Properties

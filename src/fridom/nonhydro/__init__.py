@@ -21,7 +21,7 @@ the momentum equations:
 
 .. math::
     \partial_t w + Ro~\, \boldsymbol{u} \cdot \nabla w =
-        - \delta^{-2} b - \delta^{-2} \partial_z p + \boldsymbol{F}_w
+        \delta^{-2} b - \delta^{-2} \partial_z p + \boldsymbol{F}_w
 
 The buoyancy equation:
 

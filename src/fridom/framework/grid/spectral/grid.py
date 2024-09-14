@@ -7,15 +7,17 @@ class Grid(fr.grid.cartesian.Grid):
     def __init__(self, 
                  N: list[int],
                  L: list[float],
-                 periodic_bounds: list[bool] | None = None) -> None:
+                 periodic_bounds: list[bool] | None = None,
+                 shared_axes=[0],) -> None:
         super().__init__(N=N, 
                          L=L, 
                          periodic_bounds=periodic_bounds,
-                         shared_axes=[0], 
+                         shared_axes=shared_axes, 
                          diff_mod=fr.grid.cartesian.SpectralDiff(),
-                         interp_mod=fr.grid.InterpolationModule())
+                         interp_mod=fr.grid.DummyInterpolation())
         self.name = "Spectral Grid"
         self.mpi_available = False
+        self.spectral_grid = True
 
     def setup(self, mset: 'fr.ModelSettingsBase'):
         super().setup(mset, req_halo=0)

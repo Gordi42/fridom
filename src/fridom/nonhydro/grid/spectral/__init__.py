@@ -1,30 +1,24 @@
-"""
-Module that stores all available grids for the non-hydrostatic model.
-"""
-from typing import TYPE_CHECKING
 from lazypimp import setup
+from typing import TYPE_CHECKING
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:
     # import modules
-    from . import cartesian
-    from . import spectral
 
     # import classes
-    from fridom.framework.grid import AxisPosition, Position, BCType
-
+    from .grid import Grid
+    
 # ================================================================
 #  Setup lazy loading
 # ================================================================
-base = "fridom.nonhydro.grid"
+base_nh = "fridom.nonhydro.grid.spectral"
 
-all_modules_by_origin = { base: ["cartesian",
-                                 "spectral"] }
+all_modules_by_origin = {}
 
-all_imports_by_origin = {
-    "fridom.framework.grid": ["AxisPosition", "Position", "BCType"]
+all_imports_by_origin = { 
+    f"{base_nh}.grid": ["Grid"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
