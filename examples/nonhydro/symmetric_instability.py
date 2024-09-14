@@ -84,7 +84,7 @@ Richardson number :math:`Ri = 0.25`
 
 Richardson number :math:`Ri = 0.5`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-.. video:: videos/symmetric_instability_ri_0.5.mp4
+.. video:: videos/symmetric_instability_ri_0.50.mp4
 
 Richardson number :math:`Ri = 0.75`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

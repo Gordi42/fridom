@@ -163,7 +163,9 @@ def skip_on_doc_build(func: callable) -> callable:
     # check if we are building the documentation
     import os
     if os.getenv('FRIDOM_DOC_GENERATION') == 'True':
-        return lambda: None
+        def do_nothing(*args, **kwargs):
+            return None
+        return do_nothing
     return func
 
 def cache_figure(
