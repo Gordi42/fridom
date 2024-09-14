@@ -39,8 +39,8 @@ class ModelState:
     """
     def __init__(self, mset: 'ModelSettingsBase') -> None:
         self.mset = mset
-        self.z = mset.state_constructor()
-        self.z_diag = mset.diagnostic_state_constructor()
+        self._z = mset.state_constructor()
+        self._z_diag = mset.diagnostic_state_constructor()
         self.dz = None
         self.it = 0
         self.start_time = 0
@@ -128,3 +128,34 @@ class ModelState:
     @time.setter
     def time(self, value: float) -> None:
         self._passed_time = value - self._start_time_in_seconds
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def z(self) -> 'fr.StateBase':
+        """
+        Get the state vector.
+        """
+        return self._z
+
+    @z.setter
+    def z(self, value: 'fr.StateBase') -> None:
+        # convert to correct space
+        if value.is_spectral != value.grid.spectral_grid:
+            value = value.fft()
+        self._z = value
+
+    @property
+    def z_diag(self) -> 'fr.StateBase':
+        """
+        Get the diagnostic state vector.
+        """
+        return self._z_diag
+    
+    @z_diag.setter
+    def z_diag(self, value: 'fr.StateBase') -> None:
+        # convert to correct space
+        if value.is_spectral != value.grid.spectral_grid:
+            value = value.fft()
+        self._z_diag = value
