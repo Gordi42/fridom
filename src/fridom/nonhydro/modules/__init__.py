@@ -29,7 +29,11 @@ if TYPE_CHECKING:
     from fridom.framework.modules import advection
 
     # importing classes
+    from fridom.framework.modules import Module
     from fridom.framework.modules import NetCDFWriter, RestartModule, ResetTendency
+
+    # importing the functions
+    from fridom.framework.modules import module_method
 
 # ================================================================
 #  Setup lazy loading
@@ -53,6 +57,7 @@ all_imports_by_origin = {
     f"{base_path}.main_tendency": ["MainTendency"],
     f"{base_path}.diagnostics": ["Diagnostics"],
     f"{fr_base_path}": ["NetCDFWriter", "RestartModule", "ResetTendency"],
+    f"{fr_base_path}.module": ["Module", "module_method"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
