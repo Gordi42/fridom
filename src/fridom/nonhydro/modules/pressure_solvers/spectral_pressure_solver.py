@@ -13,29 +13,36 @@ class SpectralPressureSolver(fr.modules.Module):
     @fr.modules.module_method
     def setup(self, mset: 'nh.ModelSettings') -> None:
         super().setup(mset)
-        # check if the grid is cartesian
-        if not isinstance(mset.grid, fr.grid.cartesian.Grid):
-            raise ValueError("Spectral solver only works with Cartesian grids.")
-        
-        # compute the discretized wave number squared
-        from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
-        k_dis = [dso.k_hat_squared(kx, dx, use_discrete=True)
-                 for (kx,dx) in zip(self.grid.K, self.grid.dx)]
+        match type(mset.grid):
+            case nh.grid.cartesian.Grid:
+                fft_required = True
+                from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
+                k2 = [dso.k_hat_squared(kx, dx, use_discrete=True)
+                      for (kx,dx) in zip(self.grid.K, self.grid.dx)]
+            case nh.grid.spectral.Grid:
+                fft_required = False
+                k2 = [kx**2 for kx in self.grid.K]
+            case _:
+                raise ValueError("The spectral solver does not support this grid type.")
 
         # scaled discretized wave number squared
-        k2_hat = k_dis[0] + k_dis[1] + k_dis[2] / mset.dsqr
+        k_squared = k2[0] + k2[1] + k2[2] / mset.dsqr
 
         # Compute the inverse of the wave number squared
         with np.errstate(divide='ignore', invalid='ignore'):
-            k2_hat_inv = 1 / k2_hat
+            k_squared_inv = 1 / k_squared
 
         # Set k2_hat_inv to zero where k2_hat is zero
-        self.k2_hat_inv = fr.config.ncp.where(k2_hat == 0, 0, k2_hat_inv)
+        self.k_squared_inv = fr.config.ncp.where(k_squared == 0, 0, k_squared_inv)
+        self.fft_required = fft_required
         return
 
     @fr.utils.jaxjit
     def solve_for_pressure(self, div: fr.FieldVariable) -> fr.FieldVariable:
-        return ( - div.fft() * self.k2_hat_inv).fft()
+        if self.fft_required:
+            return ( - div.fft() * self.k_squared_inv).fft()
+        else:
+            return - div * self.k_squared_inv
 
 
     @fr.modules.module_method
