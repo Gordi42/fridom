@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from . import advection
     from . import animation
     from . import closures
+    from . import forcings
 
     # importing the Classes
     from .module import Module
@@ -31,7 +32,8 @@ base_path = "fridom.framework.modules"
 
 all_modules_by_origin = { base_path: ["animation", 
                                       "advection",
-                                      "closures"] }
+                                      "closures",
+                                      "forcings"] }
 
 all_imports_by_origin = { 
     f"{base_path}.module": ["Module", "module_method"],
