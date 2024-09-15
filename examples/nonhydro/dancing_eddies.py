@@ -45,6 +45,7 @@ of :math:`A_h = 0.01 \cdot U_{\text{eddy}} \cdot Ro \cdot \Delta x^3`, where
 Animation
 ---------
 .. video:: videos/dancing_eddies.mp4
+    :loop:
 
 """
 import fridom.nonhydro as nh
