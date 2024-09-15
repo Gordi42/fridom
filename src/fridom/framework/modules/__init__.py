@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .restart_module import RestartModule
     from .netcdf_writer import NetCDFWriter
     from .reset_tendency import ResetTendency
+    from .figure_saver import FigureSaver
 
     # importing the functions
     from .module import module_method
@@ -42,6 +43,7 @@ all_imports_by_origin = {
     f"{base_path}.restart_module": ["RestartModule"],
     f"{base_path}.netcdf_writer": ["NetCDFWriter"],
     f"{base_path}.reset_tendency": ["ResetTendency"],
+    f"{base_path}.figure_saver": ["FigureSaver"]
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

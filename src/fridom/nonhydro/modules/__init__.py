@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     # importing classes
     from fridom.framework.modules import Module
     from fridom.framework.modules import NetCDFWriter, RestartModule, ResetTendency
+    from fridom.framework.modules import FigureSaver
 
     # importing the functions
     from fridom.framework.modules import module_method
@@ -58,6 +59,7 @@ all_imports_by_origin = {
     f"{base_path}.diagnostics": ["Diagnostics"],
     f"{fr_base_path}": ["NetCDFWriter", "RestartModule", "ResetTendency"],
     f"{fr_base_path}.module": ["Module", "module_method"],
+    f"{fr_base_path}.figure_saver": ["FigureSaver"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
