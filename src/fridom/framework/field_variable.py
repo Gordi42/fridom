@@ -6,6 +6,8 @@ from numpy import ndarray
 import numpy as np
 from functools import partial
 
+from fridom.framework.grid.fft_padding import FFTPadding
+
 if TYPE_CHECKING:
     import xarray as xr
 
@@ -130,7 +132,7 @@ class FieldVariable:
                 "flags": self._flags}
 
     def fft(self,
-            padding = fr.grid.FFTPadding.NOPADDING) -> "FieldVariable":
+            padding: FFTPadding = FFTPadding.NOPADDING) -> "FieldVariable":
         """
         Fourier transform of the FieldVariable
 

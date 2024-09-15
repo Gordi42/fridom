@@ -5,6 +5,7 @@ from copy import copy
 # Import internal modules
 import fridom.framework as fr
 from fridom.framework import config, utils
+from fridom.framework.grid.fft_padding import FFTPadding
 # Import type information
 if TYPE_CHECKING:
     import numpy as np
@@ -73,7 +74,7 @@ class StateBase:
     # ======================================================================
         
     def fft(self,
-            padding = fr.grid.FFTPadding.NOPADDING) -> "StateBase":
+            padding = FFTPadding.NOPADDING) -> "StateBase":
         """
         Calculate the Fourier transform of the state. (forward and backward)
         """
