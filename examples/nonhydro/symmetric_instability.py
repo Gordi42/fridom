@@ -3,7 +3,7 @@ Symmetric Instability
 =====================
 
 An eady-like vertical shear flow that is unstable to symmetric instabilities.
-Model parameters are taken from Stamper and Taylor (2016) [1].
+Model parameters are taken from Stamper and Taylor (2016) [1]_.
 
 Model equations
 ---------------

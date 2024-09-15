@@ -1,11 +1,11 @@
 r"""
 Rayleigh-Taylor Instability
-==========================
+===========================
 
 A 2D setup with a denser fluid on top of a lighter fluid.
 
-video:: videos/rayleigh_taylor_instability.mp4
-    :loop:
+.. video:: videos/rayleigh_taylor_instability.mp4
+
 """
 import fridom.nonhydro as nh
 import matplotlib.pyplot as plt

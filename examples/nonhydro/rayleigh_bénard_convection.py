@@ -7,7 +7,8 @@ A 2D setup with heating from below and cooling from above.
 Note that the model parameter are not tuned to be realistic, but to show
 the basic features of 2D-Rayleigh-Bénard convection.
 
-video:: videos/rayleigh_bénard_convection.mp4
+.. video:: videos/rayleigh_bénard_convection.mp4
+
 """
 import fridom.nonhydro as nh
 import matplotlib.pyplot as plt
