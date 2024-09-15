@@ -7,12 +7,12 @@ Adding passive tracers to the model.
 Experiment 1
 ------------
 A passive tracer forms a spiral pattern when advected by an eddy.
-.. video:: videos/tracers_and_eddies_spriale.mp4
+.. video:: videos/tracer_and_eddies_spriale.mp4
 
 Experiment 2
 ------------
 An eddy-dipole collides with a tracer band.
-.. video:: videos/tracers_and_eddies_dipole.mp4
+.. video:: videos/tracer_and_eddies_dipole.mp4
 
 """
 import fridom.nonhydro as nh
