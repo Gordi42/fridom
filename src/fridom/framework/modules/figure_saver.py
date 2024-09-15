@@ -44,3 +44,4 @@ class FigureSaver(fr.modules.Module):
         os.makedirs("figures", exist_ok=True)
         self.plotter(mz).savefig(self.filename, dpi=self.dpi)
         self._created = True
+        return mz
