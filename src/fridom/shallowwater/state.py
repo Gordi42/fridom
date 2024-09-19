@@ -254,6 +254,30 @@ class State(fr.StateBase):
     # ----------------------------------------------------------------
 
     @property
+    def local_Ro(self) -> fr.FieldVariable:
+        r"""
+        Local Rossby number
+
+        .. math::
+            Ro_\text{local} = Ro \, \frac{\zeta_z}{f_0}
+
+        where :math:`Ro` is the Rossby number, :math:`\zeta_z` is the vertical
+        component of the relative vorticity, and :math:`f_0` is the Coriolis
+        parameter.
+        """
+        # shortcuts
+        f = self.mset.f_coriolis; Ro = self.mset.Ro
+
+        local_Ro = Ro * self.rel_vort / f
+
+        # Set the attributes
+        local_Ro.name = "loc Ro"
+        local_Ro.long_name = "Local Rossby Number"
+        local_Ro.units = "1"
+        
+        return local_Ro
+
+    @property
     def cfl(self) -> fr.FieldVariable:
         r"""
         The CFL number.
