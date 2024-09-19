@@ -57,8 +57,8 @@ class Jet(sw.State):
         Lx, Ly = self.grid.L
 
         # Construct the zonal jets
-        self.u.arr = 2.5*( ncp.exp(-((Y - jet_pos[1]*Ly)/(jet_width*PI))**2) - 
-                           ncp.exp(-((Y - jet_pos[0]*Ly)/(jet_width*PI))**2) )
+        self.u.arr = (  ncp.exp(- 0.5*((Y - jet_pos[1]*Ly)/(jet_width))**2) 
+                      - ncp.exp(- 0.5*((Y - jet_pos[0]*Ly)/(jet_width))**2) )
 
         # Construct the perturbation
         kx_p = 2 * PI / Lx * wavenum
