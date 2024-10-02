@@ -185,7 +185,7 @@ class State(fr.StateBase):
     
     @property
     def etot(self) -> fr.FieldVariable:
-        """
+        r"""
         The total energy
 
         .. math::
@@ -216,7 +216,7 @@ class State(fr.StateBase):
 
     @property
     def rel_vort_x(self) -> fr.FieldVariable:
-        """
+        r"""
         X-component of the relative vorticity
 
         .. math::
@@ -234,7 +234,7 @@ class State(fr.StateBase):
 
     @property
     def rel_vort_y(self) -> fr.FieldVariable:
-        """
+        r"""
         Y-component of the relative vorticity
 
         .. math::
@@ -252,7 +252,7 @@ class State(fr.StateBase):
 
     @property
     def rel_vort_z(self) -> fr.FieldVariable:
-        """
+        r"""
         Z-component of the relative vorticity (Horizontal Vorticity)
 
         .. math::
