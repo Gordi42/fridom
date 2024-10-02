@@ -1,5 +1,4 @@
 import fridom.framework as fr
-from mpi4py import MPI
 import numpy as np
 import time
 
@@ -34,11 +33,11 @@ class ProgressBar(fr.modules.Module):
 
     @fr.modules.module_method
     def start(self) -> None:
-        # only rank 0 should print the progress bar
-        if MPI.COMM_WORLD.Get_rank() != 0:
-            disable = True
-        else:
+        # only the main rank should print the progress bar
+        if fr.utils.i_am_main_rank:
             disable = False
+        else:
+            disable = True
         # ----------------------------------------------------------------
         #  Set the progress bar format
         # ----------------------------------------------------------------

@@ -1,10 +1,9 @@
-# Import external modules
-from typing import TYPE_CHECKING
-from mpi4py import MPI
-import numpy as np
-from functools import partial
 # Import internal modules
 from fridom.framework import config, utils
+# Import external modules
+from typing import TYPE_CHECKING
+import numpy as np
+from functools import partial
 # Import type information
 if TYPE_CHECKING:
     from .domain_decomposition import DomainDecomposition
@@ -52,7 +51,11 @@ class OverlapInfo:
         processors = []
         slice_same_proc = None
         in_subdomain = domain_in.my_subdomain
-        for i in range(domain_in.comm.Get_size()):
+        if utils.mpi_available:
+            n_procs = domain_in.comm.Get_size()
+        else:
+            n_procs = 1
+        for i in range(n_procs):
             # get the domain of the output
             out_subdomain = domain_out.all_subdomains[i]
             # check if there is an overlap between the two domains
@@ -139,7 +142,8 @@ def transform(domain_in: 'DomainDecomposition',
             for buf, source in zip(bufs, sources)]
 
     # wait for all non-blocking operations to complete
-    MPI.Request.Waitall(reqs)
+    if utils.mpi_available:
+        utils.MPI.Request.Waitall(reqs)
 
     # copy the received data to the new array
     for recv_slice, buf in zip(recv_slices, bufs):

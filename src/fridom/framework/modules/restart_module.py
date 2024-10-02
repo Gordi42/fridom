@@ -1,6 +1,5 @@
 import fridom.framework as fr
 import os
-from mpi4py import MPI
 import time
 import numpy as np
 
@@ -36,8 +35,7 @@ class RestartModule(fr.modules.Module):
 
         if "-" in filename:
             fr.config.logger.warning(
-                "The filename should not contain the character '-'.",
-                "Replacing '-' with '_' in the filename.")
+                "The filename should not contain the character '-' Replacing '-' with '_' in the filename.")
             filename = filename.replace("-", "_")
         # remove the extension from the filename
         if "." in filename:
@@ -155,7 +153,10 @@ class RestartModule(fr.modules.Module):
         return
 
     def set_full_filename(self, it: int) -> None:
-        rank = MPI.COMM_WORLD.Get_rank()
+        if fr.utils.mpi_available:
+            rank = fr.utils.MPI.COMM_WORLD.Get_rank()
+        else:
+            rank = 0
         filename = f"{self.filename}_{it}_{rank}.dill"
         self.file = os.path.join(self.directory, filename)
         return

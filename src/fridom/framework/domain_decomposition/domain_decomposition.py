@@ -1,5 +1,4 @@
 # Import external modules
-from mpi4py import MPI
 from copy import deepcopy
 import numpy as np
 from numpy import ndarray
@@ -71,9 +70,12 @@ def set_device():
     `backend_is_cupy` : `bool`
         Whether the backend is cupy or not.
     """
+    if not utils.mpi_available:
+        return
+
     if config.backend == "cupy":
         cp = config.ncp
-        comm_node = MPI.COMM_WORLD.Split_type(MPI.COMM_TYPE_SHARED)
+        comm_node = utils.MPI.COMM_WORLD.Split_type(utils.MPI.COMM_TYPE_SHARED)
         node_rank = comm_node.Get_rank()
         num_gpus = cp.cuda.runtime.getDeviceCount()
         device_id = node_rank % num_gpus
@@ -171,17 +173,25 @@ class DomainDecomposition:
             else:
                 n_procs.append(0)
         # calculate the remaining dimensions that are not shared
-        n_procs = MPI.Compute_dims(MPI.COMM_WORLD.Get_size(), n_procs)
+        if utils.mpi_available:
+            n_procs = utils.MPI.Compute_dims(utils.MPI.COMM_WORLD.Get_size(), n_procs)
+        else:
+            n_procs = (1,)*n_dims
         # update the shared axes
         shared_axes = [i for i, n in enumerate(n_procs) if n == 1]
 
         # --------------------------------------------------------------
         #  Initialize the communicators
         # --------------------------------------------------------------
-        comm = MPI.COMM_WORLD.Create_cart(
-            n_procs, periods=[True]*n_dims, reorder=reorder_comm)
-        size = comm.Get_size()
-        rank = comm.Get_rank()
+        if utils.mpi_available:
+            comm = utils.MPI.COMM_WORLD.Create_cart(
+                n_procs, periods=[True]*n_dims, reorder=reorder_comm)
+            size = comm.Get_size()
+            rank = comm.Get_rank()
+        else:
+            comm = None
+            size = 1
+            rank = 0
 
         # --------------------------------------------------------------
         #  Create subdomains
@@ -209,16 +219,21 @@ class DomainDecomposition:
         inner = _make_slice_tuple(slice(halo, -halo), n_dims)
 
         # create subcommunicators for each axis
-        subcomms = []
-        for i in range(n_dims):
-            subdims = [False] * n_dims
-            subdims[i] = True
-            subcomms.append(comm.Sub(subdims))
+        if utils.mpi_available:
+            subcomms = []
+            for i in range(n_dims):
+                subdims = [False] * n_dims
+                subdims[i] = True
+                subcomms.append(comm.Sub(subdims))
         
-        # get the neighbors for each axis
-        neighbors = [s.Shift(0, 1) for s in subcomms]
-        prev_proc = [n[0] for n in neighbors]
-        next_proc = [n[1] for n in neighbors]
+            # get the neighbors for each axis
+            neighbors = [s.Shift(0, 1) for s in subcomms]
+            prev_proc = [n[0] for n in neighbors]
+            next_proc = [n[1] for n in neighbors]
+        else:
+            subcomms = []
+            prev_proc = [0]*n_dims
+            next_proc = [0]*n_dims
 
         # create slices for halo exchange
         send_to_next = _make_slice_tuple(slice(-2*halo, -halo), n_dims)
@@ -253,6 +268,96 @@ class DomainDecomposition:
         self._paddings = paddings
         self._inner = inner
         return
+
+    @partial(utils.jaxjit, static_argnames='axes')
+    def sum(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+        """
+        Computes the global sum of an array that is distributed over the processors.       
+
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The array to sum over.
+        `axes` : `list[int]`, optional (default=None)
+            The axes to sum over. If None, all axes are summed over.
+        
+        Returns
+        -------
+        `ndarray`
+            The global sum of the array. Dimensions that are not summed over
+            are kept.
+        """
+        if axes is not None:
+            raise NotImplementedError("The `axes` argument is not yet implemented.")
+        # exclude the halo regions and sum over the local domain
+        ics = self.my_subdomain.inner_slice
+        local_sum = arr[ics].sum()
+        # sum over all processors
+        if utils.mpi_available:
+            sum = self._comm.allreduce(local_sum, op=utils.MPI.SUM)
+        else:
+            sum = local_sum
+        return sum
+
+    @partial(utils.jaxjit, static_argnames='axes')
+    def max(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+        """
+        Computes the global maximum of an array that is distributed over the processors.       
+
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The array to compute the maximum of.
+        `axes` : `list[int]`, optional (default=None)
+            The axes to compute the maximum over. If None, all axes are used.
+        
+        Returns
+        -------
+        `ndarray`
+            The global maximum of the array. Dimensions that are not used
+            are kept.
+        """
+        if axes is not None:
+            raise NotImplementedError("The `axes` argument is not yet implemented.")
+        # exclude the halo regions and compute the maximum over the local domain
+        ics = self.my_subdomain.inner_slice
+        local_max = arr[ics].max()
+        # compute the maximum over all processors
+        if utils.mpi_available:
+            max = self._comm.allreduce(local_max, op=utils.MPI.MAX)
+        else:
+            max = local_max
+        return max
+
+    @partial(utils.jaxjit, static_argnames='axes')
+    def min(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+        """
+        Computes the global minimum of an array that is distributed over the processors.       
+
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The array to compute the minimum of.
+        `axes` : `list[int]`, optional (default=None)
+            The axes to compute the minimum over. If None, all axes are used.
+        
+        Returns
+        -------
+        `ndarray`
+            The global minimum of the array. Dimensions that are not used
+            are kept.
+        """
+        if axes is not None:
+            raise NotImplementedError("The `axes` argument is not yet implemented.")
+        # exclude the halo regions and compute the minimum over the local domain
+        ics = self.my_subdomain.inner_slice
+        local_min = arr[ics].min()
+        # compute the minimum over all processors
+        if utils.mpi_available:
+            min = self._comm.allreduce(local_min, op=utils.MPI.MIN)
+        else:
+            min = local_min
+        return min
 
     @partial(utils.jaxjit, static_argnames='flat_axes')
     def sync(self, arr: ndarray, flat_axes: list | None = None) -> ndarray:
@@ -418,7 +523,7 @@ class DomainDecomposition:
             buf_recv_prev_list.append(buf_recv_prev)
 
         # wait for all non-blocking operations to complete
-        MPI.Request.Waitall(reqs)
+        utils.MPI.Request.Waitall(reqs)
 
         # copy the received data to the halo regions
         for i, arr in enumerate(arrs):
@@ -441,13 +546,21 @@ class DomainDecomposition:
             config.ncp.cuda.Stream.null.synchronize()
 
     def __deepcopy__(self, memo) -> 'DomainDecomposition':
+        # it should never be necessary to deepcopy the domain decomposition
+        # communicator, so do a shallow copy instead
+        from copy import copy
+        copied = copy(self)
+        memo[id(self)] = copied
+        return copy(self)
+
+        # this was the original implementation, but it's probably not necessary
         deepcopy_obj = object.__new__(self.__class__)
         memo[id(self)] = deepcopy_obj  # Store in memo to handle self-references
         for key, value in vars(self).items():
             if isinstance(value, list):
                 list_copy = []
                 for item in value:
-                    if isinstance(item, MPI.Cartcomm):
+                    if isinstance(item, utils.MPI.Cartcomm):
                         list_copy.append(item)
                     else:
                         list_copy.append(deepcopy(item, memo))
@@ -503,7 +616,7 @@ class DomainDecomposition:
         return self._shared_axes
 
     @property
-    def comm(self) -> MPI.Intracomm:
+    def comm(self):
         """The cartesian communicator that defines the processor grid."""
         return self._comm
 

@@ -1,7 +1,6 @@
 import fridom.framework as fr
 from typing import TYPE_CHECKING, Union
 from copy import copy, deepcopy
-from mpi4py import MPI
 from numpy import ndarray
 import numpy as np
 from functools import partial
@@ -565,44 +564,41 @@ class FieldVariable:
 
     def sum(self) -> float:
         """Global sum of the FieldVariable"""
-        ics = self.grid.inner_slice
-        sum = self.arr[ics].sum()
-        sum = MPI.COMM_WORLD.allreduce(sum, op=MPI.SUM)
-        return sum
+        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
+        return domain.sum(self.arr)
 
     def __sum__(self) -> float:
         return self.sum()
     
     def max(self) -> float:
         """Maximum value of the FieldVariable over the whole domain"""
-        ics = self.grid.inner_slice
-        my_max = self.arr[ics].max()
-        return MPI.COMM_WORLD.allreduce(my_max, op=MPI.MAX)
+        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
+        return domain.max(self.arr)
 
     def __max__(self) -> float:
         return self.max()
     
     def min(self) -> float:
         """Minimum value of the FieldVariable over the whole domain"""
-        ics = self.grid.inner_slice
-        my_min = self.arr[ics].min()
-        return MPI.COMM_WORLD.allreduce(my_min, op=MPI.MIN)
+        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
+        return domain.min(self.arr)
     
     def __min__(self) -> float:
         return self.min()
 
     def integrate(self) -> float:
         """Global integral of the FieldVariable"""
-        ics = self.grid.inner_slice
-        integral = (self.arr * self.grid.dV)[ics].sum()
-        return MPI.COMM_WORLD.allreduce(integral, op=MPI.SUM)
+        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
+        integral = self.arr * self.grid.dV
+        return domain.sum(integral)
 
     def norm_l2(self) -> float:
         """Compute the numpy.linalg.norm of the FieldVariable"""
         ics = self.grid.inner_slice
-        local_norm = fr.config.ncp.linalg.norm(self.arr[ics])**2
-        global_norm = MPI.COMM_WORLD.allreduce(local_norm, op=MPI.SUM)
-        return fr.config.ncp.sqrt(global_norm)
+        norm = fr.config.ncp.linalg.norm(self.arr[ics])**2
+        if fr.utils.mpi_available:
+            norm = fr.utils.MPI.COMM_WORLD.allreduce(norm, op=fr.utils.MPI.SUM)
+        return fr.config.ncp.sqrt(norm)
 
     def __add__(self, other: any) -> 'FieldVariable':
         """Add something to the FieldVariable"""

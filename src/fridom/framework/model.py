@@ -1,6 +1,5 @@
 # Import external modules
 from typing import TYPE_CHECKING, Union
-from mpi4py import MPI
 import numpy as np
 import fridom.framework as fr
 # Import internal modules
@@ -288,8 +287,8 @@ class Model:
         config.logger.info(self.mset.timer)
         config.logger.info("Spawning new sbatch job:")
         config.logger.info(self.restart_module.restart_command)
-        MPI.COMM_WORLD.Barrier()
-        if MPI.COMM_WORLD.Get_rank() == 0:
+        fr.utils.mpi_barrier()
+        if fr.utils.mpi_available:
             import subprocess
             result = subprocess.run(
                 self.restart_module.restart_command.split(), 
@@ -297,7 +296,7 @@ class Model:
             config.logger.notice(result.stdout)
             if result.stderr:
                 config.logger.error(result.stderr)
-        MPI.COMM_WORLD.Barrier()
+        fr.utils.mpi_barrier()
         exit()
 
     

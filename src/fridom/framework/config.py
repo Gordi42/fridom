@@ -178,7 +178,12 @@ def _setup_logging():
     logger.verbose = verbose
     logger.notice = notice
 
-    set_log_ranks([0])
+    try:
+        # if mpi4py is available, set the ranks which should log information
+        from mpi4py import MPI
+        set_log_ranks([0])
+    except ImportError:
+        pass
     return
 
 _setup_logging()

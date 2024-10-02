@@ -4,7 +4,6 @@ Utility functions and classes for the FRIDOM framework.
 from typing import Union, TypeVar, Generic
 from . import config
 from .config import logger
-from mpi4py import MPI
 import time
 import datetime
 import numpy as np
@@ -13,6 +12,34 @@ import inspect
 
 # Create a generic type variable
 T = TypeVar('T')
+
+# ================================================================
+#  MPI functions
+# ================================================================
+try:
+    from mpi4py import MPI
+except ImportError:
+    MPI = None
+
+# check if MPI is available
+mpi_available = MPI is not None
+
+# Check if the current rank is the main rank
+i_am_main_rank = False
+if mpi_available:
+    i_am_main_rank = MPI.COMM_WORLD
+else:
+    # if no MPI is available, assume that the current rank is the main rank
+    i_am_main_rank = True
+
+def mpi_barrier():
+    """
+    Barrier synchronization for MPI.
+    """
+    if mpi_available:
+        MPI.COMM_WORLD.Barrier()
+    return
+
 
 # ================================================================
 #  Print functions
@@ -27,7 +54,7 @@ def print_bar(char='='):
     `char`: `str`
         Character to use for the bar.
     """
-    if MPI.COMM_WORLD.Get_rank() == 0:
+    if i_am_main_rank:
         print(char*80, flush=True)
 
 def print_job_init_info():
@@ -48,8 +75,10 @@ def print_job_init_info():
     logger.info(formatted_time)
 
     # get the number of MPI processes
-    size = MPI.COMM_WORLD.Get_size()
-    logger.info(f" > Running on {size} MPI processes.")
+    if mpi_available:
+        from mpi4py import MPI
+        size = MPI.COMM_WORLD.Get_size()
+        logger.info(f" > Running on {size} MPI processes.")
     logger.info(f" > Backend: {config.backend}")
     print_bar("#")
     [print_bar(" ") for _ in range(3)]
@@ -318,8 +347,10 @@ def _create_numpy_copy(obj, memo):
         return deepcopy(obj)
 
     # if the object is a MPI.Cartcomm, return it
-    if isinstance(obj, MPI.Cartcomm):
-        return obj
+    if mpi_available:
+        from mpi4py import MPI
+        if isinstance(obj, MPI.Cartcomm):
+            return obj
 
     # if the object is not a python object, return a deepcopy
     if not hasattr(obj, '__dict__'):

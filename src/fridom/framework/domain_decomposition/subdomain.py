@@ -1,5 +1,4 @@
-# Import external modules
-from mpi4py import MPI
+from fridom.framework import utils
 
 class Subdomain:
     """
@@ -63,14 +62,18 @@ class Subdomain:
         data[local_slice] = 1
     """
     def __init__(self, rank: int, 
-                 comm: MPI.Cartcomm,
+                 comm,
                  n_global: 'tuple[int]',
                  halo: int = 0,
                  ) -> None:
         # get the processor coordinates and dimensions of the processor grid
         n_dims = len(n_global)
-        coord = tuple(comm.Get_coords(rank))  # processor coordinates
-        n_procs = tuple(comm.Get_topo()[0])   # number of processors in each dim.
+        if utils.mpi_available:
+            coord = tuple(comm.Get_coords(rank))  # processor coordinates
+            n_procs = tuple(comm.Get_topo()[0])   # number of processors in each dim.
+        else:
+            coord = (0,) * n_dims
+            n_procs = (1,) * n_dims
 
         # check if a processor is at the edge of the global domain
         is_left_edge = tuple(c == 0 for c in coord)
