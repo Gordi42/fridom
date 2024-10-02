@@ -1,8 +1,8 @@
-import fridom.framework as fr
-from typing import Union
-import numpy as np
 import os
+from typing import Union
 from netCDF4 import Dataset
+import numpy as np
+import fridom.framework as fr
 
 class NetCDFWriter(fr.modules.Module):
     """
@@ -131,8 +131,7 @@ class NetCDFWriter(fr.modules.Module):
     def start(self):
         if self._file_is_open:
             fr.config.logger.warning(
-                "NetCDFWriter: start() called while a file is already open.",
-                "Continue with closing the file")
+                "NetCDFWriter: start() called while a file is already open. Continue with closing the file")
             self._close_file()
         return
 
@@ -228,12 +227,9 @@ class NetCDFWriter(fr.modules.Module):
         #  Create the NetCDF file
         # ----------------------------------------------------------------
         fr.config.logger.info(f"Creating NetCDF file: {filename}")
-        try:
-            ncfile = Dataset(filename, "w", format="NETCDF4", parallel=True)
-        except: 
-            fr.config.logger.warning(
-                "Failed to create NetCDF file in parallel mode. Trying parallel=False")
-            ncfile = Dataset(filename, "w", format="NETCDF4", parallel=False)
+        # check if the model is running in parallel
+        parallel = (self.grid.get_domain_decomposition().n_procs > 1)
+        ncfile = Dataset(filename, "w", format="NETCDF4", parallel=parallel)
 
         dtype = fr.config.dtype_real
         n_dims = self.grid.n_dims
@@ -254,7 +250,7 @@ class NetCDFWriter(fr.modules.Module):
         for i, name in enumerate(x_names):
             nx = len(self.grid.x_global[i][self.snap_slice[i]])
             ncfile.createDimension(name, nx)
-        time_dim = ncfile.createDimension('time', None)
+        _time_dim = ncfile.createDimension('time', None)
 
         # ----------------------------------------------------------------
         #  Create the variables
@@ -269,7 +265,7 @@ class NetCDFWriter(fr.modules.Module):
             xi.long_name = f"{name} coordinate"
 
         # time.units = f"seconds since {mz.start_time}"
-        time.units = f"seconds"
+        time.units = "seconds"
         time.long_name = "UTC time"
         time.calendar = "standard"
         time.standard_name = "time"
