@@ -5,137 +5,74 @@
 
 # Framework for Idealized Ocean Models (FRIDOM)
 
-FRIDOM is a modeling framework designed with a singular goal in mind: to provide a high-level interface for the development of idealized ocean models. FRIDOM leverages the power of CUDA arrays on GPU through CuPy, enabling the execution of models at medium resolutions, constrained only by your hardware capabilities, right within Jupyter Notebook.
+- **Purpose & Flexibility:** FRIDOM is a powerful and modular framework originally developed for running simulations of idealized ocean models. Thanks to its modular design, it can be used to simulate any model represented by a set of partial differential equations, such as $\partial_t \boldsymbol{z} = \boldsymbol{f}(\boldsymbol{z}, t)$.
 
-FRIDOM is designed to solve partial differential equations that are written in the form
+- **Minimizing Boilerplate Code:** To streamline the development process, FRIDOM provides base classes for common components like grids, differential and interpolation operators, time-stepping schemes, netCDF output, animations, etc.
 
-$$ \partial_t \mathbf{z} = \mathbf{f}(\mathbf{z}, t) $$
+- **Easy Model Modifications:** Every component of a model in FRIDOM is fully exchangeable without changing the model's source code. This feature makes FRIDOM an excellent sandbox for testing new ideas and a useful tool for educational purposes.
 
-where $\mathbf{z}$ is a state vector containing, for example, the velocity field and the pressure field, and $\mathbf{f}(\mathbf{z}, t)$ represents the tendency term. To create new custom models, one needs to create a class for the state vector and a function for the tendency term. In the base model, there are pre-implemented functions for handling standard tasks, such as time stepping, netCDF output writing, and creating animations. These functions can be overridden if needed.
+- **Balancing Flexibility & Usability:** While modular frameworks often compromise user-friendliness for flexibility, FRIDOM strives to be both flexible and easy to use. It offers a high-level [API](https://fridom.readthedocs.io/en/latest/fridom_api.html), comprehensive tutorials, and numerous [examples](https://fridom.readthedocs.io/en/latest/auto_examples/index.html) available within the [documentation](https://fridom.readthedocs.io/en/latest/index.html).
 
-FRIDOM is restricted to models with structured grids in cartesian coordinates.
-
-Currently, two idealized ocean models are implemented:
-- A pseudo-spectral non-hydrostatic Boussinesq model adapted from [ps3d](https://github.com/ceden/ps3d)
-- A finite differences rotating shallow water model
+- **Performance through Python & JAX:** Written in Python for ease of use, FRIDOM overcomes Python's performance limitations by leveraging the Just-In-Time (JIT) compiler from JAX. This approach allows FRIDOM to achieve speeds comparable to compiled languages like Fortran or C, and it can further accelerate simulations by running on GPUs.
 
 **NOTE: FRIDOM is in en early development stage, and as such, it may undergo significant changes.**
 
 ## Documentation
 Learn more about FRIDOM in its official [documentation](https://fridom.readthedocs.io/en/latest/index.html).
-## Getting Started
 
-### Prerequisites
-A working conda environment. To test the conda installation run the command
-```sh
-conda list
-```
-If conda is installed and initialized, it should print a list of the installed packages.
+## Installation
+To install FRIDOM from the source code repository, clone the repository in your desired directory and install the package using pip:
 
-### Installation
-
-1. Clone the repo
-```sh
+``` bash
 git clone https://github.com/Gordi42/FRIDOM
+cd FRIDOM
+pip install -e '.[jax-cuda]'
 ```
-2. Create a new conda environment
-```sh
-conda create -n fridom python=3.9
-```
-3. Activate the new environment
-```sh
-conda activate fridom
-```
-4. Install cupy
-```sh
-conda install -c conda-forge cupy
-```
-5. Install other packages
-```sh
-pip install netCDF4 plotly==5.18.0 matplotlib tqdm scipy imageio
-```
-6. Upgrade nbformat
-```sh
-pip install --upgrade nbformat
-```
+see [here](https://fridom.readthedocs.io/en/latest/installation.html) for more information on the installation.
 
-## Usage
+## Example
+The following example showcases a simulation run in the shallow water model. The initial condition is a jet that is barotropic instable. The instabilities grow and form vortices.
 
-### Creating own models
-1. Create a class container to store model settings. For all default settings in the base class, see [here](fridom/Framework/ModelSettingsBase.py).
-```python
-from fridom.Framework.ModelSettingsBase import ModelSettingsBase
-class ModelSettings(ModelSettingsBase):
-    def __init__(self, **kwargs):
-        """store your model settings here, e.g. self.stratification = ..."""
-        super().__init__(n_dims=..., **kwargs)
-```
-2. Create a model grid (Currently only Cartesian). The base class is [here](fridom/Framework/GridBase.py).
-```python
-from fridom.Framework.GridBase import GridBase
-class Grid(GridBase):
-    def __init__(self, mset:ModelSettings):
-        """store grid information, for example array of coriolis frequency"""
-        super().__init__(mset)
-```
-3. Create a class for the state vector $\mathbf{z}$. See for example the [state vector](fridom/NonHydrostatic/State.py) of the non-hydrostatic model for more details.
-```python
-from fridom.Framework.StateBase import StateBase
-from fridom.Framework.FieldVariable import FieldVariable
-from fridom.Framework.BoundaryConditions import BoundaryConditions, Periodic
-class State(StateBase):
-    def __init__(self, grid, field_list=None, **kwargs):
-        if field_list is None:
-            bc = BoundaryConditions([Periodic(mset,0), Periodic(mset,1)])
-            field_list = [
-                FieldVariable(grid, name="Velocity: u", bc=bc),
-                FieldVariable(grid, name="Velocity: v", bc=bc), ...]
-        super().__init__(grid, field_list)
-        self.constructor = State
-```
-4. Create the model. The model must include the method ```total_tendency(self)``` which calculates the right hand side of the partial differential equation $\mathbf{f}(\mathbf{z},t)$.
-```python
-from fridom.Framework.ModelBase import ModelBase
-class Model(ModelBase):
-    def __init__(self, grid):
-        """additional settings may be included in here, 
-        for example for the netCDF output writer"""
-        super().__init__(mset, State)
+``` python
+import fridom.shallowwater as sw
 
-    def total_tendency(self):
-        """Main function, solves right hand side of PDE"""
-        ...
+# Create the grid and model settings
+grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
+mset.time_stepper.dt = 0.7e-3
+mset.setup()
 
-    # for netCDF output, diagnostics, and animations etc.
-    # a few more functions must be defined here
-```
-5. A complete model can be constructed with step 1 to 4. However, for larger projects, it is advisable to build custom plotting modules, as for example [here](fridom/NonHydrostatic/Plot.py) in the non-hydrostatic model.
+# Create the initial condition
+z = sw.initial_conditions.Jet(mset, width=0.1, wavenum=2, waveamp=0.05)
 
+# Create the model and run it
+model = sw.Model(mset)
+model.z = z  # set the initial condition
+model.run(runlen=2.5)
 
-### Quickstart for existing models
-The following code is an example on how to intialize and run the rotating shallow water model with a barotropic instable jet.
+# Plot the final total energy (kinetic + potential)
+model.z.etot.xr.plot(cmap="RdBu_r")
+``` 
+<img src="media/ShallowWater/shallow_water_example.png" />
 
-```python
-# load modules
-from fridom.ShallowWater.ModelSettings import ModelSettings
-from fridom.ShallowWater.Grid import Grid
-from fridom.ShallowWater.InitialConditions import Jet
-from fridom.ShallowWater.Model import Model
-from fridom.ShallowWater.Plot import Plot
-# initialize and run model
-mset = ModelSettings(
-    Ro=0.5, N=[256,256], L=[6,6])       # create model settings
-grid = Grid(mset)                       # create grid
-model = Model(grid)               # create model
-model.z = Jet(grid)               # set initial conditions
-model.run(runlen=2)                     # Run the model
-Plot(model.z.ekin())(model.z)           # plot top view of final kinetic energy
-```
-<p float="left">
-  <img src="media/ShallowWater/SW_Jet_ini.png" width="250" />
-  <img src="media/ShallowWater/SW_Jet_evo.png" width="250" /> 
-</p>
+## List of available models
+- **[nonhydro:](https://fridom.readthedocs.io/en/latest/auto_api/fridom.nonhydro.html#module-fridom.nonhydro)** A 3D pseudo-spectral non-hydrostatic Boussinesq model adapted from [ps3d](https://github.com/ceden/ps3d).
+- **[shallowwater]():** A 2D rotating shallow water model.
 
+## Parallelization
+
+Although the basic structure for parallelization is already prepared, FRIDOM does **not yet** support parallelization. We plan to parallelize the framework using [jaxDecomp](https://github.com/DifferentiableUniverseInitiative/jaxDecomp). Nevertheless, thanks to its compatibility with GPUs, simulations with grid sizes on the order of \(10^6\) grid points—such as \(512^3\) or \(8192^2\) grid points—can already be run in a reasonable amount of time.
+
+## Alternatives
+
+FRIDOM draws inspiration from several existing modeling frameworks and tools, which have influenced its design and capabilities. Some notable inspirations include:
+- **[Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl):** A very powerfull ocean model written in Julia with CPU and GPU support. Oceananigans is suitable for both idealized and realistic ocean setups.  
+
+- **[pyOM2](https://github.com/ceden/pyOM2):** An ocean model written in Fortran with many available parameterizations and closudes.
+
+- **[Veros](https://github.com/team-ocean/veros):** A python implementation of `pyOM2` that runs on CPUs and GPUs using JAX.
+- **[ps3D](https://github.com/ceden/ps3D):** A pseudo spectral non-hydrostatic incompressible flow solver written in Fortran.
+- **[Shenfun](https://github.com/spectralDNS/shenfun):** A python framework for solving systems of partial differential equations using the spectral Galerkin method.
 
 ## Gallery
 https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc78bdd6b
@@ -143,9 +80,9 @@ https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc
 ## Roadmap
 ### Todos for version 0.1.0:
 - [ ] parallelization using jaxDecomp
-- [ ] make mpi4py dependency optional
-- [ ] adapt shallowwater to new model structure
-- [ ] adapt optimal balance to new model structure
+- [x] make mpi4py dependency optional
+- [x] adapt shallowwater to new model structure
+- [x] adapt optimal balance to new model structure
 - [ ] make NNMD work
 - [ ] fix the CG pressure solver in nonhydro model
 - [ ] refactor diagnose imbalance experiment
