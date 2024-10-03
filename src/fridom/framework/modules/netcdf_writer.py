@@ -228,7 +228,7 @@ class NetCDFWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         fr.config.logger.info(f"Creating NetCDF file: {filename}")
         # check if the model is running in parallel
-        parallel = (self.grid.get_domain_decomposition().n_procs > 1)
+        parallel = (self.grid.get_domain_decomposition().n_procs_total > 1)
         ncfile = Dataset(filename, "w", format="NETCDF4", parallel=parallel)
 
         dtype = fr.config.dtype_real
@@ -269,7 +269,8 @@ class NetCDFWriter(fr.modules.Module):
         time.long_name = "UTC time"
         time.calendar = "standard"
         time.standard_name = "time"
-        time.set_collective(True)
+        if parallel:
+            time.set_collective(True)
 
         # store the coordinates
         for i in range(n_dims):
@@ -283,7 +284,8 @@ class NetCDFWriter(fr.modules.Module):
             nc_var.long_name = var.long_name
             for key, value in var.nc_attrs.items():
                 setattr(nc_var, key, value)
-            nc_var.set_collective(True)
+            if parallel:
+                nc_var.set_collective(True)
 
         # ----------------------------------------------------------------
         #  Store the attributes
