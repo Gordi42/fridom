@@ -162,6 +162,10 @@ class DomainDecomposition:
         # --------------------------------------------------------------
         #  Get the number of processors in each direction
         # --------------------------------------------------------------
+        if utils.mpi_available:
+            n_procs_total = utils.MPI.COMM_WORLD.Get_size()
+        else:
+            n_procs_total = 1
         # set the number of processors to 1 for shared axes
         shared_axes = shared_axes or []
         n_procs = []
@@ -249,6 +253,7 @@ class DomainDecomposition:
         self._n_dims = n_dims           # number of dimensions
         self._n_global = n_global       # total number of grid points
         self._halo = halo               # number of halo cells
+        self._n_procs_total = n_procs_total  # total number of processors
         self._n_procs = n_procs         # number of processors in each direction
         self._shared_axes = shared_axes # axes that are shared between processors
         self._comm = comm               # communicator
@@ -269,7 +274,6 @@ class DomainDecomposition:
         self._inner = inner
         return
 
-    @partial(utils.jaxjit, static_argnames='axes')
     def sum(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
         """
         Computes the global sum of an array that is distributed over the processors.       
@@ -294,12 +298,11 @@ class DomainDecomposition:
         local_sum = arr[ics].sum()
         # sum over all processors
         if utils.mpi_available:
-            sum = self._comm.allreduce(local_sum, op=utils.MPI.SUM)
+            glob_sum = utils.MPI.COMM_WORLD.allreduce(local_sum, op=utils.MPI.SUM)
         else:
-            sum = local_sum
-        return sum
+            glob_sum = local_sum
+        return glob_sum
 
-    @partial(utils.jaxjit, static_argnames='axes')
     def max(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
         """
         Computes the global maximum of an array that is distributed over the processors.       
@@ -324,12 +327,11 @@ class DomainDecomposition:
         local_max = arr[ics].max()
         # compute the maximum over all processors
         if utils.mpi_available:
-            max = self._comm.allreduce(local_max, op=utils.MPI.MAX)
+            glob_max = utils.MPI.COMM_WORLD.allreduce(local_max, op=utils.MPI.MAX)
         else:
-            max = local_max
-        return max
+            glob_max = local_max
+        return glob_max
 
-    @partial(utils.jaxjit, static_argnames='axes')
     def min(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
         """
         Computes the global minimum of an array that is distributed over the processors.       
@@ -354,10 +356,10 @@ class DomainDecomposition:
         local_min = arr[ics].min()
         # compute the minimum over all processors
         if utils.mpi_available:
-            min = self._comm.allreduce(local_min, op=utils.MPI.MIN)
+            glob_min = utils.MPI.COMM_WORLD.allreduce(local_min, op=utils.MPI.MIN)
         else:
-            min = local_min
-        return min
+            glob_min = local_min
+        return glob_min
 
     @partial(utils.jaxjit, static_argnames='flat_axes')
     def sync(self, arr: ndarray, flat_axes: list | None = None) -> ndarray:
@@ -604,6 +606,11 @@ class DomainDecomposition:
     def halo(self) -> int:
         """The number of halo cells (ghost cells) around the local domain."""
         return self._halo
+
+    @property
+    def n_procs_total(self) -> int:
+        """The total number of processors."""
+        return self._n_procs_total
 
     @property
     def n_procs(self) -> tuple[int]:
