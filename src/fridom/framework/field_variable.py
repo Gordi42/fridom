@@ -656,12 +656,13 @@ class FieldVariable:
         """Divide the FieldVariable by something"""
         kwargs = self.get_kw()
         # Check that the other object is a FieldVariable
-        if isinstance(other, FieldVariable):
-            topo = [p or q for p, q in zip(self.topo, other.topo)]
-            kwargs["topo"] = topo
-            quot = self.arr / other.arr
-        else:
-            quot = self.arr / other
+        with np.errstate(divide='ignore', invalid='ignore'):
+            if isinstance(other, FieldVariable):
+                topo = [p or q for p, q in zip(self.topo, other.topo)]
+                kwargs["topo"] = topo
+                quot = self.arr / other.arr
+            else:
+                quot = self.arr / other
 
         return FieldVariable(arr=quot, **kwargs)
     
