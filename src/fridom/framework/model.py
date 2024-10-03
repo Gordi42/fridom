@@ -68,13 +68,14 @@ class Model:
 
         # compile the modules
         from time import time
-        fr.config.logger.notice("Compiling tendency modules")
-        start_time = time()
-        mz = fr.ModelState(self.mset)
-        mz.dz = self.mset.state_constructor()
-        self.tendencies.update(mz)
-        fr.config.logger.notice(
-            f"Compilation finished in {time()-start_time:.2f} seconds")
+        if fr.config.backend_is_jax:
+            fr.config.logger.notice("Compiling tendency modules")
+            start_time = time()
+            mz = fr.ModelState(self.mset)
+            mz.dz = self.mset.state_constructor()
+            self.tendencies.update(mz)
+            fr.config.logger.notice(
+                f"Compilation finished in {time()-start_time:.2f} seconds")
 
         # start the progress bar at the very end
         self.progress_bar.start()
