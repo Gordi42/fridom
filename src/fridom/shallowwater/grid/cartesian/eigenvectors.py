@@ -155,6 +155,7 @@ For :math:`|\boldsymbol{k}| = 0` the eigenvectors are identical to the
 continuous case. The projection vectors are the same as in the continuous case,
 but by using the discrete eigenvectors.
 """
+import numpy as np
 from numpy import ndarray
 import fridom.framework as fr
 import fridom.shallowwater as sw
@@ -285,9 +286,9 @@ def vec_q(mset: sw.ModelSettings,
     om = omega(mset, s, (kx, ky), use_discrete=use_discrete)
 
     # compute the eigenvector for k != 0
-    u = om * khp(kx,dx) - 1j*f0*ohp(kx,dx)*ohm(ky,dy)*khp(ky,dy)
-    v = om * khp(ky,dy) + 1j*f0*ohm(kx,dx)*ohp(ky,dy)*khp(kx,dx)
-    p = f0**2 * ohpm(kx,dx) * ohpm(ky,dy) - om**2
+    u = om * khp(kx,dx) / f0 - 1j*ohp(kx,dx)*ohm(ky,dy)*khp(ky,dy)
+    v = om * khp(ky,dy) / f0 + 1j*ohm(kx,dx)*ohp(ky,dy)*khp(kx,dx)
+    p = f0 * ohpm(kx,dx) * ohpm(ky,dy) - om**2 / f0
 
     # Inertial mode (k = 0)
     u_in = -1j*s
@@ -350,9 +351,10 @@ def vec_p(mset: sw.ModelSettings,
     norm = ncp.abs((q.dot(z)).arr)
     # avoid division by zero
     mask = (norm > 1e-10)
-    z.u.arr = ncp.where(mask, z.u.arr/norm, 0)
-    z.v.arr = ncp.where(mask, z.v.arr/norm, 0)
-    z.p.arr = ncp.where(mask, z.p.arr/norm, 0)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        z.u.arr = ncp.where(mask, z.u.arr/norm, 0)
+        z.v.arr = ncp.where(mask, z.v.arr/norm, 0)
+        z.p.arr = ncp.where(mask, z.p.arr/norm, 0)
 
     # Set the nyquist frequency to zero
     from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
