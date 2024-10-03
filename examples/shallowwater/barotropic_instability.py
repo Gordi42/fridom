@@ -49,8 +49,8 @@ class Plotter(sw.modules.animation.ModelPlotter):
 
     def update_figure(fig, z, pot_vort, t) -> None:
         ax = fig.add_subplot(111)
-        pot_vort.plot(ax=ax, cmap="RdBu_r", vmax=170, vmin=30, extend='both')
-        key = z.plot.quiver("x", "y", "u", "v", scale=1, add_guide=False)
+        pot_vort.plot(ax=ax, cmap="RdBu_r", vmax=250, vmin=-50, extend='both')
+        key = z.plot.quiver("x", "y", "u", "v", scale=1.5, add_guide=False)
         label_velo = 0.05
         ax.quiverkey(key, X=0.9, Y=1.05, U=label_velo,
                     label=f'{label_velo} [m/s]', labelpos='E')
@@ -65,9 +65,9 @@ def main():
     # ----------------------------------------------------------------
     #  Create the grid and model settings
     # ----------------------------------------------------------------
-    grid = sw.grid.cartesian.Grid(N=(Nx,Nx), L=(1,1))
+    grid = sw.grid.cartesian.Grid(N=(Nx,Nx), L=(L,L))
     mset = sw.ModelSettings(grid=grid, 
-                            f0=1.0,
+                            f0=f0,
                             Ro=rossby_number, 
                             csqr=burger_number)
     mset.time_stepper.dt = 2 / Nx
@@ -91,7 +91,7 @@ def main():
 
     # create a thumbnail saver
     mset.diagnostics.add_module(sw.modules.FigureSaver(
-        filename=thumbnail, model_time=70, plotter=Plotter))
+        filename=thumbnail, model_time=40, plotter=Plotter))
     
     # biharmonic friction as a simple way to dissipate energy at the smallest scales
     dx = L/Nx
@@ -106,9 +106,9 @@ def main():
     # ----------------------------------------------------------------
     z = U_jet * sw.initial_conditions.Jet(
         mset, 
-        jet_width=jet_width, 
+        width=jet_width, 
         wavenum=2,           # wavenumber of the perturbation
-        jet_pos=(0.5, -10),  # one jet is in the middle, the other not in the domain
+        pos=0.5,             # jet is in the middle
         waveamp=1e-2)
 
     # ----------------------------------------------------------------

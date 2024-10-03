@@ -7,16 +7,15 @@ class Jet(sw.State):
 
     Description
     -----------
-    An instable jet setup with 2 zonal jets and a small pressure perturbation
+    An instable jet setup with a small pressure perturbation
     on top of it. The jet is given by:
 
     .. math::
-        u = 2.5 \\left( \\exp\\left(-\\left(\\frac{y - 0.75 L_y}{\\sigma}\\right)^2\\right) -
-                        \\exp\\left(-\\left(\\frac{y - 0.25 L_y}{\\sigma}\\right)^2\\right) 
-                \\right)
+        u = \\exp\\left(-\\left(\\frac{y - p L_y}{\\sigma L_y}\\right)^2\\right)
 
     where :math:`L_y` is the domain length in the y-direction, 
-    and :math:`\\sigma = 0.04 \\pi` is the width of the jet. The perturbation
+    :math:`p` is the relative position of the jet
+    and :math:`\\sigma` is the relative width of the jet. The perturbation
     is given by:
 
     .. math::
@@ -35,37 +34,44 @@ class Jet(sw.State):
         The relative wavenumber of the perturbation.
     `waveamp` : `float`
         The amplitude of the perturbation.
-    `jet_pos` : `tuple`
-        The relative position of the jets in the y-direction
-    `jet_width` : `float`
-        The width of the jets.
+    `pos` : `float`
+        The relative position of the jet in the y-direction
+    `width` : `float`
+        The relative width of the jet.
     `geo_proj` : `bool`
         Whether to project the initial condition to the geostrophic subspace.
     """
     def __init__(self, 
-                 mset: sw.ModelSettings, 
-                 wavenum: int = 5, 
-                 waveamp: float = 0.1, 
-                 jet_pos: tuple[float] = (0.25, 0.75), 
-                 jet_width: float = 0.04,
+                 mset: sw.ModelSettings,
+                 wavenum: int = 2,
+                 waveamp: float = 0.1,
+                 pos: float = 0.5,
+                 width: float = 0.1,
                  geo_proj: bool = True):
         super().__init__(mset)
         # Shortcuts
         ncp = sw.config.ncp
-        PI = ncp.pi
         X, Y = self.grid.X
         Lx, Ly = self.grid.L
 
         # Construct the zonal jets
-        self.u.arr = (  ncp.exp(- 0.5*((Y - jet_pos[1]*Ly)/(jet_width))**2) 
-                      - ncp.exp(- 0.5*((Y - jet_pos[0]*Ly)/(jet_width))**2) )
+        z_jet = sw.State(mset)
+        z_jet.u.arr = ncp.exp(- ((Y - pos * Ly)/(width * Ly))**2)
 
-        # Construct the perturbation
-        kx_p = 2 * PI / Lx * wavenum
-        self.p.arr = waveamp * ncp.sin(kx_p*X)
-
+        # Project to geostrophic subspace
         if geo_proj:
             proj_geo = sw.projection.GeostrophicSpectral(mset)
-            z_geo = proj_geo(self)
-            self.fields = z_geo.fields
-        return
+            z_jet = proj_geo(z_jet)
+
+        # Normalize the jet
+        u_amp = (z_jet.u**2 + z_jet.v**2).max()
+        z_jet /= u_amp**(1/2)
+
+        # Construct the perturbation
+        z_wave = sw.initial_conditions.SingleWave(mset, (wavenum, 0), s=0)
+        u_amp = (z_wave.u**2 + z_wave.v**2).max()
+        z_wave /= u_amp**(1/2)
+
+        # return the sum
+        z = z_jet + waveamp * z_wave
+        self.fields = z.fields
