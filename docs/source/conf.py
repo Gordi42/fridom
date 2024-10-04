@@ -38,17 +38,26 @@ release = '0.0.1'
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.autosummary',
     'sphinx.ext.viewcode',
     'sphinx.ext.mathjax',
     'sphinx_copybutton',
-    'sphinx_gallery.gen_gallery',
     'sphinxcontrib.youtube',
     "sphinxcontrib.video",
     "sphinx_codeautolink",
     'myst_parser',
 ]
+
+# Only add autodoc if we are not in quick build mode
+quick_build = os.getenv('SPHINX_QUICK_BUILD', 'false').lower() == 'true'
+if not quick_build:
+    extensions += [
+        'sphinx.ext.autodoc',
+        'sphinx.ext.autosummary',
+        'sphinx_gallery.gen_gallery',
+    ]
+
+
+
 sphinx_gallery_conf = {
     'examples_dirs': '../../examples',   # path to your example scripts
     'gallery_dirs': 'auto_examples',  # path to where to save gallery generated output

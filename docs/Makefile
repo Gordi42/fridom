@@ -1,20 +1,26 @@
-# Minimal makefile for Sphinx documentation
-#
+# Makefile for building Sphinx documentation
 
-# You can set these variables from the command line, and also
-# from the environment for the first two.
-SPHINXOPTS    ?=
-SPHINXBUILD   ?= sphinx-build
-SOURCEDIR     = source
-BUILDDIR      = build
+# Directories
+SPHINX_SOURCE = source
+SPHINX_BUILD = build
 
-# Put it first so that "make" without argument is like "make help".
-help:
-	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+# Sphinx executable
+SPHINX = python3 -m sphinx
 
-.PHONY: help Makefile
+# Build targets
+.PHONY: html clean
 
-# Catch-all target: route all unknown targets to Sphinx using the new
-# "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).
-%: Makefile
-	@$(SPHINXBUILD) -M $@ "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+html:
+	@( \
+		echo "Changing to $(SPHINX_SOURCE) directory"; \
+		cd $(SPHINX_SOURCE); \
+		echo "Building HTML documentation"; \
+		SPHINX_QUICK_BUILD=$(QUICKBUILD) $(SPHINX) -T -b html -d ../$(SPHINX_BUILD)/doctrees -D language=en . ../$(SPHINX_BUILD)/html; \
+	)
+
+clean:
+	@rm -rf $(SPHINX_BUILD)/*
+	@rm -rf $(SPHINX_SOURCE)/auto_examples
+	@rm -rf $(SPHINX_SOURCE)/auto_api
+	@rm -rf $(SPHINX_SOURCE)/gen_modules
+	@rm -rf $(SPHINX_SOURCE)/sg_execution_times.rst
