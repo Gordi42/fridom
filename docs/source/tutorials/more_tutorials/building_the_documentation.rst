@@ -13,7 +13,11 @@ To set up a dedicated environment for building the documentation, execute the fo
     conda create -y --name fridom-docs python=3.11
     conda activate fridom-docs
     python3 -m pip install --upgrade --no-cache-dir setuptools sphinx readthedocs-sphinx-ext
-    python3 -m pip install --exists-action=w --no-cache-dir -r requirements.txt
+    python3 -m pip install --exists-action=w --no-cache-dir -r docs/requirements.txt
+
+.. note::
+
+    The above commands must be executed from the root directory of the FRIDOM repository.
 
 Building the Documentation
 --------------------------

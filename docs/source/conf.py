@@ -41,9 +41,9 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.mathjax',
     'sphinx_copybutton',
+    'sphinx_design',
     'sphinxcontrib.youtube',
     "sphinxcontrib.video",
-    "sphinx_codeautolink",
     'myst_parser',
 ]
 
@@ -54,6 +54,7 @@ if not quick_build:
         'sphinx.ext.autodoc',
         'sphinx.ext.autosummary',
         'sphinx_gallery.gen_gallery',
+        'sphinx_codeautolink',
     ]
 
 

@@ -3,13 +3,26 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Overview
-========
+FRIDOM: Framework for Idealized Ocean Models
+============================================
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   installation
+   getting_started
+   tutorials/index
+   auto_examples/index
+   fridom_api
 
 
 .. video:: _static/fridom_bright.mp4
    :autoplay:
    :loop:
+
+Key Features
+------------
 
 - **Purpose & Flexibility:** FRIDOM is a powerful and modular framework originally developed for running simulations of idealized ocean models. Thanks to its modular design, it can be used to simulate any model represented by a set of partial differential equations, such as :math:`\partial_t \boldsymbol{z} = \boldsymbol{f}(\boldsymbol{z}, t)`.
 
@@ -28,22 +41,39 @@ Overview
 Navigation
 ==========
 
-.. toctree::
-   :maxdepth: 1
-   :hidden:
+.. grid:: 1 2 2 3
+   :margin: 4 4 0 0
+   :gutter: 2
 
-   index
-   installation
-   getting_started
-   tutorials/index
-   auto_examples/index
-   fridom_api
+   .. grid-item-card::  Installation
+      :link: installation
+      :link-type: doc
 
-- :doc:`Installation <installation>` - How to install FRIDOM.
-- :doc:`Getting Started <getting_started>` - A quick introduction to FRIDOM.
-- :doc:`Tutorials <tutorials/index>` - A collection of tutorials to get you started with FRIDOM.
-- :doc:`Gallery <auto_examples/index>` - A collection of examples demonstrating FRIDOM's capabilities.
-- :doc:`API <fridom_api>` - The full API documentation.
+      How to install.
+
+   .. grid-item-card::  Getting Started
+      :link: getting_started
+      :link-type: doc
+
+      A quick introduction to the framework.
+
+   .. grid-item-card::  Tutorials
+      :link: tutorials/index
+      :link-type: doc
+
+      A collection of tutorials to get you started.
+
+   .. grid-item-card::  Gallery
+      :link: auto_examples/index
+      :link-type: doc
+
+      A collection of examples demonstrating FRIDOM's capabilities.
+
+   .. grid-item-card::  API
+      :link: fridom_api
+      :link-type: doc
+
+      The full API documentation.
 
 
 Indices and tables
