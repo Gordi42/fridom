@@ -1,6 +1,20 @@
 Using FRIDOM Models
 ===================
 
+.. toctree::
+   :hidden:
+
+   grid_and_modelsettings
+   field_variable_and_plotting
+   state_and_initial_conditions
+   time_stepping_schemes
+   running_the_model
+   model_output
+   understanding_modules
+   animations
+   submit_to_cluster
+   parallelization
+
 This chapter provides a comprehensive guide on how to work with FRIDOM and utilize its built-in models. We will introduce the foundational concepts step by step. By the end of this chapter, you will be equipped to:
 
 - Visualize and plot field variables,
@@ -45,4 +59,70 @@ Throughout this chapter, we primarily use the 2D shallow water model as our exam
 
 TODO: discuss the differences between the two models
 
-TODO: List of tutorials in this chapter
+
+Tutorials
+---------
+.. grid:: 1 2 2 1
+   :margin: 4 4 0 0
+   :gutter: 2
+
+   .. grid-item-card::  1. The grid and the model settings
+      :link: grid_and_modelsettings
+      :link-type: doc
+
+      Learn how to create a grid and set up the model settings.
+
+   .. grid-item-card::  2. Field variables and plotting
+      :link: field_variable_and_plotting
+      :link-type: doc
+
+      Learn how to work with field variables and how to plot them.
+
+   .. grid-item-card::  3. The state vector and initial conditions
+      :link: state_and_initial_conditions
+      :link-type: doc
+
+      Learn how to work with the state vector and how to create custom initial conditions.
+
+   .. grid-item-card::  4. Time-stepping schemes
+      :link: time_stepping_schemes
+      :link-type: doc
+
+      Learn how to choose and modify time-stepping schemes.
+
+   .. grid-item-card::  5. Running the model
+      :link: running_the_model
+      :link-type: doc
+
+      Learn how to run the model.
+
+   .. grid-item-card::  6. Saving model output
+      :link: model_output
+      :link-type: doc
+
+      Learn how to save model output as netCDF files.
+
+   .. grid-item-card::  7. Understanding FRIDOM modules
+      :link: understanding_modules
+      :link-type: doc
+
+      Learn what FRIDOM modules are and how to use them to create custom components as for example friction or forcing.
+
+   .. grid-item-card::  8. Generating animations
+      :link: animations
+      :link-type: doc
+
+      Learn how to generate animations of the model outputs.
+
+   .. grid-item-card::  9. Submitting simulations to a computing cluster
+      :link: submit_to_cluster
+      :link-type: doc
+
+      Learn how to submit simulations to a computing cluster with automated restarts.
+
+   .. grid-item-card::  10. Parallelizing simulations
+      :link: parallelization
+      :link-type: doc
+
+      Learn how to parallelize simulations to run them faster (future feature).
+   
