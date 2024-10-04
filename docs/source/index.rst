@@ -21,7 +21,7 @@ FRIDOM: Framework for Idealized Ocean Models
    :autoplay:
    :loop:
 
-Key Features
+About FRIDOM
 ------------
 
 - **Purpose & Flexibility:** FRIDOM is a powerful and modular framework originally developed for running simulations of idealized ocean models. Thanks to its modular design, it can be used to simulate any model represented by a set of partial differential equations, such as :math:`\partial_t \boldsymbol{z} = \boldsymbol{f}(\boldsymbol{z}, t)`.
