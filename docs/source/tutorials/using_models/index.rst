@@ -54,10 +54,24 @@ Throughout this chapter, we primarily use the 2D shallow water model as our exam
 
       .. code-block:: python
 
-         # TODO: insert code snippet for 3D nonhydrostatic model
+         import fridom.nonhydro as nh
 
+         # Create the grid and model settings
+         grid = nh.grid.cartesian.Grid(N=(256,256,16), L=(1,1,1), periodic_bounds=(True, True, False))
+         mset = nh.ModelSettings(grid=grid, f0=1, N2=1, Ro=0.5)
+         mset.time_stepper.dt = 1e-3
+         mset.setup()
 
-TODO: discuss the differences between the two models
+         # Create the initial condition
+         z = nh.initial_conditions.BarotropicJet(mset, wavenum=2, jet_width=0.01)
+
+         # Create the model and run it
+         model = nh.Model(mset)
+         model.z = z  # set the initial condition
+         model.run(runlen=2.5)
+
+         # Plot the final total energy (kinetic + potential)
+         model.z.etot.xrs[:,:,0].plot(cmap="RdBu_r")
 
 
 Tutorials
