@@ -9,6 +9,9 @@
    id="svg5"
    inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
    sodipodi:docname="halo_region.svg"
+   inkscape:export-filename="halo_region.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns="http://www.w3.org/2000/svg"
@@ -24,9 +27,9 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
      showgrid="false"
-     inkscape:zoom="0.74606748"
-     inkscape:cx="71.709331"
-     inkscape:cy="297.56022"
+     inkscape:zoom="0.74552923"
+     inkscape:cx="42.922529"
+     inkscape:cy="423.85997"
      inkscape:window-width="1896"
      inkscape:window-height="1024"
      inkscape:window-x="0"
@@ -138,27 +141,29 @@
        xml:space="preserve"
        transform="matrix(0.26458333,0,0,0.26458333,-56.112614,-1.8104946)"
        id="text1895"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:74.6667px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect1897);fill:#89c74d;fill-opacity:1;stroke:none;stroke-width:3.77953;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:74.6667px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect1897);display:inline;fill:#89c74d;fill-opacity:1;stroke:none;stroke-width:3.77953;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"><tspan
          x="354.43555"
          y="221.93854"
-         id="tspan4450"><tspan
+         id="tspan6399"><tspan
            style="fill:#000000"
-           id="tspan4448">Full Domain</tspan></tspan></text>
+           id="tspan6397">Full Domain</tspan></tspan></text>
     <text
        xml:space="preserve"
-       transform="matrix(0.26458333,0,0,0.26458333,-0.94795928,13.534701)"
+       transform="matrix(0.26458333,0,0,0.26458333,-1.5952472,14.526002)"
        id="text2267"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect2269);fill:#000000;fill-opacity:1;stroke:none;stroke-width:1.88976;stroke-dasharray:7.55906, 1.88976;stroke-dashoffset:0;stroke-opacity:1"><tspan
-         x="317.27734"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';text-align:center;white-space:pre;shape-inside:url(#rect2269);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1.88976;stroke-dasharray:7.55906, 1.88976;stroke-dashoffset:0;stroke-opacity:1"
+       x="76.823959"
+       y="0"><tspan
+         x="319.83813"
          y="444.18096"
-         id="tspan4452">Subdomain</tspan></text>
+         id="tspan6401">Subdomain</tspan></text>
     <text
        xml:space="preserve"
        transform="matrix(0.26458333,0,0,0.26458333,40.198689,141.1581)"
        id="text2531"
-       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect2533);fill:#000000;fill-opacity:1;stroke:none;stroke-width:1.88976;stroke-dasharray:7.55906, 1.88976;stroke-dashoffset:0;stroke-opacity:1"><tspan
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect2533);display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:1.88976;stroke-dasharray:7.55906, 1.88976;stroke-dashoffset:0;stroke-opacity:1"><tspan
          x="206.31641"
          y="79.559866"
-         id="tspan4454">Halo</tspan></text>
+         id="tspan6403">Halo</tspan></text>
   </g>
 </svg>
