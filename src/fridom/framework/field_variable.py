@@ -168,6 +168,15 @@ class FieldVariable:
 
         return f
 
+    def ifft(self,
+             padding: FFTPadding = FFTPadding.NOPADDING) -> "FieldVariable":
+        """
+        Inverse Fourier transform of the FieldVariable
+        """
+        if not self.is_spectral:
+            raise ValueError("FieldVariable is not in spectral space, cannot perform ifft")
+        return self.fft(padding=padding)
+
     def sync(self) -> 'FieldVariable':
         """
         Synchronize the FieldVariable (exchange boundary values)
