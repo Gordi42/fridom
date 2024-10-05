@@ -5,6 +5,7 @@ More Tutorials
    :hidden:
 
    backend
+   precision
    building_the_documentation
 
 
@@ -17,6 +18,12 @@ More Tutorials
       :link-type: doc
 
       Everything about the backend.
+
+   .. grid-item-card:: Floating point precision
+      :link: precision
+      :link-type: doc
+
+      How to set the precision of floating point numbers in FRIDOM.
 
    .. grid-item-card:: Building the documentation
       :link: building_the_documentation
