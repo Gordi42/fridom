@@ -39,7 +39,7 @@ About FRIDOM
    FRIDOM is in an early development stage, and as such, it may undergo significant changes.
 
 Navigation
-==========
+----------
 
 .. grid:: 1 2 2 3
    :margin: 4 4 0 0
@@ -76,8 +76,42 @@ Navigation
       The full API documentation.
 
 
+Alternatives
+------------
+FRIDOM draws inspiration from several existing modeling frameworks and tools, which have influenced its design and capabilities. Some notable inspirations include:
+
+.. grid:: 1 2 2 3
+   :margin: 4 4 0 0
+   :gutter: 2
+
+   .. grid-item-card::  Oceananigans.jl
+      :link: https://github.com/CliMA/Oceananigans.jl
+
+      A very powerful ocean model written in Julia with CPU and GPU support. Oceananigans is suitable for both idealized and realistic ocean setups.
+
+   .. grid-item-card::  pyOM2
+      :link: https://github.com/ceden/pyOM2
+
+      An ocean model written in Fortran with many available parameterizations and closures.
+
+   .. grid-item-card::  Veros
+      :link: https://github.com/team-ocean/veros
+
+      A Python implementation of `pyOM2` that runs on CPUs and GPUs using JAX.
+
+   .. grid-item-card::  ps3D
+      :link: https://github.com/ceden/ps3D
+
+      A pseudo-spectral non-hydrostatic incompressible flow solver written in Fortran.
+
+   .. grid-item-card::  Shenfun
+      :link: https://github.com/spectralDNS/shenfun
+
+      A Python framework for solving systems of partial differential equations using the spectral Galerkin method.
+
+
 Indices and tables
-==================
+------------------
 
 * :ref:`genindex`
 * :ref:`modindex`
