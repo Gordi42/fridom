@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="173.52567mm"
+   height="186.54752mm"
+   viewBox="0 0 173.52567 186.54752"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   sodipodi:docname="halo_region.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#999999"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="mm"
+     showgrid="false"
+     inkscape:zoom="0.74606748"
+     inkscape:cx="71.709331"
+     inkscape:cy="297.56022"
+     inkscape:window-width="1896"
+     inkscape:window-height="1024"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs2">
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect2591"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,15.875,0,1 @ F,0,0,1,0,15.875,0,1 @ F,0,0,1,0,15.875,0,1 @ F,0,0,1,0,15.875,0,1"
+       unit="px"
+       method="auto"
+       mode="F"
+       radius="60"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
+    <rect
+       x="206.31618"
+       y="53.227005"
+       width="415.40207"
+       height="80.536865"
+       id="rect2533" />
+    <rect
+       x="317.27637"
+       y="417.84808"
+       width="163.52184"
+       height="36.427818"
+       id="rect2269" />
+    <rect
+       x="354.43512"
+       y="154.90913"
+       width="670.56726"
+       height="106.93834"
+       id="rect1897" />
+  </defs>
+  <g
+     inkscape:label="Ebene 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-17.345364,-29.173071)">
+    <path
+       style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:0.486404;stroke-dasharray:1.94562, 0.486404;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect2537"
+       width="173.52567"
+       height="186.54752"
+       x="17.345364"
+       y="29.173071"
+       inkscape:path-effect="#path-effect2591"
+       d="m 33.220364,29.173071 141.775666,0 a 15.875,15.875 45 0 1 15.875,15.875 V 199.84559 a 15.875,15.875 135 0 1 -15.875,15.875 H 33.220364 a 15.875,15.875 45 0 1 -15.875,-15.875 V 45.048071 a 15.875,15.875 135 0 1 15.875,-15.875 z"
+       sodipodi:type="rect" />
+    <rect
+       style="fill:#d5f6ff;fill-opacity:1;stroke:#000000;stroke-width:0.5;stroke-dasharray:2, 0.5;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect2003"
+       width="71.88797"
+       height="73.605125"
+       x="67.711258"
+       y="92.059639" />
+    <rect
+       style="fill:#2ad4ff;fill-opacity:1;stroke:none;stroke-width:0.499999;stroke-dasharray:2, 0.499999;stroke-dashoffset:0;stroke-opacity:1"
+       id="rect2109"
+       width="44.052418"
+       height="45.19619"
+       x="81.925034"
+       y="106.93764" />
+    <rect
+       style="fill:none;stroke:#000000;stroke-width:1.6281;stroke-dasharray:none;stroke-opacity:1"
+       id="rect1151"
+       width="136.35291"
+       height="136.35291"
+       x="35.119591"
+       y="61.133553" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.0364;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       d="M 126.06209,60.960055 V 196.88461"
+       id="path1638" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1.03843;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       d="M 81.604966,60.454768 V 196.91208"
+       id="path1638-3" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       d="M 35.685362,106.66728 H 171.59411"
+       id="path1704" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:1;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       d="M 36.245274,152.62543 H 172.15402"
+       id="path1704-7" />
+    <text
+       xml:space="preserve"
+       style="font-size:3.175px;fill:none;stroke:#000000;stroke-width:1;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+       x="67.422722"
+       y="51.979195"
+       id="text1843"><tspan
+         id="tspan1841"
+         style="stroke-width:1"
+         x="67.422722"
+         y="51.979195"
+         sodipodi:role="line" /></text>
+    <text
+       xml:space="preserve"
+       transform="matrix(0.26458333,0,0,0.26458333,-56.112614,-1.8104946)"
+       id="text1895"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:74.6667px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect1897);fill:#89c74d;fill-opacity:1;stroke:none;stroke-width:3.77953;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"><tspan
+         x="354.43555"
+         y="221.93854"
+         id="tspan4450"><tspan
+           style="fill:#000000"
+           id="tspan4448">Full Domain</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       transform="matrix(0.26458333,0,0,0.26458333,-0.94795928,13.534701)"
+       id="text2267"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect2269);fill:#000000;fill-opacity:1;stroke:none;stroke-width:1.88976;stroke-dasharray:7.55906, 1.88976;stroke-dashoffset:0;stroke-opacity:1"><tspan
+         x="317.27734"
+         y="444.18096"
+         id="tspan4452">Subdomain</tspan></text>
+    <text
+       xml:space="preserve"
+       transform="matrix(0.26458333,0,0,0.26458333,40.198689,141.1581)"
+       id="text2531"
+       style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-size:29.3333px;font-family:'JetBrainsMono Nerd Font';-inkscape-font-specification:'JetBrainsMono Nerd Font';white-space:pre;shape-inside:url(#rect2533);fill:#000000;fill-opacity:1;stroke:none;stroke-width:1.88976;stroke-dasharray:7.55906, 1.88976;stroke-dashoffset:0;stroke-opacity:1"><tspan
+         x="206.31641"
+         y="79.559866"
+         id="tspan4454">Halo</tspan></text>
+  </g>
+</svg>
