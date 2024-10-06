@@ -7,11 +7,11 @@ Using FRIDOM Models
    grid_and_modelsettings
    field_variable_and_plotting
    state_and_initial_conditions
-   time_stepping_schemes
    running_the_model
    model_output
    understanding_modules
    animations
+   time_stepping_schemes
    submit_to_cluster
    parallelization
 
@@ -98,35 +98,35 @@ Tutorials
 
       Learn how to work with the state vector and how to create custom initial conditions.
 
-   .. grid-item-card::  4. Time-stepping schemes
-      :link: time_stepping_schemes
-      :link-type: doc
-
-      Learn how to choose and modify time-stepping schemes.
-
-   .. grid-item-card::  5. Running the model
+   .. grid-item-card::  4. Running the model
       :link: running_the_model
       :link-type: doc
 
       Learn how to run the model.
 
-   .. grid-item-card::  6. Saving model output
+   .. grid-item-card::  5. Saving model output
       :link: model_output
       :link-type: doc
 
       Learn how to save model output as netCDF files.
 
-   .. grid-item-card::  7. Understanding FRIDOM modules
+   .. grid-item-card::  6. Understanding FRIDOM modules
       :link: understanding_modules
       :link-type: doc
 
       Learn what FRIDOM modules are and how to use them to create custom components as for example friction or forcing.
 
-   .. grid-item-card::  8. Generating animations
+   .. grid-item-card::  7. Generating animations
       :link: animations
       :link-type: doc
 
       Learn how to generate animations of the model outputs.
+
+   .. grid-item-card::  8. Time-stepping schemes
+      :link: time_stepping_schemes
+      :link-type: doc
+
+      Learn how to choose and modify time-stepping schemes.
 
    .. grid-item-card::  9. Submitting simulations to a computing cluster
       :link: submit_to_cluster
