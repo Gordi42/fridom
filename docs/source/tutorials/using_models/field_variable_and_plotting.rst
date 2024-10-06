@@ -485,7 +485,7 @@ If you add this field to a field variable that extends in all directions, the re
 
 .. note::
 
-    The number of grid points in the extended directions is ``258`` and not ``256`` because the field variable is extended by two grid points in each direction to account for the halo regions.
+    The number of grid points in the extended directions is ``258`` and not ``256`` because the field variable is extended by one grid point in each direction to account for the halo regions.
 
 
 Boundary Conditions
