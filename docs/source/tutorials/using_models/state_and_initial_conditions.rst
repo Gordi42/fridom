@@ -380,7 +380,7 @@ The following example demonstrates how to calculate the potential vorticity of t
     # Plot the potential vorticity
     z.pot_vort.xr.plot()
 
-.. figure:: /_static/tutorials/using_models/state_and_initial_conditions/gauss.png
+.. figure:: /_static/tutorials/using_models/state_and_initial_conditions/pot_vort.png
     :width: 60%
     :align: center
 
