@@ -1,4 +1,4 @@
-Field variables and plotting
+Field Variables and Plotting
 ============================
 
 .. note:: 
@@ -9,41 +9,46 @@ The ``FieldVariable`` class is the fundamental class for all fields used in FRID
 
 In addition to the array itself, a field variable stores a range of metadata, including the field's name, units, coordinate information, and dimensions. If you're familiar with ``xarray``, you'll notice that the field variable class is very similar to ``DataArray`` in ``xarray``. In fact, later in this tutorial, we will see how field variables can be easily converted to ``xarray`` ``DataArrays``. This is particularly useful if you want to leverage the extensive plotting capabilities of ``xarray``.
 
-In this tutorial, you will learn how to create field variables, manipulate them, plot them, and explore a variety of useful functions to work with them effectively. However, before we get started, we will first create a grid and a ``ModelSettings`` object to initialize the field variables. For this, we will use the Cartesian grid for the 2D Shallow Water Model:
-
-.. code-block:: python
-
-    import fridom.shallowwater as sw
-
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
-    mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
-    mset.setup()
+In this tutorial, you will learn how to create field variables, manipulate them, plot them, and explore a variety of useful functions to work with them effectively.
 
 
-Creating field variables
+Creating Field Variables
 ------------------------
 To create a field variable, you need to provide the ``ModelSettings`` object and the name of the field. Additionally, a range of optional arguments can be specified, such as the field's unit and a longer, more descriptive name. For a full list of possible arguments that can be passed to the field variable class, refer to the API documentation.
 
 In the following example, we create a field variable for temperature:
 
 .. code-block:: python
+    :caption: Creating a field variable
 
-    temperature = sw.FieldVariable(mset, name="temp", unit="K", long_name="Temperature")
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
+
+    temperature = sw.FieldVariable(mset, name="temp", units="K", long_name="Temperature")
 
 By default, a field variable is initialized with zeros. Let's now look at how we can access and manipulate the data within field variables.
 
-Manipulating field variables
+Manipulating Field Variables
 ----------------------------
 
 Field variables can primarily be manipulated in three ways: through arithmetic operations, built-in methods of the field variable class, and `numpy` functions.
 
-Arithmetic operations
+Arithmetic Operations
 ~~~~~~~~~~~~~~~~~~~~~
 
 Let's start with arithmetic operations between field variables and scalars:
 
 .. code-block:: python
     :caption: Arithmetic operations with scalars
+
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
 
     # Create a field variable
     u = sw.FieldVariable(mset, name="u")
@@ -56,12 +61,39 @@ Let's start with arithmetic operations between field variables and scalars:
 
     print(u.arr)  # 3.14 everywhere
 
+.. dropdown:: Output
+    :chevron: down-up
+
+    ::
+
+        [[0. 0. 0. ... 0. 0. 0.]
+         [0. 0. 0. ... 0. 0. 0.]
+         [0. 0. 0. ... 0. 0. 0.]
+         ...
+         [0. 0. 0. ... 0. 0. 0.]
+         [0. 0. 0. ... 0. 0. 0.]
+         [0. 0. 0. ... 0. 0. 0.]]
+        [[3.14 3.14 3.14 ... 3.14 3.14 3.14]
+         [3.14 3.14 3.14 ... 3.14 3.14 3.14]
+         [3.14 3.14 3.14 ... 3.14 3.14 3.14]
+         ...
+         [3.14 3.14 3.14 ... 3.14 3.14 3.14]
+         [3.14 3.14 3.14 ... 3.14 3.14 3.14]
+         [3.14 3.14 3.14 ... 3.14 3.14 3.14]]
+
+
 In addition to addition, subtraction (``-``), multiplication (``*``), division (``/``), and exponentiation (``**``) with scalars are also supported.
 
 We can also perform these arithmetic operations between two field variables. When performing arithmetic operations between two field variables, the attributes of the first field variable are carried over to the result. Consider the following example:
 
 .. code-block:: python
     :caption: Arithmetic operations with field variables
+
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
 
     # Create two field variables
     u = sw.FieldVariable(mset, name="u", long_name="1st variable") + 1
@@ -73,17 +105,20 @@ We can also perform these arithmetic operations between two field variables. Whe
     # Check the data of the new field variable
     print(w)
 
-::
+.. dropdown:: Output
+    :chevron: down-up
 
-    FieldVariable
-      - name: u
-      - long_name: 1st variable
-      - units: n/a
-      - is_spectral: False
-      - position: Position: (<AxisPosition.CENTER: 1>, <AxisPosition.CENTER: 1>)
-      - topo: [True, True]
-      - bc_types: (<BCType.NEUMANN: 2>, <BCType.NEUMANN: 2>)
-      - enabled_flags: []
+    ::
+
+        FieldVariable
+          - name: u
+          - long_name: 1st variable
+          - units: n/a
+          - is_spectral: False
+          - position: Position: (<AxisPosition.CENTER: 1>, <AxisPosition.CENTER: 1>)
+          - topo: [True, True]
+          - bc_types: (<BCType.NEUMANN: 2>, <BCType.NEUMANN: 2>)
+          - enabled_flags: []
 
 As you can see, the new field variable ``w`` inherits the attributes of the first field variable ``u``.
 
@@ -101,13 +136,19 @@ As you can see, the new field variable ``w`` inherits the attributes of the firs
 In the output, you will notice several attributes we haven't discussed yet. The attributes ``position``, ``topo``, and ``bc_types`` will be covered later in this tutorial. We now take a look at the ``is_spectral`` attribute, which indicates that Fourier transformations can be applied to field variables.
 
 
-Field variable methods
+Field Variable Methods
 ~~~~~~~~~~~~~~~~~~~~~~
 
 Fourier transformations are one of the built-in methods that can be applied to field variables. However, Fourier transformations are not possible for all grids and boundary conditions. In our doubly-periodic case, they are applicable. Consider the following example:
 
 .. code-block:: python
     :caption: Fourier transformation
+
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
 
     u = sw.FieldVariable(mset, name="u")
     v = u.fft()   # Fourier transform to spectral space
@@ -117,6 +158,16 @@ Fourier transformations are one of the built-in methods that can be applied to f
     print(u.arr.dtype)  # float64
     print(v.arr.dtype)  # complex128
     print(w.arr.dtype)  # float64
+
+.. dropdown:: Output
+    :chevron: down-up
+
+    ::
+
+        float64
+        complex128
+        float64
+
 
 .. note::
 
@@ -129,6 +180,12 @@ A variety of other methods are available to facilitate working in parallel setti
 .. code-block:: python
     :caption: Field variable methods
 
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
+
     u = sw.FieldVariable(mset, name="u")
 
     u_max = u.max()  # -> float: global maximum
@@ -139,13 +196,19 @@ A variety of other methods are available to facilitate working in parallel setti
     u = u.sync()  # -> FieldVariable: synchronize halo regions
 
 
-Apply numpy functions
+Apply Numpy Functions
 ~~~~~~~~~~~~~~~~~~~~~
 
 ``numpy`` functions cannot be directly applied to field variables. However, they can be used by applying them to the array inside the field variable. In the following example, we initialize a field variable using the sine function:
 
 .. code-block:: python
     :caption: Applying numpy functions
+
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
 
     u = sw.FieldVariable(mset, name="u")
 
@@ -165,6 +228,16 @@ In a similar manner, most ``numpy`` functions can be applied to field variables.
 .. code-block:: python
     :caption: Random fields
 
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
+
+    u = sw.FieldVariable(mset, name="u")
+    X, Y = u.get_mesh()
+
+    # Generate a random field
     u.arr = sw.utils.random_array(X.shape, seed=12345)
 
 The ``seed`` parameter controls the random number generator.
@@ -172,8 +245,8 @@ The ``seed`` parameter controls the random number generator.
 If you have completed the previous tutorial, you may have noticed that here we created the meshgrid using the field variable, while in the previous tutorial, we used the ``grid`` class. The reason for this is that field variables can be located at different positions on the grid. Which means that their exact coordinates depend on the position of the field variable. We will explore this further in the next section.
 
 
-Positioning of field variables
-------------------------------
+Position of Field Variables
+---------------------------
 
 Grids can be broadly categorized into two types: staggered and non-staggered grids. In non-staggered grids, all field variables are located at the center of the cells, while in staggered grids, field variables can be positioned at different locations. For non-staggered grids, this section is not particularly relevant. However, for staggered grids, it is important to know where the field variables are positioned. A field variable can either be located on the cell faces (``FACE``) or at the cell centers (``CENTER``) in each direction.
 
@@ -191,13 +264,32 @@ In FRIDOM, positions can be defined in two ways: either by using the cell center
 
         .. code-block:: python
 
+            import fridom.shallowwater as sw
+
+            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            mset = sw.ModelSettings(grid=grid)
+            mset.setup()
+
             # Shift the cell center to the face in the x-direction
             position = grid.cell_center.shift(axis=0)
             print(position)
 
+        .. dropdown:: Output
+            :chevron: down-up
+
+            ::
+
+                Position: (<AxisPosition.FACE: 2>, <AxisPosition.CENTER: 1>)
+
     .. tab-item:: Manual definition
 
         .. code-block:: python
+
+            import fridom.shallowwater as sw
+
+            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            mset = sw.ModelSettings(grid=grid)
+            mset.setup()
 
             # Get the AxisPosition enum
             AxisPosition = sw.grid.AxisPosition
@@ -206,14 +298,18 @@ In FRIDOM, positions can be defined in two ways: either by using the cell center
             position = sw.grid.Position((AxisPosition.FACE, AxisPosition.CENTER))
             print(position)
 
-::
+        .. dropdown:: Output
+            :chevron: down-up
 
-    Position: (<AxisPosition.FACE: 2>, <AxisPosition.CENTER: 1>)
+            ::
+
+                Position: (<AxisPosition.FACE: 2>, <AxisPosition.CENTER: 1>)
+
 
 The position can be passed with the keyword argument ``position`` when creating a field variable. By default, field variables are placed on the cell center.
 
 
-Plotting field variables with xarray
+Plotting Field Variables with Xarray
 ------------------------------------
 
 The easiest way to plot field variables is to convert them into an ``xarray`` ``DataArray`` and then utilize the extensive plotting functions provided by ``xarray``. There are essentially two ways to convert a field variable into an ``xarray`` ``DataArray``: you can either convert the entire field variable using the ``.xr`` method or convert a slice of the field variable using the ``.xrs`` method.
@@ -223,6 +319,12 @@ The easiest way to plot field variables is to convert them into an ``xarray`` ``
     .. tab-item:: Converting everything
 
         .. code-block:: python
+
+            import fridom.shallowwater as sw
+
+            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            mset = sw.ModelSettings(grid=grid)
+            mset.setup()
 
             ncp = sw.config.ncp
             u = sw.FieldVariable(mset, name="u", long_name="Velocity", units="m/s")
@@ -239,6 +341,12 @@ The easiest way to plot field variables is to convert them into an ``xarray`` ``
     .. tab-item:: Converting a slice
 
         .. code-block:: python
+
+            import fridom.shallowwater as sw
+
+            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            mset = sw.ModelSettings(grid=grid)
+            mset.setup()
 
             ncp = sw.config.ncp
             u = sw.FieldVariable(mset, name="u", long_name="Velocity", units="m/s")
@@ -267,7 +375,7 @@ You may wonder why we have the ``.xrs`` method if you can achieve the same resul
     The ``xarray`` conversion is not compatible when running the framework in parallel.
 
 
-Differentiation and interpolation
+Differentiation and Interpolation
 ---------------------------------
 
 When modeling partial differential equations, one is often interested in the derivatives of field variables. Simple partial derivatives can be calculated using the ``diff`` method. The method takes as arguments the axis along which the derivative should be computed and the order of the derivative.
@@ -276,6 +384,12 @@ When modeling partial differential equations, one is often interested in the der
     :caption: Differentiation
 
     import matplotlib.pyplot as plt
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
+
     ncp = sw.config.ncp
     u = sw.FieldVariable(mset, name="u")
     X, Y = u.get_mesh()
@@ -301,10 +415,13 @@ Let’s review the positions of the fields from the above example:
     print(f"u: {u.position}")
     print(f"du_dx: {du_dx.position}")
 
-::
+.. dropdown:: Output
+    :chevron: down-up
 
-    u: Position: (<AxisPosition.CENTER: 1>, <AxisPosition.CENTER: 1>)
-    du_dx: Position: (<AxisPosition.FACE: 2>, <AxisPosition.CENTER: 1>)
+    ::
+
+        u: Position: (<AxisPosition.CENTER: 1>, <AxisPosition.CENTER: 1>)
+        du_dx: Position: (<AxisPosition.FACE: 2>, <AxisPosition.CENTER: 1>)
 
 In some cases, you might want to interpolate a field from one position to another. This can be achieved using the ``interpolate`` method, which takes as its argument the position to which the field should be interpolated.
 
@@ -327,7 +444,7 @@ Finally, let’s introduce a few useful differentiation functions, all of which 
     lap = u.laplacian()
 
 
-Flat axes
+Flat Axes
 ---------
 
 So far, we have only considered field variables that have the same dimensions as the grid. However, it is also possible to create field variables that do not extend in certain directions. This can be useful, for instance, when applying 2D surface forcing in a 3D domain or when creating a vertical profile. To achieve this, you can use the ``topo`` argument, which is a list of booleans. If ``topo`` is ``True`` in a given direction, the field variable has an extent in that direction. If ``topo`` is ``False``, the field variable has no extent in that direction.
@@ -337,12 +454,24 @@ Consider the following example, in which we create a 2D field variable that has 
 .. code-block:: python
     :caption: Flat axes
 
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
+
     u = sw.FieldVariable(mset, name="u", topo=[True, False])
 
 If you add this field to a field variable that extends in all directions, the result will be a field variable that extends in all directions. The field variable without extent in a particular direction is assumed to be constant along that direction:
 
 .. code-block:: python
     :caption: Adding flat axes
+
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
 
     u = sw.FieldVariable(mset, name="v")
     v = sw.FieldVariable(mset, name="u", topo=[True, False])
@@ -359,7 +488,7 @@ If you add this field to a field variable that extends in all directions, the re
     The number of grid points in the extended directions is ``258`` and not ``256`` because the field variable is extended by two grid points in each direction to account for the halo regions.
 
 
-Boundary conditions
+Boundary Conditions
 -------------------
 .. warning::
 
@@ -374,6 +503,12 @@ By default, all boundaries are set to ``NEUMANN``. They can be customized using 
 
 .. code-block:: python
     :caption: Boundary conditions
+
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid)
+    mset.setup()
 
     NEUMANN = sw.grid.BCType.NEUMANN
     DIRICHLET = sw.grid.BCType.DIRICHLET
