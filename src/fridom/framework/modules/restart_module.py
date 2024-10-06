@@ -46,7 +46,7 @@ class RestartModule(fr.modules.Module):
         # ----------------------------------------------------------------
         #  Set the restart command
         # ----------------------------------------------------------------
-        if restart_command is None and self.is_enabled:
+        if restart_command is None and self.is_enabled == True:
             job_id = os.getenv('SLURM_JOB_ID')
             if job_id is None:
                 fr.config.logger.warning(
