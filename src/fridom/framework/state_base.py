@@ -85,6 +85,15 @@ class StateBase:
             is_spectral=not self.is_spectral)
         return z
 
+    def ifft(self,
+                padding = FFTPadding.NOPADDING) -> "StateBase":
+        """
+        Calculate the inverse Fourier transform of the state.
+        """
+        if not self.is_spectral:
+            raise ValueError("FieldVariable is not in spectral space, cannot perform ifft")
+        return self.fft(padding=padding)
+
     def sync(self) -> None:
         """
         Synchronize the state. (Exchange ghost cells)
@@ -196,6 +205,15 @@ class StateBase:
     # ================================================================
     #  PROPERTIES
     # ================================================================
+
+    def __repr__(self):
+        """
+        Return the string representation of the state.
+        """
+        res = "State with fields:\n"
+        for field in self.fields.values():
+            res += f"  {field.name}: {field.long_name}  [{field.units}]\n"
+        return res
 
     @property
     def field_list(self) -> list:
