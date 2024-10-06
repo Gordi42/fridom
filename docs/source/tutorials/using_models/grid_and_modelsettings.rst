@@ -1,4 +1,4 @@
-The grid and the model settings
+The Grid and the Model Settings
 ===============================
 
 
@@ -29,6 +29,20 @@ The following code snippets demonstrate how to create a Cartesian grid:
                 N=(Nx,Ny), L=(Lx,Ly), periodic_bounds=(True, True)
             )
 
+            print(grid)
+
+        .. dropdown:: Output
+            :chevron: down-up
+
+            ::
+
+                Cartesian Grid
+                  - N: 256 x 256
+                  - L: 1.00 km x 1.00 km
+                  - dx: 3.91 m x 3.91 m
+                  - Periodic: True x True
+
+
     .. tab-item:: 3D Nonhydrostatic Model
 
         .. code-block:: python
@@ -44,6 +58,20 @@ The following code snippets demonstrate how to create a Cartesian grid:
             grid = nh.grid.cartesian.Grid(
                 N=(Nx,Ny,Nz), L=(Lx,Ly,Lz), periodic_bounds=(True, True, False)
             )
+
+            print(grid)
+
+        .. dropdown:: Output
+            :chevron: down-up
+
+            ::
+
+                Cartesian Grid
+                  - N: 256 x 256 x 16
+                  - L: 1.00 km x 1.00 km x 100.00 m
+                  - dx: 3.91 m x 3.91 m x 6.25 m
+                  - Periodic: True x True x False
+
 
 In both cases, the grid is created with periodic boundary conditions in the x and y directions. In the 3D model, the z direction does not have periodic boundaries.
 
@@ -68,9 +96,14 @@ The ModelSettings object holds all information about the model parameters and mo
 
 The model parameters vary depending on the model. For example, in the 2D shallow water model, parameters include the Coriolis frequency :math:`f_0` and the wave speed, :math:`c^2 = gH`, where :math:`g` is gravitational acceleration and :math:`H` is the mean water depth. For a full description of model parameters, refer to the model documentation.
 
-The following code snippets demonstrate how to create and setup a ModelSettings object for the 2D shallow water model, using the previously created grid:
+The following code snippets demonstrate how to create and setup a ModelSettings object for the 2D shallow water model:
 
 .. code-block:: python
+    :caption: Creating a ModelSettings object
+
+    import fridom.shallowwater as sw
+
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
 
     # Settings parameters for the 2D Shallow Water Model
     f0   = 1e-4   # Coriolis frequency in 1/s
@@ -87,6 +120,44 @@ The following code snippets demonstrate how to create and setup a ModelSettings 
     # Setup the ModelSettings object
     mset.setup()
 
+    print(mset)
+
+.. dropdown:: Output
+    :chevron: down-up
+
+    ::
+
+        =================================================
+          Model Settings:
+        -------------------------------------------------
+        # ShallowWater
+        # Parameters: 
+          - coriolis parameter f0: 0.0001 s⁻¹
+          - beta term: 0 m⁻¹ s⁻¹)
+          - Phase velocity c²: 196.20000000000002 m²s⁻²
+          - Rossby number Ro: 1
+        # Grid: Cartesian Grid
+          - N: 256 x 256
+          - L: 1.00 m x 1.00 m
+          - dx: 3.91 mm x 3.91 mm
+          - Periodic: True x True
+          - Processors: 1 x 1
+        # Time Stepper: Adam Bashforth
+          - dt: 1 s
+          - order: 3
+        # Restart Module (disabled)
+          - Directory: restart
+          - Filename: model
+        # Tendencies: Module Container
+        ## Reset Tendency
+        ## Linear Tendency
+        ## Sadourny Advection
+          - Required Halo: 2
+        # Diagnostics: All Diagnostics
+        =================================================
+
+
+
 .. note:: The creation of ModelSettings objects in other models follows a similar pattern. For now, we will focus on the 2D shallow water model.
 
 The first argument of the ModelSettings constructor is always the grid object. The subsequent arguments are the model parameters. The creation of modules will be covered in later tutorials. After adding all modules, the ``.setup()`` method of the ModelSettings object must be called. This method triggers the ``.setup()`` methods of the grid and all modules, ensuring that the model is fully prepared to run.
@@ -102,12 +173,24 @@ Once both the grid and ModelSettings object are created, you can use the various
     .. tab-item:: 2D case
 
         .. code-block:: python
+        
+            import fridom.shallowwater as sw
+
+            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            mset = sw.ModelSettings(grid=grid, f0=1e-4, csqr=9.81*20)
+            mset.setup()
 
             X, Y = grid.get_mesh()
 
     .. tab-item:: 3D case
 
         .. code-block:: python
+
+            import fridom.nonhydro as nh
+
+            grid = nh.grid.cartesian.Grid(N=(256,256,16), L=(1,1,1), periodic_bounds=(True, True, False))
+            mset = nh.ModelSettings(grid=grid)
+            mset.setup()
 
             X, Y, Z = grid.get_mesh()
 
@@ -119,11 +202,23 @@ If the grid allows for Fourier transformations, you can also access the k-space 
 
         .. code-block:: python
 
+            import fridom.shallowwater as sw
+
+            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            mset = sw.ModelSettings(grid=grid, f0=1e-4, csqr=9.81*20)
+            mset.setup()
+
             Kx, Ky = grid.get_mesh(spectral=True)
 
     .. tab-item:: 3D case
 
         .. code-block:: python
+
+            import fridom.nonhydro as nh
+
+            grid = nh.grid.cartesian.Grid(N=(256,256,16), L=(1,1,1), periodic_bounds=(True, True, False))
+            mset = nh.ModelSettings(grid=grid)
+            mset.setup()
 
             Kx, Ky, Kz = grid.get_mesh(spectral=True)
 
@@ -132,11 +227,13 @@ The meshgrid is represented as an array, which could be a ``numpy``, ``cupy``, o
 To simplify working with different backends, you can access ``ncp`` from the config module. Depending on the backend, ncp will be either ``numpy``, ``cupy``, or ``jax.numpy``. For example, arrays can be created as follows:
 
 .. code-block:: python
+    :caption: Creating an array
 
     import fridom.shallowwater as sw
 
-    # creating grid and mset
-    # ...
+    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    mset = sw.ModelSettings(grid=grid, f0=1e-4, csqr=9.81*20)
+    mset.setup()
 
     # Load the "numpy"-like module from the config
     ncp = sw.config.ncp
