@@ -433,6 +433,7 @@ def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
         The time in seconds.
     """
     if isinstance(t, (np.datetime64, np.timedelta64)):
+        t = t.astype('datetime64[s]')  # convert time stemp to seconds
         return float(t.astype('timedelta64[s]').astype(float))
     return t
 
