@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     # nonlinear projections
     from .optimal_balance import OptimalBalance
+    from .nnmd import NNMD
 
 # ================================================================
 #  Setup lazy loading
@@ -39,6 +40,7 @@ all_imports_by_origin = {
         "GeostrophicSpectral", "WaveSpectral", "DivergenceSpectral"],
     f"{base_path}.geostrophic_time_average": ["GeostrophicTimeAverage"],
     f"{base_path}.optimal_balance": ["OptimalBalance"],
+    f"{base_path}.nnmd": ["NNMD"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

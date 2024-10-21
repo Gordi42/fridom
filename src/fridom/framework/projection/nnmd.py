@@ -1,387 +1,643 @@
-# Import external modules
-import numpy as np
-from typing import TYPE_CHECKING
-# Import internal modules
-from fridom.framework.model import Model
-from fridom.framework.projection.projection import Projection
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.state_base import StateBase
+import fridom.framework as fr
+from scipy.special import comb
 
-class NNMDBase(Projection):
+class NNMD(fr.projection.Projection):
+    r"""
+    Nonlinear normal mode decomposition
+
+    Parameters
+    ----------
+    `mset` : `ModelSettings`
+        The model settings.
+    `order` : `int`
+        The order of the balanced state.
+    `epsilon` : `float` (default: None)
+        The small parameter epsilon.
+    `use_discrete` : `bool` (default: True)
+        Whether to use the discrete eigenvectors vectors.
+    `enable_dealiasing` : `bool` (default: True)
+        Whether to enable dealiasing when computing the nonlinear term.
+
+    Description
+    -----------
+    Nonlinear normal mode decomposition (NNMD) is a method to filter out all fast waves from a given state :math:`\boldsymbol z`. The obtained state :math:`\boldsymbol z_b` is called a balanced state. For a linear system, such a balancing operation would be the projection onto the eigenspace with the smallest eigenvalue, e.g. the geostrophic mode for ocean models. In contrast to the simple projection onto the linear geostrophic mode, NNMD takes the nonlinear terms into account. 
+
+    The key concept of NNMD emerged independently through the works of Machenhauer (1977) [1]_ and Bear & Tribbia (1977) [2]_ . Building on this foundation, Warn et al. (1995) [3]_ further developed this approach by expanding the fast linear normal modes in a power series expansion in terms of a small parameter, the Rossby number. Here we use a small modification of the Warn et al. (1995) [3]_ method, that is described in more detail by Eden et al. (2019) [4]_.
+
+    Requirements
+    ------------
+
+    Form of the System
+    ~~~~~~~~~~~~~~~~~~
+    To apply nonlinear normal mode decomposition, we require a system of equations that can be written in spectral space as:
+
+    .. math::
+        \partial_t \boldsymbol z = -i \mathbf A \cdot \boldsymbol z + \epsilon \boldsymbol N (\boldsymbol z)
+
+    where :math:`\boldsymbol z(\boldsymbol k, t)` is the state vector, :math:`\boldsymbol k` is the wave vector, :math:`t` is the time, :math:`\mathbf A` is a matrix, :math:`\epsilon` is a small parameter and :math:`\boldsymbol N(\boldsymbol z)`  is a nonlinear term. The :math:`j`-th. component of the nonlinear term is given by:
+    
+    .. math::
+        N_j(\boldsymbol z) = \boldsymbol z * (\mathbf G_j \cdot \boldsymbol z)
+    
+    where the star :math:`*` denotes a convolution, and :math:`\mathbf G_j` is a matrix. The nonlinear term :math:`\boldsymbol N` typically corresponds to the advection term, and :math:`\mathbf G_j \cdot \boldsymbol z` to the gradient of the :math:`j`-th component of :math:`\boldsymbol z`. 
+
+    Scaling of the system
+    ~~~~~~~~~~~~~~~~~~~~~
+    The system must be scaled, e.g. the magnitude of :math:`\mathbf A`, and of the nonlinear term :math:`\boldsymbol N` should be of order one. 
+
+    Eigenvectors and Eigenvalues
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    The eigenvectors :math:`\boldsymbol q_j` and eigenvalues :math:`\lambda_j` of the linear system matrix :math:`\mathbf A` should be known. Further, projection vectors :math:`\boldsymbol p_j:math:` are required, such that
+    
+    .. math::
+        \boldsymbol p_i \cdot \boldsymbol q_j = \delta_{i,j}
+    
+    with the Kronecker-Delta symbol :math:`\delta_{i,j}`. The first eigenvalue :math:`\lambda_0` must be zero.
+
+
+    Calculation of the balanced state
+    ---------------------------------
+    In this section we present the equations from which the balance state is computed. For more details on how these equations are derived and why the obtained state is balanced see the derivation section.
+
+    Nonlinear normal mode decomposition is based around the idea on expanding a state around a small parameter :math:`\epsilon` and balancing the system of equations in each order of :math:`\epsilon`. The full balanced state :math:`\boldsymbol z_b` up to order :math:`N` is then given by:
+    
+    .. math::
+        \boldsymbol z_b = z_{0,0,0}~\boldsymbol q_0 + \sum_{n=1}^N \epsilon^n \sum_{j={1,2}} z_{j,n,0}~\boldsymbol q_j 
+    
+    where :math:`N` is the maximum order to which the state is balanced, and :math:`z_{j,n,k}` are amplitudes, where
+    - :math:`j` correspond to the :math:`j`-th linear normal mode
+    - :math:`n` correspond to the :math:`n`-th order of the power series expansion
+    - :math:`k` correspond to the :math:`k`-th partial time derivative
+    For the slow linear normal modes (:math:`j=0`), these amplitudes are given by:
+    
+    .. math::
+        z_{0,0,k} = \begin{cases}
+        \boldsymbol p_0 \cdot \boldsymbol z & \text{for} & k=0\\ 
+        \boldsymbol p_0 \cdot \boldsymbol I_0^{(k-1)} &\text{else}
+        \end{cases}
+    
+    where :math:`\boldsymbol z` is the state to be balanced, and :math:`\boldsymbol I_n^{(k)}` are interaction terms that are given below. For the two fast linear normal modes :math:`j=1,2`, the amplitudes are given by:
+    
+    .. math::
+        z_{j,n,k} = \begin{cases}
+        0 & \text{for} & n=0\\ 
+        \frac{i}{\lambda_j} \left( z_{j,n-1,k+1} - \boldsymbol p_j \cdot \boldsymbol I_{n-1}^{(k)}\right) &\text{else}
+        \end{cases}
+    
+    For :math:`n=0`, the interaction terms :math:`\boldsymbol I_n^{(k)}` are given by:
+    
+    .. math::
+        \boldsymbol I_0^{(k)} = 
+        \sum_{m=0}^{k} \binom{k}{m} \boldsymbol S \left(
+        z_{0,0,k-m} ~ \boldsymbol q_0 , 
+        z_{0,0,m} ~ \boldsymbol q_0 \right)
+   
+    and for :math:`n>0`:
+    
+    .. math::
+        \begin{eqnarray}
+            \boldsymbol I_n^k = 
+            \sum_{m=0}^k \begin{pmatrix}k \\ m \end{pmatrix} \left [
+            2 \boldsymbol S \left(
+            z_{0,0,k-m} ~ \boldsymbol q_0,
+            \sum_{j=1,2} z_{j,n,m} ~ \boldsymbol q_j \right) \right.
+            \\ \left. 
+            + \sum_{i=1}^{n} \boldsymbol S \left(
+            \sum_{j=1,2} z_{j,i,k-m} ~ \boldsymbol q_j ,
+            \sum_{j=1,2} z_{j,n-i,m} ~ \boldsymbol q_j \right)
+            \right]
+        \end{eqnarray}
+    
+    where :math:`\binom{k}{m}` are binomial coefficients and :math:`\boldsymbol S` is a symmetrical bilinear form, defined as:
+    
+    .. math::
+        \boldsymbol S(\boldsymbol z_1 , \boldsymbol z_2) = 
+        \frac{1}{2} \left [
+        \boldsymbol N (\boldsymbol z_1 + \boldsymbol z_2) -
+        \boldsymbol N (\boldsymbol z_1) 
+        - \boldsymbol N(\boldsymbol z_2)
+        \right]
+    
+    Note that the amplitudes :math:`z_{j,n,k}` can be straightforward calculated from these equations, since :math:`z_{j,n,k}` only depends on terms of order :math:`n-1` and smaller, and :math:`z_{j,0,k}` can be calculated from terms with time derivative order :math:`k'` smaller than :math:`k`. 
+
+
+    Derivation
+    ----------
+    We start with the spectral system of equations and multiply it with the projection vector :math:`\boldsymbol p_j` from the left:
+    
+    .. math::
+        \partial_t z_0 = \epsilon ~\boldsymbol p_0 \cdot \boldsymbol N(\boldsymbol z)
+        \quad , \quad 
+        \partial_t z_j = -i \lambda_j z_j + \epsilon ~\boldsymbol p_j \cdot \boldsymbol N(\boldsymbol z)
+   
+    where :math:`z_j` is amplitude of the :math:`j`-th normal mode:
+    
+    .. math::
+        z_j \equiv \boldsymbol p_j \cdot \boldsymbol z
+    
+    Note that we consider the zero mode :math:`j=0` separately, since the eigenvalue is zero. For a balanced state :math:`\boldsymbol z_b`, the tendency of the state should be small:
+    
+    .. math::
+        \frac{\mathcal O(\partial_t \boldsymbol z_b)}{\mathcal O(\boldsymbol z_b)} = \epsilon 
+    
+    Introducing a slow time scale :math:`T=\epsilon t`, the balance condition becomes:
+    
+    .. math::
+        \partial_t = \epsilon \partial_T
+        \quad \implies \quad 
+        \frac{\mathcal O(\partial_T \boldsymbol z)}{\mathcal O(\boldsymbol z)} = 1
+    
+    which is easier to handle. In the slow time scale, the system of equations becomes:
+    
+    .. math::
+        \partial_T z_0 = \boldsymbol N (\boldsymbol z)
+        \quad , \quad 
+        \epsilon \partial_T z_j = -i \lambda_j z_j + \epsilon \boldsymbol N(\boldsymbol z)
+    
+    these equations will hereafter be referred to as the slow time scale tendency equations. While these equations still represent the full system of equations and thus, the solution space is not yet limited to balanced states. However, together with the balance condition above, the solution space is restricted to slowly evolving states, i.e. balanced states. However to find the balanced state :math:`\boldsymbol z_b` of a given state :math:`\boldsymbol z`, we need a boundary condition for solving these equations. Such a boundary condition could for example be :math:`\boldsymbol z - \boldsymbol z_b` is minimal. However, this boundary condition would be hard to work with. A simpler boundary condition is to take the linear slow mode as a base point coordinate, i.e.:
+    
+    .. math::
+        \boldsymbol p_0 \cdot \boldsymbol z_b = \boldsymbol p_0 \cdot \boldsymbol z = z_0
+    
+    With this boundary condition, :math:`z_0` is given, and we can solve the above balance equations for :math:`z_j`. To do so, we express the fast modes as a power series expansion:
+    
+    .. math::
+        z_j = \sum_{n=0}^\infty \epsilon^n z_{j,n}
+   
+    Such that the full balanced state is given by:
+    
+    .. math::
+        \boldsymbol z_b = z_{0}~\boldsymbol q_0 + \sum_{n=0}^\infty \epsilon^n \sum_{j={1,2}} z_{j,n}~\boldsymbol q_j 
+    
+    We now insert this power series expansion into the slow time scale tendency equations, and sort the terms to the order of :math:`\epsilon`. We then combine the obtained equations with the balance condition by balancing the tendency equation in every order. We will get separate equations for the terms of order :math:`\epsilon^0`, of order :math:`\epsilon^1`, etc. By definition, the balance condition is satisfied when the terms balance in each order. However, before we insert the power series expansion, we need to find a way to deal with the nonlinear term.
+
+    Expansion of the Nonlinear Term
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Using that the :math:`j`-th component of the nonlinear term is given by :math:`\boldsymbol z * (\mathbf G_j \cdot \boldsymbol z)` , we find:
+    
+    .. math::
+        \begin{eqnarray}
+	        N_j(\boldsymbol z_1 + \boldsymbol z_2) &=& 
+	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_1) + 
+	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
+	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1) +
+	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_2)
+	        \\
+	        &=& 
+	        N_j(\boldsymbol z_1) + N_j(\boldsymbol z_2)
+	        + 
+	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
+	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1)
+	        \\
+	        &\equiv& 
+	        N_j(\boldsymbol z_1) + N_j(\boldsymbol z_2) +
+	        2 S_j (z_1, z_2)
+        \end{eqnarray}
+   
+    with the symmetrical bilinear form :math:`S_j`:
+    
+    .. math::
+        \begin{eqnarray}
+	        S_j (z_1, z_2) &=&
+	        \frac{1}{2} \left [
+	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
+	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1)
+	        \right]
+	        \\
+	        &=& 
+	        \frac{1}{2} \left [
+	        N_j(\boldsymbol z_1 + \boldsymbol z_2) -
+	        N_j(\boldsymbol z_1) - N_j(\boldsymbol z_2)
+	        \right]
+        \end{eqnarray}
+    
+    The first line shows that :math:`S_j` is symmetric and linear in both arguments. The second line shows how to compute :math:`S_j` from :math:`N_j`. Note that the nonlinear term :math:`\boldsymbol N` can be expressed with the symmetrical bilinear form:
+    
+    .. math::
+        \boldsymbol N(\boldsymbol z) = \boldsymbol S(\boldsymbol z, \boldsymbol z)
+   
+    Inserting the full balanced state and it's power series expansion yields:
+    
+    .. math::
+        \begin{eqnarray}
+	        \boldsymbol S(\boldsymbol z_b, \boldsymbol z_b) &=&
+	        \boldsymbol S \left( \boldsymbol z_0 + \sum_{n=0}^\infty \epsilon^n \boldsymbol z_{f,n} ~,~
+	        \boldsymbol z_0 + \sum_{i=0}^\infty \epsilon^i \boldsymbol z_{f,i}
+	        \right)
+	        \\ &=&
+	        \mathcal S(\boldsymbol z_0, \boldsymbol z_0) 
+	        + \sum_i \epsilon^i \boldsymbol S(\boldsymbol z_0, \boldsymbol z_{f,i})
+	        + \sum_n \epsilon^n \boldsymbol S(\boldsymbol z_{f,n}, \boldsymbol z_0)
+	        + \sum_{n,i} \epsilon^{n+i} \boldsymbol S(\boldsymbol z_{f,n}, \boldsymbol z_{f,i})
+	        \\ &=&
+	        \mathcal S(\boldsymbol z_0, \boldsymbol z_0) 
+	        + \sum_{n=0}^\infty \epsilon^n \left( 2 \boldsymbol S(\boldsymbol z_0 , \boldsymbol z_{f,n}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i}, \boldsymbol z_{f,n-i}) \right)
+	        \\ &\equiv&
+	        \sum_{n=0}^\infty \epsilon^n \boldsymbol I_n
+        \end{eqnarray}
+   
+    with 
+    
+    .. math::
+        \boldsymbol z_0 \equiv z_0 ~ \boldsymbol q_0
+        \quad , \quad
+        \boldsymbol z_{f,n} \equiv \sum_{j=1,2} z_{j,n} ~ \boldsymbol q_j
+   
+    and the interaction term :math:`\boldsymbol I_n`:
+    
+    .. math::
+        \begin{eqnarray}
+	        \boldsymbol I_0 &=& \boldsymbol S(\boldsymbol z_0 + \boldsymbol z_{f,0} ~,~ \boldsymbol z_0 + \boldsymbol z_{f,0})
+	        \\
+	        \boldsymbol I_n &=& 2 \boldsymbol S(\boldsymbol z_0 , \boldsymbol z_{f,n}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i}, \boldsymbol z_{f,n-i})
+	        \quad \quad \text{for} \quad n>0
+        \end{eqnarray}
+    
+    Balance in Every Order
+    ~~~~~~~~~~~~~~~~~~~~~~
+    Inserting the power series in the slow time scale tendency equation of the fast wave modes :math:`j=1,2` yields:
+    
+    .. math::
+        \begin{eqnarray}
+	        0 &=& \epsilon ~ \partial_T z_j + i\lambda_j z_j - \epsilon ~ \boldsymbol p_j \cdot \boldsymbol S(\boldsymbol z_b, \boldsymbol z_b)
+	        \\ &=&
+	        \sum_{n=0}^\infty \epsilon^{n+1} \partial_T z_{j,n} + i \epsilon^n \lambda_j z_{j,n} - \epsilon^{n+1} \boldsymbol p_j \cdot \boldsymbol I_n
+	        \\ &=&
+	        i\lambda_j z_{j,0} + 
+	        \sum_{n=1}^\infty \epsilon^{n} \left( \partial_T z_{j,n-1} + i \lambda_j z_{j,n} - \boldsymbol p_j \cdot \boldsymbol I_{n-1} \right)
+        \end{eqnarray}
+   
+    balancing this in every order yields
+    
+    .. math::
+        \begin{eqnarray}
+	        z_{j,0} &=& 0 \\
+	        z_{j,n} &=& \frac{i}{\lambda_j} \left( \partial_T z_{j,n-1} - \boldsymbol p_j \cdot \boldsymbol I_{n-1} \right)
+	        \quad \quad \text{for} \quad n>0
+        \end{eqnarray}
+    
+    The slow time derivative
+    ~~~~~~~~~~~~~~~~~~~~~~~~
+    For the calculation of the term :math:`z_{j,n}` we require the slow time derivative of the term :math:`z_{j,n-1}`. We obtain an analytical expression for this term by taking the :math:`k`-th slow time derivative of :math:`z_{j,n}`:
+    
+    .. math::
+        \begin{eqnarray}
+	        \partial_T^k z_{j,n} &=& \frac{i}{\lambda_j}(\partial_T^{k+1} z_{j,n-1} - \boldsymbol p_j \cdot \partial_T^k \boldsymbol I_{n-1})
+	        \\
+	        \Leftrightarrow
+	        z_{j,n,k} &=& \frac{i}{\lambda_j}(z_{j,n-1,k+1} - \boldsymbol p_j \cdot \boldsymbol I_{n-1}^{(k)})
+        \end{eqnarray}
+    
+    where the third index denotes the order of the derivative. To calculate the :math:`k`-th derivative of the interaction term :math:`\boldsymbol I_n`, we need to take the derivative of the symmetrical bilinear form:
+    
+    .. math::
+        \begin{eqnarray}
+	        \partial_T S_j (\boldsymbol z',\boldsymbol z'') &=& \frac{1}{2}\partial_T \left( \boldsymbol z' * (\mathbf G_j \cdot \boldsymbol z'') + \boldsymbol z'' * (\mathbf G_j \cdot \boldsymbol z') \right) \\
+	        &=&
+	        \frac{1}{2}\left( 
+	        (\partial_T \boldsymbol z') * (\mathbf G_j \cdot \boldsymbol z'') 
+	        + \boldsymbol z' * (\mathbf G_j \cdot \partial_T \boldsymbol z'')  
+	        + (\partial_T \boldsymbol z'') * (\mathbf G_j \cdot \boldsymbol z')  
+	        + \boldsymbol z'' * (\mathbf G_j \cdot \partial_T \boldsymbol z') \right)
+	        \\ &=&
+	        S_j(\partial_T \boldsymbol z', \boldsymbol z'') + S_j(\boldsymbol z', \partial_T \boldsymbol z'')
+        \end{eqnarray}
+    
+    We search for a formula for the derivative of order :math:`k`. For this we take a look at the second order derivative:
+    
+    .. math::
+        \begin{eqnarray}
+	        \partial_T^2 \boldsymbol S(\boldsymbol z', \boldsymbol z'') &=& \partial_T \left[ \boldsymbol S(\partial_T \boldsymbol z', \boldsymbol z'') + \boldsymbol S(\boldsymbol z', \partial_T \boldsymbol z'') \right]
+	        \\ &=&
+	        \boldsymbol S(\partial_T^2 \boldsymbol z', \boldsymbol z'') + 2\boldsymbol S(\partial_T \boldsymbol z' , \partial_T \boldsymbol z'') + \boldsymbol S(\boldsymbol z', \partial_T^2 \boldsymbol z'')
+        \end{eqnarray}
+    
+    This is the third row of pascal's triangle. For the :math:`k`-th. derivative, we find:
+    
+    .. math::
+        \partial_T^k \boldsymbol S(\boldsymbol z', \boldsymbol z'') = \sum_{m=0}^k \binom{k}{m}
+        \boldsymbol S(\partial_T^{k-m} \boldsymbol z', \partial_T^m \boldsymbol z'')
+    
+    where :math:`\binom{k}{m}` is the binomial coefficient. Using this identity, the :math:`k`-th derivative of the interaction term is given by:
+    
+    .. math::
+        \begin{eqnarray}
+	        \boldsymbol I_0^{(k)} &=&
+	        \sum_{m=0}^k \binom{k}{m}
+	        \boldsymbol S(\boldsymbol z_{0,0,k-m} , \boldsymbol z_{0,0,m})
+	        \\
+	        \boldsymbol I_n^{(k)} &=& 
+	        \sum_{m=0}^k \binom{k}{m} \left[
+	        2 \boldsymbol S(\boldsymbol z_{0,0,k-m} , \boldsymbol z_{f,n,m}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i,k-m}, \boldsymbol z_{f,n-i,m})
+	        \right]
+	        \quad \quad \text{for} \quad n>0
+        \end{eqnarray}
+    
+    with :math:`\boldsymbol z_{0,0,k} = \partial_T^k \boldsymbol z_0`, which we can find an analytical expression for, by evaluating the leading order term of the slow time tendency equation for the slow mode :math:`z_0`:
+    
+    .. math::
+        \partial_T{z_0} =\boldsymbol p_0 \cdot \boldsymbol S(\boldsymbol z_0, \boldsymbol z_0)
+        \quad \Rightarrow \quad
+        z_{0,0,1} = \boldsymbol p_0 \cdot \boldsymbol I_{0}
+
+    taking the :math:`k`-th derivative yields:
+    
+    .. math::
+        z_{0,0,k} = \boldsymbol p_0 \cdot \boldsymbol I_0^{(k-1)}
+
+
+    References
+    ----------
+    .. [1] Machenhauer, B. (1977). On the dynamics of gravity oscillations in a shallow water model, with applications to normal mode initialization. Beitr. Phys. Atmos, 50(1).
+    .. [2] Baer, F., & Tribbia, J. J. (1977). On complete filtering of gravity modes through nonlinear initialization. Monthly Weather Review, 105(12), 1536-1539.
+    .. [3] Warn, T., Bokhove, O., Shepherd, T.G. and Vallis, G.K. (1995), Rossby number expansions, slaving principles, and balance dynamics. Q.J.R. Meteorol. Soc., 121: 723-739. https://doi.org/10.1002/qj.49712152313
+    .. [4] Eden, C., Chouksey, M., & Olbers, D. (2019). Gravity wave emission by shear instability. Journal of Physical Oceanography, 49(9), 2393-2406.
     """
-    Nonlinear normal mode decomposition.
-    """
-    def __init__(self, mset: 'ModelSettingsBase',
-                 VecQ, VecP,
+    def __init__(self, 
+                 mset: fr.ModelSettingsBase,
                  order=3,
+                 epsilon=None,
+                 use_discrete=True,
                  enable_dealiasing=True) -> None:
-        """
-        Nonlinear balacing using Nonlinear Normal Mode Decomposition.
-
-        Arguments:
-            grid      (Grid)          : The grid.
-            order     (int)           : The order up to which to perform the
-                                        decomposition. Implemented are up to
-                                        order 4.
-            enable_dealiasing (bool)  : Whether to enable dealiasing.
-        """
-        mset = mset
-        grid = mset.grid
         super().__init__(mset)
 
-        # check if model is nonlinear
-        if not mset.enable_nonlinear or mset.Ro == 0:
-            print("WARNING: Model is linear.")
-        # check if N and f are constant
-        if hasattr(mset, "enable_varying_f"):
-            if mset.enable_varying_f:
-                print("WARNING: f is varying. NNMD may not work properly.")
-        if hasattr(mset, "enable_varying_N"):
-            if mset.enable_varying_N:
-                print("WARNING: N is varying. NNMD may not work properly.")
-        if hasattr(mset, "enable_harmonic"):
-            if mset.enable_harmonic:
-                print("WARNING: Harmonic friction is not included in Eigenvectors.")
-        if hasattr(mset, "enable_biharmonic"):
-            if mset.enable_biharmonic:
-                print("WARNING: Biharmonic friction is not included in Eigenvectors.")
-        if order > 4:
-            raise ValueError("Order must be <= 4.")
+        ncp = fr.config.ncp
+
+        # compute the eigenvectors
+        modes = [-1, 0, 1]
+        self.q = [mset.grid.vec_q(s=mode, use_discrete=use_discrete) for mode in modes]
+        self.p = [mset.grid.vec_p(s=mode, use_discrete=use_discrete) for mode in modes]
+
+        # compute the eigenvalues
+        omega = mset.grid.omega(
+            k=self.mset.grid.get_mesh(spectral=True),
+            use_discrete=use_discrete)
+        self.one_over_omega = ncp.where(omega == 0, 0, 1 / omega)
+
+        # set the advection module
+        self.advection: fr.modules.advection.AdvectionBase = mset.tendencies.advection
+
+        # set the epsilon
+        if epsilon is None:
+            # try to get the scaling factor from the advection module and 
+            # use it as epsilon
+            try:
+                epsilon = self.advection.scaling
+            except AttributeError:
+                raise ValueError("Can't find the scaling factor in the advection module. Please provide epsilon with the keyword arguments.")
+        self.epsilon = epsilon
+
+        # set other parameters
         self.order = order
-
-        # create the eigenvectors
-        self.q0 = VecQ(0, mset)
-        self.p0 = VecP(0, mset)
-        self.qp = VecQ(1, mset)
-        self.pp = VecP(1, mset)
-        self.qm = VecQ(-1, mset)
-        self.pm = VecP(-1, mset)
-
-        self.one_over_omega = 1 / self.grid.omega_space_discrete
-        # set inf to zero
-        self.one_over_omega[np.isinf(self.one_over_omega)] = 0
-
-        # initialize the model
-        self.model = Model(mset)
-        self.State = mset.state_constructor
+        self.enable_dealiasing = enable_dealiasing
         return
     
-    def __call__(self, z: 'StateBase') -> 'StateBase':
+    def __call__(self, z: fr.StateBase) -> fr.StateBase:
         """
         Project a state to the balanced subspace.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_bal  (State) : The balanced state.
         """
-        Ro = self.mset.Ro
+        epsilon = self.epsilon
 
-        was_spectral = z.is_spectral
+        # reset the fields
+        self.reset_fields()
+
         # transform to spectral space if necessary
-        z_hat = z if z.is_spectral else z.fft()
+        was_spectral = z.is_spectral
+        if not was_spectral:
+            z = z.fft()
 
-        # calculate the ZERO-order component
-        z0_hat = self.zero_order(z_hat)
-        if self.order == 0:
-            return z0_hat if was_spectral else z0_hat.fft()
+        # compute the geostrophic mode
+        z0 = self.p[1].dot(z)
+        self.fields[1,0,0] = z0
 
-        # calculate the FIRST-order component
-        dT_z0_hat = self.derivative_zero_order(z0_hat)
-        z1_hat = self.first_order(z0_hat)
-        if self.order == 1:
-            z_bal_hat = z0_hat + Ro * z1_hat
-            return z_bal_hat if was_spectral else z_bal_hat.fft()
+        # compute the two wave modes:
+        zw1 = sum(epsilon**n * self[0,n,0] for n in range(self.order+1))
+        zw2 = sum(epsilon**n * self[2,n,0] for n in range(self.order+1))
 
-        # calculate the SECOND-order component
-        dT_z1_hat = self.derivative_first_order(z0_hat, dT_z0_hat)
-        z2_hat = self.second_order(z0_hat, z1_hat, dT_z1_hat)
-        if self.order == 2:
-            z_bal_hat = z0_hat + Ro * z1_hat + Ro**2 * z2_hat
-            return z_bal_hat if was_spectral else z_bal_hat.fft()
+        # compute the balanced state
+        z_bal = z0 * self.q[1] + zw1 * self.q[0] + zw2 * self.q[2]
 
-        # calculate the THIRD-order component
-        dT_z2_hat = self.derivative_second_order(z0_hat, z1_hat, 
-                                                 dT_z0_hat, dT_z1_hat)
-        z3_hat = self.third_order(z0_hat, z1_hat, z2_hat, dT_z2_hat)
-        if self.order == 3:
-            z_bal_hat = z0_hat + Ro * z1_hat + Ro**2 * z2_hat + Ro**3 * z3_hat
-            return z_bal_hat if was_spectral else z_bal_hat.fft()
-
-
-        raise ValueError("Order must be <= 2.")
+        # return the balanced state
+        return z_bal if was_spectral else z_bal.fft()
     
-    # ========================================================================
-    #  Calculation of the n-order term in the power series
-    # ========================================================================
+    # ================================================================
+    #  The nonlinear interaction terms
+    # ================================================================
+    def _advect_state(self, z: fr.StateBase) -> fr.StateBase:
+        # we need to disable the scaling factor here. We simply do it by dividing by the scaling factor
+        dz = self.advection.advect_state(z, self.mset.state_constructor())
+        try:
+            dz /= self.advection.scaling
+        except AttributeError:
+            pass # no scaling factor => do nothing
+        return dz
 
-    def zero_order(self, z_hat: 'StateBase') -> 'StateBase':
+    def interaction(self, 
+                   z1: fr.StateBase, 
+                   z2: fr.StateBase) -> fr.StateBase:
         """
-        Calculate the zero-order term of the power series.
+        Calculate the nonlinear interaction between two states.
 
-        Arguments:
-            z_hat (State) : The zero-order term in spectral space.
+        Description
+        -----------
+        The interaction term is defined as:
+        
+        .. math::
+
+            \boldsymbol S = \frac{1}{2} \left( \boldsymbol N(\boldsymbol z_1 + \boldsymbol z_2) - \boldsymbol N(\boldsymbol z_1) - \boldsymbol N(\boldsymbol z_2) \right)
+
+        where :math:`\boldsymbol N` is the nonlinear advection term. The interaction term is a symmetric bilinear form.
+
+        Arguments
+        ---------
+        `z1` : `State`
+            The first state (spectral space).
+        `z2` : `State`
+            The second state (spectral space).
+
+        Returns
+        -------
+        `S` : `State`
+            The interaction term (spectral space).
         """
-        return self.proj_0(z_hat)
+        z1 = z1.ifft()
+        z2 = z2.ifft()
+        interaction = 0.5 * (self._advect_state(z1 + z2)
+                            - self._advect_state(z1)
+                            - self._advect_state(z2))
+        return interaction.fft()
 
-    
-    def first_order(self, z0_hat: 'StateBase') -> 'StateBase':
+    def reset_fields(self):
         """
-        Calculate the unscaled first order term of the power series.
-
-        Arguments:
-            z0_hat (State) : The zero-order term in spectral space.
+        Reset the fields.
         """
-        self.check_if_input_is_spectral(z0_hat)
-
-        # calculate the nonlinear tendency of z0
-        interaction = self.non_linear(z0_hat)
-
-        return self.solve_for_z(interaction)
-
-    def second_order(self, z0_hat: 'StateBase', z1_hat: 'StateBase',
-                     dT_z1_hat: 'StateBase') -> 'StateBase':
-        """
-        Calculate the unscaled second order term of the power series.
-
-        Arguments:
-            z0_hat (State) : The zero-order term in spectral space.
-            z1_hat (State) : The first-order term in spectral space.
-            dT_z1_hat (State) : The slow derivative of the first-order term in spectral space.
-        """
-        self.check_if_input_is_spectral(z0_hat, z1_hat, dT_z1_hat)
-
-        # calculate the nonlinear interaction terms
-        interaction = self.non_linear_inter(z0_hat, z1_hat)
-
-        right_hand_side = 2 * interaction - dT_z1_hat
-
-        return self.solve_for_z(right_hand_side)
-
-    def third_order(self, z0_hat: 'StateBase', z1_hat: 'StateBase',
-                    z2_hat: 'StateBase', dT_z2_hat: 'StateBase') -> 'StateBase':
-        """
-        Calculate the unscaled third order term of the power series.
-        """
-        self.check_if_input_is_spectral(z0_hat, z1_hat, z2_hat, dT_z2_hat)
-
-        # calculate the nonlinear interaction terms
-        interaction = 2*self.non_linear_inter(z0_hat, z2_hat) \
-                      + self.non_linear(z1_hat)
-        right_hand_side = interaction - dT_z2_hat
-        return self.solve_for_z(right_hand_side)
-
-    def solve_for_z(self, right_hand_side: 'StateBase') -> 'StateBase':
-        """
-        Solves the linear equation for z.
-        $$ 
-        i \\omega^\\pm \\hat{z}^\\pm = \\hat{f}^\\pm
-        $$
-
-        Arguments:
-            right_hand_side (State) : The right hand side of the equation (f).
-        """
-        # initialize the solution
-        z_hat = self.State(self.grid, is_spectral=True)
-
-        # calculate each mode separately
-        for proj, sign in zip([self.proj_p, self.proj_m], [-1, 1]):
-            factor = sign * 1j * self.one_over_omega
-            z_hat += proj(right_hand_side) * factor
-        return z_hat
-
-    # ========================================================================
-    #  Slow derivative of the n-order term
-    # ========================================================================
-
-    def derivative_zero_order(self, z0_hat: 'StateBase') -> 'StateBase':
-        """
-        Calculates the slow derivative of the zero-order term.
-        """
-        self.check_if_input_is_spectral(z0_hat)
-
-        # calculate the slow tendency of z0
-        dT_z0_hat = self.proj_0(self.non_linear(z0_hat))
-
-        return dT_z0_hat
-
-    def derivative_first_order(self, z0_hat: 'StateBase', 
-                               dT_z0_hat: 'StateBase') -> 'StateBase':
-        """
-        Calculates the slow derivative of the first-order term.
-        """
-        self.check_if_input_is_spectral(z0_hat, dT_z0_hat)
-
-        # calculate the nonlinear interaction between z0 and dT_z0
-        interaction = self.non_linear_inter(z0_hat, dT_z0_hat) * 2
-
-        return self.solve_for_z(interaction)
-
-    def derivative_second_order(self, z0_hat: 'StateBase', z1_hat: 'StateBase',
-                                dT_z0_hat: 'StateBase', dT_z1_hat: 'StateBase') -> 'StateBase':
-        """
-        Calculates the slow derivative of the second-order term.
-        """
-        self.check_if_input_is_spectral(z0_hat, z1_hat, dT_z0_hat, dT_z1_hat)
-
-        dT_inter = self.derivative_inter(z0_hat, z1_hat, dT_z0_hat, dT_z1_hat)
-
-        # calculate second-order derivative of z0
-        dT_dT_z0_hat = 2 * self.proj_0(self.non_linear_inter(z0_hat, dT_z0_hat))
-
-        # calculate second-order derivative of z1
-        dT_dT_z1_hat_inter = self.derivative_inter(
-            z0_hat, dT_z0_hat, dT_z0_hat, dT_dT_z0_hat)
-
-        dT_dT_z1_hat = self.solve_for_z(dT_dT_z1_hat_inter)
-        return self.solve_for_z(2*dT_inter - dT_dT_z1_hat)
-
-
-    def proj_p(self, z: 'StateBase') -> 'StateBase':
-        """
-        Project a state to the positive eigenspace.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_proj (State) : The projected state.
-        """
-        return z.project(self.pp, self.qp)
-    
-    def proj_m(self, z: 'StateBase') -> 'StateBase':
-        """
-        Project a state to the negative eigenspace.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_proj (State) : The projected state.
-        """
-        return z.project(self.pm, self.qm)
-    
-    def proj_0(self, z: 'StateBase') -> 'StateBase':
-        """
-        Project a state to the zero eigenspace.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            z_proj (State) : The projected state.
-        """
-        return z.project(self.p0, self.q0)
-
-    def check_if_input_is_spectral(self, *args):
-        """
-        Check if all input arguments are in spectral space.
-        """
-        for arg in args:
-            if not arg.is_spectral:
-                raise ValueError("Input must be in spectral space.")
+        ncp = fr.config.ncp
+        self.fields = ncp.full((3, self.order+1, self.order+1), None, dtype=object)
+        # the zero-order terms of the wave modes are zero
+        self.fields[0,0,:] = 0
+        self.fields[2,0,:] = 0
         return
 
+    # ================================================================
+    #  The n-th order terms of k-th order derivative
+    # ================================================================
+    def __getitem__(self, key):
+        # transform the key to mode, order_series, order_derivative
+        if not isinstance(key, tuple):
+            raise ValueError("Key must be a tuple. Use (mode, order, derivative).")
+        mode, order_series, order_derivative = key
 
+        # check if the mode is valid
+        if not mode in [0, 1, -1]:
+            raise ValueError("Mode must be 0, 1, or -1.")
 
+        # check if the order is zero for mode 0
+        if mode == 0 and order_series != 0:
+            raise ValueError("Order must be 0 for mode 0.")
 
+        # transform the mode to the index
+        mode_ind = mode + 1
 
+        # check if this field has already been computed
+        f = self.fields[mode_ind][order_series][order_derivative]
+        if f is not None:
+            return f
+        
+        # compute the mode 0:
+        if mode == 0:
+            return self._geostrophic_derivative(order_derivative)
+        
+        # compute the mode 1 and -1:
+        if mode in [1, -1]:
+            if order_series == 1:
+                return self.first_order_wavemode(mode, order_derivative)
+            else:
+                return self.higher_order_wavemode(mode, order_series, order_derivative)
 
-    def non_linear(self, z: 'StateBase') -> 'StateBase':
+    def _geostrophic_derivative(self, order_derivative: int) -> fr.FieldVariable:
+        r"""
+        Compute the k-th derivative of the geostrophic mode.
+
+        Description
+        -----------
+        The k-th derivative of the geostrophic mode is given by:
+
+        .. math::
+                
+	        \partial_T^k z^0 = \sum_{m=0}^{k-1} \binom{k-1}{m} \boldsymbol p_0 \cdot \boldsymbol S \left(\boldsymbol q_0 \partial_T^{k-1-m} z^0 , \boldsymbol q_0 \partial_T^m z^0 ) \right)
+
         """
-        Calculate the nonlinear term.
+        fr.utils.logger.debug(f"Computing the {order_derivative}-th derivative of the geostrophic mode.")
 
-        Arguments:
-            z      (State) : The state to project.
+        k = order_derivative
 
-        Returns:
-            z_nl  (State) : The nonlinear term.
+        p0 = self.p[1]; q0 = self.q[1]
+        f = sum(
+            comb(k-1, m) * p0.dot(self.interaction(
+                self[0,0,k-1-m] * q0,
+                self[0,0,m] * q0))
+            for m in range(k)
+        )
+
+        self.fields[1][0][k] = f
+        return f
+
+    def first_order_wavemode(self, mode: int, order_derivative: int) -> fr.FieldVariable:
+        r"""
+        Compute the n-th derivative of the wave mode.
+
+        Description
+        -----------
+        The n-th derivative of the wave mode is given by:
+
+        .. math::
+                    
+            \partial_T^n z^j = -\frac{i}{\omega_j} \boldsymbol p^j \cdot \boldsymbol I
+
+        with the interaction term:
+        
+        .. math::
+
+            \boldsymbol I = \sum_{k=0}^{n} \binom{n}{k} \boldsymbol S \left(\boldsymbol q^0 \partial_T^{n-k} z^0 , \boldsymbol q^0 \partial_T^k z^0 ) \right)
+
+                
         """
-        # todo dealiasing (mask after 2/3 rule)
-        spectral_transform = z.is_spectral
-        # transform to physical space if necessary
-        z_phys = z.fft() if spectral_transform else z
+        fr.utils.logger.debug(f"Computing the {order_derivative}-th derivative of the first-order wave mode.")
 
-        # initialize the model
-        model = self.model
-        model.reset()
-        z_nl = z_phys * 0
-        model.nonlinear_tendency(z_phys, z_nl)
+        k = order_derivative
+        q0 = self.q[1]
 
-        # divide by Ro
-        z_nl /= self.mset.Ro
+        # compute the interaction term
+        interactions = sum(comb(k, m) * 
+                self.interaction(
+                    self[0,0,k-m] * q0,
+                    self[0,0,m] * q0)
+                for m in range(k+1)
+        )
 
-        # transform back to spectral space if it was spectral
-        z_nl = z_nl.fft() if spectral_transform else z_nl
-        return z_nl
+        for j in [0, 2]:
+            sign = j - 1
+            f = self.p[j].dot(interactions)
+            f *= (-1j * sign * self.one_over_omega)
+            self.fields[j][1][k] = f
 
-    def derivative_inter(self, z1_hat: 'StateBase', z2_hat: 'StateBase',
-                         dT_z1_hat: 'StateBase', dT_z2_hat: 'StateBase') -> 'StateBase':
+        return self.fields[mode+1][1][k]
+
+    def higher_order_wavemode(self, mode: int, order_series: int, order_derivative: int) -> fr.FieldVariable:
+        r"""
+        Compute the k-th derivative of the n-th order wave mode.
+
+        Description
+        -----------
+        The k-th derivative of the n-th order wave mode is given by:
+
+        .. math::
+
+            \partial_T^k z_n^j = \frac{i}{\lambda_j} \left( \partial_T^{k+1} z_{n-1}^j 
+            + \boldsymbol p^j \cdot \boldsymbol I
+            \right)
+                
+        with the interaction term:
+        
+        .. math::
+
+            \boldsymbol I = 
+            \sum_{m=0}^k \begin{pmatrix}k \\ m \end{pmatrix} \left [
+            2 \boldsymbol S (\partial_T^{k-m}\boldsymbol z^0, \partial_T^m \boldsymbol z_{n-1}^f)
+            + \sum_{i=0}^{n-1} \boldsymbol S (\partial_T^{k-m} \boldsymbol z_i^f, \partial_T^m \boldsymbol z_{n-1-i}^f)
+            \right]
+
         """
-        Calculate the slow derivative of the nonlinear term between two states.
-        """
-        # check if all states are in spectral space
-        self.check_if_input_is_spectral(z1_hat, z2_hat, dT_z1_hat, dT_z2_hat)
+        fr.utils.logger.debug(f"Computing the {order_derivative}-th derivative of the {order_series}-th order wave mode.")
+        geo_mode = 1
 
-        dT_inter = self.non_linear_inter(z1_hat + z2_hat, dT_z1_hat + dT_z2_hat) \
-                   - self.non_linear_inter(z1_hat, dT_z1_hat) \
-                   - self.non_linear_inter(z2_hat, dT_z2_hat)
+        k = order_derivative
+        n = order_series
 
-        return dT_inter
+        # create a vector for the interactions
+        interactions = self.q[geo_mode] * 0
 
-    
+        # compute the interaction term
+        for m in range(k+1):
+            coeff = comb(k, m)
+            
+            # start with the first term
+            z1 = self[0,0,k-m] * self.q[geo_mode]
+            z2 = sum(self[j,n-1,m] * self.q[j] for j in [0,2])
+            interactions += 2 * coeff * (self.interaction(z1, z2))
 
-    def non_linear_inter(self, z1: 'StateBase', z2: 'StateBase') -> 'StateBase':
-        """
-        Calculate the nonlinear term between two states.
+            # add the second term
+            for i in range(n-1):
+                z1 = sum(self[j,i,k-m] * self.q[j] for j in [0,2])
+                z2 = sum(self[j,n-1-i,m] * self.q[j] for j in [0,2])
+                interactions += coeff * (self.interaction(z1, z2))
 
-        Arguments:
-            z1      (State) : The first state .
-            z2      (State) : The second state .
+        # do both modes [-1, 1] at the same time
+        for j in [0, 2]:
+            sign = j - 1
+            f = self.p[j].dot(interactions)
+            f += self[mode, n-1, k+1]
+            f *= (1j * sign * self.one_over_omega)
+            self.fields[j][n][k] = f
 
-        Returns:
-            z_nl  (State) : The nonlinear term .
-        """
-        # check if both states are in same space
-        if z1.is_spectral != z2.is_spectral:
-            raise ValueError("Both states must be in same space.")
-
-        # todo dealiasing (mask after 2/3 rule)
-        spectral_transform = z1.is_spectral
-        # transform to physical space if necessary
-        z1_phys = z1.fft() if spectral_transform else z1
-        z2_phys = z2.fft() if spectral_transform else z2
-
-        z_nl = 0.5 * (self.non_linear(z1_phys + z2_phys) - 
-                      self.non_linear(z1_phys) - self.non_linear(z2_phys))
-
-        # transform back to spectral space if it was spectral
-        z_nl = z_nl.fft() if spectral_transform else z_nl
-        return z_nl
-
-    def time_tendency(self, z: 'StateBase') -> 'StateBase':
-        """
-        Calculate the time tendency.
-
-        Arguments:
-            z      (State) : The state to project.
-
-        Returns:
-            dz  (State)    : The tendency term.
-        """
-        spectral_transform = z.is_spectral
-        # transform to physical space if necessary
-        z_phys = z.fft() if spectral_transform else z
-
-        # initialize the model
-        model = self.model
-        model.reset()
-        model.z = z_phys.copy()
-        z_next = model.step()
-
-        dz = (z_next - z_phys) / model.mset.dt
-
-        return dz.fft() if spectral_transform else dz
+        return self.fields[mode+1][n][k]
