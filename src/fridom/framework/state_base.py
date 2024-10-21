@@ -375,6 +375,12 @@ class StateBase:
                                 is_spectral=self.is_spectral)
         return z
 
+    def __matmul__(self, other):
+        """
+        Dot product of two states.
+        """
+        return self.dot(other)
+
     @property
     def grid(self):
         """
