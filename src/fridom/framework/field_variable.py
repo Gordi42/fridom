@@ -652,6 +652,8 @@ class FieldVariable:
             topo = [p or q for p, q in zip(self.topo, other.topo)]
             kwargs["topo"] = topo
             prod = self.arr * other.arr
+        elif isinstance(other, fr.StateBase):
+            return other * self
         else:
             prod = self.arr * other
 
