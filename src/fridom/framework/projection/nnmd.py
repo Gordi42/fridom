@@ -1,5 +1,6 @@
 import fridom.framework as fr
 from scipy.special import comb
+import numpy as np
 
 class NNMD(fr.projection.Projection):
     r"""
@@ -364,7 +365,7 @@ class NNMD(fr.projection.Projection):
         ncp = fr.config.ncp
 
         # compute the eigenvectors
-        modes = [-1, 0, 1]
+        modes = [0, 1, -1]
         self.q = [mset.grid.vec_q(s=mode, use_discrete=use_discrete) for mode in modes]
         self.p = [mset.grid.vec_p(s=mode, use_discrete=use_discrete) for mode in modes]
 
@@ -407,15 +408,17 @@ class NNMD(fr.projection.Projection):
             z = z.fft()
 
         # compute the geostrophic mode
-        z0 = self.p[1].dot(z)
-        self.fields[1,0,0] = z0
+        z0 = self.p[0].dot(z)
+        self.fields[0,0,0] = z0
 
         # compute the two wave modes:
-        zw1 = sum(epsilon**n * self[0,n,0] for n in range(self.order+1))
-        zw2 = sum(epsilon**n * self[2,n,0] for n in range(self.order+1))
+        zw1 = sum(epsilon**n * self[1,n,0] for n in range(1, self.order+1))
+        zw2 = sum(epsilon**n * self[2,n,0] for n in range(1, self.order+1))
+
+        z0 * self.q[0] 
 
         # compute the balanced state
-        z_bal = z0 * self.q[1] + zw1 * self.q[0] + zw2 * self.q[2]
+        z_bal = z0 * self.q[0] + zw1 * self.q[1] + zw2 * self.q[2]
 
         # return the balanced state
         return z_bal if was_spectral else z_bal.fft()
@@ -432,24 +435,23 @@ class NNMD(fr.projection.Projection):
             pass # no scaling factor => do nothing
         return dz
 
-    def interaction(self, 
+    def bilinear_form(self, 
                    z1: fr.StateBase, 
                    z2: fr.StateBase) -> fr.StateBase:
-        """
-        Calculate the nonlinear interaction between two states.
+        r"""
+        Calculate the symmetrical bilinear form.
 
         Description
         -----------
-        The interaction term is defined as:
+        The symmetrical bilinear form is defined as:
         
         .. math::
-
             \boldsymbol S = \frac{1}{2} \left( \boldsymbol N(\boldsymbol z_1 + \boldsymbol z_2) - \boldsymbol N(\boldsymbol z_1) - \boldsymbol N(\boldsymbol z_2) \right)
 
         where :math:`\boldsymbol N` is the nonlinear advection term. The interaction term is a symmetric bilinear form.
 
-        Arguments
-        ---------
+        Parameters
+        ----------
         `z1` : `State`
             The first state (spectral space).
         `z2` : `State`
@@ -460,22 +462,52 @@ class NNMD(fr.projection.Projection):
         `S` : `State`
             The interaction term (spectral space).
         """
+        # TODO: add dealiasing
         z1 = z1.ifft()
         z2 = z2.ifft()
-        interaction = 0.5 * (self._advect_state(z1 + z2)
+        bilinear = 0.5 * (self._advect_state(z1 + z2)
                             - self._advect_state(z1)
                             - self._advect_state(z2))
-        return interaction.fft()
+        return bilinear.fft()
+
+    def interaction(self, order_series: int, order_derivative: int) -> fr.StateBase:
+        n = order_series
+        k = order_derivative
+
+        # create a vector for the interactions
+        interactions = self.q[0] * 0
+
+        # the zero-order term
+        if n == 0:
+            for m in range(k+1):
+                coeff = comb(k, m)
+                z1 = self[0,0,k-m] * self.q[0]
+                z2 = self[0,0,m] * self.q[0]
+                interactions += coeff * (self.bilinear_form(z1, z2))
+
+        # the higher-order terms
+        else:
+            for m in range(k+1):
+                coeff = comb(k, m)
+                z1 = self[0,0,k-m] * self.q[0]
+                z2 = sum(self[j,n,m] * self.q[j] for j in [1,2])
+                interactions += 2 * coeff * (self.bilinear_form(z1, z2))
+
+                for i in range(1,n):
+                    z1 = sum(self[j,i,k-m] * self.q[j] for j in [1,2])
+                    z2 = sum(self[j,n-i,m] * self.q[j] for j in [1,2])
+                    interactions += coeff * (self.bilinear_form(z1, z2))
+
+        return interactions
 
     def reset_fields(self):
         """
         Reset the fields.
         """
         ncp = fr.config.ncp
-        self.fields = ncp.full((3, self.order+1, self.order+1), None, dtype=object)
+        self.fields = np.full((3, self.order+1, self.order+1), None, dtype=object)
         # the zero-order terms of the wave modes are zero
-        self.fields[0,0,:] = 0
-        self.fields[2,0,:] = 0
+        self.fields[1:,0,:] = 0
         return
 
     # ================================================================
@@ -488,156 +520,29 @@ class NNMD(fr.projection.Projection):
         mode, order_series, order_derivative = key
 
         # check if the mode is valid
-        if not mode in [0, 1, -1]:
-            raise ValueError("Mode must be 0, 1, or -1.")
+        if not mode in [0, 1, 2]:
+            raise ValueError("Mode must be 0, 1, or 2.")
 
         # check if the order is zero for mode 0
         if mode == 0 and order_series != 0:
             raise ValueError("Order must be 0 for mode 0.")
 
-        # transform the mode to the index
-        mode_ind = mode + 1
-
         # check if this field has already been computed
-        f = self.fields[mode_ind][order_series][order_derivative]
-        if f is not None:
-            return f
+        f_ind = (mode, order_series, order_derivative)
+        if self.fields[f_ind] is not None:
+            return self.fields[f_ind]
         
         # compute the mode 0:
         if mode == 0:
-            return self._geostrophic_derivative(order_derivative)
+            interaction = self.interaction(order_series=0, order_derivative=order_derivative-1)
+            self.fields[f_ind] = self.p[0] @ interaction
+            return self.fields[f_ind]
         
         # compute the mode 1 and -1:
-        if mode in [1, -1]:
-            if order_series == 1:
-                return self.first_order_wavemode(mode, order_derivative)
-            else:
-                return self.higher_order_wavemode(mode, order_series, order_derivative)
-
-    def _geostrophic_derivative(self, order_derivative: int) -> fr.FieldVariable:
-        r"""
-        Compute the k-th derivative of the geostrophic mode.
-
-        Description
-        -----------
-        The k-th derivative of the geostrophic mode is given by:
-
-        .. math::
-                
-	        \partial_T^k z^0 = \sum_{m=0}^{k-1} \binom{k-1}{m} \boldsymbol p_0 \cdot \boldsymbol S \left(\boldsymbol q_0 \partial_T^{k-1-m} z^0 , \boldsymbol q_0 \partial_T^m z^0 ) \right)
-
-        """
-        fr.utils.logger.debug(f"Computing the {order_derivative}-th derivative of the geostrophic mode.")
-
-        k = order_derivative
-
-        p0 = self.p[1]; q0 = self.q[1]
-        f = sum(
-            comb(k-1, m) * p0.dot(self.interaction(
-                self[0,0,k-1-m] * q0,
-                self[0,0,m] * q0))
-            for m in range(k)
-        )
-
-        self.fields[1][0][k] = f
-        return f
-
-    def first_order_wavemode(self, mode: int, order_derivative: int) -> fr.FieldVariable:
-        r"""
-        Compute the n-th derivative of the wave mode.
-
-        Description
-        -----------
-        The n-th derivative of the wave mode is given by:
-
-        .. math::
-                    
-            \partial_T^n z^j = -\frac{i}{\omega_j} \boldsymbol p^j \cdot \boldsymbol I
-
-        with the interaction term:
-        
-        .. math::
-
-            \boldsymbol I = \sum_{k=0}^{n} \binom{n}{k} \boldsymbol S \left(\boldsymbol q^0 \partial_T^{n-k} z^0 , \boldsymbol q^0 \partial_T^k z^0 ) \right)
-
-                
-        """
-        fr.utils.logger.debug(f"Computing the {order_derivative}-th derivative of the first-order wave mode.")
-
-        k = order_derivative
-        q0 = self.q[1]
-
-        # compute the interaction term
-        interactions = sum(comb(k, m) * 
-                self.interaction(
-                    self[0,0,k-m] * q0,
-                    self[0,0,m] * q0)
-                for m in range(k+1)
-        )
-
-        for j in [0, 2]:
-            sign = j - 1
-            f = self.p[j].dot(interactions)
-            f *= (-1j * sign * self.one_over_omega)
-            self.fields[j][1][k] = f
-
-        return self.fields[mode+1][1][k]
-
-    def higher_order_wavemode(self, mode: int, order_series: int, order_derivative: int) -> fr.FieldVariable:
-        r"""
-        Compute the k-th derivative of the n-th order wave mode.
-
-        Description
-        -----------
-        The k-th derivative of the n-th order wave mode is given by:
-
-        .. math::
-
-            \partial_T^k z_n^j = \frac{i}{\lambda_j} \left( \partial_T^{k+1} z_{n-1}^j 
-            + \boldsymbol p^j \cdot \boldsymbol I
-            \right)
-                
-        with the interaction term:
-        
-        .. math::
-
-            \boldsymbol I = 
-            \sum_{m=0}^k \begin{pmatrix}k \\ m \end{pmatrix} \left [
-            2 \boldsymbol S (\partial_T^{k-m}\boldsymbol z^0, \partial_T^m \boldsymbol z_{n-1}^f)
-            + \sum_{i=0}^{n-1} \boldsymbol S (\partial_T^{k-m} \boldsymbol z_i^f, \partial_T^m \boldsymbol z_{n-1-i}^f)
-            \right]
-
-        """
-        fr.utils.logger.debug(f"Computing the {order_derivative}-th derivative of the {order_series}-th order wave mode.")
-        geo_mode = 1
-
-        k = order_derivative
-        n = order_series
-
-        # create a vector for the interactions
-        interactions = self.q[geo_mode] * 0
-
-        # compute the interaction term
-        for m in range(k+1):
-            coeff = comb(k, m)
-            
-            # start with the first term
-            z1 = self[0,0,k-m] * self.q[geo_mode]
-            z2 = sum(self[j,n-1,m] * self.q[j] for j in [0,2])
-            interactions += 2 * coeff * (self.interaction(z1, z2))
-
-            # add the second term
-            for i in range(n-1):
-                z1 = sum(self[j,i,k-m] * self.q[j] for j in [0,2])
-                z2 = sum(self[j,n-1-i,m] * self.q[j] for j in [0,2])
-                interactions += coeff * (self.interaction(z1, z2))
-
-        # do both modes [-1, 1] at the same time
-        for j in [0, 2]:
-            sign = j - 1
-            f = self.p[j].dot(interactions)
-            f += self[mode, n-1, k+1]
-            f *= (1j * sign * self.one_over_omega)
-            self.fields[j][n][k] = f
-
-        return self.fields[mode+1][n][k]
+        interaction = self.interaction(order_series=order_series-1, order_derivative=order_derivative)
+        for j, sign in zip([1, 2], [1, -1]):
+            z_prev = self[j, order_series-1, order_derivative+1]
+            z_new = 1j * sign * self.one_over_omega * (
+                z_prev - self.p[j] @ interaction)
+            self.fields[j, order_series, order_derivative] = z_new
+        return self.fields[f_ind]
