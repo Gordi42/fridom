@@ -358,6 +358,8 @@ class NNMD(fr.projection.Projection):
                  mset: fr.ModelSettingsBase,
                  order=3,
                  epsilon=None,
+                 use_model=True,
+                 time_step_factor=0.01,
                  use_discrete=True,
                  enable_dealiasing=True) -> None:
         super().__init__(mset)
@@ -388,6 +390,22 @@ class NNMD(fr.projection.Projection):
                 raise ValueError("Can't find the scaling factor in the advection module. Please provide epsilon with the keyword arguments.")
         self.epsilon = epsilon
 
+        # set the model
+        self.use_model = use_model
+        self.model_state = None
+        self.subnnmd = None
+        self.time_step_factor = time_step_factor
+        if use_model and order > 0:
+            self.model_state = fr.ModelState(mset)
+            self.model_state.dz = mset.state_constructor()
+            self.subnnmd = NNMD(
+                mset, 
+                order=order-1, 
+                epsilon=epsilon, 
+                use_model=self.use_model,
+                use_discrete=use_discrete,
+                enable_dealiasing=enable_dealiasing)
+
         # set other parameters
         self.order = order
         self.enable_dealiasing = enable_dealiasing
@@ -408,20 +426,32 @@ class NNMD(fr.projection.Projection):
             z = z.fft()
 
         # compute the geostrophic mode
-        z0 = self.p[0].dot(z)
+        z0 = z @ self.p[0]
         self.fields[0,0,0] = z0
 
-        # compute the two wave modes:
-        zw1 = sum(epsilon**n * self[1,n,0] for n in range(1, self.order+1))
-        zw2 = sum(epsilon**n * self[2,n,0] for n in range(1, self.order+1))
+        return self.create_state(self.order, spectral=was_spectral)
 
-        z0 * self.q[0] 
+    def create_state(self, order, spectral=False):
+        """
+        Create a state from the balanced state up to a given order.
+
+        Parameters
+        ----------
+        `order` : `int`
+            The order up to which the state is created.
+        `spectral` : `bool` (default: False)
+            Whether the returned state should be in spectral space.
+        """
+        epsilon = self.epsilon
+        # compute the two wave modes:
+        zw1 = sum(epsilon**n * self[1,n,0] for n in range(1, order+1))
+        zw2 = sum(epsilon**n * self[2,n,0] for n in range(1, order+1))
 
         # compute the balanced state
-        z_bal = z0 * self.q[0] + zw1 * self.q[1] + zw2 * self.q[2]
+        z_bal = self.fields[0,0,0] * self.q[0] + zw1 * self.q[1] + zw2 * self.q[2]
 
         # return the balanced state
-        return z_bal if was_spectral else z_bal.fft()
+        return z_bal if spectral else z_bal.ifft()
     
     # ================================================================
     #  The nonlinear interaction terms
@@ -463,6 +493,20 @@ class NNMD(fr.projection.Projection):
             The interaction term (spectral space).
         """
         # TODO: add dealiasing
+        ncp = fr.config.ncp
+
+        # if z1 is z2, we can simplify the calculation
+        same_state = True
+        for f in z1.fields.keys():
+            if not ncp.allclose(z1.fields[f].arr, z2.fields[f].arr):
+                same_state = False
+                break
+
+        if same_state:
+            z1 = z1.ifft()
+            bilinear = self._advect_state(z1)
+            return bilinear.fft()
+
         z1 = z1.ifft()
         z2 = z2.ifft()
         bilinear = 0.5 * (self._advect_state(z1 + z2)
@@ -535,14 +579,41 @@ class NNMD(fr.projection.Projection):
         # compute the mode 0:
         if mode == 0:
             interaction = self.interaction(order_series=0, order_derivative=order_derivative-1)
-            self.fields[f_ind] = self.p[0] @ interaction
+            self.fields[f_ind] = interaction @ self.p[0]
             return self.fields[f_ind]
         
-        # compute the mode 1 and -1:
+        # compute the first derivative with the model
+        if self.use_model:
+            if order_derivative == 1 and order_series > 1:
+                self._derivative_with_model(order_series)
+                return self.fields[f_ind]
+
+
         interaction = self.interaction(order_series=order_series-1, order_derivative=order_derivative)
-        for j, sign in zip([1, 2], [1, -1]):
+        for j, sign in zip([1, 2], [-1, 1]):
             z_prev = self[j, order_series-1, order_derivative+1]
             z_new = 1j * sign * self.one_over_omega * (
-                z_prev - self.p[j] @ interaction)
+                z_prev - interaction @ self.p[j] )
             self.fields[j, order_series, order_derivative] = z_new
         return self.fields[f_ind]
+
+    def _derivative_with_model(self, order_series):
+        # construct the state up to the order_series
+        z = self.create_state(order_series, spectral=False)
+
+        # calculate the time derivative
+        self.model_state.z = z
+        dz = self.mset.tendencies.update(self.model_state).dz
+
+        time_step = self.time_step_factor / self.epsilon
+        z_next = z + dz * time_step
+
+        # balance the next state
+        nnmd = self.subnnmd
+        nnmd(z_next)
+        # nnmd.reset_fields()
+        # nnmd.fields[0,0,0] = z_next.fft() @ self.p[0]
+        for j in [1, 2]:
+            df = self.fields[j, order_series, 0] - nnmd.fields[j, order_series, 0]
+            df *= self.epsilon / time_step
+            self.fields[j, order_series, 1] = df
