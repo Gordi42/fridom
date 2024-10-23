@@ -46,6 +46,9 @@ class DomainDecomposition:
     `halo` : `int`, optional (default=0)
         The number of halo cells (ghost cells) around the local domain
         for the exchange of boundary values.
+    `periods` : `tuple[bool]`, optional (default=None)
+        A list of booleans indicating whether the domain is periodic in each dimension.
+        If None, all dimensions are periodic.
     `shared_axes` : `list[int]`, optional (default=None)
         A list of axes that are shared between processors.
     `device_ids` : `list[int]`, optional (default=None)
@@ -55,11 +58,13 @@ class DomainDecomposition:
     def __init__(self,
                  shape: tuple[int],
                  halo: int = 0,
+                 periods: tuple[bool] | None = None,
                  shared_axes: tuple[int] | None = None,
                  device_ids: list[int] | None = None):
         self._shape = shape
         self._n_dims = len(shape)
         self._halo = halo
+        self._periods = periods or tuple(True for _ in range(self.n_dims))
         self._shared_axes = shared_axes
         self._rank = 0
         self._device_ids = device_ids
@@ -261,6 +266,13 @@ class DomainDecomposition:
         Width of the halo region (same for all dimensions).
         """
         return self._halo
+
+    @property
+    def periods(self) -> tuple[bool] | None:
+        """
+        Periodic boundaries of the domain.
+        """
+        return self._periods
 
     @property
     def rank(self) -> int:
