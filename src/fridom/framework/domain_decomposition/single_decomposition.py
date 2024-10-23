@@ -6,9 +6,10 @@ import fridom.framework as fr
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def __init__(self, shape: tuple[int], 
                  halo: int = 0, 
+                 periods: tuple[int] = (0, 0),
                  shared_axes: tuple[int] | None = None, 
                  device_ids: list[int] | None = None):
-        super().__init__(shape, halo, shared_axes, device_ids)
+        super().__init__(shape, halo, periods, shared_axes, device_ids)
 
         def _make_slice_tuple(slc):
             slice_list = []
@@ -24,6 +25,12 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         self._send_to_prev = _make_slice_tuple(slice(halo, 2*halo))
         self._recv_from_next = _make_slice_tuple(slice(-halo, None))
         self._recv_from_prev = _make_slice_tuple(slice(None, halo))
+
+        # create paddings for halo exchange
+        self._pw_periodic = [(halo, halo) if self.periods[i] else (0, 0) 
+                             for i in range(self.n_dims)]
+        self._pw_nonperiodic = [(0, 0) if self.periods[i] else (halo, halo) 
+                                for i in range(self.n_dims)]
 
     # ================================================================
     #  Halo exchange
@@ -45,34 +52,49 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         for axis in range(self.n_dims):
             if axis in flat_axes:
                 continue
-            arr = self._sync_axis(arr, axis)
+            if self.periods[axis]:
+                arr = self._sync_periodic_axis(arr, axis)
+            else:
+                arr = self._sync_non_periodic_axis(arr, axis)
         return arr
 
     @partial(fr.utils.jaxjit, static_argnames=['axis'])
-    def _sync_axis(self, arrs: tuple[ndarray], axis: int,) -> tuple[ndarray]:
+    def _sync_periodic_axis(self, arr: ndarray, axis: int,) -> ndarray:
         if self.shape[axis] < self.halo:
             pad = fr.config.ncp.pad
             ics = self._inner[axis]
             pad_width = self._paddings[axis]
-            return tuple(pad(arr[ics], pad_width, mode='wrap') for arr in arrs)
+            return pad(arr[ics], pad_width, mode='wrap')
         else:
             rfn = self._recv_from_next[axis]
             rfp = self._recv_from_prev[axis]
             stn = self._send_to_next[axis]
             stp = self._send_to_prev[axis]
             if fr.config.backend_is_jax:
-                arrs = tuple(arr.at[rfn].set(arr[stp]) for arr in arrs)
-                arrs = tuple(arr.at[rfp].set(arr[stn]) for arr in arrs)
+                arr = arr.at[rfn].set(arr[stp])
+                arr = arr.at[rfp].set(arr[stn])
             else:
-                for arr in arrs:
-                    arr[rfn] = arr[stp]
-                    arr[rfp] = arr[stn]
-            return arrs
+                arr[rfn] = arr[stp]
+                arr[rfp] = arr[stn]
+            return arr
+
+    @partial(fr.utils.jaxjit, static_argnames=['axis'])
+    def _sync_non_periodic_axis(self, arr: ndarray, axis: int,) -> ndarray:
+        rfn = self._recv_from_next[axis]
+        rfp = self._recv_from_prev[axis]
+        if fr.config.backend_is_jax:
+            arr = arr.at[rfn].set(0)
+            arr = arr.at[rfp].set(0)
+        else:
+            arr[rfn] = arr[0]
+            arr[rfp] = arr[0]
+        return arr
 
     # ================================================================
     #  Transpose
     # ================================================================
 
+    @partial(fr.utils.jaxjit, static_argnames=('axes_in', 'axes_out'))
     def transpose(self, arr: ndarray, axes_in: tuple[int], axes_out: tuple[int]) -> ndarray:
         # nothing to do here since we are not parallel
         return arr
@@ -81,13 +103,16 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Padding
     # ================================================================
 
+    @fr.utils.jaxjit
     def pad(self, arr: ndarray) -> ndarray:
         if arr.shape != self.shape:
             raise ValueError(f"Array shape {arr.shape} does not match domain shape {self.shape}")
         ncp = fr.config.ncp
-        paddings = tuple((self.halo, self.halo) for _ in range(self.n_dims))
-        return ncp.pad(arr, paddings, mode='wrap')
+        arr = ncp.pad(arr, self._pw_periodic, mode='wrap')
+        arr = ncp.pad(arr, self._pw_nonperiodic, mode='constant')
+        return arr
 
+    @fr.utils.jaxjit
     def unpad(self, arr: ndarray) -> ndarray:
         padded_shape = tuple(s + 2*self.halo for s in self.shape)
         if arr.shape != padded_shape:
@@ -98,6 +123,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Gather
     # ================================================================
 
+    @partial(fr.utils.jaxjit, static_argnames=('dest_rank', 'slc'))
     def gather(self, 
                arr: ndarray, 
                slc: tuple[slice] | None = None,
