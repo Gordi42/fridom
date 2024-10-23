@@ -117,7 +117,8 @@ class Grid(fr.grid.GridBase):
     def setup(self, 
               mset: 'fr.ModelSettingsBase', 
               req_halo: int | None = None,
-              fft_module: 'fr.grid.cartesian.FFT | None' = None
+              fft_module: 'fr.grid.cartesian.FFT | None' = None,
+              domain_decomp_backend: str = "single",
               ) -> None:
         ncp = fr.config.ncp
         n_dims = self.n_dims
@@ -130,8 +131,13 @@ class Grid(fr.grid.GridBase):
             req_halo = max(self._diff_module.required_halo, 
                            self._interp_module.required_halo)
             req_halo = max(req_halo, mset.halo)
-        domain_decomp = fr.domain_decomposition.DomainDecomposition(
-            self._N, req_halo, shared_axes=self._shared_axes)
+        DomainDecomposition = fr.domain_decomposition.get_domain_decomposition(
+            domain_decomp_backend)
+        domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(
+            shape=tuple(self._N), 
+            halo=req_halo, 
+            periods=self._periodic_bounds, 
+            shared_axes=self._shared_axes)
 
 
         # --------------------------------------------------------------
