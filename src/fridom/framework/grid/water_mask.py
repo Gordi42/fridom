@@ -137,30 +137,6 @@ class WaterMask:
         new_mask = self.fill_halo(new_mask)
         return new_mask
 
-    @fr.utils.jaxjit
-    def fill_halo(self, mask: ndarray) -> ndarray:
-        """
-        Fill the halo cells with land (0) if the boundary is not periodic.
-        """
-        subdomain = self._domain_decomposition.my_subdomain
-        left = slice(0, subdomain.halo)
-        right = slice(-subdomain.halo, None)
-        ndim = mask.ndim
-        for axis in range(ndim):
-            # skip periodic boundaries
-            if self._periodic_bounds[axis]:
-                continue
-            if subdomain.is_left_edge[axis]:
-                left_side = [slice(None)] * ndim
-                left_side[axis] = left
-                left_side = tuple(left_side)
-                mask = fr.utils.modify_array(mask, left_side, False)
-            if subdomain.is_right_edge[axis]:
-                right_side = [slice(None)] * ndim
-                right_side[axis] = right
-                right_side = tuple(right_side)
-                mask = fr.utils.modify_array(mask, right_side, False)
-        return mask
 
     @property
     def water_mask(self) -> ndarray:
@@ -172,7 +148,6 @@ class WaterMask:
     @water_mask.setter
     def water_mask(self, mask: ndarray) -> None:
         mask = self._domain_decomposition.sync(mask)
-        mask = self.fill_halo(mask)
         self._water_mask = mask
         # clear the cache
         self._cache = {}
