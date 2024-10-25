@@ -52,7 +52,7 @@ class WaterMask:
     def setup(self, mset: fr.ModelSettingsBase) -> None:
         # we can't set mset or grid as attributes due to recursion issues
         # with jaxjit, so we only set the attributes we need
-        self._domain_decomposition = mset.grid.get_domain_decomposition(spectral=False)
+        self._domain_decomposition = mset.grid.domain_decomp
         self._periodic_bounds = mset.grid.periodic_bounds
         self.water_mask = fr.config.ncp.ones(mset.grid.X[0].shape, dtype=bool)
         return
@@ -134,7 +134,6 @@ class WaterMask:
                 # both sides must be water (True) for the new mask to be water
                 new_mask = right_side * left_side
         new_mask = self._domain_decomposition.sync(new_mask)
-        new_mask = self.fill_halo(new_mask)
         return new_mask
 
 

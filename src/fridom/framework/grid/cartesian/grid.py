@@ -108,7 +108,6 @@ class Grid(fr.grid.GridBase):
         self._periodic_bounds = periodic_bounds
         self._shared_axes = shared_axes
         self._domain_decomp: fr.domain_decomposition.DomainDecomposition | None = None
-        self._pfft: fr.domain_decomposition.ParallelFFT | None = None
         self._fft: fr.grid.cartesian.FFT | None = None
         self._diff_module = diff_mod or fr.grid.cartesian.FiniteDifferences()
         self._interp_module = interp_mod or fr.grid.cartesian.LinearInterpolation()
@@ -121,7 +120,6 @@ class Grid(fr.grid.GridBase):
               domain_decomp_backend: str = "single",
               ) -> None:
         ncp = fr.config.ncp
-        n_dims = self.n_dims
         dtype = fr.config.dtype_real
 
         # --------------------------------------------------------------
@@ -131,8 +129,10 @@ class Grid(fr.grid.GridBase):
             req_halo = max(self._diff_module.required_halo, 
                            self._interp_module.required_halo)
             req_halo = max(req_halo, mset.halo)
+        # get the domain decomposition module
         DomainDecomposition = fr.domain_decomposition.get_domain_decomposition(
             domain_decomp_backend)
+        # construct the domain decomposition
         domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(
             shape=tuple(self._N), 
             halo=req_halo, 
@@ -144,81 +144,25 @@ class Grid(fr.grid.GridBase):
         #  Initialize the fourier transform
         # --------------------------------------------------------------
         if self.fourier_transform_available:
-            pfft = fr.domain_decomposition.ParallelFFT(domain_decomp)
             fft = fft_module or fr.grid.cartesian.FFT(self._periodic_bounds)
         else:
-            pfft = None
             fft = None
 
         # --------------------------------------------------------------
-        #  Initialize the physical meshgrid
+        #  Initialize the meshgrids
         # --------------------------------------------------------------
         x = tuple(ncp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
                   for li, ni, dxi in zip(self._L, self._N, self._dx))
-        # get the local slice of x
-        global_slice = domain_decomp.my_subdomain.global_slice
-        x_local = tuple(xi[global_slice[i]] for i, xi in enumerate(x))
-        # construct the local meshgrids (without ghost points)
-        X_inner = ncp.meshgrid(*x_local, indexing='ij')
-        # add ghost points
-        X = [ncp.zeros(domain_decomp.my_subdomain.shape, dtype=dtype) 
-             for _ in range(n_dims)]
-        for i in range(n_dims):
-            X[i] = fr.utils.modify_array(
-                X[i], domain_decomp.my_subdomain.inner_slice, X_inner[i])
-        X = domain_decomp.sync_multiple(tuple(X))
+        X = domain_decomp.create_meshgrid(*x, pad=True, spectral=False)
 
-        # --------------------------------------------------------------
-        #  Initialize the spectral meshgrid
-        # --------------------------------------------------------------
         if self.fourier_transform_available:
-            spectral_subdomain = pfft.domain_out.my_subdomain
             k = fft.get_freq(self._N, self._dx)
-            global_slice = spectral_subdomain.global_slice
-            k_local = tuple(ki[global_slice[i]] for i, ki in enumerate(k))
-            K = ncp.meshgrid(*k_local, indexing='ij')
+            K = domain_decomp.create_meshgrid(*k, pad=False, spectral=True)
         else:
             fr.config.logger.warning("Fourier transform not available.")
             k = None
-            k_local = None
             K = None
 
-        # ----------------------------------------------------------------
-        #  Prepare padding for FFT
-        # ----------------------------------------------------------------
-        # first the outer padding of trim option
-        trim_zero_slice = []
-        for i in range(self.n_dims):
-            slices = [slice(None)] * self.n_dims
-            if self._periodic_bounds[i]:
-                new_kmax = int(2/3 * int(self.N[i]/2))
-                slices[i] = slice(new_kmax+1, -new_kmax)
-            else:
-                new_kmax = int(2/3 * (self.N[i]-1))
-                slices[i] = slice(new_kmax+1, None)
-            trim_zero_slice.append(tuple(slices))
-
-        # extend option
-        extend_first_halfs = []
-        extend_second_halfs = []
-        extend_paddings = []
-        extend_unpad_slices = []
-        for i in range(self.n_dims):
-            first_half = [slice(None)] * self.n_dims
-            first_half[i] = slice(0, int((self.N[i]+1)/2))
-            extend_first_halfs.append(tuple(first_half))
-
-            second_half = [slice(None)] * self.n_dims
-            second_half[i] = slice(-int(self.N[i]/2), None)
-            extend_second_halfs.append(tuple(second_half))
-
-            paddings = [(0,0)] * self.n_dims
-            paddings[i] = (0, int((self.N[i]+1)/2))
-            extend_paddings.append(tuple(paddings))
-
-            sl = [slice(None)] * self.n_dims
-            sl[i] = slice(0, self.N[i])
-            extend_unpad_slices.append(tuple(sl))
 
         # ----------------------------------------------------------------
         #  Store the attributes
@@ -226,20 +170,11 @@ class Grid(fr.grid.GridBase):
 
         self._mset = mset
         self._domain_decomp = domain_decomp
-        self._pfft = pfft
         self._fft = fft
         self._X = X
-        self._x_local = x_local
         self._x_global = x
         self._K = K
-        self._k_local = k_local
         self._k_global = k
-        self._inner_slice = domain_decomp.my_subdomain.inner_slice
-        self._pad_trim_zero_slice: tuple[slice] = tuple(trim_zero_slice)
-        self._extend_first_halfs: tuple[tuple[slice]] = tuple(extend_first_halfs)
-        self._extend_second_halfs: tuple[tuple[slice]] = tuple(extend_second_halfs)
-        self._extend_pad: tuple[tuple[int]] = tuple(extend_paddings)
-        self._extend_unpad_slices: tuple[tuple[slice]] = tuple(extend_unpad_slices)
 
         # call the setup method of the base class
         # This is called last since some of the setup methods of the grid base
@@ -270,14 +205,16 @@ class Grid(fr.grid.GridBase):
             padding = fr.grid.FFTPadding.NOPADDING,
             bc_types: tuple[fr.grid.BCType] | None = None,
             positions: tuple[fr.grid.AxisPosition] | None = None,
+            axes: tuple[int] | None = None,
             ) -> np.ndarray:
         # Forward transform the array
         f = lambda x, axes: self._fft.forward(x, axes, bc_types, positions)
-        u_hat = self._pfft.forward_apply(arr, f)
+        forward = self._domain_decomp.parallel_forward_transform(f)
+        u_hat = forward(arr, axes)
         
         # Apply padding if necessary
         if padding == fr.grid.FFTPadding.EXTEND:
-            u_hat = self.unpad_extend(u_hat)
+            u_hat = self.domain_decomp.unpad_extend(u_hat)
         return u_hat
 
     @partial(fr.utils.jaxjit, 
@@ -287,113 +224,29 @@ class Grid(fr.grid.GridBase):
              padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
+             axes: tuple[int] | None = None,
              ) -> np.ndarray:
         # Apply padding if necessary
         match padding:
             case fr.grid.FFTPadding.NOPADDING:
                 u = arr
             case fr.grid.FFTPadding.TRIM:
-                u = self.pad_trim(arr)
+                u = self.domain_decomp.pad_trim(arr)
             case fr.grid.FFTPadding.EXTEND:
-                u = self.pad_extend(arr)
+                u = self.domain_decomp.pad_extend(arr)
 
         f = lambda x, axes: self._fft.backward(x, axes, bc_types, positions)
-        return self._pfft.backward_apply(u, f)
-
-    def _pad_extend_axis(self, arr: np.ndarray, axis: int) -> np.ndarray:
-        ncp = fr.config.ncp
-        if self._periodic_bounds[axis]:
-            first_part = arr[self._extend_first_halfs[axis]]
-            second_part = arr[self._extend_second_halfs[axis]]
-            first_part = ncp.pad(first_part, self._extend_pad[axis], mode='constant')
-            arr = ncp.concatenate((first_part, second_part), axis=axis)
-        else:
-            arr = ncp.pad(arr, self._extend_pad[axis], mode='constant')
-        return arr
-
-    def _unpad_extend_axis(self, arr: np.ndarray, axis: int) -> np.ndarray:
-        ncp = fr.config.ncp
-        if self._periodic_bounds[axis]:
-            arr = ncp.concatenate(
-                (arr[self._extend_first_halfs[axis]], 
-                 arr[self._extend_second_halfs[axis]]), axis=axis)
-        else:
-            arr = arr[self._extend_unpad_slices[axis]]
-        return arr
-
-    def pad_extend(self, arr: np.ndarray) -> np.ndarray:
-        for axis in range(self.n_dims):
-            arr = self._pad_extend_axis(arr, axis)
-        return arr
-
-    def unpad_extend(self, arr: np.ndarray) -> np.ndarray:
-        for axis in range(self.n_dims):
-            arr = self._unpad_extend_axis(arr, axis)
-        return arr
-
-    def pad_trim(self, arr: np.ndarray) -> np.ndarray:
-        for axis in range(self.n_dims):
-            arr = fr.utils.modify_array(arr, self._pad_trim_zero_slice[axis], 0)
-        return arr
+        backward = self._domain_decomp.parallel_backward_transform(f)
+        return backward(u, axes)
 
     # ================================================================
     #  Syncing and Boundary Conditions
     # ================================================================
 
-    # @partial(fr.utils.jaxjit, static_argnames=["flat_axes"])
-    def sync(self, 
-             arr: np.ndarray, 
-             flat_axes: list[int] | None = None) -> np.ndarray:
-        return self._domain_decomp.sync(arr, flat_axes=flat_axes)
-
-    @partial(fr.utils.jaxjit, static_argnames=["flat_axes"])
+    @fr.utils.jaxjit
     def sync_multi(self, 
-                   arrs: tuple[np.ndarray], 
-                   flat_axes: list[int] | None = None) -> tuple[np.ndarray]:
-        return self._domain_decomp.sync_multiple(arrs, flat_axes=flat_axes)
-
-    @partial(fr.utils.jaxjit, static_argnames=["axis", "side"])
-    def apply_boundary_condition(
-            self, arr: 'np.ndarray', axis: int, side: str, 
-            value: 'float | np.ndarray') -> np.ndarray:
-        """
-        Apply boundary conditions to a field.
-        
-        Parameters
-        ----------
-        `arr` : `np.ndarray`
-            The array to apply the boundary conditions to.
-        `axis` : `int`
-            The axis to apply the boundary condition to.
-        `side` : `str`
-            The side to apply the boundary condition to.
-        `value` : `float | np.ndarray`
-            The value of the boundary condition.
-        """
-        return self._domain_decomp.apply_boundary_condition(arr, value, axis, side)
-
-    def get_domain_decomposition(self, spectral=False
-                                 ) -> fr.domain_decomposition.DomainDecomposition:
-        if spectral:
-            return self._pfft.domain_out
-        else:
-            return self._domain_decomp
-
-    def get_subdomain(self, spectral=False) -> 'fr.domain_decomposition.Subdomain':
-        """
-        Get the local subdomain of the processor in the physical or spectral 
-        domain decomposition.
-
-        Parameters
-        ----------
-        `spectral` : `bool`, optional
-            If True, return the subdomain of the spectral domain.
-            Default is False.
-        """
-        domain_decomp = self.get_domain_decomposition(spectral)
-        return domain_decomp.my_subdomain
-
-
+                   arrs: tuple[np.ndarray]) -> tuple[np.ndarray]:
+        return self.domain_decomp.sync_multiple(arrs)
 
     # ================================================================
     #  Properties
@@ -416,7 +269,6 @@ class Grid(fr.grid.GridBase):
                 res["Processors"] += f" x {self._domain_decomp.n_procs[i]}"
         return res
         
-
     @property
     def L(self) -> tuple:
         """Domain size in each direction."""

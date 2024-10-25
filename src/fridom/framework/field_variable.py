@@ -185,6 +185,14 @@ class FieldVariable:
         self.apply_water_mask()
         return self
 
+    def unpad(self) -> 'ndarray':
+        """
+        Remove padding from the FieldVariable
+        """
+        if self.is_spectral:
+            raise ValueError("FieldVariable is in spectral space, cannot unpad")
+        return self.grid.unpad(self.arr)
+
     def apply_water_mask(self) -> 'FieldVariable':
         """
         Apply boundary conditions to the FieldVariable
@@ -380,17 +388,9 @@ class FieldVariable:
                 key = list(key)
             key += [slice(None)] * (ndim - len(key))
 
-            # get the inner of the field
-            if fv.is_spectral:
-                # no inner slice for spectral fields
-                ics = [slice(None)] * ndim
-            else:
-                ics = list(fv.grid.inner_slice)
-
             for i in range(ndim):
                 # set non-extended axes to 0
                 if not fv.topo[i]:
-                    ics[i] = slice(0,1)
                     key[i] = slice(0,1)
                 if isinstance(key[i], int):
                     if key[i] < 0:
@@ -398,7 +398,8 @@ class FieldVariable:
                     else:
                         key[i] = slice(key[i], key[i]+1)
 
-            arr = fr.utils.to_numpy(fv.arr[tuple(ics)][tuple(key)])
+            arr = fv.grid.domain_decomp.gather(
+                fv.arr, tuple(key), spectral=fv.is_spectral)
 
             # get the coordinates
             if ndim <= 3:
@@ -422,9 +423,9 @@ class FieldVariable:
                 dim = all_dims[axis]
                 dims.append(dim)
                 if fv.is_spectral:
-                    x_sel = fv.grid.k_local[axis][key[axis]]
+                    x_sel = fv.grid.k_global[axis][key[axis]]
                 else:
-                    x_sel = fv.grid.x_local[axis][key[axis]]
+                    x_sel = fv.grid.x_global[axis][key[axis]]
                 coords[dim] = fr.utils.to_numpy(x_sel)
 
             # reverse the dimensions
@@ -571,40 +572,40 @@ class FieldVariable:
     def __abs__(self) -> 'FieldVariable':
         return self.abs()
 
-    def sum(self) -> float:
-        """Global sum of the FieldVariable"""
-        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
-        return domain.sum(self.arr)
+    def sum(self, axes: tuple[int] | None = None) -> float:
+        """Sum of the FieldVariable over the whole domain in the specified axes"""
+        domain = self.grid.domain_decomp
+        return domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
 
     def __sum__(self) -> float:
         return self.sum()
     
-    def max(self) -> float:
-        """Maximum value of the FieldVariable over the whole domain"""
-        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
-        return domain.max(self.arr)
+    def max(self, axes: tuple[int] | None = None) -> float:
+        """Maximum value of the FieldVariable over the whole domain in the specified axes"""
+        domain = self.grid.domain_decomp
+        return domain.max(self.arr, axes=axes, spectral=self.is_spectral)
 
     def __max__(self) -> float:
         return self.max()
     
-    def min(self) -> float:
-        """Minimum value of the FieldVariable over the whole domain"""
-        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
-        return domain.min(self.arr)
+    def min(self, axes: tuple[int] | None = None) -> float:
+        """Minimum value of the FieldVariable over the whole domain in the specified axes"""
+        domain = self.grid.domain_decomp
+        return domain.min(self.arr, axes=axes, spectral=self.is_spectral)
     
     def __min__(self) -> float:
         return self.min()
 
     def integrate(self) -> float:
         """Global integral of the FieldVariable"""
-        domain = self.grid.get_domain_decomposition(spectral=self.is_spectral)
-        integral = self.arr * self.grid.dV
-        return domain.sum(integral)
+        if self.is_spectral:
+            raise NotImplementedError("Integration not available for spectral fields")
+        domain = self.grid.domain_decomp
+        return domain.sum(self.arr * self.grid.dV)
 
     def norm_l2(self) -> float:
         """Compute the numpy.linalg.norm of the FieldVariable"""
-        ics = self.grid.inner_slice
-        norm = fr.config.ncp.linalg.norm(self.arr[ics])**2
+        norm = fr.config.ncp.linalg.norm(self.unpad())**2
         if fr.utils.mpi_available:
             norm = fr.utils.MPI.COMM_WORLD.allreduce(norm, op=fr.utils.MPI.SUM)
         return fr.config.ncp.sqrt(norm)

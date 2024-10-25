@@ -4,8 +4,7 @@ from abc import abstractmethod
 from functools import partial
 
 
-@partial(fr.utils.jaxify, dynamic=('_X', '_x_global', '_x_local', 
-                                   '_K', '_k_local', '_k_global'))
+@partial(fr.utils.jaxify, dynamic=('_X', '_x_global', '_K', '_k_global'))
 class GridBase:
     """
     Base class for all grids in the framework.
@@ -33,7 +32,6 @@ class GridBase:
         self._L = None
         self._total_grid_points = None
         self._periodic_bounds = None
-        self._inner_slice = slice(None)
         self._X = None
         self._x_global = None
         self._x_local = None
@@ -41,6 +39,8 @@ class GridBase:
         self._dV = None
         self._mset = None
         self._water_mask = fr.grid.WaterMask()
+        # The domain decomposition
+        self._domain_decomposition = None
         # The cell center
         CENTER = fr.grid.AxisPosition.CENTER
         self._cell_center = fr.grid.Position(tuple([CENTER] * n_dims))
@@ -118,6 +118,7 @@ class GridBase:
              padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
+             axes: tuple[int] | None = None,
             ) -> ndarray:
         """
         Perform a (fast) fourier transform on the input array.
@@ -132,6 +133,8 @@ class GridBase:
             The boundary conditions to apply to each axis.
         `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
             The position of the field.
+        `axes` : `tuple[int]` or `None` (default: `None`)
+            The axes to transform.
         
         Returns
         -------
@@ -146,6 +149,7 @@ class GridBase:
              padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
+             axes: tuple[int] | None = None,
              ) -> ndarray:
         """
         Perform an inverse (fast) fourier transform on the input array.
@@ -160,6 +164,8 @@ class GridBase:
             The boundary conditions to apply to each axis.
         `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
             The position of the field.
+        `axes` : `tuple[int]` or `None` (default: `None`)
+            The axes to transform.
         
         Returns
         -------
@@ -268,35 +274,9 @@ class GridBase:
     #  Domain Decomposition Methods
     # ----------------------------------------------------------------
 
-    @abstractmethod
-    def get_subdomain(self, spectral=False) -> fr.domain_decomposition.Subdomain:
-        """
-        Get the local subdomain of the processor in the physical or spectral 
-        domain decomposition.
-
-        Parameters
-        ----------
-        `spectral` : `bool`, (default is False)
-            If True, return the subdomain of the spectral domain.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_domain_decomposition(
-            self, spectral=False
-            ) -> fr.domain_decomposition.DomainDecomposition:
-        """
-        Get the domain decomposition of the grid.
-
-        Parameters
-        ----------
-        `spectral` : `bool`, (default is False)
-            If True, return the domain decomposition of the spectral domain.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def sync(self, arr: ndarray) -> ndarray:
+    def sync(self, 
+             arr: ndarray, 
+             flat_axes: list[int] | None = None) -> ndarray:
         """
         Synchronize the halo (boundary) points of an array across all MPI ranks.
         
@@ -310,10 +290,10 @@ class GridBase:
         `ndarray`
             The synchronized array.
         """
-        raise NotImplementedError
+        return self.domain_decomp.sync(arr, flat_axes=flat_axes)
 
-    @abstractmethod
-    def sync_multi(self, arrs: list[ndarray]) -> list[ndarray]:
+    @fr.utils.jaxjit
+    def sync_multi(self, arrs: tuple[ndarray]) -> tuple[ndarray]:
         """
         Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
         
@@ -327,7 +307,41 @@ class GridBase:
         `list[ndarray]`
             The synchronized list of arrays.
         """
-        raise NotImplementedError
+        return self.domain_decomp.sync_multiple(arrs)
+
+    @fr.utils.jaxjit
+    def unpad(self, arr: ndarray) -> ndarray:
+        """
+        Remove the halo padding from an array.
+        
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The padded array.
+        
+        Returns
+        -------
+        `ndarray`
+            The unpadded array.
+        """
+        return self.domain_decomp.unpad(arr)
+
+    @fr.utils.jaxjit
+    def pad(self, arr: ndarray) -> ndarray:
+        """
+        Add halo padding to an array.
+        
+        Parameters
+        ----------
+        `arr` : `ndarray`
+            The unpadded array.
+        
+        Returns
+        -------
+        `ndarray`
+            The padded array.
+        """
+        return self.domain_decomp.pad(arr)
 
     # ----------------------------------------------------------------
     #  Display methods
@@ -405,6 +419,11 @@ class GridBase:
         return self._mset
 
     @property
+    def domain_decomp(self) -> fr.domain_decomposition.DomainDecomposition:
+        """The domain decomposition object."""
+        return self._domain_decomp
+
+    @property
     def n_dims(self) -> int:
         """The number of dimensions of the grid."""
         return self._n_dims
@@ -431,11 +450,6 @@ class GridBase:
         return self._periodic_bounds
 
     @property
-    def inner_slice(self) -> tuple[slice]:
-        """The slice of the grid that excludes the boundary points."""
-        return self._inner_slice
-
-    @property
     def cell_center(self) -> fr.grid.Position:
         """The position of the cell centers."""
         return self._cell_center
@@ -451,11 +465,6 @@ class GridBase:
         return self._x_global
 
     @property
-    def x_local(self) -> ndarray:
-        """The x-vector of the local grid points."""
-        return self._x_local
-
-    @property
     def K(self) -> ndarray:
         """The wavenumber of the grid."""
         return self._K
@@ -465,11 +474,6 @@ class GridBase:
         """The global wavenumber of the grid."""
         return self._k_global
     
-    @property
-    def k_local(self) -> ndarray:
-        """The local wavenumber of the grid."""
-        return self._k_local
-
     @property
     def dx(self) -> tuple[ndarray]:
         """The grid spacing in each dimension."""

@@ -4,8 +4,10 @@ Base class for domain decomposition.
 from abc import abstractmethod
 import numpy as np
 from numpy import ndarray
+import fridom.framework as fr
 
 
+@fr.utils.jaxify
 class DomainDecomposition:
     """
     Construct a grid of processors and decompose a global domain into subdomains.
@@ -100,23 +102,44 @@ class DomainDecomposition:
         return [self.sync(a) for a in arr]
 
     # ================================================================
-    #  Transpose
+    #  Apply Transform (e.g. FFT)
     # ================================================================
 
-    @abstractmethod
-    def transpose(self, arr: ndarray, axes_in: tuple[int], axes_out: tuple[int]) -> ndarray:
+    def parallel_forward_transform(self, func: callable) -> callable:
         """
-        Transpose an array.
+        Parallel forward transform.
 
         Parameters
         ----------
-        `arr` : ndarray
-            The array to transpose.
-        `axes_in` : tuple[int]
-            The shared axes of the input.
-        `axes_out` : tuple[int]
-            The shared axes of the output.
+        `func` : callable
+            The function to apply the forward transform to.
+            func(arr: ndarray, axes: list[int] | None = None) -> ndarray
         """
+        def wrapper(arr: ndarray, axes: list[int] | None = None) -> ndarray:
+            # unpad the array
+            arr = self.unpad(arr)
+            # apply the forward transform
+            arr = func(arr, axes)
+            return arr
+        return wrapper
+
+    def parallel_backward_transform(self, func: callable) -> callable:
+        """
+        Parallel backward transform.
+
+        Parameters
+        ----------
+        `func` : callable
+            The function to apply the backward transform to.
+            func(arr: ndarray, axes: list[int] | None = None) -> ndarray
+        """
+        def wrapper(arr: ndarray, axes: list[int] | None = None) -> ndarray:
+            # apply the backward transform
+            arr = func(arr, axes)
+            # pad the array
+            arr = self.pad(arr)
+            return arr
+        return wrapper
 
     # ================================================================
     #  Padding
@@ -144,6 +167,50 @@ class DomainDecomposition:
             The array to unpad.
         """
 
+    # ----------------------------------------------------------------
+    #  Spectral paddings
+    # ----------------------------------------------------------------
+
+    def pad_extend(self, arr: ndarray) -> ndarray:
+        """
+        Extend the array with zeros (for spectral padding)
+
+        Parameters
+        ----------
+        `arr` : ndarray
+            The array to pad.
+
+        Returns
+        -------
+        ndarray
+            The padded array.
+        """
+
+    def unpad_extend(self, arr: ndarray) -> ndarray:
+        """
+        Remove the extension of the array (for spectral padding)
+
+        Parameters
+        ----------
+        `arr` : ndarray
+            The array to unpad.
+
+        Returns
+        -------
+        ndarray
+            The unpadded array.
+        """
+
+    def pad_trim(self, arr: ndarray) -> ndarray:
+        """
+        Set the padded region to zero (for spectral padding)
+
+        Parameters
+        ----------
+        `arr` : ndarray
+            The array to pad.
+        """
+
     # ================================================================
     #  Gather
     # ================================================================
@@ -152,7 +219,8 @@ class DomainDecomposition:
     def gather(self, 
                arr: ndarray, 
                slc: tuple[slice] | None = None,
-               dest_rank: int | None = None) -> ndarray:
+               dest_rank: int | None = None,
+               spectral: bool = False) -> ndarray:
         """
         Gather an array to a single process.
 
@@ -166,6 +234,8 @@ class DomainDecomposition:
         `dest_rank` : int (default=None)
             The rank of the process to gather to.
             If None, gather to all processes.
+        `spectral` : bool
+            Whether the array is in spectral space.
         """
 
     # ================================================================
@@ -173,7 +243,9 @@ class DomainDecomposition:
     # ================================================================
 
     @abstractmethod
-    def create_array(self, pad: bool = True) -> ndarray:
+    def create_array(self, 
+                     pad: bool = True, 
+                     spectral: bool = False) -> ndarray:
         """
         Create an array.
 
@@ -181,10 +253,15 @@ class DomainDecomposition:
         ----------
         `pad` : bool
             Whether to add padding to the array.
+        `spectral` : bool
+            Whether the array is in spectral space.
         """
 
     @abstractmethod
-    def create_meshgrid(self, *args: ndarray, pad: bool = True) -> tuple[ndarray]:
+    def create_meshgrid(self, 
+                        *args: ndarray, 
+                        pad: bool = True,
+                        spectral: bool = False) -> tuple[ndarray]:
         """
         Create a meshgrid of arrays.
 
@@ -194,6 +271,8 @@ class DomainDecomposition:
             The arrays to meshgrid.
         `pad` : bool
             Whether to add padding to the meshgrid.
+        `spectral` : bool
+            Whether the meshgrid is in spectral space.
         """
 
     # ================================================================
@@ -201,7 +280,10 @@ class DomainDecomposition:
     # ================================================================
 
     @abstractmethod
-    def sum(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+    def sum(self, 
+            arr: ndarray, 
+            axes: list[int] | None = None,
+            spectral: bool = False) -> ndarray:
         """
         Sum an array across specified axes.
 
@@ -212,10 +294,15 @@ class DomainDecomposition:
         `axes` : list[int] | None
             The axes to sum across. 
             If None, sum across all axes.
+        `spectral` : bool
+            Whether the array is in spectral space.
         """
 
     @abstractmethod
-    def max(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+    def max(self,
+            arr: ndarray, 
+            axes: list[int] | None = None,
+            spectral: bool = False) -> ndarray:
         """
         Find the maximum value of an array across specified axes.
 
@@ -226,10 +313,15 @@ class DomainDecomposition:
         `axes` : list[int] | None
             The axes to find the maximum value across. 
             If None, find the maximum value across all axes.
+        `spectral` : bool
+            Whether the array is in spectral space.
         """
 
     @abstractmethod
-    def min(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+    def min(self,
+            arr: ndarray, 
+            axes: list[int] | None = None,
+            spectral: bool = False) -> ndarray:
         """
         Find the minimum value of an array across specified axes.
 
@@ -240,6 +332,8 @@ class DomainDecomposition:
         `axes` : list[int] | None
             The axes to find the minimum value across. 
             If None, find the minimum value across all axes.
+        `spectral` : bool
+            Whether the array is in spectral space.
         """
 
     # ================================================================
@@ -273,6 +367,13 @@ class DomainDecomposition:
         Periodic boundaries of the domain.
         """
         return self._periods
+
+    @property
+    def parallel(self) -> bool:
+        """
+        Whether the domain is parallel.
+        """
+        return self.size > 1
 
     @property
     def rank(self) -> int:

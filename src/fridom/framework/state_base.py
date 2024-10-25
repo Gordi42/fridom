@@ -268,10 +268,8 @@ class StateBase:
 
         ds = xr.open_dataset(path)
         z = cls(mset)
-        ics = mset.grid.inner_slice
         for key in z.fields.keys():
-            z.fields[key].arr = utils.modify_array(
-                z.fields[key].arr, ics, ncp.array(ds[key]).T)
+            z.fields[key].arr = mset.grid.pad(ncp.array(ds[key]).T)
         z.sync()
         return z
 

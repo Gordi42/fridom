@@ -228,7 +228,7 @@ class NetCDFWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         fr.config.logger.info(f"Creating NetCDF file: {filename}")
         # check if the model is running in parallel
-        parallel = (self.grid.get_domain_decomposition().n_procs_total > 1)
+        parallel = (self.grid.domain_decomp.parallel)
         ncfile = Dataset(filename, "w", format="NETCDF4", parallel=parallel)
 
         dtype = fr.config.dtype_real
@@ -298,13 +298,12 @@ class NetCDFWriter(fr.modules.Module):
         time = self._ncfile.variables["time"]
         time_ind = time.size
         global_slice = self.grid.get_subdomain().global_slice
-        inner_slice = self.grid.get_subdomain().inner_slice
         ind = time_ind, *global_slice[::-1]
 
         time[time_ind] = mz._passed_time
         for var in self.get_variables(mz):
             nc_var = self._ncfile.variables[var.name]
-            arr = var[inner_slice]
+            arr = var.unpad()
             nc_var[ind] = fr.utils.to_numpy(arr.T)
         return
 
