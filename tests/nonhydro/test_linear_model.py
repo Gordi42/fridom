@@ -23,13 +23,13 @@ def test_linear_model(backend, runlen):
     z.u[:] = ncp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2) * ncp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2)
     z.sync()
 
-    initial_total_energy = z.etot.int()
+    initial_total_energy = z.etot.integrate()
 
     model = nh.Model(mset)
     model.z = z
     model.run(runlen=np.timedelta64(runlen, 'h'))
 
-    final_total_energy = model.z.etot.int()
+    final_total_energy = model.z.etot.integrate()
 
     assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-3
 
@@ -65,12 +65,12 @@ def test_boundary_conditions(backend, periodic_bounds):
 
     z.sync()
 
-    initial_total_energy = z.etot.int()
+    initial_total_energy = z.etot.integrate()
 
     model = nh.Model(mset)
     model.z = z
     model.run(runlen=np.timedelta64(6, 'h'))
 
-    final_total_energy = model.z.etot.int()
+    final_total_energy = model.z.etot.integrate()
 
     assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-2

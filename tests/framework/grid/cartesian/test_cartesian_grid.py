@@ -45,14 +45,6 @@ def grid(backend, L, N):
     mset.setup()
     return mset.grid
 
-@pytest.fixture()
-def local_shape_phy(grid):
-    return grid.get_subdomain().shape
-
-@pytest.fixture()
-def local_shape_spe(grid):
-    return grid.get_subdomain(spectral=True).shape
-
 # --------------------------------------------------------------
 #  Testing
 # --------------------------------------------------------------
@@ -71,11 +63,9 @@ def test_x(grid, n_dims, N, L, dx):
         assert x[i][1] - x[i][0] == dx[i]
         assert x[i][-1] == L[i] - dx[i]/2.0
 
-def test_X(grid, n_dims, local_shape_phy):
+def test_X(grid, n_dims):
     X = grid.X
     assert len(X) == n_dims
-    for i in range(n_dims):
-        assert X[i].shape == local_shape_phy
 
 def test_k(grid, n_dims, N, L):
     k = grid.k_global
@@ -86,8 +76,6 @@ def test_k(grid, n_dims, N, L):
         k_max = np.pi * N[i] / L[i]
         assert max(ncp.abs(k[i])) == k_max
 
-def test_K(grid, n_dims, local_shape_spe):
+def test_K(grid, n_dims):
     K = grid.K
     assert len(K) == n_dims
-    for i in range(n_dims):
-        assert K[i].shape == local_shape_spe

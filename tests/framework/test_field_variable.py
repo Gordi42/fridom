@@ -29,11 +29,11 @@ def mset(backend, n_dims):
 
 @pytest.fixture()
 def shape_phy(mset):
-    return mset.grid.get_subdomain().shape
+    return mset.grid.domain_decomp.create_array(spectral=False).shape
 
 @pytest.fixture()
 def shape_spe(mset):
-    return mset.grid.get_subdomain(spectral=True).shape
+    return mset.grid.domain_decomp.create_array(spectral=True).shape
 
 @pytest.fixture(params=[True, False], ids=["Spectral", "Physical"])
 def spectral(request):
@@ -49,8 +49,8 @@ def dtype(spectral):
 
 @pytest.fixture()
 def position_center(n_dims):
-    return fr.grid.cartesian.Position(
-        tuple([fr.grid.cartesian.AxisOffset.CENTER]*n_dims))
+    return fr.grid.Position(
+        tuple([fr.grid.AxisPosition.CENTER]*n_dims))
 
 # --------------------------------------------------------------
 #  Testing
@@ -61,12 +61,12 @@ def test_zeros(mset, spectral, dtype, n_dims, shape, position_center):
         mset, is_spectral=spectral, name="fv", position=position_center)
     assert fv.mset == mset
     assert fv.grid == mset.grid
-    assert len(fv.shape) == n_dims
+    assert len(fv.arr.shape) == n_dims
     assert fv.is_spectral == spectral
-    assert fv.dtype == dtype
+    assert fv.arr.dtype == dtype
     ncp = config.ncp
     arr = ncp.zeros(shape, dtype=dtype)
-    assert ncp.allclose(fv[:], arr)
+    assert ncp.allclose(fv.arr, arr)
 
 def test_constructor_with_input(mset, spectral, dtype, shape, position_center):
     ncp = config.ncp
@@ -102,7 +102,7 @@ def test_fft(random_fields_real):
     # Check that the field is now spectral
     assert field_hat.is_spectral
     # Check that the type of the field is complex
-    assert field_hat.dtype == config.dtype_comp
+    assert field_hat.arr.dtype == config.dtype_comp
 
 def test_fft_ifft(random_fields_real):
     u = random_fields_real
@@ -117,7 +117,8 @@ def test_norm_l2(random_fields_real):
     field = random_fields_real
     norm = field.norm_l2()
     ncp = config.ncp
-    assert norm == ncp.linalg.norm(field.arr)
+    arr = field.grid.domain_decomp.gather(field.arr)
+    assert norm == ncp.linalg.norm(arr)
 
 @pytest.fixture(params=[True, False], ids=["Periodic", "Non-periodic"])
 def periodic(request):
@@ -159,8 +160,9 @@ def zeros(mset_3, position_center):
 @pytest.fixture()
 def ones(mset_3, position_center):
     ncp = config.ncp
+    arr = mset_3.grid.domain_decomp.create_array(spectral=False) + 1.0
     field = fr.FieldVariable(mset_3, is_spectral=False, name="Test",
-                             arr=ncp.ones(mset_3.grid.N), position=position_center)
+                             arr=arr, position=position_center)
     return field
 
 @pytest.mark.mpi_skip
@@ -173,7 +175,9 @@ def test_add(zeros, ones):
     sum = zeros + ones
     assert ncp.allclose(sum.arr, 1.0)
     # test sum with array
-    sum = zeros + ncp.ones(zeros.shape)
+    domain = zeros.grid.domain_decomp
+    arr = domain.create_array(spectral=False) + 1.0
+    sum = zeros + arr
     assert ncp.allclose(sum.arr, 1.0)
 
 @pytest.mark.mpi_skip
@@ -193,7 +197,9 @@ def test_sub(zeros, ones):
     diff = zeros - ones
     assert ncp.allclose(diff.arr, -1.0)
     # test difference with array
-    diff = zeros - ncp.ones(ones.shape)
+    domain = zeros.grid.domain_decomp
+    arr = domain.create_array(spectral=False) + 1.0
+    diff = zeros - arr
     assert ncp.allclose(diff.arr, -1.0)
 
 @pytest.mark.mpi_skip
@@ -213,7 +219,9 @@ def test_mul(zeros, ones):
     prod = (ones * 2.0) * (ones * 2.0)
     assert ncp.allclose(prod.arr, 4.0)
     # test product with array
-    prod = ones * (ncp.ones(ones.shape)*3)
+    domain = zeros.grid.domain_decomp
+    arr = domain.create_array(spectral=False) + 3.0
+    prod = ones * arr
     assert ncp.allclose(prod.arr, 3.0)
 
 @pytest.mark.mpi_skip
@@ -233,7 +241,9 @@ def test_truediv(zeros, ones):
     div = (ones / 2.0) / (ones / 4.0)
     assert ncp.allclose(div.arr, 2.0)
     # test division with array
-    div = ones / (ncp.ones(ones.shape)*3)
+    domain = zeros.grid.domain_decomp
+    arr = domain.create_array(spectral=False) + 3.0
+    div = ones / arr
     assert ncp.allclose(div.arr, 1/3)
 
 @pytest.mark.mpi_skip
@@ -253,7 +263,9 @@ def test_pow(zeros, ones):
     power = (ones*2) ** (ones*2)
     assert ncp.allclose(power.arr, 4.0)
     # test power with array
-    power = (ones*2) ** (ncp.ones(ones.shape)*3)
+    domain = zeros.grid.domain_decomp
+    arr = domain.create_array(spectral=False) + 3.0
+    power = (ones*2) ** arr
     assert ncp.allclose(power.arr, 8.0)
 
 # ================================================================
@@ -306,16 +318,16 @@ def obtained_shape(mset_topo, obtained_topo, spectral):
 
 @pytest.fixture()
 def f1(mset_topo, topo1, spectral):
-    position = fr.grid.cartesian.Position(
-        tuple([fr.grid.cartesian.AxisOffset.CENTER]*3))
+    position = fr.grid.Position(
+        tuple([fr.grid.AxisPosition.CENTER]*3))
     return fr.FieldVariable(
         mset_topo, is_spectral=spectral, topo=topo1, 
         name="f1", position=position) + 1.0
 
 @pytest.fixture()
 def f2(mset_topo, topo2, spectral):
-    position = fr.grid.cartesian.Position(
-        tuple([fr.grid.cartesian.AxisOffset.CENTER]*3))
+    position = fr.grid.Position(
+        tuple([fr.grid.AxisPosition.CENTER]*3))
     return fr.FieldVariable(
         mset_topo, is_spectral=spectral, topo=topo2, 
         name="f2", position=position) + 2.0
@@ -331,33 +343,33 @@ def test_topo_add(f1, f2, obtained_topo, obtained_shape):
     f3 = f1 + f2
     print(f3)
     assert f3.topo == obtained_topo
-    assert f3.shape == obtained_shape
+    assert f3.arr.shape == obtained_shape
     assert ncp.allclose(f3.arr, 3.0)
 
 def test_topo_sub(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 - f2
     assert f3.topo == obtained_topo
-    assert f3.shape == obtained_shape
+    assert f3.arr.shape == obtained_shape
     assert ncp.allclose(f3.arr, -1.0)
 
 def test_topo_mul(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 * f2
     assert f3.topo == obtained_topo
-    assert f3.shape == obtained_shape
+    assert f3.arr.shape == obtained_shape
     assert ncp.allclose(f3.arr, 2.0)
 
 def test_topo_div(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 / f2
     assert f3.topo == obtained_topo
-    assert f3.shape == obtained_shape
+    assert f3.arr.shape == obtained_shape
     assert ncp.allclose(f3.arr, 1.0/2.0)
 
 def test_topo_pow(f1, f2, obtained_topo, obtained_shape):
     ncp = config.ncp
     f3 = f1 ** f2
     assert f3.topo == obtained_topo
-    assert f3.shape == obtained_shape
+    assert f3.arr.shape == obtained_shape
     assert ncp.allclose(f3.arr, 1.0**2.0)

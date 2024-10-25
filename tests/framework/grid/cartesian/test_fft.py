@@ -112,19 +112,22 @@ def halo(request):
 
 @pytest.mark.mpi(max_size=32)
 def test_fft2D_mpi(backend, n, periodic2d, halo):
-    domain_decomp = fr.domain_decomposition.DomainDecomposition(
-        n, halo, shared_axes=[0])
+    DomainDecomposition = fr.domain_decomposition.get_domain_decomposition("single")
+    domain_decomp = DomainDecomposition(
+        shape=n, halo=halo, shared_axes=[0], periods=periodic2d)
     fft = fr.grid.cartesian.FFT(periodic2d)
     ncp = fr.config.ncp
-    pfft = fr.domain_decomposition.ParallelFFT(domain_decomp)
+    forward = domain_decomp.parallel_forward_transform(fft.forward)
+    backward = domain_decomp.parallel_backward_transform(fft.backward)
 
     # set the physical space
-    u = fr.utils.random_array(domain_decomp.my_subdomain.shape)
+    u = domain_decomp.create_array()
+    u = fr.utils.random_array(u.shape)
     u = domain_decomp.sync(u)
 
     # transform to spectral space and back
-    u_hat = pfft.forward_apply(u, fft.forward)
-    v = pfft.backward_apply(u_hat, fft.backward).real
+    u_hat = forward(u)
+    v = backward(u_hat).real
 
     # check that the result is the same
     assert ncp.allclose(u, v)
