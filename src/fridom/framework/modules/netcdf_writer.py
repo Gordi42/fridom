@@ -297,8 +297,7 @@ class NetCDFWriter(fr.modules.Module):
     def _write_data(self, mz: 'fr.ModelState'):
         time = self._ncfile.variables["time"]
         time_ind = time.size
-        global_slice = self.grid.get_subdomain().global_slice
-        ind = time_ind, *global_slice[::-1]
+        ind = time_ind, *tuple(slice(None) for _ in range(self.grid.n_dims))
 
         time[time_ind] = mz._passed_time
         for var in self.get_variables(mz):

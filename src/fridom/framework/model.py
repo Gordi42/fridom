@@ -159,6 +159,7 @@ class Model:
             end_time = fr.utils.to_seconds(end_time)
         if isinstance(runlen, np.timedelta64):
             runlen = fr.utils.to_seconds(runlen)
+            print(runlen)
 
         # set the start time
         self.model_state.time = start_time

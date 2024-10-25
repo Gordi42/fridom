@@ -432,7 +432,25 @@ def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
     `float`
         The time in seconds.
     """
-    if isinstance(t, (np.datetime64, np.timedelta64)):
+    if isinstance(t, np.timedelta64):
+        # Conversion factors for common time units to seconds
+        conversion_factors = {
+            'Y': 365 * 24 * 3600,       # 365 days
+            'M': 30 * 24 * 3600,        # 30 days
+            'W': 7 * 24 * 3600,         # 7 days
+            'D': 24 * 3600,             # 1 day
+            'h': 3600,                  # 1 hour
+            'm': 60,                    # 1 minute
+            's': 1                      # 1 second
+        }
+
+        # Get the time unit of the timedelta64 object (e.g., 'Y', 'M', 'D')
+        unit = np.datetime_data(t)[0]
+    
+        # Calculate the seconds based on the conversion factor
+        return t / np.timedelta64(1, unit) * conversion_factors[unit]
+
+    if isinstance(t, np.datetime64):
         t = t.astype('datetime64[s]')  # convert time stemp to seconds
         return float(t.astype('timedelta64[s]').astype(float))
     return t

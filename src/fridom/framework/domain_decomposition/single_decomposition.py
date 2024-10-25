@@ -7,7 +7,7 @@ import fridom.framework as fr
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def __init__(self, shape: tuple[int], 
                  halo: int = 0, 
-                 periods: tuple[int] = (0, 0),
+                 periods: tuple[bool] | None = None,
                  shared_axes: tuple[int] | None = None, 
                  device_ids: list[int] | None = None):
         super().__init__(shape, halo, periods, shared_axes, device_ids)
@@ -150,21 +150,31 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Padding
     # ================================================================
 
-    @fr.utils.jaxjit
-    def pad(self, arr: ndarray) -> ndarray:
-        if arr.shape != self.shape:
-            raise ValueError(f"Array shape {arr.shape} does not match domain shape {self.shape}")
+    @partial(fr.utils.jaxjit, static_argnames='flat_axes')
+    def pad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
+        if self.halo == 0:
+            return arr
         ncp = fr.config.ncp
-        arr = ncp.pad(arr, self._pw_periodic, mode='wrap')
-        arr = ncp.pad(arr, self._pw_nonperiodic, mode='constant')
+        # update the paddings for flat axes
+        pw_periodic = list(self._pw_periodic)
+        pw_nonperiodic = list(self._pw_nonperiodic)
+        for axis in flat_axes or []:
+            pw_periodic[axis] = (0, 0)
+            pw_nonperiodic[axis] = (0, 0)
+        # pad the array
+        arr = ncp.pad(arr, tuple(pw_periodic), mode='wrap')
+        arr = ncp.pad(arr, tuple(pw_nonperiodic), mode='constant')
         return arr
 
-    @fr.utils.jaxjit
-    def unpad(self, arr: ndarray) -> ndarray:
-        padded_shape = tuple(s + 2*self.halo for s in self.shape)
-        if arr.shape != padded_shape:
-            raise ValueError(f"Array shape {arr.shape} does not match padded shape {padded_shape}")
-        return arr[self._inner_slice]
+    @partial(fr.utils.jaxjit, static_argnames='flat_axes')
+    def unpad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
+        if self.halo == 0:
+            return arr
+        # remove the paddings for flat axes
+        ics = list(self._inner_slice)
+        for axis in flat_axes or []:
+            ics[axis] = slice(None)
+        return arr[tuple(ics)]
 
     # ----------------------------------------------------------------
     #  Spectral paddings
@@ -234,9 +244,9 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def create_array(self, 
                      pad: bool = True, 
                      spectral: bool = False) -> ndarray:
-        dtype = fr.config.dtype_complex if spectral else fr.config.dtype_real
+        dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
         arr = fr.config.ncp.zeros(self.shape, dtype=dtype)
-        if pad:
+        if pad and not spectral:
             arr = self.pad(arr)
         return arr
 
@@ -257,16 +267,19 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr: ndarray, 
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
+        arr = self.unpad(arr)
         return fr.config.ncp.sum(arr, axis=axes)
 
     def max(self,
             arr: ndarray, 
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
+        arr = self.unpad(arr)
         return fr.config.ncp.max(arr, axis=axes)
 
     def min(self,
             arr: ndarray, 
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
+        arr = self.unpad(arr)
         return fr.config.ncp.min(arr, axis=axes)
