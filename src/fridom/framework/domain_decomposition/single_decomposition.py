@@ -3,6 +3,7 @@ from numpy import ndarray
 import fridom.framework as fr
 
 
+@fr.utils.jaxify
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def __init__(self, shape: tuple[int], 
                  halo: int = 0, 
@@ -10,6 +11,11 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                  shared_axes: tuple[int] | None = None, 
                  device_ids: list[int] | None = None):
         super().__init__(shape, halo, periods, shared_axes, device_ids)
+        self._p_dims = tuple([1]*self.n_dims)
+
+        # ----------------------------------------------------------------
+        #  Halo exchange slices and paddings
+        # ----------------------------------------------------------------
 
         def _make_slice_tuple(slc):
             slice_list = []
@@ -20,6 +26,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             return tuple(slice_list)
 
         # create slices for halo exchange
+        self._inner_slice = tuple([slice(halo, -halo)]*self.n_dims)
         self._inner = _make_slice_tuple(slice(halo, -halo))
         self._send_to_next = _make_slice_tuple(slice(-2*halo, -halo))
         self._send_to_prev = _make_slice_tuple(slice(halo, 2*halo))
@@ -31,6 +38,55 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                              for i in range(self.n_dims)]
         self._pw_nonperiodic = [(0, 0) if self.periods[i] else (halo, halo) 
                                 for i in range(self.n_dims)]
+        paddings = tuple(tuple((halo, halo) if i == j else (0, 0) 
+                               for i in range(self.n_dims))
+                         for j in range(self.n_dims))
+        self._paddings = paddings
+
+        # ----------------------------------------------------------------
+        #  Extend slices and paddings
+        # ----------------------------------------------------------------
+
+        # paddings for spectral extend
+        # first the outer padding of trim option
+        trim_zero_slice = []
+        for i in range(self.n_dims):
+            slices = [slice(None)] * self.n_dims
+            if self.periods[i]:
+                new_kmax = int(2/3 * int(self.shape[i]/2))
+                slices[i] = slice(new_kmax+1, -new_kmax)
+            else:
+                new_kmax = int(2/3 * (self.shape[i]-1))
+                slices[i] = slice(new_kmax+1, None)
+            trim_zero_slice.append(tuple(slices))
+
+        # extend option
+        extend_first_halfs = []
+        extend_second_halfs = []
+        extend_paddings = []
+        extend_unpad_slices = []
+        for i in range(self.n_dims):
+            first_half = [slice(None)] * self.n_dims
+            first_half[i] = slice(0, int((self.shape[i]+1)/2))
+            extend_first_halfs.append(tuple(first_half))
+
+            second_half = [slice(None)] * self.n_dims
+            second_half[i] = slice(-int(self.shape[i]/2), None)
+            extend_second_halfs.append(tuple(second_half))
+
+            paddings = [(0,0)] * self.n_dims
+            paddings[i] = (0, int((self.shape[i]+1)/2))
+            extend_paddings.append(tuple(paddings))
+
+            sl = [slice(None)] * self.n_dims
+            sl[i] = slice(0, self.shape[i])
+            extend_unpad_slices.append(tuple(sl))
+
+        self._pad_trim_zero_slice: tuple[slice] = tuple(trim_zero_slice)
+        self._extend_first_halfs: tuple[tuple[slice]] = tuple(extend_first_halfs)
+        self._extend_second_halfs: tuple[tuple[slice]] = tuple(extend_second_halfs)
+        self._extend_pad: tuple[tuple[int]] = tuple(extend_paddings)
+        self._extend_unpad_slices: tuple[tuple[slice]] = tuple(extend_unpad_slices)
 
     # ================================================================
     #  Halo exchange
@@ -91,15 +147,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         return arr
 
     # ================================================================
-    #  Transpose
-    # ================================================================
-
-    @partial(fr.utils.jaxjit, static_argnames=('axes_in', 'axes_out'))
-    def transpose(self, arr: ndarray, axes_in: tuple[int], axes_out: tuple[int]) -> ndarray:
-        # nothing to do here since we are not parallel
-        return arr
-
-    # ================================================================
     #  Padding
     # ================================================================
 
@@ -117,34 +164,86 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         padded_shape = tuple(s + 2*self.halo for s in self.shape)
         if arr.shape != padded_shape:
             raise ValueError(f"Array shape {arr.shape} does not match padded shape {padded_shape}")
-        return arr[self._inner]
+        return arr[self._inner_slice]
+
+    # ----------------------------------------------------------------
+    #  Spectral paddings
+    # ----------------------------------------------------------------
+
+    def _pad_extend_axis(self, 
+                         arr: ndarray, 
+                         axis: int,
+                         ) -> ndarray:
+        ncp = fr.config.ncp
+        if self.periods[axis]:
+            first_part = arr[self._extend_first_halfs[axis]]
+            second_part = arr[self._extend_second_halfs[axis]]
+            first_part = ncp.pad(first_part, self._extend_pad[axis], mode='constant')
+            arr = ncp.concatenate((first_part, second_part), axis=axis)
+        else:
+            arr = ncp.pad(arr, self._extend_pad[axis], mode='constant')
+        return arr
+
+    def _unpad_extend_axis(self, 
+                           arr: ndarray, 
+                           axis: int,
+                           ) -> ndarray:
+        ncp = fr.config.ncp
+        if self.periods[axis]:
+            arr = ncp.concatenate(
+                (arr[self._extend_first_halfs[axis]], 
+                 arr[self._extend_second_halfs[axis]]), axis=axis)
+        else:
+            arr = arr[self._extend_unpad_slices[axis]]
+        return arr
+
+    def pad_extend(self, arr: ndarray) -> ndarray:
+        for axis in range(self.n_dims):
+            arr = self._pad_extend_axis(arr, axis)
+        return arr
+
+    def unpad_extend(self, arr: ndarray) -> ndarray:
+        for axis in range(self.n_dims):
+            arr = self._unpad_extend_axis(arr, axis)
+        return arr
+
+    def pad_trim(self, arr: ndarray) -> ndarray:
+        for axis in range(self.n_dims):
+            arr = fr.utils.modify_array(arr, self._pad_trim_zero_slice[axis], 0)
+        return arr
+
 
     # ================================================================
     #  Gather
     # ================================================================
 
-    @partial(fr.utils.jaxjit, static_argnames=('dest_rank', 'slc'))
     def gather(self, 
                arr: ndarray, 
                slc: tuple[slice] | None = None,
-               dest_rank: int | None = None) -> ndarray:
+               dest_rank: int | None = None,
+               spectral: bool = False) -> ndarray:
         if arr.shape == self.shape:
             return arr[slc]
         else:
-            return arr[self._inner][slc]
-
+            return arr[self._inner_slice][slc]
 
     # ================================================================
     #  Array creation
     # ================================================================
 
-    def create_array(self, pad: bool = True) -> ndarray:
-        arr = fr.config.ncp.zeros(self.shape, dtype=fr.config.dtype_real)
+    def create_array(self, 
+                     pad: bool = True, 
+                     spectral: bool = False) -> ndarray:
+        dtype = fr.config.dtype_complex if spectral else fr.config.dtype_real
+        arr = fr.config.ncp.zeros(self.shape, dtype=dtype)
         if pad:
             arr = self.pad(arr)
         return arr
 
-    def create_meshgrid(self, *args: ndarray, pad: bool = True) -> tuple[ndarray]:
+    def create_meshgrid(self, 
+                        *args: ndarray, 
+                        pad: bool = True,
+                        spectral: bool = False) -> tuple[ndarray]:
         X = fr.config.ncp.meshgrid(*args, indexing='ij')
         if pad:
             X = tuple(self.pad(x) for x in X)
@@ -154,11 +253,20 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Array operations
     # ================================================================
 
-    def sum(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+    def sum(self, 
+            arr: ndarray, 
+            axes: list[int] | None = None,
+            spectral: bool = False) -> ndarray:
         return fr.config.ncp.sum(arr, axis=axes)
 
-    def max(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+    def max(self,
+            arr: ndarray, 
+            axes: list[int] | None = None,
+            spectral: bool = False) -> ndarray:
         return fr.config.ncp.max(arr, axis=axes)
 
-    def min(self, arr: ndarray, axes: list[int] | None = None) -> ndarray:
+    def min(self,
+            arr: ndarray, 
+            axes: list[int] | None = None,
+            spectral: bool = False) -> ndarray:
         return fr.config.ncp.min(arr, axis=axes)
