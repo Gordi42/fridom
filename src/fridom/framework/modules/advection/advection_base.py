@@ -67,6 +67,8 @@ class AdvectionBase(fr.modules.Module):
             velocity = (zf.u, zf.v)
         elif self.grid.n_dims == 3:
             velocity = (zf.u, zf.v, zf.w)
+        else:
+            raise ValueError("Unsupported number of dimensions")
 
         # calculate the advection term
         for name, quantity in z.fields.items():
