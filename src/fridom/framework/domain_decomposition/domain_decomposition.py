@@ -355,6 +355,20 @@ class DomainDecomposition:
         """
 
     # ================================================================
+    #  Helper functions
+    # ================================================================
+    def shard_map(self, func: callable) -> callable:
+        """
+        Decorator to apply a function to the active processes only.
+
+        Parameters
+        ----------
+        `func` : callable
+            The function to apply.
+        """
+        return func
+
+    # ================================================================
     #  Properties
     # ================================================================
 
