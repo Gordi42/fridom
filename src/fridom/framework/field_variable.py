@@ -71,14 +71,11 @@ class FieldVariable:
 
         # The underlying array
         if arr is None:
-            # get the shape of the array
-            if is_spectral:
-                shape = tuple(n if p else 1 
-                              for n, p in zip(mset.grid.K[0].shape, topo))
-            else:
-                shape = tuple(n if p else 1 
-                              for n, p in zip(mset.grid.X[0].shape, topo))
-            data = ncp.zeros(shape=shape, dtype=dtype)
+            data = mset.grid.create_array(
+                pad=True, 
+                spectral=is_spectral,
+                topo=topo,
+                )
         else:
             data = ncp.array(arr, dtype=dtype)
 
