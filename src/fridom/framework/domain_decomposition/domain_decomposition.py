@@ -67,7 +67,6 @@ class DomainDecomposition:
         self._n_dims = len(shape)
         self._halo = halo
         self._periods = periods or tuple(True for _ in range(self.n_dims))
-        self._shared_axes = shared_axes
         self._rank = 0
         self._device_ids = device_ids
         self._p_dims = None
