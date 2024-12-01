@@ -54,7 +54,6 @@ class LinearInterpolation(fr.grid.InterpolationModule):
 
         res = fr.FieldVariable(**f.get_kw())
         next = self._nexts[axis]; prev = self._prevs[axis]
-        average = 0.5 * (f.arr[next] + f.arr[prev])
 
         # get the destination slice
         match destination:
@@ -63,7 +62,12 @@ class LinearInterpolation(fr.grid.InterpolationModule):
             case fr.grid.AxisPosition.FACE:
                 dest_slice = prev
 
-        res.arr = fr.utils.modify_array(res.arr, dest_slice, average)
+        # @self.grid.domain_decomp.shard_map
+        def interpolate(arr):
+            average = 0.5 * (arr[next] + arr[prev])
+            return fr.utils.modify_array(arr, dest_slice, average)
+
+        res.arr = interpolate(f.arr)
         res.position = f.position.shift(axis)
         return res
 
