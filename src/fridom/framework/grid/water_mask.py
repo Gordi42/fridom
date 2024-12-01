@@ -157,7 +157,7 @@ class WaterMask:
 
     @water_mask.setter
     def water_mask(self, mask: ndarray) -> None:
-        mask = self._domain_decomposition.sync(mask)
+        mask = self._sync_mask(mask)
         self._water_mask = mask
         # clear the cache
         self._cache = {}
