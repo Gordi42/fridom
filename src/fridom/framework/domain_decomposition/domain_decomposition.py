@@ -457,7 +457,7 @@ class DomainDecomposition:
         return [i for i, x in enumerate(self.p_dims) if x == 1]
 
 
-def get_domain_decomposition(backend: str) -> DomainDecomposition:
+def get_default_domain_decomposition() -> DomainDecomposition:
     """
     Get the domain decomposition class for the specified backend.
 
@@ -466,16 +466,17 @@ def get_domain_decomposition(backend: str) -> DomainDecomposition:
     `backend` : str
         The backend to use. Options are 'single' and 'jax'.
     """
-    fall_back = 'single'
-    if backend == 'single':
-        from .single_decomposition import SingleDecomposition
-        return SingleDecomposition
-    elif backend == 'jax':
-        try:
-            from .jax_decomposition import JaxDecomposition
-            return JaxDecomposition
-        except ImportError:
-            print(f"Jax not available, falling back to {fall_back}")
-            return get_domain_decomposition(fall_back)
-    else:
-        raise ValueError(f"Unknown backend: {backend}")
+    fall_back = fr.domain_decomposition.SingleDecomposition
+    # if the parallel flag is not set, use the fall back
+    if not fr.config.enable_parallel:
+        return fall_back
+    # if the backend is jax, use the jax decomposition
+    if fr.config.backend_is_jax:
+        # count the number of devices
+        import jax
+        n_devices = jax.device_count()
+        # if we only have one available device, we use single decomposition
+        if n_devices == 1:
+            return fall_back
+        # otherwise, we use the jax decomposition
+        return fr.domain_decomposition.JaxDecomposition
