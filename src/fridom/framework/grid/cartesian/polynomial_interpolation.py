@@ -122,8 +122,6 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
             return f
 
         res = fr.FieldVariable(**f.get_kw())
-        average = sum(f.arr[s] * self._coeffs[i] 
-                      for i, s in enumerate(self._slices[axis]))
 
         # get the destination slice
         match destination:
@@ -131,8 +129,15 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
                 dest_slice = self._nexts[axis]
             case fr.grid.AxisPosition.FACE:
                 dest_slice = self._prevs[axis]
+
+        @self.grid.domain_decomp.shard_map
+        def interpolate(arr):
+
+            average = sum(arr[s] * self._coeffs[i] 
+                        for i, s in enumerate(self._slices[axis]))
+            return fr.utils.modify_array(arr, dest_slice, average)
         
-        res.arr = fr.utils.modify_array(res.arr, dest_slice, average)
+        res.arr = interpolate(f.arr)
         res.position = f.position.shift(axis)
         return res
 
