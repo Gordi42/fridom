@@ -60,7 +60,7 @@ class Grid(fr.grid.GridBase):
                  N: list[int],
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
-                 shared_axes: list[int] | None = None,
+                 domain_decomp: fr.domain_decomposition.DomainDecomposition | None = None,
                  diff_mod: fr.grid.DiffModule | None = None,
                  interp_mod: fr.grid.InterpolationModule | None = None
                  ) -> None:
@@ -76,14 +76,12 @@ class Grid(fr.grid.GridBase):
         n_dims = len(N)
 
         # check that periodic_bounds is the right length
-        periodic_bounds = periodic_bounds or [True] * n_dims  # default is periodic
+        periodic_bounds = tuple(periodic_bounds or [True] * n_dims)  # default is periodic
         if len(periodic_bounds) != n_dims:
             raise ValueError(
                 "periodic_bounds must have the same number of dimensions as N and L.")
 
         fourier_transform_available = True
-        if shared_axes is None:
-            fourier_transform_available = False
 
 
         # --------------------------------------------------------------
@@ -106,8 +104,7 @@ class Grid(fr.grid.GridBase):
         self._dV = np.prod(self._dx)
         self._total_grid_points = int(np.prod(N))
         self._periodic_bounds = periodic_bounds
-        self._shared_axes = shared_axes
-        self._domain_decomp: fr.domain_decomposition.DomainDecomposition | None = None
+        self._domain_decomp = domain_decomp
         self._fft: fr.grid.cartesian.FFT | None = None
         self._diff_module = diff_mod or fr.grid.cartesian.FiniteDifferences()
         self._interp_module = interp_mod or fr.grid.cartesian.LinearInterpolation()
@@ -117,7 +114,6 @@ class Grid(fr.grid.GridBase):
               mset: 'fr.ModelSettingsBase', 
               req_halo: int | None = None,
               fft_module: 'fr.grid.cartesian.FFT | None' = None,
-              domain_decomp_backend: str = "single",
               ) -> None:
         ncp = fr.config.ncp
         dtype = fr.config.dtype_real
@@ -130,15 +126,17 @@ class Grid(fr.grid.GridBase):
                            self._interp_module.required_halo)
             req_halo = max(req_halo, mset.halo)
         # get the domain decomposition module
-        DomainDecomposition = fr.domain_decomposition.get_domain_decomposition(
-            domain_decomp_backend)
-        # construct the domain decomposition
-        domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(
-            shape=tuple(self._N), 
-            halo=req_halo, 
-            periods=self._periodic_bounds, 
-            shared_axes=self._shared_axes)
-
+        if self._domain_decomp is None:
+            DomainDecomposition = fr.domain_decomposition.get_default_domain_decomposition()
+            
+            # construct the domain decomposition
+            domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(
+                shape=tuple(self._N), 
+                halo=req_halo, 
+                periods=self._periodic_bounds, 
+                shared_axes=None)
+        else:
+            domain_decomp = self._domain_decomp
 
         # --------------------------------------------------------------
         #  Initialize the fourier transform
