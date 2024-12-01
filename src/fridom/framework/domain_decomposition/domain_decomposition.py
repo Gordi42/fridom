@@ -245,7 +245,8 @@ class DomainDecomposition:
     @abstractmethod
     def create_array(self, 
                      pad: bool = True, 
-                     spectral: bool = False) -> ndarray:
+                     spectral: bool = False,
+                     topo: tuple[bool] | None = None) -> ndarray:
         """
         Create an array.
 
@@ -255,13 +256,17 @@ class DomainDecomposition:
             Whether to add padding to the array.
         `spectral` : bool
             Whether the array is in spectral space.
+        `topo` : tuple[bool] | None
+            The topology of the array. Axes with false are flat (only one grid point)
         """
 
     @abstractmethod
     def create_random_array(self, 
                             seed: int = 1234,
                             pad: bool = True,
-                            spectral: bool = False) -> ndarray:
+                            spectral: bool = False,
+                            topo: tuple[bool] | None = None
+                            ) -> ndarray:
         """
         Create a random array.
 
@@ -273,6 +278,8 @@ class DomainDecomposition:
             Whether to add padding to the array.
         `spectral` : bool
             Whether the array is in spectral space.
+        `topo` : tuple[bool] | None
+            The topology of the array. Axes with false are flat (only one grid point)
         """
 
     @abstractmethod
