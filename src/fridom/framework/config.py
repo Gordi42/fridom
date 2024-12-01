@@ -299,7 +299,8 @@ def set_backend(new_backend: Backend, silent: bool = False):
                 jax.config.update('jax_platform_name', 'gpu')
                 jax.config.update('jax_enable_x64', True)
                 # the next line will raise a RuntimeError if the GPU is not available
-                jax.lib.xla_bridge.get_backend().platform
+                from jax import extend
+                extend.backend.get_backend().platform
             except ImportError:
                 logger.error("Failed to import jax. Falling back to cupy.")
                 set_backend(Backend.CUPY)
