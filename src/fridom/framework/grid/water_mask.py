@@ -130,11 +130,16 @@ class WaterMask:
                 new_mask = mask
             case fr.grid.AxisPosition.FACE:
                 # find out left and right side of the mask
-                left_side = mask
-                right_side = fr.config.ncp.roll(left_side, -1, axis)
-                # both sides must be water (True) for the new mask to be water
-                new_mask = right_side * left_side
-        new_mask = self._domain_decomposition.sync(new_mask)
+
+                @self._domain_decomposition.shard_map
+                def roll(arr):
+                    left_side = arr
+                    right_side = fr.config.ncp.roll(arr, -1, axis)
+                    # both sides must be water (True) for the new mask to be water
+                    return right_side * left_side
+
+                new_mask = roll(mask)
+        new_mask = self._sync_mask(new_mask)
         return new_mask
 
     def _sync_mask(self, mask: ndarray) -> ndarray:
