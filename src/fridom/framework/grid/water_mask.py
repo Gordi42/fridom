@@ -137,6 +137,16 @@ class WaterMask:
         new_mask = self._domain_decomposition.sync(new_mask)
         return new_mask
 
+    def _sync_mask(self, mask: ndarray) -> ndarray:
+        """
+        Synchronize the mask across the processors.
+        """
+        # for some reason, sync does not work on boolean arrays
+        # so we convert the mask to integers, sync it and then convert it back
+        mask = mask.astype(int)
+        mask = self._domain_decomposition.sync(mask)
+        mask = mask.astype(bool)
+        return mask
 
     @property
     def water_mask(self) -> ndarray:
