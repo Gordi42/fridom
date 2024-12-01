@@ -241,6 +241,35 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Array creation
     # ================================================================
 
+    def _get_array_attrs(self, 
+                         topo: tuple[bool] | None
+                         ) -> tuple[tuple[int], tuple[int]]:
+        """
+        Returns the shape and the flat axes for the given topology
+
+        Parameters
+        ----------
+        topo : tuple[bool] | None
+            The topology of the array
+        
+        Returns
+        -------
+        shape : tuple[int]
+            The shape of the array
+        flat_axes : tuple[int]
+            The flat axes of the array
+        """
+        shape = self.shape
+        flat_axes = [i for i, is_extended in enumerate(topo or []) if not is_extended]
+        # we have to adjust the shape for the topology
+        if topo is not None:
+            shape = list(self.shape)
+            # each axis that is not extended has size 1
+            for i, is_extended in enumerate(topo):
+                if not is_extended:
+                    shape[i] = 1
+        return tuple(shape), tuple(flat_axes)
+
     def create_array(self, 
                      pad: bool = True, 
                      spectral: bool = False) -> ndarray:
