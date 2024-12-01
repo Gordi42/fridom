@@ -258,6 +258,24 @@ class DomainDecomposition:
         """
 
     @abstractmethod
+    def create_random_array(self, 
+                            seed: int = 1234,
+                            pad: bool = True,
+                            spectral: bool = False) -> ndarray:
+        """
+        Create a random array.
+
+        Parameters
+        ----------
+        `seed` : int
+            The seed for the random number generator.
+        `pad` : bool
+            Whether to add padding to the array.
+        `spectral` : bool
+            Whether the array is in spectral space.
+        """
+
+    @abstractmethod
     def create_meshgrid(self, 
                         *args: ndarray, 
                         pad: bool = True,
