@@ -343,6 +343,48 @@ class GridBase:
         """
         return self.domain_decomp.pad(arr)
 
+    @fr.utils.jaxjit
+    def create_array(self,
+                     pad: bool = True, 
+                     spectral: bool = False,
+                     topo: tuple[bool] | None = None) -> ndarray:
+        """
+        Create an array.
+
+        Parameters
+        ----------
+        `pad` : bool
+            Whether to add padding to the array.
+        `spectral` : bool
+            Whether the array is in spectral space.
+        `topo` : tuple[bool] | None
+            The topology of the array. Axes with false are flat (only one grid point)
+        """
+        return self.domain_decomp.create_array(
+            pad=pad, spectral=spectral, topo=topo)
+    
+    def create_random_array(self, 
+                            seed: int = 1234,
+                            pad: bool = True,
+                            spectral: bool = False,
+                            topo: tuple[bool] | None = None
+                            ) -> ndarray:
+        """
+        Create a random array.
+
+        Parameters
+        ----------
+        `seed` : int
+            The seed for the random number generator.
+        `pad` : bool
+            Whether to add padding to the array.
+        `spectral` : bool
+            Whether the array is in spectral space.
+        `topo` : tuple[bool] | None
+            The topology of the array. Axes with false are flat (only one grid point)
+        """
+        return self.domain_decomp.create_random_array(
+            seed=seed, pad=pad, spectral=spectral, topo=topo)
     # ----------------------------------------------------------------
     #  Display methods
     # ----------------------------------------------------------------
