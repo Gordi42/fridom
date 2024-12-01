@@ -272,11 +272,35 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     def create_array(self, 
                      pad: bool = True, 
-                     spectral: bool = False) -> ndarray:
+                     spectral: bool = False,
+                     topo: tuple[bool] | None = None
+                     ) -> ndarray:
         dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
-        arr = fr.config.ncp.zeros(self.shape, dtype=dtype)
+        shape, flat_axes = self._get_array_attrs(topo)
+        # create the array
+        arr = fr.config.ncp.zeros(shape, dtype=dtype)
+        # pad the array
         if pad and not spectral:
-            arr = self.pad(arr)
+            arr = self.pad(arr, flat_axes)
+        return arr
+
+    def create_random_array(self, 
+                            seed: int = 1234,
+                            pad: bool = True,
+                            spectral: bool = False,
+                            topo: tuple[bool] | None = None
+                            ) -> ndarray:
+        dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
+        shape, flat_axes = self._get_array_attrs(None)
+        # create the array
+        arr = fr.utils.random_array(shape, seed).astype(dtype)
+        # add imaginary part if the array is complex
+        if spectral:
+            imag = fr.utils.random_array(shape, 2*seed+3).astype(dtype)
+            arr = arr + 1j*imag
+        # pad the array
+        if pad and not spectral:
+            return self.pad(arr, flat_axes)
         return arr
 
     def create_meshgrid(self, 
