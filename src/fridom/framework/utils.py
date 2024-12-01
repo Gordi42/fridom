@@ -644,3 +644,31 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
 
     return cls
 
+# ================================================================
+#  Inspect jax jit functions
+# ================================================================
+def inspect_jitted_function(func: callable, args: tuple):
+    """
+    Inspect if a jit compiled function has communication operations.
+    
+    Parameters
+    ----------
+    `func` : `callable`
+        The function to inspect.
+    `args` : `tuple`
+        The arguments to pass to the function. Must be a tuple.
+    """
+    import regex as re
+    hlo = func.lower(*args).compile().runtime_executable().hlo_modules()[0].to_string()
+    print("================================================")
+    print(f"Checking HLO of {func.__name__}")
+    patterns = ["all-gather", 
+                "all-reduce", 
+                "all-to-all", 
+                "scatter",
+                "gather",
+                "cross-replica-sum",
+                "collective-permute", 
+                "dynamic-slice"]
+    for pattern in patterns:
+        print(f"{pattern}: {bool(re.search(pattern, hlo))}")
