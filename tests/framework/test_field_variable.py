@@ -22,7 +22,7 @@ def n_dims(request):
 @pytest.fixture()
 def mset(backend, n_dims):
     grid = fr.grid.cartesian.Grid(
-        tuple([64]*n_dims), tuple([1.0]*n_dims), shared_axes=[0])
+        tuple([64]*n_dims), tuple([1.0]*n_dims))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -165,7 +165,6 @@ def ones(mset_3, position_center):
                              arr=arr, position=position_center)
     return field
 
-@pytest.mark.mpi_skip
 def test_add(zeros, ones):
     ncp = config.ncp
     # test sum with scalar
@@ -180,14 +179,12 @@ def test_add(zeros, ones):
     sum = zeros + arr
     assert ncp.allclose(sum.arr, 1.0)
 
-@pytest.mark.mpi_skip
 def test_radd(zeros, ones):
     ncp = config.ncp
     # test sum with scalar
     sum = 1.0 + ones
     assert ncp.allclose(sum.arr, 2.0)
 
-@pytest.mark.mpi_skip
 def test_sub(zeros, ones):
     ncp = config.ncp
     # test difference with scalar
@@ -202,14 +199,12 @@ def test_sub(zeros, ones):
     diff = zeros - arr
     assert ncp.allclose(diff.arr, -1.0)
 
-@pytest.mark.mpi_skip
 def test_rsub(zeros, ones):
     ncp = config.ncp
     # test difference with scalar
     diff = 1.0 - ones
     assert ncp.allclose(diff.arr, 0.0)
 
-@pytest.mark.mpi_skip
 def test_mul(zeros, ones):
     ncp = config.ncp
     # test product with scalar
@@ -224,14 +219,12 @@ def test_mul(zeros, ones):
     prod = ones * arr
     assert ncp.allclose(prod.arr, 3.0)
 
-@pytest.mark.mpi_skip
 def test_rmul(zeros, ones):
     ncp = config.ncp
     # test product with scalar
     prod = 2.0 * ones
     assert ncp.allclose(prod.arr, 2.0)
 
-@pytest.mark.mpi_skip
 def test_truediv(zeros, ones):
     ncp = config.ncp
     # test division with scalar
@@ -246,14 +239,12 @@ def test_truediv(zeros, ones):
     div = ones / arr
     assert ncp.allclose(div.arr, 1/3)
 
-@pytest.mark.mpi_skip
 def test_rtruediv(zeros, ones):
     ncp = config.ncp
     # test division with scalar
     div = 2.0 / ones
     assert ncp.allclose(div.arr, 2.0)
 
-@pytest.mark.mpi_skip
 def test_pow(zeros, ones):
     ncp = config.ncp
     # test power with scalar
@@ -275,7 +266,7 @@ def test_pow(zeros, ones):
 @pytest.fixture()
 def mset_topo(backend):
     grid = fr.grid.cartesian.Grid(
-        (31, 32, 33), (1.0, 2.0, 3.0), shared_axes=[0])
+        (31, 32, 33), (1.0, 2.0, 3.0))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset

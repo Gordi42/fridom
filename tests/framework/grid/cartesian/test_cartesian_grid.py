@@ -40,7 +40,7 @@ def dx(L, N):
 
 @pytest.fixture()
 def grid(backend, L, N):
-    grid = fr.grid.cartesian.Grid(N, L, shared_axes=[0])
+    grid = fr.grid.cartesian.Grid(N, L)
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset.grid

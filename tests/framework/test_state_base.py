@@ -25,8 +25,7 @@ def n_fields(request):
 
 @pytest.fixture()
 def mset(backend, n_dims):
-    grid = fr.grid.cartesian.Grid(N=tuple([32]*n_dims), L=tuple([1.0]*n_dims), 
-                                 shared_axes=[0])
+    grid = fr.grid.cartesian.Grid(N=tuple([32]*n_dims), L=tuple([1.0]*n_dims))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -51,7 +50,7 @@ def state(mset, field_list, is_spectral):
 
 @pytest.fixture()
 def mset_1d(backend):
-    grid = fr.grid.cartesian.Grid(N=(3,), L=(1.0,), shared_axes=[0])
+    grid = fr.grid.cartesian.Grid(N=(3,), L=(1.0,))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -129,7 +128,6 @@ def test_fft(state, dtype_in, dtype_out):
     #     for f1, f2 in zip(state_fft_fft.field_list, state.field_list):
     #         assert fields_are_equal(f1, f2)
 
-@pytest.mark.mpi_skip
 def test_dot(mset_1d, ones_p, ones_s, state_01, state_11, position_1d):
     state = state_01; state2 = state_11
     dot = state.dot(state2)
@@ -150,7 +148,6 @@ def test_dot(mset_1d, ones_p, ones_s, state_01, state_11, position_1d):
     dot = state.dot(state2)
     assert fields_are_equal(dot, ones_s-2j)
 
-@pytest.mark.mpi_skip
 def test_norm_l2(mset_1d, state_01, state_11, ones_p):
     state = state_01; state2 = state_11
     # yields state = [(0, 1), (0, 1), (0, 1)]
@@ -165,7 +162,6 @@ def test_norm_l2(mset_1d, state_01, state_11, ones_p):
     norm = state2.norm_l2()
     assert config.ncp.allclose(norm, 2**0.5)
 
-@pytest.mark.mpi_skip
 def test_norm_of_diff(mset_1d, state_01, state_11):
     # test norm of difference between two identical states
     # should be 0
@@ -183,7 +179,6 @@ def test_norm_of_diff(mset_1d, state_01, state_11):
     norm = state_01.norm_of_diff(state_11)
     assert norm == 2 / (1 + 2**0.5)
 
-@pytest.mark.mpi_skip
 def test_add(state_01, state_11, zeros_p, ones_p):
     state = state_01; state2 = state_11
 
@@ -213,7 +208,6 @@ def test_add(state_01, state_11, zeros_p, ones_p):
     assert fields_are_equal(state3.field_list[0], ones_p)
     assert fields_are_equal(state3.field_list[1], ones_p + 1)
 
-@pytest.mark.mpi_skip
 def test_sub(ones_p, state_01, state_11):
     state = state_01; state2 = state_11
 
@@ -241,7 +235,6 @@ def test_sub(ones_p, state_01, state_11):
     assert fields_are_equal(state3.field_list[0], ones_p)
     assert fr.config.ncp.allclose(state3.field_list[1].arr, 0)
 
-@pytest.mark.mpi_skip
 def test_mul(zeros_p, ones_p, state_01, state_11):
     state = state_01; state2 = state_11
 
@@ -269,7 +262,6 @@ def test_mul(zeros_p, ones_p, state_01, state_11):
     assert fields_are_equal(state3.field_list[0], zeros_p)
     assert fr.config.ncp.allclose(state3.field_list[1].arr, 2)
 
-@pytest.mark.mpi_skip
 def test_truediv(zeros_p, ones_p, state_01, state_11):
     state = state_01; state2 = state_11
 

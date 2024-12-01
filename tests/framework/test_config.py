@@ -15,8 +15,8 @@ def test_set_backend(backend):
             assert fr.config.ncp.__name__ == "jax.numpy"
     # if the backend is JAX, check if the device is correct
     if fr.config.backend_is_jax:
-        import jax
-        device = jax.lib.xla_bridge.get_backend().platform
+        from jax import extend
+        device = extend.backend.get_backend().platform
         match backend:
             case fr.config.Backend.JAX_CPU:
                 assert device == "cpu"

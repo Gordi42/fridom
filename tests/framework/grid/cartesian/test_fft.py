@@ -13,7 +13,6 @@ def lx(request):
 def kx(request):
     return request.param
 
-@pytest.mark.mpi_skip
 def test_dct1D(backend, nx, lx, kx):
     fft = fr.grid.cartesian.FFT((False, ))
     ncp = fr.config.ncp
@@ -49,7 +48,6 @@ def test_dct1D(backend, nx, lx, kx):
 def periodic(request):
     return request.param
 
-@pytest.mark.mpi_skip
 def test_fft3D(backend, nx, periodic):
     fft = fr.grid.cartesian.FFT(periodic)
     ncp = fr.config.ncp
@@ -71,7 +69,6 @@ def test_fft3D(backend, nx, periodic):
 def axes(request):
     return tuple(request.param)
 
-@pytest.mark.mpi_skip
 def test_fft3D_axes(backend, nx, axes, periodic):
     fft = fr.grid.cartesian.FFT(periodic)
     ncp = fr.config.ncp
@@ -110,24 +107,3 @@ def periodic2d(request):
 def halo(request):
     return request.param
 
-@pytest.mark.mpi(max_size=32)
-def test_fft2D_mpi(backend, n, periodic2d, halo):
-    DomainDecomposition = fr.domain_decomposition.get_domain_decomposition("single")
-    domain_decomp = DomainDecomposition(
-        shape=n, halo=halo, shared_axes=[0], periods=periodic2d)
-    fft = fr.grid.cartesian.FFT(periodic2d)
-    ncp = fr.config.ncp
-    forward = domain_decomp.parallel_forward_transform(fft.forward)
-    backward = domain_decomp.parallel_backward_transform(fft.backward)
-
-    # set the physical space
-    u = domain_decomp.create_array()
-    u = fr.utils.random_array(u.shape)
-    u = domain_decomp.sync(u)
-
-    # transform to spectral space and back
-    u_hat = forward(u)
-    v = backward(u_hat).real
-
-    # check that the result is the same
-    assert ncp.allclose(u, v)
