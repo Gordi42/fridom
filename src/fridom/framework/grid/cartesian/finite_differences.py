@@ -57,9 +57,12 @@ class FiniteDifferences(fr.grid.DiffModule):
         prev = tuple(slice(None, -1) if i == axis else slice(None) 
                      for i in range(f.arr.ndim))
 
-        diff = (f.arr[next] - f.arr[prev]) * self._dx1[axis]
+        @self.grid.domain_decomp.shard_map
+        def _diff(arr):
+            diff = (arr[next] - arr[prev]) * self._dx1[axis]
+            return fr.utils.modify_array(arr, prev, diff)
 
-        res.arr = fr.utils.modify_array(res.arr, prev, diff) * mask
+        res.arr = _diff(f.arr) * mask
         res.position = new_pos
 
         return res
@@ -77,8 +80,12 @@ class FiniteDifferences(fr.grid.DiffModule):
         prev = tuple(slice(None, -1) if i == axis else slice(None) 
                      for i in range(f.arr.ndim))
 
-        diff = (f.arr[next] - f.arr[prev]) * self._dx1[axis]
-        res.arr = fr.utils.modify_array(res.arr, next, diff) * mask
+        @self.grid.domain_decomp.shard_map
+        def _diff(arr):
+            diff = (arr[next] - arr[prev]) * self._dx1[axis]
+            return fr.utils.modify_array(arr, next, diff)
+
+        res.arr = _diff(f.arr) * mask
         res.position = new_pos
 
         return res
