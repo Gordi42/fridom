@@ -54,7 +54,8 @@ class WaterMask:
         # with jaxjit, so we only set the attributes we need
         self._domain_decomposition = mset.grid.domain_decomp
         self._periodic_bounds = mset.grid.periodic_bounds
-        self.water_mask = fr.config.ncp.ones(mset.grid.X[0].shape, dtype=bool)
+        self.water_mask = (mset.grid.domain_decomp.create_array(pad=True)+1).astype(bool)
+        # self.water_mask = fr.config.ncp.ones(mset.grid.X[0].shape, dtype=bool)
         return
 
     def get_mask(self, position: fr.grid.Position) -> ndarray:
