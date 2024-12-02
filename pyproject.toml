@@ -47,6 +47,7 @@ addopts = [
 ]
 
 [tool.pylint]
+extension-pkg-allow-list = ["mpi4py"]
 good-names = [
   "ax",
   "z", "mz",

@@ -34,7 +34,7 @@ class ProgressBar(fr.modules.Module):
     @fr.modules.module_method
     def start(self) -> None:
         # only the main rank should print the progress bar
-        if fr.utils.i_am_main_rank:
+        if fr.utils.I_AM_MAIN_RANK:
             disable = False
         else:
             disable = True

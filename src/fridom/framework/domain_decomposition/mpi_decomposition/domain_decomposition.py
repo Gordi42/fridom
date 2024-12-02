@@ -70,7 +70,7 @@ def set_device():
     `backend_is_cupy` : `bool`
         Whether the backend is cupy or not.
     """
-    if not utils.mpi_available:
+    if not utils.MPI_AVAILABLE:
         return
 
     if config.backend == "cupy":
@@ -162,7 +162,7 @@ class DomainDecomposition:
         # --------------------------------------------------------------
         #  Get the number of processors in each direction
         # --------------------------------------------------------------
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             n_procs_total = utils.MPI.COMM_WORLD.Get_size()
         else:
             n_procs_total = 1
@@ -177,7 +177,7 @@ class DomainDecomposition:
             else:
                 n_procs.append(0)
         # calculate the remaining dimensions that are not shared
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             n_procs = utils.MPI.Compute_dims(utils.MPI.COMM_WORLD.Get_size(), n_procs)
         else:
             n_procs = (1,)*n_dims
@@ -187,7 +187,7 @@ class DomainDecomposition:
         # --------------------------------------------------------------
         #  Initialize the communicators
         # --------------------------------------------------------------
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             comm = utils.MPI.COMM_WORLD.Create_cart(
                 n_procs, periods=[True]*n_dims, reorder=reorder_comm)
             size = comm.Get_size()
@@ -223,7 +223,7 @@ class DomainDecomposition:
         inner = _make_slice_tuple(slice(halo, -halo), n_dims)
 
         # create subcommunicators for each axis
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             subcomms = []
             for i in range(n_dims):
                 subdims = [False] * n_dims
@@ -297,7 +297,7 @@ class DomainDecomposition:
         ics = self.my_subdomain.inner_slice
         local_sum = arr[ics].sum()
         # sum over all processors
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             glob_sum = utils.MPI.COMM_WORLD.allreduce(local_sum, op=utils.MPI.SUM)
         else:
             glob_sum = local_sum
@@ -326,7 +326,7 @@ class DomainDecomposition:
         ics = self.my_subdomain.inner_slice
         local_max = arr[ics].max()
         # compute the maximum over all processors
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             glob_max = utils.MPI.COMM_WORLD.allreduce(local_max, op=utils.MPI.MAX)
         else:
             glob_max = local_max
@@ -355,7 +355,7 @@ class DomainDecomposition:
         ics = self.my_subdomain.inner_slice
         local_min = arr[ics].min()
         # compute the minimum over all processors
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             glob_min = utils.MPI.COMM_WORLD.allreduce(local_min, op=utils.MPI.MIN)
         else:
             glob_min = local_min

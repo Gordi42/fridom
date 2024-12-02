@@ -153,7 +153,7 @@ class RestartModule(fr.modules.Module):
         return
 
     def set_full_filename(self, it: int) -> None:
-        if fr.utils.mpi_available:
+        if fr.utils.MPI_AVAILABLE:
             rank = fr.utils.MPI.COMM_WORLD.Get_rank()
         else:
             rank = 0

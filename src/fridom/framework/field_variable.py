@@ -603,7 +603,7 @@ class FieldVariable:
     def norm_l2(self) -> float:
         """Compute the numpy.linalg.norm of the FieldVariable"""
         norm = fr.config.ncp.linalg.norm(self.unpad())**2
-        if fr.utils.mpi_available:
+        if fr.utils.MPI_AVAILABLE:
             norm = fr.utils.MPI.COMM_WORLD.allreduce(norm, op=fr.utils.MPI.SUM)
         return fr.config.ncp.sqrt(norm)
 

@@ -51,7 +51,7 @@ class OverlapInfo:
         processors = []
         slice_same_proc = None
         in_subdomain = domain_in.my_subdomain
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             n_procs = domain_in.comm.Get_size()
         else:
             n_procs = 1
@@ -142,7 +142,7 @@ def transform(domain_in: 'DomainDecomposition',
             for buf, source in zip(bufs, sources)]
 
     # wait for all non-blocking operations to complete
-    if utils.mpi_available:
+    if utils.MPI_AVAILABLE:
         utils.MPI.Request.Waitall(reqs)
 
     # copy the received data to the new array

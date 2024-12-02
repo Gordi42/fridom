@@ -68,7 +68,7 @@ class Subdomain:
                  ) -> None:
         # get the processor coordinates and dimensions of the processor grid
         n_dims = len(n_global)
-        if utils.mpi_available:
+        if utils.MPI_AVAILABLE:
             coord = tuple(comm.Get_coords(rank))  # processor coordinates
             n_procs = tuple(comm.Get_topo()[0])   # number of processors in each dim.
         else:

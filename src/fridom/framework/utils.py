@@ -1,12 +1,16 @@
 """
 Utility functions and classes for the FRIDOM framework.
 """
-from typing import Union, TypeVar, Generic
-import time
-import datetime
-import numpy as np
+from typing import Union, TypeVar, Generic, Callable
+import os
+import sys
 from copy import deepcopy
 import inspect
+import datetime
+from PIL import Image
+import numpy as np
+from IPython import get_ipython
+import regex as re
 import fridom.framework as fr
 
 # Create a generic type variable
@@ -21,23 +25,34 @@ except ImportError:
     MPI = None
 
 # check if MPI is available
-mpi_available = MPI is not None
+MPI_AVAILABLE = MPI is not None
 
 # Check if the current rank is the main rank
-i_am_main_rank = False
-if mpi_available:
-    i_am_main_rank = MPI.COMM_WORLD
-else:
-    # if no MPI is available, assume that the current rank is the main rank
-    i_am_main_rank = True
+def am_i_main_rank():
+    """
+    Check if the current rank is the main rank.
+    
+    Returns
+    -------
+    `bool`
+        True if the current rank is the main rank, False otherwise.
+    """
+    i_am_main_rank = False
+    if MPI_AVAILABLE:
+        i_am_main_rank = MPI.COMM_WORLD
+    else:
+        # if no MPI is available, assume that the current rank is the main rank
+        i_am_main_rank = True
+    return i_am_main_rank
+
+I_AM_MAIN_RANK = am_i_main_rank()
 
 def mpi_barrier():
     """
     Barrier synchronization for MPI.
     """
-    if mpi_available:
+    if MPI_AVAILABLE:
         MPI.COMM_WORLD.Barrier()
-    return
 
 
 # ================================================================
@@ -53,7 +68,7 @@ def print_bar(char='='):
     `char`: `str`
         Character to use for the bar.
     """
-    if i_am_main_rank:
+    if I_AM_MAIN_RANK:
         print(char*80, flush=True)
 
 def print_job_init_info():
@@ -62,11 +77,8 @@ def print_job_init_info():
     """
     print_bar("#")
     fr.log.info("FRIDOM: Framework for Idealized Ocean Models")
-    # get system time
-    from datetime import datetime
-
     # Get the current system time
-    current_time = datetime.now()
+    current_time = datetime.datetime.now()
 
     # Format the time according to the given format
     formatted_time = current_time.strftime(" > Job starting on %Y.%m.%d at %I:%M:%S %p")
@@ -74,60 +86,108 @@ def print_job_init_info():
     fr.log.info(formatted_time)
 
     # get the number of MPI processes
-    if mpi_available:
-        from mpi4py import MPI
+    if MPI_AVAILABLE:
         size = MPI.COMM_WORLD.Get_size()
-        fr.log.info(f" > Running on {size} MPI processes.")
-    fr.log.info(f" > Backend: {fr.config.backend}")
+        fr.log.info(" > Running on %d MPI processes.", size)
+    fr.log.info(" > Backend: %s", fr.config.backend)
     print_bar("#")
-    [print_bar(" ") for _ in range(3)]
+    _ = [print_bar(" ") for _ in range(3)]
 
 # ================================================================
 #  Formatting functions
 # ================================================================
+def humanize_length(value: float):
+    """
+    Format a length in human readable format [mm, cm, m, km].
 
-def humanize_number(value, unit):
-    if unit == "meters":
-        if value < 1e-2:
-            return f"{value*1e3:.2f} mm"
-        elif value < 1:
-            return f"{value*1e2:.2f} cm"
-        elif value < 1e3:
-            return f"{value:.2f} m"
-        else:
-            return f"{value/1e3:.2f} km"
+    Parameters
+    ----------
+    `value` : `float`
+        The length to format.
 
-    elif unit == "seconds":
-        delta = datetime.timedelta(seconds=float(value))
-        days = delta.days
-        formatted_time = ""
+    Returns
+    -------
+    `str`
+        The formatted length.
+    """
+    if value < 1e-2:
+        return f"{value*1e3:.2f} mm"
+    if value < 1:
+        return f"{value*1e2:.2f} cm"
+    if value < 1e3:
+        return f"{value:.2f} m"
+    return f"{value/1e3:.2f} km"
+
+def humanize_time(value: float):
+    """
+    Format a time in human readable format.
+
+    Parameters
+    ----------
+    `value` : `float`
+        The time to format.
+
+    Returns
+    -------
+    `str`
+        The formatted time.
+    """
+    delta = datetime.timedelta(seconds=float(value))
+    days = delta.days
+    formatted_time = ""
+    if days > 0:
+        years, days = divmod(days, 365)
+        if years > 0:
+            formatted_time += f"{years}y "
         if days > 0:
-            years, days = divmod(days, 365)
-            if years > 0:
-                formatted_time += f"{years}y "
-            if days > 0:
-                formatted_time += f"{days}d "
+            formatted_time += f"{days}d "
 
-        hours, remainder = divmod(delta.seconds, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        milliseconds = delta.microseconds // 1000
-        microseconds = delta.microseconds % 1000
+    hours, remainder = divmod(delta.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    milliseconds = delta.microseconds // 1000
+    microseconds = delta.microseconds % 1000
 
-        if hours > 0 or days > 0:
-            formatted_time += f"{hours:02d}:"
-        if minutes > 0 or hours > 0 or days > 0:
-            formatted_time += f"{minutes:02d}:"
-        if seconds > 0 or minutes > 0 or hours > 0 or days > 0:
-            formatted_time += f"{seconds:02d}s "
-        if milliseconds > 0 or microseconds > 0:
-            formatted_time += f"{milliseconds}"
-            if microseconds > 0:
-                formatted_time += f".{microseconds}"
-            formatted_time += "ms"
-        return formatted_time.strip()
+    if hours > 0 or days > 0:
+        formatted_time += f"{hours:02d}:"
+    if minutes > 0 or hours > 0 or days > 0:
+        formatted_time += f"{minutes:02d}:"
+    if seconds > 0 or minutes > 0 or hours > 0 or days > 0:
+        formatted_time += f"{seconds:02d}s "
+    if milliseconds > 0 or microseconds > 0:
+        formatted_time += f"{milliseconds}"
+        if microseconds > 0:
+            formatted_time += f".{microseconds}"
+        formatted_time += "ms"
+    return formatted_time.strip()
 
-    else:
-        raise NotImplementedError(f"Unit '{unit}' not implemented.")
+def humanize_number(value: float, unit: str):
+    """
+    Format a number in human readable format.
+
+    Description
+    -----------
+    This function formats a number in human readable format. The number is
+    converted to a string with the appropriate unit (e.g., meters, seconds).
+
+    Parameters
+    ----------
+    `value` : `float`
+        The number to format.
+    `unit` : `str`
+        The unit of the number (e.g., meters, seconds).
+
+    Returns
+    -------
+    `str`
+        The formatted number with the appropriate unit.
+    """
+    if unit == "meters":
+        return humanize_length(value)
+
+    if unit == "seconds":
+        return humanize_time(value)
+
+    raise NotImplementedError(f"Unit '{unit}' not implemented.")
 
 # ================================================================
 #  Directory functions
@@ -137,16 +197,14 @@ def chdir_to_submit_dir():
     """
     Change the current working directory to the directory where the job was submitted.
     """
-    import os
     fr.log.info("Changing working directory")
-    fr.log.info(f"Old working directory: {os.getcwd()}")
+    fr.log.info("Old working directory: %s", os.getcwd())
     submit_dir = os.getenv('SLURM_SUBMIT_DIR')
     os.chdir(submit_dir)
-    fr.log.info(f"New working directory: {os.getcwd()}")
-    return
+    fr.log.info("New working directory: %s", os.getcwd())
 
 def stdout_is_file():
-    import os, sys
+    """Check if the standard output is a file."""
     # check if the output is not a file
     if os.isatty(sys.stdout.fileno()):
         res = False  # output is a terminal
@@ -154,7 +212,6 @@ def stdout_is_file():
         res = True   # output is a file
 
     # check if the output is ipython
-    from IPython import get_ipython
     if get_ipython() is not None:
         res = False  # output is ipython
     return res
@@ -189,21 +246,45 @@ def skip_on_doc_build(func: callable) -> callable:
     ...     return "This function is skipped when building the documentation."
     """
     # check if we are building the documentation
-    import os
     if os.getenv('FRIDOM_DOC_GENERATION') == 'True':
-        def do_nothing(*args, **kwargs):
+        def do_nothing(*args, **kwargs):  # pylint: disable=unused-argument
             return None
         return do_nothing
     return func
 
 def cache_figure(
-        func: callable, 
+        func: Callable,
         name: str = None,
         force_recompute: bool = False,
         dpi: int = 200) -> callable:
+    """
+    Cache a figure to disk, if it exists return the image from disk.
+
+    Description
+    -----------
+    This decorator caches a figure to disk. If the figure already exists on
+    disk, the image is loaded from disk. If the figure does not exist on disk,
+    the figure is computed and saved to disk. This is useful to avoid
+    recomputing expensive figures.
+
+    Parameters
+    ----------
+    `func` : `Callable`
+        The function that computes the figure. This function must return a
+        matplotlib figure.
+    `name` : `str`
+        The name of the figure file.
+    `force_recompute` : `bool` (default=False)
+        If True, the figure is recomputed even if it exists on disk.
+    `dpi` : `int` (default=200)
+        The DPI of the figure.
+
+    Returns
+    -------
+    `Callable`
+        The function that returns the image.
+    """
     def wrapper():
-        import os
-        from PIL import Image
         # Find out the main file name
         filename = f"figures/{name.split('.')[0]}.png"
         # Create the cache directory if it does not exist
@@ -254,23 +335,25 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
     """
     if fr.config.backend_is_jax:
         return arr.at[where].set(value)
-    else:
-        res = arr.copy()
-        res[where] = value
-        return res
-    
+    res = arr.copy()
+    res[where] = value
+    return res
+
 def random_array(shape: tuple[int], seed=12345):
+    """Create a random array."""
+    fr.log.warning("The random_array function is deprecated and will be removed in the future.")
+    fr.log.warning("Please use the create array method from the grid object instead")
     if fr.config.backend_is_jax:
-        import jax
+        # we need to import jax here since it is an optional dependency
+        import jax  # pylint: disable=import-outside-toplevel
         key = jax.random.key(seed)
         return jax.random.normal(key, shape)
-    else:
-        ncp = fr.config.ncp
-        default_rng = ncp.random.default_rng
-        return default_rng(seed).standard_normal(shape)
+    ncp = fr.config.ncp
+    default_rng = ncp.random.default_rng
+    return default_rng(seed).standard_normal(shape)
 
 
-class SliceableAttribute:
+class SliceableAttribute:  # pylint: disable=too-few-public-methods
     """
     Class to make an object sliceable.
     
@@ -284,85 +367,86 @@ class SliceableAttribute:
 
     def __getitem__(self, key):
         return self.slicer(key)
+
 # ================================================================
 #  Numpy Conversion functions
 # ================================================================
-def _create_numpy_copy(obj, memo):
-    # if the object has a __to_numpy__ method, call it
-    if hasattr(obj, '__to_numpy__'):
-        return obj.__to_numpy__(memo)
 
-    # if the object has a _cpu attribute which is not None, return it
-    if hasattr(obj, '_cpu'):
-        if obj._cpu is not None:
-            return obj._cpu
+def _handle_to_numpy(obj: object, memo: dict) -> object:
+    """Handle objects with a __to_numpy__ method."""
+    return obj.__to_numpy__(memo)
 
-    # if the object is a cupy array, convert it to numpy and return it
-    if isinstance(obj, fr.config.ncp.ndarray):
-        match fr.config.backend:
-            case "numpy":
-                return deepcopy(obj)
-            case "cupy":
-                return fr.config.ncp.asnumpy(obj)
-            case "jax_cpu":
-                return np.array(obj)
-            case "jax_gpu":
-                return np.array(obj)
+def _handle_cpu(obj: object) -> object:
+    """Handle objects with a _cpu attribute."""
+    return obj._cpu  # pylint: disable=protected-access
 
-    # if the object is a numpy generic, return it
-    if isinstance(obj, (np.ndarray, np.generic)):
-        return deepcopy(obj)
+def _handle_ndarray(obj: np.ndarray) -> np.ndarray:
+    """Handle ndarrays based on the backend."""
+    match fr.config.backend:
+        case "numpy":
+            return deepcopy(obj)
+        case "cupy":
+            return fr.config.ncp.asnumpy(obj)
+        case "jax_cpu" | "jax_gpu":
+            return np.array(obj)
 
-    # if the object is a module, return it
-    if inspect.ismodule(obj):
-        return obj
-
-    # if the object is a function, return it
-    if inspect.isfunction(obj):
-        return obj
-
-    # if the object is a method, return it
-    if inspect.ismethod(obj):
-        return obj
-
-    # if the object is a dictionary, convert all values
+def _handle_iterable(obj: Union[dict, list, tuple, set],
+                     memo: dict) -> Union[dict, list, tuple, set]:
+    """Handle dictionaries, lists, tuples, and sets."""
     if isinstance(obj, dict):
         return {key: to_numpy(value, memo) for key, value in obj.items()}
-
-    # if the object is a list, convert all elements
     if isinstance(obj, list):
         return [to_numpy(x, memo) for x in obj]
-
-    # if the object is a tuple, convert all elements
     if isinstance(obj, tuple):
         return tuple(to_numpy(x, memo) for x in obj)
-
-    # if the object is a set, convert all elements
     if isinstance(obj, set):
         return {to_numpy(x, memo) for x in obj}
+    # if none of the above, raise an error
+    raise TypeError(f"Object of type {type(obj)} is not iterable.")
 
-    # if the object is a type, return it
-    if isinstance(obj, type):
-        return deepcopy(obj)
-
-    # if the object is a MPI.Cartcomm, return it
-    if mpi_available:
-        from mpi4py import MPI
-        if isinstance(obj, MPI.Cartcomm):
-            return obj
-
-    # if the object is not a python object, return a deepcopy
-    if not hasattr(obj, '__dict__'):
-        return deepcopy(obj)
-    
-    # if the object is a python object, convert all attributes
+def _handle_python_object(obj: object, memo: dict) -> object:
+    """Handle generic Python objects with attributes."""
     d = id(obj)
     memo[d] = deepcopy(obj)
     for key, value in vars(obj).items():
         setattr(memo[d], key, to_numpy(value, memo))
     return memo[d]
 
-def to_numpy(obj, memo=None, _nil=[]):
+def _create_numpy_copy(obj: object, memo: dict) -> object:
+    """Create a numpy-compatible copy of the object."""
+    if hasattr(obj, '__to_numpy__'):
+        result = _handle_to_numpy(obj, memo)
+
+    elif hasattr(obj, '_cpu') and obj._cpu is not None:  # pylint: disable=protected-access
+        result = _handle_cpu(obj)
+
+    elif isinstance(obj, fr.config.ncp.ndarray):
+        result = _handle_ndarray(obj)
+
+    elif isinstance(obj, (np.ndarray, np.generic)):
+        result = deepcopy(obj)
+
+    elif inspect.ismodule(obj) or inspect.isfunction(obj) or inspect.ismethod(obj):
+        result = obj
+
+    elif isinstance(obj, (dict, list, tuple, set)):
+        result = _handle_iterable(obj, memo)
+
+    elif isinstance(obj, type):
+        result = deepcopy(obj)
+
+    elif MPI_AVAILABLE and isinstance(obj, MPI.Cartcomm):
+        result = obj
+
+    elif not hasattr(obj, '__dict__'):
+        result = deepcopy(obj)
+
+    else:
+        result = _handle_python_object(obj, memo)
+
+    return result
+
+def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object:
     """
     Creates a deep copy of an object with all arrays converted to numpy.
     
@@ -392,6 +476,7 @@ def to_numpy(obj, memo=None, _nil=[]):
     `Any`
         The object with all arrays converted to numpy.
     """
+    _nil = _nil or []
     # if the backend is numpy, return a deepcopy
     if fr.config.backend == 'numpy':
         return deepcopy(obj)
@@ -404,11 +489,11 @@ def to_numpy(obj, memo=None, _nil=[]):
     y = memo.get(d, _nil)
     if y is not _nil:
         return y
-    
+
     memo[d] = _create_numpy_copy(obj, memo)
 
     if hasattr(obj, '_cpu'):
-        obj._cpu = memo[d]
+        obj._cpu = memo[d]  # pylint: disable=protected-access
 
     return memo[d]
 
@@ -445,7 +530,7 @@ def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
 
         # Get the time unit of the timedelta64 object (e.g., 'Y', 'M', 'D')
         unit = np.datetime_data(t)[0]
-    
+
         # Calculate the seconds based on the conversion factor
         return t / np.timedelta64(1, unit) * conversion_factors[unit]
 
@@ -490,7 +575,8 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
 
     if fr.config.backend_is_jax:
         try:
-            import jax
+            # we need to import jax here since it is an optional dependency
+            import jax  # pylint: disable=import-outside-toplevel
             return jax.jit(fun, *args, **kwargs)
         except ImportError:
             return fun
@@ -510,10 +596,10 @@ def free_memory():
     system. The operating system will still show the same memory usage.
     """
     if fr.config.backend_is_jax:
-        import jax
+        import jax  # pylint: disable=import-outside-toplevel
         backend = jax.lib.xla_bridge.get_backend()
-        for buf in backend.live_buffers(): buf.delete()
-    return
+        for buf in backend.live_buffers():
+            buf.delete()
 
 def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     """
@@ -588,47 +674,53 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     # if the backend is not jax, return the class as it is
     if not fr.config.backend_is_jax:
         return cls
-    import jax
+    # we need to import jax here since it is an optional dependency
+    import jax  # pylint: disable=import-outside-toplevel
 
     # make sure dynamic is either a tuple or None:
     if not isinstance(dynamic, (tuple, type(None))):
-        fr.log.error(f"dynamic must be a tuple or None, not {type(dynamic)}")
-        fr.log.error(f"In case you only have one dynamic attribute, ")
-        fr.log.error(f"use dynamic=('attr',) instead of dynamic=('attr').")
+        fr.log.error("dynamic must be a tuple or None, not %s", type(dynamic))
+        fr.log.error("In case you only have one dynamic attribute, ")
+        fr.log.error("use dynamic=('attr',) instead of dynamic=('attr').")
         raise TypeError
 
     if dynamic is None:
         dynamic = []
 
     dynamic = list(dynamic) or []
-    
+
     # check if the class has a _dynamic_attributes attribute
-    if hasattr(cls, "_dynamic_jax_attrs"):
-        dynamic += list(cls._dynamic_jax_attrs)
+    if hasattr(cls, "dynamic_jax_attrs"):
+        dynamic += list(cls.dynamic_jax_attrs)
 
     # remove duplicates
     dynamic = set(dynamic)
 
     # set the new attributes
-    cls._dynamic_jax_attrs = dynamic
+    cls.dynamic_jax_attrs = dynamic
 
     # define a function to flatten the class
     def _tree_flatten(self):
         # Store all attributes that are marked as dynamic
-        children = tuple(getattr(self, attr) for attr in self._dynamic_jax_attrs)
-    
+        children = tuple(getattr(self, attr) for attr in self.dynamic_jax_attrs)
+
         # Store all other attributes as aux_data
-        aux_data = {key: att for key, att in self.__dict__.items() 
-                    if key not in self._dynamic_jax_attrs}
-    
+        aux_data = {key: att for key, att in self.__dict__.items()
+                    if key not in self.dynamic_jax_attrs}
+
         return (children, aux_data)
 
     # define a function to unflatten the class
     @classmethod
     def _tree_unflatten(cls, aux_data, children):
         obj = object.__new__(cls)
+        # be paranoid and check that the class has the dynamic_jax_attrs attribute
+        if not hasattr(cls, "dynamic_jax_attrs"):
+            # this should never happen
+            fr.log.error("The class %s does not have the dynamic_jax_attrs attribute.", cls)
+            cls.dynamic_jax_attrs = set()
         # set dynamic attributes
-        for i, attr in enumerate(cls._dynamic_jax_attrs):
+        for i, attr in enumerate(cls.dynamic_jax_attrs):
             setattr(obj, attr, children[i])
         # set static attributes
         for key, value in aux_data.items():
@@ -636,10 +728,10 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
         return obj
 
     # set the new method to the class
-    cls._tree_unflatten = _tree_unflatten
+    cls.tree_unflatten = _tree_unflatten
 
     # register the class with jax
-    jax.tree_util.register_pytree_node(cls, _tree_flatten, cls._tree_unflatten)
+    jax.tree_util.register_pytree_node(cls, _tree_flatten, cls.tree_unflatten)
 
     return cls
 
@@ -657,11 +749,10 @@ def inspect_jitted_function(func: callable, args: tuple):
     `args` : `tuple`
         The arguments to pass to the function. Must be a tuple.
     """
-    import regex as re
     hlo = func.lower(*args).compile().runtime_executable().hlo_modules()[0].to_string()
     print("================================================")
     print(f"Checking HLO of {func.__name__}")
-    patterns = ["all-gather", 
+    patterns = ["all-gather",
                 "all-reduce", 
                 "all-to-all", 
                 "scatter",

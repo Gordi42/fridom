@@ -290,7 +290,7 @@ class Model:
         fr.log.info("Spawning new sbatch job:")
         fr.log.info(self.restart_module.restart_command)
         fr.utils.mpi_barrier()
-        if fr.utils.mpi_available:
+        if fr.utils.MPI_AVAILABLE:
             import subprocess
             result = subprocess.run(
                 self.restart_module.restart_command.split(), 
