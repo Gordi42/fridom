@@ -432,7 +432,7 @@ class FieldVariable:
             all_attrs.update({"long_name": fv.long_name, "units": fv.units})
     
             dv = xr.DataArray(
-                np.squeeze(arr).T, 
+                fr.utils.to_numpy(np.squeeze(arr).T), 
                 coords=coords, 
                 dims=tuple(dims),
                 name=fv.name,
