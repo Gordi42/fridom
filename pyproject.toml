@@ -47,3 +47,8 @@ addopts = [
 ]
 
 [tool.pylint]
+good-names = [
+  "ax",
+  "z", "mz",
+  "dx", "dy", "dz",
+]
