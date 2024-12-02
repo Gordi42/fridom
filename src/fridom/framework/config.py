@@ -33,7 +33,6 @@ class Config:
             except RuntimeError:
                 pass
         self._load_time = time.time()
-        
 
     # ----------------------------------------------------------------
     #  Representation
@@ -221,8 +220,8 @@ class Config:
                         "Falling back to float64.")
             dtype = numpy.dtype(numpy.float64)
         # set the new data types
-        cls._dtype_real = dtype
-        cls._dtype_comp = numpy.dtype(f"complex{dtype.itemsize * 16}")
+        cls._dtype_real = dtype.type
+        cls._dtype_comp = numpy.dtype(f"complex{dtype.itemsize * 16}").type
 
     # ================================================================
     #  Properties
@@ -246,7 +245,6 @@ class Config:
     @enable_parallel.setter
     def enable_parallel(self, value: bool):
         raise ValueError("Parallelism is not yet supported.")
-        self._enable_parallel = value
 
     @property
     def backend(self) -> str:
