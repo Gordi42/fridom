@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from .model_state import ModelState
     from .model import Model
 
+    # import logger
+    from .logger import log
+
     # import modules
     from . import grid
     from . import domain_decomposition
@@ -53,6 +56,10 @@ all_imports_by_origin = {
     "fridom.framework.state_base": ["StateBase"],
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
+    "fridom.framework.logger": ["log"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
+
+# We import the config module here to make sure that it is always loaded
+from .new_config import config as new_conf
