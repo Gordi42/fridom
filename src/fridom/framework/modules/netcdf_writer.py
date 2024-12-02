@@ -118,7 +118,7 @@ class NetCDFWriter(fr.modules.Module):
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         super().setup(mset)
         # create snapshot folder if it doesn't exist
-        fr.config.logger.verbose(f"Touching snapshot directory: {self.directory}")
+        fr.log.verbose(f"Touching snapshot directory: {self.directory}")
         os.makedirs(self.directory, exist_ok=True)
 
         # snap slice:
@@ -130,7 +130,7 @@ class NetCDFWriter(fr.modules.Module):
     @fr.modules.module_method
     def start(self):
         if self._file_is_open:
-            fr.config.logger.warning(
+            fr.log.warning(
                 "NetCDFWriter: start() called while a file is already open. Continue with closing the file")
             self._close_file()
         return
@@ -226,7 +226,7 @@ class NetCDFWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         #  Create the NetCDF file
         # ----------------------------------------------------------------
-        fr.config.logger.info(f"Creating NetCDF file: {filename}")
+        fr.log.info(f"Creating NetCDF file: {filename}")
         # check if the model is running in parallel
         parallel = (self.grid.domain_decomp.parallel)
         ncfile = Dataset(filename, "w", format="NETCDF4", parallel=parallel)

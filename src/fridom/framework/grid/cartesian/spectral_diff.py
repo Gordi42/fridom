@@ -35,9 +35,8 @@ class SpectralDiff(fr.grid.DiffModule):
         # ----------------------------------------------------------------
         transformed = False
         if not f.is_spectral:
-            log = fr.config.logger
-            log.warning("Called diff on a non-spectral field.")
-            log.warning("Fourier transforming the field to spectral space, differentiating, and transforming back.")
+            fr.log.warning("Called diff on a non-spectral field.")
+            fr.log.warning("Fourier transforming the field to spectral space, differentiating, and transforming back.")
             f = f.fft()
             transformed = True
 

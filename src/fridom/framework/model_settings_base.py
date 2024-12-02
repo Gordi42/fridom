@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Union
 import numpy as np
 # Import internal modules
 from fridom.framework import utils
-from fridom.framework.config import logger
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.grid.grid_base import GridBase
@@ -117,11 +116,11 @@ class ModelSettingsBase:
         return
 
     def setup(self):
-        logger.verbose("Setting up model settings")
+        fr.log.verbose("Setting up model settings")
         self.setup_grid()
         self.setup_settings_parameters()
         self.setup_all_modules()
-        logger.info(self)
+        fr.log.info(self)
         return
 
     def state_constructor(self):
@@ -167,18 +166,18 @@ class ModelSettingsBase:
         """
         # check if a name is provided
         if "name" not in kwargs: 
-            logger.critical("Error occurred while adding a field to the state.")
-            logger.critical("Field name not provided")
-            logger.critical("Please provide a name in the kwargs dictionary.")
+            fr.log.critical("Error occurred while adding a field to the state.")
+            fr.log.critical("Field name not provided")
+            fr.log.critical("Please provide a name in the kwargs dictionary.")
             raise ValueError
         name = kwargs["name"]
         all_names = [field["name"] for field in self.custom_fields]
         # check if the field name already exists
         if name in all_names:
-            logger.critical("Error occurred while adding a field to the state.")
-            logger.critical(f"Field name {name} already exists")
-            logger.critical(f"Used names: {all_names}")
-            logger.critical("Please provide a unique name in the kwargs dictionary.")
+            fr.log.critical("Error occurred while adding a field to the state.")
+            fr.log.critical(f"Field name {name} already exists")
+            fr.log.critical(f"Used names: {all_names}")
+            fr.log.critical("Please provide a unique name in the kwargs dictionary.")
             raise ValueError
 
         self.custom_fields.append(kwargs)

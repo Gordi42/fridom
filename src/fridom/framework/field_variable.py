@@ -90,8 +90,8 @@ class FieldVariable:
         elif isinstance(flags, list):
             for flag in flags:
                 if flag not in self.flags:
-                    fr.config.logger.warning(f"Flag {flag} not available")
-                    fr.config.logger.warning(f"Available flags: {self.flags}")
+                    fr.log.warning(f"Flag {flag} not available")
+                    fr.log.warning(f"Available flags: {self.flags}")
                     raise ValueError
                 self.flags[flag] = True
 

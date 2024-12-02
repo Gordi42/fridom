@@ -74,12 +74,12 @@ class VideoWriter(fr.modules.Module):
         super().setup(mset)
         # create video folder if it does not exist
         if not os.path.exists("videos"):
-            fr.config.logger.info("Creating videos folder")
+            fr.log.info("Creating videos folder")
             os.makedirs("videos")
 
         # delete the file if it already exists
         if os.path.exists(self.filename):
-            fr.config.logger.notice(f"Deleting existing video file {self.filename}")
+            fr.log.notice(f"Deleting existing video file {self.filename}")
             os.remove(self.filename)
 
         # use maximum of 40% the available threads
@@ -100,7 +100,7 @@ class VideoWriter(fr.modules.Module):
 
         # start the writer
         if self.writer is not None and not self.writer.closed:
-            fr.config.logger.warning(
+            fr.log.warning(
                 "VideoWriter.start() called without closing the previous writer.",
                 "Continue with the previous writer.")
         else:
@@ -115,11 +115,11 @@ class VideoWriter(fr.modules.Module):
         """
         # collect all figures
         while len(self.running_jobs) > 0:
-            fr.config.logger.info("Collecting remaining figures")
+            fr.log.info("Collecting remaining figures")
             self.collect_figures()
-        fr.config.logger.debug("Closing the video writer")
+        fr.log.debug("Closing the video writer")
         self.writer.close()
-        fr.config.logger.debug("Video writer closed")
+        fr.log.debug("Video writer closed")
         if self.fig is not None:
             import matplotlib.pyplot as plt
             plt.close(self.fig)

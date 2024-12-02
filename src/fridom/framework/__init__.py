@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     # import modules
     from . import grid
     from . import domain_decomposition
-    from . import config
     from . import utils
     from . import time_steppers
     from . import modules
@@ -41,7 +40,6 @@ all_modules_by_origin = {
     "fridom.framework": [
         "grid",
         "domain_decomposition",
-        "config",
         "utils",
         "time_steppers",
         "modules",
@@ -62,4 +60,4 @@ all_imports_by_origin = {
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
 
 # We import the config module here to make sure that it is always loaded
-from .new_config import config as new_conf
+from .config import config

@@ -2,13 +2,12 @@
 Utility functions and classes for the FRIDOM framework.
 """
 from typing import Union, TypeVar, Generic
-from . import config
-from .config import logger
 import time
 import datetime
 import numpy as np
 from copy import deepcopy
 import inspect
+import fridom.framework as fr
 
 # Create a generic type variable
 T = TypeVar('T')
@@ -62,7 +61,7 @@ def print_job_init_info():
     Print the job starting time and the number of MPI processes.
     """
     print_bar("#")
-    logger.info("FRIDOM: Framework for Idealized Ocean Models")
+    fr.log.info("FRIDOM: Framework for Idealized Ocean Models")
     # get system time
     from datetime import datetime
 
@@ -72,14 +71,14 @@ def print_job_init_info():
     # Format the time according to the given format
     formatted_time = current_time.strftime(" > Job starting on %Y.%m.%d at %I:%M:%S %p")
 
-    logger.info(formatted_time)
+    fr.log.info(formatted_time)
 
     # get the number of MPI processes
     if mpi_available:
         from mpi4py import MPI
         size = MPI.COMM_WORLD.Get_size()
-        logger.info(f" > Running on {size} MPI processes.")
-    logger.info(f" > Backend: {config.backend}")
+        fr.log.info(f" > Running on {size} MPI processes.")
+    fr.log.info(f" > Backend: {fr.config.backend}")
     print_bar("#")
     [print_bar(" ") for _ in range(3)]
 
@@ -139,11 +138,11 @@ def chdir_to_submit_dir():
     Change the current working directory to the directory where the job was submitted.
     """
     import os
-    logger.info("Changing working directory")
-    logger.info(f"Old working directory: {os.getcwd()}")
+    fr.log.info("Changing working directory")
+    fr.log.info(f"Old working directory: {os.getcwd()}")
     submit_dir = os.getenv('SLURM_SUBMIT_DIR')
     os.chdir(submit_dir)
-    logger.info(f"New working directory: {os.getcwd()}")
+    fr.log.info(f"New working directory: {os.getcwd()}")
     return
 
 def stdout_is_file():
@@ -253,7 +252,7 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
     >>> # instead of x[2:5] = 0, we use the modify_array function
     >>> x = fr.utils.modify_array(x, slice(2,5), 0)
     """
-    if config.backend_is_jax:
+    if fr.config.backend_is_jax:
         return arr.at[where].set(value)
     else:
         res = arr.copy()
@@ -261,12 +260,12 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
         return res
     
 def random_array(shape: tuple[int], seed=12345):
-    if config.backend_is_jax:
+    if fr.config.backend_is_jax:
         import jax
         key = jax.random.key(seed)
         return jax.random.normal(key, shape)
     else:
-        ncp = config.ncp
+        ncp = fr.config.ncp
         default_rng = ncp.random.default_rng
         return default_rng(seed).standard_normal(shape)
 
@@ -299,15 +298,15 @@ def _create_numpy_copy(obj, memo):
             return obj._cpu
 
     # if the object is a cupy array, convert it to numpy and return it
-    if isinstance(obj, config.ncp.ndarray):
-        match config.backend:
-            case config.Backend.NUMPY:
+    if isinstance(obj, fr.config.ncp.ndarray):
+        match fr.config.backend:
+            case "numpy":
                 return deepcopy(obj)
-            case config.Backend.CUPY:
-                return config.ncp.asnumpy(obj)
-            case config.Backend.JAX_CPU:
+            case "cupy":
+                return fr.config.ncp.asnumpy(obj)
+            case "jax_cpu":
                 return np.array(obj)
-            case config.Backend.JAX_GPU:
+            case "jax_gpu":
                 return np.array(obj)
 
     # if the object is a numpy generic, return it
@@ -394,7 +393,7 @@ def to_numpy(obj, memo=None, _nil=[]):
         The object with all arrays converted to numpy.
     """
     # if the backend is numpy, return a deepcopy
-    if config.backend == 'numpy':
+    if fr.config.backend == 'numpy':
         return deepcopy(obj)
 
     # if the object was already converted to numpy, return it (recursive call)
@@ -485,11 +484,11 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
     ... def my_function(x):
     ...     return x**2
     """
-    config.jax_jit_was_called = True
-    if not config.enable_jax_jit:
+    fr.config.jax_jit_was_called = True
+    if not fr.config.enable_jax_jit:
         return fun
 
-    if config.backend_is_jax:
+    if fr.config.backend_is_jax:
         try:
             import jax
             return jax.jit(fun, *args, **kwargs)
@@ -510,7 +509,7 @@ def free_memory():
     Note that the memory is only freed within JAX, not in the operating
     system. The operating system will still show the same memory usage.
     """
-    if config.backend_is_jax:
+    if fr.config.backend_is_jax:
         import jax
         backend = jax.lib.xla_bridge.get_backend()
         for buf in backend.live_buffers(): buf.delete()
@@ -587,15 +586,15 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
                 return self.arr**self.power
     """
     # if the backend is not jax, return the class as it is
-    if not config.backend_is_jax:
+    if not fr.config.backend_is_jax:
         return cls
     import jax
 
     # make sure dynamic is either a tuple or None:
     if not isinstance(dynamic, (tuple, type(None))):
-        config.logger.error(f"dynamic must be a tuple or None, not {type(dynamic)}")
-        config.logger.error(f"In case you only have one dynamic attribute, ")
-        config.logger.error(f"use dynamic=('attr',) instead of dynamic=('attr').")
+        fr.log.error(f"dynamic must be a tuple or None, not {type(dynamic)}")
+        fr.log.error(f"In case you only have one dynamic attribute, ")
+        fr.log.error(f"use dynamic=('attr',) instead of dynamic=('attr').")
         raise TypeError
 
     if dynamic is None:

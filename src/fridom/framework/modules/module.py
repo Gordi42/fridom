@@ -15,10 +15,10 @@ def module_method(method):
         if self.is_enabled():
             # if the log level is set, change the log level for the module
             if self.log_level is not None:
-                old_log_level = fr.config.logger.level
+                old_log_level = fr.log.level
                 fr.config.set_log_level(self.log_level.value)
 
-            fr.config.logger.debug(
+            fr.log.debug(
                 f"Calling '{method.__name__}' of: {self.name}")
 
             # check if the model settings are already set

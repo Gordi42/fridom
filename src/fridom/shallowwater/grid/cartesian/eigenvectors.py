@@ -215,13 +215,12 @@ def omega(mset: sw.ModelSettings,
     dx, dy = mset.grid.dx
 
     # print a warning if the coriolis frequency or c² is varying
-    logger = fr.config.logger
     if not ncp.allclose(f2, mset.f_coriolis.arr**2):
-        logger.warning("The corioliis frequency is varying.")
-        logger.warning("The eigenvalues and eigenvectors may be wrong.")
+        fr.log.warning("The corioliis frequency is varying.")
+        fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
     if not ncp.allclose(csqr, mset.csqr_field.arr):
-        logger.warning("c² is varying.")
-        logger.warning("The eigenvalues and eigenvectors may be wrong.")
+        fr.log.warning("c² is varying.")
+        fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
 
     # get discrete spectral operators
     from fridom.framework.grid.cartesian import discrete_spectral_operators as dso

@@ -191,8 +191,6 @@ class OptimalBalance(fr.projection.Projection):
         `State`
             The projection of the state onto the balanced subspace.
         """
-        logger = fr.config.logger
-
         iterations = np.arange(self.max_it)
         errors     = np.ones(self.max_it)
 
@@ -202,17 +200,17 @@ class OptimalBalance(fr.projection.Projection):
         z_res = copy(z)
 
         # start the iterations
-        logger.info("Starting optimal balance iterations")
+        fr.log.info("Starting optimal balance iterations")
 
         for it in iterations:
-            logger.verbose(f"Starting iteration {it}")
+            fr.log.verbose(f"Starting iteration {it}")
             # backward ramping
-            logger.verbose("Performing backward ramping")
+            fr.log.verbose("Performing backward ramping")
             z_lin = self.backward_to_linear(z_res)
             # project to the base point
             z_lin = self.base_proj(z_lin)
             # forward ramping
-            logger.verbose("Performing forward ramping")
+            fr.log.verbose("Performing forward ramping")
             z_bal = self.forward_to_nonlinear(z_lin)
             # exchange base point coordinate
             z_new = z_bal - self.base_proj(z_bal) + self.z_base
@@ -220,19 +218,19 @@ class OptimalBalance(fr.projection.Projection):
             # calculate the error
             errors[it] = error = z_new.norm_of_diff(z_res)
 
-            logger.verbose(f"Difference to previous iteration: {error:.2e}")
+            fr.log.verbose(f"Difference to previous iteration: {error:.2e}")
 
             # update the state
             z_res = z_new
 
             # check the stopping criterion
             if error < self.stop_criterion:
-                logger.info("Stopping criterion reached.")
+                fr.log.info("Stopping criterion reached.")
                 break
 
             # check if the error is increasing
             if it > 0 and error > errors[it-1]:
-                logger.warning("Error is increasing. Stopping iterations.")
+                fr.log.warning("Error is increasing. Stopping iterations.")
                 break
 
             # recalculate the base coordinate if needed

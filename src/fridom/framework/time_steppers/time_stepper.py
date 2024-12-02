@@ -49,7 +49,7 @@ class TimeStepper(fr.modules.Module):
         `ndarray`
             The frequency of the wave including the time discretization effect.
         """
-        fr.config.logger.warning(
+        fr.log.warning(
             f"The time stepper {self.name} has no method to compute the time discretization effect."
         )
         return omega

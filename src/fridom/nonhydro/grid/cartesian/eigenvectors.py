@@ -306,13 +306,12 @@ def omega(mset: nh.ModelSettings,
     kx = ncp.asarray(kx); ky = ncp.asarray(ky); kz = ncp.asarray(kz)
     dx, dy, dz = mset.grid.dx
 
-    logger = fr.config.logger
     if not ncp.allclose(f2, mset.f_coriolis.arr**2):
-        logger.warning("The corioliis frequency is varying.")
-        logger.warning("The eigenvalues and eigenvectors may be wrong.")
+        fr.log.warning("The corioliis frequency is varying.")
+        fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
     if not ncp.allclose(N2, mset.N2):
-        logger.warning("N^2 is varying.")
-        logger.warning("The eigenvalues and eigenvectors may be wrong.")
+        fr.log.warning("N^2 is varying.")
+        fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
 
     from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
     ohpm = lambda k, d: dso.one_hat_squared(k, d, use_discrete)

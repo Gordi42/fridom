@@ -153,7 +153,7 @@ class ProgressBar(fr.modules.Module):
             return
 
         # print the progress to the stdout
-        fr.config.logger.info(self._output.getvalue().split("\r")[1])
+        fr.log.info(self._output.getvalue().split("\r")[1])
 
         # clear the output string
         self._output.seek(0)

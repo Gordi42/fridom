@@ -25,7 +25,7 @@ class RestartModule(fr.modules.Module):
 
         if num_interval_args == 0:
             # No interval is set. Disable the module.
-            fr.config.logger.verbose(
+            fr.log.verbose(
                 "No interval is set in RestartModule. Disabling the module.")
             self.disable()
 
@@ -34,7 +34,7 @@ class RestartModule(fr.modules.Module):
         # ----------------------------------------------------------------
 
         if "-" in filename:
-            fr.config.logger.warning(
+            fr.log.warning(
                 "The filename should not contain the character '-' Replacing '-' with '_' in the filename.")
             filename = filename.replace("-", "_")
         # remove the extension from the filename
@@ -49,7 +49,7 @@ class RestartModule(fr.modules.Module):
         if restart_command is None and self.is_enabled == True:
             job_id = os.getenv('SLURM_JOB_ID')
             if job_id is None:
-                fr.config.logger.warning(
+                fr.log.warning(
                     "No restart command is set. The model will not be able to restart.")
                 restart_command = None
             else:
@@ -63,7 +63,7 @@ class RestartModule(fr.modules.Module):
                     if line.strip().startswith('Command='):
                         command = line.split('=', 1)[1].strip()
                 if command is None:
-                    fr.config.logger.warning(
+                    fr.log.warning(
                         "No restart command is set. The model will not be able to restart.")
                 restart_command = f"sbatch {command}"
 
@@ -85,7 +85,7 @@ class RestartModule(fr.modules.Module):
     @fr.modules.module_method
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
         super().setup(mset)
-        fr.config.logger.verbose("Touching the restart directory.")
+        fr.log.verbose("Touching the restart directory.")
         os.makedirs(self.directory, exist_ok=True)
         return
 
@@ -98,7 +98,7 @@ class RestartModule(fr.modules.Module):
             # get elapsed time
             elapsed_time = np.timedelta64(int(time.time() - fr.config.load_time), 's')
             if elapsed_time >= self.realtime_interval:
-                fr.config.logger.info(
+                fr.log.info(
                     "Realtime restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
                 return True
@@ -110,7 +110,7 @@ class RestartModule(fr.modules.Module):
                 self._last_restart_modeltime = mz.time
             elapsed_time = mz.time - self._last_restart_modeltime
             if elapsed_time >= self.modeltime_interval:
-                fr.config.logger.info(
+                fr.log.info(
                     "Modeltime restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
                 self._last_restart_modeltime = mz.time
@@ -124,7 +124,7 @@ class RestartModule(fr.modules.Module):
                 self._last_restart_iteration = mz.it
             elapsed_time = mz.it - self._last_restart_iteration
             if elapsed_time >= self.iteration_interval:
-                fr.config.logger.info(
+                fr.log.info(
                     "Iteration restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
                 self._last_restart_modeltime = mz.time
@@ -134,16 +134,16 @@ class RestartModule(fr.modules.Module):
 
     @fr.modules.module_method
     def should_reload(self) -> bool:
-        fr.config.logger.verbose("Checking if restart files exist.")
+        fr.log.verbose("Checking if restart files exist.")
         files = os.listdir(self.directory)
         files = [f for f in files if f.startswith(self.filename)]
         if len(files) > 0:
-            fr.config.logger.info("Found restart files. Model will reload.")
+            fr.log.info("Found restart files. Model will reload.")
             its = [int(f.split("_")[1]) for f in files]
             self.set_full_filename(max(its))
             return True
         else:
-            fr.config.logger.info("No restart files found. Model will not reload.")
+            fr.log.info("No restart files found. Model will not reload.")
             return False
 
     @fr.modules.module_method

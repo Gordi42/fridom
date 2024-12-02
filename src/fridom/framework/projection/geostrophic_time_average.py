@@ -84,16 +84,15 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         `State`
             The projection of the state onto the geostrophic subspace.
         """
-        logger = fr.config.logger
         z_ave = copy(z)
         model = self.model
         time_stepper = model.time_stepper
         
-        logger.info("Starting time averaging")
+        fr.log.info("Starting time averaging")
         for n_its in self.n_steps:
             # forward averaging
             time_stepper.dt = np.abs(time_stepper.dt)
-            logger.verbose(f"Averaging forward for {n_its*time_stepper.dt:.2f} seconds")
+            fr.log.verbose(f"Averaging forward for {n_its*time_stepper.dt:.2f} seconds")
             model.reset()
             model.z = copy(z_ave)
             for _ in range(n_its):
@@ -103,7 +102,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
 
             # backward averaging
             if self.backward_forward:
-                logger.verbose(f"Averaging backwards for {n_its*time_stepper.dt:.2f} seconds")
+                fr.log.verbose(f"Averaging backwards for {n_its*time_stepper.dt:.2f} seconds")
                 time_stepper.dt = - np.abs(time_stepper.dt)
                 model.reset()
                 model.z = copy(z_ave)

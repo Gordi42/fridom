@@ -157,7 +157,7 @@ class Grid(fr.grid.GridBase):
             k = fft.get_freq(self._N, self._dx)
             K = domain_decomp.create_meshgrid(*k, pad=False, spectral=True)
         else:
-            fr.config.logger.warning("Fourier transform not available.")
+            fr.log.warning("Fourier transform not available.")
             k = None
             K = None
 

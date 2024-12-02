@@ -69,12 +69,12 @@ class Model:
         # compile the modules
         from time import time
         if fr.config.backend_is_jax:
-            fr.config.logger.notice("Compiling tendency modules")
+            fr.log.notice("Compiling tendency modules")
             start_time = time()
             mz = fr.ModelState(self.mset)
             mz.dz = self.mset.state_constructor()
             self.tendencies.update(mz)
-            fr.config.logger.notice(
+            fr.log.notice(
                 f"Compilation finished in {time()-start_time:.2f} seconds")
 
         # start the progress bar at the very end
@@ -210,7 +210,7 @@ class Model:
         # ----------------------------------------------------------------
         if steps is not None:
             start_it = self.model_state.it
-            config.logger.info(
+            fr.log.info(
                 f"Running model from iteration {start_value} to {final_value}")
             
             # loop over the given number of steps
@@ -218,7 +218,7 @@ class Model:
                 self.step()
 
                 if self.model_state.panicked:
-                    config.logger.warning(
+                    fr.log.warning(
                         "Something went wrong. Stopping model.")
                     break
 
@@ -226,7 +226,7 @@ class Model:
         #  Main loop: Given run length
         # ----------------------------------------------------------------
         elif end_time is not None:
-            config.logger.info(
+            fr.log.info(
                 f"Running model from {self.model_state.time} to {end_time}")
 
             # loop until the end time is reached
@@ -234,16 +234,16 @@ class Model:
                 self.step()
 
                 if self.model_state.panicked:
-                    config.logger.warning(
+                    fr.log.warning(
                         "Something went wrong. Stopping model.")
                     break
 
         # stop the model
         self.stop()
 
-        config.logger.info(
+        fr.log.info(
             f"Model run finished at it: {self.model_state.it}, time: {self.model_state.time}")
-        config.logger.info(self.mset.timer)
+        fr.log.info(self.mset.timer)
 
         return
 
@@ -266,7 +266,7 @@ class Model:
         with self.timer["check_nan"]:
             if self.model_state.it % self.mset.nan_check_interval == 0:
                 if self.model_state.z.has_nan():
-                    config.logger.critical(
+                    fr.log.critical(
                         "State variable contains NaNs. Stopping model.")
                     self.model_state.panicked = True
 
@@ -282,22 +282,22 @@ class Model:
         return
 
     def restart(self) -> None:
-        config.logger.info(
+        fr.log.info(
             f"Stopping model at it: {self.model_state.it}, time: {self.model_state.time}")
         self.stop()
         self.save(self.restart_module.file)
-        config.logger.info(self.mset.timer)
-        config.logger.info("Spawning new sbatch job:")
-        config.logger.info(self.restart_module.restart_command)
+        fr.log.info(self.mset.timer)
+        fr.log.info("Spawning new sbatch job:")
+        fr.log.info(self.restart_module.restart_command)
         fr.utils.mpi_barrier()
         if fr.utils.mpi_available:
             import subprocess
             result = subprocess.run(
                 self.restart_module.restart_command.split(), 
                 capture_output=True, text=True)
-            config.logger.notice(result.stdout)
+            fr.log.notice(result.stdout)
             if result.stderr:
-                config.logger.error(result.stderr)
+                fr.log.error(result.stderr)
         fr.utils.mpi_barrier()
         exit()
 
@@ -340,7 +340,7 @@ class Model:
     def save(self, file: str) -> None:
         import dill
         with open(file, "wb") as f:
-            config.logger.verbose(f"Saving model to {file}")
+            fr.log.verbose(f"Saving model to {file}")
             grid = self.mset.grid
             # remove the grid from the model before pickling
             self.mset.grid = None

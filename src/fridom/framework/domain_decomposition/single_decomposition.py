@@ -100,8 +100,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
 
         flat_axes = flat_axes or []
         
-        # synchronize cpu and gpu
-        if fr.config.backend == fr.config.Backend.CUPY:
+        # synchronize cpu and gpu on cupy backend
+        if fr.config.backend == "cupy":
             fr.config.ncp.cuda.Stream.null.synchronize()
 
         # synchronize one dimension at a time

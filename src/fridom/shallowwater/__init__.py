@@ -184,10 +184,12 @@ if TYPE_CHECKING:
     #  Importing generic classes and modules
     # ----------------------------------------------------------------
     # importing modules
-    from fridom.framework import config
     from fridom.framework import utils
     from fridom.framework import time_steppers
     from fridom.framework import projection
+
+    # import logger
+    from fridom.framework.logger import log
 
     # importing classes
     from fridom.framework.field_variable import FieldVariable
@@ -200,7 +202,7 @@ if TYPE_CHECKING:
 base_fr = "fridom.framework"
 base_sw = "fridom.shallowwater"
 all_modules_by_origin = { 
-    base_fr: ["config", "time_steppers", "utils", "projection"],
+    base_fr: ["time_steppers", "utils", "projection"],
     base_sw: ["grid", "modules", "initial_conditions"],
 }
 
@@ -210,6 +212,10 @@ all_imports_by_origin = {
     f"{base_fr}.field_variable": ["FieldVariable"],
     f"{base_fr}.model_state": ["ModelState"],
     f"{base_fr}.model": ["Model"],
+    f"{base_fr}.logger": ["log"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
+
+# We import the config module here to make sure that it is always loaded
+from fridom.framework.config import config

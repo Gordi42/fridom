@@ -32,7 +32,7 @@ class TimingComponent:
         """
         # check if the timer is already active
         if self.is_active:
-            config.logger.warning(
+            fr.log.warning(
                 f"Start of TimingComponent {self.name} is called, but the component is already active.")
             return
         # start the timer
@@ -47,7 +47,7 @@ class TimingComponent:
         """
         # check if the timer is active
         if not self.is_active:
-            config.logger.warning(
+            fr.log.warning(
                 f"Stop of TimingComponent {self.name} is called, but the component is not active.")
             return
         # stop the timer
