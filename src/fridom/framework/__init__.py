@@ -6,8 +6,8 @@ Description
 This module contain the base classes and functions for the FRIDOM framework.
 This module should mainly be used for developing new modules and models.
 """
-from lazypimp import setup
 from typing import TYPE_CHECKING
+from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
