@@ -45,3 +45,5 @@ where = ["src"]
 addopts = [
   "--import-mode=importlib",
 ]
+
+[tool.pylint]
