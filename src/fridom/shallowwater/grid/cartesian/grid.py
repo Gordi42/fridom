@@ -7,7 +7,7 @@ from numpy import ndarray
 class Grid(fr.grid.cartesian.Grid):
     def __init__(self, N: list[int], L: list[int],
                  periodic_bounds: list[bool] = [True, True]):
-        super().__init__(N, L, periodic_bounds, shared_axes=[0])
+        super().__init__(N, L, periodic_bounds)
 
     def omega(self, 
               k: tuple[float] | tuple[ndarray],
