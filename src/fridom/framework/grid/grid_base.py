@@ -343,7 +343,7 @@ class GridBase:
         """
         return self.domain_decomp.pad(arr)
 
-    @fr.utils.jaxjit
+    @partial(fr.utils.jaxjit, static_argnames=('pad', 'spectral', 'topo'))
     def create_array(self,
                      pad: bool = True, 
                      spectral: bool = False,
