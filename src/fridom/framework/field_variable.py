@@ -617,7 +617,7 @@ class FieldVariable:
             sum = self.arr + other
 
         return FieldVariable(arr=sum, **kwargs)
-    
+
     def __radd__(self, other: any) -> 'FieldVariable':
         """Add a FieldVariable to something"""
         return self.__add__(other)

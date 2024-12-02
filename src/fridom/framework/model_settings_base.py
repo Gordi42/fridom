@@ -1,16 +1,23 @@
-import fridom.framework as fr
+"""model_settings_base.py - Base class for model settings container."""
 from functools import partial
-# Import external modules
-from typing import TYPE_CHECKING, Union
-import numpy as np
-# Import internal modules
-from fridom.framework import utils
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.grid.grid_base import GridBase
+from dataclasses import dataclass
+import fridom.framework as fr
 
 
-@partial(utils.jaxify, dynamic=('grid',))
+@dataclass
+class ModelModules:
+    """
+    Stores all modules that are used in the model.
+    """
+    tendencies: fr.modules.ModuleContainer
+    diagnostics: fr.modules.ModuleContainer
+    progress_bar: fr.modules.ProgressBar
+    restart_module: fr.modules.RestartModule
+    timer: fr.timing_module.TimingModule
+    time_stepper: fr.time_steppers.TimeStepper
+
+
+@partial(fr.utils.jaxify, dynamic=('grid',))
 class ModelSettingsBase:
     """
     Base class for model settings container.
@@ -54,19 +61,20 @@ class ModelSettingsBase:
     """
     model_name      = "Unnamed model"
 
-    def __init__(self, grid: 'GridBase', **kwargs) -> None:
-        self._time_stepper   = fr.time_steppers.AdamBashforth()
-        self._progress_bar   = fr.modules.ProgressBar()
-        self._tendencies     = fr.modules.ModuleContainer("All Tendencies")
-        self._diagnostics    = fr.modules.ModuleContainer("All Diagnostics")
-        self._restart_module = fr.modules.RestartModule()
-        self._timer          = fr.timing_module.TimingModule()
+    def __init__(self, grid: 'fr.grid.GridBase', **kwargs) -> None:
+        self._modules = ModelModules(
+            tendencies=fr.modules.ModuleContainer("All Tendencies"),
+            diagnostics=fr.modules.ModuleContainer("All Diagnostics"),
+            progress_bar=fr.modules.ProgressBar(),
+            restart_module=fr.modules.RestartModule(),
+            timer=fr.timing_module.TimingModule(),
+            time_stepper=fr.time_steppers.AdamBashforth()
+        )
         self._nan_check_interval = 100
         self._custom_fields  = []
         self._halo           = None
         self.grid = grid
         self.set_attributes(**kwargs)
-        return
 
     def set_attributes(self, **kwargs):
         """
@@ -87,49 +95,47 @@ class ModelSettingsBase:
         for key, value in kwargs.items():
             # Check if attribute exists
             if not hasattr(self, key):
-                raise AttributeError(
-                    "ModelSettings has no attribute '{}'".format(key)
-                    )
+                raise AttributeError(f"ModelSettings has no attribute '{key}'")
             setattr(self, key, value)
-        return
 
     def setup_grid(self):
-        """
-        Setup the grid object.
-        """
+        """Setup the grid object."""
         self.grid.setup(mset=self)
-        return
-    
-    def setup_all_modules(self):
+
+    def _setup_all_modules(self):
+        """Setup all modules."""
         self.grid.water_mask.setup(mset=self)
         self.progress_bar.setup(mset=self)
         self.restart_module.setup(mset=self)
         self.tendencies.setup(mset=self)
         self.diagnostics.setup(mset=self)
         self.time_stepper.setup(mset=self)
-        return
 
     def setup_settings_parameters(self):
-        """
-        Setup the model settings parameters.
-        """
-        return
+        """Setup the model settings parameters."""
 
     def setup(self):
+        """
+        Setup the model settings.
+        
+        Description
+        -----------
+        This method will initialize the grid object and setup all modules. 
+        It must be called before accessing any attributes of the grid or modules.
+        """
         fr.log.verbose("Setting up model settings")
         self.setup_grid()
         self.setup_settings_parameters()
-        self.setup_all_modules()
+        self._setup_all_modules()
         fr.log.info(self)
-        return
 
     def state_constructor(self):
-        from fridom.framework.state_base import StateBase
-        return StateBase(self, {})
+        """Construct the state vector from this model settings."""
+        return fr.StateBase(self, {})
 
     def diagnostic_state_constructor(self):
-        from fridom.framework.state_base import StateBase
-        return StateBase(self, {})
+        """Construct the diagnostic state vector from this model settings."""
+        return fr.StateBase(self, {})
 
     def __repr__(self) -> str:
         """
@@ -165,7 +171,7 @@ class ModelSettingsBase:
             the field.
         """
         # check if a name is provided
-        if "name" not in kwargs: 
+        if "name" not in kwargs:
             fr.log.critical("Error occurred while adding a field to the state.")
             fr.log.critical("Field name not provided")
             fr.log.critical("Please provide a name in the kwargs dictionary.")
@@ -175,13 +181,12 @@ class ModelSettingsBase:
         # check if the field name already exists
         if name in all_names:
             fr.log.critical("Error occurred while adding a field to the state.")
-            fr.log.critical(f"Field name {name} already exists")
-            fr.log.critical(f"Used names: {all_names}")
+            fr.log.critical("Field name %s already exists", name)
+            fr.log.critical("Used names: %s", all_names)
             fr.log.critical("Please provide a unique name in the kwargs dictionary.")
             raise ValueError
 
         self.custom_fields.append(kwargs)
-        return
 
     # ================================================================
     #  Properties
@@ -204,20 +209,17 @@ class ModelSettingsBase:
         # res = "\n"
         res = ""
         for key, value in self.parameters.items():
-            res += "\n  - {}: {}".format(key, value)
+            res += f"\n  - {key}: {value}"
         return res
 
     @property
-    def grid(self) -> 'GridBase':
-        """
-        The spatial grid.
-        """
+    def grid(self) -> 'fr.grid.GridBase':
+        """The spatial grid."""
         return self._grid
 
     @grid.setter
-    def grid(self, value: 'GridBase') -> None:
+    def grid(self, value: 'fr.grid.GridBase') -> None:
         self._grid = value
-        return
 
     # ----------------------------------------------------------------
     #  Module properties
@@ -225,75 +227,57 @@ class ModelSettingsBase:
 
     @property
     def time_stepper(self):
-        """
-        The time stepper object (default: AdamBashforth).
-        """
-        return self._time_stepper
+        """The time stepper object (default: AdamBashforth)."""
+        return self._modules.time_stepper
 
     @time_stepper.setter
     def time_stepper(self, value):
-        self._time_stepper = value
-        return
+        self._modules.time_stepper = value
 
     @property
     def progress_bar(self):
-        """
-        The progress bar object (default: ProgressBar).
-        """
-        return self._progress_bar
+        """The progress bar object (default: ProgressBar)."""
+        return self._modules.progress_bar
 
     @progress_bar.setter
     def progress_bar(self, value):
-        self._progress_bar = value
-        return
+        self._modules.progress_bar = value
 
     @property
     def tendencies(self):
-        """
-        The module container for all tendencies.
-        """
-        return self._tendencies
-    
+        """The module container for all tendencies."""
+        return self._modules.tendencies
+
     @tendencies.setter
     def tendencies(self, value):
-        self._tendencies = value
-        return
-    
+        self._modules.tendencies = value
+
     @property
     def diagnostics(self):
-        """
-        The module container for all diagnostics.
-        """
-        return self._diagnostics
-    
+        """The module container for all diagnostics."""
+        return self._modules.diagnostics
+
     @diagnostics.setter
     def diagnostics(self, value):
-        self._diagnostics = value
-        return
-    
+        self._modules.diagnostics = value
+
     @property
     def restart_module(self):
-        """
-        The restart module.
-        """
-        return self._restart_module
-    
+        """The restart module."""
+        return self._modules.restart_module
+
     @restart_module.setter
     def restart_module(self, value):
-        self._restart_module = value
-        return
+        self._modules.restart_module = value
 
     @property
     def timer(self):
-        """
-        The timing module.
-        """
-        return self._timer
-    
+        """The timing module."""
+        return self._modules.timer
+
     @timer.setter
     def timer(self, value):
-        self._timer = value
-        return
+        self._modules.timer = value
 
     # ----------------------------------------------------------------
     #  Other properties
@@ -301,34 +285,25 @@ class ModelSettingsBase:
 
     @property
     def nan_check_interval(self) -> int:
-        """
-        The interval at which the model checks for NaN values
-        """
+        """The interval at which the model checks for NaN values"""
         return self._nan_check_interval
 
     @nan_check_interval.setter
     def nan_check_interval(self, value: int) -> None:
         self._nan_check_interval = value
-        return
 
     @property
     def custom_fields(self) -> list:
-        """
-        List of custom fields to be added to the state vector.
-        """
+        """List of custom fields to be added to the state vector."""
         return self._custom_fields
-    
+
     @custom_fields.setter
     def custom_fields(self, value: list) -> None:
         self._custom_fields = value
-        return
-
 
     @property
     def halo(self) -> int:
-        """
-        Return the halo size of the model.
-        """
+        """Return the halo size of the model."""
         if self._halo is not None:
             return self._halo
         return self.tendencies.required_halo
@@ -336,4 +311,3 @@ class ModelSettingsBase:
     @halo.setter
     def halo(self, value: int) -> None:
         self._halo = value
-        return

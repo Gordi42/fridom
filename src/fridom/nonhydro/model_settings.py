@@ -27,7 +27,7 @@ class ModelSettings(ModelSettingsBase):
     def __init__(self, grid: GridBase, **kwargs) -> None:
         super().__init__(grid)
         # Set standard parameters
-        self._tendencies = nh.modules.MainTendency()
+        self.tendencies = nh.modules.MainTendency()
         self._f0 = 1             # constant coriolis parameter f0
         self._beta = 0           # beta term d(f)/dy
         self._f_coriolis = None  # the coriolis parameter field
