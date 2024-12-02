@@ -84,26 +84,3 @@ def test_fft3D_axes(backend, nx, axes, periodic):
 
     # check that the result is the same
     assert ncp.allclose(u, v)
-
-# -------------------------------------------------------------------
-# MPI Tests
-# -------------------------------------------------------------------
-@pytest.fixture(params=[(32, 32), 
-                        (32, 33), 
-                        (33, 32), 
-                        (33, 33)], ids=["32x32", "32x33", "33x32", "33x33"])
-def n(request):
-    return request.param
-
-@pytest.fixture(params=[(True, True), 
-                        (False, True), 
-                        (True, False), 
-                        (False, False)], 
-                ids=["PerTT", "PerFT", "PerTF", "PerFF"])
-def periodic2d(request):
-    return request.param
-
-@pytest.fixture(params=[0, 1], ids=["NoHalo", "Halo"])
-def halo(request):
-    return request.param
-

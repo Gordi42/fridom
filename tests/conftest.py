@@ -3,7 +3,7 @@ import fridom.framework as fr
 
 # Fixture to enable GPU testing
 # backends = [fr.config.Backend.NUMPY, fr.config.Backend.CUPY]
-backends = [fr.config.Backend.JAX_GPU]
+backends = ["jax_gpu"]
 # backends = [fr.config.Backend.JAX_CPU]
 
 

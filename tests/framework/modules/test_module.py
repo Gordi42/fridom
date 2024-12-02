@@ -4,12 +4,15 @@ import fridom.framework as fr
 
 # create a module that increments a number
 class Increment(fr.modules.Module):
+    name = "Increment"
     def __init__(self):
         # sets the name of the module to "Increment", and the number to None
-        super().__init__("Increment", number=None)
+        super().__init__()
+        self.number = None
     
-    @fr.modules.setup_module
-    def setup(self):
+    @fr.modules.module_method
+    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+        super().setup(mset)
         self.number = 0  # sets the number to 0
 
     @fr.modules.module_method
