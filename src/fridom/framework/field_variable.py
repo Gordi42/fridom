@@ -74,7 +74,7 @@ class FieldVariable:
             data = mset.grid.create_array(
                 pad=True, 
                 spectral=is_spectral,
-                topo=topo,
+                topo=tuple(topo),
                 )
         else:
             data = ncp.array(arr, dtype=dtype)
