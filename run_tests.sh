@@ -51,7 +51,7 @@ done
 coverage report -m
 
 # Exit with error if any test failed
-if [ $ERROR_FLAG -ne 0 ]; then
+if [ $ERROR -ne 0 ]; then
     echo "Some tests failed."
     exit 1
 fi
