@@ -24,16 +24,7 @@ jobs:
     - name: Fallback Python setup
       if: failure()  # Run this step if setup-python fails
       run: |
-        mkdir -p $HOME/python-install
-        cd /tmp
-        wget https://www.python.org/ftp/python/3.11.x/Python-3.11.x.tar.xz
-        tar -xf Python-3.11.x.tar.xz
-        cd Python-3.11.x
-        ./configure --prefix=$HOME/python-install
-        make -j$(nproc)
-        make install
-        export PATH=$HOME/python-install/bin:$PATH
-        python --version
+        pwd
 
     - name: Install dependencies
       run: |
