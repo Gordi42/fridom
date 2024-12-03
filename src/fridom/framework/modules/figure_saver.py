@@ -37,7 +37,7 @@ class FigureSaver(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
-        if mz.time < self.model_time:
+        if mz.clock.time < self.model_time:
             return mz
         if self._created:
             return mz

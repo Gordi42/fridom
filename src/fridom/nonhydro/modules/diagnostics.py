@@ -24,7 +24,7 @@ class Diagnostics(Module):
             return
         
         # print diagnostic information
-        out = "Diagnostic at t = {:.2f}\n".format(mz.time)
+        out = "Diagnostic at t = {:.2f}\n".format(mz.clock.time)
         if self.energy_info:
             out += "MKE = {:.2e},    ".format(mz.z.mean_ekin())
             out += "MPE = {:.2e},    ".format(mz.z.mean_epot())

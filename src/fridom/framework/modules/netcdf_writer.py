@@ -146,7 +146,7 @@ class NetCDFWriter(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: 'fr.ModelState') -> 'fr.ModelState':
-        time = mz.time
+        time = mz.clock.time
         # ----------------------------------------------------------------
         #  Check if the model time is in the writing range
         # ----------------------------------------------------------------
@@ -217,7 +217,8 @@ class NetCDFWriter(fr.modules.Module):
         ext = ext.lower()
         base = base if ext in [".nc", ".cdf"] else self.filename
         ext = ext if ext in [".nc", ".cdf"] else ".cdf"
-        tot_time = mz.total_time
+        clock = mz.clock
+        tot_time = clock.get_total_time(clock.passed_time)
         if not isinstance(tot_time, np.datetime64):
             tot_time = fr.utils.humanize_number(tot_time, unit="seconds")
             tot_time = tot_time.replace(" ", "-")
@@ -299,7 +300,7 @@ class NetCDFWriter(fr.modules.Module):
         time_ind = time.size
         ind = time_ind, *tuple(slice(None) for _ in range(self.grid.n_dims))
 
-        time[time_ind] = mz._passed_time
+        time[time_ind] = mz.clock.passed_time
         for var in self.get_variables(mz):
             nc_var = self._ncfile.variables[var.name]
             arr = var.unpad()

@@ -1,3 +1,4 @@
+from copy import deepcopy
 import fridom.framework as fr
 import numpy as np
 from enum import Enum
@@ -134,13 +135,15 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         """
         method = self.method
         order = method.order
-        mod_state = fr.ModelState(self.mset)
+        # clone the clock
+        clock = deepcopy(mz.clock)
+        mod_state = fr.ModelState(self.mset, clock=clock)
         error = 1
         while error > self.tol:
             k = []
             dt = self.dt
             for i in range(order):
-                mod_state.time += method.c[i] * dt
+                mod_state.clock.tick(method.c[i] * dt)
                 mod_state.z = mz.z + sum_product(method.A[i], dt, k)
                 mod_state.dz = self.dz_list[i]
                 dz = self.calculate_tendency(mod_state)
@@ -157,7 +160,7 @@ class RungeKutta(fr.time_steppers.TimeStepper):
                 error = 0
 
         mz.z += sum_product(method.b, dt, k)
-        mz.time += dt
+        mz.clock.tick(dt)
         mz.it += 1
         return mz
 

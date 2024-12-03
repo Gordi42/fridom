@@ -86,7 +86,7 @@ class PolarizedWaveMaker(Module):
             dz (State)      : Tendency of the state.
         """
         cp = self.grid.cp
-        phase = mz.time * self.omega
+        phase = mz.clock.time * self.omega
         z = self.z_real * cp.cos(phase) + self.z_imag * cp.sin(phase)
         dz.u[:] += z.u
         dz.v[:] += z.v

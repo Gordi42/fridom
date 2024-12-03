@@ -51,7 +51,7 @@ class GaussianWaveMaker(Module):
             dz (State)      : Tendency of the state.
         """
         cp = self.grid.cp
-        dz.h += self.mask * cp.sin(2 * cp.pi * self.frequency * mz.time)
+        dz.h += self.mask * cp.sin(2 * cp.pi * self.frequency * mz.clock.time)
         return
 
     def __repr__(self) -> str:

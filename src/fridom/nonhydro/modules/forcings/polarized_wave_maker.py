@@ -61,7 +61,7 @@ class PolarizedWaveMaker(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:
-        mz.dz = self.add_source_term(mz.dz, mz.time)
+        mz.dz = self.add_source_term(mz.dz, mz.clock.time)
         return mz
 
     @property

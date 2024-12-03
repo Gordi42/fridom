@@ -124,7 +124,7 @@ class ProgressBar(fr.modules.Module):
             case "for loop":
                 value = mz.it
             case "while loop":
-                value = mz.time
+                value = mz.clock.time
 
         # map the value to a percentage
         value = 100 * ( (value - self._start_value) 
@@ -135,9 +135,9 @@ class ProgressBar(fr.modules.Module):
 
         # Create a postfix string for the progress bar
         if self._datetime_formatting:
-            time_str = np.datetime64(int(mz.time), 's')
+            time_str = np.datetime64(int(mz.clock.time), 's')
         else:
-            time_str = fr.utils.humanize_number(mz.time, unit="seconds")
+            time_str = fr.utils.humanize_number(mz.clock.time, unit="seconds")
         postfix = f"It: {mz.it} - Time: {time_str}"
 
         # update the progress bar

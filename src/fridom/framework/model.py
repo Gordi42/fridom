@@ -149,7 +149,7 @@ class Model:
         # ----------------------------------------------------------------
         #  Convert time parameters to seconds
         # ----------------------------------------------------------------
-        self.model_state.start_time = start_time
+        self.model_state.clock.set_start(start_time)
         datetime_formatting = False
         if isinstance(start_time, np.datetime64):
             datetime_formatting = True
@@ -159,10 +159,9 @@ class Model:
             end_time = fr.utils.to_seconds(end_time)
         if isinstance(runlen, np.timedelta64):
             runlen = fr.utils.to_seconds(runlen)
-            print(runlen)
 
         # set the start time
-        self.model_state.time = start_time
+        self.model_state.clock.time = start_time
 
         # ----------------------------------------------------------------
         #  Calculate number of steps / end time
@@ -227,10 +226,10 @@ class Model:
         # ----------------------------------------------------------------
         elif end_time is not None:
             fr.log.info(
-                f"Running model from {self.model_state.time} to {end_time}")
+                f"Running model from {self.model_state.clock.time} to {end_time}")
 
             # loop until the end time is reached
-            while self.model_state.time < end_time:
+            while self.model_state.clock.time < end_time:
                 self.step()
 
                 if self.model_state.panicked:
@@ -242,7 +241,7 @@ class Model:
         self.stop()
 
         fr.log.info(
-            f"Model run finished at it: {self.model_state.it}, time: {self.model_state.time}")
+            f"Model run finished at it: {self.model_state.it}, time: {self.model_state.clock.time}")
         fr.log.info(self.mset.timer)
 
         return
@@ -283,7 +282,7 @@ class Model:
 
     def restart(self) -> None:
         fr.log.info(
-            f"Stopping model at it: {self.model_state.it}, time: {self.model_state.time}")
+            f"Stopping model at it: {self.model_state.it}, time: {self.model_state.clock.time}")
         self.stop()
         self.save(self.restart_module.file)
         fr.log.info(self.mset.timer)

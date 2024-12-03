@@ -98,7 +98,7 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         if order > 4:
             raise ValueError(
                 "Adam Bashforth Time Stepping only supports orders up to 4.")
-        
+
         super().__init__()
         self.order = order
         self.eps = eps
@@ -177,7 +177,7 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
 
         self.it_count += 1
         mz.it += 1
-        mz.time += self.dt
+        mz.clock.tick(self.dt)
         return mz
 
     def update_tendency(self):

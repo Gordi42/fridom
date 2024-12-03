@@ -133,7 +133,7 @@ class VideoWriter(fr.modules.Module):
         """
         Update method of the parallel animated model.
         """
-        time = mz.time
+        time = mz.clock.time
         # ----------------------------------------------------------------
         #  Check if it is time to write
         # ----------------------------------------------------------------

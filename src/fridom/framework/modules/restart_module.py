@@ -107,13 +107,13 @@ class RestartModule(fr.modules.Module):
         # ----------------------------------------------------------------
         elif self.modeltime_interval is not None:
             if self._last_restart_modeltime is None:
-                self._last_restart_modeltime = mz.time
-            elapsed_time = mz.time - self._last_restart_modeltime
+                self._last_restart_modeltime = mz.clock.time
+            elapsed_time = mz.clock.time - self._last_restart_modeltime
             if elapsed_time >= self.modeltime_interval:
                 fr.log.info(
                     "Modeltime restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
-                self._last_restart_modeltime = mz.time
+                self._last_restart_modeltime = mz.clock.time
                 self._last_restart_iteration = mz.it
                 return True
         # ----------------------------------------------------------------
@@ -127,7 +127,7 @@ class RestartModule(fr.modules.Module):
                 fr.log.info(
                     "Iteration restart interval reached. Model will restart.")
                 self.set_full_filename(mz.it)
-                self._last_restart_modeltime = mz.time
+                self._last_restart_modeltime = mz.clock.time
                 self._last_restart_iteration = mz.it
                 return True
         return False
