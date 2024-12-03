@@ -55,7 +55,7 @@ def create_plotter(skip):
         def prepare_arguments(mz: nh.ModelState) -> dict:
             return {"z": mz.z.xrs[::skip,::skip,0],
                     "tracer": mz.z['dye'].xrs[:,:,0],
-                    "t": mz.time}
+                    "t": mz.clock.time}
 
         def update_figure(fig, z, tracer, t) -> None:
             ax = fig.add_subplot(111)

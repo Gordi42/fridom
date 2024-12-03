@@ -40,7 +40,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
         return plt.figure(figsize=(8, 4.5), dpi=256, tight_layout=True)
 
     def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"b": mz.z.b.xr, "etot": mz.z.etot.xr, "t": mz.time}
+        return {"b": mz.z.b.xr, "etot": mz.z.etot.xr, "t": mz.clock.time}
 
     def update_figure(fig, b, etot, t) -> None:
         import cmocean

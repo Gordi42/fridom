@@ -43,7 +43,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
         skip = 4
         return {"z": mz.z.xrs[::skip,::skip,0], 
                 "etot": mz.z.etot.xrs[:,:,0], 
-                "t": mz.time}
+                "t": mz.clock.time}
 
     def update_figure(fig, z, etot, t) -> None:
         import cmocean

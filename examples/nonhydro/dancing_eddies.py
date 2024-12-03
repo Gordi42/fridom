@@ -90,7 +90,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
     def prepare_arguments(mz: nh.ModelState) -> dict:
         return {"z": mz.z.xrs[::10,::10,0],
                 "zeta": mz.z.rel_vort_z.xrs[:,:,0],
-                "t": mz.time}
+                "t": mz.clock.time}
 
     def update_figure(fig, z, zeta, t) -> None:
         ax = fig.add_subplot(111)

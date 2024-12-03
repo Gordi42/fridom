@@ -50,7 +50,7 @@ class Plotter(sw.modules.animation.ModelPlotter):
         skip = 2**(9-5)
         state = mz.z.xrs[::skip,::skip]
         pot_vort = mz.z.pot_vort.xr
-        return {"state": state, "pot_vort": pot_vort, "t": mz.time}
+        return {"state": state, "pot_vort": pot_vort, "t": mz.clock.time}
 
     @staticmethod
     def update_figure(fig, *args, **kwargs):

@@ -37,7 +37,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
         return plt.figure(figsize=(12.8, 7.2), dpi=200)
 
     def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"b": mz.z.b.xr, "t": mz.time}
+        return {"b": mz.z.b.xr, "t": mz.clock.time}
 
     def update_figure(fig, b, t) -> None:
         # convert the time to a human readable format

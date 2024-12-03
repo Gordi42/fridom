@@ -42,7 +42,7 @@ class TopPlotter(nh.modules.animation.ModelPlotter):
         return {"b": mz.z.b.xrs[:,:,-1],
                 "p": mz.z_diag.p.xrs[:,:,-1],
                 "z": mz.z.xrs[::skip,::skip,-1],
-                "t": mz.time}
+                "t": mz.clock.time}
 
     def update_figure(fig, b, p, z, t) -> None:
         time = nh.utils.humanize_number(t, unit="seconds")
@@ -67,7 +67,7 @@ class FrontPlotter(nh.modules.animation.ModelPlotter):
         return {"b": mz.z.b.xrs[:,0,:],
                 "p": mz.z_diag.p.xrs[:,0,:],
                 "z": mz.z.xrs[::skip,-1,::skip],
-                "t": mz.time}
+                "t": mz.clock.time}
 
     def update_figure(fig, b, p, z, t) -> None:
         time = nh.utils.humanize_number(t, unit="seconds")

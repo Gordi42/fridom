@@ -138,7 +138,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
         return {"b": mz.z.b.xrs[:,0,:],
                 "z": mz.z.xrs[::10,0,::10],
                 "N2": mz.mset.N2,
-                "t": mz.time}
+                "t": mz.clock.time}
 
     def update_figure(fig, b, z, N2, t) -> None:
         ax = fig.add_subplot(111)

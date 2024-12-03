@@ -69,7 +69,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
         return plt.figure(figsize=(6, 4.5), dpi=32*12, tight_layout=True)
 
     def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"b": mz.z.b.xr, "t": mz.time}
+        return {"b": mz.z.b.xr, "t": mz.clock.time}
 
     def update_figure(fig, b, t) -> None:
         import cmocean
