@@ -24,7 +24,8 @@ jobs:
     - name: Fallback Python setup
       if: failure()  # Run this step if setup-python fails
       run: |
-        pwd
+        python3.11 -m venv .venv
+        source .venv/bin/activate
 
     - name: Install dependencies
       run: |
@@ -48,3 +49,7 @@ jobs:
     - name: Run the tests
       run: |
         ./run_tests.sh -b ${{ matrix.backends }}
+    
+    - name: Cleanup
+      run: |
+        rm -rf .venv
