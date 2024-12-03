@@ -15,14 +15,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
-      with:
-        python-version: ${{ matrix.python-version }}
     
     - name: Fallback Python setup
-      if: always() && failure()  # Run this step if setup-python fails
       run: |
         python3.11 -m venv .venv
         source .venv/bin/activate
