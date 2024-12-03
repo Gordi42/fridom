@@ -22,7 +22,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     
     - name: Fallback Python setup
-      if: failure()  # Run this step if setup-python fails
+      if: always() && failure()  # Run this step if setup-python fails
       run: |
         python3.11 -m venv .venv
         source .venv/bin/activate
