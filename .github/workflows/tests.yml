@@ -9,6 +9,7 @@ jobs:
     runs-on: self-hosted
     strategy:
       fail-fast: false
+      max-parallel: 16
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
         backends: ["numpy", "cupy", "jax_cpu", "jax_gpu"]
@@ -18,8 +19,9 @@ jobs:
     
     - name: Fallback Python setup
       run: |
-        python3.11 -m venv .venv
-        source .venv/bin/activate
+        env_name=".${{ matrix.python-version }}.${{ matrix.backends }}.venv"
+        python3.11 -m venv $env_name
+        source $env_name/bin/activate
 
     - name: Install dependencies
       run: |
