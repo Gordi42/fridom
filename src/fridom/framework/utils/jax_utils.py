@@ -35,7 +35,6 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
     ... def my_function(x):
     ...     return x**2
     """
-    fr.config.jax_jit_was_called = True
     if not fr.config.enable_jax_jit:
         return fun
 

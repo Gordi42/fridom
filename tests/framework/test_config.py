@@ -1,28 +1,15 @@
+"""tests for framework/config.py"""
 import pytest
-import fridom.framework as fr
 import numpy as np
+import fridom.framework as fr
 
-def test_set_backend(backend):
-    assert fr.config.backend == backend
-    match backend:
-        case "numpy":
-            assert fr.config.ncp.__name__ == "numpy"
-        case "cupy":
-            assert fr.config.ncp.__name__ == "cupy"
-        case "jax_cpu":
-            assert fr.config.ncp.__name__ == "jax.numpy"
-        case "jax_gpu":
-            assert fr.config.ncp.__name__ == "jax.numpy"
-    # if the backend is JAX, check if the device is correct
-    if fr.config.backend_is_jax:
-        from jax import extend
-        device = extend.backend.get_backend().platform
-        match backend:
-            case "jax_cpu":
-                assert device == "cpu"
-            case "jax_gpu":
-                assert device == "gpu"
 
+@pytest.fixture(autouse=True)
+def reset_config():
+    """Fixture to reset the config after each test."""
+    original_dtype = fr.config.dtype_real
+    yield
+    fr.config.set_dtype(original_dtype)
 
 @pytest.mark.parametrize(
     "dtype, expected_real, expected_comp",
@@ -32,14 +19,23 @@ def test_set_backend(backend):
         ("float128", np.float128, np.complex256),
     ],
 )
-def test_set_dtype(backend, dtype, expected_real, expected_comp):
-    # JAX does not support float128 so we skip this test
+def test_set_dtype(dtype, expected_real, expected_comp):
+    """Test setting data types and ensuring compatibility."""
     if fr.config.backend_is_jax and dtype == "float128":
-        return
-    # We first save the original dtype to reset the config after the test
-    dtype_original = fr.config.dtype_real
+        pytest.skip("JAX does not support float128.")
+
     fr.config.set_dtype(dtype)
     assert fr.config.dtype_real == expected_real
     assert fr.config.dtype_comp == expected_comp
-    # Reset the config to the original dtype
-    fr.config.set_dtype(dtype_original)
+
+
+def test_enable_jax_jit_flag():
+    """Test toggling the enable_jax_jit flag."""
+    original_state = fr.config.enable_jax_jit
+
+    fr.config.enable_jax_jit = not original_state
+    assert fr.config.enable_jax_jit != original_state
+
+    # Reset the state
+    fr.config.enable_jax_jit = original_state
+    assert fr.config.enable_jax_jit == original_state

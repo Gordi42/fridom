@@ -13,7 +13,7 @@ def lx(request):
 def kx(request):
     return request.param
 
-def test_dct1D(backend, nx, lx, kx):
+def test_dct1D(nx, lx, kx):
     fft = fr.grid.cartesian.FFT((False, ))
     ncp = fr.config.ncp
 
@@ -48,7 +48,7 @@ def test_dct1D(backend, nx, lx, kx):
 def periodic(request):
     return request.param
 
-def test_fft3D(backend, nx, periodic):
+def test_fft3D(nx, periodic):
     fft = fr.grid.cartesian.FFT(periodic)
     ncp = fr.config.ncp
 
@@ -69,7 +69,7 @@ def test_fft3D(backend, nx, periodic):
 def axes(request):
     return tuple(request.param)
 
-def test_fft3D_axes(backend, nx, axes, periodic):
+def test_fft3D_axes(nx, axes, periodic):
     fft = fr.grid.cartesian.FFT(periodic)
     ncp = fr.config.ncp
 

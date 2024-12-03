@@ -20,7 +20,7 @@ def n_dims(request):
     return request.param
 
 @pytest.fixture()
-def mset(backend, n_dims):
+def mset(n_dims):
     grid = fr.grid.cartesian.Grid(
         tuple([64]*n_dims), tuple([1.0]*n_dims))
     mset = fr.ModelSettingsBase(grid)
@@ -144,7 +144,7 @@ def test_setitem(random_fields_real, n_dims):
     assert ncp.allclose(field.arr[ind], 2.0)
 
 @pytest.fixture()
-def mset_3(backend, n_dims):
+def mset_3(n_dims):
     grid = fr.grid.cartesian.Grid(
         N=tuple([3]*n_dims), L=tuple([1]*n_dims))
     mset = fr.ModelSettingsBase(grid)
@@ -264,7 +264,7 @@ def test_pow(zeros, ones):
 # ================================================================
 
 @pytest.fixture()
-def mset_topo(backend):
+def mset_topo():
     grid = fr.grid.cartesian.Grid(
         (31, 32, 33), (1.0, 2.0, 3.0))
     mset = fr.ModelSettingsBase(grid)

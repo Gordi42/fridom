@@ -4,35 +4,35 @@ import numpy as np
 import pytest
 
 @pytest.mark.parametrize("variable", [1, 1.0, "string", 'c'])
-def test_standard_variable_to_numpy(backend, variable):
+def test_standard_variable_to_numpy(variable):
     np.variable = to_numpy(variable)
     assert np.variable == variable
 
 
-def test_cupy_array_to_numpy(backend):
+def test_array_to_numpy():
     x = fr.utils.random_array((10,))
-    if backend != "numpy":
+    if fr.config.backend != "numpy":
         assert not isinstance(x, np.ndarray)
     y = to_numpy(x)
     assert isinstance(y, np.ndarray)
 
-def test_cupy_list_to_numpy(backend):
+def test_cupy_list_to_numpy():
     x = [fr.utils.random_array((10,)) for _ in range(3)]
-    if backend != "numpy":
+    if fr.config.backend != "numpy":
         assert not isinstance(x[0], np.ndarray)
     y = to_numpy(x)
     for yi in y:
         assert isinstance(yi, np.ndarray)
 
-def test_cupy_tuple_to_numpy(backend):
+def test_cupy_tuple_to_numpy():
     x = tuple([fr.utils.random_array((10,)) for _ in range(3)])
-    if backend != "numpy":
+    if fr.config.backend != "numpy":
         assert not isinstance(x[0], np.ndarray)
     y = to_numpy(x)
     for yi in y:
         assert isinstance(yi, np.ndarray)
 
-def test_recursion(backend):
+def test_recursion():
     x = fr.utils.random_array((10,))
     y = [x, x]
     z = to_numpy(y)
@@ -40,7 +40,7 @@ def test_recursion(backend):
     assert y[0] is y[1]
     assert z[0] is z[1]
 
-def test_mset_to_numpy(backend):
+def test_mset_to_numpy():
     grid = fr.grid.cartesian.Grid(N=(32, 32, 8), L=(1, 1, 1))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()

@@ -3,7 +3,7 @@ import fridom.nonhydro as nh
 import numpy as np
 
 @pytest.mark.parametrize("runlen", [1, 6, 24])  # in hours
-def test_linear_model(backend, runlen):
+def test_linear_model(runlen):
     ncp = nh.config.ncp
     f0 = 1e-4
     N2 = (50 * f0) ** 2
@@ -41,7 +41,7 @@ def test_linear_model(backend, runlen):
         (True, True, False),
         (False, False, False),
     ])
-def test_boundary_conditions(backend, periodic_bounds):
+def test_boundary_conditions(periodic_bounds):
     ncp = nh.config.ncp
     f0 = 1e-4
     N2 = (50 * f0) ** 2

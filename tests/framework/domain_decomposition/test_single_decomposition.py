@@ -18,14 +18,13 @@ def shape(request):
 #  Test construction
 # ================================================================
 
-def test_construction(backend, halo, shape):
-    fr.config.set_backend(backend)
+def test_construction(halo, shape):
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0])
     assert domain.shape == shape
     assert domain.halo == halo
 
-def test_deepcopy(backend):
+def test_deepcopy():
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=(64, 64), halo=0, shared_axes=[0])
     domain_copy = deepcopy(domain)
@@ -35,8 +34,7 @@ def test_deepcopy(backend):
 # ================================================================
 #  Test padding
 # ================================================================
-def test_padding(backend, halo, shape):
-    fr.config.set_backend(backend)
+def test_padding(halo, shape):
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0])
     u = fr.utils.random_array(shape)
@@ -71,8 +69,7 @@ def test_padding(backend, halo, shape):
         left_inside[axis] = slice(halo, 2*halo)
         assert (u_padded[tuple(right_halo)] == u_padded[tuple(left_inside)]).all()
 
-def test_unpad(backend, halo, shape):
-    fr.config.set_backend(backend)
+def test_unpad(halo, shape):
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0])
     u = fr.utils.random_array(shape)
@@ -81,8 +78,7 @@ def test_unpad(backend, halo, shape):
     assert u_unpadded.shape == u.shape
     assert (u_unpadded == u).all()
 
-def test_nonperiodic_padding(backend, halo):
-    fr.config.set_backend(backend)
+def test_nonperiodic_padding(halo):
     shape = (32, 32, 32)
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0], periods=(False, True, False))
@@ -107,8 +103,7 @@ def test_nonperiodic_padding(backend, halo):
     assert (u_padded[:, -halo:, :] == u_padded[:, halo:2*halo, :]).all()
 
 @pytest.mark.parametrize("flat_axes", [(0,), (1,), (0, 1)])
-def test_flat_axis_padding(backend, halo, flat_axes):
-    fr.config.set_backend(backend)
+def test_flat_axis_padding(halo, flat_axes):
     shape = (32, 32, 32)
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0])
@@ -136,8 +131,7 @@ def test_flat_axis_padding(backend, halo, flat_axes):
 #  Test halo exchange
 # ================================================================
 
-def test_halo_exchange(backend, halo, shape):
-    fr.config.set_backend(backend)
+def test_halo_exchange(halo, shape):
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0])
     u = fr.utils.random_array(shape)
@@ -167,8 +161,7 @@ def test_halo_exchange(backend, halo, shape):
 # ================================================================
 #  Test fft
 # ================================================================
-def test_fft(backend, halo, shape):
-    fr.config.set_backend(backend)
+def test_fft(halo, shape):
     ncp = fr.config.ncp
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0])
@@ -185,6 +178,3 @@ def test_fft(backend, halo, shape):
     w = backward(v_hat)
     w_test = domain.pad(ncp.fft.ifftn(u_hat))
     assert (w == w_test).all()
-
-
-    

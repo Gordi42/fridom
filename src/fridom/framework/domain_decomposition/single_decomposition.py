@@ -5,10 +5,10 @@ import fridom.framework as fr
 
 @fr.utils.jaxify
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
-    def __init__(self, shape: tuple[int], 
-                 halo: int = 0, 
+    def __init__(self, shape: tuple[int],
+                 halo: int = 0,
                  periods: tuple[bool] | None = None,
-                 shared_axes: tuple[int] | None = None, 
+                 shared_axes: tuple[int] | None = None,
                  device_ids: list[int] | None = None):
         super().__init__(shape, halo, periods, shared_axes, device_ids)
         self._p_dims = tuple([1]*self.n_dims)
@@ -26,8 +26,9 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             return tuple(slice_list)
 
         # create slices for halo exchange
-        self._inner_slice = tuple([slice(halo, -halo)]*self.n_dims)
-        self._inner = _make_slice_tuple(slice(halo, -halo))
+        inner = slice(halo, -halo) if self.halo > 0 else slice(None)
+        self._inner_slice = tuple([inner]*self.n_dims)
+        self._inner = _make_slice_tuple(inner)
         self._send_to_next = _make_slice_tuple(slice(-2*halo, -halo))
         self._send_to_prev = _make_slice_tuple(slice(halo, 2*halo))
         self._recv_from_next = _make_slice_tuple(slice(-halo, None))
@@ -142,8 +143,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr = arr.at[rfn].set(0)
             arr = arr.at[rfp].set(0)
         else:
-            arr[rfn] = arr[0]
-            arr[rfp] = arr[0]
+            arr[rfn] = 0
+            arr[rfp] = 0
         return arr
 
     # ================================================================

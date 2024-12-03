@@ -1,13 +1,12 @@
-import pytest
+"""Configuration for pytest."""
+import os
+import sys
 import fridom.framework as fr
 
-# Fixture to enable GPU testing
-# backends = [fr.config.Backend.NUMPY, fr.config.Backend.CUPY]
-backends = ["jax_gpu"]
-# backends = [fr.config.Backend.JAX_CPU]
+# Get the backend from the environment variable.
+backend = os.getenv("FRIDOM_BACKEND", "numpy")
 
+# check if the backend is the same as the one in the config
+if fr.config.backend != backend:
+    sys.exit(f"Backend {backend} is not available")
 
-@pytest.fixture(scope='module', params=backends)
-def backend(request):
-    fr.config.set_backend(request.param)
-    return request.param

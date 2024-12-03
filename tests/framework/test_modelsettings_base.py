@@ -1,7 +1,7 @@
 import numpy as np
 from fridom.framework import ModelSettingsBase
 
-def test_doc_example(backend):
+def test_doc_example():
     class MyModelSettings(ModelSettingsBase):
         def __init__(self, grid, **kwargs):
             super().__init__(grid)

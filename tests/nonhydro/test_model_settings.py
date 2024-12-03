@@ -10,7 +10,7 @@ def L(request):
     return request.param
 
 @pytest.fixture()
-def grid_ini(backend, N, L):
+def grid_ini(N, L):
     return nh.grid.cartesian.Grid(N, L)
 
 @pytest.fixture(params=[1e-4, 2], ids=["f=1e-4", "f=2"])

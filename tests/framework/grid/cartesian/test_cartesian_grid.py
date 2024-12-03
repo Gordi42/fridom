@@ -39,7 +39,7 @@ def dx(L, N):
     return [li/ni for li, ni in zip(L, N)]
 
 @pytest.fixture()
-def grid(backend, L, N):
+def grid(L, N):
     grid = fr.grid.cartesian.Grid(N, L)
     mset = fr.ModelSettingsBase(grid)
     mset.setup()

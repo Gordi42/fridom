@@ -1,4 +1,5 @@
 """config.py - The configuration file for the fridom framework"""
+import os
 import time
 import numpy
 import scipy
@@ -16,12 +17,23 @@ class Config:
     _backend = "numpy"
     _enable_parallel = False
     _enable_jax_jit = True
-    _jax_jit_was_called = False
     _dtype_real = numpy.float64
     _dtype_comp = numpy.complex128
     _load_time: float = 0
 
     def __init__(self):
+        self._load_time = time.time()
+        # Set the backend
+        # check if the backend is set via an environment variable
+        backend = os.getenv("FRIDOM_BACKEND", None)
+        if backend is not None:
+            try:
+                self._set_backend_unsafe(backend)
+                return
+            except (ImportError, RuntimeError):
+                log.warning(
+                    "Backend %s is not available. Falling back to default backend.", backend)
+        # If no backend is set, we try to set the backend in the following order
         backend_try_order = ["jax_gpu", "jax_cpu", "cupy", "numpy"]
         # we try to set the backend in the order of the backend_try_order list
         for backend in backend_try_order:
@@ -32,7 +44,6 @@ class Config:
                 pass
             except RuntimeError:
                 pass
-        self._load_time = time.time()
 
     # ----------------------------------------------------------------
     #  Representation
@@ -42,7 +53,6 @@ class Config:
         res += f" - backend = {self.backend},\n"
         if self.backend_is_jax:
             res += f" - enable_jax_jit = {self.enable_jax_jit},\n"
-        res += f" - jax_jit_was_called = {self.jax_jit_was_called}\n"
         res += f" - dtype = {self.dtype_real},\n"
         res += ")"
         return res
@@ -105,88 +115,6 @@ class Config:
         cls._backend = "jax_gpu"
 
     # ----------------------------------------------------------------
-    #  Safe backend setters
-    # ----------------------------------------------------------------
-    @classmethod
-    def set_backend(cls, backend_name: str):
-        """
-        Set the backend to use for computations (numpy like)
-    
-        Parameters
-        ----------
-        `new_backend` : str
-            The new backend to use for computations. The following backends are
-            supported:
-            - "numpy"
-            - "cupy"
-            - "jax_cpu"
-            - "jax_gpu"
-        `silent` : bool, optional (default=False)
-            If True, no warning will be printed if the backend is changed after
-            calling `jax.jit`.
-    
-        Raises
-        ------
-        `ValueError`
-            Unsupported backend.
-    
-        Examples
-        --------
-        >>> import fridom.framework as fr
-        >>> fr.config.set_backend("numpy")
-        >>> print(fr.config.ncp)
-        <module 'numpy' from '.../numpy/__init__.py'>
-        >>> fr.config.set_backend("cupy")
-        >>> print(fr.config.ncp)
-        <module 'cupy' from '.../cupy/__init__.py'>
-        """
-
-        # print a warning if the backend is changed after jax.jit was called
-        if backend_name != cls._backend and cls.jax_jit_was_called:
-            log.warning(
-                "jax.jit was called before setting the backend. "
-                "This might lead to unexpected behavior.")
-
-        match backend_name:
-            case "numpy":
-                cls._set_numpy_as_backend()
-            case "cupy":
-                cls._set_cupy_as_backend()
-            case "jax_cpu":
-                cls._set_jax_cpu_as_backend()
-            case "jax_gpu":
-                cls._set_jax_gpu_as_backend()
-            case _:
-                raise ValueError(f"Backend {backend_name} not supported.")
-
-    @classmethod
-    def _set_cupy_as_backend(cls):
-        try:
-            cls._set_cupy_as_backend_unsafe()
-        except ImportError:
-            log.error("Failed to import cupy. Falling back to numpy.")
-            cls.set_backend("numpy")
-
-    @classmethod
-    def _set_jax_cpu_as_backend(cls):
-        try:
-            cls._set_jax_cpu_as_backend_unsafe()
-        except ImportError:
-            log.error("Failed to import jax. Falling back to numpy.")
-            cls.set_backend("numpy")
-
-    @classmethod
-    def _set_jax_gpu_as_backend(cls):
-        try:
-            cls._set_jax_gpu_as_backend_unsafe()
-        except ImportError:
-            log.error("Failed to import jax. Falling back to numpy.")
-            cls.set_backend("numpy")
-        except RuntimeError:
-            log.error("GPU not available. Falling back to JAX_CPU.")
-            cls.set_backend("jax_cpu")
-
-    # ----------------------------------------------------------------
     #  Data Types
     # ----------------------------------------------------------------
     @classmethod
@@ -215,7 +143,8 @@ class Config:
         """
         dtype = numpy.dtype(dtype)
         # for the gpu backend, float128 is not supported
-        if cls.backend_is_jax and dtype == numpy.float128:
+        backend_is_jax = cls._backend.startswith("jax")
+        if backend_is_jax and dtype == numpy.float128:
             log.warning("float128 is not supported for the JAX backend. "
                         "Falling back to float64.")
             dtype = numpy.dtype(numpy.float64)
@@ -264,16 +193,6 @@ class Config:
     @enable_jax_jit.setter
     def enable_jax_jit(self, value: bool):
         self._enable_jax_jit = value
-
-    @property
-    def jax_jit_was_called(self) -> bool:
-        """Check if jax.jit was called."""
-        return self._jax_jit_was_called
-
-    @jax_jit_was_called.setter
-    def jax_jit_was_called(self, value: bool):
-        """Set the jax_jit_was_called flag."""
-        self._jax_jit_was_called = value
 
     @property
     def dtype_real(self) -> numpy.dtype:

@@ -28,7 +28,7 @@ class Increment(fr.modules.Module):
         self.number = None  # sets the number to None
 
 @pytest.fixture()
-def mset(backend):
+def mset():
     grid = fr.grid.cartesian.Grid(N=(32, ), L=(1.0, ))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
