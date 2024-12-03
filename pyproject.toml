@@ -34,6 +34,17 @@ license = {file = "LICENSE"}
 cupy = ["cupy"]
 jax = ["jax"]
 jax-cuda = ["jax[cuda12]"]
+dev = [
+  "jax[cuda12]",
+  "cupy",
+  "pylint",
+  "pytest",
+  "coverage",
+  "xarray",
+  "matplotlib",
+  "imageio[ffmpeg]",
+  "ipykernel",
+]
 
 [project.urls]
 Repository = "https://github.com/Gordi42/FRIDOM"
