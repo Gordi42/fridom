@@ -10,7 +10,7 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
-        backends: ["numpy"]
+        backends: ["numpy", "cupy", "jax_cpu", "jax_gpu"]
     
     steps:
     - uses: actions/checkout@v4
@@ -24,9 +24,21 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pytest coverage
+
     - name: Install the base package
       run: |
         pip install .
+
+    - name: Install the backends
+      run: |
+        if [ ${{ matrix.backends }} == "jax_cpu" ]; then
+          pip install jax
+        elif [ ${{ matrix.backends }} == "jax_gpu" ]; then
+          pip install jax[cuda12]
+        elif [ ${{ matrix.backends }} == "cupy" ]; then
+          pip install cupy
+        fi
+
     - name: Run the tests
       run: |
         ./run_tests.sh -b ${{ matrix.backends }}
