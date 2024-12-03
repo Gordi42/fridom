@@ -6,20 +6,20 @@ on: [push, pull_request]
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
-        backends: ["numpy", "cupy", "jax_cpu", "jax_gpu"]
+        backends: ["numpy", "jax_cpu"]
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Fallback Python setup
-      run: |
-        mamba create -n _fridom_tests python=${{ matrix.python-version }} -y
-        source activate _fridom_tests
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
       run: |
@@ -43,8 +43,3 @@ jobs:
     - name: Run the tests
       run: |
         ./run_tests.sh -b ${{ matrix.backends }}
-    
-    - name: Cleanup
-      run: |
-        conda deactivate
-        mamba env remove -n _fridom_tests -y --all
