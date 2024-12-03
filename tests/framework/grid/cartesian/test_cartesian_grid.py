@@ -1,5 +1,4 @@
 import pytest
-from mpi4py import MPI
 import numpy as np
 import fridom.framework as fr
 from fridom.framework import config
@@ -8,12 +7,9 @@ from fridom.framework import config
 #  Create fixtures for the tests
 # --------------------------------------------------------------
 
-is_parallel = MPI.COMM_WORLD.Get_size() > 1
-
 # skip n_dims=1 if parallel
 @pytest.fixture(
-        params=[pytest.param(1, id="1D", marks=pytest.mark.skipif(
-            is_parallel, reason="Skip n_dims=1 if parallel")), 
+        params=[pytest.param(1, id="1D"),
                 pytest.param(2, id="2D")])
 def n_dims(request):
     return request.param

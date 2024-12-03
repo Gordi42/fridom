@@ -3,23 +3,12 @@ import fridom.framework as fr
 import tempfile
 import os
 import numpy as np
-from mpi4py import MPI
 from netCDF4 import Dataset
-from copy import deepcopy
 
 @pytest.fixture()
 def parent_directory():
     with tempfile.TemporaryDirectory() as tmpdirname:
-        tmpdirname = MPI.COMM_WORLD.bcast(tmpdirname, root=0)
         yield tmpdirname
-
-def test_temporary_directory(parent_directory):
-    # check if the tmpdirname is the same in every process
-    all_paths = MPI.COMM_WORLD.gather(parent_directory, root=0)
-    if MPI.COMM_WORLD.Get_rank() == 0:
-        assert all([path == parent_directory for path in all_paths])
-
-    assert os.path.exists(parent_directory)
 
 @pytest.fixture()
 def directory_name(parent_directory):
@@ -49,16 +38,13 @@ def mset():
     return mset
 
 def test_netCDFWriterNew(netcdf_module, directory_name, mset):
-    MPI.COMM_WORLD.barrier()
     # check that the directory is created
     assert not os.path.exists(directory_name)
-    MPI.COMM_WORLD.barrier()
     netcdf_module.setup(mset=mset)
     # now the directory should exist
     assert os.path.exists(directory_name)
 
 def test_model_run(mset, netcdf_module, directory_name):
-    
     mset.diagnostics.add_module(netcdf_module)
     mset.setup()
     # check that the model runs without error
@@ -72,10 +58,7 @@ def test_model_run(mset, netcdf_module, directory_name):
     assert os.path.exists(file_path)
 
     # open the file and check the contents
-    if MPI.COMM_WORLD.Get_size() > 1:
-        parallel = True
-    else:
-        parallel = False
+    parallel = False
 
     with Dataset(file_path, "r", parallel=parallel) as ncfile:
         assert "var1" in ncfile.variables
