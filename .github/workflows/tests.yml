@@ -19,7 +19,7 @@ jobs:
     - name: Fallback Python setup
       run: |
         mamba create -n _fridom_tests python=${{ matrix.python-version }} -y
-        conda activate _fridom_tests
+        source activate _fridom_tests
 
     - name: Install dependencies
       run: |
