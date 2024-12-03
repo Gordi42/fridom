@@ -9,7 +9,6 @@ jobs:
     runs-on: self-hosted
     strategy:
       fail-fast: false
-      max-parallel: 16
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
         backends: ["numpy", "cupy", "jax_cpu", "jax_gpu"]
@@ -19,9 +18,8 @@ jobs:
     
     - name: Fallback Python setup
       run: |
-        env_name=".${{ matrix.python-version }}.${{ matrix.backends }}.venv"
-        python3.11 -m venv $env_name
-        source $env_name/bin/activate
+        mamba create -n _fridom_tests python=${{ matrix.python-version }} -y
+        conda activate _fridom_tests
 
     - name: Install dependencies
       run: |
@@ -48,4 +46,5 @@ jobs:
     
     - name: Cleanup
       run: |
-        rm -rf .venv
+        conda deactivate
+        mamba env remove -n _fridom_tests -y --all
