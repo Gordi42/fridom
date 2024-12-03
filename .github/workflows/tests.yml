@@ -8,6 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
         backends: ["numpy", "cupy", "jax_cpu", "jax_gpu"]
@@ -36,7 +37,7 @@ jobs:
         elif [ ${{ matrix.backends }} == "jax_gpu" ]; then
           pip install jax[cuda12]
         elif [ ${{ matrix.backends }} == "cupy" ]; then
-          pip install cupy
+          pip install cupy-cuda12x
         fi
 
     - name: Run the tests

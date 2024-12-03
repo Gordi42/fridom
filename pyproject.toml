@@ -37,7 +37,7 @@ jax = ["jax"]
 jax-cuda = ["jax[cuda12]"]
 dev = [
   "jax[cuda12]",
-  "cupy",
+  "cupy-cuda12x",
   "pylint",
   "pytest",
   "coverage",
