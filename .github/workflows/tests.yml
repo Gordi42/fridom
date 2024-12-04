@@ -11,6 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
+        backend: ["numpy", "jax_cpu"]  # TODO: Should also test gpu backends
     
     steps:
     - uses: actions/checkout@v4
@@ -31,32 +32,28 @@ jobs:
 
     - name: Install the backends
       run: |
-        pip install jax
+        if [ "${{ matrix.backend }}" == "jax_cpu" ]; then
+          pip install jax
+        elif [ "${{ matrix.backend }}" == "jax_gpu" ]; then
+          pip install jax["cuda12"]
+        elif [ "${{ matrix.backend }}" == "cupy" ]; then
+          pip install cupy-cuda12
+        fi
 
     - name: Run the tests
       run: |
-        export FRIDOM_BACKEND="numpy"
-        pytest --cov  --cov-report=xml --junitxml=junit_numpy.xml -o junit_family=legacy .
-        export FRIDOM_BACKEND="jax_cpu"
-        pytest --cov  --cov-report=xml --junitxml=junit_jax.xml -o junit_family=legacy .
+        export FRIDOM_BACKEND="${{ matrix.backend }}"
+        pytest --cov  --cov-report=xml --junitxml=junit.xml -o junit_family=legacy .
 
-    - name: Upload numpy test results
+    - name: Upload test results
       if: ${{ !cancelled() }}
       uses: codecov/test-results-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        files: junit_numpy.xml
-        flags: numpy
-
-    - name: Upload jax_cpu test results
-      if: ${{ !cancelled() }}
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: junit_jax.xml
-        flags: jax_cpu
+        flags: ${{ matrix.backend }}
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        flags: ${{ matrix.backend }}
