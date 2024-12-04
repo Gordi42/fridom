@@ -1,5 +1,4 @@
-"""
-Core modules of the FRIDOM framework.
+"""Core modules of the FRIDOM framework.
 
 Description
 -----------
@@ -7,13 +6,15 @@ This module contain the base classes and functions for the FRIDOM framework.
 This module should mainly be used for developing new modules and models.
 """
 from typing import TYPE_CHECKING
+
 from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:
-    # import classes
+    # isort: off
+    # Import classes
     from .model_settings_base import ModelSettingsBase
     from .field_variable import FieldVariable
     from .state_base import StateBase
@@ -21,12 +22,13 @@ if TYPE_CHECKING:
     from .model import Model
     from .clock import Clock
 
-    # import logger
+    # Import logger
     from .logger import log
-    # import config
+    # Import config
     from .configuration import config
 
-    # import modules
+    # Import modules
+    from . import exceptions
     from . import grid
     from . import domain_decomposition
     from . import utils
@@ -41,6 +43,7 @@ if TYPE_CHECKING:
 
 all_modules_by_origin = {
     "fridom.framework": [
+        "exceptions",
         "grid",
         "domain_decomposition",
         "utils",

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 all_modules_by_origin = { }
 
 dom_path = "fridom.framework.domain_decomposition"
-all_imports_by_origin = { 
+all_imports_by_origin = {
     f"{dom_path}.domain_decomposition": ["DomainDecomposition", 
                                          "get_default_domain_decomposition"], 
     f"{dom_path}.single_decomposition": ["SingleDecomposition"],

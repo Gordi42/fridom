@@ -68,7 +68,7 @@ good-names = [
 
 [tool.ruff]
 select = ["ALL"]
-ignore = ["D107"]
+ignore = ["D105", "D107"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["D103", "S101", "ANN001", "ANN201", "INP001"]
