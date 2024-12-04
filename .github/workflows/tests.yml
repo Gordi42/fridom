@@ -36,13 +36,25 @@ jobs:
     - name: Run the tests
       run: |
         export FRIDOM_BACKEND="numpy"
-        pytest --cov  --cov-report=xml --junitxml=junit.xml -o junit_family=legacy .
+        pytest --cov  --cov-report=xml --junitxml=junit_numpy.xml -o junit_family=legacy .
+        export FRIDOM_BACKEND="jax_cpu"
+        pytest --cov  --cov-report=xml --junitxml=junit_jax.xml -o junit_family=legacy .
 
-    - name: Upload test results to Codecov
+    - name: Upload numpy test results
       if: ${{ !cancelled() }}
       uses: codecov/test-results-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        files: junit_numpy.xml
+        flags: numpy
+
+    - name: Upload jax_cpu test results
+      if: ${{ !cancelled() }}
+      uses: codecov/test-results-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: junit_jax.xml
+        flags: jax_cpu
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
