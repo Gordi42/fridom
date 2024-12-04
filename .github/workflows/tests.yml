@@ -43,7 +43,7 @@ jobs:
     - name: Run the tests
       run: |
         export FRIDOM_BACKEND="${{ matrix.backend }}"
-        pytest --cov=src . --cov-report=term-missing
+        export PYTHONPATH=${pwd}/src
         pytest --cov=src --junitxml=junit.xml -o junit_family=legacy .
 
     - name: Upload test results
