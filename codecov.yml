@@ -1,4 +1,2 @@
 codecov:
   branch: main
-  status:
-    project: true
