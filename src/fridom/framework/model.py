@@ -278,7 +278,6 @@ class Model:
         # check if the model should restart
         if self.restart_module.should_restart(self.model_state):
             self.restart()
-        return
 
     def restart(self) -> None:
         fr.log.info(

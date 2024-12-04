@@ -19,7 +19,8 @@ def open_init(package: str):
         mod = module_from_spec(spec)
         sys.modules["__init__"] = mod
         spec.loader.exec_module(mod)
-    except:
+    except Exception as e:
         print(f"Error importing {package}")
+        print(e)
 
 [open_init(file[len(src_base_path)+1:].replace("/", ".")) for file in init_files]

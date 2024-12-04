@@ -3,6 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath('.'))
 
+import tomli
 import inspect
 import shutil
 from unittest.mock import patch, MagicMock
@@ -20,8 +21,15 @@ os.environ['FRIDOM_DOC_GENERATION'] = 'True'
 
 # generate the rst files
 # import auto_examples
+os.environ['FRIDOM_DOC_BUILD'] = 'False' # Make sure we are not in build mode
 import load_modules
 shutil.rmtree("auto_api", ignore_errors=True)
+
+os.environ['FRIDOM_DOC_BUILD'] = 'True' # Turn on build mode
+
+# read pyproject.toml file
+with open("../../pyproject.toml", "rb") as f:
+    pyproject = tomli.load(f)
 
 # Configuration file for the Sphinx documentation builder.
 #
@@ -31,10 +39,11 @@ shutil.rmtree("auto_api", ignore_errors=True)
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'fridom'
-copyright = '2024, Silvano Rosenau'
-author = 'Silvano Rosenau'
-release = '0.0.1'
+project = pyproject["project"]["name"]
+author = pyproject["project"]["authors"][0]["name"]
+year = "{% now 'local', '%Y' %}"
+copyright = f"{year}, {author}"
+release = pyproject["project"]["version"]
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -111,10 +120,10 @@ html_css_files = [
 ]
 
 html_static_path = ['_static']
-autodoc_mock_imports = [
-        'numpy', 'scipy', 'mpi4py', 'IPython', 'jax', 'cupy', 'coloredlogs', 
-        'netCDF4', 'matplotlib', 'lazypimp']
-
+autodoc_mock_imports = pyproject["project"]["dependencies"]
+autodoc_mock_imports += pyproject["project"]["optional-dependencies"]["dev"]
+autodoc_mock_imports += ["imageio", "jax", "jaxdecomp"]
+autodoc_mock_imports = list(set(autodoc_mock_imports))
 # default_role = 'literal'
 # MyST configuration
 myst_enable_extensions = [

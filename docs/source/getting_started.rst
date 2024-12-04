@@ -71,7 +71,7 @@ At the current stage, FRIDOM provides the following built-in models:
         A two dimensional rotating shallow water model.
 
     .. grid-item-card::  3D Nonhydrostatic Model
-        :link: auto_api/fridom.nonhydrostatic
+        :link: auto_api/fridom.nonhydro
         :link-type: doc
 
         A three dimensional nonhydrostatic model for simulating incompressible flow.

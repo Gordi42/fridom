@@ -1,4 +1,0 @@
-Understanding FRIDOM modules
-============================
-
-TODO

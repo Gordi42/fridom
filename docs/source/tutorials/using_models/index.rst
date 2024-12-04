@@ -8,8 +8,9 @@ Using FRIDOM Models
    field_variable_and_plotting
    state_and_initial_conditions
    running_the_model
+   modules_part1
    model_output
-   understanding_modules
+   modules_part2
    animations
    time_stepping_schemes
    submit_to_cluster
@@ -80,63 +81,69 @@ Tutorials
    :margin: 4 4 0 0
    :gutter: 2
 
-   .. grid-item-card::  1. The grid and the model settings
+   .. grid-item-card::  1. The Grid and the Model Settings
       :link: grid_and_modelsettings
       :link-type: doc
 
       Learn how to create a grid and set up the model settings.
 
-   .. grid-item-card::  2. Field variables and plotting
+   .. grid-item-card::  2. Field Variables and Plotting
       :link: field_variable_and_plotting
       :link-type: doc
 
       Learn how to work with field variables and how to plot them.
 
-   .. grid-item-card::  3. The state vector and initial conditions
+   .. grid-item-card::  3. The State Vector and Initial Conditions
       :link: state_and_initial_conditions
       :link-type: doc
 
       Learn how to work with the state vector and how to create custom initial conditions.
 
-   .. grid-item-card::  4. Running the model
+   .. grid-item-card::  4. Running the Model
       :link: running_the_model
       :link-type: doc
 
       Learn how to run the model.
 
-   .. grid-item-card::  5. Saving model output
+   .. grid-item-card::  5. Modules Part 1: Understanding Modules
+      :link: modules_part1
+      :link-type: doc
+
+      Learn what FRIDOM modules are and how to use them to add custom 
+      components as for example friction or forcing.
+
+   .. grid-item-card::  6. Saving Model Output
       :link: model_output
       :link-type: doc
 
       Learn how to save model output as netCDF files.
 
-   .. grid-item-card::  6. Understanding FRIDOM modules
-      :link: understanding_modules
+   .. grid-item-card::  7. Modules Part 2: Creating Custom Modules
+      :link: modules_part2
       :link-type: doc
 
-      Learn what FRIDOM modules are and how to use them to create custom components as for example friction or forcing.
+      Learn how to create custom modules to add new functionality to models.
 
-   .. grid-item-card::  7. Generating animations
+   .. grid-item-card::  8. Generating Animations
       :link: animations
       :link-type: doc
 
       Learn how to generate animations of the model outputs.
 
-   .. grid-item-card::  8. Time-stepping schemes
+   .. grid-item-card::  9. Time-stepping Schemes
       :link: time_stepping_schemes
       :link-type: doc
 
       Learn how to choose and modify time-stepping schemes.
 
-   .. grid-item-card::  9. Submitting simulations to a computing cluster
+   .. grid-item-card::  10. Submitting Simulations to a Computing Cluster
       :link: submit_to_cluster
       :link-type: doc
 
       Learn how to submit simulations to a computing cluster with automated restarts.
 
-   .. grid-item-card::  10. Parallelizing simulations
+   .. grid-item-card::  11. Parallelizing Simulations
       :link: parallelization
       :link-type: doc
 
       Learn how to parallelize simulations to run them faster (future feature).
-   

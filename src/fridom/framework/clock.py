@@ -94,6 +94,16 @@ class Clock:
         else:
             self.start_time = time
 
+    def __repr__(self) -> str:
+        res = "Clock(\n"
+        if self._timing_format == TimingFormat.DATETIME:
+            res += f"  start_date = {self.start_date},\n"
+        else:
+            res += f"  start_time = {self.start_time},\n"
+        res += f"  passed_time = {self.passed_time},\n"
+        res += f"  current_time = {self.get_total_time(self.passed_time)})"
+        return res
+
     @property
     def start_time(self) -> float:
         """Get the start time in seconds."""

@@ -9,9 +9,6 @@ This module should mainly be used for developing new modules and models.
 from typing import TYPE_CHECKING
 from lazypimp import setup
 
-# We import the config module here to make sure that it is always loaded
-from .config import config
-
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
@@ -26,6 +23,8 @@ if TYPE_CHECKING:
 
     # import logger
     from .logger import log
+    # import config
+    from .configuration import config
 
     # import modules
     from . import grid
@@ -53,13 +52,14 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = {
+    "fridom.framework.configuration": ["config"],
+    "fridom.framework.logger": ["log"],
     "fridom.framework.model_settings_base": ["ModelSettingsBase"],
     "fridom.framework.field_variable": ["FieldVariable"],
     "fridom.framework.state_base": ["StateBase"],
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
     "fridom.framework.clock": ["Clock"],
-    "fridom.framework.logger": ["log"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

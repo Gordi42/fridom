@@ -1,5 +1,6 @@
 myst_parser==3.0.1
 lazypimp
+tomli
 sphinx-book-theme
 sphinx-copybutton
 sphinx-design

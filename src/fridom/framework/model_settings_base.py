@@ -1,20 +1,6 @@
 """model_settings_base.py - Base class for model settings container."""
 from functools import partial
-from dataclasses import dataclass
 import fridom.framework as fr
-
-
-@dataclass
-class ModelModules:
-    """
-    Stores all modules that are used in the model.
-    """
-    tendencies: fr.modules.ModuleContainer
-    diagnostics: fr.modules.ModuleContainer
-    progress_bar: fr.modules.ProgressBar
-    restart_module: fr.modules.RestartModule
-    timer: fr.timing_module.TimingModule
-    time_stepper: fr.time_steppers.TimeStepper
 
 
 @partial(fr.utils.jaxify, dynamic=('grid',))
@@ -59,17 +45,15 @@ class ModelSettingsBase:
                 res["my_parameter"] = self.my_parameter
                 return res
     """
-    model_name      = "Unnamed model"
+    model_name = "Unnamed model"
 
     def __init__(self, grid: 'fr.grid.GridBase', **kwargs) -> None:
-        self._modules = ModelModules(
-            tendencies=fr.modules.ModuleContainer("All Tendencies"),
-            diagnostics=fr.modules.ModuleContainer("All Diagnostics"),
-            progress_bar=fr.modules.ProgressBar(),
-            restart_module=fr.modules.RestartModule(),
-            timer=fr.timing_module.TimingModule(),
-            time_stepper=fr.time_steppers.AdamBashforth()
-        )
+        self._tendencies = fr.modules.ModuleContainer("All Tendencies")
+        self._diagnostics = fr.modules.ModuleContainer("All Diagnostics")
+        self._time_stepper = fr.time_steppers.AdamBashforth()
+        self._progress_bar = fr.modules.ProgressBar()
+        self._restart_module = fr.modules.RestartModule()
+        self._timer = fr.timing_module.TimingModule()
         self._nan_check_interval = 100
         self._custom_fields  = []
         self._halo           = None
@@ -228,56 +212,56 @@ class ModelSettingsBase:
     @property
     def time_stepper(self):
         """The time stepper object (default: AdamBashforth)."""
-        return self._modules.time_stepper
+        return self._time_stepper
 
     @time_stepper.setter
     def time_stepper(self, value):
-        self._modules.time_stepper = value
+        self._time_stepper = value
 
     @property
     def progress_bar(self):
         """The progress bar object (default: ProgressBar)."""
-        return self._modules.progress_bar
+        return self._progress_bar
 
     @progress_bar.setter
     def progress_bar(self, value):
-        self._modules.progress_bar = value
+        self._progress_bar = value
 
     @property
     def tendencies(self):
         """The module container for all tendencies."""
-        return self._modules.tendencies
+        return self._tendencies
 
     @tendencies.setter
     def tendencies(self, value):
-        self._modules.tendencies = value
+        self._tendencies = value
 
     @property
     def diagnostics(self):
         """The module container for all diagnostics."""
-        return self._modules.diagnostics
+        return self._diagnostics
 
     @diagnostics.setter
     def diagnostics(self, value):
-        self._modules.diagnostics = value
+        self._diagnostics = value
 
     @property
     def restart_module(self):
         """The restart module."""
-        return self._modules.restart_module
+        return self._restart_module
 
     @restart_module.setter
     def restart_module(self, value):
-        self._modules.restart_module = value
+        self._restart_module = value
 
     @property
     def timer(self):
         """The timing module."""
-        return self._modules.timer
+        return self._timer
 
     @timer.setter
     def timer(self, value):
-        self._modules.timer = value
+        self._timer = value
 
     # ----------------------------------------------------------------
     #  Other properties

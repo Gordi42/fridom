@@ -92,7 +92,7 @@ At the edges of each subdomain, issues arise when calculating finite differences
 The ModelSettings Object
 ------------------------
 
-The ModelSettings object holds all information about the model parameters and modules. The concept of modules is explained in more detail in :doc:`this <understanding_modules>` tutorial, but for now, you only need to know that a module represents a specific component of the model, such as the computation of the tendency due to the Coriolis force, or advection. But also diagnostic components, like those for model output or energy computation, are modules.
+The ModelSettings object holds all information about the model parameters and modules. The concept of modules is explained in more detail in :doc:`this <modules_part1>` tutorial, but for now, you only need to know that a module represents a specific component of the model, such as the computation of the tendency due to the Coriolis force, or advection. But also diagnostic components, like those for model output or energy computation, are modules.
 
 The model parameters vary depending on the model. For example, in the 2D shallow water model, parameters include the Coriolis frequency :math:`f_0` and the wave speed, :math:`c^2 = gH`, where :math:`g` is gravitational acceleration and :math:`H` is the mean water depth. For a full description of model parameters, refer to the model documentation.
 

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     # importing the functions
     from .module import module_method
-    
+
 # ================================================================
 #  Setup lazy loading
 # ================================================================

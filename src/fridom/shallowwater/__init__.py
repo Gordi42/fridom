@@ -161,8 +161,8 @@ Drop the primes, and use the Burger number :math:`Bu = \frac{{Ro}^2}{{Fr}^2}`
 yields the scaled shallow water equations.
 
 """
-from lazypimp import setup
 from typing import TYPE_CHECKING
+from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
@@ -188,14 +188,15 @@ if TYPE_CHECKING:
     from fridom.framework import time_steppers
     from fridom.framework import projection
 
-    # import logger
+    # import logger and config
     from fridom.framework.logger import log
+    from fridom.framework.configuration import config
 
     # importing classes
     from fridom.framework.field_variable import FieldVariable
     from fridom.framework.model_state import ModelState
     from fridom.framework.model import Model
-    
+
 # ================================================================
 #  Setup lazy loading
 # ================================================================
@@ -207,15 +208,13 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = { 
+    f"{base_fr}.configuration": ["config"],
+    f"{base_fr}.logger": ["log"],
     f"{base_sw}.model_settings": ["ModelSettings"],
     f"{base_sw}.state": ["State"],
     f"{base_fr}.field_variable": ["FieldVariable"],
     f"{base_fr}.model_state": ["ModelState"],
     f"{base_fr}.model": ["Model"],
-    f"{base_fr}.logger": ["log"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
-
-# We import the config module here to make sure that it is always loaded
-from fridom.framework.config import config

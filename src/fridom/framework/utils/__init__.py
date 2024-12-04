@@ -2,6 +2,19 @@
 from typing import TYPE_CHECKING
 from lazypimp import setup
 
+# for the sphinx autodoc to work, we must import jaxify here in non-lazy mode
+# During the doc build process, this module will be imported twice,
+# once for the module exploration and once for the actual doc build.
+# During module exploration jaxify will fail to import because jax is not available.
+# This is not a problem because the exploration import only needs the
+# all_modules_by_origin and all_imports_by_origin dictionaries.
+# So we can safely ignore the ImportError here.
+try:
+    from .jax_utils import jaxify
+except ImportError:
+    # We are in the module exploration phase of doc building
+    pass
+
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
