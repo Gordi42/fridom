@@ -1,19 +1,21 @@
 """model_settings_base.py - Base class for model settings container."""
 from functools import partial
+
 import fridom.framework as fr
 
 
-@partial(fr.utils.jaxify, dynamic=('grid',))
+@partial(fr.utils.jaxify, dynamic=("grid",))
 class ModelSettingsBase:
+
     """
     Base class for model settings container.
-    
+
     Description
     -----------
     This class should be used as a base class for all model settings containers.
     It provides a set of attributes and methods that are common to all models.
-    Child classes should override the following attributes: 
-    - n_dims 
+    Child classes should override the following attributes:
+    - n_dims
     - model_name
     - tendencies
     - diagnostics
@@ -21,7 +23,7 @@ class ModelSettingsBase:
     And the following methods:
     - state_constructor
     - diagnostic_state_constructor
-    
+
     Examples
     --------
     Create a new model settings class by inheriting from `ModelSettingsBase`:
@@ -44,10 +46,12 @@ class ModelSettingsBase:
                 res = super().parameters
                 res["my_parameter"] = self.my_parameter
                 return res
+
     """
+
     model_name = "Unnamed model"
 
-    def __init__(self, grid: 'fr.grid.GridBase', **kwargs) -> None:
+    def __init__(self, grid: "fr.grid.GridBase", **kwargs: dict) -> None:
         self._tendencies = fr.modules.ModuleContainer("All Tendencies")
         self._diagnostics = fr.modules.ModuleContainer("All Diagnostics")
         self._time_stepper = fr.time_steppers.AdamBashforth()
@@ -60,34 +64,35 @@ class ModelSettingsBase:
         self.grid = grid
         self.set_attributes(**kwargs)
 
-    def set_attributes(self, **kwargs):
+    def set_attributes(self, **kwargs: dict) -> None:
         """
-        Set model settings attributes from keyword arguments. If an attribute
-        does not exist, an AttributeError is raised.
-        
+        Set model settings attributes from keyword arguments.
+
         Parameters
         ----------
-        `**kwargs` : `dict`
+        **kwargs : `dict`
             Keyword arguments to set the attributes of the model settings.
-        
+
         Raises
         ------
         `AttributeError`
             The attribute does not exist in the model settings.
+
         """
         # Set attributes from keyword arguments
         for key, value in kwargs.items():
             # Check if attribute exists
             if not hasattr(self, key):
-                raise AttributeError(f"ModelSettings has no attribute '{key}'")
+                message = f"ModelSettings has no attribute '{key}'"
+                raise AttributeError(message)
             setattr(self, key, value)
 
-    def setup_grid(self):
-        """Setup the grid object."""
+    def setup_grid(self) -> None:
+        """Set the grid object up."""
         self.grid.setup(mset=self)
 
-    def _setup_all_modules(self):
-        """Setup all modules."""
+    def _setup_all_modules(self) -> None:
+        """Set all modules up."""
         self.grid.water_mask.setup(mset=self)
         self.progress_bar.setup(mset=self)
         self.restart_module.setup(mset=self)
@@ -95,17 +100,18 @@ class ModelSettingsBase:
         self.diagnostics.setup(mset=self)
         self.time_stepper.setup(mset=self)
 
-    def setup_settings_parameters(self):
-        """Setup the model settings parameters."""
+    def setup_settings_parameters(self) -> None:
+        """Set the model settings parameters up."""
 
-    def setup(self):
+    def setup(self) -> None:
         """
-        Setup the model settings.
-        
+        Set the model settings up.
+
         Description
         -----------
-        This method will initialize the grid object and setup all modules. 
+        This method will initialize the grid object and setup all modules.
         It must be called before accessing any attributes of the grid or modules.
+
         """
         fr.log.verbose("Setting up model settings")
         self.setup_grid()
@@ -113,18 +119,15 @@ class ModelSettingsBase:
         self._setup_all_modules()
         fr.log.info(self)
 
-    def state_constructor(self):
+    def state_constructor(self) -> None:
         """Construct the state vector from this model settings."""
         return fr.StateBase(self, {})
 
-    def diagnostic_state_constructor(self):
+    def diagnostic_state_constructor(self) -> fr.StateBase:
         """Construct the diagnostic state vector from this model settings."""
         return fr.StateBase(self, {})
 
     def __repr__(self) -> str:
-        """
-        String representation of the model settings (for IPython).
-        """
         return f"""
 =================================================
   Model Settings:
@@ -145,14 +148,15 @@ class ModelSettingsBase:
 
         Description
         -----------
-        This method can be used to extend the state vector with a new field 
+        This method can be used to extend the state vector with a new field
         variable, for example when adding a new tracer to the model.
 
         Parameters
         ----------
-        `kwargs` : `dict`
-            Dictionary that contains the arguments required to construct 
+        kwargs : `dict`
+            Dictionary that contains the arguments required to construct
             the field.
+
         """
         # check if a name is provided
         if "name" not in kwargs:
@@ -189,20 +193,19 @@ class ModelSettingsBase:
         """
         return {}
 
-    def __parameters_to_string(self):
-        # res = "\n"
+    def __parameters_to_string(self) -> str:
         res = ""
         for key, value in self.parameters.items():
             res += f"\n  - {key}: {value}"
         return res
 
     @property
-    def grid(self) -> 'fr.grid.GridBase':
+    def grid(self) -> "fr.grid.GridBase":
         """The spatial grid."""
         return self._grid
 
     @grid.setter
-    def grid(self, value: 'fr.grid.GridBase') -> None:
+    def grid(self, value: "fr.grid.GridBase") -> None:
         self._grid = value
 
     # ----------------------------------------------------------------
@@ -210,57 +213,57 @@ class ModelSettingsBase:
     # ----------------------------------------------------------------
 
     @property
-    def time_stepper(self):
+    def time_stepper(self) -> None:
         """The time stepper object (default: AdamBashforth)."""
         return self._time_stepper
 
     @time_stepper.setter
-    def time_stepper(self, value):
+    def time_stepper(self, value: fr.time_steppers.TimeStepper) -> None:
         self._time_stepper = value
 
     @property
-    def progress_bar(self):
+    def progress_bar(self) -> fr.modules.ProgressBar:
         """The progress bar object (default: ProgressBar)."""
         return self._progress_bar
 
     @progress_bar.setter
-    def progress_bar(self, value):
+    def progress_bar(self, value: fr.modules.ProgressBar) -> None:
         self._progress_bar = value
 
     @property
-    def tendencies(self):
+    def tendencies(self) -> fr.modules.ModuleContainer:
         """The module container for all tendencies."""
         return self._tendencies
 
     @tendencies.setter
-    def tendencies(self, value):
+    def tendencies(self, value: fr.modules.ModuleContainer) -> None:
         self._tendencies = value
 
     @property
-    def diagnostics(self):
+    def diagnostics(self) -> fr.modules.ModuleContainer:
         """The module container for all diagnostics."""
         return self._diagnostics
 
     @diagnostics.setter
-    def diagnostics(self, value):
+    def diagnostics(self, value: fr.modules.ModuleContainer) -> None:
         self._diagnostics = value
 
     @property
-    def restart_module(self):
+    def restart_module(self) -> fr.modules.RestartModule:
         """The restart module."""
         return self._restart_module
 
     @restart_module.setter
-    def restart_module(self, value):
+    def restart_module(self, value: fr.modules.RestartModule) -> None:
         self._restart_module = value
 
     @property
-    def timer(self):
+    def timer(self) -> fr.timing_module.TimingModule:
         """The timing module."""
         return self._timer
 
     @timer.setter
-    def timer(self, value):
+    def timer(self, value: fr.timing_module.TimingModule) -> None:
         self._timer = value
 
     # ----------------------------------------------------------------
@@ -269,7 +272,7 @@ class ModelSettingsBase:
 
     @property
     def nan_check_interval(self) -> int:
-        """The interval at which the model checks for NaN values"""
+        """The interval at which the model checks for NaN values."""
         return self._nan_check_interval
 
     @nan_check_interval.setter
