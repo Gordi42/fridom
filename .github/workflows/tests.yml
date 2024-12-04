@@ -43,17 +43,4 @@ jobs:
     - name: Run the tests
       run: |
         export FRIDOM_BACKEND="${{ matrix.backend }}"
-        pytest --cov=src --cov-report=xml --junitxml=junit.xml -o junit_family=legacy .
-
-    - name: Upload test results
-      if: ${{ !cancelled() }}
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        flags: ${{ matrix.backend }}
-
-    - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v5
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        flags: ${{ matrix.backend }}
+        pytest --cov=src .
