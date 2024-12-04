@@ -28,7 +28,7 @@ jobs:
 
     - name: Install the base package
       run: |
-        pip install .
+        pip install -e .
 
     - name: Install the backends
       run: |
@@ -43,7 +43,6 @@ jobs:
     - name: Run the tests
       run: |
         export FRIDOM_BACKEND="${{ matrix.backend }}"
-        export PYTHONPATH=${pwd}/src
         pytest --cov=src --junitxml=junit.xml -o junit_family=legacy .
 
     - name: Upload test results
