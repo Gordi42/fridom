@@ -173,7 +173,7 @@ class Model:
         # calculate the final iteration step if steps is given
         if steps is not None:
             main_loop_type = "for loop"
-            start_value = self.model_state.it
+            start_value = self.model_state.clock.it
             final_value = start_value + steps
         else:
             main_loop_type = "while loop"
@@ -208,7 +208,7 @@ class Model:
         #  Main loop: Given number of setps
         # ----------------------------------------------------------------
         if steps is not None:
-            start_it = self.model_state.it
+            start_it = self.model_state.clock.it
             fr.log.info(
                 f"Running model from iteration {start_value} to {final_value}")
             
@@ -241,7 +241,7 @@ class Model:
         self.stop()
 
         fr.log.info(
-            f"Model run finished at it: {self.model_state.it}, time: {self.model_state.clock.time}")
+            f"Model run finished at it: {self.model_state.clock.it}, time: {self.model_state.clock.time}")
         fr.log.info(self.mset.timer)
 
         return
@@ -263,7 +263,7 @@ class Model:
 
         # check if there are any nans in the state variable
         with self.timer["check_nan"]:
-            if self.model_state.it % self.mset.nan_check_interval == 0:
+            if self.model_state.clock.it % self.mset.nan_check_interval == 0:
                 if self.model_state.z.has_nan():
                     fr.log.critical(
                         "State variable contains NaNs. Stopping model.")
@@ -281,7 +281,7 @@ class Model:
 
     def restart(self) -> None:
         fr.log.info(
-            f"Stopping model at it: {self.model_state.it}, time: {self.model_state.clock.time}")
+            f"Stopping model at it: {self.model_state.clock.it}, time: {self.model_state.clock.time}")
         self.stop()
         self.save(self.restart_module.file)
         fr.log.info(self.mset.timer)

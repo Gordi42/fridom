@@ -32,8 +32,6 @@ including the following attributes:
 +-----------+---------+--------------------------------------------------+
 | ``clock`` | |Clock| | Information about the model time                 |
 +-----------+---------+--------------------------------------------------+
-| ``it``    | ``int`` | The time step number                             |
-+-----------+---------+--------------------------------------------------+
 You typically don’t need to create a |ModelState| manually; it is initialized 
 automatically when the model is set up. Instead, you interact with the existing 
 |ModelState| object. The following example demonstrates accessing the |ModelState| 
@@ -192,7 +190,7 @@ Let's look at the source code of the |Model| class, which controls the time step
 
         # check if there are any nans in the state variable
         with self.timer["check_nan"]:
-            if self.model_state.it % self.mset.nan_check_interval == 0:
+            if self.model_state.clock.it % self.mset.nan_check_interval == 0:
                 if self.model_state.z.has_nan():
                     fr.log.critical(
                         "State variable contains NaNs. Stopping model.")
