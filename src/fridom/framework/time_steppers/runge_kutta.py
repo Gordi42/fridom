@@ -161,7 +161,7 @@ class RungeKutta(fr.time_steppers.TimeStepper):
 
         mz.z += sum_product(method.b, dt, k)
         mz.clock.tick(dt)
-        mz.it += 1
+        mz.clock.it += 1
         return mz
 
     @property

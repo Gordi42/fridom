@@ -176,7 +176,7 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         mz.z = self._update_state(mz.z, dz_list)
 
         self.it_count += 1
-        mz.it += 1
+        mz.clock.it += 1
         mz.clock.tick(self.dt)
         return mz
 

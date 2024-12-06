@@ -122,7 +122,7 @@ class ProgressBar(fr.modules.Module):
         # Get the current progress value
         match self._main_loop_type:
             case "for loop":
-                value = mz.it
+                value = mz.clock.it
             case "while loop":
                 value = mz.clock.time
 
@@ -138,7 +138,7 @@ class ProgressBar(fr.modules.Module):
             time_str = np.datetime64(int(mz.clock.time), 's')
         else:
             time_str = fr.utils.humanize_number(mz.clock.time, unit="seconds")
-        postfix = f"It: {mz.it} - Time: {time_str}"
+        postfix = f"It: {mz.clock.it} - Time: {time_str}"
 
         # update the progress bar
         self._pbar.n = value

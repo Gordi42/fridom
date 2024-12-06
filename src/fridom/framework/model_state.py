@@ -22,6 +22,7 @@ class ModelState:
         The model settings object.
     `clock` : `Clock`, optional
         The clock object to keep track of the model time.
+
     """
     def __init__(self,
                  mset: 'fr.ModelSettingsBase',
@@ -119,10 +120,16 @@ class ModelState:
     @property
     def it(self) -> int:
         """The iteration number."""
+        fr.log.warning(
+            "The iteration number is deprecated. Use the clock.it attribute instead."
+        )
         return self._it
 
     @it.setter
     def it(self, value: int) -> None:
+        fr.log.warning(
+            "The iteration number is deprecated. Use the clock.it attribute instead."
+        )
         self._it = value
 
     @property

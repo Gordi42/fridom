@@ -1,38 +1,43 @@
+"""netcdf_writer.py - Writing model output to NetCDF files."""
 import os
 from typing import Union
-from netCDF4 import Dataset
+
 import numpy as np
+from netCDF4 import Dataset
+
 import fridom.framework as fr
 
+
 class NetCDFWriter(fr.modules.Module):
+
     """
     Writing model output to NetCDF files.
-    
+
     Parameters
     ----------
-    `write_interval` : `np.timedelta64 | float`
+    write_interval : np.timedelta64 | float
         The interval at which the data should be written to the file.
-    `filename` : `str`, optional
+    filename : str, optional
         The name of the file to write to. Default is "snap" (no directory).
-    `directory` : `str`, optional
+    directory : str, optional
         The directory where the files should be stored. Default is "snapshots".
-    `start_time` : `np.datetime64`, optional
-        The time at which the first file should be written. Default is 
-    `end_time` : `np.datetime64`, optional
+    start_time : np.datetime64, optional
+        The time at which the first file should be written. Default is
+    end_time : np.datetime64, optional
         The time at which the last file should be written. Default is None.
-    `restart_interval` : `np.timedelta64`, optional
+    restart_interval : np.timedelta64, optional
         The interval at which a new file should be created. Default is None.
-    `snap_slice` : `tuple`, optional
+    snap_slice : tuple, optional
         The slice of the grid that should be written to the file. Default is None.
-    `get_variables` : `callable`, (default: None)
-        A function that returns a list of field variables that should be written 
+    get_variables : callable, (default: None)
+        A function that returns a list of field variables that should be written
         to the file. If None, all fields of the State object will be written.
         The function signature of get_variables is:
         `get_variables(mz: 'ModelState') -> list[FieldVariable]`
-    
+
     Examples
     --------
-    The following example shows how to create a netCDF output from a 
+    The following example shows how to create a netCDF output from a
     nonhydrostatic model using the SingleWave initial condition.
 
     .. code-block:: python
@@ -60,6 +65,7 @@ class NetCDFWriter(fr.modules.Module):
         model.run(runlen=np.timedelta64(10, 's'))
 
     """
+
     name = "NetCDFWriter"
     def __init__(self,
                  write_interval: Union[np.timedelta64, float],

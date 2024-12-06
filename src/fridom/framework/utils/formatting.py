@@ -36,7 +36,10 @@ def humanize_time(value: float):
     -------
     `str`
         The formatted time.
+
     """
+    if value == 0:
+        return "0s"
     delta = datetime.timedelta(seconds=float(value))
     days = delta.days
     formatted_time = ""
@@ -83,8 +86,9 @@ def humanize_number(value: float, unit: str):
 
     Returns
     -------
-    `str`
+    str
         The formatted number with the appropriate unit.
+
     """
     if unit == "meters":
         return humanize_length(value)

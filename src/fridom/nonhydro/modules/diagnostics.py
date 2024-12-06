@@ -20,7 +20,7 @@ class Diagnostics(Module):
         Print diagnostic information.
         """
         # check if it is time to print diagnostic information
-        if mz.it % self.interval != 0:
+        if mz.clock.it % self.interval != 0:
             return
         
         # print diagnostic information

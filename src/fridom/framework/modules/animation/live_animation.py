@@ -54,7 +54,7 @@ class LiveAnimation(fr.modules.Module):
             The model state to be used to update the figure.
         """
         # check if its time to update the plot
-        if mz.it % self.interval != 0:
+        if mz.clock.it % self.interval != 0:
             return mz
 
         # first clear the figure

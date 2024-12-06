@@ -20,7 +20,8 @@ if TYPE_CHECKING:
     from .state_base import StateBase
     from .model_state import ModelState
     from .model import Model
-    from .clock import Clock
+    from .clock import Clock, TimingFormat
+    from .clock_trigger import ClockTrigger
 
     # Import logger
     from .logger import log
@@ -62,7 +63,8 @@ all_imports_by_origin = {
     "fridom.framework.state_base": ["StateBase"],
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
-    "fridom.framework.clock": ["Clock"],
+    "fridom.framework.clock": ["Clock", "TimingFormat"],
+    "fridom.framework.clock_trigger": ["ClockTrigger"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

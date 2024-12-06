@@ -11,6 +11,7 @@ import fridom.framework as fr
 
 
 class TimingFormat(Enum):
+
     """The timing format for the model clock."""
 
     SECONDS = auto()
@@ -18,7 +19,9 @@ class TimingFormat(Enum):
 
 @partial(fr.utils.jaxify, dynamic=("_start_time", "_passed_time"))
 class Clock:
-    """A clock to keep track of the model time.
+
+    """
+    A clock to keep track of the model time.
 
     Parameters
     ----------
@@ -41,20 +44,23 @@ class Clock:
     ) -> None:
         # check that only one of the two is provided
         fr.exceptions.TooManyArgumentsError.check(
-            1, start_date=start_date, start_time=start_time
+            1, start_date=start_date, start_time=start_time,
         )
 
         self._timing_format = TimingFormat.SECONDS
         self.start_time = start_time or 0
         self.start_date = start_date
         self._passed_time = 0
+        self._it = 0
 
     def reset(self) -> None:
         """Reset the passed time to zero."""
         self._passed_time = 0
+        self._it = 0
 
     def tick(self, time_step: float) -> None:
-        """Increase the passed time by the time step.
+        """
+        Increase the passed time by the time step + increase the iteration step.
 
         Parameters
         ----------
@@ -63,9 +69,11 @@ class Clock:
 
         """
         self._passed_time += time_step
+        self._it += 1
 
     def get_total_time(self, passed_time: float) -> np.datetime64 | float:
-        """Get the total time of the model run.
+        """
+        Get the total time of the model run.
 
         Parameters
         ----------
@@ -88,7 +96,8 @@ class Clock:
                 return self.start_time + passed_time
 
     def set_start(self, time: np.datetime64 | float) -> None:
-        """Set the start time of the model run.
+        """
+        Set the start time of the model run.
 
         Parameters
         ----------
@@ -147,3 +156,12 @@ class Clock:
     @time.setter
     def time(self, value: float) -> None:
         self._passed_time = value - self.start_time
+
+    @property
+    def it(self) -> int:
+        """The current iteration step of the model."""
+        return self._it
+
+    @it.setter
+    def it(self, value: int) -> None:
+        self._it = value
