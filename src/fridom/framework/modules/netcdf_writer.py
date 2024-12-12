@@ -1,6 +1,8 @@
 """netcdf_writer.py - Writing model output to NetCDF files."""
-import os
-from typing import Union
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from netCDF4 import Dataset
@@ -15,20 +17,16 @@ class NetCDFWriter(fr.modules.Module):
 
     Parameters
     ----------
-    write_interval : np.timedelta64 | float
-        The interval at which the data should be written to the file.
+    write_trigger : fr.ClockTrigger, optional
+        The trigger that determines when the data should be written to the file.
+        Default is None which means that the data will be written at every time step.
+    restart_trigger : fr.ClockTrigger, optional
+        The trigger that determines when a new file should be created.
+        Default is None which means that only one file will be created.
     filename : str, optional
         The name of the file to write to. Default is "snap" (no directory).
     directory : str, optional
         The directory where the files should be stored. Default is "snapshots".
-    start_time : np.datetime64, optional
-        The time at which the first file should be written. Default is
-    end_time : np.datetime64, optional
-        The time at which the last file should be written. Default is None.
-    restart_interval : np.timedelta64, optional
-        The interval at which a new file should be created. Default is None.
-    snap_slice : tuple, optional
-        The slice of the grid that should be written to the file. Default is None.
     get_variables : callable, (default: None)
         A function that returns a list of field variables that should be written
         to the file. If None, all fields of the State object will be written.
@@ -68,167 +66,129 @@ class NetCDFWriter(fr.modules.Module):
 
     name = "NetCDFWriter"
     def __init__(self,
-                 write_interval: Union[np.timedelta64, float],
+                 write_trigger: fr.ClockTrigger | None = None,
+                 restart_trigger: fr.ClockTrigger | None = None,
                  filename: str = "snap",
-                 start_time: Union[np.datetime64, float] = 0,
-                 end_time: Union[np.datetime64, float, None] = None,
-                 restart_interval: Union[np.timedelta64, float, None] = None,
-                 snap_slice: tuple | None = None,
                  directory: str | None = None,
-                 get_variables: 'callable | None' = None,
-                 ):
+                 get_variables: Callable | None = None,
+                 ) -> None:
         super().__init__()
 
         directory = directory or "snapshots"
-        filename = os.path.join(directory, filename)
+        filename = Path(directory) / filename
         self.execute_at_start = True
 
-        # Convert the times to seconds
-        if isinstance(write_interval, np.timedelta64):
-            write_interval = fr.utils.to_seconds(write_interval)
-        if isinstance(restart_interval, np.timedelta64):
-            restart_interval = fr.utils.to_seconds(restart_interval)
-        if isinstance(start_time, np.datetime64):
-            start_time = fr.utils.to_seconds(start_time)
-        if isinstance(end_time, np.datetime64):
-            end_time = fr.utils.to_seconds(end_time)
-
         if get_variables is None:
-            def get_variables(mz: 'fr.ModelState'):
+            def get_variables(mz: fr.ModelState) -> list[fr.FieldVariable]:
                 return mz.z.field_list
-
-        if snap_slice is not None:
-            raise NotImplementedError("snap_slice is not implemented yet.")
 
         # ----------------------------------------------------------------
         #  Set Attributes
         # ----------------------------------------------------------------
         self.directory = directory
         self.filename = filename
-        self.start_time = start_time
-        self.end_time = end_time
-        self.write_interval = write_interval
-        self.restart_interval = restart_interval
-        self.snap_slice = snap_slice
+        self.write_trigger = write_trigger or fr.ClockTrigger()
+        self.restart_trigger = restart_trigger
+        self._snap_slice = None
+        self._add_timestamp = True
         self.get_variables = get_variables
 
         # private attributes
-        self._current_start_time = None
-        self._last_checkpoint_time = None
-        self._last_write_time = None
         self._file_is_open = False
         self._ncfile = None
-        return
 
     @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+    def setup(self, mset: fr.ModelSettingsBase) -> None:  # noqa: D102
         super().setup(mset)
         # create snapshot folder if it doesn't exist
         fr.log.verbose(f"Touching snapshot directory: {self.directory}")
-        os.makedirs(self.directory, exist_ok=True)
+        Path(self.directory).mkdir(parents=True, exist_ok=True)
 
         # snap slice:
-        if self.snap_slice is None:
-            self.snap_slice = tuple([slice(None)]*self.grid.n_dims)
-        return
+        if self._snap_slice is None:
+            self._snap_slice = tuple([slice(None)]*self.grid.n_dims)
 
 
     @fr.modules.module_method
-    def start(self):
+    def start(self) -> None:  # noqa: D102
         if self._file_is_open:
-            fr.log.warning(
-                "NetCDFWriter: start() called while a file is already open. Continue with closing the file")
+            msg = "NetCDFWriter: start() called while a file is already open."
+            fr.log.warning(msg)
             self._close_file()
-        return
 
     @fr.modules.module_method
-    def stop(self):
+    def stop(self) -> None:  # noqa: D102
         if self._file_is_open:
             self._close_file()
-        self._current_start_time = None
-        self._last_checkpoint_time = None
-        self._last_write_time = None
-        return
 
     @fr.modules.module_method
-    def update(self, mz: 'fr.ModelState') -> 'fr.ModelState':
-        time = mz.clock.time
-        # ----------------------------------------------------------------
-        #  Check if the model time is in the writing range
-        # ----------------------------------------------------------------
-        # check if the model time is smaller than the start time
-        if self.start_time is not None and time < self.start_time:
-            return mz
-        # check if the model time is larger than the end time
-        if self.end_time is not None:
-            if time > self.end_time and not self._file_is_open:
-                return mz
-            if time > self.end_time and self._file_is_open:
-                self._close_file()
-                return mz
-
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         # ----------------------------------------------------------------
         #  Check if it is time to write
         # ----------------------------------------------------------------
-        if self._last_write_time is None or self._last_checkpoint_time is None:
-            time_to_write = True
-        else:
-            next_write_time = self._last_write_time + self.write_interval
-            if (self._last_checkpoint_time < next_write_time and
-                time >= next_write_time):
-                time_to_write = True
-            else:
-                time_to_write = False
-        self._last_checkpoint_time = time
-        if not time_to_write:
+        if not self.write_trigger.check(mz.clock):
             return mz
 
         # ----------------------------------------------------------------
-        #  Cehck if the current start time is set
+        #  Check if the file should be restarted
         # ----------------------------------------------------------------
-        if self._current_start_time is None:
-            self._current_start_time = time
-
-        # ----------------------------------------------------------------
-        #  Check if the file should be closed
-        # ----------------------------------------------------------------
-        if self.restart_interval is not None:
-            next_restart_time = self._current_start_time + self.restart_interval
-            if time >= next_restart_time and self._file_is_open:
-                self._close_file()
+        if self.restart_trigger is not None and self.restart_trigger.check(mz.clock):
+            self._close_file()
 
         # ----------------------------------------------------------------
         #  Create a new file if the current file is not open
         # ----------------------------------------------------------------
         if not self._file_is_open:
-            start_time = self._current_start_time
-            if self.restart_interval is not None:
-                while time - start_time >= self.restart_interval:
-                    start_time += self.restart_interval
-            self._current_start_time = start_time
             self._create_file(mz)
 
         # ----------------------------------------------------------------
         #  Write data
         # ----------------------------------------------------------------
         self._write_data(mz)
-        self._last_write_time = time
         return mz
 
-    def _create_file(self, mz: 'fr.ModelState'):
+    def _format_filename(self, clock: fr.Clock) -> Path:
+        """
+        Add a timestamp to the filename.
+
+        Parameters
+        ----------
+        clock : fr.Clock
+            The clock of the model with the current time.
+
+        Returns
+        -------
+        Path
+            The formatted filename.
+
+        """
+        # we first remove the suffix from the filename, if the suffix is .nc or .cdf
+        suffix = self.filename.suffix.lower()
+        if suffix in [".nc", ".cdf"]:
+            base_name = self.filename.parent / self.filename.stem
+        else:
+            base_name = self.filename
+            suffix = ".cdf"
+        # add the timestamp to the filename
+        if not self.add_timestamp:
+            return base_name.with_name(f"{base_name.stem}{suffix}")
+        tot_time = clock.get_total_time()
+        if isinstance(tot_time, np.datetime64):
+            time_stamp = tot_time
+        else:
+            time_stamp = fr.utils.humanize_number(tot_time, unit="seconds")
+            time_stamp = time_stamp.replace(" ", "_")
+        return base_name.with_name(f"{base_name.stem}_{time_stamp}{suffix}")
+
+    def _create_file(self, mz: fr.ModelState) -> None:
+        # ----------------------------------------------------------------
+        #  Make sure that there is no file open
+        # ----------------------------------------------------------------
+        self._close_file()
         # ----------------------------------------------------------------
         #  Create the filename
         # ----------------------------------------------------------------
-        base, ext = os.path.splitext(self.filename)
-        ext = ext.lower()
-        base = base if ext in [".nc", ".cdf"] else self.filename
-        ext = ext if ext in [".nc", ".cdf"] else ".cdf"
-        clock = mz.clock
-        tot_time = clock.get_total_time(clock.passed_time)
-        if not isinstance(tot_time, np.datetime64):
-            tot_time = fr.utils.humanize_number(tot_time, unit="seconds")
-            tot_time = tot_time.replace(" ", "-")
-        filename = f"{base}_{tot_time}{ext}"
+        filename = self._format_filename(mz.clock)
 
         # ----------------------------------------------------------------
         #  Create the NetCDF file
@@ -240,8 +200,8 @@ class NetCDFWriter(fr.modules.Module):
 
         dtype = fr.config.dtype_real
         n_dims = self.grid.n_dims
-        if n_dims <= 3:
-            x_names = ['x', 'y', 'z'][:n_dims]
+        if n_dims <= 3:  # noqa: PLR2004
+            x_names = ["x", "y", "z"][:n_dims]
         else:
             x_names = [f"x{i}" for i in range(n_dims)]
         # ----------------------------------------------------------------
@@ -257,7 +217,7 @@ class NetCDFWriter(fr.modules.Module):
         for i, name in enumerate(x_names):
             nx = len(self.grid.x_global[i][self.snap_slice[i]])
             ncfile.createDimension(name, nx)
-        _time_dim = ncfile.createDimension('time', None)
+        _time_dim = ncfile.createDimension("time", None)
 
         # ----------------------------------------------------------------
         #  Create the variables
@@ -271,7 +231,6 @@ class NetCDFWriter(fr.modules.Module):
             xi.units = "m"
             xi.long_name = f"{name} coordinate"
 
-        # time.units = f"seconds since {mz.start_time}"
         time.units = "seconds"
         time.long_name = "UTC time"
         time.calendar = "standard"
@@ -299,9 +258,8 @@ class NetCDFWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         self._file_is_open = True
         self._ncfile = ncfile
-        return
 
-    def _write_data(self, mz: 'fr.ModelState'):
+    def _write_data(self, mz: fr.ModelState) -> None:
         time = self._ncfile.variables["time"]
         time_ind = time.size
         ind = time_ind, *tuple(slice(None) for _ in range(self.grid.n_dims))
@@ -311,10 +269,38 @@ class NetCDFWriter(fr.modules.Module):
             nc_var = self._ncfile.variables[var.name]
             arr = var.unpad()
             nc_var[ind] = fr.utils.to_numpy(arr.T)
-        return
 
-    def _close_file(self):
-        self._ncfile.close()
+    def _close_file(self) -> None:
+        if self._ncfile is not None:
+            fr.log.debug(f"Closing NetCDF file: {self._ncfile.filepath()}")
+            self._ncfile.close()
         self._ncfile = None
         self._file_is_open = False
-        return
+
+    # ----------------------------------------------------------------
+    #  Properties
+    # ----------------------------------------------------------------
+
+    @property
+    def snap_slice(self) -> tuple[slice, ...]:
+        """The slice of the grid that should be written to the file."""
+        return self._snap_slice
+
+    @snap_slice.setter
+    def snap_slice(self, value: tuple[slice, ...]) -> None:
+        # we close the file if the slice changes
+        self._close_file()
+        # set the new slice
+        self._snap_slice = value
+
+        msg = "snap_slice is not implemented yet."
+        raise NotImplementedError(msg)
+
+    @property
+    def add_timestamp(self) -> bool:
+        """Whether a timestamp should be added to the filename."""
+        return self._add_timestamp
+
+    @add_timestamp.setter
+    def add_timestamp(self, value: bool) -> None:
+        self._add_timestamp = value
