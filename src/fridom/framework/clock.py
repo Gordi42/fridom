@@ -71,14 +71,15 @@ class Clock:
         self._passed_time += time_step
         self._it += 1
 
-    def get_total_time(self, passed_time: float) -> np.datetime64 | float:
+    def get_total_time(self, passed_time: float | None = None) -> np.datetime64 | float:
         """
         Get the total time of the model run.
 
         Parameters
         ----------
-        passed_time : float
-            The passed time in seconds.
+        passed_time : float | None (optional)
+            The passed time in seconds. If not provided, the current passed time
+            of the model will be used
 
         Returns
         -------
@@ -88,6 +89,8 @@ class Clock:
             time in seconds.
 
         """
+        if passed_time is None:
+            passed_time = self.passed_time
         match self._timing_format:
             case TimingFormat.DATETIME:
                 deltatime = np.timedelta64(int(passed_time), "s")
