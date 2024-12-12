@@ -69,7 +69,7 @@ class ClockTrigger:
         self._start_time = None
         self._start_it = None
 
-    def _set_start_callback(self, 
+    def _set_start_callback(self,
                             start_date: np.datetime64 | float | None = None,
                             start_step: int | None = None
                             ) -> Callable[[fr.Clock], bool]:
