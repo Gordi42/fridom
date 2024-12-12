@@ -58,7 +58,7 @@ class Clock:
         self._passed_time = 0
         self._it = 0
 
-    def tick(self, time_step: float) -> None:
+    def tick(self, time_step: float | np.timedelta64) -> None:
         """
         Increase the passed time by the time step + increase the iteration step.
 
@@ -68,6 +68,9 @@ class Clock:
             The time step in seconds.
 
         """
+        # convert the time step to seconds if it is a timedelta
+        if isinstance(time_step, np.timedelta64):
+            time_step = fr.utils.to_seconds(time_step)
         self._passed_time += time_step
         self._it += 1
 
