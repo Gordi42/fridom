@@ -97,7 +97,7 @@ def test_closure(closure: fr.modules.Module):
     # create a NetCDF writer to save the output
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            write_interval = np.timedelta64(10, 'm'),
+            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(10, "m")),
             filename=fname))
 
     # add the closure

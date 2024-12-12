@@ -112,7 +112,7 @@ def main():
     # create a NetCDF writer to save the output
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            write_interval = np.timedelta64(1, 'm'),
+            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(1, "m")),
             filename=exp_name))
 
     mset.setup()

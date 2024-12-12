@@ -97,8 +97,8 @@ def create_modelsettings(exp_name, quiver_skip):
     # create a NetCDF writer to save the output
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables=lambda mz: [mz.z['dye'], mz.z.cfl],
-            write_interval = 0.1,
+            get_variables=lambda mz: [mz.z["dye"], mz.z.cfl],
+            write_trigger = nh.ClockTrigger(time_interval=0.1),
             filename=exp_name))
 
     # add mixing for the tracer

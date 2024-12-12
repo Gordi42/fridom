@@ -98,8 +98,8 @@ def main():
     # create a NetCDF writer to save the output
     if MAKE_NETCDF:
         mset.diagnostics.add_module(sw.modules.NetCDFWriter(
-            get_variables = lambda mz: mz.z.field_list + [mz.z.pot_vort],
-            write_interval = 1.0,
+            get_variables = lambda mz: [*mz.z.field_list, mz.z.pot_vort],
+            write_trigger = sw.ClockTrigger(time_interval=1.0),
             filename=EXP_NAME))
 
     # create a thumbnail saver

@@ -82,7 +82,7 @@ def main():
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
             get_variables = lambda mz: [mz.z.etot, mz.z.b],
-            write_interval = np.timedelta64(20, 'm'),
+            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(20, "m")),
             filename=exp_name))
 
     # add a Gaussian wave maker

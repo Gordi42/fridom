@@ -80,7 +80,7 @@ def main():
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
             get_variables = lambda mz: [mz.z.u, mz.z.v, mz.z.ekin],
-            write_interval = 0.1,
+            write_trigger=nh.ClockTrigger(time_interval=0.1),
             filename=exp_name))
 
     mset.setup()

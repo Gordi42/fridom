@@ -86,8 +86,9 @@ def main():
     # create a NetCDF writer to save the output
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            write_interval = 0.2, filename=exp_name))
-    
+            write_trigger = nh.ClockTrigger(time_interval=0.2),
+            filename=exp_name))
+
     # create a thumbnail saver
     mset.diagnostics.add_module(nh.modules.FigureSaver(
         filename=thumbnail, model_time=4, plotter=Plotter))

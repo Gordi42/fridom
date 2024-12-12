@@ -80,8 +80,8 @@ def main():
     # create a NetCDF writer to save the output
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables = lambda mz: mz.z.field_list + [mz.z.etot, mz.z.ekin],
-            write_interval = np.timedelta64(20, 'm'),
+            get_variables = lambda mz: [*mz.z.field_list, mz.z.etot, mz.z.ekin],
+            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(20, "m")),
             filename=exp_name))
 
     # Add 3 wave makers with different angles

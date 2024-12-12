@@ -206,8 +206,8 @@ def perform_experiment(richardson_number, make_thumbnail=False):
     # create a NetCDF writer to save the output
     if make_netcdf:
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables = lambda mz: mz.z.field_list + [mz.z.ekin],
-            write_interval = np.timedelta64(20, 'm'),
+            get_variables = lambda mz: [*mz.z.field_list, mz.z.ekin],
+            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(20, "m")),
             filename=f"{exp_name}_ri_{richardson_number:.2f}.nc"))
 
     mset.setup()
