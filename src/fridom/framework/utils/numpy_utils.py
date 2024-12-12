@@ -52,10 +52,10 @@ def _handle_python_object(obj: object, memo: dict) -> object:
 
 def _create_numpy_copy(obj: object, memo: dict) -> object:
     """Create a numpy-compatible copy of the object."""
-    if hasattr(obj, '__to_numpy__'):
+    if hasattr(obj, "__to_numpy__"):
         result = _handle_to_numpy(obj, memo)
 
-    elif hasattr(obj, '_cpu') and obj._cpu is not None:  # pylint: disable=protected-access
+    elif hasattr(obj, "_cpu") and obj._cpu is not None:  # pylint: disable=protected-access
         result = _handle_cpu(obj)
 
     elif isinstance(obj, fr.config.ncp.ndarray):
@@ -76,7 +76,7 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
     elif fr.utils.MPI_AVAILABLE and isinstance(obj, MPI.Cartcomm):
         result = obj
 
-    elif not hasattr(obj, '__dict__'):
+    elif not hasattr(obj, "__dict__"):
         result = deepcopy(obj)
 
     else:
@@ -116,7 +116,7 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object
     """
     _nil = _nil or []
     # if the backend is numpy, return a deepcopy
-    if fr.config.backend == 'numpy':
+    if fr.config.backend == "numpy":
         return deepcopy(obj)
 
     # if the object was already converted to numpy, return it (recursive call)
@@ -130,7 +130,7 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object
 
     memo[d] = _create_numpy_copy(obj, memo)
 
-    if hasattr(obj, '_cpu'):
+    if hasattr(obj, "_cpu"):
         obj._cpu = memo[d]  # pylint: disable=protected-access
 
     return memo[d]
@@ -138,41 +138,44 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object
 def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
     """
     Convert a time to seconds.
-    
+
     Description
     -----------
     This function converts a time to seconds. The time can be given as a
     float, a np.datetime64 or a np.timedelta64.
-    
+
     Parameters
     ----------
-    `t` : `Union[float, np.datetime64, np.timedelta64]`
+    t : Union[float, np.datetime64, np.timedelta64]
         The time to convert to seconds.
-    
+
     Returns
     -------
-    `float`
+    float
         The time in seconds.
+
     """
     if isinstance(t, np.timedelta64):
         # Conversion factors for common time units to seconds
         conversion_factors = {
-            'Y': 365 * 24 * 3600,       # 365 days
-            'M': 30 * 24 * 3600,        # 30 days
-            'W': 7 * 24 * 3600,         # 7 days
-            'D': 24 * 3600,             # 1 day
-            'h': 3600,                  # 1 hour
-            'm': 60,                    # 1 minute
-            's': 1                      # 1 second
+            "Y": 365 * 24 * 3600,       # 365 days
+            "M": 30 * 24 * 3600,        # 30 days
+            "W": 7 * 24 * 3600,         # 7 days
+            "D": 24 * 3600,             # 1 day
+            "h": 3600,                  # 1 hour
+            "m": 60,                    # 1 minute
+            "s": 1,                      # 1 second
+            "ms": 1e-3,                 # 1 millisecond
+            "us": 1e-6,                 # 1 microsecond
         }
 
-        # Get the time unit of the timedelta64 object (e.g., 'Y', 'M', 'D')
+        # Get the time unit of the timedelta64 object (e.g., "Y", "M", "D")
         unit = np.datetime_data(t)[0]
 
         # Calculate the seconds based on the conversion factor
         return t / np.timedelta64(1, unit) * conversion_factors[unit]
 
     if isinstance(t, np.datetime64):
-        t = t.astype('datetime64[s]')  # convert time stemp to seconds
-        return float(t.astype('timedelta64[s]').astype(float))
+        t = t.astype("datetime64[s]")  # convert time stemp to seconds
+        return float(t.astype("timedelta64[s]").astype(float))
     return t
