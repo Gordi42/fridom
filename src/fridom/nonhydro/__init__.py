@@ -272,6 +272,8 @@ if TYPE_CHECKING:
     from fridom.framework.logger import log
 
     # importing classes
+    from fridom.framework.clock import Clock, TimingFormat
+    from fridom.framework.clock_trigger import ClockTrigger
     from fridom.framework.field_variable import FieldVariable
     from fridom.framework.model_state import ModelState
     from fridom.framework.model import Model
@@ -292,6 +294,8 @@ all_imports_by_origin = {
     "fridom.framework.field_variable": ["FieldVariable"],
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
+    "fridom.framework.clock": ["Clock", "TimingFormat"],
+    "fridom.framework.clock_trigger": ["ClockTrigger"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

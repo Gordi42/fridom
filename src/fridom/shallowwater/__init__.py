@@ -196,6 +196,8 @@ if TYPE_CHECKING:
     from fridom.framework.field_variable import FieldVariable
     from fridom.framework.model_state import ModelState
     from fridom.framework.model import Model
+    from fridom.framework.clock import Clock, TimingFormat
+    from fridom.framework.clock_trigger import ClockTrigger
 
 # ================================================================
 #  Setup lazy loading
@@ -215,6 +217,8 @@ all_imports_by_origin = {
     f"{base_fr}.field_variable": ["FieldVariable"],
     f"{base_fr}.model_state": ["ModelState"],
     f"{base_fr}.model": ["Model"],
+    f"{base_fr}.clock": ["Clock", "TimingFormat"],
+    f"{base_fr}.clock_trigger": ["ClockTrigger"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
