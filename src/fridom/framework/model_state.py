@@ -31,7 +31,6 @@ class ModelState:
         self.z = mset.state_constructor()
         self.z_diag = mset.diagnostic_state_constructor()
         self.dz = None
-        self.it = 0
         self._clock = clock or fr.Clock()
         # flag to cancel the model run in case something goes wrong
         self.panicked = False
@@ -41,7 +40,6 @@ class ModelState:
         self._z *= 0.0
         self._z_diag *= 0.0
         self._dz = None
-        self._it = 0
         self._clock.reset()
 
     # ================================================================
