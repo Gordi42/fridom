@@ -33,35 +33,6 @@ class NetCDFWriter(fr.modules.Module):
         The function signature of get_variables is:
         `get_variables(mz: 'ModelState') -> list[FieldVariable]`
 
-    Examples
-    --------
-    The following example shows how to create a netCDF output from a
-    nonhydrostatic model using the SingleWave initial condition.
-
-    .. code-block:: python
-
-        import fridom.nonhydro as nh
-        import numpy as np
-        import matplotlib.pyplot as plt
-
-        # create a netCDF writer that outputs u, v, w, b, and p
-        nc_writer = nh.modules.NetCDFWriter(
-            get_variables = lambda mz: [mz.u, mz.v, mz.w, mz.b, mz.z_diag.p],
-            write_interval = np.timedelta64(1, 's'))
-
-        # create the model
-        grid = nh.grid.cartesian.Grid(
-            N=[128]*3, L=[1]*3, periodic_bounds=(True, True, True))
-        mset = nh.ModelSettings(grid=grid, dsqr=0.02, Ro=0.0)
-        mset.time_stepper.dt = np.timedelta64(10, 'ms')
-        # add the netCDF writer to the diagnostics
-        mset.diagnostics.add_module(nc_writer)
-        mset.setup()
-        z = nh.initial_conditions.SingleWave(mset, kx=2, ky=0, kz=1)
-        model = nh.Model(mset)
-        model.z = z
-        model.run(runlen=np.timedelta64(10, 's'))
-
     """
 
     name = "NetCDFWriter"
