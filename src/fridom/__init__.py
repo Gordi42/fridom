@@ -1,4 +1,5 @@
-"""Framework for Idealized Ocean Models (FRIDOM).
+"""
+Framework for Idealized Ocean Models (FRIDOM).
 
 ==============================================
 
@@ -17,14 +18,15 @@ from typing import TYPE_CHECKING
 
 from lazypimp import setup
 
+
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
-    # isort: off
-    from . import framework
-    from . import nonhydro
-    from . import shallowwater
+def _import_all() -> None:
+    from . import framework, nonhydro, shallowwater
+
+if TYPE_CHECKING:  # pragma: no cover
+    _import_all()
 
 # ================================================================
 #  Setup lazy loading
