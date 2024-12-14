@@ -1,18 +1,13 @@
-"""
-Forcing modules. E.g. relaxation
-"""
-from lazypimp import setup
+"""Forcing modules. E.g. relaxation."""
 from typing import TYPE_CHECKING
+
+from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
-    # import classes
+if TYPE_CHECKING:  # pragma: no cover
     from .relaxation import Relaxation
-
-    # import modules
-
 
 # ================================================================
 #  Setup lazy loading

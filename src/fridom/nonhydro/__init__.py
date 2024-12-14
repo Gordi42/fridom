@@ -3,12 +3,12 @@ A 3D non-hydrostatic Boussinesq model.
 
 Description
 -----------
-The model is based on the ps3D model by Prof. Carsten Eden 
+The model is based on the ps3D model by Prof. Carsten Eden
 ( https://github.com/ceden/ps3D ).
 
 System of Equations
 -------------------
-The model solves the scaled non-hydrostatic Boussinesq equations given by 
+The model solves the scaled non-hydrostatic Boussinesq equations given by
 the momentum equations:
 
 .. math::
@@ -78,7 +78,7 @@ we start with the full Boussinesq equations (neglect scaling and source terms):
     \rho_0 D_t w = - \partial_z \pi - \rho g
 
 where :math:`D_t = \partial_t + \boldsymbol{u} \cdot \nabla` is the material
-derivative, :math:`\rho_0` is the constant Boussinesq density. We further 
+derivative, :math:`\rho_0` is the constant Boussinesq density. We further
 decompose the density into a part that only depends on the vertical coordinate
 :math:`\rho_s(z)`, and a perturbation :math:`\rho'`:
 
@@ -106,7 +106,7 @@ the Boussinesq equations become:
     D_t v + fu = - \partial_y p
     ~ , \quad
     D_t w = - \partial_z p + b
-    
+
 
 To obtain a tendency equation for the buoyancy, we compute its differential:
 
@@ -187,8 +187,8 @@ for the aspect ratio:
 .. math::
     \delta = \frac{H}{L} = \frac{W}{U}
 
-We assume a small Rossby number and that the momentum equations are in balance (e.g. the time derivatives 
-vanish). This leads to the following scaling relation:
+We assume a small Rossby number and that the momentum equations are in balance
+(e.g. the time derivatives vanish). This leads to the following scaling relation:
 
 .. math::
     B = \Omega U = \frac{P}{L}
@@ -217,7 +217,7 @@ We recall that the full system of equations is given by (neglecting scaling):
     \nabla \cdot \boldsymbol{u} = 0
 
 where :math:`\Delta_{\boldsymbol{u}}` includes all tendency terms on the right
-hand side of the momentum equations except the pressure gradient term. And 
+hand side of the momentum equations except the pressure gradient term. And
 the same for :math:`\Delta_b`. Taking the divergence of the momentum equations,
 we obtain the Poisson equation for the pressure:
 
@@ -230,53 +230,36 @@ Hence, the full system of equations can be written as:
 .. math::
     \partial_t \boldsymbol{z} = \boldsymbol{f}(\boldsymbol{z}, t)
 
-where :math:`\boldsymbol{z} = (\boldsymbol{u}, b)` is the state vector, and 
+where :math:`\boldsymbol{z} = (\boldsymbol{u}, b)` is the state vector, and
 :math:`\boldsymbol{f}` is the right hand side of the equations. For the explicit
 time stepping schemes, we must evaluate the right hand side of the equations at
 a given time level. This is done by first computing the tendency terms
 :math:`\Delta_{\boldsymbol{u}}` and :math:`\Delta_b`, and then solving the
 Poisson equation for the pressure. And finally, we remove the pressure gradient
 term from the tendency terms to obtain the right hand side of the equations.
-For more details on the pressure solver, see 
+For more details on the pressure solver, see
 :py:mod:`fridom.nonhydro.modules.pressure_solvers`.
 """
 from typing import TYPE_CHECKING
+
 from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
-    # ----------------------------------------------------------------
-    #  Importing model specific classes and modules
-    # ----------------------------------------------------------------
-    # importing modules
-    from . import grid
-    from . import modules
-    from . import initial_conditions
-
-    # importing classes
-    from .model_settings import ModelSettings
-    from .state import State, DiagnosticState
-
-    # ----------------------------------------------------------------
-    #  Importing generic classes and modules
-    # ----------------------------------------------------------------
-    # importing modules
-    from fridom.framework import utils
-    from fridom.framework import time_steppers
-    from fridom.framework import projection
-
-    # import logger and config
-    from fridom.framework.configuration import config
-    from fridom.framework.logger import log
-
-    # importing classes
+if TYPE_CHECKING:  # pragma: no cover
+    from fridom.framework import projection, time_steppers, utils
     from fridom.framework.clock import Clock, TimingFormat
     from fridom.framework.clock_trigger import ClockTrigger
+    from fridom.framework.configuration import config
     from fridom.framework.field_variable import FieldVariable
-    from fridom.framework.model_state import ModelState
+    from fridom.framework.logger import log
     from fridom.framework.model import Model
+    from fridom.framework.model_state import ModelState
+
+    from . import grid, initial_conditions, modules
+    from .model_settings import ModelSettings
+    from .state import DiagnosticState, State
 
 # ================================================================
 #  Setup lazy loading
