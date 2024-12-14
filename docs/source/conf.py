@@ -41,7 +41,7 @@ with open("../../pyproject.toml", "rb") as f:
 
 project = pyproject["project"]["name"]
 author = pyproject["project"]["authors"][0]["name"]
-year = "{% now 'local', '%Y' %}"
+year = "2023"
 copyright = f"{year}, {author}"
 release = pyproject["project"]["version"]
 
