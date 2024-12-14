@@ -10,6 +10,7 @@
 .. |ModelState| replace:: :py:class:`ModelState <fridom.framework.model_state.ModelState>`
 .. |State| replace:: :py:class:`State <fridom.framework.state_base.StateBase>`
 .. |Clock| replace:: :py:class:`Clock <fridom.framework.clock.Clock>`
+.. |ClockTrigger| replace:: :py:class:`ClockTrigger <fridom.framework.clock_trigger.ClockTrigger>`
 .. |Model| replace:: :py:class:`Model <fridom.framework.model.Model>`
 .. |Module| replace:: :py:class:`Module <fridom.framework.modules.module.Module>`
 .. |ModuleContainer| replace:: :py:class:`ModuleContainer <fridom.framework.modules.module_container.ModuleContainer>`
