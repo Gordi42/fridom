@@ -247,7 +247,7 @@ class FieldVariable:
             the gradient components along each axis. Axis which are not included
             in `axes` will have a value of `None`.
             E.g. for a 3D grid, `diff.grad(f, axes=[0, 2])` will return
-            `[df/dx, None, df/dz].
+            `[df/dx, None, df/dz]`.
 
         """
         return self.grid.diff_module.grad(self, axes)
@@ -360,7 +360,12 @@ class FieldVariable:
         """
         Convert a slice of the FieldVariable to xarray DataArray.
 
-        Example:
+        Parameters
+        ----------
+        key : int | slice | tuple[int | slice]
+            The slice to apply to the FieldVariable.
+
+        Example
         -------
         Let `f` be a large 3D FieldVariable and we want to convert the top
         of the field to an xarray DataArray. To avoid loading the whole field
