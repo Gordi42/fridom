@@ -6,7 +6,7 @@ from lazypimp import setup
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from .grid import Grid
 
 # ================================================================

@@ -6,7 +6,7 @@ from lazypimp import setup
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.grid.cartesian.fft import FFT
     from fridom.framework.grid.cartesian.finite_differences import FiniteDifferences
     from fridom.framework.grid.cartesian.linear_interpolation import LinearInterpolation
