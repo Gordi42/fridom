@@ -67,7 +67,7 @@ Optional dependencies
 
 - ``xarray``: To convert data to xarray datasets for easier plotting. An installation guide can be found `here <http://xarray.pydata.org/en/stable/installing.html>`_.
 - ``imageio``: To create animations. It can be installed with ``pip install "imageio[ffmpeg]"``.
-- ``mpi4py``: To run simulations in parallel using MPI (currently only with the numpy backend). An installation guide can be found `here <https://mpi4py.readthedocs.io/en/stable/install.html>`_.
+- ``mpi4py``: To run simulations in parallel using MPI (currently only with the numpy backend). An installation guide can be found `at this link <https://mpi4py.readthedocs.io/en/stable/install.html>`_.
 
 
 Installation on special systems
