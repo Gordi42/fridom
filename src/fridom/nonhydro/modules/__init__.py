@@ -10,6 +10,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.modules import (
         FigureSaver,
         Module,
+        NaNChecker,
         NetCDFWriter,
         ResetTendency,
         RestartModule,
@@ -46,7 +47,7 @@ all_imports_by_origin = {
     f"{base_path}.pressure_gradient_tendency": ["PressureGradientTendency"],
     f"{base_path}.main_tendency": ["MainTendency"],
     f"{base_path}.diagnostics": ["Diagnostics"],
-    f"{fr_base_path}": ["NetCDFWriter", "RestartModule", "ResetTendency"],
+    f"{fr_base_path}": ["NaNChecker", "NetCDFWriter", "RestartModule", "ResetTendency"],
     f"{fr_base_path}.module": ["Module", "module_method"],
     f"{fr_base_path}.figure_saver": ["FigureSaver"],
 }

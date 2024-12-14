@@ -14,6 +14,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # importing the classes and functions
     from .module import Module, module_method
     from .module_container import ModuleContainer
+    from .nan_checker import NaNChecker
     from .netcdf_writer import NetCDFWriter
     from .progress_bar import ProgressBar
     from .reset_tendency import ResetTendency
@@ -34,6 +35,7 @@ all_imports_by_origin = {
     f"{base_path}.module_container": ["ModuleContainer"],
     f"{base_path}.progress_bar": ["ProgressBar"],
     f"{base_path}.restart_module": ["RestartModule"],
+    f"{base_path}.nan_checker": ["NaNChecker"],
     f"{base_path}.netcdf_writer": ["NetCDFWriter"],
     f"{base_path}.reset_tendency": ["ResetTendency"],
     f"{base_path}.figure_saver": ["FigureSaver"],
