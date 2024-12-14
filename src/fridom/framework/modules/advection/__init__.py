@@ -1,19 +1,15 @@
-"""
-Advection modules for 1D, 2D, and 3D fluid simulations.
-"""
-from lazypimp import setup
+"""Advection modules for 1D, 2D, and 3D fluid simulations."""
 from typing import TYPE_CHECKING
+
+from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
-    # import classes
+if TYPE_CHECKING:  # pragma: no cover
+    # import all classes
     from .advection_base import AdvectionBase
     from .centered_advection import CenteredAdvection
-
-    # import modules
-
 
 # ================================================================
 #  Setup lazy loading
