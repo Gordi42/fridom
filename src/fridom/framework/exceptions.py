@@ -1,6 +1,7 @@
 """exceptions.py - Custom exceptions for the framework."""
 
 class TooManyArgumentsError(Exception):
+
     """Raise when too many arguments are provided."""
 
     def __init__(self, max_args: int, **provided_args: any) -> None:
