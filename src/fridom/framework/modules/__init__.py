@@ -9,9 +9,10 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # importing modules
     from . import advection, animation, closures, forcings
-    from .figure_saver import FigureSaver
 
     # importing the classes and functions
+    from .counter import Counter
+    from .figure_saver import FigureSaver
     from .module import Module, module_method
     from .module_container import ModuleContainer
     from .nan_checker import NaNChecker
@@ -31,6 +32,7 @@ all_modules_by_origin = { base_path: ["animation",
                                       "forcings"] }
 
 all_imports_by_origin = {
+    f"{base_path}.counter": ["Counter"],
     f"{base_path}.module": ["Module", "module_method"],
     f"{base_path}.module_container": ["ModuleContainer"],
     f"{base_path}.progress_bar": ["ProgressBar"],
