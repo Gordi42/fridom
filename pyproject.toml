@@ -28,6 +28,7 @@ dependencies = [
   "IPython",
   "coloredlogs",
   "regex",
+  "pillow",
 ]
 license = {file = "LICENSE"}
 
