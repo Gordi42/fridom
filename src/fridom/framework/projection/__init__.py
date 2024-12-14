@@ -17,7 +17,7 @@ from lazypimp import setup
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     # base projection class
     from .geostrophic_time_average import GeostrophicTimeAverage
     from .nnmd import NNMD
