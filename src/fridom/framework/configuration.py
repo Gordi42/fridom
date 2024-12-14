@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import time
 
-import numpy  # noqa: ICN001
+import numpy as np
 import scipy
 
 from fridom.framework.logger import log
@@ -16,13 +16,13 @@ class Config:
 
     """Configuration class for the fridom framework."""
 
-    _ncp = numpy
+    _ncp = np
     _scp = scipy
     _backend = "numpy"
     _enable_parallel = False
     _enable_jax_jit = True
-    _dtype_real = numpy.float64
-    _dtype_comp = numpy.complex128
+    _dtype_real = np.float64
+    _dtype_comp = np.complex128
     _load_time: float = 0
 
     def __init__(self) -> None:
@@ -86,7 +86,7 @@ class Config:
 
     @classmethod
     def _set_numpy_as_backend(cls) -> None:
-        cls._ncp = numpy
+        cls._ncp = np
         cls._scp = scipy
         cls._backend = "numpy"
 
@@ -130,13 +130,13 @@ class Config:
     #  Data Types
     # ----------------------------------------------------------------
     @classmethod
-    def set_dtype(cls, dtype: str | numpy.dtype) -> None:
+    def set_dtype(cls, dtype: str | np.dtype) -> None:
         """
         Set the default data type for real and complex arrays.
 
         Parameters
         ----------
-        dtype : str or numpy.dtype
+        dtype : str or np.dtype
             The new default data type for real arrays. Complex arrays will be
             set so that both real and imaginary parts have the same data type.
             Available data types are:
@@ -154,17 +154,17 @@ class Config:
         dtype('complex64')
 
         """
-        dtype = numpy.dtype(dtype)
+        dtype = np.dtype(dtype)
         # for the gpu backend, float128 is not supported
         backend_is_jax = cls._backend.startswith("jax")
-        if backend_is_jax and dtype == numpy.float128:
+        if backend_is_jax and dtype == np.float128:
             log.warning(
                 "float128 is not supported for the JAX backend. "
                 "Falling back to float64.")
-            dtype = numpy.dtype(numpy.float64)
+            dtype = np.dtype(np.float64)
         # set the new data types
         cls._dtype_real = dtype.type
-        cls._dtype_comp = numpy.dtype(f"complex{dtype.itemsize * 16}").type
+        cls._dtype_comp = np.dtype(f"complex{dtype.itemsize * 16}").type
 
     # ================================================================
     #  Properties
@@ -211,12 +211,12 @@ class Config:
         self._enable_jax_jit = value
 
     @property
-    def dtype_real(self) -> numpy.dtype:
+    def dtype_real(self) -> np.dtype:
         """The default dtype of real arrays."""
         return self._dtype_real
 
     @property
-    def dtype_comp(self) -> numpy.dtype:
+    def dtype_comp(self) -> np.dtype:
         """The default dtype of complex arrays."""
         return self._dtype_comp
 
