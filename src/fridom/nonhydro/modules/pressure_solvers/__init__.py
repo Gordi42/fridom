@@ -1,13 +1,12 @@
-"""
-This module contains the pressure solvers for the non-hydrostatic model.
-"""
-from lazypimp import setup
+"""Pressure solvers for the non-hydrostatic model."""
 from typing import TYPE_CHECKING
+
+from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     from .spectral_pressure_solver import SpectralPressureSolver
 
 # ================================================================
