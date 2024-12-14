@@ -1,4 +1,6 @@
 """model_settings_base.py - Base class for model settings container."""
+from __future__ import annotations
+
 from functools import partial
 
 import fridom.framework as fr
@@ -51,7 +53,7 @@ class ModelSettingsBase:
 
     model_name = "Unnamed model"
 
-    def __init__(self, grid: "fr.grid.GridBase", **kwargs: dict) -> None:
+    def __init__(self, grid: fr.grid.GridBase, **kwargs: dict) -> None:
         self._tendencies = fr.modules.ModuleContainer("All Tendencies")
         self._diagnostics = fr.modules.ModuleContainer("All Diagnostics")
         self._time_stepper = fr.time_steppers.AdamBashforth()
@@ -70,12 +72,12 @@ class ModelSettingsBase:
 
         Parameters
         ----------
-        **kwargs : `dict`
+        kwargs : dict
             Keyword arguments to set the attributes of the model settings.
 
         Raises
         ------
-        `AttributeError`
+        AttributeError
             The attribute does not exist in the model settings.
 
         """
@@ -200,12 +202,12 @@ class ModelSettingsBase:
         return res
 
     @property
-    def grid(self) -> "fr.grid.GridBase":
+    def grid(self) -> fr.grid.GridBase:
         """The spatial grid."""
         return self._grid
 
     @grid.setter
-    def grid(self, value: "fr.grid.GridBase") -> None:
+    def grid(self, value: fr.grid.GridBase) -> None:
         self._grid = value
 
     # ----------------------------------------------------------------
