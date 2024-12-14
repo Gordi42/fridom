@@ -32,6 +32,7 @@ including the following attributes:
 +-----------+---------+--------------------------------------------------+
 | ``clock`` | |Clock| | Information about the model time                 |
 +-----------+---------+--------------------------------------------------+
+
 You typically don’t need to create a |ModelState| manually; it is initialized 
 automatically when the model is set up. Instead, you interact with the existing 
 |ModelState| object. The following example demonstrates accessing the |ModelState| 
