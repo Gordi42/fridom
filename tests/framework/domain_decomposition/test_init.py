@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/framework/__init__.py file."""
+"""Test the imports in the fridom/framework/domain_decomposition/__init__.py file."""
 import pytest
 
 import fridom.framework.domain_decomposition as test_module
