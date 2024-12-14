@@ -10,11 +10,10 @@ from typing import TYPE_CHECKING
 
 from lazypimp import setup
 
-
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-def _import_all() -> None:
+if TYPE_CHECKING:  # pragma: no cover
     # Import modules
     from . import (
         domain_decomposition,
@@ -37,9 +36,6 @@ def _import_all() -> None:
     from .model_settings_base import ModelSettingsBase
     from .model_state import ModelState
     from .state_base import StateBase
-
-if TYPE_CHECKING:  # pragma: no cover
-    _import_all()
 
 # ================================================================
 #  Setup lazy loading

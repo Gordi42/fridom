@@ -18,15 +18,11 @@ from typing import TYPE_CHECKING
 
 from lazypimp import setup
 
-
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-def _import_all() -> None:
-    from . import framework, nonhydro, shallowwater
-
 if TYPE_CHECKING:  # pragma: no cover
-    _import_all()
+    from . import framework, nonhydro, shallowwater
 
 # ================================================================
 #  Setup lazy loading
