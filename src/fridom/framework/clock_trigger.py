@@ -49,11 +49,17 @@ class ClockTrigger:
                  stop_date: np.datetime64 | float | None = None,
                  stop_step: int | None = None,
                  time_interval: np.timedelta64 | float | None = None,
-                 step_number: int | None = None) -> None:
+                 step_size: int | None = None) -> None:
         # check for too many arguments
         fr.exceptions.TooManyArgumentsError.check(
-            max_args=1, time_interval=time_interval, step_number=step_number)
+            max_args=1, time_interval=time_interval, step_number=step_size)
 
+        self._start_date = start_date
+        self._start_step = start_step
+        self._stop_date = stop_date
+        self._stop_step = stop_step
+        self._time_interval = time_interval
+        self._step_size = step_size
 
         self._start_callback = self._set_start_callback(start_date, start_step)
         self._stop_callback = self._set_stop_callback(stop_date, stop_step)
@@ -65,7 +71,7 @@ class ClockTrigger:
             time_interval = fr.utils.to_seconds(time_interval)
 
         self._time_interval = time_interval
-        self._step_number = step_number
+        self._step_size = step_size
         self._start_time = None
         self._start_it = None
 
@@ -156,7 +162,6 @@ class ClockTrigger:
             self._start_time = clock.time
         return should_start
 
-
     def should_stop(self, clock: fr.Clock) -> bool:
         """
         Check if the module should stop.
@@ -210,8 +215,8 @@ class ClockTrigger:
         if self._time_interval is not None:
             target_time = self._start_time + n_steps * self._time_interval
             should_advance = clock.time >= target_time
-        elif self._step_number is not None:
-            target_it = self._start_it + n_steps * self._step_number
+        elif self._step_size is not None:
+            target_it = self._start_it + n_steps * self._step_size
             should_advance = clock.it >= target_it
         else:
             should_advance = True
@@ -244,3 +249,25 @@ class ClockTrigger:
         self.should_start(clock)
         self.should_stop(clock)
         return self.should_advance(clock)
+
+    def __repr__(self) -> str:
+        res = "ClockTrigger("
+        if self._start_date is not None:
+            res += f"start_date={self._start_date}, "
+        elif self._start_step is not None:
+            res += f"start_step={self._start_step}, "
+        else:
+            res += "start_date=None, "
+        if self._time_interval is not None:
+            res += f"time_interval={self._time_interval}, "
+        elif self._step_size is not None:
+            res += f"step_size={self._step_size}, "
+        else:
+            res += "time_interval=None, "
+        if self._stop_date is not None:
+            res += f"stop_date={self._stop_date})"
+        elif self._stop_step is not None:
+            res += f"stop_step={self._stop_step})"
+        else:
+            res += "stop_date=None)"
+        return res

@@ -137,3 +137,27 @@ def test_restart_trigger(restart_trigger, expected_files, directory_name, mset):
 
     for file in expected_files:
         assert (directory_name / file).exists()
+
+@pytest.mark.parametrize(*(
+    "time_stamp, expected_filename",
+    [
+        (True, "test_0s"),
+        (False, "test"),
+    ],
+))
+def test_no_timestamp(
+    time_stamp, expected_filename, netcdf_module, directory_name, mset):
+    netcdf_module.add_timestamp = time_stamp
+
+    # check if the format filename is correct
+    filename = netcdf_module._format_filename(fr.Clock())
+    assert filename.stem == expected_filename
+
+    mset.diagnostics.add_module(netcdf_module)
+    mset.setup()
+    model = fr.Model(mset)
+    model.run(runlen=np.timedelta64(1, "h"))
+
+    # check if the number of files is correct
+    assert len(list(directory_name.glob("*.cdf"))) == 1
+    assert (directory_name / f"{expected_filename}.cdf").exists()

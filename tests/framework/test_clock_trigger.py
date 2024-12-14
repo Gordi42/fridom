@@ -63,10 +63,10 @@ def test_initialization_time_interval(time_interval, step_number):
     # if both arguments are provided, raise an error
     if time_interval is not None and step_number is not None:
         with pytest.raises(fr.exceptions.TooManyArgumentsError):
-            fr.ClockTrigger(time_interval=time_interval, step_number=step_number)
+            fr.ClockTrigger(time_interval=time_interval, step_size=step_number)
         return
     # otherwise, create the ClockTrigger object
-    clock_trigger = fr.ClockTrigger(time_interval=time_interval, step_number=step_number)
+    clock_trigger = fr.ClockTrigger(time_interval=time_interval, step_size=step_number)
     assert isinstance(clock_trigger, fr.ClockTrigger)
 
 # ----------------------------------------------------------------
@@ -84,7 +84,7 @@ def test_initialization_time_interval(time_interval, step_number):
 def test_count_triggers_no_start_no_stop(time_interval, step_number, expected_triggers):
     """Count the number of advanced steps."""
     clock_trigger = fr.ClockTrigger(
-        time_interval=time_interval, step_number=step_number)
+        time_interval=time_interval, step_size=step_number)
     clock = fr.Clock()
     n_ticks = 10
     tick_amount = 0.3
@@ -109,7 +109,7 @@ def test_count_triggers_with_start(time_interval, step_number, expected_triggers
     clock_trigger = fr.ClockTrigger(
         start_date=1,
         time_interval=time_interval,
-        step_number=step_number)
+        step_size=step_number)
     clock = fr.Clock()
     n_ticks = 10
     tick_amount = 0.3
@@ -134,7 +134,7 @@ def test_count_triggers_with_stop(time_interval, step_number, expected_triggers)
     clock_trigger = fr.ClockTrigger(
         stop_date=2,
         time_interval=time_interval,
-        step_number=step_number)
+        step_size=step_number)
     clock = fr.Clock()
     n_ticks = 10
     tick_amount = 0.3
@@ -144,3 +144,22 @@ def test_count_triggers_with_stop(time_interval, step_number, expected_triggers)
         clock.tick(tick_amount)
 
     assert trigger_count == expected_triggers
+
+@pytest.mark.parametrize(*(
+    "clock_trigger, expected_repr",
+    [
+        (fr.ClockTrigger(), 
+         "ClockTrigger(start_date=None, time_interval=None, stop_date=None)"),
+        (fr.ClockTrigger(start_date=10.0, time_interval=1.0, stop_date=20.0),
+         "ClockTrigger(start_date=10.0, time_interval=1.0, stop_date=20.0)"),
+        (fr.ClockTrigger(start_step=10, step_size=1, stop_step=20),
+         "ClockTrigger(start_step=10, step_size=1, stop_step=20)"),
+        (fr.ClockTrigger(start_date=np.datetime64("2023-01-01"),
+                         time_interval=np.timedelta64(1, "h"),
+                         stop_date=np.datetime64("2023-01-02")),
+         "ClockTrigger(start_date=2023-01-01, time_interval=3600.0, stop_date=2023-01-02)"),  # noqa: E501
+    ],
+))
+def test_repr(clock_trigger, expected_repr):
+    """Test the __repr__ method of the ClockTrigger class."""
+    assert repr(clock_trigger) == expected_repr
