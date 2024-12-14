@@ -238,7 +238,7 @@ class NetCDFWriter(fr.modules.Module):
         time[time_ind] = mz.clock.passed_time
         for var in self.get_variables(mz):
             nc_var = self._ncfile.variables[var.name]
-            arr = var.unpad()
+            arr = var.unpad()[self.snap_slice]
             nc_var[ind] = fr.utils.to_numpy(arr.T)
 
     def _close_file(self) -> None:
@@ -263,9 +263,6 @@ class NetCDFWriter(fr.modules.Module):
         self._close_file()
         # set the new slice
         self._snap_slice = value
-
-        msg = "snap_slice is not implemented yet."
-        raise NotImplementedError(msg)
 
     @property
     def add_timestamp(self) -> bool:
