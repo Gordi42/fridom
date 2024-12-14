@@ -93,6 +93,12 @@ class NetCDFWriter(fr.modules.Module):
             self._close_file()
 
     @fr.modules.module_method
+    def reset(self) -> None:  # noqa: D102
+        self.write_trigger.reset()
+        self.restart_trigger.reset()
+        super().reset()
+
+    @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         # ----------------------------------------------------------------
         #  Check if it is time to write

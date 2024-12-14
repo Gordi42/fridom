@@ -250,6 +250,12 @@ class ClockTrigger:
         self.should_stop(clock)
         return self.should_advance(clock)
 
+    def reset(self) -> None:
+        """Reset the module."""
+        self._number_of_advanced_steps = 0
+        self._started = False
+        self._stopped = False
+
     def __repr__(self) -> str:
         res = "ClockTrigger("
         if self._start_date is not None:
