@@ -1,19 +1,14 @@
-"""
-Closure modules. E.g. diffusion, hyperdiffusion, etc.
-"""
-from lazypimp import setup
+"""Closure modules. E.g. diffusion, hyperdiffusion, etc."""
 from typing import TYPE_CHECKING
+
+from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
-    # import classes
-    from .harmonic_diffusion import HarmonicDiffusion
+if TYPE_CHECKING:  # pragma: no cover
     from .biharmonic_diffusion import BiharmonicDiffusion
-
-    # import modules
-
+    from .harmonic_diffusion import HarmonicDiffusion
 
 # ================================================================
 #  Setup lazy loading
