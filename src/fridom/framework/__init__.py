@@ -1,4 +1,5 @@
-"""Core modules of the FRIDOM framework.
+"""
+Core modules of the FRIDOM framework.
 
 Description
 -----------
@@ -9,34 +10,36 @@ from typing import TYPE_CHECKING
 
 from lazypimp import setup
 
+
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
-if TYPE_CHECKING:
-    # isort: off
-    # Import classes
-    from .model_settings_base import ModelSettingsBase
-    from .field_variable import FieldVariable
-    from .state_base import StateBase
-    from .model_state import ModelState
-    from .model import Model
+def _import_all() -> None:
+    # Import modules
+    from . import (
+        domain_decomposition,
+        exceptions,
+        grid,
+        modules,
+        projection,
+        time_steppers,
+        timing_module,
+        utils,
+    )
+
+    # Import classes and functions
     from .clock import Clock, TimingFormat
     from .clock_trigger import ClockTrigger
-
-    # Import logger
-    from .logger import log
-    # Import config
     from .configuration import config
+    from .field_variable import FieldVariable
+    from .logger import log
+    from .model import Model
+    from .model_settings_base import ModelSettingsBase
+    from .model_state import ModelState
+    from .state_base import StateBase
 
-    # Import modules
-    from . import exceptions
-    from . import grid
-    from . import domain_decomposition
-    from . import utils
-    from . import time_steppers
-    from . import modules
-    from . import projection
-    from . import timing_module
+if TYPE_CHECKING:  # pragma: no cover
+    _import_all()
 
 # ================================================================
 #  Setup lazy loading
