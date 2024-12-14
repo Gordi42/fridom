@@ -1,18 +1,19 @@
 """Closures for the non-hydrostatic model."""
-from lazypimp import setup
 from typing import TYPE_CHECKING
+
+from lazypimp import setup
 
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
 
-if TYPE_CHECKING:
-    # import classes
-    from .diffusion import HarmonicMixing, HarmonicFriction, \
-        BiharmonicMixing, BiharmonicFriction
-
-    # import modules
-
+if TYPE_CHECKING:  # pragma: no cover
+    from .diffusion import (
+        BiharmonicFriction,
+        BiharmonicMixing,
+        HarmonicFriction,
+        HarmonicMixing,
+    )
 
 # ================================================================
 #  Setup lazy loading
