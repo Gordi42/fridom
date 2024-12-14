@@ -77,7 +77,7 @@ class ClockTrigger:
 
     def _set_start_callback(self,
                             start_date: np.datetime64 | float | None = None,
-                            start_step: int | None = None
+                            start_step: int | None = None,
                             ) -> Callable[[fr.Clock], bool]:
         fr.exceptions.TooManyArgumentsError.check(
             max_args=1, start_date=start_date, start_step=start_step)
