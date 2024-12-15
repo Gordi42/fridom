@@ -55,10 +55,11 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
     res[where] = value
     return res
 
-def random_array(shape: tuple[int], seed=12345):
+def random_array(shape: tuple[int], seed=12345, **kwargs) -> np.ndarray:
     """Create a random array."""
-    fr.log.warning("The random_array function is deprecated and will be removed in the future.")
-    fr.log.warning("Please use the create array method from the grid object instead")
+    if "ignore_warning" not in kwargs:
+        fr.log.warning("The random_array function is deprecated and will be removed in the future.")
+        fr.log.warning("Please use the create array method from the grid object instead")
     if fr.config.backend_is_jax:
         # we need to import jax here since it is an optional dependency
         import jax  # pylint: disable=import-outside-toplevel
