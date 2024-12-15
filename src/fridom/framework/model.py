@@ -1,176 +1,157 @@
-# Import external modules
-from typing import TYPE_CHECKING, Union
+"""Model class for the fridom framework."""
+from __future__ import annotations
+
+import sys
+
 import numpy as np
+
 import fridom.framework as fr
-# Import internal modules
-from fridom.framework import config
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.model_settings_base import ModelSettingsBase
 
 
 class Model:
+
     """
-    Base class for the model.
+    The main model class.
 
-    Attributes:
-        mset (ModelSettings)    : Model settings.
-        grid (Grid)             : Grid.
-        z (State)               : State variable.
-        dz_list (list)          : List of tendency terms (for time stepping).
-        pointer (np.ndarray)    : Pointer for time stepping.
-        coeff_AB (np.ndarray)   : Adam-Bashforth coefficients.
-        timer (TimingModule)    : Timer.
-        it (int)                : Iteration counter.
-        time (float)            : Model time.
-        dz (State)              : Current tendency term.
+    Parameters
+    ----------
+    mset : ModelSettingsBase
+        The model settings.
 
-    Methods:
-        run()                   : Run the model for a given number of steps.
-        step()                  : Perform one time step.
-        reset()                 : Reset the model (pointers, tendencies)
     """
 
-    def __init__(self, mset: 'ModelSettingsBase') -> None:
-        """
-        Constructor.
-        """
+    def __init__(self, mset: fr.ModelSettingsBase) -> None:
         self.mset = mset
+        self.model_state = fr.ModelState(mset)
 
-        # state variable
-        from fridom.framework.model_state import ModelState
-        self.model_state = ModelState(mset)
-
-        # Timer
-        self.timer = mset.timer
-
-        # Modules
-        self.progress_bar = mset.progress_bar
-        self.restart_module = mset.restart_module
-        self.tendencies  = mset.tendencies
-        self.diagnostics = mset.diagnostics
-
-        # Time stepper
-        self.time_stepper = mset.time_stepper
-        return
-
-    def start(self):
-        """
-        Prepare the model for running.
-        """
+    def start(self) -> None:
+        """Prepare the model for running."""
         # start all modules
         self.timer.total.start()
-        self.restart_module.start()
-        self.tendencies.start()
-        self.diagnostics.start()
-        self.time_stepper.start()
+        for module in self._modules:
+            module.start()
         self.model_state.panicked = False
 
-        # compile the modules
-        from time import time
-        if fr.config.backend_is_jax:
-            fr.log.notice("Compiling tendency modules")
-            start_time = time()
-            mz = fr.ModelState(self.mset)
-            mz.dz = self.mset.state_constructor()
-            self.tendencies.update(mz)
-            fr.log.notice(
-                f"Compilation finished in {time()-start_time:.2f} seconds")
-
-        # start the progress bar at the very end
-        self.progress_bar.start()
-        return
-
-    def stop(self):
-        """
-        Finish the model run.
-        """
-        self.restart_module.stop()
-        self.tendencies.stop()
-        self.diagnostics.stop()
-        self.time_stepper.stop()
+    def stop(self) -> None:
+        """Finish the model run."""
+        for module in self._modules:
+            module.stop()
         self.timer.total.stop()
         self.progress_bar.stop()
-        return
-        
+
     def reset(self) -> None:
-        """
-        Reset the model (pointers, tendencies).
-        """
-        self.restart_module.reset()
-        self.tendencies.reset()
-        self.diagnostics.reset()
-        self.time_stepper.reset()
+        """Reset the model (pointers, tendencies)."""
+        for module in self._modules:
+            module.reset()
         self.model_state.reset()
         self.timer.reset()
-        # to implement in child class
-        return
 
     # ============================================================
     #   RUN MODEL
     # ============================================================
 
-    def run(self, 
-            steps: int | None = None, 
-            runlen: Union[np.timedelta64, float, int, None] = None,
-            start_time: Union[np.datetime64, float, int] = 0,
-            end_time: Union[np.datetime64, float, int, None] = None,
-            progress_bar=True) -> None:
+    def run(self,
+            steps: int | None = None,
+            runlen: np.timedelta64 | float | None = None,
+            start_step: int = 0,
+            start_time: np.datetime64 | float = 0,
+            end_time: np.datetime64 | float | None = None) -> None:
         """
-        Run the model
-        
+        Run the model.
+
         Parameters
         ----------
-        `steps` : `int` (default: None)
+        steps : int (default: None)
             Number of steps to run.
-        `runlen` : `np.timedelta64 | float | int` (default: None)
+        runlen : np.timedelta64 | float | int (default: None)
             Length of the run.
-        `start_time` : `np.datetime64 | float | int` (default: 0)
+        start_step : int (default: 0)
+            Start iteration of the run.
+        start_time : np.datetime64 | float | int (default: 0)
             Start time of the run.
-        `end_time` : `np.datetime64 | float | int` (default: None)
+        end_time : np.datetime64 | float | int (default: None)
             End time of the run.
-        `progress_bar` : `bool` (default: True)
-            Show progress bar.
-        
-        Raises
-        ------
-        `ValueError`
-            Only one of `steps`, `runlen` or `end_time` can be given.
+
         """
-        # ----------------------------------------------------------------
         #  Check input
-        # ----------------------------------------------------------------
-        # only one of steps, runlen or end_time can be given
-        if sum([steps is not None, 
-                runlen is not None, 
-                end_time is not None]) > 1:
-            raise ValueError("Only one of steps, runlen or end_time can be given.")
+        fr.exceptions.TooManyArgumentsError.check(
+            max_args=1, steps=steps, runlen=runlen, end_time=end_time)
 
-        # ----------------------------------------------------------------
         #  Convert time parameters to seconds
+        datetime_formatting = self._datetime_formatting(
+            start_time, end_time, runlen)
+        start_time, end_time, runlen = self._initialize_run(
+            start_time, end_time, runlen, start_step)
+
+        # Determine loop type and final values
+        main_loop_type, start_value, final_value = self._determine_loop_type(
+            steps, start_time, runlen, end_time)
+
+        # check if the final value is reached
+        if start_value >= final_value:
+            return
+
+        # Prepare the model for running
+        if self.restart_module.should_reload():
+            self.load(self.restart_module.file)
+
+        self.start()
+
+        # Execute the first time step
+        self._execute_first_time_step()
+
+        # Start the progress bar
+        self.progress_bar.start()
+        self.progress_bar.set_options(
+            main_loop_type=main_loop_type,
+            datetime_formatting=datetime_formatting,
+            start_value=start_value,
+            final_value=final_value)
+
         # ----------------------------------------------------------------
-        self.model_state.clock.set_start(start_time)
-        datetime_formatting = False
+        #  Main loop
+        # ----------------------------------------------------------------
+        if main_loop_type == "for loop":
+            self._main_loop_steps(start_value+1, final_value)
+        elif main_loop_type == "while loop":
+            self._main_loop_time(final_value)
+
+        # stop the model
+        self._finalize_run()
+
+    def _datetime_formatting(self,
+                             start_time: np.datetime64 | float,
+                             end_time: np.datetime64 | float | None,
+                             runlen: np.timedelta64 | float | None) -> bool:
+        """Check if some of the input parameters are in datetime format."""
         if isinstance(start_time, np.datetime64):
-            datetime_formatting = True
-            start_time = fr.utils.to_seconds(start_time)
+            return True
         if isinstance(end_time, np.datetime64):
-            datetime_formatting = True
-            end_time = fr.utils.to_seconds(end_time)
-        if isinstance(runlen, np.timedelta64):
-            runlen = fr.utils.to_seconds(runlen)
+            return True
+        return bool(isinstance(runlen, np.timedelta64))
 
-        # set the start time
-        self.model_state.clock.time = start_time
+    def _initialize_run(self,
+                        start_time: np.datetime64 | float,
+                        end_time: np.datetime64 | float | None,
+                        runlen: np.timedelta64 | float | None,
+                        start_step: int) -> tuple[float, float, float]:
+        """Convert time parameters and initialize the clock."""
+        self.model_state.clock.set_start(start_time)
+        self.model_state.clock.time = fr.utils.to_seconds(start_time)
+        self.model_state.clock.it = start_step
+        return (fr.utils.to_seconds(start_time),
+                fr.utils.to_seconds(end_time),
+                fr.utils.to_seconds(runlen))
 
-        # ----------------------------------------------------------------
-        #  Calculate number of steps / end time
-        # ----------------------------------------------------------------
-        # calculate end time if runlen is given
+    def _determine_loop_type(self,
+                             steps: int | None,
+                             start_time: float,
+                             runlen: float | None,
+                             end_time: float | None) -> tuple[str, int, int]:
+        """Determine the loop type and final values."""
         if runlen is not None:
             end_time = start_time + runlen
 
-        # calculate the final iteration step if steps is given
         if steps is not None:
             main_loop_type = "for loop"
             start_value = self.model_state.clock.it
@@ -179,81 +160,77 @@ class Model:
             main_loop_type = "while loop"
             start_value = start_time
             final_value = end_time
-            
-        # ----------------------------------------------------------------
-        #  Load the model
-        # ----------------------------------------------------------------
-        # check if the model needs to be reloaded
-        if self.restart_module.should_reload():
-            self.load(self.restart_module.file)
 
-        # start the model
-        self.start()
+        return main_loop_type, start_value, final_value
 
-        # Set the progress bar options
-        self.progress_bar.set_options(
-            main_loop_type=main_loop_type,
-            datetime_formatting=datetime_formatting,
-            start_value=start_value,
-            final_value=final_value)
+    def _execute_first_time_step(self) -> None:
+        """Print the timing of the first time step."""
+        # compile the modules
+        from time import time
+        if fr.config.backend_is_jax:
+            fr.log.notice("Compiling modules at first time step")
+            start_time = time()
 
-        # ----------------------------------------------------------------
-        #  Initial diagnostics
-        # ----------------------------------------------------------------
+        # Execute modules that should run at the start
         for module in self.diagnostics.module_list:
             if module.execute_at_start:
                 self.model_state = module.update(self.model_state)
 
-        # ----------------------------------------------------------------
-        #  Main loop: Given number of setps
-        # ----------------------------------------------------------------
-        if steps is not None:
-            start_it = self.model_state.clock.it
-            fr.log.info(
-                f"Running model from iteration {start_value} to {final_value}")
-            
-            # loop over the given number of steps
-            for _ in range(start_it, final_value):
-                self.step()
+        # Execute the first time step
+        self.progress_bar.disable()
+        self.step()
+        self.progress_bar.enable()
 
-                if self.model_state.panicked:
-                    fr.log.warning(
-                        "Something went wrong. Stopping model.")
-                    break
+        # Print the compilation time
+        if fr.config.backend_is_jax:
+            fr.log.notice(
+                f"Compilation finished in {time()-start_time:.2f} seconds")
 
-        # ----------------------------------------------------------------
-        #  Main loop: Given run length
-        # ----------------------------------------------------------------
-        elif end_time is not None:
-            fr.log.info(
-                f"Running model from {self.model_state.clock.time} to {end_time}")
+    def _main_loop_steps(self, start_value: int, final_value: int) -> None:
+        start_it = self.model_state.clock.it
+        fr.log.info(
+            f"Running model from iteration {start_value} to {final_value}")
 
-            # loop until the end time is reached
-            while self.model_state.clock.time < end_time:
-                self.step()
+        # loop over the given number of steps
+        for _ in range(start_it, final_value):
+            self.step()
 
-                if self.model_state.panicked:
-                    fr.log.warning(
-                        "Something went wrong. Stopping model.")
-                    break
+            if self.model_state.panicked:
+                fr.log.warning(
+                    "Something went wrong. Stopping model.")
+                break
 
-        # stop the model
+    def _main_loop_time(self, end_time: float) -> None:
+        fr.log.info(
+            f"Running model from {self.model_state.clock.time} to {end_time}")
+
+        # loop until the end time is reached
+        while self.model_state.clock.time < end_time:
+            self.step()
+
+            if self.model_state.panicked:
+                fr.log.warning(
+                    "Something went wrong. Stopping model.")
+                break
+
+    def _finalize_run(self) -> None:
+        """Finalize the model run."""
+        # finalize the model
         self.stop()
 
         fr.log.info(
-            f"Model run finished at it: {self.model_state.clock.it}, time: {self.model_state.clock.time}")
+            "Model run finished at it: %d, time: %f",
+            self.model_state.clock.it,
+            self.model_state.clock.time)
         fr.log.info(self.mset.timer)
 
-        return
 
     # ============================================================
     #   SINGLE TIME STEP
     # ============================================================
 
     def step(self) -> None:
-        """
-        Update the model state by one time step.
-        """
+        """Update the model state by one time step."""
         # synchronize the state vector (ghost points)
         with self.timer["sync"]:
             self.z.sync()
@@ -262,12 +239,7 @@ class Model:
         self.model_state = self.time_stepper.update(mz=self.model_state)
 
         # check if there are any nans in the state variable
-        with self.timer["check_nan"]:
-            if self.model_state.clock.it % self.mset.nan_check_interval == 0:
-                if self.model_state.z.has_nan():
-                    fr.log.critical(
-                        "State variable contains NaNs. Stopping model.")
-                    self.model_state.panicked = True
+        self.model_state = self.nan_checker.update(self.model_state)
 
         # make diagnostics
         self.model_state = self.diagnostics.update(mz=self.model_state)
@@ -277,67 +249,108 @@ class Model:
 
         # check if the model should restart
         if self.restart_module.should_restart(self.model_state):
-            self.restart()
+            self.restart_module.restart(self)
 
-    def restart(self) -> None:
-        fr.log.info(
-            f"Stopping model at it: {self.model_state.clock.it}, time: {self.model_state.clock.time}")
-        self.stop()
-        self.save(self.restart_module.file)
-        fr.log.info(self.mset.timer)
-        fr.log.info("Spawning new sbatch job:")
-        fr.log.info(self.restart_module.restart_command)
-        fr.utils.mpi_barrier()
-        if fr.utils.MPI_AVAILABLE:
-            import subprocess
-            result = subprocess.run(
-                self.restart_module.restart_command.split(), 
-                capture_output=True, text=True)
-            fr.log.notice(result.stdout)
-            if result.stderr:
-                fr.log.error(result.stderr)
-        fr.utils.mpi_barrier()
-        exit()
-
-    
     # ============================================================
     #   Getters and setters
     # ============================================================
 
     @property
-    def z(self):
-        """
-        Returns the current state variable.
-        """
+    def z(self) -> fr.StateBase:
+        """Returns the current state variable."""
         return self.model_state.z
-    
+
     @z.setter
-    def z(self, value):
-        """
-        Set the current state variable.
-        """
+    def z(self, value: fr.StateBase) -> None:
+        """Set the current state variable."""
         self.model_state.z = value
-        return
+
+    @property
+    def timer(self) -> fr.Timer:
+        """The timing module."""
+        return self.mset.timer
+
+    @property
+    def nan_checker(self) -> fr.modules.NaNChecker:
+        """The NaN checker module."""
+        return self.mset.nan_checker
+
+    @property
+    def progress_bar(self) -> fr.modules.ProgressBar:
+        """The progress bar module."""
+        return self.mset.progress_bar
+
+    @property
+    def restart_module(self) -> fr.modules.RestartModule:
+        """The restart module."""
+        return self.mset.restart_module
+
+    @property
+    def time_stepper(self) -> fr.time_steppers.TimeStepper:
+        """The time stepper."""
+        return self.mset.time_stepper
+
+    @property
+    def tendencies(self) -> fr.modules.ModuleContainer:
+        """The module container for all tendencies."""
+        return self.mset.tendencies
+
+    @property
+    def diagnostics(self) -> fr.modules.ModuleContainer:
+        """The module container for all diagnostics."""
+        return self.mset.diagnostics
+
+    @property
+    def _modules(self) -> list[fr.modules.Module]:
+        """List of all modules."""
+        return [
+            self.nan_checker,
+            self.restart_module,
+            self.time_stepper,
+            self.tendencies,
+            self.diagnostics,
+        ]
 
     # ============================================================
     #   OTHER METHODS
     # ============================================================
 
     def load(self, file: str) -> None:
+        """
+        Load a model from a file.
+
+        Parameters
+        ----------
+        file : str
+            The filename to load the model from
+
+        """
         # underscores are not allowed in the filename
+        from pathlib import Path
+
         import dill
         # get a list of all files in the directory that start with the filename
-        with open(file, "rb") as f:
-            model = dill.load(f)
+        with Path(file).open("rb") as f:
+            model = dill.load(f)  # noqa: S301
             model.mset.grid = self.mset.grid
 
         for key, attr in vars(model).items():
             setattr(self, key, attr)
-        return
 
     def save(self, file: str) -> None:
+        """
+        Save the full model to a file.
+
+        Parameters
+        ----------
+        file : str
+            The filename to save the model to
+
+        """
+        from pathlib import Path
+
         import dill
-        with open(file, "wb") as f:
+        with Path(file).open("wb") as f:
             fr.log.verbose(f"Saving model to {file}")
             grid = self.mset.grid
             # remove the grid from the model before pickling
@@ -345,4 +358,3 @@ class Model:
             dill.dump(self, f)
             # restore the grid
             self.mset.grid = grid
-        return

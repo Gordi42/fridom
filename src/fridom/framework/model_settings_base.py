@@ -58,9 +58,9 @@ class ModelSettingsBase:
         self._diagnostics = fr.modules.ModuleContainer("All Diagnostics")
         self._time_stepper = fr.time_steppers.AdamBashforth()
         self._progress_bar = fr.modules.ProgressBar()
+        self._nan_checker = fr.modules.NaNChecker()
         self._restart_module = fr.modules.RestartModule()
         self._timer = fr.timing_module.TimingModule()
-        self._nan_check_interval = 100
         self._custom_fields  = []
         self._halo           = None
         self.grid = grid
@@ -233,6 +233,15 @@ class ModelSettingsBase:
         self._progress_bar = value
 
     @property
+    def nan_checker(self) -> fr.modules.NaNChecker:
+        """The NaN checker object (default: NaNChecker)."""
+        return self._nan_checker
+
+    @nan_checker.setter
+    def nan_checker(self, value: fr.modules.NaNChecker) -> None:
+        self._nan_checker = value
+
+    @property
     def tendencies(self) -> fr.modules.ModuleContainer:
         """The module container for all tendencies."""
         return self._tendencies
@@ -271,15 +280,6 @@ class ModelSettingsBase:
     # ----------------------------------------------------------------
     #  Other properties
     # ----------------------------------------------------------------
-
-    @property
-    def nan_check_interval(self) -> int:
-        """The interval at which the model checks for NaN values."""
-        return self._nan_check_interval
-
-    @nan_check_interval.setter
-    def nan_check_interval(self, value: int) -> None:
-        self._nan_check_interval = value
 
     @property
     def custom_fields(self) -> list:
