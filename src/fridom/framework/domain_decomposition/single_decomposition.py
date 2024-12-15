@@ -294,10 +294,10 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
         shape, flat_axes = self._get_array_attrs(None)
         # create the array
-        arr = fr.utils.random_array(shape, seed).astype(dtype)
+        arr = fr.utils.random_array(shape, seed, ignore_warning=True).astype(dtype)
         # add imaginary part if the array is complex
         if spectral:
-            imag = fr.utils.random_array(shape, 2*seed+3).astype(dtype)
+            imag = fr.utils.random_array(shape, 2*seed+3, ignore_warning=True).astype(dtype)
             arr = arr + 1j*imag
         # pad the array
         if pad and not spectral:
