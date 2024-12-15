@@ -86,7 +86,8 @@ class ProgressBar(fr.modules.Module):
 
     @fr.modules.module_method
     def stop(self) -> None:
-        self._pbar.close()
+        if self._pbar is not None:
+            self._pbar.close()
         self._pbar = None
         self._file_output = None
         self._output = None
@@ -95,7 +96,6 @@ class ProgressBar(fr.modules.Module):
         self._datetime_formatting = None
         self._start_value = None
         self._final_value = None
-        return
 
     def set_options(self, 
                     main_loop_type: str, 
