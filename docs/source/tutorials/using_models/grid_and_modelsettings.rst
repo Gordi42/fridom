@@ -141,7 +141,6 @@ The following code snippets demonstrate how to create and setup a ModelSettings 
           - L: 1.00 m x 1.00 m
           - dx: 3.91 mm x 3.91 mm
           - Periodic: True x True
-          - Processors: 1 x 1
         # Time Stepper: Adam Bashforth
           - dt: 1 s
           - order: 3

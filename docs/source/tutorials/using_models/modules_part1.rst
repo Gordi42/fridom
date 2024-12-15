@@ -93,6 +93,8 @@ FRIDOM models are:
 +--------------------+--------------------------------------------------+
 | ``time_stepper``   | Perform the time stepping                        |
 +--------------------+--------------------------------------------------+
+| ``nan_checker``    | Check state vector for NaNs                      |
++--------------------+--------------------------------------------------+
 | ``progress_bar``   | Display a progress bar                           |
 +--------------------+--------------------------------------------------+
 | ``restart_module`` | Perform restart operations on computing clusters |
@@ -179,9 +181,7 @@ Let's look at the source code of the |Model| class, which controls the time step
     :caption: The time step method of the Model class
 
     def step(self) -> None:
-        """
-        Update the model state by one time step.
-        """
+        """Update the model state by one time step."""
         # synchronize the state vector (ghost points)
         with self.timer["sync"]:
             self.z.sync()
@@ -190,12 +190,7 @@ Let's look at the source code of the |Model| class, which controls the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
 
         # check if there are any nans in the state variable
-        with self.timer["check_nan"]:
-            if self.model_state.clock.it % self.mset.nan_check_interval == 0:
-                if self.model_state.z.has_nan():
-                    fr.log.critical(
-                        "State variable contains NaNs. Stopping model.")
-                    self.model_state.panicked = True
+        self.model_state = self.nan_checker.update(self.model_state)
 
         # make diagnostics
         self.model_state = self.diagnostics.update(mz=self.model_state)
@@ -205,7 +200,7 @@ Let's look at the source code of the |Model| class, which controls the time step
 
         # check if the model should restart
         if self.restart_module.should_restart(self.model_state):
-            self.restart()
+            self.restart_module.restart(self)
 
 .. note::
     In the example above, ``self`` refers to the object of the |Model| class.
@@ -214,9 +209,10 @@ Let's go through the code step by step:
 
 1. The ``sync`` method synchronizes the ghost points between processors.
 2. The ``update`` method of the ``time_stepper`` module is called, stepping the state variables forward in time.
-3. Diagnostics, as for example writing to a file, are performed using the ``update`` method of the ``diagnostics`` module.
-4. The progress bar is updated.
-5. The ``restart_module`` checks if the model should restart (only relevant for computing clusters).
+3. The ``update`` method of the ``nan_checker`` module is called to check for NaNs in the state vector. If NaNs are found, the model will stop.
+4. Diagnostics, as for example writing to a file, are performed using the ``update`` method of the ``diagnostics`` module.
+5. The progress bar is updated.
+6. The ``restart_module`` checks if the model should restart (only relevant for computing clusters).
 
 You may wonder, where the tendency terms are computed, since the ``tendencies`` 
 module is not called in the time step method. The ``tendencies`` module is called
