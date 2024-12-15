@@ -280,6 +280,7 @@ class DomainDecomposition:
             Whether the array is in spectral space.
         `topo` : tuple[bool] | None
             The topology of the array. Axes with false are flat (only one grid point)
+
         """
 
     @abstractmethod
