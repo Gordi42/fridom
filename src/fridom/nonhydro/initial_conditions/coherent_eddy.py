@@ -109,7 +109,7 @@ class CoherentEddy(nh.State):
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
             psi.arr = ncp.where(k2 == 0, 0, psi.arr)
-            psi = psi.fft()
+            psi = psi.ifft()
             self.psi = psi
         elif gauss_field == 'streamfunction':
             psi = field

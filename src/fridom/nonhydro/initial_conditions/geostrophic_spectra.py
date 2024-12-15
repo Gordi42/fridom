@@ -137,7 +137,7 @@ class RandomGeostrophicSpectra(nh.State):
 
         # transform to physical space and normalize the state such that the
         # maximum velocity is 1
-        z = z.fft()
+        z = z.ifft()
         scal = 1 / ncp.amax(z.u.arr)
         z *= scal
 

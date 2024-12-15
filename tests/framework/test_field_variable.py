@@ -104,7 +104,7 @@ def test_fft(random_fields_real):
 def test_fft_ifft(random_fields_real):
     u = random_fields_real
     v = u.fft()
-    w = v.fft()
+    w = v.ifft()
 
     # Test that the fft is the inverse of itself
     ncp = config.ncp

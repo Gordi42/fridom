@@ -69,7 +69,7 @@ class RandomPhase(State):
         from fridom.shallowwater.state import State
         z = State(grid, is_spectral=True)
         z.h[:] = cp.sqrt(spectra) * random_phase(seed)
-        z = z.fft()
+        z = z.ifft()
 
         # normalize
         z.h[:] -= cp.mean(z.h)

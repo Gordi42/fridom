@@ -85,8 +85,11 @@ class ModelState:
     @z.setter
     def z(self, value: 'fr.StateBase') -> None:
         # convert to correct space
-        if value.is_spectral != value.grid.spectral_grid:
+        spectral_grid = value.grid.spectral_grid
+        if spectral_grid and not value.is_spectral:
             value = value.fft()
+        if not spectral_grid and value.is_spectral:
+            value = value.ifft()
         self._z = value
 
     @property
@@ -98,9 +101,15 @@ class ModelState:
 
     @z_diag.setter
     def z_diag(self, value: 'fr.StateBase') -> None:
+        if len(value.fields) == 0:
+            self._z_diag = value
+            return
         # convert to correct space
-        if value.is_spectral != value.grid.spectral_grid:
+        spectral_grid = value.grid.spectral_grid
+        if spectral_grid and not value.is_spectral:
             value = value.fft()
+        if not spectral_grid and value.is_spectral:
+            value = value.ifft()
         self._z_diag = value
 
     @property
@@ -110,9 +119,15 @@ class ModelState:
 
     @dz.setter
     def dz(self, value: 'fr.StateBase') -> None:
+        if value is None:
+            self._dz = value
+            return
         # convert to correct space
-        if value is not None and value.is_spectral != value.grid.spectral_grid:
+        spectral_grid = value.grid.spectral_grid
+        if spectral_grid and not value.is_spectral:
             value = value.fft()
+        if not spectral_grid and value.is_spectral:
+            value = value.ifft()
         self._dz = value
 
     @property

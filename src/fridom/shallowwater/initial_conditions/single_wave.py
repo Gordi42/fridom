@@ -81,7 +81,7 @@ class SingleWave(sw.State):
         q = mset.grid.vec_q(s, use_discrete=use_discrete)
 
         # Construct the state
-        z = (q * mask * ncp.exp(1j*phase)).fft()
+        z = (q * mask * ncp.exp(1j*phase)).ifft()
 
         # Normalize the state
         z /= z.norm_l2()
