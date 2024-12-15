@@ -1,8 +1,9 @@
-from enum import Enum, auto
+from enum import StrEnum
 import fridom.framework as fr
 
 
-class AxisPosition(Enum):
+class AxisPosition(StrEnum):
+
     """
     The position of a field along an axis on the staggered grid.
 
@@ -22,17 +23,19 @@ class AxisPosition(Enum):
                 FACE
         → positive direction
     """
-    CENTER = auto()
-    FACE = auto()
+
+    CENTER = "center"
+    FACE = "face"
 
     def shift(self) -> 'AxisPosition':
         """
-        Shift the position of the field. Center -> Face and vice versa
+        Shift the position of the field. Center -> Face and vice versa.
 
         Returns
         -------
         `AxisPositionNew`
             The new axis position of the field.
+
         """
         match self:
             case AxisPosition.CENTER:
@@ -43,6 +46,7 @@ class AxisPosition(Enum):
 
 @fr.utils.jaxify
 class Position:
+
     """
     The position of a field on a staggered grid.
     
@@ -50,9 +54,11 @@ class Position:
     ----------
     `positions` : `tuple[AxisPosition]`
         The positions of the field along each axis.
+
     """
+
     def __init__(self, positions: tuple[AxisPosition]) -> None:
-        self._positions = positions
+        self._positions = tuple(positions)
         return
 
     def shift(self, axis: int) -> 'Position':
@@ -61,16 +67,17 @@ class Position:
 
         The position of the field along the specified axis is shifted from
         center to face or vice versa.
-        
+
         Parameters
         ----------
         `axis` : `int`
             The axis along which to shift the field.
-        
+
         Returns
         -------
         `Position`
             The new position of the field.
+
         """
         new_positions = list(self._positions)
         new_positions[axis] = new_positions[axis].shift()
