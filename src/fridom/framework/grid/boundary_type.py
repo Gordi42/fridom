@@ -1,11 +1,16 @@
-from enum import Enum, auto
+"""Enum class for the type of boundary conditions for field variables."""
+from enum import StrEnum
 
-class BCType(Enum):
+
+class BCType(StrEnum):
+
     r"""
     Enum class for the type of boundary conditions for field variables.
 
     DIRICHLET: Dirichlet boundary conditions (:math:`u = 0` at the boundary).
     NEUMANN: Neumann boundary conditions (:math:`\partial_n u = 0` at the boundary).
+
     """
-    DIRICHLET = auto()
-    NEUMANN = auto()
+
+    DIRICHLET = "dirichlet"
+    NEUMANN = "neumann"
