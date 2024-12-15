@@ -1,0 +1,138 @@
+"""dataclass for the metadata of a FieldVariable."""
+from __future__ import annotations
+
+from copy import copy
+from dataclasses import dataclass, field
+from functools import partial
+
+import fridom.framework as fr
+
+
+@partial(fr.utils.jaxify, dynamic=("position", ))
+@dataclass
+class FieldMetadata:
+
+    """
+    Metadata for the FieldVariable.
+
+    Description
+    -----------
+    The FieldMetadata class contains all metadata for the FieldVariable. This
+    includes the name, long name, units, and additional attributes for the
+    NetCDF file or xarray. The metadata also contains information about the
+    position of the FieldVariable on the grid, the topology, and the boundary
+    conditions.
+
+    Parameters
+    ----------
+    name : str (default "unnamed")
+        Name of the FieldVariable
+    long_name : str (default "Unnamed")
+        Long name of the FieldVariable
+    units : str (default "n/a")
+        Units of the FieldVariable
+    nc_attrs : dict | None (default None)
+        Additional attributes for the NetCDF file or xarray
+    is_spectral : bool (default False)
+        True if the FieldVariable should be initialized in spectral space
+    topo : list[bool] | None (default None)
+        Topology of the FieldVariable. If None, the FieldVariable is
+        assumed to be fully extended in all directions. If a list of booleans
+        is given, the FieldVariable has no extend in the directions where the
+        corresponding entry is False.
+    position : fr.grid.Position | None (default None)
+        Position of the FieldVariable on the grid
+    bc_types : tuple[BCType] | None (default None)
+        Tuple of BCType objects that specify the type of boundary condition
+        in each direction. If None, the default boundary conditions is Neumann.
+    _flags : dict (default {"NO_ADV": False,
+                            "ENABLE_MIXING": False,
+                            "ENABLE_FRICTION": False})
+        Dictionary with flag options for the FieldVariable
+
+    """
+
+    name: str = "unnamed"
+    long_name: str = "Unnamed"
+    units: str = "n/a"
+    nc_attrs: dict | None = None
+    is_spectral: bool = False
+    topo: list[bool] | None = None
+    position: fr.grid.Position | None = None
+    _bc_types: tuple[fr.grid.BCType] | None = None
+    _flags: dict = field(
+        default_factory=lambda: {"NO_ADV": False,
+                                 "ENABLE_MIXING": False,
+                                 "ENABLE_FRICTION": False})
+
+    def set_default(self, mset: fr.ModelSettingsBase) -> None:
+        """Set None values to default values."""
+        if self.nc_attrs is None:
+            self.nc_attrs = {}
+
+        if self.position is None:
+            self.position = mset.grid.cell_center
+
+        if self.topo is None:
+            self.topo = [True] * mset.grid.n_dims
+
+        if self.bc_types is None:
+            self.bc_types = [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
+
+    def to_serializable(self) -> dict:
+        """Convert the FieldMetadata to a serializable dictionary."""
+        res = copy(self.__dict__)
+        res["nc_attrs"] = [str(key) for key in self.nc_attrs]
+        res.update(self.nc_attrs)
+        res["is_spectral"] = int(self.is_spectral)
+        res["topo"] = tuple(int(x) for x in self.topo)
+        res["_bc_types"] = [x.value for x in self.bc_types]
+        res["position"] = [x.value for x in self.position.positions]
+        res["_flags"] = [str(key) for key in self._flags]
+        for flag, value in self._flags.items():
+            res[flag] = int(value)
+        return res
+
+    @classmethod
+    def from_serializable(cls, data: dict) -> FieldMetadata:
+        """Create a FieldMetadata object from a serializable dictionary."""
+        return cls(name=data["name"],
+                   long_name=data["long_name"],
+                   units=data["units"],
+                   nc_attrs={key: data[key] for key in data["nc_attrs"]},
+                   is_spectral=bool(data["is_spectral"]),
+                   topo=tuple(bool(x) for x in data["topo"]),
+                   position=fr.grid.Position(
+                       [fr.grid.AxisPosition(x) for x in data["position"]]),
+                   _bc_types=tuple(fr.grid.BCType(x) for x in data["_bc_types"]),
+                   _flags={key: bool(data[key]) for key in data["_flags"]})
+
+    @property
+    def bc_types(self) -> tuple[fr.grid.BCType] | None:
+        """The boundary condition types for the FieldVariable."""
+        return self._bc_types
+
+    @bc_types.setter
+    def bc_types(self, bc_types: tuple[fr.grid.BCType] | None) -> None:
+        if bc_types is not None and len(bc_types) != len(self.position.positions):
+            msg = "Number of BCType objects must match the number of positions"
+            raise ValueError(msg)
+        self._bc_types = tuple(bc_types)
+
+    @property
+    def flags(self) -> dict:
+        """Dictionary with flag options for the FieldVariable."""
+        return self._flags
+
+    @flags.setter
+    def flags(self, update: dict) -> None:
+        for key, value in update.items():
+            if key not in self._flags:
+                msg = f"Flag {key} not available. "
+                msg += f"Available flags: {self._flags}"
+                raise KeyError(msg)
+            if not isinstance(value, bool):
+                fr.log.warning(f"Flag {key} must be a boolean")
+                msg = f"Flag {key} is of type {type(value)}"
+                raise TypeError(msg)
+            self._flags[key] = value

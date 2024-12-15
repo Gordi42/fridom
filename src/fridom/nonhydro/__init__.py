@@ -252,6 +252,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.clock import Clock, TimingFormat
     from fridom.framework.clock_trigger import ClockTrigger
     from fridom.framework.configuration import config
+    from fridom.framework.field_metadata import FieldMetadata
     from fridom.framework.field_variable import FieldVariable
     from fridom.framework.logger import log
     from fridom.framework.model import Model
@@ -274,6 +275,7 @@ all_imports_by_origin = {
     "fridom.framework.logger": ["log"],
     "fridom.nonhydro.model_settings": ["ModelSettings"],
     "fridom.nonhydro.state": ["State", "DiagnosticState"],
+    "fridom.framework.field_metadata": ["FieldMetadata"],
     "fridom.framework.field_variable": ["FieldVariable"],
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],

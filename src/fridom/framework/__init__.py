@@ -30,6 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .clock import Clock, TimingFormat
     from .clock_trigger import ClockTrigger
     from .configuration import config
+    from .field_metadata import FieldMetadata
     from .field_variable import FieldVariable
     from .logger import log
     from .model import Model
@@ -58,6 +59,7 @@ all_imports_by_origin = {
     "fridom.framework.configuration": ["config"],
     "fridom.framework.logger": ["log"],
     "fridom.framework.model_settings_base": ["ModelSettingsBase"],
+    "fridom.framework.field_metadata": ["FieldMetadata"],
     "fridom.framework.field_variable": ["FieldVariable"],
     "fridom.framework.state_base": ["StateBase"],
     "fridom.framework.model_state": ["ModelState"],

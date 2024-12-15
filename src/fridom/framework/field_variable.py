@@ -1,8 +1,7 @@
 """field_variable.py - FieldVariable class for the fridom framework."""
 from __future__ import annotations
 
-from copy import copy, deepcopy
-from dataclasses import dataclass, field
+from copy import deepcopy
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -14,136 +13,6 @@ from fridom.framework.grid.fft_padding import FFTPadding
 
 if TYPE_CHECKING:
     import xarray as xr
-
-@partial(fr.utils.jaxify, dynamic=("position", ))
-@dataclass
-class FieldMetadata:
-
-    """
-    Metadata for the FieldVariable.
-
-    Description
-    -----------
-    The FieldMetadata class contains all metadata for the FieldVariable. This
-    includes the name, long name, units, and additional attributes for the
-    NetCDF file or xarray. The metadata also contains information about the
-    position of the FieldVariable on the grid, the topology, and the boundary
-    conditions.
-
-    Parameters
-    ----------
-    name : str (default "unnamed")
-        Name of the FieldVariable
-    long_name : str (default "Unnamed")
-        Long name of the FieldVariable
-    units : str (default "n/a")
-        Units of the FieldVariable
-    nc_attrs : dict | None (default None)
-        Additional attributes for the NetCDF file or xarray
-    is_spectral : bool (default False)
-        True if the FieldVariable should be initialized in spectral space
-    topo : list[bool] | None (default None)
-        Topology of the FieldVariable. If None, the FieldVariable is
-        assumed to be fully extended in all directions. If a list of booleans
-        is given, the FieldVariable has no extend in the directions where the
-        corresponding entry is False.
-    position : fr.grid.Position | None (default None)
-        Position of the FieldVariable on the grid
-    bc_types : tuple[BCType] | None (default None)
-        Tuple of BCType objects that specify the type of boundary condition
-        in each direction. If None, the default boundary conditions is Neumann.
-    _flags : dict (default {"NO_ADV": False,
-                            "ENABLE_MIXING": False,
-                            "ENABLE_FRICTION": False})
-        Dictionary with flag options for the FieldVariable
-
-    """
-
-    name: str = "unnamed"
-    long_name: str = "Unnamed"
-    units: str = "n/a"
-    nc_attrs: dict | None = None
-    is_spectral: bool = False
-    topo: list[bool] | None = None
-    position: fr.grid.Position | None = None
-    _bc_types: tuple[fr.grid.BCType] | None = None
-    _flags: dict = field(
-        default_factory=lambda: {"NO_ADV": False,
-                                 "ENABLE_MIXING": False,
-                                 "ENABLE_FRICTION": False})
-
-    def set_default(self, mset: fr.ModelSettingsBase) -> None:
-        """Set None values to default values."""
-        if self.nc_attrs is None:
-            self.nc_attrs = {}
-
-        if self.position is None:
-            self.position = mset.grid.cell_center
-
-        if self.topo is None:
-            self.topo = [True] * mset.grid.n_dims
-
-        if self.bc_types is None:
-            self.bc_types = [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
-
-    def to_serializable(self) -> dict:
-        """Convert the FieldMetadata to a serializable dictionary."""
-        res = copy(self.__dict__)
-        res["nc_attrs"] = [str(key) for key in self.nc_attrs]
-        res.update(self.nc_attrs)
-        res["is_spectral"] = int(self.is_spectral)
-        res["topo"] = tuple(int(x) for x in self.topo)
-        res["_bc_types"] = [x.value for x in self.bc_types]
-        res["position"] = [x.value for x in self.position.positions]
-        res["_flags"] = [str(key) for key in self._flags]
-        for flag, value in self._flags.items():
-            res[flag] = int(value)
-        return res
-
-    @classmethod
-    def from_serializable(cls, data: dict) -> FieldMetadata:
-        """Create a FieldMetadata object from a serializable dictionary."""
-        return cls(name=data["name"],
-                   long_name=data["long_name"],
-                   units=data["units"],
-                   nc_attrs={key: data[key] for key in data["nc_attrs"]},
-                   is_spectral=bool(data["is_spectral"]),
-                   topo=tuple(bool(x) for x in data["topo"]),
-                   position=fr.grid.Position(
-                       [fr.grid.AxisPosition(x) for x in data["position"]]),
-                   _bc_types=tuple(fr.grid.BCType(x) for x in data["_bc_types"]),
-                   _flags={key: bool(data[key]) for key in data["_flags"]})
-
-    @property
-    def bc_types(self) -> tuple[fr.grid.BCType] | None:
-        """The boundary condition types for the FieldVariable."""
-        return self._bc_types
-
-    @bc_types.setter
-    def bc_types(self, bc_types: tuple[fr.grid.BCType] | None) -> None:
-        if bc_types is not None and len(bc_types) != len(self.position.positions):
-            msg = "Number of BCType objects must match the number of positions"
-            raise ValueError(msg)
-        self._bc_types = tuple(bc_types)
-
-    @property
-    def flags(self) -> dict:
-        """Dictionary with flag options for the FieldVariable."""
-        return self._flags
-
-    @flags.setter
-    def flags(self, update: dict) -> None:
-        for key, value in update.items():
-            if key not in self._flags:
-                msg = f"Flag {key} not available. "
-                msg += f"Available flags: {self._flags}"
-                raise KeyError(msg)
-            if not isinstance(value, bool):
-                fr.log.warning(f"Flag {key} must be a boolean")
-                msg = f"Flag {key} is of type {type(value)}"
-                raise TypeError(msg)
-            self._flags[key] = value
-
 
 @partial(fr.utils.jaxify, dynamic=("_arr", "_mdata"))
 class FieldVariable:
@@ -159,7 +28,7 @@ class FieldVariable:
     ----------
     mset : ModelSettings
         ModelSettings object
-    mdata : FieldMetadata | None (default None)
+    mdata : fr.FieldMetadata | None (default None)
         Metadata for the FieldVariable
     arr : ndarray (default None)
         The array to be wrapped
@@ -168,11 +37,11 @@ class FieldVariable:
 
     def __init__(self,
                  mset: fr.ModelSettingsBase,
-                 mdata: FieldMetadata | None = None,
+                 mdata: fr.FieldMetadata | None = None,
                  arr: ndarray | None = None,
                  **kwargs: any) -> None:
         # create new metadata object if not provided
-        mdata = mdata or FieldMetadata()
+        mdata = mdata or fr.FieldMetadata()
 
         # set the attributes from the kwargs
         for key, value in kwargs.items():
@@ -198,6 +67,10 @@ class FieldVariable:
         self._mdata = mdata
         self._arr = data
         self._mset = mset
+
+    # ================================================================
+    #  General Methods
+    # ================================================================
 
     def fft(self,
             padding: FFTPadding = FFTPadding.NOPADDING) -> FieldVariable:
@@ -303,6 +176,11 @@ class FieldVariable:
     def get_mesh(self) -> tuple[ndarray]:
         """Get the meshgrid of the FieldVariable."""
         return self.grid.get_mesh(self.position, self.is_spectral)
+
+    def has_nan(self) -> bool:
+        """Check if the FieldVariable contains NaN values."""
+        ncp = fr.config.ncp
+        return ncp.any(ncp.isnan(self.arr))
 
     # ================================================================
     #  Differential Operators
@@ -454,6 +332,90 @@ class FieldVariable:
     #  xarray conversion
     # ================================================================
 
+    def _convert_slice_to_xarray(self,
+                                 key: int | slice | tuple[int | slice],
+                                 ) -> xr.DataArray:
+        import xarray as xr
+        # normalize the key
+        key = self._normalize_slice_key(key)
+
+        # gather the array on the root process
+        arr = self.grid.domain_decomp.gather(
+            self.arr, key, spectral=self.is_spectral)
+
+        # get the dimensions and coordinates of the slice
+        dims, coords = self._get_sliced_coords(key, arr.shape)
+
+        # reverse the dimensions
+        dims.reverse()
+
+        # get all attributes
+        all_attrs = self.mdata.to_serializable()
+
+        # create the xarray DataArray
+        dv = xr.DataArray(
+            fr.utils.to_numpy(np.squeeze(arr).T),
+            coords=coords,
+            dims=tuple(dims),
+            name=self.name,
+            attrs=all_attrs)
+
+        # add the additional attributes to the coordinates
+        x_unit = "1/m" if self.is_spectral else "m"
+        for dim in dims:
+            dv[dim].attrs["units"] = x_unit
+        return dv
+
+    def _normalize_slice_key(self,
+                             key: int | slice | tuple[int | slice],
+                             ) -> tuple[int | slice]:
+        """Normalize the slice key to the number of dimensions."""
+        ndim = self.grid.n_dims
+        # convert key to list
+        key = [key] if not isinstance(key, (tuple, list)) else list(key)
+        # extend the key to the number of dimensions
+        key += [slice(None)] * (ndim - len(key))
+
+        for i in range(ndim):
+            # set non-extended axes to 0
+            if not self.topo[i]:
+                key[i] = slice(0, 1)
+            # convert negative indices to slices
+            if isinstance(key[i], int):
+                if key[i] < 0:
+                    key[i] = slice(key[i]-1, key[i])
+                else:
+                    key[i] = slice(key[i], key[i]+1)
+
+        return tuple(key)
+
+    def _get_sliced_coords(self,
+                           key: tuple[int | slice],
+                           shape: tuple[int],
+                           ) -> tuple[list, dict]:
+        """Get the coordinates for a slice of the FieldVariable."""
+        ndim = self.grid.n_dims
+        realistic_dims = 3
+        # get the coordinates
+        if ndim <= realistic_dims:
+            dim_names = ["kx", "ky", "kz"] if self.is_spectral else ["x", "y", "z"]
+            all_dims = tuple(dim_names[:ndim])
+        else:
+            prefix = "k" if self.is_spectral else "x"
+            all_dims = tuple(f"{prefix}{i}" for i in range(ndim))
+
+        mesh = self.grid.k_global if self.is_spectral else self.grid.x_global
+        dims = []
+        coords = {}
+        for axis in range(self.grid.n_dims):
+            if shape[axis] == 1:  # skip non-extended axes
+                continue
+
+            dim = all_dims[axis]
+            dims.append(dim)
+            coords[dim] = fr.utils.to_numpy(mesh[axis][key[axis]])
+        return dims, coords
+
     @property
     def xr(self) -> xr.DataArray:
         """Convert to xarray DataArray."""
@@ -480,70 +442,7 @@ class FieldVariable:
             data_array = f.xrs[:,:,-1]  # Only the top of the field
 
         """
-        def slicer(key: int | slice | tuple[int | slice]) -> xr.DataArray:
-            import xarray as xr
-            fv = self
-            # convert key to tuple
-            ndim = fv.grid.n_dims
-            key = [key] if not isinstance(key, (tuple, list)) else list(key)
-            key += [slice(None)] * (ndim - len(key))
-
-            for i in range(ndim):
-                # set non-extended axes to 0
-                if not fv.topo[i]:
-                    key[i] = slice(0,1)
-                if isinstance(key[i], int):
-                    if key[i] < 0:
-                        key[i] = slice(key[i]-1, key[i])
-                    else:
-                        key[i] = slice(key[i], key[i]+1)
-
-            arr = fv.grid.domain_decomp.gather(
-                fv.arr, tuple(key), spectral=fv.is_spectral)
-
-            # get the coordinates
-            if ndim <= 3:
-                if fv.is_spectral:
-                    all_dims = tuple(["kx", "ky", "kz"][:ndim])
-                else:
-                    all_dims = tuple(["x", "y", "z"][:ndim])
-            elif fv.is_spectral:
-                all_dims = tuple(f"k{i}" for i in range(ndim))
-            else:
-                all_dims = tuple(f"x{i}" for i in range(ndim))
-
-            dims = []
-            coords = {}
-            for axis in range(fv.grid.n_dims):
-                if arr.shape[axis] == 1:
-                    # skip non-extended axes
-                    continue
-
-                dim = all_dims[axis]
-                dims.append(dim)
-                if fv.is_spectral:
-                    x_sel = fv.grid.k_global[axis][key[axis]]
-                else:
-                    x_sel = fv.grid.x_global[axis][key[axis]]
-                coords[dim] = fr.utils.to_numpy(x_sel)
-
-            # reverse the dimensions
-            dims.reverse()
-
-            all_attrs = fv.mdata.to_serializable()
-
-            dv = xr.DataArray(
-                fr.utils.to_numpy(np.squeeze(arr).T),
-                coords=coords,
-                dims=tuple(dims),
-                name=fv.name,
-                attrs=all_attrs)
-
-            x_unit = "1/m" if fv.is_spectral else "m"
-            for dim in dims:
-                dv[dim].attrs["units"] = x_unit
-            return dv
-        return fr.utils.SliceableAttribute(slicer)
+        return fr.utils.SliceableAttribute(self._convert_slice_to_xarray)
 
     @classmethod
     def from_xarray(cls, mset: fr.ModelSettingsBase, da: xr.DataArray) -> FieldVariable:
@@ -565,7 +464,7 @@ class FieldVariable:
         """
         conf = fr.config
         # load the metadata
-        mdata = FieldMetadata.from_serializable(da.attrs)
+        mdata = fr.FieldMetadata.from_serializable(da.attrs)
         # convert the array to backend
         arr = da.to_numpy().T
         if mdata.is_spectral:
@@ -615,18 +514,10 @@ class FieldVariable:
         da = xr.open_dataarray(path)
         return cls.from_xarray(mset, da)
 
-    # ==================================================================
-    #  OTHER METHODS
-    # ==================================================================
-
-    def has_nan(self) -> bool:
-        """Check if the FieldVariable contains NaN values."""
-        ncp = fr.config.ncp
-        return ncp.any(ncp.isnan(self.arr))
-
     # ================================================================
     #  Properties
     # ================================================================
+
     @property
     def arr(self) -> ndarray:
         """The underlying array."""
@@ -637,12 +528,12 @@ class FieldVariable:
         self._arr = arr
 
     @property
-    def mdata(self) -> FieldMetadata:
+    def mdata(self) -> fr.FieldMetadata:
         """The metadata of the FieldVariable."""
         return self._mdata
 
     @mdata.setter
-    def mdata(self, mdata: FieldMetadata) -> None:
+    def mdata(self, mdata: fr.FieldMetadata) -> None:
         self._mdata = mdata
 
     @property

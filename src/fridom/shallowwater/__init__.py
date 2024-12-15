@@ -174,6 +174,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.clock import Clock, TimingFormat
     from fridom.framework.clock_trigger import ClockTrigger
     from fridom.framework.configuration import config
+    from fridom.framework.field_metadata import FieldMetadata
     from fridom.framework.field_variable import FieldVariable
     from fridom.framework.logger import log
     from fridom.framework.model import Model
@@ -198,6 +199,7 @@ all_imports_by_origin = {
     f"{base_fr}.logger": ["log"],
     f"{base_sw}.model_settings": ["ModelSettings"],
     f"{base_sw}.state": ["State"],
+    f"{base_fr}.field_metadata": ["FieldMetadata"],
     f"{base_fr}.field_variable": ["FieldVariable"],
     f"{base_fr}.model_state": ["ModelState"],
     f"{base_fr}.model": ["Model"],
