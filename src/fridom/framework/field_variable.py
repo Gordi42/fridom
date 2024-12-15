@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import copy, deepcopy
+from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -14,8 +15,137 @@ from fridom.framework.grid.fft_padding import FFTPadding
 if TYPE_CHECKING:
     import xarray as xr
 
+@partial(fr.utils.jaxify, dynamic=("position", ))
+@dataclass
+class FieldMetadata:
 
-@partial(fr.utils.jaxify, dynamic=("_arr", "_position"))
+    """
+    Metadata for the FieldVariable.
+
+    Description
+    -----------
+    The FieldMetadata class contains all metadata for the FieldVariable. This
+    includes the name, long name, units, and additional attributes for the
+    NetCDF file or xarray. The metadata also contains information about the
+    position of the FieldVariable on the grid, the topology, and the boundary
+    conditions.
+
+    Parameters
+    ----------
+    name : str (default "unnamed")
+        Name of the FieldVariable
+    long_name : str (default "Unnamed")
+        Long name of the FieldVariable
+    units : str (default "n/a")
+        Units of the FieldVariable
+    nc_attrs : dict | None (default None)
+        Additional attributes for the NetCDF file or xarray
+    is_spectral : bool (default False)
+        True if the FieldVariable should be initialized in spectral space
+    topo : list[bool] | None (default None)
+        Topology of the FieldVariable. If None, the FieldVariable is
+        assumed to be fully extended in all directions. If a list of booleans
+        is given, the FieldVariable has no extend in the directions where the
+        corresponding entry is False.
+    position : fr.grid.Position | None (default None)
+        Position of the FieldVariable on the grid
+    bc_types : tuple[BCType] | None (default None)
+        Tuple of BCType objects that specify the type of boundary condition
+        in each direction. If None, the default boundary conditions is Neumann.
+    _flags : dict (default {"NO_ADV": False,
+                            "ENABLE_MIXING": False,
+                            "ENABLE_FRICTION": False})
+        Dictionary with flag options for the FieldVariable
+
+    """
+
+    name: str = "unnamed"
+    long_name: str = "Unnamed"
+    units: str = "n/a"
+    nc_attrs: dict | None = None
+    is_spectral: bool = False
+    topo: list[bool] | None = None
+    position: fr.grid.Position | None = None
+    _bc_types: tuple[fr.grid.BCType] | None = None
+    _flags: dict = field(
+        default_factory=lambda: {"NO_ADV": False,
+                                 "ENABLE_MIXING": False,
+                                 "ENABLE_FRICTION": False})
+
+    def set_default(self, mset: fr.ModelSettingsBase) -> None:
+        """Set None values to default values."""
+        if self.nc_attrs is None:
+            self.nc_attrs = {}
+
+        if self.position is None:
+            self.position = mset.grid.cell_center
+
+        if self.topo is None:
+            self.topo = [True] * mset.grid.n_dims
+
+        if self.bc_types is None:
+            self.bc_types = [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
+
+    def to_serializable(self) -> dict:
+        """Convert the FieldMetadata to a serializable dictionary."""
+        res = copy(self.__dict__)
+        res["nc_attrs"] = [str(key) for key in self.nc_attrs]
+        res.update(self.nc_attrs)
+        res["is_spectral"] = int(self.is_spectral)
+        res["topo"] = tuple(int(x) for x in self.topo)
+        res["_bc_types"] = [x.value for x in self.bc_types]
+        res["position"] = [x.value for x in self.position.positions]
+        res["_flags"] = [str(key) for key in self._flags]
+        for flag, value in self._flags.items():
+            res[flag] = int(value)
+        return res
+
+    @classmethod
+    def from_serializable(cls, data: dict) -> FieldMetadata:
+        """Create a FieldMetadata object from a serializable dictionary."""
+        return cls(name=data["name"],
+                   long_name=data["long_name"],
+                   units=data["units"],
+                   nc_attrs={key: data[key] for key in data["nc_attrs"]},
+                   is_spectral=bool(data["is_spectral"]),
+                   topo=tuple(bool(x) for x in data["topo"]),
+                   position=fr.grid.Position(
+                       [fr.grid.AxisPosition(x) for x in data["position"]]),
+                   _bc_types=tuple(fr.grid.BCType(x) for x in data["_bc_types"]),
+                   _flags={key: bool(data[key]) for key in data["_flags"]})
+
+    @property
+    def bc_types(self) -> tuple[fr.grid.BCType] | None:
+        """The boundary condition types for the FieldVariable."""
+        return self._bc_types
+
+    @bc_types.setter
+    def bc_types(self, bc_types: tuple[fr.grid.BCType] | None) -> None:
+        if bc_types is not None and len(bc_types) != len(self.position.positions):
+            msg = "Number of BCType objects must match the number of positions"
+            raise ValueError(msg)
+        self._bc_types = tuple(bc_types)
+
+    @property
+    def flags(self) -> dict:
+        """Dictionary with flag options for the FieldVariable."""
+        return self._flags
+
+    @flags.setter
+    def flags(self, update: dict) -> None:
+        for key, value in update.items():
+            if key not in self._flags:
+                msg = f"Flag {key} not available. "
+                msg += f"Available flags: {self._flags}"
+                raise KeyError(msg)
+            if not isinstance(value, bool):
+                fr.log.warning(f"Flag {key} must be a boolean")
+                msg = f"Flag {key} is of type {type(value)}"
+                raise TypeError(msg)
+            self._flags[key] = value
+
+
+@partial(fr.utils.jaxify, dynamic=("_arr", "_mdata"))
 class FieldVariable:
 
     """
@@ -29,20 +159,8 @@ class FieldVariable:
     ----------
     mset : ModelSettings
         ModelSettings object
-    name : str
-        Name of the FieldVariable
-    position : fr.grid.Position (default cell_center)
-        Position of the FieldVariable on the grid
-    is_spectral : bool
-        True if the FieldVariable should be initialized in spectral space
-    topo : list[bool] (default None)
-        Topology of the FieldVariable. If None, the FieldVariable is
-        assumed to be fully extended in all directions. If a list of booleans
-        is given, the FieldVariable has no extend in the directions where the
-        corresponding entry is False.
-    bc_types : tuple[BCType] (default None)
-        Tuple of BCType objects that specify the type of boundary condition
-        in each direction. If None, the default boundary conditions is Neumann.
+    mdata : FieldMetadata | None (default None)
+        Metadata for the FieldVariable
     arr : ndarray (default None)
         The array to be wrapped
 
@@ -50,134 +168,119 @@ class FieldVariable:
 
     def __init__(self,
                  mset: fr.ModelSettingsBase,
-                 name: str,
-                 position: fr.grid.Position | None = None,
+                 mdata: FieldMetadata | None = None,
                  arr: ndarray | None = None,
-                 long_name: str = "Unnamed",
-                 units: str = "n/a",
-                 nc_attrs: dict | None = None,
-                 is_spectral: bool = False,
-                 topo: list[bool] | None = None,
-                 flags: dict | list | None = None,
-                 bc_types: tuple[fr.grid.BCType] | None = None,
-                 ) -> None:
+                 **kwargs: any) -> None:
+        # create new metadata object if not provided
+        mdata = mdata or FieldMetadata()
 
-        # shortcuts
-        ncp = fr.config.ncp
-        dtype = fr.config.dtype_comp if is_spectral else fr.config.dtype_real
+        # set the attributes from the kwargs
+        for key, value in kwargs.items():
+            setattr(mdata, key, value)
 
-        # position
-        position = position or mset.grid.cell_center
-
-        # Topology
-        topo = topo or [True] * mset.grid.n_dims
-
-        # Boundary conditions
-        bc_types = bc_types or [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
+        # set default values of the metadata
+        mdata.set_default(mset)
 
         # The underlying array
         if arr is None:
             data = mset.grid.create_array(
                 pad=True,
-                spectral=is_spectral,
-                topo=tuple(topo),
-                )
+                spectral=mdata.is_spectral,
+                topo=tuple(mdata.topo))
         else:
-            data = ncp.array(arr, dtype=dtype)
-
-        # ----------------------------------------------------------------
-        #  Set flags
-        # ----------------------------------------------------------------
-        self.flags = {"NO_ADV": False,
-                      "ENABLE_MIXING": False,
-                      "ENABLE_FRICTION": False}
-        if isinstance(flags, dict):
-            self.flags.update(flags)
-        elif isinstance(flags, list):
-            for flag in flags:
-                if flag not in self.flags:
-                    fr.log.warning(f"Flag {flag} not available")
-                    fr.log.warning(f"Available flags: {self.flags}")
-                    raise ValueError
-                self.flags[flag] = True
+            conf = fr.config
+            dtype = conf.dtype_comp if mdata.is_spectral else conf.dtype_real
+            data = conf.ncp.array(arr, dtype=dtype)
 
         # ----------------------------------------------------------------
         #  Set attributes
         # ----------------------------------------------------------------
-
+        self._mdata = mdata
         self._arr = data
-        self._name = name
-        self._long_name = long_name
-        self._units = units
-        self._nc_attrs = nc_attrs or {}
-        self._is_spectral = is_spectral
-        self._topo = topo
-        self._position = position
-        self._bc_types = tuple(bc_types)
         self._mset = mset
-
-    def get_kw(self) -> dict:
-        """Return keyword arguments for the FieldVariable constructor."""
-        return {"mset": self._mset,
-                "name": self._name,
-                "position": self._position,
-                "long_name": self._long_name,
-                "units": self._units,
-                "nc_attrs": self._nc_attrs,
-                "is_spectral": self._is_spectral,
-                "topo": self._topo,
-                "bc_types": self._bc_types,
-                "flags": self._flags}
 
     def fft(self,
             padding: FFTPadding = FFTPadding.NOPADDING) -> FieldVariable:
         """
-        Fourier transform of the FieldVariable.
+        Forward Fourier transform the FieldVariable.
 
-        If the FieldVariable is already in spectral space, the inverse
-        Fourier transform is returned.
+        Parameters
+        ----------
+        padding : FFTPadding
+            Zero padding option
 
-        Returns:
-            FieldVariable: Fourier transform of the FieldVariable
+        Returns
+        -------
+        FieldVariable
+            The FieldVariable in spectral space.
 
         """
         if not self.grid.fourier_transform_available:
-            message = "Fourier transform not available for this grid"
-            raise NotImplementedError(message)
+            msg = "Fourier transform not available for this grid"
+            raise NotImplementedError(msg)
 
-        ncp = fr.config.ncp
         if self.is_spectral:
-            res = ncp.array(
-                self.grid.ifft(
-                    arr=self.arr,
-                    padding=padding,
-                    bc_types=self.bc_types,
-                    positions=self.position.positions).real,
-                dtype=fr.config.dtype_real)
-        else:
-            res = ncp.array(
-                self.grid.fft(
-                    arr=self.arr,
-                    padding=padding,
-                    bc_types=self.bc_types,
-                    positions=self.position.positions),
-                dtype=fr.config.dtype_comp)
-        f = copy(self)
-        f.arr = res
-        f._is_spectral = not self.is_spectral
+            msg = "FieldVariable is in spectral space, cannot perform fft"
+            raise ValueError(msg)
 
-        return f
+        transformed_arr = self.grid.fft(
+            arr=self.arr,
+            padding=padding,
+            bc_types=self.bc_types,
+            positions=self.position.positions)
+
+        conf = fr.config
+        transformed_arr = conf.ncp.array(transformed_arr, dtype=conf.dtype_comp)
+
+        return FieldVariable(self.mset,
+                             arr=transformed_arr,
+                             mdata=deepcopy(self.mdata),
+                             is_spectral=True)
 
     def ifft(self,
              padding: FFTPadding = FFTPadding.NOPADDING) -> FieldVariable:
-        """Inverse Fourier transform of the FieldVariable."""
+        """
+        Inverse Fourier transform of the FieldVariable.
+
+        Parameters
+        ----------
+        padding : FFTPadding
+            Zero padding option
+
+        Returns
+        -------
+        FieldVariable
+            The FieldVariable in physical space.
+
+        """
+        if not self.grid.fourier_transform_available:
+            msg = "Fourier transform not available for this grid"
+            raise NotImplementedError(msg)
+
         if not self.is_spectral:
-            message = "FieldVariable is not in spectral space, cannot perform ifft"
-            raise ValueError(message)
-        return self.fft(padding=padding)
+            msg = "FieldVariable is not in spectral space, cannot perform fft"
+            raise ValueError(msg)
+
+        transformed_arr = self.grid.ifft(
+            arr=self.arr,
+            padding=padding,
+            bc_types=self.bc_types,
+            positions=self.position.positions)
+
+        # only keep the real part
+        conf = fr.config
+        transformed_arr = conf.ncp.array(transformed_arr.real, dtype=conf.dtype_real)
+
+        return FieldVariable(self.mset,
+                             arr=transformed_arr,
+                             mdata=deepcopy(self.mdata),
+                             is_spectral=False)
 
     def sync(self) -> FieldVariable:
         """Synchronize the FieldVariable (exchange boundary values)."""
+        if self.is_spectral:
+            # nothing to synchronize in spectral space
+            return self
         self.arr = self.grid.sync(self.arr)
         self.apply_water_mask()
         return self
@@ -191,6 +294,9 @@ class FieldVariable:
 
     def apply_water_mask(self) -> FieldVariable:
         """Apply boundary conditions to the FieldVariable."""
+        if self.is_spectral:
+            msg = "FieldVariable is in spectral space, cannot apply water mask"
+            raise ValueError(msg)
         self.arr *= self.grid.water_mask.get_mask(self.position)
         return self
 
@@ -314,12 +420,10 @@ class FieldVariable:
         self.__dict__.update(state)
 
     def __copy__(self) -> FieldVariable:
-        return FieldVariable(arr=deepcopy(self.arr),
-                             **self.get_kw())
-
-    def __deepcopy__(self, memo: dict) -> FieldVariable:
-        return FieldVariable(arr=deepcopy(self.arr, memo),
-                             **deepcopy(self.get_kw(), memo))
+        # copy the array and the metadata but not the model settings
+        arr = deepcopy(self.arr)
+        mdata = deepcopy(self.mdata)
+        return FieldVariable(mset=self.mset, mdata=mdata, arr=arr)
 
     # ==================================================================
     #  Display methods
@@ -356,7 +460,7 @@ class FieldVariable:
         return self.xrs[:]
 
     @property
-    def xrs(self) -> fr.utils.SliceableAttribute:
+    def xrs(self) -> fr.utils.SliceableAttribute[xr.DataArray]:
         """
         Convert a slice of the FieldVariable to xarray DataArray.
 
@@ -426,8 +530,7 @@ class FieldVariable:
             # reverse the dimensions
             dims.reverse()
 
-            all_attrs = deepcopy(fv.nc_attrs)
-            all_attrs.update({"long_name": fv.long_name, "units": fv.units})
+            all_attrs = fv.mdata.to_serializable()
 
             dv = xr.DataArray(
                 fr.utils.to_numpy(np.squeeze(arr).T),
@@ -442,13 +545,84 @@ class FieldVariable:
             return dv
         return fr.utils.SliceableAttribute(slicer)
 
+    @classmethod
+    def from_xarray(cls, mset: fr.ModelSettingsBase, da: xr.DataArray) -> FieldVariable:
+        """
+        Create a FieldVariable from an xarray DataArray.
+
+        Parameters
+        ----------
+        mset : ModelSettingsBase
+            The model settings object.
+        da : xr.DataArray
+            The xarray DataArray to convert.
+
+        Returns
+        -------
+        FieldVariable
+            The FieldVariable.
+
+        """
+        conf = fr.config
+        # load the metadata
+        mdata = FieldMetadata.from_serializable(da.attrs)
+        # convert the array to backend
+        arr = da.to_numpy().T
+        if mdata.is_spectral:
+            arr_real = conf.ncp.array(arr["r"])
+            arr_imag = conf.ncp.array(arr["i"])
+            arr = conf.ncp.array(arr_real + 1j * arr_imag, dtype=conf.dtype_comp)
+        else:
+            arr = conf.ncp.array(arr, dtype=conf.dtype_real)
+            # pad the array
+            arr = mset.grid.pad(arr)
+        # create the FieldVariable
+        field = cls(mset=mset, mdata=mdata, arr=arr)
+        # synchronize the field
+        return field.sync()
+
+    def to_netcdf(self, path: str) -> None:
+        """
+        Save the FieldVariable to a NetCDF file.
+
+        Parameters
+        ----------
+        path : str
+            The path to the NetCDF file.
+
+        """
+        self.xr.to_netcdf(path, auto_complex=True)
+
+    @classmethod
+    def from_netcdf(cls, mset: fr.ModelSettingsBase, path: str) -> FieldVariable:
+        """
+        Create a FieldVariable from a NetCDF file.
+
+        Parameters
+        ----------
+        mset : ModelSettingsBase
+            The model settings object.
+        path : str
+            The path to the NetCDF file.
+
+        Returns
+        -------
+        FieldVariable
+            The FieldVariable.
+
+        """
+        import xarray as xr
+        da = xr.open_dataarray(path)
+        return cls.from_xarray(mset, da)
+
     # ==================================================================
     #  OTHER METHODS
     # ==================================================================
 
     def has_nan(self) -> bool:
         """Check if the FieldVariable contains NaN values."""
-        return fr.config.ncp.any(fr.config.ncp.isnan(self.arr))
+        ncp = fr.config.ncp
+        return ncp.any(ncp.isnan(self.arr))
 
     # ================================================================
     #  Properties
@@ -463,45 +637,58 @@ class FieldVariable:
         self._arr = arr
 
     @property
+    def mdata(self) -> FieldMetadata:
+        """The metadata of the FieldVariable."""
+        return self._mdata
+
+    @mdata.setter
+    def mdata(self, mdata: FieldMetadata) -> None:
+        self._mdata = mdata
+
+    @property
     def name(self) -> str:
         """The name of the FieldVariable."""
-        return self._name
+        return self.mdata.name
 
     @name.setter
     def name(self, name: str) -> None:
-        self._name = name
+        self.mdata.name = name
 
     @property
     def long_name(self) -> str:
         """The long name of the FieldVariable."""
-        return self._long_name
+        return self.mdata.long_name
 
     @long_name.setter
     def long_name(self, long_name: str) -> None:
-        self._long_name = long_name
+        self.mdata.long_name = long_name
 
     @property
     def units(self) -> str:
         """The unit of the FieldVariable."""
-        return self._units
+        return self.mdata.units
 
     @units.setter
     def units(self, units: str) -> None:
-        self._units = units
+        self.mdata.units = units
 
     @property
     def nc_attrs(self) -> dict:
         """Dictionary with additional attributes for the NetCDF file or xarray."""
-        return self._nc_attrs
+        return self.mdata.nc_attrs
 
     @nc_attrs.setter
     def nc_attrs(self, nc_attrs: dict) -> None:
-        self._nc_attrs = nc_attrs
+        self.mdata.nc_attrs = nc_attrs
 
     @property
     def is_spectral(self) -> bool:
         """True if the FieldVariable is in spectral space."""
-        return self._is_spectral
+        return self.mdata.is_spectral
+
+    @is_spectral.setter
+    def is_spectral(self, is_spectral: bool) -> None:
+        self.mdata.is_spectral = is_spectral
 
     @property
     def topo(self) -> list[bool]:
@@ -515,34 +702,34 @@ class FieldVariable:
         that only depends on x and y. In this case, the topo of the FieldVariable
         would be [True, True, False].
         """
-        return self._topo
+        return self.mdata.topo
 
     @property
     def position(self) -> fr.grid.Position:
         """The position of the FieldVariable on the staggered grid."""
-        return self._position
+        return self.mdata.position
 
     @position.setter
     def position(self, position: fr.grid.Position) -> None:
-        self._position = position
+        self.mdata.position = position
 
     @property
     def bc_types(self) -> tuple[fr.grid.BCType] | None:
         """The boundary condition types for the FieldVariable."""
-        return self._bc_types
+        return self.mdata.bc_types
 
     @bc_types.setter
     def bc_types(self, bc_types: tuple[fr.grid.BCType] | None) -> None:
-        self._bc_types = bc_types
+        self.mdata.bc_types = bc_types
 
     @property
     def flags(self) -> dict:
         """Dictionary with flag options for the FieldVariable."""
-        return self._flags
+        return self.mdata.flags
 
     @flags.setter
     def flags(self, flags: dict) -> None:
-        self._flags = flags
+        self.mdata.flags = flags
 
     @property
     def mset(self) -> fr.ModelSettingsBase:
@@ -560,7 +747,8 @@ class FieldVariable:
 
     def abs(self) -> FieldVariable:
         """Absolute values of the FieldVariable."""
-        return FieldVariable(arr=fr.config.ncp.abs(self.arr), **self.get_kw())
+        arr = fr.config.ncp.abs(self.arr)
+        return FieldVariable(mset=self.mset, mdata=deepcopy(self.mdata), arr=arr)
 
     def __abs__(self) -> FieldVariable:
         return self.abs()
@@ -605,15 +793,15 @@ class FieldVariable:
     @staticmethod
     def _apply_operation(
         op: callable, field: FieldVariable, other: any) -> FieldVariable:
-        kwargs = field.get_kw()
+        new_mdata = deepcopy(field.mdata)
         if isinstance(other, FieldVariable):
             topo = [p or q for p, q in zip(field.topo, other.topo)]
-            kwargs["topo"] = topo
+            new_mdata.topo = topo
             result = op(field.arr, other.arr)
         else:
             result = op(field.arr, other)
 
-        return FieldVariable(arr=result, **kwargs)
+        return FieldVariable(mset=field.mset, mdata=new_mdata, arr=result)
 
     def __add__(self, other: any) -> FieldVariable:
         return self._apply_operation(lambda x, y: x + y, self, other)
@@ -646,4 +834,6 @@ class FieldVariable:
 
     def __neg__(self) -> FieldVariable:
         """Negate the FieldVariable."""
-        return FieldVariable(arr=-self.arr, **self.get_kw())
+        return FieldVariable(mset=self.mset,
+                             mdata=deepcopy(self.mdata),
+                             arr=-self.arr)
