@@ -1,20 +1,30 @@
 """array_ops.py - Utilities for array operations."""
+from __future__ import annotations
+
+from typing import Callable, Generic, TypeVar
+
 import numpy as np
+
 import fridom.framework as fr
 
-class SliceableAttribute:  # pylint: disable=too-few-public-methods
+T = TypeVar("T")
+
+class SliceableAttribute(Generic[T]):
+
     """
     Class to make an object sliceable.
-    
+
     Parameters
     ----------
-    `slicer` : `callable`
+    slicer : Callable
         The slicer function.
+
     """
-    def __init__(self, slicer: callable):
+
+    def __init__(self, slicer: Callable[[int | slice | tuple[int, slice]], T]) -> None:
         self.slicer = slicer
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: int | slice | tuple[int, slice]) -> T:
         return self.slicer(key)
 
 def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray:
@@ -48,6 +58,7 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
     >>> x = fr.config.ncp.arange(10)  # create some array
     >>> # instead of x[2:5] = 0, we use the modify_array function
     >>> x = fr.utils.modify_array(x, slice(2,5), 0)
+
     """
     if fr.config.backend_is_jax:
         return arr.at[where].set(value)
