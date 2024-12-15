@@ -59,7 +59,9 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
         for coeff in value:
             if isinstance(coeff, fr.FieldVariable):
                 kappa = ncp.sqrt(ncp.abs(coeff.arr))
-                kappa = fr.FieldVariable(arr=kappa, **coeff.get_kw())
+                kappa = fr.FieldVariable(mset=coeff.mset,
+                                         arr=kappa,
+                                         mdata=coeff.mdata)
             else:
                 kappa = ncp.sqrt(ncp.abs(coeff))
             coeffs.append(kappa)

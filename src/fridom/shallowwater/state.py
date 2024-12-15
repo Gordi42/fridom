@@ -32,7 +32,7 @@ class State(fr.StateBase):
                 is_spectral=is_spectral, 
                 position=cell_center.shift(axis=0),
                 bc_types=(DIRICHLET, NEUMANN),
-                flags=["ENABLE_FRICTION"],
+                flags={"ENABLE_FRICTION": True},
                 )
 
             v = fr.FieldVariable(
@@ -43,7 +43,7 @@ class State(fr.StateBase):
                 is_spectral=is_spectral, 
                 position=cell_center.shift(axis=1),
                 bc_types=(NEUMANN, DIRICHLET),
-                flags=["ENABLE_FRICTION"],
+                flags={"ENABLE_FRICTION": True},
                 )
 
             p = fr.FieldVariable(

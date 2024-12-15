@@ -22,7 +22,7 @@ class State(fr.StateBase):
                 is_spectral=is_spectral, 
                 position=cell_center.shift(axis=0),
                 bc_types=(DIRICHLET, NEUMANN, NEUMANN),
-                flags=["ENABLE_FRICTION"],
+                flags={"ENABLE_FRICTION": True},
                 )
 
             v = fr.FieldVariable(
@@ -33,7 +33,7 @@ class State(fr.StateBase):
                 is_spectral=is_spectral, 
                 position=cell_center.shift(axis=1),
                 bc_types=(NEUMANN, DIRICHLET, NEUMANN),
-                flags=["ENABLE_FRICTION"],
+                flags={"ENABLE_FRICTION": True},
                 )
 
             w = fr.FieldVariable(
@@ -44,18 +44,18 @@ class State(fr.StateBase):
                 is_spectral=is_spectral, 
                 position=cell_center.shift(axis=2),
                 bc_types=(NEUMANN, NEUMANN, DIRICHLET),
-                flags=["ENABLE_FRICTION"],
+                flags={"ENABLE_FRICTION": True},
                 )
 
             b = fr.FieldVariable(
                 mset,
-                name="b", 
-                long_name="Buoyancy", 
-                units="m/s²", 
-                is_spectral=is_spectral, 
+                name="b",
+                long_name="Buoyancy",
+                units="m/s²",
+                is_spectral=is_spectral,
                 position=cell_center,
                 bc_types=(NEUMANN, NEUMANN, DIRICHLET),
-                flags=["ENABLE_MIXING"],
+                flags={"ENABLE_MIXING": True},
                 )
 
             field_list = [u, v, w, b]
@@ -74,7 +74,6 @@ class State(fr.StateBase):
 
         super().__init__(mset, field_list, is_spectral)
         self.__class__ = State
-        return
 
     # ----------------------------------------------------------------
     #  State Variables

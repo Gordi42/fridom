@@ -1,3 +1,4 @@
+from copy import deepcopy
 import fridom.framework as fr
 from functools import partial
 
@@ -121,7 +122,7 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
             # no interpolation needed
             return f
 
-        res = fr.FieldVariable(**f.get_kw())
+        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
 
         # get the destination slice
         match destination:

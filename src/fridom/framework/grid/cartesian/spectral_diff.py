@@ -1,8 +1,10 @@
+from copy import deepcopy
 import fridom.framework as fr
 from functools import partial
 
 @fr.utils.jaxify
 class SpectralDiff(fr.grid.DiffModule):
+
     r"""
     Differentiation module in spectral space.
     
@@ -12,7 +14,9 @@ class SpectralDiff(fr.grid.DiffModule):
 
     .. math::
         u = U e^{ikx} \Rightarrow \partial_x u = ik u
+
     """
+
     name = "Spectral Difference"
 
     @fr.modules.module_method
@@ -54,7 +58,7 @@ class SpectralDiff(fr.grid.DiffModule):
         # ----------------------------------------------------------------
         #  Compute the derivative
         # ----------------------------------------------------------------
-        res = fr.FieldVariable(**f.get_kw())
+        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
         res.bc_types = tuple(bc_types)
         k = self.grid.get_mesh(spectral=True)[axis]
         res.arr = f.arr * (1j * k) ** order

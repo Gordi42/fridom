@@ -1,3 +1,4 @@
+from copy import deepcopy
 import fridom.framework as fr
 from abc import abstractmethod
 from functools import partial
@@ -150,7 +151,7 @@ class DiffModule(fr.modules.Module):
         if axes is None:
             axes = list(range(f.arr.ndim))
             
-        laplace = fr.FieldVariable(**f.get_kw())
+        laplace = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
         for axis in axes:
             laplace += self.diff(f, axis, order=2)
         return laplace

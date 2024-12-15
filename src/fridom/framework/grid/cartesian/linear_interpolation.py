@@ -1,3 +1,4 @@
+from copy import deepcopy
 import fridom.framework as fr
 from functools import partial
 
@@ -52,8 +53,9 @@ class LinearInterpolation(fr.grid.InterpolationModule):
             # no interpolation needed
             return f
 
-        res = fr.FieldVariable(**f.get_kw())
-        next = self._nexts[axis]; prev = self._prevs[axis]
+        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
+        next = self._nexts[axis]
+        prev = self._prevs[axis]
 
         # get the destination slice
         match destination:

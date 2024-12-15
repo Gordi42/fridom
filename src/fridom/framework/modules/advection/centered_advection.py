@@ -1,3 +1,4 @@
+from copy import deepcopy
 import fridom.framework as fr
 
 
@@ -40,7 +41,7 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
         diff = self.diff_module.diff
         q_pos = quantity.position
 
-        res = fr.FieldVariable(**quantity.get_kw())
+        res = fr.FieldVariable(mset=quantity.mset, mdata=deepcopy(quantity.mdata))
 
         for axis, v in enumerate(velocity):
             # the flux position should be shifted from the quantity position

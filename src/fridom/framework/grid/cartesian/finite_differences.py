@@ -1,3 +1,4 @@
+from copy import deepcopy
 import fridom.framework as fr
 from functools import partial
 
@@ -48,7 +49,7 @@ class FiniteDifferences(fr.grid.DiffModule):
     def _diff_forward(self, 
                       f: fr.FieldVariable, 
                       axis: int) -> fr.FieldVariable:
-        res = fr.FieldVariable(**f.get_kw())
+        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
         new_pos = f.position.shift(axis)
         mask = self.water_mask.get_mask(new_pos)
 
@@ -71,7 +72,7 @@ class FiniteDifferences(fr.grid.DiffModule):
     def _diff_backward(self,
                        f: fr.FieldVariable, 
                        axis: int) -> fr.FieldVariable:
-        res = fr.FieldVariable(**f.get_kw())
+        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
         new_pos = f.position.shift(axis)
         mask = self.water_mask.get_mask(new_pos)
 
