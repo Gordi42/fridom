@@ -261,10 +261,6 @@ class Grid(fr.grid.GridBase):
             res["L"] += f" x {fr.utils.humanize_number(self.L[i], 'meters')}"
             res["dx"] += f" x {fr.utils.humanize_number(self.dx[i], 'meters')}"
             res["Periodic"] += f" x {self.periodic_bounds[i]}"
-        if self._domain_decomp is not None:
-            res["Processors"] = f"{self._domain_decomp.n_procs[0]}"
-            for i in range(1, self.n_dims):
-                res["Processors"] += f" x {self._domain_decomp.n_procs[i]}"
         return res
         
     @property
