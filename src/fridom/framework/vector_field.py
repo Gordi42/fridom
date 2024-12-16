@@ -244,6 +244,7 @@ class VectorField(fr.FieldBase):
     # ================================================================
     #  Sliceable Interface
     # ================================================================
+
     def __getitem__(self,
                     key: str | int | slice[int]) -> fr.ScalarField | fr.VectorField:
         """Get a field or slice of the vector field."""
