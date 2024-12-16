@@ -197,6 +197,7 @@ class ScalarField(fr.FieldBase):
     # ================================================================
     #  xarray Interface
     # ================================================================
+
     def _convert_slice_to_xarray(self,
                                  key: int | slice | tuple[int | slice],
                                  ) -> xr.DataArray:
