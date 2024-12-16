@@ -57,7 +57,7 @@ class FieldMetadata:
     units: str = "n/a"
     nc_attrs: dict | None = None
     is_spectral: bool = False
-    topo: list[bool] | None = None
+    topo: tuple[bool] | None = None
     position: fr.grid.Position | None = None
     _bc_types: tuple[fr.grid.BCType] | None = None
     _flags: dict = field(
@@ -74,7 +74,7 @@ class FieldMetadata:
             self.position = mset.grid.cell_center
 
         if self.topo is None:
-            self.topo = [True] * mset.grid.n_dims
+            self.topo = tuple([True] * mset.grid.n_dims)
 
         if self.bc_types is None:
             self.bc_types = [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
