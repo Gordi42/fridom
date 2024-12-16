@@ -423,10 +423,6 @@ class ScalarField(fr.FieldBase):
         """True if the FieldVariable is in spectral space."""
         return self.mdata.is_spectral
 
-    @is_spectral.setter
-    def is_spectral(self, is_spectral: bool) -> None:
-        self.mdata.is_spectral = is_spectral
-
     @property
     def topo(self) -> list[bool]:
         """
