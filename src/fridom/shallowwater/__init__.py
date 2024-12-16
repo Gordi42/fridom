@@ -179,6 +179,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.logger import log
     from fridom.framework.model import Model
     from fridom.framework.model_state import ModelState
+    from fridom.framework.scalar_field import ScalarField
+    from fridom.framework.tensor_field import TensorField
+    from fridom.framework.vector_field import VectorField
 
     from . import grid, initial_conditions, modules
     from .model_settings import ModelSettings
@@ -201,6 +204,9 @@ all_imports_by_origin = {
     f"{base_sw}.state": ["State"],
     f"{base_fr}.field_metadata": ["FieldMetadata"],
     f"{base_fr}.field_variable": ["FieldVariable"],
+    f"{base_fr}.scalar_field": ["ScalarField"],
+    f"{base_fr}.vector_field": ["VectorField"],
+    f"{base_fr}.tensor_field": ["TensorField"],
     f"{base_fr}.model_state": ["ModelState"],
     f"{base_fr}.model": ["Model"],
     f"{base_fr}.clock": ["Clock", "TimingFormat"],

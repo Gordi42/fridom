@@ -30,13 +30,17 @@ if TYPE_CHECKING:  # pragma: no cover
     from .clock import Clock, TimingFormat
     from .clock_trigger import ClockTrigger
     from .configuration import config
+    from .field_base import FieldBase
     from .field_metadata import FieldMetadata
     from .field_variable import FieldVariable
     from .logger import log
     from .model import Model
     from .model_settings_base import ModelSettingsBase
     from .model_state import ModelState
+    from .scalar_field import ScalarField
     from .state_base import StateBase
+    from .tensor_field import TensorField
+    from .vector_field import VectorField
 
 # ================================================================
 #  Setup lazy loading
@@ -59,9 +63,13 @@ all_imports_by_origin = {
     "fridom.framework.configuration": ["config"],
     "fridom.framework.logger": ["log"],
     "fridom.framework.model_settings_base": ["ModelSettingsBase"],
+    "fridom.framework.field_base": ["FieldBase"],
     "fridom.framework.field_metadata": ["FieldMetadata"],
     "fridom.framework.field_variable": ["FieldVariable"],
     "fridom.framework.state_base": ["StateBase"],
+    "fridom.framework.scalar_field": ["ScalarField"],
+    "fridom.framework.vector_field": ["VectorField"],
+    "fridom.framework.tensor_field": ["TensorField"],
     "fridom.framework.model_state": ["ModelState"],
     "fridom.framework.model": ["Model"],
     "fridom.framework.clock": ["Clock", "TimingFormat"],
