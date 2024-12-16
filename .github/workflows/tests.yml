@@ -39,6 +39,10 @@ jobs:
         elif [ "${{ matrix.backend }}" == "cupy" ]; then
           pip install cupy-cuda12
         fi
+      
+    - name: Install additional dependencies
+      run: |
+        pip install xarray
 
     - name: Run the tests
       run: |
