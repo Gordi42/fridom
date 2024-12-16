@@ -33,7 +33,7 @@ class FieldBase:
     """
 
     def __init__(self, mset: fr.ModelSettingsBase) -> None:
-        self.mset = mset
+        self._mset = mset
 
     # ================================================================
     #  General Methods
@@ -141,7 +141,7 @@ class FieldBase:
 
         if not self.is_spectral:
             msg = "Field is not in spectral space, cannot perform ifft"
-            raise ValueError
+            raise ValueError(msg)
 
     @abstractmethod
     def sync(self) -> FieldBase:
@@ -214,6 +214,7 @@ class FieldBase:
         for key, value in self.info.items():
             res += f"\n  {key}={value}, "
         res += "\n)"
+        return res
 
     # ================================================================
     #  Differential Operators
@@ -344,8 +345,8 @@ class FieldBase:
 
         """
 
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def from_xarray(cls,
                     mset: fr.ModelSettingsBase,
                     ds: xr.DataArray | xr.Dataset,
@@ -424,10 +425,6 @@ class FieldBase:
         """The model settings."""
         return self._mset
 
-    @mset.setter
-    def mset(self, value: fr.ModelSettingsBase) -> None:
-        self._mset = value
-
     @property
     def grid(self) -> fr.grid.GridBase:
         """The grid object."""
@@ -441,6 +438,7 @@ class FieldBase:
     # ================================================================
     #  Arithmetic Operations
     # ================================================================
+
     @abstractmethod
     def dot(self, other: FieldBase) -> FieldBase:
         r"""
@@ -506,8 +504,8 @@ class FieldBase:
 
         """
 
-    @abstractmethod
     @staticmethod
+    @abstractmethod
     def _apply_operation(
         op: Callable[[FieldBase, any], FieldBase],
         field: FieldBase,
@@ -541,6 +539,9 @@ class FieldBase:
 
     def __pow__(self, other: any) -> FieldBase:
         return self._apply_operation(lambda x, y: x ** y, self, other)
+
+    def __rpow__(self, other: any) -> FieldBase:
+        return self._apply_operation(lambda x, y: y ** x, self, other)
 
     def __matmul__(self, other: FieldBase) -> FieldBase:
         return self.dot(other)
