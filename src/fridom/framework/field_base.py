@@ -8,7 +8,7 @@ import numpy as np
 
 import fridom.framework as fr
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
 
 class FieldBase:
