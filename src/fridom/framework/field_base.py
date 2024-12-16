@@ -219,6 +219,7 @@ class FieldBase:
     #  Differential Operators
     # ================================================================
 
+    @abstractmethod
     def diff(self,
              axis: int,
              order: int = 1,
@@ -244,8 +245,8 @@ class FieldBase:
             The derivative of the field along the specified axis.
 
         """
-        return self.grid.diff_module.diff(self, axis, order)
 
+    @abstractmethod
     def grad(self,
              axes: list[int] | None = None,
              ) -> FieldBase:
@@ -272,8 +273,8 @@ class FieldBase:
             `[df/dx, None, df/dz]`.
 
         """
-        return self.grid.diff_module.grad(self, axes)
 
+    @abstractmethod
     def laplacian(self,
                   axes: tuple[int] | None = None,
                   ) -> fr.ScalarField | fr.VectorField | fr.TensorField:
@@ -295,8 +296,8 @@ class FieldBase:
             The Laplacian of the field.
 
         """
-        return self.grid.diff_module.laplacian(self, axes)
 
+    @abstractmethod
     def div(self) -> fr.ScalarField | fr.VectorField:
         r"""
         Compute the divergence.
@@ -310,12 +311,11 @@ class FieldBase:
             The divergence of the field.
 
         """
-        return self.grid.diff_module.div(vec=self)
-
 
     # ================================================================
     #  xarray Interface
     # ================================================================
+
     @property
     def xr(self) -> xr.DataArray | xr.Dataset:
         r"""

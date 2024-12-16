@@ -160,18 +160,22 @@ class ScalarField(fr.FieldBase):
     # ================================================================
     #  Differential Operators
     # ================================================================
-    # we only need to change some type hints here
 
     def diff(self, axis: int, order: int = 1) -> ScalarField:  # noqa: D102
-        return super().diff(axis, order)
+        return self.grid.diff_module.diff(self, axis, order)
 
     def grad(self, axes: list[int] | None = None ) -> fr.VectorField:  # noqa: D102
-        return super().grad(axes)
+        return self.grid.diff_module.grad(self, axes)
 
     def laplacian(self,  # noqa: D102
                   axes: tuple[int] | None = None,
                   ) -> ScalarField:
-        return super().laplacian(axes)
+        return self.grid.diff_module.laplacian(self, axes)
+
+    def div(self, axes: list[int] | None = None) -> None:  # noqa: D102
+        _ = axes
+        msg = "Divergence is not defined for scalar fields"
+        raise ValueError(msg)
 
     def interpolate(self, destination: fr.grid.Position) -> ScalarField:
         """
