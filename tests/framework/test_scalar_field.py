@@ -45,6 +45,10 @@ def mset_all(grid_all):
 def is_spectral(request):
     return request.param
 
+@pytest.fixture(params=[(True, True), (True, False), (False, True), (False, False)])
+def topo(request):
+    return request.param
+
 # ================================================================
 #  Tests
 # ================================================================
@@ -62,8 +66,6 @@ def test_init(mset_all, is_spectral, n_dims):
     c = fr.config
     expected_dtype = c.dtype_comp if is_spectral else c.dtype_real
     assert field.arr.dtype == expected_dtype
-
-def test_get_attr(): ...
 
 @pytest.mark.parametrize(*(
     "kwargs",
@@ -87,6 +89,15 @@ def test_kwargs(mset, kwargs):
     # test if the kwargs are set correctly
     for key, value in kwargs.items():
         assert getattr(field, key) == value
+
+def test_topo_shape(mset, topo):
+    field = fr.ScalarField(mset, topo=topo)
+    # check if the field has the correct topo
+    assert field.mdata.topo == topo
+    # every dimension with topo=False should have a size of 1
+    for i, t in enumerate(topo):
+        if not t:
+            assert field.arr.shape[i] == 1
 
 # ----------------------------------------------------------------
 
