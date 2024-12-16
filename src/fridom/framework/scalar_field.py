@@ -46,12 +46,12 @@ class ScalarField(fr.FieldBase):
         # create new metadata object if not provided
         mdata = mdata or fr.FieldMetadata()
 
+        # set default values of the metadata
+        mdata.set_default(mset)
+
         # set the attributes from the kwargs
         for key, value in kwargs.items():
             setattr(mdata, key, value)
-
-        # set default values of the metadata
-        mdata.set_default(mset)
 
         # The underlying array
         if arr is None:
