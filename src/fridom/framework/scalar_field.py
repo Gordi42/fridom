@@ -259,7 +259,7 @@ class ScalarField(fr.FieldBase):
                            key: tuple[int | slice],
                            shape: tuple[int],
                            ) -> tuple[list, dict]:
-        """Get the coordinates for a slice of the FieldVariable."""
+        """Get the coordinates for a slice of the ScalarField."""
         ndim = self.grid.n_dims
         realistic_dims = 3
         # get the coordinates
@@ -309,7 +309,7 @@ class ScalarField(fr.FieldBase):
             arr = conf.ncp.array(arr, dtype=conf.dtype_real)
             # pad the array
             arr = mset.grid.pad(arr)
-        # create the FieldVariable
+        # create the ScalarField
         field = cls(mset=mset, mdata=mdata, arr=arr)
         # synchronize the field
         return field.sync()
@@ -375,7 +375,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def mdata(self) -> fr.FieldMetadata:
-        """The metadata of the FieldVariable."""
+        """The metadata of the ScalarField."""
         return self._mdata
 
     @mdata.setter
@@ -384,7 +384,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def name(self) -> str:
-        """The name of the FieldVariable."""
+        """The name of the ScalarField."""
         return self.mdata.name
 
     @name.setter
@@ -393,7 +393,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def long_name(self) -> str:
-        """The long name of the FieldVariable."""
+        """The long name of the ScalarField."""
         return self.mdata.long_name
 
     @long_name.setter
@@ -402,7 +402,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def units(self) -> str:
-        """The unit of the FieldVariable."""
+        """The unit of the ScalarField."""
         return self.mdata.units
 
     @units.setter
@@ -420,26 +420,26 @@ class ScalarField(fr.FieldBase):
 
     @property
     def is_spectral(self) -> bool:
-        """True if the FieldVariable is in spectral space."""
+        """True if the ScalarField is in spectral space."""
         return self.mdata.is_spectral
 
     @property
-    def topo(self) -> list[bool]:
+    def topo(self) -> tuple[bool]:
         """
-        Topology of the FieldVariable.
+        Topology of the ScalarField.
 
         Description
         -----------
         Field Variables do not have to be extended in all directions. For
         example, one might want to create a 2D forcing field for a 3D simulation,
-        that only depends on x and y. In this case, the topo of the FieldVariable
-        would be [True, True, False].
+        that only depends on x and y. In this case, the topo of the ScalarField
+        would be (True, True, False).
         """
         return self.mdata.topo
 
     @property
     def position(self) -> fr.grid.Position:
-        """The position of the FieldVariable on the staggered grid."""
+        """The position of the ScalarField on the staggered grid."""
         return self.mdata.position
 
     @position.setter
@@ -448,7 +448,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def bc_types(self) -> tuple[fr.grid.BCType] | None:
-        """The boundary condition types for the FieldVariable."""
+        """The boundary condition types for the ScalarField."""
         return self.mdata.bc_types
 
     @bc_types.setter
@@ -457,7 +457,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def flags(self) -> dict:
-        """Dictionary with flag options for the FieldVariable."""
+        """Dictionary with flag options for the ScalarField."""
         return self.mdata.flags
 
     @flags.setter
