@@ -100,6 +100,43 @@ def test_topo_shape(mset, topo):
             assert field.arr.shape[i] == 1
 
 # ----------------------------------------------------------------
+#  Test properties
+# ----------------------------------------------------------------
+
+# I don't know how to set the fixture values for the expected values
+# so I skip these attributes for now by setting the expected values to None
+@pytest.mark.parametrize(*(
+    "attr, expected_type, expected_value",
+    [
+        ("mset", fr.ModelSettingsBase, None),  # mset is set in the fixture
+        ("grid", fr.grid.cartesian.Grid, None),  # grid is set in the fixture
+        ("is_spectral", bool, False),
+        ("arr", fr.config.ncp.ndarray, None),
+        ("mdata", fr.FieldMetadata, None),  # too lazy to set the expected value
+        ("name", str, "unnamed"),
+        ("long_name", str, "Unnamed"),
+        ("units", str, "n/a"),
+        ("nc_attrs", dict, None),
+        ("topo", tuple, (True, True)),
+        ("position", fr.grid.Position, fr.grid.Position(
+            (fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.CENTER))),
+        ("bc_types", tuple, (fr.grid.BCType.NEUMANN, fr.grid.BCType.NEUMANN)),
+        ("flags", dict, {"NO_ADV": False,
+                         "ENABLE_MIXING": False,
+                         "ENABLE_FRICTION": False}),
+    ],
+))
+def test_get_attr(mset, attr, expected_type, expected_value):
+    field = fr.ScalarField(mset)
+    # check if the field has the attribute
+    assert hasattr(field, attr)
+    # check if the attribute is of the correct type
+    attr_value = getattr(field, attr)
+    assert isinstance(attr_value, expected_type)
+    # check if the attribute has the correct value
+    if expected_value is not None:
+        assert attr_value == expected_value
+
 
 def test_set_attr(): ...
 
