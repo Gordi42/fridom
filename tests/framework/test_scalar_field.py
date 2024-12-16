@@ -65,6 +65,31 @@ def test_init(mset_all, is_spectral, n_dims):
 
 def test_get_attr(): ...
 
+@pytest.mark.parametrize(*(
+    "kwargs",
+    [
+        {"name": "test"},
+        {"is_spectral": True},
+        {"is_spectral": False},
+        {"long_name": "test"},
+        {"nc_attrs": {"var1": 1, "var2": 2}},
+        {"topo": (True, False)},
+        {"position": fr.grid.Position(
+            (fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.FACE))},
+        {"bc_types": (
+            fr.grid.BCType.DIRICHLET, fr.grid.BCType.NEUMANN)},
+        {"units": "test"},
+        {"name": "test", "is_spectral": False},
+    ],
+))
+def test_kwargs(mset, kwargs):
+    field = fr.ScalarField(mset, **kwargs)
+    # test if the kwargs are set correctly
+    for key, value in kwargs.items():
+        assert getattr(field, key) == value
+
+# ----------------------------------------------------------------
+
 def test_set_attr(): ...
 
 # ----------------------------------------------------------------
