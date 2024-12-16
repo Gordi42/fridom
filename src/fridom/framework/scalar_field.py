@@ -9,7 +9,7 @@ import numpy as np
 
 import fridom.framework as fr
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
     from numpy import ndarray
 
@@ -121,6 +121,23 @@ class ScalarField(fr.FieldBase):
         self.apply_water_mask()
         return self
 
+    def apply_water_mask(self) -> ScalarField:  # noqa: D102
+        if self.is_spectral:
+            msg = "ScalarField is in spectral space, cannot apply water mask"
+            raise ValueError(msg)
+        self.arr *= self.grid.water_mask.get_mask(self.position)
+        return self
+
+    def has_nan(self) -> bool:  # noqa: D102
+        ncp = fr.config.ncp
+        return ncp.any(ncp.isnan(self.arr))
+
+    def __copy__(self) -> ScalarField:
+        # copy the array and the metadata but not the model settings
+        arr = deepcopy(self.arr)
+        mdata = deepcopy(self.mdata)
+        return ScalarField(mset=self.mset, mdata=mdata, arr=arr)
+
     def unpad(self) -> ndarray:
         """
         Remove padding from the Scalar Field.
@@ -136,26 +153,26 @@ class ScalarField(fr.FieldBase):
             raise ValueError(msg)
         return self.grid.unpad(self.arr)
 
-    def apply_water_mask(self) -> ScalarField:  # noqa: D102
-        if self.is_spectral:
-            msg = "ScalarField is in spectral space, cannot apply water mask"
-            raise ValueError(msg)
-        self.arr *= self.grid.water_mask.get_mask(self.position)
-        return self
-
     def get_mesh(self) -> tuple[ndarray]:
         """Get the meshgrid of the ScalarField."""
         return self.grid.get_mesh(self.position, self.is_spectral)
 
-    def has_nan(self) -> bool:  # noqa: D102
-        ncp = fr.config.ncp
-        return ncp.any(ncp.isnan(self.arr))
+    def interpolate(self, destination: fr.grid.Position) -> ScalarField:
+        """
+        Interpolate the field to the destination position.
 
-    def __copy__(self) -> ScalarField:
-        # copy the array and the metadata but not the model settings
-        arr = deepcopy(self.arr)
-        mdata = deepcopy(self.mdata)
-        return ScalarField(mset=self.mset, mdata=mdata, arr=arr)
+        Parameters
+        ----------
+        destination : fr.grid.Position
+            The position to interpolate to.
+
+        Returns
+        -------
+        ScalarField
+            The interpolated field.
+
+        """
+        return self.grid.interp_module.interpolate(self, destination)
 
     # ================================================================
     #  Differential Operators
@@ -176,23 +193,6 @@ class ScalarField(fr.FieldBase):
         _ = axes
         msg = "Divergence is not defined for scalar fields"
         raise ValueError(msg)
-
-    def interpolate(self, destination: fr.grid.Position) -> ScalarField:
-        """
-        Interpolate the field to the destination position.
-
-        Parameters
-        ----------
-        destination : fr.grid.Position
-            The position to interpolate to.
-
-        Returns
-        -------
-        ScalarField
-            The interpolated field.
-
-        """
-        return self.grid.interp_module.interpolate(self, destination)
 
     # ================================================================
     #  xarray Interface
