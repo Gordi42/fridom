@@ -284,7 +284,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def xr(self) -> xr.DataArray:  # noqa: D102
-        return super().xr
+        return self.xrs[:]
 
     @property
     def xrs(self) -> fr.utils.SliceableAttribute[xr.DataArray]:  # noqa: D102

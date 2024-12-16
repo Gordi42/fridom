@@ -316,6 +316,7 @@ class FieldBase:
     # ================================================================
 
     @property
+    @abstractmethod
     def xr(self) -> xr.DataArray | xr.Dataset:
         r"""
         The xarray representation of the field.
@@ -326,7 +327,6 @@ class FieldBase:
             The xarray representation of the field.
 
         """
-        return self.xrs[:]
 
     @property
     @abstractmethod
