@@ -63,7 +63,6 @@ class FieldBase:
             The FFT of the field.
 
         """
-        self._fft_possible()
 
     @abstractmethod
     def ifft(self,
@@ -89,7 +88,6 @@ class FieldBase:
             The IFFT of the field.
 
         """
-        self._ifft_possible()
 
     def _fft_possible(self) -> None:
         r"""
