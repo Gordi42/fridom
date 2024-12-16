@@ -78,6 +78,9 @@ class ScalarField(fr.FieldBase):
             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
             ) -> ScalarField:
         self._fft_possible()
+        if not all(self.topo):
+            msg = "Cannot transform non full domain fields"
+            raise NotImplementedError(msg)
 
         transformed_arr = self.grid.fft(
             arr=self.arr,
@@ -97,6 +100,9 @@ class ScalarField(fr.FieldBase):
              padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              ) -> ScalarField:
         self._ifft_possible()
+        if not all(self.topo):
+            msg = "Cannot transform non full domain fields"
+            raise NotImplementedError(msg)
 
         transformed_arr = self.grid.ifft(
             arr=self.arr,
