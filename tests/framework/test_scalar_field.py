@@ -137,8 +137,37 @@ def test_get_attr(mset, attr, expected_type, expected_value):
     if expected_value is not None:
         assert attr_value == expected_value
 
-
-def test_set_attr(): ...
+@pytest.mark.parametrize(*(
+    "attr, value",
+    [
+        ("mset", "readonly"),
+        ("grid", "readonly"),
+        ("is_spectral", "readonly"),
+        ("arr", fr.config.ncp.array([1, 2, 3])),
+        ("mdata", fr.FieldMetadata()),
+        ("name", "new_name"),
+        ("long_name", "New Name"),
+        ("units", "new units"),
+        ("nc_attrs", {"var1": 1, "var2": 2}),
+        ("topo", "readonly"),
+        ("position", fr.grid.Position(
+            (fr.grid.AxisPosition.FACE, fr.grid.AxisPosition.CENTER))),
+        ("bc_types", (fr.grid.BCType.DIRICHLET, fr.grid.BCType.NEUMANN)),
+    ],
+))
+def test_set_attr(mset, attr, value):
+    field = fr.ScalarField(mset)
+    # check that readonly attributes cannot be set
+    if isinstance(value, str) and value == "readonly":
+        with pytest.raises(AttributeError):
+            setattr(field, attr, value)
+        return
+    # set the attribute
+    setattr(field, attr, value)
+    if isinstance(value, fr.config.ncp.ndarray):
+        assert (field.arr == value).all()
+    else:
+        assert getattr(field, attr) == value
 
 # ----------------------------------------------------------------
 #  Test general methods
