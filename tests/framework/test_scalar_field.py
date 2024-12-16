@@ -7,13 +7,61 @@ import fridom.framework as fr
 #  Fixtures
 # ================================================================
 
+@pytest.fixture(params=[1, 2, 3])
+def n_dims(request):
+    return request.param
 
+@pytest.fixture
+def shape(n_dims):
+    return (3, 10, 4)[:n_dims]
+
+# default grid is 2D with shape (3, 10)
+@pytest.fixture
+def grid():
+    return fr.grid.cartesian.Grid(N=(3, 10), L=(1, 2))
+
+# for some tests we test different grid shapes
+@pytest.fixture
+def grid_all(shape):
+    return fr.grid.cartesian.Grid(N=shape, L=(1, 2, 3)[:len(shape)])
+
+# default model settings
+@pytest.fixture
+def mset(grid):
+    mset = fr.ModelSettingsBase(grid)
+    mset.halo = 1
+    mset.setup()
+    return mset
+
+# model settings for different grid shapes
+@pytest.fixture
+def mset_all(grid_all):
+    mset = fr.ModelSettingsBase(grid_all)
+    mset.halo = 1
+    mset.setup()
+    return mset
+
+@pytest.fixture(params=[True, False])
+def is_spectral(request):
+    return request.param
 
 # ================================================================
 #  Tests
 # ================================================================
 
-def test_init(): ...
+def test_init(mset_all, is_spectral, n_dims):
+    field = fr.ScalarField(mset_all, is_spectral=is_spectral)
+    # check if the field is a scalar field
+    assert isinstance(field, fr.ScalarField)
+    # check if the field has the correct grid
+    assert field.is_spectral == is_spectral
+    # check if the underlying data is a numpy array with the correct dimensions
+    assert isinstance(field.arr, fr.config.ncp.ndarray)
+    assert len(field.arr.shape) == n_dims
+    # test if arr has the correct dtype
+    c = fr.config
+    expected_dtype = c.dtype_comp if is_spectral else c.dtype_real
+    assert field.arr.dtype == expected_dtype
 
 def test_get_attr(): ...
 
