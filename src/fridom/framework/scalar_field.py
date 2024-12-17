@@ -757,10 +757,11 @@ class ScalarField(fr.FieldBase):
         self._check_full_domain()
         # TODO(Silvano): Implement integration over specific axes
         self._check_axes_argument(axes)
-        # TODO(Silvano): This should call the grid.integrate method
-        if self.is_spectral:
-            msg = "Integration not available for spectral fields"
-            raise NotImplementedError(msg)
+        # TODO(Silvano): The sum method cannot be used here because of the
+        # ghost cells. We need to implement a proper integration method
+        # that takes the grid spacing into account
+        msg = "Integration is not implemented yet"
+        raise NotImplementedError(msg)
         domain = self.grid.domain_decomp
         return domain.sum(self.arr * self.grid.dV)
 

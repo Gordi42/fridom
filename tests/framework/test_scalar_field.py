@@ -679,7 +679,16 @@ def test_min(field, axes, topo, is_spectral):
     assert isinstance(t(min_val), t)
     assert min_val == field.arr.min()
 
-def test_integrate(): ...
+def test_integrate(field, axes, topo):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.integrate(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.integrate(axes))
+        return
+    msg = "Integration is not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        field.integrate(axes)
 
 def test_norm_l2(): ...
 
