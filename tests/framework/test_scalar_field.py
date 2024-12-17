@@ -690,7 +690,13 @@ def test_integrate(field, axes, topo):
     with pytest.raises(NotImplementedError, match=msg):
         field.integrate(axes)
 
-def test_norm_l2(): ...
+def test_norm_l2(field, topo):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.norm_l2())
+        return
+    msg = "Integration is not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        field.norm_l2()
 
 def test_dot(): ...
 

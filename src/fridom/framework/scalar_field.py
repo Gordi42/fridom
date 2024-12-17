@@ -766,10 +766,15 @@ class ScalarField(fr.FieldBase):
         return domain.sum(self.arr * self.grid.dV)
 
     def norm_l2(self) -> float:
-        """Compute the numpy.linalg.norm of the ScalarField."""
-        # TODO(Silvano): This seems to be grid dependent, should be moved to the grid
-        norm = fr.config.ncp.linalg.norm(self.unpad())**2
-        return fr.config.ncp.sqrt(norm)
+        r"""
+        Compute the L2 norm of the ScalarField.
+
+        .. math::
+            ||f||_{L2} = \sqrt{\int_{\Omega} |f(\boldsymbol{x})|^2 d\boldsymbol{x}}
+
+        """
+        # integrate the square of the field
+        return (abs(self)**2).integrate() ** 0.5
 
     def dot(self,  # noqa: D102
             other: ScalarField | fr.VectorField | fr.TensorField,
