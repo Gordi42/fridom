@@ -173,9 +173,36 @@ def test_set_attr(mset, attr, value):
 #  Test general methods
 # ----------------------------------------------------------------
 
-def test_fft(): ...
+def test_fft_ifft(mset_all):
+    # create the field
+    field = fr.ScalarField(mset_all)
+    # set the field to a random value
+    field.arr = field.grid.create_random_array(seed=12345)
+    # it should be impossible to perform an ifft on a physical field
+    msg = "Field is not in spectral space, cannot perform ifft"
+    with pytest.raises(ValueError, match=msg):
+        field.ifft()
+    field_fft = field.fft()
+    # check if the field is in spectral space
+    assert field_fft.is_spectral
+    # it should be impossible to perform an fft on a spectral field
+    msg = "Field is in spectral space, cannot perform fft"
+    with pytest.raises(ValueError, match=msg):
+        field_fft.fft()
+    # compute the inverse fft
+    field_ifft = field_fft.ifft()
+    assert not field_ifft.is_spectral
+    assert fr.config.ncp.allclose(field.arr, field_ifft.arr)
 
-def test_ifft(): ...
+def test_fft_ifft_topo(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    if all(topo):
+        # fft should work on full domain fields
+        field.ifft() if is_spectral else field.fft()
+        return
+    msg = "Cannot transform non full domain fields"
+    with pytest.raises(NotImplementedError, match=msg):
+        field.ifft() if is_spectral else field.fft()
 
 def test_sync(): ...
 
