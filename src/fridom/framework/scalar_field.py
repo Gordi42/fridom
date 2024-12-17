@@ -135,7 +135,7 @@ class ScalarField(fr.FieldBase):
         # so that we can apply them to non full domain fields
         self._check_full_domain()
         if self.is_spectral:
-            msg = "ScalarField is in spectral space, cannot apply water mask"
+            msg = "Cannot apply watermask to spectral field"
             raise ValueError(msg)
         self.arr *= self.grid.water_mask.get_mask(self.position)
         return self

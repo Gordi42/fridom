@@ -247,7 +247,23 @@ def test_sync(mset, topo, is_spectral):
     # we did not rigourously check if the ghost points are correct since this
     # is tested in the grid class
 
-def test_apply_watermask(): ...
+def test_apply_watermask(mset, topo, is_spectral):
+    # TODO: should test a custom watermask array
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    field.arr = field.grid.create_random_array(seed=12345)
+    # if the field is not fully extended, apply_watermask should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(field.apply_water_mask)
+        return
+    # if the field is spectral, apply_watermask should raise an error
+    if is_spectral:
+        msg = "Cannot apply watermask to spectral field"
+        with pytest.raises(ValueError, match=msg):
+            field.apply_water_mask()
+        return
+    # check if the apply_watermask method does not raise an error
+    masked_field = field.apply_water_mask()
+    assert masked_field is field  # should be in place
 
 def test_has_nan(): ...
 
