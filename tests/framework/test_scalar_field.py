@@ -248,7 +248,7 @@ def test_sync(mset, topo, is_spectral):
     # is tested in the grid class
 
 def test_apply_watermask(mset, topo, is_spectral):
-    # TODO: should test a custom watermask array
+    # TODO(Silvano): should test a custom watermask array
     field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
     field.arr = field.grid.create_random_array(seed=12345)
     # if the field is not fully extended, apply_watermask should raise an error
@@ -318,7 +318,18 @@ def test_get_mesh(mset, topo, is_spectral):
     for (x1, x2) in zip(mesh, grid_mesh):
         assert x1 is x2
 
-def test_interpolate(): ...
+@pytest.mark.parametrize("new_position", [
+    fr.grid.Position((fr.grid.AxisPosition.FACE, fr.grid.AxisPosition.CENTER)),
+    fr.grid.Position((fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.FACE)),
+])
+def test_interpolate(mset, topo, is_spectral, new_position):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # if the field is not fully extended, interpolate should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(
+            lambda: field.interpolate(new_position))
+        return
+    # TODO(Silvano): do tests once the new interpolate method is implemented
 
 # ----------------------------------------------------------------
 #  Test differential operators
