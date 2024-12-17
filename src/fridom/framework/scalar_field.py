@@ -180,6 +180,49 @@ class ScalarField(fr.FieldBase):
         """
         return self.grid.interp_module.interpolate(self, destination)
 
+    def extend(self, topo: tuple[bool]) -> ScalarField:
+        r"""
+        Extend the field in the specified directions.
+
+        Description
+        -----------
+        This method extends the field in the specified directions. The field
+        can be extended in any direction, but it cannot be shrunk. This means
+        that if the field is extended in a direction, it has to be extended in
+        all directions. Values in the extended directions are copied from the
+        original field, such that:
+
+        .. math::
+            f_{\text{new}}(x, y, z) = f_{\text{old}}(x, y)
+
+        where :math:`f_{\text{new}}` is the new field extended in (x, y, z),
+        and :math:`f_{\text{old}}` is the old field, extended in (x, y).
+
+        Parameters
+        ----------
+        topo : tuple[bool]
+            The new topology of the field.
+
+        Returns
+        -------
+        ScalarField
+            The extended field.
+
+        Raises
+        ------
+        ValueError
+            If the field is shrunk in any direction.
+
+        """
+        # check if the topology is valid (no shrinking)
+        old_topo = self.topo
+        for (old, new) in zip(old_topo, topo):
+            if old and not new:
+                msg = "Cannot shrink the field in any direction"
+                raise ValueError(msg)
+        # TODO(Silvano): The grid.extend method is not implemented yet
+        return self.grid.extend(self, topo)
+
     # ================================================================
     #  Differential Operators
     # ================================================================
