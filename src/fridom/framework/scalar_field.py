@@ -726,9 +726,6 @@ class ScalarField(fr.FieldBase):
         domain = self.grid.domain_decomp
         return domain.min(self.arr, axes=axes, spectral=self.is_spectral)
 
-    def __min__(self) -> float:
-        return self.min()
-
     def integrate(self, axes: tuple[int] | None = None) -> ScalarField | float:
         r"""
         Global integral of the ScalarField in specified axes.

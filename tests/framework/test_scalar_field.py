@@ -667,7 +667,17 @@ def test_max(field, axes, topo, is_spectral):
     assert isinstance(t(max_val), t)
     assert max_val == field.arr.max()
 
-def test_min(): ...
+def test_min(field, axes, topo, is_spectral):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.min(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.min(axes))
+        return
+    t = complex if is_spectral else float
+    min_val = field.arr.min()
+    assert isinstance(t(min_val), t)
+    assert min_val == field.arr.min()
 
 def test_integrate(): ...
 
