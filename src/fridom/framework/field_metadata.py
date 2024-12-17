@@ -81,15 +81,19 @@ class FieldMetadata:
 
     def to_serializable(self) -> dict:
         """Convert the FieldMetadata to a serializable dictionary."""
-        res = copy(self.__dict__)
-        res["nc_attrs"] = [str(key) for key in self.nc_attrs]
+        res = {
+            "name": self.name,
+            "long_name": self.long_name,
+            "units": self.units,
+            "nc_attrs": [str(key) for key in self.nc_attrs],
+            "is_spectral": int(self.is_spectral),
+            "topo": tuple(int(x) for x in self.topo),
+            "position": [x.value for x in self.position.positions],
+            "bc_types": [x.value for x in self.bc_types],
+            "flags": [str(key) for key in self.flags],
+        }
         res.update(self.nc_attrs)
-        res["is_spectral"] = int(self.is_spectral)
-        res["topo"] = tuple(int(x) for x in self.topo)
-        res["_bc_types"] = [x.value for x in self.bc_types]
-        res["position"] = [x.value for x in self.position.positions]
-        res["_flags"] = [str(key) for key in self._flags]
-        for flag, value in self._flags.items():
+        for flag, value in self.flags.items():
             res[flag] = int(value)
         return res
 
@@ -101,11 +105,11 @@ class FieldMetadata:
                    units=data["units"],
                    nc_attrs={key: data[key] for key in data["nc_attrs"]},
                    is_spectral=bool(data["is_spectral"]),
-                   topo=tuple(bool(x) for x in data["topo"]),
+                   _topo=tuple(bool(x) for x in data["topo"]),
                    position=fr.grid.Position(
                        [fr.grid.AxisPosition(x) for x in data["position"]]),
-                   _bc_types=tuple(fr.grid.BCType(x) for x in data["_bc_types"]),
-                   _flags={key: bool(data[key]) for key in data["_flags"]})
+                   _bc_types=tuple(fr.grid.BCType(x) for x in data["bc_types"]),
+                   _flags={key: bool(data[key]) for key in data["flags"]})
 
     @property
     def topo(self) -> tuple[bool]:
