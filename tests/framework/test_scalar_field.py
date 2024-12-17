@@ -306,8 +306,17 @@ def test_unpad(mset, topo, is_spectral):
             full_shape[i] = 1
     assert arr.shape == tuple(full_shape)
 
-
-def test_get_mesh(): ...
+def test_get_mesh(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # if the field is not fully extended, get_mesh should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(field.get_mesh)
+        return
+    mesh = field.get_mesh()
+    grid_mesh = field.grid.get_mesh(position=field.position,
+                                    spectral=field.is_spectral)
+    for (x1, x2) in zip(mesh, grid_mesh):
+        assert x1 is x2
 
 def test_interpolate(): ...
 
