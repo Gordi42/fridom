@@ -474,14 +474,15 @@ class ScalarField(fr.FieldBase):
     #  SLICING
     # ==================================================================
 
-    def __getitem__(self, key: slice | tuple[slice | int]) -> ndarray:
-        return self.arr[key]
+    def __getitem__(self, key: slice | tuple[slice | int]) -> ScalarField:
+        msg = "Slicing is currently not supported for ScalarFields"
+        raise NotImplementedError(msg)
 
     def __setitem__(self,
                     key: slice | tuple[slice | int],
-                    value: ndarray | float) -> None:
-        new_arr = fr.utils.modify_array(self.arr, key, value)
-        self.arr = new_arr
+                    value: ScalarField | float) -> None:
+        msg = "Slicing is currently not supported for ScalarFields"
+        raise NotImplementedError(msg)
 
     # ================================================================
     #  Pickling

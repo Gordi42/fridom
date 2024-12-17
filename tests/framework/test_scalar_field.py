@@ -490,9 +490,16 @@ def test_netcdf_save_load(mset, is_spectral, tmp_dir):
 #  Test slicing methods
 # ----------------------------------------------------------------
 
-def test_getitem(): ...
-
-def test_setitem(): ...
+@pytest.mark.parametrize("key", [slice(None), 0])
+def test_slicing(mset, key):
+    field = fr.ScalarField(mset)
+    msg = "Slicing is currently not supported for ScalarFields"
+    # test __getitem__
+    with pytest.raises(NotImplementedError, match=msg):
+        field[key]
+    # test __setitem__
+    with pytest.raises(NotImplementedError, match=msg):
+        field[key] = 0
 
 # ----------------------------------------------------------------
 #  Pickling
