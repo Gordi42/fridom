@@ -304,6 +304,8 @@ class ScalarField(fr.FieldBase):
     def _convert_slice_to_xarray(self,
                                  key: int | slice | tuple[int | slice],
                                  ) -> xr.DataArray:
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
         import xarray as xr
         # normalize the key
         key = self._normalize_slice_key(key)
@@ -333,6 +335,9 @@ class ScalarField(fr.FieldBase):
         x_unit = "1/m" if self.is_spectral else "m"
         for dim in dims:
             dv[dim].attrs["units"] = x_unit
+
+        # add the slice key as an attribute
+        dv.attrs["slice_key"] = str(key)
         return dv
 
     def _normalize_slice_key(self,
@@ -400,16 +405,48 @@ class ScalarField(fr.FieldBase):
                     ) -> ScalarField:
 
         conf = fr.config
+        # read in the slice key
+        # in general, eval poses a security risk, we eliminate this risk by
+        # setting the __builtins__ to None and only allowing the slice function
+        # to be used
+        # this means that statements like "__import__('os')" will not work
+        slice_key = eval(ds.attrs["slice_key"],  # noqa: S307
+                         {"__builtins__": None},
+                         {"slice": slice})
+        # TODO(Silvano): Add option to read from sliced dataarrays
+        # This could for example be implemented by creating the full array
+        # and then setting the slice region to the values of the dataarray
+        # another option would be to allow for local fields that lives in a subregion
+        # of the domain. For now, we don't allow for sliced dataarrays to be
+        # converted back to ScalarFields
+        if not isinstance(slice_key, tuple):
+            slice_key = (slice_key,)
+        for key in slice_key:
+            if key != slice(None):
+                msg = "Cannot convert sliced dataarray to ScalarField"
+                raise ValueError(msg)
+
         # load the metadata
         mdata = fr.FieldMetadata.from_serializable(ds.attrs)
         # convert the array to backend
         arr = ds.to_numpy().T
-        if mdata.is_spectral:
+        # if the array is loaded with xarray from a netcdf file, complex arrays
+        # are stored as two separate arrays for the real and imaginary part
+        # we check if the array has a "r" and "i" key and if so, we combine them
+        try:
+            arr["r"]
+            separate = True
+        except IndexError:
+            separate = False
+        if separate:
             arr_real = conf.ncp.array(arr["r"])
             arr_imag = conf.ncp.array(arr["i"])
             arr = conf.ncp.array(arr_real + 1j * arr_imag, dtype=conf.dtype_comp)
         else:
-            arr = conf.ncp.array(arr, dtype=conf.dtype_real)
+            dtype = conf.dtype_comp if mdata.is_spectral else conf.dtype_real
+            arr = conf.ncp.array(arr, dtype=dtype)
+
+        if not mdata.is_spectral:
             # pad the array
             arr = mset.grid.pad(arr)
         # create the ScalarField
@@ -422,7 +459,7 @@ class ScalarField(fr.FieldBase):
                     mset: fr.ModelSettingsBase,
                     path: str) -> ScalarField:
         import xarray as xr
-        ds = xr.open_dataset(path)
+        ds = xr.open_dataarray(path)
         return cls.from_xarray(mset, ds)
 
     # ==================================================================

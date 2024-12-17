@@ -1,13 +1,20 @@
 """Tests for the scalar field class."""
+import tempfile
 from copy import copy, deepcopy
 
 import pytest
+import xarray as xr
 
 import fridom.framework as fr
 
 # ================================================================
 #  Fixtures
 # ================================================================
+
+@pytest.fixture
+def tmp_dir():
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        yield tmpdirname
 
 @pytest.fixture(params=[1, 2, 3])
 def n_dims(request):
@@ -402,13 +409,72 @@ def test_div(mset, topo, is_spectral):
 #  Test xarray interface
 # ----------------------------------------------------------------
 
-def test_xr(): ...
+def test_xr(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.xr)
+        return
+    ds = field.xr
+    assert isinstance(ds, xr.DataArray)
 
-def test_xrs(): ...
+@pytest.mark.parametrize(*(
+    "key, expected_shape, dim_names",
+    [
+        (slice(None), (10, 3), slice(None)),
+        (-1, (10,), 1),
+        ((slice(None), -1), (3,), 0),
+        ((slice(None), slice(1, 5)), (4, 3), slice(None)),
+    ],
+))
+def test_xrs(mset, is_spectral, key, expected_shape, dim_names):
+    field = fr.ScalarField(mset, is_spectral=is_spectral)
+    ds = field.xrs[key]
+    # check if the shape is correct
+    assert ds.shape == expected_shape
+    # check if the dimenstion names are correct
+    exp_names = (["kx", "ky"] if is_spectral else ["x", "y"])[dim_names]
+    exp_names = {exp_names} if isinstance(exp_names, str) else set(exp_names)
+    assert set(ds.dims) == exp_names
 
-def test_from_xr(): ...
+@pytest.mark.parametrize(*(
+    "key, possible",
+    [
+        (slice(None), True),
+        (-1, False),
+        (slice(None, 3), False),
+    ],
+))
+def test_from_xr(mset, topo, is_spectral, key, possible):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    field.arr = field.grid.create_random_array(seed=12345, spectral=is_spectral)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.xrs[key])
+        return
+    ds = field.xrs[key]
+    if not possible:
+        msg = "Cannot convert sliced dataarray to ScalarField"
+        with pytest.raises(ValueError, match=msg):
+            fr.ScalarField.from_xarray(mset, ds)
+        return
 
-def test_netcdf_save_load(): ...
+    new_field = fr.ScalarField.from_xarray(mset, ds)
+    # new field should not be the same as the old field
+    assert new_field is not field
+    # arrays should be the same (up to machine precision)
+    assert fr.config.ncp.allclose(new_field.arr, field.arr)
+    # metadata should be the same
+    assert new_field.mdata == field.mdata
+
+def test_netcdf_save_load(mset, is_spectral, tmp_dir):
+    field = fr.ScalarField(mset, is_spectral=is_spectral)
+    field.arr = field.grid.create_random_array(seed=12345, spectral=is_spectral)
+    # save the field
+    field.to_netcdf(tmp_dir + "/field.nc")
+    # load the field
+    new_field = fr.ScalarField.from_netcdf(mset, tmp_dir + "/field.nc")
+    # check that the metadata and the array are the same
+    assert new_field.mdata == field.mdata
+    assert fr.config.ncp.allclose(new_field.arr, field.arr)
 
 # ----------------------------------------------------------------
 #  Test slicing methods
