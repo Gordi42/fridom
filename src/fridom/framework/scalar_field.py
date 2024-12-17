@@ -206,6 +206,8 @@ class ScalarField(fr.FieldBase):
         """
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
+        # TODO(Silvano): Make this work for spectral fields
+        self._check_not_spectral()
         return self.grid.interp_module.interpolate(self, destination)
 
     def extend(self, topo: tuple[bool]) -> ScalarField:
@@ -258,6 +260,11 @@ class ScalarField(fr.FieldBase):
             msg = "Operation not available for non full domain fields"
             raise NotImplementedError(msg)
 
+    def _check_not_spectral(self) -> None:
+        if self.is_spectral:
+            msg = "Operation not available for spectral fields"
+            raise NotImplementedError(msg)
+
     # ================================================================
     #  Differential Operators
     # ================================================================
@@ -265,11 +272,15 @@ class ScalarField(fr.FieldBase):
     def diff(self, axis: int, order: int = 1) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
+        # TODO(Silvano): Make this work for spectral fields
+        self._check_not_spectral()
         return self.grid.diff_module.diff(self, axis, order)
 
     def grad(self, axes: list[int] | None = None ) -> fr.VectorField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
+        # TODO(Silvano): Make this work for spectral fields
+        self._check_not_spectral()
         return self.grid.diff_module.grad(self, axes)
 
     def laplacian(self,  # noqa: D102
@@ -277,6 +288,8 @@ class ScalarField(fr.FieldBase):
                   ) -> ScalarField:
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
+        # TODO(Silvano): Make this work for spectral fields
+        self._check_not_spectral()
         return self.grid.diff_module.laplacian(self, axes)
 
     def div(self, axes: list[int] | None = None) -> None:  # noqa: D102

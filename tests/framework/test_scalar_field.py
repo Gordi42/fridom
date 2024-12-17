@@ -60,6 +60,11 @@ def not_implemented_for_non_full_domain_fields(operation) -> None:
     with pytest.raises(NotImplementedError, match=msg):
         operation()
 
+def not_implemented_for_spectral_fields(operation) -> None:
+    msg = "Operation not available for spectral fields"
+    with pytest.raises(NotImplementedError, match=msg):
+        operation()
+
 # ================================================================
 #  Tests
 # ================================================================
@@ -345,18 +350,53 @@ def test_extend(mset, is_spectral):
         with pytest.raises(NotImplementedError, match=msg):
             field.extend(new_topo)
 
-
 # ----------------------------------------------------------------
 #  Test differential operators
 # ----------------------------------------------------------------
 
-def test_diff(): ...
+def test_diff(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # if the field is not fully extended, diff should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(
+            lambda: field.diff(axis=0))
+        return
+    # if the field is spectral, diff should raise an error
+    if is_spectral:
+        not_implemented_for_spectral_fields(
+            lambda: field.diff(axis=0))
+        return
+    # TODO(Silvano): do tests once the diff method is implemented
 
-def test_grad(): ...
+def test_grad(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # if the field is not fully extended, grad should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(field.grad)
+        return
+    # if the field is spectral, grad should raise an error
+    if is_spectral:
+        not_implemented_for_spectral_fields(field.grad)
+        return
+    # TODO(Silvano): do tests once the grad method is implemented
 
-def test_laplacian(): ...
+def test_laplacian(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # if the field is not fully extended, laplacian should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(field.laplacian)
+        return
+    # if the field is spectral, laplacian should raise an error
+    if is_spectral:
+        not_implemented_for_spectral_fields(field.laplacian)
+        return
+    # TODO(Silvano): do tests once the laplacian method is implemented
 
-def test_div(): ...
+def test_div(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    msg = "Divergence is not defined for scalar fields"
+    with pytest.raises(ValueError, match=msg):
+        field.div()
 
 # ----------------------------------------------------------------
 #  Test xarray interface
