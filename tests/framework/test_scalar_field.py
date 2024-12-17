@@ -1,5 +1,5 @@
 """Tests for the scalar field class."""
-from copy import deepcopy
+from copy import copy, deepcopy
 
 import pytest
 
@@ -273,7 +273,17 @@ def test_has_nan(mset, topo, is_spectral):
     field.arr = fr.utils.modify_array(field.arr, (0, 0), fr.config.ncp.nan)
     assert field.has_nan()
 
-def test_copy(): ...
+def test_copy(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    copied_field = copy(field)
+    # check that the copied field is not the same as the original field
+    assert copied_field is not field
+    # check that the model settings is the same
+    assert copied_field.mset is field.mset
+    # check that the array is not the same
+    assert copied_field.arr is not field.arr
+    # check that the metadata object is not the same
+    assert copied_field.mdata is not field.mdata
 
 def test_unpad(): ...
 
