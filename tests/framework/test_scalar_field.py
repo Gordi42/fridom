@@ -4,6 +4,7 @@ from copy import copy, deepcopy
 from pathlib import Path
 
 import dill
+import numpy as np
 import pytest
 import xarray as xr
 
@@ -531,7 +532,119 @@ def test_dill(mset, topo, is_spectral, tmp_dir):
 #  Test arithmetic operations
 # ----------------------------------------------------------------
 
-def test_apply_operator(): ...
+@pytest.mark.parametrize(*(
+    "op",
+    [
+        pytest.param(lambda x, y: x + y, id="add"),
+        pytest.param(lambda x, y: x - y, id="sub"),
+        pytest.param(lambda x, y: x * y, id="mul"),
+        pytest.param(lambda x, y: x / y, id="div"),
+        pytest.param(lambda x, y: x ** y, id="pow"),
+    ],
+))
+def test_apply_operator_with_field(mset, topo, is_spectral, op):
+    field1 = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    field2 = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # TODO(Silvano): set random also for non full domain fields
+    if all(topo):
+        field1.set_random(seed=12345)
+        field2.set_random(seed=54321)
+    # we need to make sure that the arrays are never zero, as otherwise
+    # division or power operations may fail. Just add 20 to all values
+    field1 += 20
+    field2 += 20
+    # test if the operation works
+    new_field = op(field1, field2)
+    # check if the new field is a scalar field
+    assert isinstance(new_field, fr.ScalarField)
+    # check if the metadata is the same
+    assert new_field.mdata == field1.mdata
+    # check if the array is the result of the operation
+    assert fr.config.ncp.allclose(new_field.arr, op(field1.arr, field2.arr))
+
+@pytest.mark.parametrize(*(
+    "op",
+    [
+        pytest.param(lambda x, y: x + y, id="add"),
+        pytest.param(lambda x, y: y + x, id="radd"),
+        pytest.param(lambda x, y: x - y, id="sub"),
+        pytest.param(lambda x, y: y - x, id="rsub"),
+        pytest.param(lambda x, y: x * y, id="mul"),
+        pytest.param(lambda x, y: y * x, id="rmul"),
+        pytest.param(lambda x, y: x / y, id="div"),
+        pytest.param(lambda x, y: y / x, id="rdiv"),
+        pytest.param(lambda x, y: x ** y, id="pow"),
+        pytest.param(lambda x, y: y ** x, id="rpow"),
+    ],
+))
+def test_apply_operator_with_scalar(mset, topo, is_spectral, op):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # TODO(Silvano): set random also for non full domain fields
+    if all(topo):
+        field.set_random(seed=12345)
+    # we need to make sure that the arrays are never zero, as otherwise
+    # division or power operations may fail. Just add 20 to all values
+    field += 20
+    scalar = 2
+    # test if the operation works
+    new_field = op(field, scalar)
+    # check if the new field is a scalar field
+    assert isinstance(new_field, fr.ScalarField)
+    # check if the metadata is the same
+    assert new_field.mdata == field.mdata
+    # check if the array is the result of the operation
+    assert fr.config.ncp.allclose(new_field.arr, op(field.arr, scalar))
+
+@pytest.mark.parametrize(*(
+    "other",
+    [
+        pytest.param("test", id="str"),
+        pytest.param([1, "test"], id="list"),
+        pytest.param({"key": "value"}, id="dict"),
+        pytest.param({3, "test"}, id="set"),
+        pytest.param((1, ), id="tuple"),
+    ],
+))
+def test_apply_operator_with_wrong_type(mset, other):
+    field = fr.ScalarField(mset)
+    with pytest.raises(TypeError):
+        field + other
+
+@pytest.mark.parametrize(*(
+    "topo1, topo2",
+    [
+        ((True, True), (True, False)),
+        ((True, False), (True, True)),
+        ((True, True), (False, True)),
+        ((False, True), (True, True)),
+        ((True, False), (False, True)),
+        ((False, True), (True, False)),
+    ],
+))
+def test_apply_operator_topo(mset, is_spectral, topo1, topo2):
+    field1 = fr.ScalarField(mset, topo=topo1, is_spectral=is_spectral) + 2.0
+    if all(topo1):
+        field1.set_random(seed=12345)
+    field2 = fr.ScalarField(mset, topo=topo2, is_spectral=is_spectral) + 2.0
+    if all(topo2):
+        field2.set_random(seed=54321)
+    # test if the operation works
+    new_field = field1 * field2
+    # check if the new field is a scalar field
+    assert isinstance(new_field, fr.ScalarField)
+    # check if the topo is full domain
+    assert all(new_field.mdata.topo)
+    # check if the shape is correct (should be the same as the grid)
+    if not is_spectral:  # cannot unpad spectral fields (yet)
+        assert new_field.unpad().shape == mset.grid.N
+    # check if the data is as expected
+    if all(topo1):
+        expected_data = field1.arr * 2.0
+    elif all(topo2):
+        expected_data = field2.arr * 2.0
+    else:
+        expected_data = 4.0
+    assert fr.config.ncp.allclose(new_field.arr, expected_data)
 
 def test_abs(): ...
 
