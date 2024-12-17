@@ -485,16 +485,6 @@ class ScalarField(fr.FieldBase):
         raise NotImplementedError(msg)
 
     # ================================================================
-    #  Pickling
-    # ================================================================
-
-    def __getstate__(self) -> dict:
-        return self.__dict__.copy()
-
-    def __setstate__(self, state: dict) -> None:
-        self.__dict__.update(state)
-
-    # ================================================================
     #  Properties
     # ================================================================
 
