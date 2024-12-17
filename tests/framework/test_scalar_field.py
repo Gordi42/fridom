@@ -331,6 +331,21 @@ def test_interpolate(mset, topo, is_spectral, new_position):
         return
     # TODO(Silvano): do tests once the new interpolate method is implemented
 
+def test_extend(mset, is_spectral):
+    topo = (False, True)
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # test invalid new topos
+    for new_topo in [(False, False), (True, False)]:
+        msg = "Cannot shrink the field in any direction"
+        with pytest.raises(ValueError, match=msg):
+            field.extend(new_topo)
+    # test the extend method for valid new topos
+    for new_topo in [(True, True), (False, True)]:
+        msg = "The grid.extend method is not implemented yet"
+        with pytest.raises(NotImplementedError, match=msg):
+            field.extend(new_topo)
+
+
 # ----------------------------------------------------------------
 #  Test differential operators
 # ----------------------------------------------------------------
