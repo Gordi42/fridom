@@ -78,9 +78,8 @@ class ScalarField(fr.FieldBase):
             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
             ) -> ScalarField:
         self._fft_possible()
-        if not all(self.topo):
-            msg = "Cannot transform non full domain fields"
-            raise NotImplementedError(msg)
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
 
         transformed_arr = self.grid.fft(
             arr=self.arr,
@@ -100,9 +99,8 @@ class ScalarField(fr.FieldBase):
              padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              ) -> ScalarField:
         self._ifft_possible()
-        if not all(self.topo):
-            msg = "Cannot transform non full domain fields"
-            raise NotImplementedError(msg)
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
 
         transformed_arr = self.grid.ifft(
             arr=self.arr,
@@ -120,6 +118,8 @@ class ScalarField(fr.FieldBase):
                            is_spectral=False)
 
     def sync(self) -> ScalarField:  # noqa: D102
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
         if self.is_spectral:
             # nothing to synchronize in spectral space
             return self
@@ -128,6 +128,11 @@ class ScalarField(fr.FieldBase):
         return self
 
     def apply_water_mask(self) -> ScalarField:  # noqa: D102
+        # the water mask is defined on the 3D grid so we can't apply it
+        # for non full domain fields
+        # TODO(Silvano): Maybe we can assign custom water masks for scalar fields
+        # so that we can apply them to non full domain fields
+        self._check_full_domain()
         if self.is_spectral:
             msg = "ScalarField is in spectral space, cannot apply water mask"
             raise ValueError(msg)
@@ -160,7 +165,24 @@ class ScalarField(fr.FieldBase):
         return self.grid.unpad(self.arr)
 
     def get_mesh(self) -> tuple[ndarray]:
-        """Get the meshgrid of the ScalarField."""
+        """
+        Get the meshgrid of the ScalarField.
+
+        Description
+        -----------
+        This method returns the meshgrid of the ScalarField. It returns a tuple
+        of ndarrays, where each ndarray represents the meshgrid in one direction.
+        For example, a 3D field that is extended in x, z but not in y would return
+        a tuple of 2 ndarrays (x, z).
+
+        Returns
+        -------
+        tuple[ndarray]
+            The meshgrid of the ScalarField for each direction that is extended.
+
+        """
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
         return self.grid.get_mesh(self.position, self.is_spectral)
 
     def interpolate(self, destination: fr.grid.Position) -> ScalarField:
@@ -178,6 +200,8 @@ class ScalarField(fr.FieldBase):
             The interpolated field.
 
         """
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
         return self.grid.interp_module.interpolate(self, destination)
 
     def extend(self, topo: tuple[bool]) -> ScalarField:
@@ -221,21 +245,34 @@ class ScalarField(fr.FieldBase):
                 msg = "Cannot shrink the field in any direction"
                 raise ValueError(msg)
         # TODO(Silvano): The grid.extend method is not implemented yet
+        msg = "The grid.extend method is not implemented yet"
+        raise NotImplementedError(msg)
         return self.grid.extend(self, topo)
+
+    def _check_full_domain(self) -> None:
+        if not all(self.topo):
+            msg = "Operation not available for non full domain fields"
+            raise NotImplementedError(msg)
 
     # ================================================================
     #  Differential Operators
     # ================================================================
 
     def diff(self, axis: int, order: int = 1) -> ScalarField:  # noqa: D102
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
         return self.grid.diff_module.diff(self, axis, order)
 
     def grad(self, axes: list[int] | None = None ) -> fr.VectorField:  # noqa: D102
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
         return self.grid.diff_module.grad(self, axes)
 
     def laplacian(self,  # noqa: D102
                   axes: tuple[int] | None = None,
                   ) -> ScalarField:
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
         return self.grid.diff_module.laplacian(self, axes)
 
     def div(self, axes: list[int] | None = None) -> None:  # noqa: D102
@@ -553,6 +590,12 @@ class ScalarField(fr.FieldBase):
             The sum of the ScalarField over the specified axes.
 
         """
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
+        # TODO(Silvano): Implement sum over specific axes
+        if axes is not None:
+            msg = "Summing over specific axes not yet implemented"
+            raise NotImplementedError(msg)
         # TODO(Silvano): This should call the grid.sum method
         domain = self.grid.domain_decomp
         return domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
@@ -585,6 +628,12 @@ class ScalarField(fr.FieldBase):
             The maximum value of the ScalarField over the specified axes.
 
         """
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
+        # TODO(Silvano): Implement max over specific axes
+        if axes is not None:
+            msg = "Maximum over specific axes not yet implemented"
+            raise NotImplementedError(msg)
         # TODO(Silvano): This should call the grid.max method
         domain = self.grid.domain_decomp
         return domain.max(self.arr, axes=axes, spectral=self.is_spectral)
@@ -617,6 +666,12 @@ class ScalarField(fr.FieldBase):
             The minimum value of the ScalarField over the specified axes.
 
         """
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
+        # TODO(Silvano): Implement min over specific axes
+        if axes is not None:
+            msg = "Minimum over specific axes not yet implemented"
+            raise NotImplementedError(msg)
         # TODO(Silvano): This should call the grid.min method
         domain = self.grid.domain_decomp
         return domain.min(self.arr, axes=axes, spectral=self.is_spectral)
@@ -651,6 +706,12 @@ class ScalarField(fr.FieldBase):
             The integral of the ScalarField over the specified axes.
 
         """
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
+        # TODO(Silvano): Implement integration over specific axes
+        if axis is not None:
+            msg = "Integration over specific axes not yet implemented"
+            raise NotImplementedError(msg)
         # TODO(Silvano): This should call the grid.integrate method
         if self.is_spectral:
             msg = "Integration not available for spectral fields"
