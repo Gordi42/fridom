@@ -263,6 +263,10 @@ class ScalarField(fr.FieldBase):
         raise NotImplementedError(msg)
         return self.grid.extend(self, topo)
 
+    # ================================================================
+    #  Check Methods (for internal use)
+    # ================================================================
+
     def _check_full_domain(self) -> None:
         if not all(self.topo):
             msg = "Operation not available for non full domain fields"
@@ -271,6 +275,11 @@ class ScalarField(fr.FieldBase):
     def _check_not_spectral(self) -> None:
         if self.is_spectral:
             msg = "Operation not available for spectral fields"
+            raise NotImplementedError(msg)
+
+    def _check_axes_argument(self, axes: tuple[int] | None) -> None:
+        if axes is not None:
+            msg = "Operation not available for specific axes"
             raise NotImplementedError(msg)
 
     # ================================================================
@@ -646,15 +655,10 @@ class ScalarField(fr.FieldBase):
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement sum over specific axes
-        if axes is not None:
-            msg = "Summing over specific axes not yet implemented"
-            raise NotImplementedError(msg)
+        self._check_axes_argument(axes)
         # TODO(Silvano): This should call the grid.sum method
         domain = self.grid.domain_decomp
         return domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
-
-    def __sum__(self) -> float:
-        return self.sum()
 
     def max(self, axes: tuple[int] | None = None) -> ScalarField | float:
         """
@@ -684,9 +688,7 @@ class ScalarField(fr.FieldBase):
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement max over specific axes
-        if axes is not None:
-            msg = "Maximum over specific axes not yet implemented"
-            raise NotImplementedError(msg)
+        self._check_axes_argument(axes)
         # TODO(Silvano): This should call the grid.max method
         domain = self.grid.domain_decomp
         return domain.max(self.arr, axes=axes, spectral=self.is_spectral)
@@ -722,9 +724,7 @@ class ScalarField(fr.FieldBase):
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement min over specific axes
-        if axes is not None:
-            msg = "Minimum over specific axes not yet implemented"
-            raise NotImplementedError(msg)
+        self._check_axes_argument(axes)
         # TODO(Silvano): This should call the grid.min method
         domain = self.grid.domain_decomp
         return domain.min(self.arr, axes=axes, spectral=self.is_spectral)
@@ -732,7 +732,7 @@ class ScalarField(fr.FieldBase):
     def __min__(self) -> float:
         return self.min()
 
-    def integrate(self, axis: tuple[int] | None = None) -> ScalarField | float:
+    def integrate(self, axes: tuple[int] | None = None) -> ScalarField | float:
         r"""
         Global integral of the ScalarField in specified axes.
 
@@ -750,7 +750,7 @@ class ScalarField(fr.FieldBase):
 
         Parameters
         ----------
-        axis : tuple[int] | None
+        axes : tuple[int] | None
             The axes to integrate over. If None, integrate over all axes.
 
         Returns
@@ -762,9 +762,7 @@ class ScalarField(fr.FieldBase):
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement integration over specific axes
-        if axis is not None:
-            msg = "Integration over specific axes not yet implemented"
-            raise NotImplementedError(msg)
+        self._check_axes_argument(axes)
         # TODO(Silvano): This should call the grid.integrate method
         if self.is_spectral:
             msg = "Integration not available for spectral fields"

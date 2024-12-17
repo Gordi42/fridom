@@ -87,6 +87,11 @@ def not_implemented_for_spectral_fields(operation) -> None:
     with pytest.raises(NotImplementedError, match=msg):
         operation()
 
+def not_implemented_axes(operation) -> None:
+    msg = "Operation not available for specific axes"
+    with pytest.raises(NotImplementedError, match=msg):
+        operation()
+
 # ================================================================
 #  Tests
 # ================================================================
@@ -639,7 +644,16 @@ def test_abs(field):
     # check if the array is the absolute value of the original array
     assert fr.config.ncp.allclose(new_field.arr, abs(field.arr))
 
-def test_sum(): ...
+def test_sum(field, axes, topo, is_spectral):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.sum(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.sum(axes))
+        return
+    result = field.sum(axes)
+    t = complex if is_spectral else float
+    assert isinstance(t(result), t)
 
 def test_max(): ...
 
