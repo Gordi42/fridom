@@ -45,7 +45,7 @@ def mset_all(grid_all):
 def is_spectral(request):
     return request.param
 
-@pytest.fixture(params=[(True, True), (True, False), (False, True), (False, False)])
+@pytest.fixture(params=[(True, True), (True, False), (False, True)])
 def topo(request):
     return request.param
 
@@ -98,6 +98,11 @@ def test_topo_shape(mset, topo):
     for i, t in enumerate(topo):
         if not t:
             assert field.arr.shape[i] == 1
+
+def test_wrong_topo(mset):
+    msg = "Topology must have extend in at least one direction"
+    with pytest.raises(ValueError, match=msg):
+        fr.ScalarField(mset, topo=(False, False))
 
 # ----------------------------------------------------------------
 #  Test properties

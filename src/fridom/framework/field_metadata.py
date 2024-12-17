@@ -57,7 +57,7 @@ class FieldMetadata:
     units: str = "n/a"
     nc_attrs: dict | None = None
     is_spectral: bool = False
-    topo: tuple[bool] | None = None
+    _topo: tuple[bool] | None = None
     position: fr.grid.Position | None = None
     _bc_types: tuple[fr.grid.BCType] | None = None
     _flags: dict = field(
@@ -106,6 +106,28 @@ class FieldMetadata:
                        [fr.grid.AxisPosition(x) for x in data["position"]]),
                    _bc_types=tuple(fr.grid.BCType(x) for x in data["_bc_types"]),
                    _flags={key: bool(data[key]) for key in data["_flags"]})
+
+    @property
+    def topo(self) -> tuple[bool]:
+        """
+        The topology of the Scalar Field.
+
+        Description
+        -----------
+        The topology of a scalar field determines whether the field lives in
+        a certain direction. If the topology is True in a direction, the field
+        is fully extended in this direction, if it is False, the field has no
+        extend in this direction.
+        """
+        return self._topo
+
+    @topo.setter
+    def topo(self, topo: tuple[bool] | list[bool]) -> None:
+        # make sure that the topology has extend in at least one direction
+        if not any(topo):
+            msg = "Topology must have extend in at least one direction"
+            raise ValueError(msg)
+        self._topo = tuple(topo)
 
     @property
     def bc_types(self) -> tuple[fr.grid.BCType] | None:

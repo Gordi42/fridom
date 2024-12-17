@@ -294,7 +294,7 @@ def topo2(request):
 
 @pytest.fixture()
 def obtained_topo(topo1, topo2):
-    return [a or b for a, b in zip(topo1, topo2)]
+    return tuple(a or b for a, b in zip(topo1, topo2))
 
 @pytest.fixture()
 def obtained_shape(mset_topo, obtained_topo, spectral):
