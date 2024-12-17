@@ -655,7 +655,17 @@ def test_sum(field, axes, topo, is_spectral):
     t = complex if is_spectral else float
     assert isinstance(t(result), t)
 
-def test_max(): ...
+def test_max(field, axes, topo, is_spectral):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.max(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.max(axes))
+        return
+    t = complex if is_spectral else float
+    max_val = field.arr.max()
+    assert isinstance(t(max_val), t)
+    assert max_val == field.arr.max()
 
 def test_min(): ...
 

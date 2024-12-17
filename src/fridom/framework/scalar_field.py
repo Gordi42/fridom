@@ -693,9 +693,6 @@ class ScalarField(fr.FieldBase):
         domain = self.grid.domain_decomp
         return domain.max(self.arr, axes=axes, spectral=self.is_spectral)
 
-    def __max__(self) -> float:
-        return self.max()
-
     def min(self, axes: tuple[int] | None = None) -> ScalarField | float:
         """
         Minimum value of the ScalarField over the whole domain.
