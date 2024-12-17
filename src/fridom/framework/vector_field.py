@@ -95,12 +95,12 @@ class VectorField(fr.FieldBase):
     def fft(self,  # noqa: D102
             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
             ) -> VectorField:
-        return self._apply_elementwise(lambda field: field.fft(padding=padding))
+        return self.apply_elementwise(lambda field: field.fft(padding=padding))
 
     def ifft(self,  # noqa: D102
              padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              ) -> VectorField:
-        return self._apply_elementwise(lambda field: field.ifft(padding=padding))
+        return self.apply_elementwise(lambda field: field.ifft(padding=padding))
 
     def project(self,
                 p_vec: VectorField,
@@ -176,7 +176,7 @@ class VectorField(fr.FieldBase):
 
     def __copy__(self) -> VectorField:
         # create a new vector field, but copy the fields
-        return self._apply_elementwise(lambda field: copy(field))
+        return self.apply_elementwise(lambda field: copy(field))
 
     # ================================================================
     #  Differential Operators
@@ -186,7 +186,7 @@ class VectorField(fr.FieldBase):
              axis: int,
              order: int = 1,
              ) -> fr.VectorField:
-        return self._apply_elementwise(lambda field: field.diff(axis, order))
+        return self.apply_elementwise(lambda field: field.diff(axis, order))
 
     def grad(self,  # noqa: D102
              axes: list[int] | None = None,
@@ -197,7 +197,7 @@ class VectorField(fr.FieldBase):
     def laplacian(self,  # noqa: D102
                   axes: tuple[int] | None = None,
                   ) -> fr.VectorField:
-        return self._apply_elementwise(lambda field: field.laplacian(axes))
+        return self.apply_elementwise(lambda field: field.laplacian(axes))
 
     def div(self) -> fr.ScalarField:  # noqa: D102
         return self.grid.diff_module.div(vec=self)
@@ -410,11 +410,32 @@ class VectorField(fr.FieldBase):
         raise TypeError(msg)
 
     def conj(self) -> VectorField:  # noqa: D102
-        return self._apply_elementwise(lambda field: field.conj())
+        return self.apply_elementwise(lambda field: field.conj())
 
-    def _apply_elementwise(self,
+    def apply_elementwise(self,
                            op: Callable[[fr.ScalarField], fr.ScalarField],
                            ) -> VectorField:
+        """
+        Apply an operation elementwise to the vector field.
+
+        Description
+        -----------
+        This method applies an operation elementwise to each scalar field
+        in the vector field and returns a new vector field with the modified
+        fields.
+
+        Parameters
+        ----------
+        op : Callable[[fr.ScalarField], fr.ScalarField]
+            The operation to apply to each scalar field. Should take a scalar
+            field as input and return a scalar field.
+
+        Returns
+        -------
+        VectorField
+            The new vector field with the modified fields
+
+        """
         # apply the operation to each field
         new_fields = OrderedDict(
             (name, op(field)) for name, field in self.fields.items())
