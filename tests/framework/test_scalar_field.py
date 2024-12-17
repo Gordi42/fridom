@@ -1,4 +1,6 @@
 """Tests for the scalar field class."""
+from copy import deepcopy
+
 import pytest
 
 import fridom.framework as fr
@@ -48,6 +50,15 @@ def is_spectral(request):
 @pytest.fixture(params=[(True, True), (True, False), (False, True)])
 def topo(request):
     return request.param
+
+# ================================================================
+#  Test helpers
+# ================================================================
+
+def not_implemented_for_non_full_domain_fields(operation) -> None:
+    msg = "Operation not available for non full domain fields"
+    with pytest.raises(NotImplementedError, match=msg):
+        operation()
 
 # ================================================================
 #  Tests
@@ -205,11 +216,36 @@ def test_fft_ifft_topo(mset, topo, is_spectral):
         # fft should work on full domain fields
         field.ifft() if is_spectral else field.fft()
         return
-    msg = "Cannot transform non full domain fields"
-    with pytest.raises(NotImplementedError, match=msg):
-        field.ifft() if is_spectral else field.fft()
+    op = field.ifft if is_spectral else field.fft
+    not_implemented_for_non_full_domain_fields(op)
 
-def test_sync(): ...
+def test_sync(mset, topo, is_spectral):
+    ncp = fr.config.ncp
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    field.arr = field.grid.create_random_array(seed=12345)
+    # if the field is spectral, sync should do nothing (also no error)
+    if is_spectral:
+        field.sync()
+        return
+    # if the field is not fully extended, sync should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(field.sync)
+        return
+    # check if the sync method does not raise an error
+    synced_field = field.sync()
+    # check if the field is synced in place
+    assert field is synced_field
+    # let's differentiate the field which should make ghost points unsynced
+    diff_field = field.diff(axis=0)
+    # check if the field is not synced anymore
+    field_copy = deepcopy(diff_field)
+    synced_field = field_copy.sync()
+    # check if the inner points are the same
+    assert ncp.allclose(diff_field.unpad(), synced_field.unpad())
+    # but the ghost points should be different
+    assert not ncp.allclose(diff_field.arr, synced_field.arr)
+    # we did not rigourously check if the ghost points are correct since this
+    # is tested in the grid class
 
 def test_apply_watermask(): ...
 

@@ -118,11 +118,12 @@ class ScalarField(fr.FieldBase):
                            is_spectral=False)
 
     def sync(self) -> ScalarField:  # noqa: D102
-        # TODO(Silvano): Make this work for non full domain fields
-        self._check_full_domain()
         if self.is_spectral:
             # nothing to synchronize in spectral space
             return self
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
+        # synchronize the array
         self.arr = self.grid.sync(self.arr)
         self.apply_water_mask()
         return self
