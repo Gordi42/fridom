@@ -525,8 +525,30 @@ class ScalarField(fr.FieldBase):
     def __abs__(self) -> ScalarField:
         return self.abs()
 
-    def sum(self, axes: tuple[int] | None = None) -> float:
-        """Sum of the ScalarField over the whole domain in the specified axes."""
+    def sum(self, axes: tuple[int] | None = None) -> ScalarField | float:
+        """
+        Sum of the ScalarField over the whole domain in the specified axes.
+
+        Description
+        -----------
+        This method computes the sum of the ScalarField over the whole domain
+        (across all processes) in the specified axes. If no axes are specified,
+        the sum is computed over all axes and a scalar (float) is returned.
+        If axes are specified, the sum is computed over the specified axes and
+        a new ScalarField that is shrinked in the specified axes is returned.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to sum over. If None, sum over all axes.
+
+        Returns
+        -------
+        ScalarField | float
+            The sum of the ScalarField over the specified axes.
+
+        """
+        # TODO(Silvano): This should call the grid.sum method
         domain = self.grid.domain_decomp
         return domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
 
