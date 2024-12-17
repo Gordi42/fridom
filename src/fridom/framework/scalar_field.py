@@ -160,8 +160,11 @@ class ScalarField(fr.FieldBase):
             The unpadded array.
 
         """
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
+        # TODO(Silvano): Make this work for spectral fields
         if self.is_spectral:
-            msg = "Field is in spectral space, cannot unpad"
+            msg = "Cannot unpad spectral field"
             raise ValueError(msg)
         return self.grid.unpad(self.arr)
 

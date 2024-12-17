@@ -285,7 +285,27 @@ def test_copy(mset, topo, is_spectral):
     # check that the metadata object is not the same
     assert copied_field.mdata is not field.mdata
 
-def test_unpad(): ...
+def test_unpad(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # if the field is not fully extended, unpad should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(field.unpad)
+        return
+    # if the field is spectral, we cannot unpad (yet)
+    if is_spectral:
+        msg = "Cannot unpad spectral field"
+        with pytest.raises(ValueError, match=msg):
+            field.unpad()
+        return
+    arr = field.unpad()
+    # check if the shape is correct
+    full_shape = list(field.grid.N)
+    # every dimension with topo=False should have a size of 1
+    for i, t in enumerate(topo):
+        if not t:
+            full_shape[i] = 1
+    assert arr.shape == tuple(full_shape)
+
 
 def test_get_mesh(): ...
 
