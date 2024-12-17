@@ -150,6 +150,14 @@ class ScalarField(fr.FieldBase):
         mdata = deepcopy(self.mdata)
         return ScalarField(mset=self.mset, mdata=mdata, arr=arr)
 
+    def set_random(self, seed: int = 1234) -> ScalarField:
+        """Set the field array to random values."""
+        # TODO(Silvano): Make this work for non full domain fields
+        self._check_full_domain()
+        # create the random array and set it
+        self.arr = self.grid.create_random_array(seed=seed, spectral=self.is_spectral)
+        return self
+
     def unpad(self) -> ndarray:
         """
         Remove padding from the Scalar Field.

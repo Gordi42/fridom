@@ -234,7 +234,6 @@ def test_fft_ifft_topo(mset, topo, is_spectral):
 def test_sync(mset, topo, is_spectral):
     ncp = fr.config.ncp
     field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
-    field.arr = field.grid.create_random_array(seed=12345)
     # if the field is spectral, sync should do nothing (also no error)
     if is_spectral:
         field.sync()
@@ -243,6 +242,7 @@ def test_sync(mset, topo, is_spectral):
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.sync)
         return
+    field.set_random(seed=12345)
     # check if the sync method does not raise an error
     synced_field = field.sync()
     # check if the field is synced in place
@@ -262,7 +262,6 @@ def test_sync(mset, topo, is_spectral):
 def test_apply_watermask(mset, topo, is_spectral):
     # TODO(Silvano): should test a custom watermask array
     field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
-    field.arr = field.grid.create_random_array(seed=12345)
     # if the field is not fully extended, apply_watermask should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.apply_water_mask)
@@ -273,6 +272,7 @@ def test_apply_watermask(mset, topo, is_spectral):
         with pytest.raises(ValueError, match=msg):
             field.apply_water_mask()
         return
+    field.set_random(seed=12345)
     # check if the apply_watermask method does not raise an error
     masked_field = field.apply_water_mask()
     assert masked_field is field  # should be in place
@@ -296,6 +296,17 @@ def test_copy(mset, topo, is_spectral):
     assert copied_field.arr is not field.arr
     # check that the metadata object is not the same
     assert copied_field.mdata is not field.mdata
+
+def test_set_random(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(field.set_random)
+        return
+    # check that the field is all zeros initially
+    assert fr.config.ncp.allclose(field.arr, 0)
+    field.set_random(seed=12345)
+    # check if the field is not all zeros
+    assert not fr.config.ncp.allclose(field.arr, 0)
 
 def test_unpad(mset, topo, is_spectral):
     field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
@@ -446,10 +457,10 @@ def test_xrs(mset, is_spectral, key, expected_shape, dim_names):
 ))
 def test_from_xr(mset, topo, is_spectral, key, possible):
     field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
-    field.arr = field.grid.create_random_array(seed=12345, spectral=is_spectral)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: field.xrs[key])
         return
+    field.set_random(seed=12345)
     ds = field.xrs[key]
     if not possible:
         msg = "Cannot convert sliced dataarray to ScalarField"
@@ -466,8 +477,7 @@ def test_from_xr(mset, topo, is_spectral, key, possible):
     assert new_field.mdata == field.mdata
 
 def test_netcdf_save_load(mset, is_spectral, tmp_dir):
-    field = fr.ScalarField(mset, is_spectral=is_spectral)
-    field.arr = field.grid.create_random_array(seed=12345, spectral=is_spectral)
+    field = fr.ScalarField(mset, is_spectral=is_spectral).set_random(seed=12345)
     # save the field
     field.to_netcdf(tmp_dir + "/field.nc")
     # load the field
