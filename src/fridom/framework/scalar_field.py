@@ -537,6 +537,11 @@ class ScalarField(fr.FieldBase):
         If axes are specified, the sum is computed over the specified axes and
         a new ScalarField that is shrinked in the specified axes is returned.
 
+        .. note::
+            We recommend using the `f.integrate()` method to integrate the field
+            in certain directions. The `integrate()` method takes the grid spacing
+            into account while the `sum()` method does not.
+
         Parameters
         ----------
         axes : tuple[int] | None
@@ -555,24 +560,98 @@ class ScalarField(fr.FieldBase):
     def __sum__(self) -> float:
         return self.sum()
 
-    def max(self, axes: tuple[int] | None = None) -> float:
-        """Maximum value of the ScalarField over the whole domain."""
+    def max(self, axes: tuple[int] | None = None) -> ScalarField | float:
+        """
+        Maximum value of the ScalarField over the whole domain.
+
+        Description
+        -----------
+        This method computes the maximum value of the ScalarField over the whole
+        domain (across all processes) in the specified axes. If no axes are
+        specified, the maximum is computed over all axes and a scalar (float)
+        is returned. If axes are specified, the maximum is computed over the
+        specified axes and a new ScalarField that is shrinked in the specified
+        axes is returned.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to compute the maximum over. If None, compute the maximum
+            over all axes.
+
+        Returns
+        -------
+        ScalarField | float
+            The maximum value of the ScalarField over the specified axes.
+
+        """
+        # TODO(Silvano): This should call the grid.max method
         domain = self.grid.domain_decomp
         return domain.max(self.arr, axes=axes, spectral=self.is_spectral)
 
     def __max__(self) -> float:
         return self.max()
 
-    def min(self, axes: tuple[int] | None = None) -> float:
-        """Minimum value of the ScalarField over the whole domain."""
+    def min(self, axes: tuple[int] | None = None) -> ScalarField | float:
+        """
+        Minimum value of the ScalarField over the whole domain.
+
+        Description
+        -----------
+        This method computes the minimum value of the ScalarField over the whole
+        domain (across all processes) in the specified axes. If no axes are
+        specified, the minimum is computed over all axes and a scalar (float)
+        is returned. If axes are specified, the minimum is computed over the
+        specified axes and a new ScalarField that is shrinked in the specified
+        axes is returned.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to compute the minimum over. If None, compute the minimum
+            over all axes.
+
+        Returns
+        -------
+        ScalarField | float
+            The minimum value of the ScalarField over the specified axes.
+
+        """
+        # TODO(Silvano): This should call the grid.min method
         domain = self.grid.domain_decomp
         return domain.min(self.arr, axes=axes, spectral=self.is_spectral)
 
     def __min__(self) -> float:
         return self.min()
 
-    def integrate(self) -> float:
-        """Global integral of the ScalarField."""
+    def integrate(self, axis: tuple[int] | None = None) -> ScalarField | float:
+        r"""
+        Global integral of the ScalarField in specified axes.
+
+        Description
+        -----------
+        Computes the global integral of the ScalarField in the specified axes:
+
+        .. math::
+            \sum_{i} \int_{x_i} f(\boldsymbol{x}) dx_i
+
+        If no axes are specified, the integral is computed over all axes and a
+        scalar (float) is returned. If axes are specified, the integral is computed
+        over the specified axes and a new ScalarField that is shrinked in the specified
+        axes is returned.
+
+        Parameters
+        ----------
+        axis : tuple[int] | None
+            The axes to integrate over. If None, integrate over all axes.
+
+        Returns
+        -------
+        ScalarField | float
+            The integral of the ScalarField over the specified axes.
+
+        """
+        # TODO(Silvano): This should call the grid.integrate method
         if self.is_spectral:
             msg = "Integration not available for spectral fields"
             raise NotImplementedError(msg)
@@ -581,6 +660,7 @@ class ScalarField(fr.FieldBase):
 
     def norm_l2(self) -> float:
         """Compute the numpy.linalg.norm of the ScalarField."""
+        # TODO(Silvano): This seems to be grid dependent, should be moved to the grid
         norm = fr.config.ncp.linalg.norm(self.unpad())**2
         return fr.config.ncp.sqrt(norm)
 
