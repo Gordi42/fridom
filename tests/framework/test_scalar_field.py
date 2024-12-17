@@ -1,7 +1,9 @@
 """Tests for the scalar field class."""
 import tempfile
 from copy import copy, deepcopy
+from pathlib import Path
 
+import dill
 import pytest
 import xarray as xr
 
@@ -502,10 +504,28 @@ def test_slicing(mset, key):
         field[key] = 0
 
 # ----------------------------------------------------------------
-#  Pickling
+#  Pickling with dill
 # ----------------------------------------------------------------
 
-def test_pickle(): ...
+def test_dill(mset, topo, is_spectral, tmp_dir):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    if all(topo):
+        field.set_random(seed=12345) # set random works only for full domain fields
+    path = Path(tmp_dir + "/field.pkl")
+    # check that the file does not exist
+    assert not path.exists()
+    # check if the field can be pickled with dill
+    with path.open("wb") as f:
+        dill.dump(field, f)
+    # check if the file exists
+    assert path.exists()
+    # load the field
+    with path.open("rb") as f:
+        new_field = dill.load(f)  # noqa: S301
+    # check if the metadata and the array are the same
+    assert new_field is not field
+    assert new_field.mdata == field.mdata
+    assert fr.config.ncp.allclose(new_field.arr, field.arr)
 
 # ----------------------------------------------------------------
 #  Test arithmetic operations
