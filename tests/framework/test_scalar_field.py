@@ -61,6 +61,18 @@ def is_spectral(request):
 def topo(request):
     return request.param
 
+@pytest.fixture
+def field(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # TODO(Silvano): set random also for non full domain fields
+    if all(topo):
+        field.set_random(seed=12345)
+    return field
+
+@pytest.fixture(params=[None, [0], [1], [0, 1]])
+def axes(request):
+    return request.param
+
 # ================================================================
 #  Test helpers
 # ================================================================
@@ -225,8 +237,7 @@ def test_fft_ifft(mset_all):
     assert not field_ifft.is_spectral
     assert fr.config.ncp.allclose(field.arr, field_ifft.arr)
 
-def test_fft_ifft_topo(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_fft_ifft_topo(field, topo, is_spectral):
     if all(topo):
         # fft should work on full domain fields
         field.ifft() if is_spectral else field.fft()
@@ -234,9 +245,8 @@ def test_fft_ifft_topo(mset, topo, is_spectral):
     op = field.ifft if is_spectral else field.fft
     not_implemented_for_non_full_domain_fields(op)
 
-def test_sync(mset, topo, is_spectral):
+def test_sync(field, topo, is_spectral):
     ncp = fr.config.ncp
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
     # if the field is spectral, sync should do nothing (also no error)
     if is_spectral:
         field.sync()
@@ -245,7 +255,6 @@ def test_sync(mset, topo, is_spectral):
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.sync)
         return
-    field.set_random(seed=12345)
     # check if the sync method does not raise an error
     synced_field = field.sync()
     # check if the field is synced in place
@@ -262,9 +271,8 @@ def test_sync(mset, topo, is_spectral):
     # we did not rigourously check if the ghost points are correct since this
     # is tested in the grid class
 
-def test_apply_watermask(mset, topo, is_spectral):
+def test_apply_watermask(field, topo, is_spectral):
     # TODO(Silvano): should test a custom watermask array
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
     # if the field is not fully extended, apply_watermask should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.apply_water_mask)
@@ -275,21 +283,18 @@ def test_apply_watermask(mset, topo, is_spectral):
         with pytest.raises(ValueError, match=msg):
             field.apply_water_mask()
         return
-    field.set_random(seed=12345)
     # check if the apply_watermask method does not raise an error
     masked_field = field.apply_water_mask()
     assert masked_field is field  # should be in place
 
-def test_has_nan(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_has_nan(field):
     # field should not have any nan values initially
     assert not field.has_nan()
     # set some nan values
     field.arr = fr.utils.modify_array(field.arr, (0, 0), fr.config.ncp.nan)
     assert field.has_nan()
 
-def test_copy(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_copy(field):
     copied_field = copy(field)
     # check that the copied field is not the same as the original field
     assert copied_field is not field
@@ -311,8 +316,7 @@ def test_set_random(mset, topo, is_spectral):
     # check if the field is not all zeros
     assert not fr.config.ncp.allclose(field.arr, 0)
 
-def test_unpad(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_unpad(field, topo, is_spectral):
     # if the field is not fully extended, unpad should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.unpad)
@@ -332,8 +336,7 @@ def test_unpad(mset, topo, is_spectral):
             full_shape[i] = 1
     assert arr.shape == tuple(full_shape)
 
-def test_get_mesh(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_get_mesh(field, topo):
     # if the field is not fully extended, get_mesh should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.get_mesh)
@@ -348,8 +351,7 @@ def test_get_mesh(mset, topo, is_spectral):
     fr.grid.Position((fr.grid.AxisPosition.FACE, fr.grid.AxisPosition.CENTER)),
     fr.grid.Position((fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.FACE)),
 ])
-def test_interpolate(mset, topo, is_spectral, new_position):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_interpolate(field, topo, new_position):
     # if the field is not fully extended, interpolate should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(
@@ -375,8 +377,7 @@ def test_extend(mset, is_spectral):
 #  Test differential operators
 # ----------------------------------------------------------------
 
-def test_diff(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_diff(field, topo, is_spectral):
     # if the field is not fully extended, diff should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(
@@ -389,8 +390,7 @@ def test_diff(mset, topo, is_spectral):
         return
     # TODO(Silvano): do tests once the diff method is implemented
 
-def test_grad(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_grad(field, topo, is_spectral):
     # if the field is not fully extended, grad should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.grad)
@@ -401,8 +401,7 @@ def test_grad(mset, topo, is_spectral):
         return
     # TODO(Silvano): do tests once the grad method is implemented
 
-def test_laplacian(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_laplacian(field, topo, is_spectral):
     # if the field is not fully extended, laplacian should raise an error
     if not all(topo):
         not_implemented_for_non_full_domain_fields(field.laplacian)
@@ -413,8 +412,7 @@ def test_laplacian(mset, topo, is_spectral):
         return
     # TODO(Silvano): do tests once the laplacian method is implemented
 
-def test_div(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_div(field):
     msg = "Divergence is not defined for scalar fields"
     with pytest.raises(ValueError, match=msg):
         field.div()
@@ -423,8 +421,7 @@ def test_div(mset, topo, is_spectral):
 #  Test xarray interface
 # ----------------------------------------------------------------
 
-def test_xr(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_xr(field, topo):
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: field.xr)
         return
@@ -458,12 +455,10 @@ def test_xrs(mset, is_spectral, key, expected_shape, dim_names):
         (slice(None, 3), False),
     ],
 ))
-def test_from_xr(mset, topo, is_spectral, key, possible):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+def test_from_xr(mset, topo, field, key, possible):
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: field.xrs[key])
         return
-    field.set_random(seed=12345)
     ds = field.xrs[key]
     if not possible:
         msg = "Cannot convert sliced dataarray to ScalarField"
@@ -508,10 +503,7 @@ def test_slicing(mset, key):
 #  Pickling with dill
 # ----------------------------------------------------------------
 
-def test_dill(mset, topo, is_spectral, tmp_dir):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
-    if all(topo):
-        field.set_random(seed=12345) # set random works only for full domain fields
+def test_dill(field, tmp_dir):
     path = Path(tmp_dir + "/field.pkl")
     # check that the file does not exist
     assert not path.exists()
@@ -577,11 +569,7 @@ def test_apply_operator_with_field(mset, topo, is_spectral, op):
         pytest.param(lambda x, y: y ** x, id="rpow"),
     ],
 ))
-def test_apply_operator_with_scalar(mset, topo, is_spectral, op):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
-    # TODO(Silvano): set random also for non full domain fields
-    if all(topo):
-        field.set_random(seed=12345)
+def test_apply_operator_with_scalar(field, op):
     # we need to make sure that the arrays are never zero, as otherwise
     # division or power operations may fail. Just add 20 to all values
     field += 20
@@ -646,10 +634,7 @@ def test_apply_operator_topo(mset, is_spectral, topo1, topo2):
         expected_data = 4.0
     assert fr.config.ncp.allclose(new_field.arr, expected_data)
 
-def test_abs(mset, topo, is_spectral):
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
-    if all(topo):
-        field.set_random(seed=12345)
+def test_abs(field):
     new_field = abs(field)
     # check if the array is the absolute value of the original array
     assert fr.config.ncp.allclose(new_field.arr, abs(field.arr))
