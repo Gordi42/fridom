@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, TypeVar
 
 import numpy as np
 
@@ -10,6 +10,8 @@ import fridom.framework as fr
 
 if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
+
+T = TypeVar("T", bound="FieldBase")
 
 class FieldBase:
 
@@ -40,9 +42,9 @@ class FieldBase:
     # ================================================================
 
     @abstractmethod
-    def fft(self,
+    def fft(self: T,
             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
-            ) -> FieldBase:
+            ) -> T:
         r"""
         Perform a Fast Fourier Transform (FFT) on the field.
 
@@ -65,9 +67,9 @@ class FieldBase:
         """
 
     @abstractmethod
-    def ifft(self,
+    def ifft(self: T,
              padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
-             ) -> FieldBase:
+             ) -> T:
         r"""
         Perform an Inverse Fast Fourier Transform (IFFT) on the field.
 
@@ -142,7 +144,7 @@ class FieldBase:
             raise ValueError(msg)
 
     @abstractmethod
-    def sync(self) -> FieldBase:
+    def sync(self: T) -> T:
         r"""
         Synchronize the field across all MPI ranks and apply boundary conditions.
 
@@ -161,7 +163,7 @@ class FieldBase:
         """
 
     @abstractmethod
-    def apply_water_mask(self) -> FieldBase:
+    def apply_water_mask(self: T) -> T:
         """
         Apply a water mask to the field.
 
@@ -191,7 +193,7 @@ class FieldBase:
         """
 
     @abstractmethod
-    def __copy__(self) -> FieldBase:
+    def __copy__(self: T) -> T:
         r"""
         Create a copy of the field.
 
@@ -219,10 +221,10 @@ class FieldBase:
     # ================================================================
 
     @abstractmethod
-    def diff(self,
+    def diff(self: T,
              axis: int,
              order: int = 1,
-             ) -> fr.ScalarField | fr.VectorField | fr.TensorField:
+             ) -> T:
         r"""
         Compute the partial derivative along an axis.
 
@@ -248,7 +250,7 @@ class FieldBase:
     @abstractmethod
     def grad(self,
              axes: list[int] | None = None,
-             ) -> FieldBase:
+             ) -> fr.VectorField | fr.TensorField:
         r"""
         Compute the gradient.
 
@@ -274,9 +276,9 @@ class FieldBase:
         """
 
     @abstractmethod
-    def laplacian(self,
+    def laplacian(self: T,
                   axes: tuple[int] | None = None,
-                  ) -> fr.ScalarField | fr.VectorField | fr.TensorField:
+                  ) -> T:
         r"""
         Compute the Laplacian.
 
@@ -345,10 +347,10 @@ class FieldBase:
 
     @classmethod
     @abstractmethod
-    def from_xarray(cls,
+    def from_xarray(cls: type[T],
                     mset: fr.ModelSettingsBase,
                     ds: xr.DataArray | xr.Dataset,
-                    ) -> FieldBase:
+                    ) -> T:
         """
         Create a field from an xarray object.
 
@@ -388,7 +390,8 @@ class FieldBase:
         self.xr.to_netcdf(path, auto_complex=True)
 
     @classmethod
-    def from_netcdf(cls, mset: fr.ModelSettingsBase, path: str) -> FieldBase:
+    def from_netcdf(cls: type[T],
+                    mset: fr.ModelSettingsBase, path: str) -> T:
         r"""
         Create a field from a NetCDF file.
 
@@ -491,7 +494,7 @@ class FieldBase:
         """
 
     @abstractmethod
-    def conj(self) -> FieldBase:
+    def conj(self: T) -> T:
         r"""
         Compute the complex conjugate.
 
@@ -505,44 +508,44 @@ class FieldBase:
     @staticmethod
     @abstractmethod
     def _apply_operation(
-        op: Callable[[FieldBase, any], FieldBase],
-        field: FieldBase,
-        other: any) -> FieldBase: ...
+        op: Callable[[T, any], T],
+        field: T,
+        other: any) -> T: ...
 
-    def __add__(self, other: any) -> FieldBase:
+    def __add__(self: T, other: any) -> T:
         return self._apply_operation(lambda x, y: x + y, self, other)
 
-    def __radd__(self, other: any) -> FieldBase:
+    def __radd__(self: T, other: any) -> T:
         return self.__add__(other)
 
-    def __sub__(self, other: any) -> FieldBase:
+    def __sub__(self: T, other: any) -> T:
         return self._apply_operation(lambda x, y: x - y, self, other)
 
-    def __rsub__(self, other: any) -> FieldBase:
+    def __rsub__(self: T, other: any) -> T:
         return self._apply_operation(lambda x, y: y - x, self, other)
 
-    def __mul__(self, other: any) -> FieldBase:
+    def __mul__(self: T, other: any) -> T:
         return self._apply_operation(lambda x, y: x * y, self, other)
 
-    def __rmul__(self, other: any) -> FieldBase:
+    def __rmul__(self: T, other: any) -> T:
         return self.__mul__(other)
 
-    def __truediv__(self, other: any) -> FieldBase:
+    def __truediv__(self: T, other: any) -> T:
         with np.errstate(divide="ignore", invalid="ignore"):
             return self._apply_operation(lambda x, y: x / y, self, other)
 
-    def __rtruediv__(self, other: any) -> FieldBase:
+    def __rtruediv__(self: T, other: any) -> T:
         with np.errstate(divide="ignore", invalid="ignore"):
             return self._apply_operation(lambda x, y: y / x, self, other)
 
-    def __pow__(self, other: any) -> FieldBase:
+    def __pow__(self: T, other: any) -> T:
         return self._apply_operation(lambda x, y: x ** y, self, other)
 
-    def __rpow__(self, other: any) -> FieldBase:
+    def __rpow__(self: T, other: any) -> T:
         return self._apply_operation(lambda x, y: y ** x, self, other)
 
     def __matmul__(self, other: FieldBase) -> FieldBase:
         return self.dot(other)
 
-    def __neg__(self) -> FieldBase:
+    def __neg__(self: T) -> T:
         return self._apply_operation(lambda x, _: -x, self, None)
