@@ -797,14 +797,18 @@ class ScalarField(fr.FieldBase):
                            arr=self.arr.conj())
 
     @staticmethod
-    def _apply_operation(
-        op: callable, field: ScalarField, other: any) -> ScalarField:
+    def _apply_operation(op: callable,
+                         field: ScalarField,
+                         other: ScalarField | complex | np.number,
+                         ) -> ScalarField:
         new_mdata = deepcopy(field.mdata)
         if isinstance(other, ScalarField):
             topo = [p or q for p, q in zip(field.topo, other.topo)]
             new_mdata.topo = topo
             result = op(field.arr, other.arr)
-        else:
+        elif isinstance(other, (int, float, complex, np.number)):
             result = op(field.arr, other)
+        else:
+            return NotImplemented
 
         return ScalarField(mset=field.mset, mdata=new_mdata, arr=result)
