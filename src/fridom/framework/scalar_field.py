@@ -762,8 +762,6 @@ class ScalarField(fr.FieldBase):
         # that takes the grid spacing into account
         msg = "Integration is not implemented yet"
         raise NotImplementedError(msg)
-        domain = self.grid.domain_decomp
-        return domain.sum(self.arr * self.grid.dV)
 
     def norm_l2(self) -> float:
         r"""
