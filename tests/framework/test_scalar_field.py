@@ -265,7 +265,13 @@ def test_apply_watermask(mset, topo, is_spectral):
     masked_field = field.apply_water_mask()
     assert masked_field is field  # should be in place
 
-def test_has_nan(): ...
+def test_has_nan(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # field should not have any nan values initially
+    assert not field.has_nan()
+    # set some nan values
+    field.arr = fr.utils.modify_array(field.arr, (0, 0), fr.config.ncp.nan)
+    assert field.has_nan()
 
 def test_copy(): ...
 
