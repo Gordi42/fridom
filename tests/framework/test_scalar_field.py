@@ -646,7 +646,13 @@ def test_apply_operator_topo(mset, is_spectral, topo1, topo2):
         expected_data = 4.0
     assert fr.config.ncp.allclose(new_field.arr, expected_data)
 
-def test_abs(): ...
+def test_abs(mset, topo, is_spectral):
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    if all(topo):
+        field.set_random(seed=12345)
+    new_field = abs(field)
+    # check if the array is the absolute value of the original array
+    assert fr.config.ncp.allclose(new_field.arr, abs(field.arr))
 
 def test_sum(): ...
 
