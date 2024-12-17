@@ -4,10 +4,13 @@ from __future__ import annotations
 from collections import OrderedDict
 from copy import copy
 from functools import partial
-from typing import Callable
+from typing import Callable, TypeVar
+
+import numpy as np
 
 import fridom.framework as fr
 
+T = TypeVar("T", bound="VectorField")
 
 @partial(fr.utils.jaxify, dynamic=("_fields", "_vector_dim"))
 class VectorField(fr.FieldBase):
@@ -30,6 +33,8 @@ class VectorField(fr.FieldBase):
         The list of scalar fields that make up the vector field.
     vector_dim : int | None
         The vector dimension. If None, it is set to the length of field_list.
+    **kwargs : any
+        Additional keyword arguments to pass to the scalar fields.
 
     """
 
@@ -43,7 +48,7 @@ class VectorField(fr.FieldBase):
                               OrderedDict[str, fr.ScalarField] |
                               None) = None,
                  vector_dim: int | None = None,
-                 is_spectral: bool = False,  # noqa: FBT001, FBT002
+                 **kwargs: any,
                  ) -> None:
         super().__init__(mset)
 
@@ -57,7 +62,7 @@ class VectorField(fr.FieldBase):
         elif isinstance(field_list, OrderedDict):
             pass
         elif field_list is None:
-            field_list = self._create_default_fields(mset, vector_dim, is_spectral)
+            field_list = self._create_default_fields(mset, vector_dim, **kwargs)
         else:
             msg = f"Invalid field list type: {type(field_list)}"
             raise ValueError(msg)
@@ -75,7 +80,7 @@ class VectorField(fr.FieldBase):
     @staticmethod
     def _create_default_fields(mset: fr.ModelSettingsBase,
                                vector_dim: int,
-                               is_spectral: bool,  # noqa: FBT001
+                               **kwargs: any,
                                ) -> OrderedDict[str, fr.ScalarField]:
         # check the vector dimension
         if vector_dim is None or vector_dim < 1:
@@ -84,7 +89,7 @@ class VectorField(fr.FieldBase):
         # create a dictionary of scalar fields
         field_list = OrderedDict()
         for i in range(vector_dim):
-            field = fr.ScalarField(mset, name=f"f{i}", is_spectral=is_spectral)
+            field = fr.ScalarField(mset, name=f"f{i}", **kwargs)
             field_list[field.name] = field
         return field_list
 
@@ -92,19 +97,21 @@ class VectorField(fr.FieldBase):
     #  General Methods
     # ================================================================
 
-    def fft(self,  # noqa: D102
+    def fft(self: T,  # noqa: D102
             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
-            ) -> VectorField:
-        return self.apply_elementwise(lambda field: field.fft(padding=padding))
+            ) -> T:
+        return self.apply_elementwise(self,
+                                      lambda field: field.fft(padding=padding))
 
-    def ifft(self,  # noqa: D102
+    def ifft(self: T,  # noqa: D102
              padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
-             ) -> VectorField:
-        return self.apply_elementwise(lambda field: field.ifft(padding=padding))
+             ) -> T:
+        return self.apply_elementwise(self,
+                                      lambda field: field.ifft(padding=padding))
 
-    def project(self,
-                p_vec: VectorField,
-                q_vec: VectorField) -> VectorField:
+    def project(self: T,
+                p_vec: T,
+                q_vec: T) -> T:
         r"""
         Project a Vector Field onto a (spectral) vector.
 
@@ -150,7 +157,7 @@ class VectorField(fr.FieldBase):
             vec = vec.ifft()
         return vec
 
-    def sync(self) -> VectorField:  # noqa: D102
+    def sync(self: T) -> T:  # noqa: D102
         if self.is_spectral:
             # nothing to synchronize in spectral space
             return self
@@ -163,7 +170,7 @@ class VectorField(fr.FieldBase):
         # apply the water mask
         return self.apply_water_mask()
 
-    def apply_water_mask(self) -> VectorField:  # noqa: D102
+    def apply_water_mask(self: T) -> T:  # noqa: D102
         if self.is_spectral:
             msg = "Vector Field is in spectral space, cannot apply water mask"
             raise ValueError(msg)
@@ -174,19 +181,19 @@ class VectorField(fr.FieldBase):
     def has_nan(self) -> bool:  # noqa: D102
         return any(field.has_nan() for field in self.fields.values())
 
-    def __copy__(self) -> VectorField:
+    def __copy__(self: T) -> T:
         # create a new vector field, but copy the fields
-        return self.apply_elementwise(lambda field: copy(field))
+        return self.apply_elementwise(self, lambda field: copy(field))
 
     # ================================================================
     #  Differential Operators
     # ================================================================
 
-    def diff(self,  # noqa: D102
+    def diff(self: T,  # noqa: D102
              axis: int,
              order: int = 1,
-             ) -> fr.VectorField:
-        return self.apply_elementwise(lambda field: field.diff(axis, order))
+             ) -> T:
+        return self.apply_elementwise(self, lambda field: field.diff(axis, order))
 
     def grad(self,  # noqa: D102
              axes: list[int] | None = None,
@@ -194,10 +201,10 @@ class VectorField(fr.FieldBase):
         # TODO(Silvano): add implementation after TensorField is implemented
         pass
 
-    def laplacian(self,  # noqa: D102
+    def laplacian(self: T,  # noqa: D102
                   axes: tuple[int] | None = None,
-                  ) -> fr.VectorField:
-        return self.apply_elementwise(lambda field: field.laplacian(axes))
+                  ) -> T:
+        return self.apply_elementwise(self, lambda field: field.laplacian(axes))
 
     def div(self) -> fr.ScalarField:  # noqa: D102
         return self.grid.diff_module.div(vec=self)
@@ -226,10 +233,10 @@ class VectorField(fr.FieldBase):
         return fr.utils.SliceableAttribute(slicer)
 
     @classmethod
-    def from_xarray(cls,  # noqa: D102
+    def from_xarray(cls: type[T],  # noqa: D102
                     mset: fr.ModelSettingsBase,
-                    ds: xr.DataArray | xr.Dataset,
-                    ) -> VectorField:
+                    ds: xr.Dataset,
+                    ) -> T:
         # get the list of variable names
         var_names = ds.attrs["var_names"]
         vector_dim = ds.attrs["vector_dim"]
@@ -388,9 +395,9 @@ class VectorField(fr.FieldBase):
         """
         return 2 * (self - other).norm_l2() / (self.norm_l2() + other.norm_l2())
 
-    def dot(self,  # noqa: D102
+    def dot(self: T,  # noqa: D102
             other: fr.ScalarField | VectorField | fr.TensorField,
-            ) -> fr.ScalarField | VectorField:
+            ) -> fr.ScalarField | VectorField | T:
         # check that the spectral flag is the same
         if self.is_spectral != other.is_spectral:
             msg = "Cannot take dot product of spectral and real fields"
@@ -409,12 +416,13 @@ class VectorField(fr.FieldBase):
         msg = f"Invalid type for dot product: {type(other)}"
         raise TypeError(msg)
 
-    def conj(self) -> VectorField:  # noqa: D102
-        return self.apply_elementwise(lambda field: field.conj())
+    def conj(self: T) -> T:  # noqa: D102
+        return self.apply_elementwise(self, lambda field: field.conj())
 
-    def apply_elementwise(self,
-                           op: Callable[[fr.ScalarField], fr.ScalarField],
-                           ) -> VectorField:
+    @staticmethod
+    def apply_elementwise(vector_field: T,
+                          op: Callable[[fr.ScalarField], fr.ScalarField],
+                          ) -> T:
         """
         Apply an operation elementwise to the vector field.
 
@@ -426,6 +434,8 @@ class VectorField(fr.FieldBase):
 
         Parameters
         ----------
+        vector_field : VectorField
+            The vector field to apply the operation to.
         op : Callable[[fr.ScalarField], fr.ScalarField]
             The operation to apply to each scalar field. Should take a scalar
             field as input and return a scalar field.
@@ -436,23 +446,27 @@ class VectorField(fr.FieldBase):
             The new vector field with the modified fields
 
         """
+        cls = vector_field.__class__
         # apply the operation to each field
         new_fields = OrderedDict(
-            (name, op(field)) for name, field in self.fields.items())
-        return VectorField(self.mset,
-                           field_list=new_fields,
-                           vector_dim=self.vector_dim)
+            (name, op(field)) for name, field in vector_field.fields.items())
+        return cls(vector_field.mset,
+                   field_list=new_fields,
+                   vector_dim=vector_field.vector_dim)
 
     @staticmethod
-    def _apply_operation(op: Callable[[fr.VectorField, any], fr.FieldBase],
-                         field: fr.VectorField,
-                         other: any) -> fr.VectorField:
+    def _apply_operation(op: Callable[[T, any], fr.FieldBase],
+                         field: T,
+                         other: any) -> T:
         cls = field.__class__
-        names = list(field.fields)
-        if isinstance(other, cls):
-            fields = {name: op(field.fields[name], other.fields[name])
-                      for name in names}
-        else:
-            fields = {name: op(field.fields[name], other)
-                      for name in names}
-        return cls(field.mset, field_list=fields, vector_dim=field.vector_dim)
+        if isinstance(other, fr.VectorField):
+            names = list(field.fields)
+            fields = OrderedDict(
+                (name, op(field.fields[name], other.fields[name]))
+                for name in names)
+            return cls(field.mset, field_list=fields, vector_dim=field.vector_dim)
+        if isinstance(other, (fr.ScalarField, float, int, complex, np.number)):
+            return field.apply_elementwise(field, lambda x: op(x, other))
+        msg = "Operation not supported for the given type"
+        raise TypeError(msg)
+
