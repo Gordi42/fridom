@@ -181,7 +181,22 @@ def test_repr(): ...
 #  Test general methods
 # ----------------------------------------------------------------
 
-def test_fft_ifft(): ...
+def test_fft_ifft(mset):
+    vec = fr.VectorField(mset, vector_dim=2).set_random()
+    # compute the fft
+    vec_hat = vec.fft()
+    # check that the vector is spectral and the values have changed
+    assert vec_hat.is_spectral
+    for f, f_hat in zip(vec, vec_hat):
+        assert f.name == f_hat.name
+        assert f.arr.shape != f_hat.arr.shape
+    # compute the inverse fft
+    vec_inv = vec_hat.ifft()
+    # check that the vector is physical and the values are the same
+    assert not vec_inv.is_spectral
+    for f, f_inv in zip(vec, vec_inv):
+        assert f.name == f_inv.name
+        assert fr.config.ncp.allclose(f.arr, f_inv.arr)
 
 def test_sync(): ...
 
