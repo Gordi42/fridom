@@ -562,7 +562,41 @@ def test_integrate(mset, is_spectral, topo, axes):
 #  Test arithmetic operations
 # ----------------------------------------------------------------
 
-def test_apply_operator_with_scalar_field(): ...
+@pytest.mark.parametrize(*(
+    "op",
+    [
+        pytest.param(lambda x, y: x + y, id="add"),
+        pytest.param(lambda x, y: x - y, id="sub"),
+        pytest.param(lambda x, y: x * y, id="mul"),
+        pytest.param(lambda x, y: x / y, id="div"),
+        pytest.param(lambda x, y: x ** y, id="pow"),
+    ],
+))
+def test_apply_operator_with_scalar_field(mset, topo, is_spectral, op):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    scalar = fr.ScalarField(mset, is_spectral=is_spectral)
+    # TODO(Silvano): set random also for non full domain fields
+    if all(topo):
+        vec.set_random()
+        scalar.set_random()
+    # we need to make sure that the arrays are never zero, as otherwise
+    # division or power operations may fail. Just add 20 to all values
+    vec += 20
+    scalar += 20
+    # test if the operation works
+    new_vec = op(vec, scalar)
+    # check if the result is a vector field
+    assert isinstance(new_vec, fr.VectorField)
+    # check if the fields are correct
+    for f, f_new in zip(vec, new_vec):
+        assert fr.config.ncp.allclose(op(f.arr, scalar.arr), f_new.arr)
+    # test if we can do the operation in reverse
+    new_vec = op(scalar, vec)
+    # check if the result is a vector field
+    assert isinstance(new_vec, fr.VectorField)
+    # check if the fields are correct
+    for f, f_new in zip(vec, new_vec):
+        assert fr.config.ncp.allclose(op(scalar.arr, f.arr), f_new.arr)
 
 def test_apply_operator_with_vector_field(): ...
 
@@ -579,6 +613,10 @@ def test_dot_with_tensor_field(): ...
 def test_abs(): ...
 
 def test_conj(): ...
+
+def test_norm_l2(): ...
+
+def test_norm_of_diff(): ...
 
 # ================================================================
 #  JAX JIT tests
