@@ -718,7 +718,7 @@ def test_dot_with_scalar_field(field, mset, is_spectral, dot_op):
     with pytest.raises(ValueError, match=msg):
         dot_op(field, other)
     other = fr.ScalarField(mset, is_spectral=is_spectral).set_random(seed=51234)
-    result = dot_op(field, field)
+    result = dot_op(field, other)
     # check if the result is a scalar field
     assert isinstance(result, fr.ScalarField)
     # check if the array is a * b.conj()
@@ -735,7 +735,6 @@ def test_dot_with_vector_field(field, mset, is_spectral, dot_op):
     result = dot_op(field, other)
     # check if the result is a vector field
     assert isinstance(result, fr.VectorField)
-
 
 def test_dot_with_tensor_field(field, mset, is_spectral):...
 
