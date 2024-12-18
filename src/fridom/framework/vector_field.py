@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from copy import copy
 from functools import partial
-from typing import Callable, TypeVar
+from typing import Callable, Iterator, TypeVar
 
 import numpy as np
 
@@ -52,6 +52,13 @@ class VectorField(fr.FieldBase):
                  ) -> None:
         super().__init__(mset)
 
+        if isinstance(field_list, (list, OrderedDict)) and kwargs:
+            msg = "Keyword arguments not allowed when passing a list or dict"
+            raise TypeError(msg)
+
+        if kwargs:
+            self._check_for_valid_kwargs(kwargs)
+
         # if the input is a list, check for duplicated names and convert to dict
         if isinstance(field_list, list):
             field_names = [field.name for field in field_list]
@@ -65,7 +72,7 @@ class VectorField(fr.FieldBase):
             field_list = self._create_default_fields(mset, vector_dim, **kwargs)
         else:
             msg = f"Invalid field list type: {type(field_list)}"
-            raise ValueError(msg)
+            raise TypeError(msg)
 
         # check the vector dimension
         vector_dim = vector_dim or len(field_list)
@@ -76,6 +83,14 @@ class VectorField(fr.FieldBase):
         # set the properties
         self._fields = field_list
         self._vector_dim = vector_dim
+
+    def _check_for_valid_kwargs(self, kwargs: any) -> None:
+        allowed_keys = {
+            "topo", "is_spectral", "position", "bc_types", "flags", "nc_attrs"}
+        if not set(kwargs).issubset(allowed_keys):
+            msg = f"Invalid keyword arguments: {set(kwargs) - allowed_keys}"
+            raise TypeError(msg)
+
 
     @staticmethod
     def _create_default_fields(mset: fr.ModelSettingsBase,
@@ -294,6 +309,10 @@ class VectorField(fr.FieldBase):
             return
         msg = f"Invalid key type: {type(key)}"
         raise TypeError(msg)
+
+    def __iter__(self) -> Iterator[fr.ScalarField]:
+        """Iterate over the fields of the vector field."""
+        return iter(self.fields.values())
 
     def _check_for_name_mismatch(self, name: str, field: fr.ScalarField) -> None:
         if field.name != name:

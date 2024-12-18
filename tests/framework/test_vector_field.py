@@ -2,6 +2,7 @@
 import tempfile
 from copy import copy, deepcopy
 from pathlib import Path
+from collections import OrderedDict
 
 import dill
 import pytest
@@ -58,16 +59,97 @@ def vector_dim(request):
 #  Tests
 # ================================================================
 
-def test_init(): ...
+def test_init(mset, is_spectral, vector_dim):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, vector_dim=vector_dim)
+    # check that the instances are correct
+    assert isinstance(vec, fr.VectorField)
+    for f in vec:
+        assert isinstance(f, fr.ScalarField)
+
+    # check that the number of fields is correct
+    assert len(vec.fields) == vector_dim
+
+    # check that the name of the fields are correct
+    for i, f in enumerate(vec):
+        assert f.name == f"f{i}"
+
+    # test the is_spectral attribute
+    assert vec.is_spectral == is_spectral
+    for f in vec:
+        assert f.is_spectral == is_spectral
+
+@pytest.mark.parametrize(*("field_names, double_names", [
+    (["a", "b", "c"], False),
+    (["a", "b", "b"], True),
+]))
+def test_init_from_field_list(mset, is_spectral, field_names, double_names):
+    # try with list
+    fields = [fr.ScalarField(mset, is_spectral=is_spectral, name=name)
+              for name in field_names]
+    if double_names:
+        msg = "Duplicated field names"
+        with pytest.raises(ValueError, match=msg):
+            fr.VectorField(mset, field_list=fields)
+    else:
+        vec = fr.VectorField(mset, field_list=fields)
+        for f, name in zip(vec, field_names):
+            assert f.name == name
+
+def test_init_from_field_dict(mset, is_spectral):
+    field_names = ["a", "b", "c"]
+    fields = OrderedDict((name, fr.ScalarField(mset, is_spectral=is_spectral, name=name))
+                         for name in field_names)
+    vec = fr.VectorField(mset, field_list=fields)
+    for f, name in zip(vec, field_names):
+        assert f.name == name
+
+    fields = {name: fr.ScalarField(mset, is_spectral=is_spectral, name=name)
+              for name in field_names}
+    with pytest.raises(TypeError, match="Invalid field list type"):
+        fr.VectorField(mset, field_list=fields)
+
+def test_init_topo(mset, is_spectral):
+    topo = (True, False)
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    for f in vec:
+        assert f.topo == topo
+        assert f.arr.shape[1] == 1
+
+@pytest.mark.parametrize("kwargs",
+                         [{"topo": (True, False)}, {"is_spectral": True}])
+def test_init_list_and_kwargs(mset, kwargs):
+    fields = [fr.ScalarField(mset, name="a"), fr.ScalarField(mset, name="b")]
+    msg = "Keyword arguments not allowed when passing a list or dict"
+    with pytest.raises(TypeError, match=msg):
+        fr.VectorField(mset, field_list=fields, **kwargs)
 
 @pytest.mark.parametrize("n_dims", [1, 2, 3])
 def test_init_different_dims(n_dims):
     grid = fr.grid.cartesian.Grid(N=(3,) * n_dims, L=(1,) * n_dims)
     mset = fr.ModelSettingsBase(grid).setup()
-    field = fr.VectorField(mset, vector_dim=2)
-    assert isinstance(field, fr.VectorField)
+    vec = fr.VectorField(mset, vector_dim=2)
+    assert isinstance(vec, fr.VectorField)
 
-def test_kwargs(): ...
+@pytest.mark.parametrize(*("kwargs, allowed", [
+    ({"name": "a"}, False),
+    ({"long_name": "b"}, False),
+    ({"units": "c"}, False),
+    ({"nc_attrs": {"a": 1}}, True),
+    ({"topo": (True, False)}, True),
+    ({"position": fr.grid.Position((
+        fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.FACE))}, True),
+    ({"bc_types": (fr.grid.BCType.NEUMANN, fr.grid.BCType.DIRICHLET)}, True),
+]))
+def test_init_kwargs(mset, kwargs, allowed):
+    if allowed:
+        vec = fr.VectorField(mset, **kwargs, vector_dim=2)
+        for f in vec:
+            for key, value in kwargs.items():
+                assert getattr(f, key) == value
+    else:
+        msg = "Invalid keyword argument"
+        with pytest.raises(TypeError, match=msg):
+            fr.VectorField(mset, **kwargs, vector_dim=2)
 
 # ----------------------------------------------------------------
 #  Test properties
