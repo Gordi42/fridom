@@ -60,6 +60,13 @@ def vector_dim(request):
 
 def test_init(): ...
 
+@pytest.mark.parametrize("n_dims", [1, 2, 3])
+def test_init_different_dims(n_dims):
+    grid = fr.grid.cartesian.Grid(N=(3,) * n_dims, L=(1,) * n_dims)
+    mset = fr.ModelSettingsBase(grid).setup()
+    field = fr.VectorField(mset, vector_dim=2)
+    assert isinstance(field, fr.VectorField)
+
 def test_kwargs(): ...
 
 # ----------------------------------------------------------------
