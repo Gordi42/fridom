@@ -127,10 +127,6 @@ class FieldMetadata:
 
     @topo.setter
     def topo(self, topo: tuple[bool] | list[bool]) -> None:
-        # make sure that the topology has extend in at least one direction
-        if not any(topo):
-            msg = "Topology must have extend in at least one direction"
-            raise ValueError(msg)
         self._topo = tuple(topo)
 
     @property
