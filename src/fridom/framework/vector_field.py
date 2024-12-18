@@ -238,13 +238,11 @@ class VectorField(fr.FieldBase):
     def xrs(self) -> fr.utils.SliceableAttribute[xr.Dataset]:  # noqa: D102
         import xarray as xr
         def slicer(key: int | slice | tuple[int | slice]) -> xr.Dataset:
-            ds = xr.Dataset(
-                {field.name: field.xrs[key] for field in self.fields.values()})
+            ds = xr.Dataset({f.name: f.xrs[key] for f in self})
             # we need to add the variable names in the correct order
             # this ensures that the order of the variables is preserved
             # when loading the vector field from xarray
-            var_names = list(ds.variables)
-            ds.attrs["var_names"] = var_names
+            ds.attrs["var_names"] = [f.name for f in self]
             ds.attrs["vector_dim"] = self.vector_dim
             return ds
         return fr.utils.SliceableAttribute(slicer)
@@ -258,7 +256,7 @@ class VectorField(fr.FieldBase):
         var_names = ds.attrs["var_names"]
         vector_dim = ds.attrs["vector_dim"]
         # create the field list
-        field_list = [fr.FieldVariable.from_xarray(mset, ds[var_name])
+        field_list = [fr.ScalarField.from_xarray(mset, ds[var_name])
                       for var_name in var_names]
         # create the vector field
         return cls(mset,

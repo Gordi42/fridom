@@ -331,21 +331,140 @@ def test_div(mset, topo, is_spectral):
 #  Test xarray interface
 # ----------------------------------------------------------------
 
-def test_xr(): ...
+def test_xr(mset, is_spectral, topo):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: vec.xr)
+        return
+    ds = vec.xr
+    assert isinstance(ds, xr.Dataset)
 
-def test_xrs(): ...
+@pytest.mark.parametrize(*(
+    "key, expected_shape, dim_names",
+    [
+        (slice(None), (10, 3), slice(None)),
+        (-1, (10,), 1),
+        ((slice(None), -1), (3,), 0),
+        ((slice(None), slice(1, 5)), (4, 3), slice(None)),
+    ],
+))
+def test_xrs(mset, is_spectral, key, expected_shape, dim_names):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, vector_dim=2)
+    ds = vec.xrs[key]
+    assert isinstance(ds, xr.Dataset)
+    # check that the variables are in the dataset and have the correct shape
+    var_names = [f.name for f in vec]
+    for var_name in var_names:
+        assert var_name in ds.variables
+        assert ds[var_name].shape == expected_shape
+    # check if the dimenstion names are correct
+    exp_names = (["kx", "ky"] if is_spectral else ["x", "y"])[dim_names]
+    exp_names = {exp_names} if isinstance(exp_names, str) else set(exp_names)
+    assert set(ds.dims) == exp_names
 
-def test_from_xr(): ...
+@pytest.mark.parametrize(*(
+    "key, possible",
+    [
+        (slice(None), True),
+        (-1, False),
+        (slice(None, 3), False),
+    ],
+))
+def test_from_xr(mset, topo, is_spectral, key, possible):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: vec.xrs[key])
+        return
+    ds = vec.xrs[key]
+    if not possible:
+        msg = "Cannot convert sliced dataarray to ScalarField"
+        with pytest.raises(ValueError, match=msg):
+            fr.VectorField.from_xarray(mset, ds)
+        return
+    new_vec = fr.VectorField.from_xarray(mset, ds)
+    # new vector should not be the same as the original vector
+    assert new_vec is not vec
+    # check that the fields are the same
+    for f, f_new in zip(vec, new_vec):
+        assert fr.config.ncp.allclose(f.arr, f_new.arr)
 
-def test_netcdf_save_load(): ...
+def test_netcdf_save_load(mset, is_spectral, tmp_dir):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, vector_dim=2).set_random()
+    # save the field to a netcdf file
+    vec.to_netcdf(tmp_dir + "/vec.nc")
+    # load the field from the netcdf file
+    new_vec = fr.VectorField.from_netcdf(mset, tmp_dir + "/vec.nc")
+    # check that the fields are the same
+    for f, f_new in zip(vec, new_vec):
+        assert fr.config.ncp.allclose(f.arr, f_new.arr)
 
 # ----------------------------------------------------------------
 #  Test slicing methods
 # ----------------------------------------------------------------
 
-def test_getitem(): ...
+def test_getitem_int(mset, is_spectral):
+    vec = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    # test with index
+    f = vec[0]
+    assert isinstance(f, fr.ScalarField)
+    assert f.name == "f0"
 
-def test_setitem(): ...
+def test_getitem_str(mset, is_spectral):
+    vec = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    # test with string
+    f = vec["f1"]
+    assert isinstance(f, fr.ScalarField)
+    assert f.name == "f1"
+
+def test_getitem_slice(mset, is_spectral):
+    vec = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    # test with slice
+    vec_slice = vec[:2]
+    assert isinstance(vec_slice, fr.VectorField)
+    assert vec_slice.vector_dim == 2  # noqa: PLR2004
+    assert vec_slice[0].name == "f0"
+    assert vec_slice[1].name == "f1"
+    # test with another slice
+    vec_slice = vec[1:]
+    assert isinstance(vec_slice, fr.VectorField)
+    assert vec_slice.vector_dim == 2  # noqa: PLR2004
+    assert vec_slice[0].name == "f1"
+    assert vec_slice[1].name == "f2"
+
+def test_setitem_int(mset, is_spectral):
+    field = fr.ScalarField(mset, is_spectral=is_spectral, name="f0")
+    vec2 = fr.VectorField(mset, vector_dim=2, is_spectral=is_spectral).set_random()
+    # it should be possible to set the field with the same name
+    vec2[0] = field
+    assert vec2[0] is field
+    # it should not be possible to set the field with a different name
+    msg = "Field name mismatch"
+    with pytest.raises(ValueError, match=msg):
+        vec2[1] = field
+
+def test_setitem_str(mset, is_spectral):
+    field = fr.ScalarField(mset, is_spectral=is_spectral, name="f0")
+    vec2 = fr.VectorField(mset, vector_dim=2, is_spectral=is_spectral).set_random()
+    # it should be possible to set the field via the name
+    vec2["f0"] = field
+    assert vec2[0] is field
+    # it should not be possible to set the field with a different name
+    msg = "Field name mismatch"
+    with pytest.raises(ValueError, match=msg):
+        vec2["f1"] = field
+
+def test_setitem_slice(mset, is_spectral):
+    # test with slice access
+    vec2 = fr.VectorField(mset, vector_dim=2, is_spectral=is_spectral).set_random()
+    vec3 = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    # it should be possible to set the field with the correct names
+    vec3[:2] = vec2
+    assert vec3[0] is vec2[0]
+    assert vec3[1] is vec2[1]
+    # it should not be possible to set the field with different names
+    msg = "Field name mismatch"
+    with pytest.raises(ValueError, match=msg):
+        vec3[1:] = vec2
 
 # ----------------------------------------------------------------
 #  Pickling with dill
