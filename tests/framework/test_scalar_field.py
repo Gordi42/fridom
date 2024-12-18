@@ -535,6 +535,57 @@ def test_dill(field, tmp_dir):
     assert fr.config.ncp.allclose(new_field.arr, field.arr)
 
 # ----------------------------------------------------------------
+#  Test shrinking methods
+# ----------------------------------------------------------------
+
+def test_sum(field, axes, topo):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.sum(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.sum(axes))
+        return
+    result = field.sum(axes)
+    assert isinstance(result, fr.ScalarField)
+    assert result.topo == (False, False)
+    assert result.arr.shape == (1, 1)
+
+def test_max(field, axes, topo):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.max(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.max(axes))
+        return
+    result = field.max()
+    assert isinstance(result, fr.ScalarField)
+    assert result.topo == (False, False)
+    assert result.arr.shape == (1, 1)
+
+def test_min(field, axes, topo):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.min(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.min(axes))
+        return
+    result = field.min()
+    assert isinstance(result, fr.ScalarField)
+    assert result.topo == (False, False)
+    assert result.arr.shape == (1, 1)
+
+def test_integrate(field, axes, topo):
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: field.integrate(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: field.integrate(axes))
+        return
+    msg = "Integration is not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        field.integrate(axes)
+
+# ----------------------------------------------------------------
 #  Test arithmetic operations
 # ----------------------------------------------------------------
 
@@ -653,52 +704,6 @@ def test_abs(field):
     # check if the array is the absolute value of the original array
     assert fr.config.ncp.allclose(new_field.arr, abs(field.arr))
 
-def test_sum(field, axes, topo, is_spectral):
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: field.sum(axes))
-        return
-    if axes is not None:
-        not_implemented_axes(lambda: field.sum(axes))
-        return
-    result = field.sum(axes)
-    t = complex if is_spectral else float
-    assert isinstance(t(result), t)
-
-def test_max(field, axes, topo, is_spectral):
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: field.max(axes))
-        return
-    if axes is not None:
-        not_implemented_axes(lambda: field.max(axes))
-        return
-    t = complex if is_spectral else float
-    max_val = field.arr.max()
-    assert isinstance(t(max_val), t)
-    assert max_val == field.arr.max()
-
-def test_min(field, axes, topo, is_spectral):
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: field.min(axes))
-        return
-    if axes is not None:
-        not_implemented_axes(lambda: field.min(axes))
-        return
-    t = complex if is_spectral else float
-    min_val = field.arr.min()
-    assert isinstance(t(min_val), t)
-    assert min_val == field.arr.min()
-
-def test_integrate(field, axes, topo):
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: field.integrate(axes))
-        return
-    if axes is not None:
-        not_implemented_axes(lambda: field.integrate(axes))
-        return
-    msg = "Integration is not implemented yet"
-    with pytest.raises(NotImplementedError, match=msg):
-        field.integrate(axes)
-
 def test_norm_l2(field, topo):
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: field.norm_l2())
@@ -763,5 +768,5 @@ def test_jit(mset, op):
         return
     # check if a gradient can be computed
     import jax
-    grad_func = jax.grad(lambda f: func(f).sum().real)
+    grad_func = jax.grad(lambda f: func(f).sum().arr.item().real)
     grad_func(field)

@@ -613,18 +613,21 @@ class ScalarField(fr.FieldBase):
         self.mdata.flags = flags
 
     # ================================================================
-    #  Arithmetic operations
+    #  Shrinking operations
     # ================================================================
+    def _set_shrinked_field(self, arr: ndarray, axes: tuple[int] | None) -> ScalarField:
+        """Shrink the ScalarField in the specified axes and set the new array."""
+        if axes is None:
+            axes = tuple(i for i in range(self.grid.n_dims))
+        new_mdata = deepcopy(self.mdata)
+        # set the new topo
+        topo = list(new_mdata.topo)
+        for axis in axes:
+            topo[axis] = False
+        new_mdata.topo = tuple(topo)
+        return ScalarField(mset=self.mset, mdata=new_mdata, arr=arr)
 
-    def abs(self) -> ScalarField:
-        """Absolute values of the ScalarField."""
-        arr = fr.config.ncp.abs(self.arr)
-        return ScalarField(mset=self.mset, mdata=deepcopy(self.mdata), arr=arr)
-
-    def __abs__(self) -> ScalarField:
-        return self.abs()
-
-    def sum(self, axes: tuple[int] | None = None) -> ScalarField | float:
+    def sum(self, axes: tuple[int] | None = None) -> ScalarField:
         """
         Sum of the ScalarField over the whole domain in the specified axes.
 
@@ -632,9 +635,7 @@ class ScalarField(fr.FieldBase):
         -----------
         This method computes the sum of the ScalarField over the whole domain
         (across all processes) in the specified axes. If no axes are specified,
-        the sum is computed over all axes and a scalar (float) is returned.
-        If axes are specified, the sum is computed over the specified axes and
-        a new ScalarField that is shrinked in the specified axes is returned.
+        the sum is computed over all axes.
 
         .. note::
             We recommend using the `f.integrate()` method to integrate the field
@@ -648,8 +649,9 @@ class ScalarField(fr.FieldBase):
 
         Returns
         -------
-        ScalarField | float
-            The sum of the ScalarField over the specified axes.
+        ScalarField
+            The sum of the ScalarField. The returned field has no extend in the
+            specified axes.
 
         """
         # TODO(Silvano): Make this work for non full domain fields
@@ -658,9 +660,14 @@ class ScalarField(fr.FieldBase):
         self._check_axes_argument(axes)
         # TODO(Silvano): This should call the grid.sum method
         domain = self.grid.domain_decomp
-        return domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
+        result = domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
+        # result must be a n-dimensional array
+        shape = tuple([1] * self.grid.n_dims)
+        result = fr.config.ncp.full(shape, result)
+        return self._set_shrinked_field(arr=result, axes=axes)
 
-    def max(self, axes: tuple[int] | None = None) -> ScalarField | float:
+
+    def max(self, axes: tuple[int] | None = None) -> ScalarField:
         """
         Maximum value of the ScalarField over the whole domain.
 
@@ -668,10 +675,7 @@ class ScalarField(fr.FieldBase):
         -----------
         This method computes the maximum value of the ScalarField over the whole
         domain (across all processes) in the specified axes. If no axes are
-        specified, the maximum is computed over all axes and a scalar (float)
-        is returned. If axes are specified, the maximum is computed over the
-        specified axes and a new ScalarField that is shrinked in the specified
-        axes is returned.
+        specified, the maximum is computed over all axes.
 
         Parameters
         ----------
@@ -681,8 +685,9 @@ class ScalarField(fr.FieldBase):
 
         Returns
         -------
-        ScalarField | float
-            The maximum value of the ScalarField over the specified axes.
+        ScalarField
+            The maximum value of the ScalarField over the specified axes. The
+            returned field has no extend in the specified axes.
 
         """
         # TODO(Silvano): Make this work for non full domain fields
@@ -691,9 +696,13 @@ class ScalarField(fr.FieldBase):
         self._check_axes_argument(axes)
         # TODO(Silvano): This should call the grid.max method
         domain = self.grid.domain_decomp
-        return domain.max(self.arr, axes=axes, spectral=self.is_spectral)
+        result = domain.max(self.arr, axes=axes, spectral=self.is_spectral)
+        # result must be a n-dimensional array
+        shape = tuple([1] * self.grid.n_dims)
+        result = fr.config.ncp.full(shape, result)
+        return self._set_shrinked_field(arr=result, axes=axes)
 
-    def min(self, axes: tuple[int] | None = None) -> ScalarField | float:
+    def min(self, axes: tuple[int] | None = None) -> ScalarField:
         """
         Minimum value of the ScalarField over the whole domain.
 
@@ -701,10 +710,7 @@ class ScalarField(fr.FieldBase):
         -----------
         This method computes the minimum value of the ScalarField over the whole
         domain (across all processes) in the specified axes. If no axes are
-        specified, the minimum is computed over all axes and a scalar (float)
-        is returned. If axes are specified, the minimum is computed over the
-        specified axes and a new ScalarField that is shrinked in the specified
-        axes is returned.
+        specified, the minimum is computed over all axes.
 
         Parameters
         ----------
@@ -714,8 +720,9 @@ class ScalarField(fr.FieldBase):
 
         Returns
         -------
-        ScalarField | float
-            The minimum value of the ScalarField over the specified axes.
+        ScalarField
+            The minimum value of the ScalarField over the specified axes. The
+            returned field has no extend in the specified axes.
 
         """
         # TODO(Silvano): Make this work for non full domain fields
@@ -724,9 +731,13 @@ class ScalarField(fr.FieldBase):
         self._check_axes_argument(axes)
         # TODO(Silvano): This should call the grid.min method
         domain = self.grid.domain_decomp
-        return domain.min(self.arr, axes=axes, spectral=self.is_spectral)
+        result = domain.min(self.arr, axes=axes, spectral=self.is_spectral)
+        # result must be a n-dimensional array
+        shape = tuple([1] * self.grid.n_dims)
+        result = fr.config.ncp.full(shape, result)
+        return self._set_shrinked_field(arr=result, axes=axes)
 
-    def integrate(self, axes: tuple[int] | None = None) -> ScalarField | float:
+    def integrate(self, axes: tuple[int] | None = None) -> ScalarField:
         r"""
         Global integral of the ScalarField in specified axes.
 
@@ -749,7 +760,7 @@ class ScalarField(fr.FieldBase):
 
         Returns
         -------
-        ScalarField | float
+        ScalarField
             The integral of the ScalarField over the specified axes.
 
         """
@@ -762,6 +773,18 @@ class ScalarField(fr.FieldBase):
         # that takes the grid spacing into account
         msg = "Integration is not implemented yet"
         raise NotImplementedError(msg)
+
+    # ================================================================
+    #  Arithmetic operations
+    # ================================================================
+
+    def abs(self) -> ScalarField:
+        """Absolute values of the ScalarField."""
+        arr = fr.config.ncp.abs(self.arr)
+        return ScalarField(mset=self.mset, mdata=deepcopy(self.mdata), arr=arr)
+
+    def __abs__(self) -> ScalarField:
+        return self.abs()
 
     def norm_l2(self) -> float:
         r"""
