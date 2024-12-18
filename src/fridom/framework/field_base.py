@@ -460,8 +460,44 @@ class FieldBase:
         """Flag indicating whether the field is in spectral space."""
 
     # ================================================================
-    #  Shrinking operations
+    #  Shrink / Extend operations
     # ================================================================
+
+    @abstractmethod
+    def extend(self: T, topo: tuple[bool]) -> T:
+        r"""
+        Extend the field in the specified directions.
+
+        Description
+        -----------
+        This method extends the field in the specified directions. The field
+        can be extended in any direction, but it cannot be shrunk. This means
+        that if the field is extended in a direction, it has to be extended in
+        all directions. Values in the extended directions are copied from the
+        original field, such that:
+
+        .. math::
+            f_{\text{new}}(x, y, z) = f_{\text{old}}(x, y)
+
+        where :math:`f_{\text{new}}` is the new field extended in (x, y, z),
+        and :math:`f_{\text{old}}` is the old field, extended in (x, y).
+
+        Parameters
+        ----------
+        topo : tuple[bool]
+            The new topology of the field.
+
+        Returns
+        -------
+        FieldBase
+            The extended field.
+
+        Raises
+        ------
+        ValueError
+            If the field is shrunk in any direction.
+
+        """
 
     @abstractmethod
     def sum(self: T, axes: tuple[int] | None = None) -> T:

@@ -60,12 +60,21 @@ def vector_dim(request):
 def topo(request):
     return request.param
 
+@pytest.fixture
+def vector(mset):
+    return fr.VectorField(mset, vector_dim=2).set_random()
+
 # ================================================================
 #  Test helpers
 # ================================================================
 
 def not_implemented_for_non_full_domain_fields(operation) -> None:
     msg = "Operation not available for non full domain fields"
+    with pytest.raises(NotImplementedError, match=msg):
+        operation()
+
+def not_implemented_for_spectral_fields(operation) -> None:
+    msg = "Operation not available for spectral fields"
     with pytest.raises(NotImplementedError, match=msg):
         operation()
 
@@ -198,13 +207,64 @@ def test_fft_ifft(mset):
         assert f.name == f_inv.name
         assert fr.config.ncp.allclose(f.arr, f_inv.arr)
 
-def test_sync(): ...
+def test_fft_ifft_topo(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, topo=topo, is_spectral=is_spectral, vector_dim=2)
+    if all(topo):
+        # fft should work on full domain fields
+        vec.ifft() if is_spectral else vec.fft()
+        return
+    op = vec.ifft if is_spectral else vec.fft
+    not_implemented_for_non_full_domain_fields(op)
 
-def test_apply_watermask(): ...
+def test_sync(vector):
+    # let's differentiate the vector so that the ghost points are not synced
+    vector = vector.diff(axis=0)
+    # create a copy of the vector and sync the copy
+    vec_sync = copy(vector).sync()
+    # check that the fields are different
+    for f, f_sync in zip(vector, vec_sync):
+        assert not fr.config.ncp.allclose(f.arr, f_sync.arr)
+    # sync the original vector
+    vector.sync()
+    # check that the fields are the same
+    for f, f_sync in zip(vector, vec_sync):
+        assert fr.config.ncp.allclose(f.arr, f_sync.arr)
 
-def test_has_nan(): ...
+def test_apply_watermask(mset, topo, is_spectral):
+    # TODO(Silvano): should test a custom watermask array
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    # if the field is not fully extended, apply_watermask should raise an error
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(vec.apply_water_mask)
+        return
+    # if the field is spectral, apply_watermask should raise an error
+    if is_spectral:
+        not_implemented_for_spectral_fields(vec.apply_water_mask)
+        return
+    # check if the apply_watermask method does not raise an error
+    masked_field = vec.apply_water_mask()
+    assert masked_field is vec  # should be in place
 
-def test_copy(): ...
+def test_has_nan(vector):
+    # field should not have any nan values initially
+    assert not vector.has_nan()
+    # set some nan values
+    f1, f2 = vector
+    f2.arr = fr.utils.modify_array(f2.arr, (0, 0), fr.config.ncp.nan)
+    assert f2.has_nan()
+    assert vector.has_nan()
+
+def test_copy(vector):
+    vec_copy = copy(vector)
+    # check that the copied field is not the same as the original field
+    assert vec_copy is not vector
+    # check that the model settings is the same
+    assert vec_copy.mset is vector.mset
+    # check that the fields are not the same
+    for f, f_copy in zip(vector, vec_copy):
+        assert f is not f_copy
+        assert f.arr.shape == f_copy.arr.shape
+        assert fr.config.ncp.allclose(f.arr, f_copy.arr)
 
 def test_set_random(mset, topo, is_spectral):
     vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
@@ -226,8 +286,6 @@ def test_set_random(mset, topo, is_spectral):
     vec2.set_random(seed=12345)
     for f1, f2 in zip(vec, vec2):
         assert fr.config.ncp.allclose(f1.arr, f2.arr)
-
-def test_extend(): ...
 
 # ----------------------------------------------------------------
 #  Test differential operators
@@ -268,8 +326,16 @@ def test_setitem(): ...
 def test_dill(): ...
 
 # ----------------------------------------------------------------
-#  Test shrinking methods
+#  Test shrink / extend methods
 # ----------------------------------------------------------------
+
+def test_extend(mset, is_spectral):
+    topo = (False, True)
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    for new_topo in [(False, False), (True, False)]:
+        msg = "Cannot shrink the field in any direction"
+        with pytest.raises(ValueError, match=msg):
+            vec.extend(new_topo)
 
 def test_sum(): ...
 

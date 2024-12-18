@@ -185,24 +185,21 @@ class VectorField(fr.FieldBase):
         return self.apply_water_mask()
 
     def apply_water_mask(self: T) -> T:  # noqa: D102
-        if self.is_spectral:
-            msg = "Vector Field is in spectral space, cannot apply water mask"
-            raise ValueError(msg)
-        for field in self.fields.values():
+        for field in self:
             field.apply_water_mask()
         return self
 
     def has_nan(self) -> bool:  # noqa: D102
         return any(field.has_nan() for field in self.fields.values())
 
-    def __copy__(self: T) -> T:
-        # create a new vector field, but copy the fields
-        return self.apply_elementwise(self, lambda field: copy(field))
-
     def set_random(self: T, seed: int = 1234) -> T:  # noqa: D102
         for i, field in enumerate(self):
             field.set_random(i * seed)
         return self
+
+    def __copy__(self: T) -> T:
+        # create a new vector field, but copy the fields
+        return self.apply_elementwise(self, lambda field: copy(field))
 
     # ================================================================
     #  Differential Operators
@@ -363,8 +360,11 @@ class VectorField(fr.FieldBase):
         return next(iter(self.fields.values())).is_spectral
 
     # ================================================================
-    #  Shrinking operations
+    #  Shrink / Extend operations
     # ================================================================
+
+    def extend(self: T, topo: tuple[bool]) -> T:  # noqa: D102
+        self.apply_elementwise(self, lambda field: field.extend(topo))
 
     def sum(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
         self.apply_elementwise(self, lambda field: field.sum(axes))

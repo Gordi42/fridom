@@ -301,9 +301,7 @@ def test_apply_watermask(field, topo, is_spectral):
         return
     # if the field is spectral, apply_watermask should raise an error
     if is_spectral:
-        msg = "Cannot apply watermask to spectral field"
-        with pytest.raises(ValueError, match=msg):
-            field.apply_water_mask()
+        not_implemented_for_spectral_fields(field.apply_water_mask)
         return
     # check if the apply_watermask method does not raise an error
     masked_field = field.apply_water_mask()
@@ -380,20 +378,6 @@ def test_interpolate(field, topo, new_position):
             lambda: field.interpolate(new_position))
         return
     # TODO(Silvano): do tests once the new interpolate method is implemented
-
-def test_extend(mset, is_spectral):
-    topo = (False, True)
-    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
-    # test invalid new topos
-    for new_topo in [(False, False), (True, False)]:
-        msg = "Cannot shrink the field in any direction"
-        with pytest.raises(ValueError, match=msg):
-            field.extend(new_topo)
-    # test the extend method for valid new topos
-    for new_topo in [(True, True), (False, True)]:
-        msg = "The grid.extend method is not implemented yet"
-        with pytest.raises(NotImplementedError, match=msg):
-            field.extend(new_topo)
 
 # ----------------------------------------------------------------
 #  Test differential operators
@@ -543,8 +527,22 @@ def test_dill(field, tmp_dir):
     assert fr.config.ncp.allclose(new_field.arr, field.arr)
 
 # ----------------------------------------------------------------
-#  Test shrinking methods
+#  Test shrink / extend methods
 # ----------------------------------------------------------------
+
+def test_extend(mset, is_spectral):
+    topo = (False, True)
+    field = fr.ScalarField(mset, topo=topo, is_spectral=is_spectral)
+    # test invalid new topos
+    for new_topo in [(False, False), (True, False)]:
+        msg = "Cannot shrink the field in any direction"
+        with pytest.raises(ValueError, match=msg):
+            field.extend(new_topo)
+    # test the extend method for valid new topos
+    for new_topo in [(True, True), (False, True)]:
+        msg = "The grid.extend method is not implemented yet"
+        with pytest.raises(NotImplementedError, match=msg):
+            field.extend(new_topo)
 
 def test_sum(field, axes, topo):
     if not all(topo):
