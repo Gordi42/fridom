@@ -318,7 +318,10 @@ class VectorField(fr.FieldBase):
 
     @fields.setter
     def fields(self, value: OrderedDict[str, fr.ScalarField]) -> None:
-        # TODO(Silvano): maybe add some checks here
+        # check that all fields have the same spectral flag
+        if len({field.is_spectral for field in value.values()}) != 1:
+            msg = "All fields must have the same spectral flag"
+            raise ValueError(msg)
         self._fields = value
 
     @property
@@ -335,6 +338,22 @@ class VectorField(fr.FieldBase):
     @property
     def is_spectral(self) -> bool:  # noqa: D102
         return next(iter(self.fields.values())).is_spectral
+
+    # ================================================================
+    #  Shrinking operations
+    # ================================================================
+
+    def sum(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+        self.apply_elementwise(self, lambda field: field.sum(axes))
+
+    def max(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+        self.apply_elementwise(self, lambda field: field.max(axes))
+
+    def min(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+        self.apply_elementwise(self, lambda field: field.min(axes))
+
+    def integrate(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+        self.apply_elementwise(self, lambda field: field.integrate(axes))
 
     # ================================================================
     #  Arithmetic Operations
