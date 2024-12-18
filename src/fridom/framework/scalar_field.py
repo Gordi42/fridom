@@ -615,6 +615,7 @@ class ScalarField(fr.FieldBase):
     # ================================================================
     #  Shrinking operations
     # ================================================================
+
     def _set_shrinked_field(self, arr: ndarray, axes: tuple[int] | None) -> ScalarField:
         """Shrink the ScalarField in the specified axes and set the new array."""
         if axes is None:

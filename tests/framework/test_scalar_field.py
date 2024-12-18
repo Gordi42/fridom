@@ -4,7 +4,6 @@ from copy import copy, deepcopy
 from pathlib import Path
 
 import dill
-import numpy as np
 import pytest
 import xarray as xr
 
