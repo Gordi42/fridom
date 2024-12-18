@@ -226,6 +226,15 @@ def test_set_attr(mset, attr, value):
     else:
         assert getattr(field, attr) == value
 
+@pytest.mark.parametrize("attr", [
+    "name", "long_name", "units", "topo", "position", "bc_types",
+])
+def test_repr(mset, attr):
+    field = fr.ScalarField(mset)
+    res = repr(field)
+    # check if the repr string contains the name of the field
+    assert str(getattr(field, attr)) in res
+
 # ----------------------------------------------------------------
 #  Test general methods
 # ----------------------------------------------------------------
