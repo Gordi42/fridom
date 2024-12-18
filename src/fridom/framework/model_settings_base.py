@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import TypeVar
 
 import fridom.framework as fr
 
+T = TypeVar("T", bound="ModelSettingsBase")
 
 @partial(fr.utils.jaxify, dynamic=("grid",))
 class ModelSettingsBase:
@@ -105,7 +107,7 @@ class ModelSettingsBase:
     def setup_settings_parameters(self) -> None:
         """Set the model settings parameters up."""
 
-    def setup(self) -> None:
+    def setup(self: T) -> T:
         """
         Set the model settings up.
 
@@ -114,12 +116,18 @@ class ModelSettingsBase:
         This method will initialize the grid object and setup all modules.
         It must be called before accessing any attributes of the grid or modules.
 
+        Returns
+        -------
+        ModelSettingsBase
+            The model settings object
+
         """
         fr.log.verbose("Setting up model settings")
         self.setup_grid()
         self.setup_settings_parameters()
         self._setup_all_modules()
         fr.log.info(self)
+        return self
 
     def state_constructor(self) -> None:
         """Construct the state vector from this model settings."""
