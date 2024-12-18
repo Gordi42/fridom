@@ -627,33 +627,7 @@ class ScalarField(fr.FieldBase):
         new_mdata.topo = tuple(topo)
         return ScalarField(mset=self.mset, mdata=new_mdata, arr=arr)
 
-    def sum(self, axes: tuple[int] | None = None) -> ScalarField:
-        """
-        Sum of the ScalarField over the whole domain in the specified axes.
-
-        Description
-        -----------
-        This method computes the sum of the ScalarField over the whole domain
-        (across all processes) in the specified axes. If no axes are specified,
-        the sum is computed over all axes.
-
-        .. note::
-            We recommend using the `f.integrate()` method to integrate the field
-            in certain directions. The `integrate()` method takes the grid spacing
-            into account while the `sum()` method does not.
-
-        Parameters
-        ----------
-        axes : tuple[int] | None
-            The axes to sum over. If None, sum over all axes.
-
-        Returns
-        -------
-        ScalarField
-            The sum of the ScalarField. The returned field has no extend in the
-            specified axes.
-
-        """
+    def sum(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement sum over specific axes
@@ -666,30 +640,7 @@ class ScalarField(fr.FieldBase):
         result = fr.config.ncp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
-
-    def max(self, axes: tuple[int] | None = None) -> ScalarField:
-        """
-        Maximum value of the ScalarField over the whole domain.
-
-        Description
-        -----------
-        This method computes the maximum value of the ScalarField over the whole
-        domain (across all processes) in the specified axes. If no axes are
-        specified, the maximum is computed over all axes.
-
-        Parameters
-        ----------
-        axes : tuple[int] | None
-            The axes to compute the maximum over. If None, compute the maximum
-            over all axes.
-
-        Returns
-        -------
-        ScalarField
-            The maximum value of the ScalarField over the specified axes. The
-            returned field has no extend in the specified axes.
-
-        """
+    def max(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement max over specific axes
@@ -702,29 +653,7 @@ class ScalarField(fr.FieldBase):
         result = fr.config.ncp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
-    def min(self, axes: tuple[int] | None = None) -> ScalarField:
-        """
-        Minimum value of the ScalarField over the whole domain.
-
-        Description
-        -----------
-        This method computes the minimum value of the ScalarField over the whole
-        domain (across all processes) in the specified axes. If no axes are
-        specified, the minimum is computed over all axes.
-
-        Parameters
-        ----------
-        axes : tuple[int] | None
-            The axes to compute the minimum over. If None, compute the minimum
-            over all axes.
-
-        Returns
-        -------
-        ScalarField
-            The minimum value of the ScalarField over the specified axes. The
-            returned field has no extend in the specified axes.
-
-        """
+    def min(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement min over specific axes
@@ -737,33 +666,7 @@ class ScalarField(fr.FieldBase):
         result = fr.config.ncp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
-    def integrate(self, axes: tuple[int] | None = None) -> ScalarField:
-        r"""
-        Global integral of the ScalarField in specified axes.
-
-        Description
-        -----------
-        Computes the global integral of the ScalarField in the specified axes:
-
-        .. math::
-            \sum_{i} \int_{x_i} f(\boldsymbol{x}) dx_i
-
-        If no axes are specified, the integral is computed over all axes and a
-        scalar (float) is returned. If axes are specified, the integral is computed
-        over the specified axes and a new ScalarField that is shrinked in the specified
-        axes is returned.
-
-        Parameters
-        ----------
-        axes : tuple[int] | None
-            The axes to integrate over. If None, integrate over all axes.
-
-        Returns
-        -------
-        ScalarField
-            The integral of the ScalarField over the specified axes.
-
-        """
+    def integrate(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Implement integration over specific axes

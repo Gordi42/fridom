@@ -437,6 +437,118 @@ class FieldBase:
         """Flag indicating whether the field is in spectral space."""
 
     # ================================================================
+    #  Shrinking operations
+    # ================================================================
+
+    @abstractmethod
+    def sum(self: T, axes: tuple[int] | None = None) -> T:
+        """
+        Sum of the Field over the whole domain in the specified axes.
+
+        Description
+        -----------
+        This method computes the sum of the Field over the whole domain
+        (across all processes) in the specified axes. If no axes are specified,
+        the sum is computed over all axes.
+
+        .. note::
+            We recommend using the `f.integrate()` method to integrate the field
+            in certain directions. The `integrate()` method takes the grid spacing
+            into account while the `sum()` method does not.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to sum over. If None, sum over all axes.
+
+        Returns
+        -------
+        FieldBase
+            The sum of the field. The returned field has no extend in the
+            specified axes.
+
+        """
+
+    @abstractmethod
+    def max(self: T, axes: tuple[int] | None = None) -> T:
+        """
+        Maximum value of the Field over the whole domain.
+
+        Description
+        -----------
+        This method computes the maximum value of the Field over the whole
+        domain (across all processes) in the specified axes. If no axes are
+        specified, the maximum is computed over all axes.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to compute the maximum over. If None, compute the maximum
+            over all axes.
+
+        Returns
+        -------
+        FieldBase
+            The maximum value of the Field over the specified axes. The
+            returned field has no extend in the specified axes.
+
+        """
+
+    @abstractmethod
+    def min(self: T, axes: tuple[int] | None = None) -> T:
+        """
+        Minimum value of the Field over the whole domain.
+
+        Description
+        -----------
+        This method computes the minimum value of the Field over the whole
+        domain (across all processes) in the specified axes. If no axes are
+        specified, the minimum is computed over all axes.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to compute the minimum over. If None, compute the minimum
+            over all axes.
+
+        Returns
+        -------
+        FieldBase
+            The minimum value of the Field over the specified axes. The
+            returned field has no extend in the specified axes.
+
+        """
+
+    @abstractmethod
+    def integrate(self: T, axes: tuple[int] | None = None) -> T:
+        r"""
+        Global integral of the Field in specified axes.
+
+        Description
+        -----------
+        Computes the global integral of the Field in the specified axes:
+
+        .. math::
+            \sum_{i} \int_{x_i} f(\boldsymbol{x}) dx_i
+
+        If no axes are specified, the integral is computed over all axes and a
+        scalar (float) is returned. If axes are specified, the integral is computed
+        over the specified axes and a new Field that is shrinked in the specified
+        axes is returned.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to integrate over. If None, integrate over all axes.
+
+        Returns
+        -------
+        FieldBase
+            The integral of the Field over the specified axes.
+
+        """
+
+    # ================================================================
     #  Arithmetic Operations
     # ================================================================
 
