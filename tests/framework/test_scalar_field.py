@@ -53,11 +53,18 @@ def mset_all(grid_all):
     mset.setup()
     return mset
 
-@pytest.fixture(params=[True, False])
+@pytest.fixture(params=[
+    pytest.param(True, id="spectral"),
+    pytest.param(False, id="physical"),
+])
 def is_spectral(request):
     return request.param
 
-@pytest.fixture(params=[(True, True), (True, False), (False, True)])
+@pytest.fixture(params=[
+    pytest.param((True, True), id="full"),
+    pytest.param((True, False), id="x"),
+    pytest.param((False, True), id="y"),
+])
 def topo(request):
     return request.param
 
