@@ -51,9 +51,23 @@ def dot_op(request):
 def vector_dim(request):
     return request.param
 
+@pytest.fixture(params=[
+    pytest.param((True, True), id="full extend"),
+    pytest.param((True, False), id="x extend"),
+    pytest.param((False, True), id="y extend"),
+    pytest.param((False, False), id="no extend"),
+])
+def topo(request):
+    return request.param
+
 # ================================================================
 #  Test helpers
 # ================================================================
+
+def not_implemented_for_non_full_domain_fields(operation) -> None:
+    msg = "Operation not available for non full domain fields"
+    with pytest.raises(NotImplementedError, match=msg):
+        operation()
 
 # ================================================================
 #  Tests
@@ -108,12 +122,14 @@ def test_init_from_field_dict(mset, is_spectral):
     with pytest.raises(TypeError, match="Invalid field list type"):
         fr.VectorField(mset, field_list=fields)
 
-def test_init_topo(mset, is_spectral):
-    topo = (True, False)
+def test_init_topo(mset, is_spectral, topo):
     vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     for f in vec:
         assert f.topo == topo
-        assert f.arr.shape[1] == 1
+        if not topo[0]:
+            assert f.arr.shape[0] == 1
+        if not topo[1]:
+            assert f.arr.shape[1] == 1
 
 @pytest.mark.parametrize("kwargs",
                          [{"topo": (True, False)}, {"is_spectral": True}])
@@ -175,7 +191,26 @@ def test_has_nan(): ...
 
 def test_copy(): ...
 
-def test_set_random(): ...
+def test_set_random(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(vec.set_random)
+        return
+    # check that the field is all zeros initially
+    for f in vec:
+        assert fr.config.ncp.allclose(f.arr, 0)
+    vec.set_random(seed=12345)
+    # check if the field is not all zeros
+    for f in vec:
+        assert not fr.config.ncp.allclose(f.arr, 0)
+    # check that the individual fields differ
+    f1, f2 = vec
+    assert not fr.config.ncp.allclose(f1.arr, f2.arr)
+    # check that the field is reproducible
+    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2.set_random(seed=12345)
+    for f1, f2 in zip(vec, vec2):
+        assert fr.config.ncp.allclose(f1.arr, f2.arr)
 
 def test_extend(): ...
 

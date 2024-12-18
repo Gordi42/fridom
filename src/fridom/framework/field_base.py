@@ -193,6 +193,29 @@ class FieldBase:
         """
 
     @abstractmethod
+    def set_random(self: T, seed: int = 1234) -> T:
+        r"""
+        Set the field to random values.
+
+        Description
+        -----------
+        This method sets the field to random values. If the field is in spectral
+        space, the random values are complex.
+
+        Parameters
+        ----------
+        seed : int
+            The seed for the random number generator.
+
+        Returns
+        -------
+        FieldBase
+            The field with random values.
+
+        """
+
+
+    @abstractmethod
     def __copy__(self: T) -> T:
         r"""
         Create a copy of the field.

@@ -144,19 +144,18 @@ class ScalarField(fr.FieldBase):
         ncp = fr.config.ncp
         return ncp.any(ncp.isnan(self.arr))
 
-    def __copy__(self) -> ScalarField:
-        # copy the array and the metadata but not the model settings
-        arr = deepcopy(self.arr)
-        mdata = deepcopy(self.mdata)
-        return ScalarField(mset=self.mset, mdata=mdata, arr=arr)
-
-    def set_random(self, seed: int = 1234) -> ScalarField:
-        """Set the field array to random values."""
+    def set_random(self, seed: int = 1234) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # create the random array and set it
         self.arr = self.grid.create_random_array(seed=seed, spectral=self.is_spectral)
         return self
+
+    def __copy__(self) -> ScalarField:
+        # copy the array and the metadata but not the model settings
+        arr = deepcopy(self.arr)
+        mdata = deepcopy(self.mdata)
+        return ScalarField(mset=self.mset, mdata=mdata, arr=arr)
 
     def unpad(self) -> ndarray:
         """

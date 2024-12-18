@@ -91,7 +91,6 @@ class VectorField(fr.FieldBase):
             msg = f"Invalid keyword arguments: {set(kwargs) - allowed_keys}"
             raise TypeError(msg)
 
-
     @staticmethod
     def _create_default_fields(mset: fr.ModelSettingsBase,
                                vector_dim: int,
@@ -199,6 +198,11 @@ class VectorField(fr.FieldBase):
     def __copy__(self: T) -> T:
         # create a new vector field, but copy the fields
         return self.apply_elementwise(self, lambda field: copy(field))
+
+    def set_random(self: T, seed: int = 1234) -> T:  # noqa: D102
+        for i, field in enumerate(self):
+            field.set_random(i * seed)
+        return self
 
     # ================================================================
     #  Differential Operators
