@@ -676,6 +676,43 @@ class FieldBase:
 
         """
 
+    @abstractmethod
+    def abs(self: T) -> T:
+        r"""
+        Map the field by taking the absolute value (:math:`|f|`).
+
+        Returns
+        -------
+        FieldBase
+            The absolute value of the field.
+
+        """
+
+    def __abs__(self: T) -> T:
+        return self.abs()
+
+    def norm_l2(self: T) -> float:
+        r"""
+        Calculate the L2 norm of the field.
+
+        Description
+        -----------
+        The L2 norm of the vector field :math:`\boldsymbol{z}` is defined as:
+
+        .. math::
+            ||f||_2 = \sqrt{\int f \cdot f \, dV
+
+        in practice, the integral is calculated as a sum over the grid cells
+        and :math:`dV` is the cell volume of each grid cell.
+
+        Returns
+        -------
+        FieldBase
+            The L2 norm of the field
+
+        """
+        return ((self @ self).integrate() ** 0.5).arr.item()
+
     @staticmethod
     @abstractmethod
     def _apply_operation(

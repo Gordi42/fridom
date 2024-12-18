@@ -646,24 +646,9 @@ class ScalarField(fr.FieldBase):
     #  Arithmetic operations
     # ================================================================
 
-    def abs(self) -> ScalarField:
-        """Absolute values of the ScalarField."""
+    def abs(self) -> ScalarField:  # noqa: D102
         arr = fr.config.ncp.abs(self.arr)
         return ScalarField(mset=self.mset, mdata=deepcopy(self.mdata), arr=arr)
-
-    def __abs__(self) -> ScalarField:
-        return self.abs()
-
-    def norm_l2(self) -> float:
-        r"""
-        Compute the L2 norm of the ScalarField.
-
-        .. math::
-            ||f||_{L2} = \sqrt{\int_{\Omega} |f(\boldsymbol{x})|^2 d\boldsymbol{x}}
-
-        """
-        # integrate the square of the field
-        return (abs(self)**2).integrate() ** 0.5
 
     def dot(self,  # noqa: D102
             other: ScalarField | fr.VectorField | fr.TensorField,

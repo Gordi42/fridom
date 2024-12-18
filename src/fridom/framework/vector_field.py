@@ -12,7 +12,7 @@ import fridom.framework as fr
 
 T = TypeVar("T", bound="VectorField")
 
-@partial(fr.utils.jaxify, dynamic=("_fields", "_vector_dim"))
+@partial(fr.utils.jaxify, dynamic=("_fields", ))
 class VectorField(fr.FieldBase):
 
     """
@@ -381,31 +381,6 @@ class VectorField(fr.FieldBase):
     #  Arithmetic Operations
     # ================================================================
 
-    def norm_l2(self) -> float:
-        r"""
-        Calculate the L2 norm of the vector field.
-
-        Description
-        -----------
-        The L2 norm of the vector field :math:`\boldsymbol{z}` is defined as:
-
-        .. math::
-            ||\boldsymbol{z}||_2 = \sqrt{
-                \int \boldsymbol{z} \cdot \boldsymbol{z} \, dV
-
-        in practice, the integral is calculated as a sum over the grid cells
-        and :math:`dV` is the cell volume of each grid cell.
-
-        Returns
-        -------
-        float
-            The L2 norm of the vector field
-
-        """
-        ncp = fr.config.ncp
-        cell_volume = self.grid.dV
-        return ncp.sqrt(ncp.sum(self.dot(self).unpad()) * cell_volume)
-
     def norm_of_diff(self, other: VectorField) -> float:
         r"""
         Norm of difference between two vector fields.
@@ -459,6 +434,9 @@ class VectorField(fr.FieldBase):
 
     def conj(self: T) -> T:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.conj())
+
+    def abs(self: T) -> T:  # noqa: D102
+        return self.apply_elementwise(self, lambda field: abs(field))
 
     @staticmethod
     def apply_elementwise(vector_field: T,

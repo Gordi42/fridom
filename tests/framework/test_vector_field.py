@@ -720,16 +720,75 @@ def test_dot_with_invalid_vector_field(mset, dot_op):
 
 def test_dot_with_tensor_field(): ...
 
-def test_abs(): ...
+def test_abs(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if all(topo):
+        vec.set_random()
+    vec_abs = abs(vec)
+    for f, f_abs in zip(vec, vec_abs):
+        assert fr.config.ncp.allclose(abs(f.arr), f_abs.arr)
 
-def test_conj(): ...
+def test_conj(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if all(topo):
+        vec.set_random()
+    vec_conj = vec.conj()
+    for f, f_conj in zip(vec, vec_conj):
+        assert fr.config.ncp.allclose(f.arr.conj(), f_conj.arr)
 
-def test_norm_l2(): ...
+def test_norm_l2(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(vec.norm_l2)
+        return
+    vec.set_random()
+    msg = "Integration is not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        vec.norm_l2()
 
-def test_norm_of_diff(): ...
+def test_norm_of_diff(mset, topo, is_spectral):
+    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: vec1.norm_of_diff(vec2))
+        return
+    vec1.set_random(seed=12345)
+    vec2.set_random(seed=54321)
+    msg = "Integration is not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        vec1.norm_of_diff(vec2)
+
+def test_norm_of_diff_invalid(mset, topo, is_spectral):
+    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=3)
+    msg = "Vector dimensions do not match"
+    with pytest.raises(ValueError, match=msg):
+        vec1.norm_of_diff(vec2)
 
 # ================================================================
 #  JAX JIT tests
 # ================================================================
 
-def test_jit(): ...
+@pytest.mark.parametrize("op", [
+    pytest.param(lambda x: x * 2, id="mul"),
+    pytest.param(lambda x: x.fft(), id="fft"),
+    pytest.param(lambda x: x.sync(), id="sync"),
+    pytest.param(lambda x: x.apply_water_mask(), id="apply_water_mask"),
+    pytest.param(lambda x: x.set_random(seed=12345), id="set_random"),
+])
+def test_jit(mset, op):
+    vec = fr.VectorField(mset, vector_dim=2).set_random(seed=12345)
+    # check that the field can be jitted
+    @fr.utils.jaxjit
+    def func(f) -> fr.ScalarField:
+        return op(f)
+    new_vec = func(vec)
+    assert isinstance(new_vec, fr.VectorField)
+    for f_exp, f_new in zip(op(vec), new_vec):
+        assert fr.config.ncp.allclose(f_exp.arr, f_new.arr)
+    if not fr.config.backend_is_jax:
+        return
+    # check if a gradient can be computed
+    import jax
+    grad_func = jax.grad(lambda f: func(f).sum()[0].arr.item().real)
+    grad_func(vec)
