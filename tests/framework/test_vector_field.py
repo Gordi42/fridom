@@ -566,10 +566,15 @@ def test_integrate(mset, is_spectral, topo, axes):
     "op",
     [
         pytest.param(lambda x, y: x + y, id="add"),
+        pytest.param(lambda x, y: y + x, id="radd"),
         pytest.param(lambda x, y: x - y, id="sub"),
+        pytest.param(lambda x, y: y - x, id="rsub"),
         pytest.param(lambda x, y: x * y, id="mul"),
+        pytest.param(lambda x, y: y * x, id="rmul"),
         pytest.param(lambda x, y: x / y, id="div"),
+        pytest.param(lambda x, y: y / x, id="rdiv"),
         pytest.param(lambda x, y: x ** y, id="pow"),
+        pytest.param(lambda x, y: y ** x, id="rpow"),
     ],
 ))
 def test_apply_operator_with_scalar_field(mset, topo, is_spectral, op):
@@ -590,23 +595,128 @@ def test_apply_operator_with_scalar_field(mset, topo, is_spectral, op):
     # check if the fields are correct
     for f, f_new in zip(vec, new_vec):
         assert fr.config.ncp.allclose(op(f.arr, scalar.arr), f_new.arr)
-    # test if we can do the operation in reverse
-    new_vec = op(scalar, vec)
+
+@pytest.mark.parametrize(*(
+    "op",
+    [
+        pytest.param(lambda x, y: x + y, id="add"),
+        pytest.param(lambda x, y: x - y, id="sub"),
+        pytest.param(lambda x, y: x * y, id="mul"),
+        pytest.param(lambda x, y: x / y, id="div"),
+        pytest.param(lambda x, y: x ** y, id="pow"),
+    ],
+))
+def test_apply_operator_with_vector_field(mset, topo, is_spectral, op):
+    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    # TODO(Silvano): set random also for non full domain fields
+    if all(topo):
+        vec1.set_random(seed=12345)
+        vec2.set_random(seed=54321)
+    vec1 += 20
+    vec2 += 20
+    # test if the operation works
+    new_vec = op(vec1, vec2)
+    # check if the result is a vector field
+    assert isinstance(new_vec, fr.VectorField)
+    # check if the fields are correct
+    for f1, f2, f_new in zip(vec1, vec2, new_vec):
+        assert fr.config.ncp.allclose(op(f1.arr, f2.arr), f_new.arr)
+
+def test_apply_operator_with_invalid_vector_field(mset):
+    vec2 = fr.VectorField(mset, vector_dim=2)
+    vec3 = fr.VectorField(mset, vector_dim=3)
+
+    msg = "Vector dimensions do not match"
+    with pytest.raises(ValueError, match=msg):
+        vec2 + vec3
+
+@pytest.mark.parametrize(*(
+    "op",
+    [
+        pytest.param(lambda x, y: x + y, id="add"),
+        pytest.param(lambda x, y: y + x, id="radd"),
+        pytest.param(lambda x, y: x - y, id="sub"),
+        pytest.param(lambda x, y: y - x, id="rsub"),
+        pytest.param(lambda x, y: x * y, id="mul"),
+        pytest.param(lambda x, y: y * x, id="rmul"),
+        pytest.param(lambda x, y: x / y, id="div"),
+        pytest.param(lambda x, y: y / x, id="rdiv"),
+        pytest.param(lambda x, y: x ** y, id="pow"),
+        pytest.param(lambda x, y: y ** x, id="rpow"),
+    ],
+))
+def test_apply_operator_with_scalar(mset, topo, is_spectral, op):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec += 20
+    scalar = 2
+    # test if the operation works
+    new_vec = op(vec, scalar)
     # check if the result is a vector field
     assert isinstance(new_vec, fr.VectorField)
     # check if the fields are correct
     for f, f_new in zip(vec, new_vec):
-        assert fr.config.ncp.allclose(op(scalar.arr, f.arr), f_new.arr)
+        assert fr.config.ncp.allclose(op(f.arr, scalar), f_new.arr)
 
-def test_apply_operator_with_vector_field(): ...
+@pytest.mark.parametrize(*(
+    "other",
+    [
+        pytest.param("test", id="str"),
+        pytest.param([1, "test"], id="list"),
+        pytest.param({"key": "value"}, id="dict"),
+        pytest.param({3, "test"}, id="set"),
+        pytest.param((1, ), id="tuple"),
+    ],
+))
+def test_apply_operator_with_wrong_type(mset, other):
+    field = fr.VectorField(mset, vector_dim=2)
+    with pytest.raises(TypeError):
+        field + other
 
-def test_apply_operator_with_tensor_field(): ...
+def test_dot_with_scalar_field(mset, topo, is_spectral, dot_op):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    # if the spectral flag is different, the dot product should raise an error
+    scalar = fr.ScalarField(mset, is_spectral=not is_spectral)
+    msg = "Cannot take dot product of spectral and real fields"
+    with pytest.raises(ValueError, match=msg):
+        dot_op(vec, scalar)
+    scalar = fr.ScalarField(mset, is_spectral=is_spectral)
+    if all(topo):
+        vec.set_random(seed=32145)
+        scalar.set_random(seed=54321)
+    # test if the operation works
+    result = dot_op(vec, scalar)
+    # check if the result is a vector field
+    assert isinstance(result, fr.VectorField)
+    # check if the fields are correct
+    for f, f_new in zip(vec, result):
+        assert fr.config.ncp.allclose(f.arr * scalar.arr.conj(), f_new.arr)
 
-def test_apply_operator_with_scalar(): ...
+def test_dot_with_vector_field(mset, topo, is_spectral, dot_op):
+    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(mset, is_spectral=not is_spectral, topo=topo, vector_dim=2)
+    msg = "Cannot take dot product of spectral and real fields"
+    with pytest.raises(ValueError, match=msg):
+        dot_op(vec1, vec2)
+    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if all(topo):
+        vec1.set_random(seed=12345)
+        vec2.set_random(seed=54321)
+    # test if the operation works
+    result = dot_op(vec1, vec2)
+    # check if the result is a scalar field
+    assert isinstance(result, fr.ScalarField)
+    # check if the fields are correct
+    expected = sum(f1 * f2.conj() for f1, f2 in zip(vec1, vec2))
+    assert fr.config.ncp.allclose(expected.arr, result.arr)
 
-def test_dot_with_scalar_field(): ...
+def test_dot_with_invalid_vector_field(mset, dot_op):
+    vec2 = fr.VectorField(mset, vector_dim=2)
+    vec3 = fr.VectorField(mset, vector_dim=3)
 
-def test_dot_with_vector_field(): ...
+    msg = "Vector dimensions do not match"
+    with pytest.raises(ValueError, match=msg):
+        dot_op(vec2, vec3)
 
 def test_dot_with_tensor_field(): ...
 

@@ -501,6 +501,10 @@ class VectorField(fr.FieldBase):
                          other: any) -> T:
         cls = field.__class__
         if isinstance(other, fr.VectorField):
+            if field.vector_dim != other.vector_dim:
+                msg = "Vector dimensions do not match: "
+                msg += f"{field.vector_dim} != {other.vector_dim}"
+                raise ValueError(msg)
             names = list(field.fields)
             fields = OrderedDict(
                 (name, op(field.fields[name], other.fields[name]))
