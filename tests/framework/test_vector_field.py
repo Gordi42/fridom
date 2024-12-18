@@ -291,13 +291,41 @@ def test_set_random(mset, topo, is_spectral):
 #  Test differential operators
 # ----------------------------------------------------------------
 
-def test_diff(): ...
+def test_diff(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(
+            lambda: vec.diff(axis=0))
+        return
+    # if the field is spectral, diff should raise an error
+    if is_spectral:
+        not_implemented_for_spectral_fields(
+            lambda: vec.diff(axis=0))
+        return
+    # TODO(Silvano): do tests once the diff method is implemented
 
-def test_grad(): ...
+def test_grad(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    msg = "grad not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        vec.grad()
 
-def test_laplacian(): ...
+def test_laplacian(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(vec.laplacian)
+        return
+    # if the field is spectral, diff should raise an error
+    if is_spectral:
+        not_implemented_for_spectral_fields(vec.laplacian)
+        return
+    # TODO(Silvano): do tests once the diff method is implemented
 
-def test_div(): ...
+def test_div(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    msg = "div not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        vec.div()
 
 # ----------------------------------------------------------------
 #  Test xarray interface

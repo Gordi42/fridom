@@ -215,7 +215,7 @@ class VectorField(fr.FieldBase):
              axes: list[int] | None = None,
              ) -> fr.TensorField:
         # TODO(Silvano): add implementation after TensorField is implemented
-        pass
+        raise NotImplementedError("grad not implemented yet")
 
     def laplacian(self: T,  # noqa: D102
                   axes: tuple[int] | None = None,
@@ -223,7 +223,8 @@ class VectorField(fr.FieldBase):
         return self.apply_elementwise(self, lambda field: field.laplacian(axes))
 
     def div(self) -> fr.ScalarField:  # noqa: D102
-        return self.grid.diff_module.div(vec=self)
+        msg = "div not implemented yet"
+        raise NotImplementedError(msg)
 
     # ================================================================
     #  xarray Interface
