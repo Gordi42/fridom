@@ -1,8 +1,7 @@
 Modules Part 2: Creating Custom Modules
 =======================================
 
-.. info::
-
+.. note::
     You have reached the end of the currently available tutorials. While the
     next sections are still under construction, we encourage you to visit
     the gallery section to explore more examples. The gallery is a great

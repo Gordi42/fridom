@@ -73,6 +73,12 @@ def field(mset, topo, is_spectral):
 def axes(request):
     return request.param
 
+@pytest.fixture(params=[
+    pytest.param(lambda x, y: x.dot(y), id="dot"),
+    pytest.param(lambda x, y: x @ y, id="matmul")])
+def dot_op(request):
+    return request.param
+
 # ================================================================
 #  Test helpers
 # ================================================================
@@ -698,9 +704,31 @@ def test_norm_l2(field, topo):
     with pytest.raises(NotImplementedError, match=msg):
         field.norm_l2()
 
-def test_dot_with_scalar_field(field, mset, is_spectral):...
+def test_dot_with_scalar_field(field, mset, is_spectral, dot_op):
+    # if the spectral flag is different, the dot product should raise an error
+    other = fr.ScalarField(mset, is_spectral=not is_spectral)
+    msg = "Cannot take dot product of spectral and real fields"
+    with pytest.raises(ValueError, match=msg):
+        dot_op(field, other)
+    other = fr.ScalarField(mset, is_spectral=is_spectral).set_random(seed=51234)
+    result = dot_op(field, field)
+    # check if the result is a scalar field
+    assert isinstance(result, fr.ScalarField)
+    # check if the array is a * b.conj()
+    assert fr.config.ncp.allclose(result.arr, field.arr * other.arr.conj())
 
-def test_dot_with_vector_field(field, mset, is_spectral):...
+def test_dot_with_vector_field(field, mset, is_spectral, dot_op):
+    # if the spectral flag is different, the dot product should raise an error
+    other = fr.VectorField(mset, vector_dim=2, is_spectral=not is_spectral)
+    msg = "Cannot take dot product of spectral and real fields"
+    with pytest.raises(ValueError, match=msg):
+        dot_op(field, other)
+    other = fr.VectorField(mset, vector_dim=2, is_spectral=is_spectral)
+    other = other + 1.0 - 3.0j if is_spectral else other + 1.0
+    result = dot_op(field, other)
+    # check if the result is a vector field
+    assert isinstance(result, fr.VectorField)
+
 
 def test_dot_with_tensor_field(field, mset, is_spectral):...
 
@@ -708,3 +736,30 @@ def test_conj(field):
     new_field = field.conj()
     # check if the array is the complex conjugate of the original array
     assert fr.config.ncp.allclose(new_field.arr, field.arr.conj())
+
+# ================================================================
+#  JAX JIT tests
+# ================================================================
+
+@pytest.mark.parametrize("op", [
+    pytest.param(lambda x: x * 2, id="mul"),
+    pytest.param(lambda x: x.fft(), id="fft"),
+    pytest.param(lambda x: x.sync(), id="sync"),
+    pytest.param(lambda x: x.apply_water_mask(), id="apply_water_mask"),
+    pytest.param(lambda x: x.set_random(seed=12345), id="set_random"),
+])
+def test_jit(mset, op):
+    field = fr.ScalarField(mset).set_random(seed=12345)
+    # check that the field can be jitted
+    @fr.utils.jaxjit
+    def func(f) -> fr.ScalarField:
+        return op(f)
+    new_field = func(field)
+    assert isinstance(new_field, fr.ScalarField)
+    assert fr.config.ncp.allclose(new_field.arr, op(field).arr)
+    if not fr.config.backend_is_jax:
+        return
+    # check if a gradient can be computed
+    import jax
+    grad_func = jax.grad(lambda f: func(f).sum().real)
+    grad_func(field)
