@@ -78,6 +78,11 @@ def not_implemented_for_spectral_fields(operation) -> None:
     with pytest.raises(NotImplementedError, match=msg):
         operation()
 
+def not_implemented_axes(operation) -> None:
+    msg = "Operation not available for specific axes"
+    with pytest.raises(NotImplementedError, match=msg):
+        operation()
+
 # ================================================================
 #  Tests
 # ================================================================
@@ -470,7 +475,22 @@ def test_setitem_slice(mset, is_spectral):
 #  Pickling with dill
 # ----------------------------------------------------------------
 
-def test_dill(): ...
+def test_dill(mset, is_spectral, topo, tmp_dir):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    path = Path(tmp_dir + "/vec.pkl")
+    # check that the file does not exist
+    assert not path.exists()
+    # check if the field can be pickled with dill
+    with path.open("wb") as f:
+        dill.dump(vec, f)
+    # check if the file exists
+    assert path.exists()
+    # load the field
+    with path.open("rb") as f:
+        new_vec = dill.load(f)  # noqa: S301
+    # check that the fields are the same
+    for f, f_new in zip(vec, new_vec):
+        assert fr.config.ncp.allclose(f.arr, f_new.arr)
 
 # ----------------------------------------------------------------
 #  Test shrink / extend methods
@@ -484,13 +504,59 @@ def test_extend(mset, is_spectral):
         with pytest.raises(ValueError, match=msg):
             vec.extend(new_topo)
 
-def test_sum(): ...
+def test_sum(mset, is_spectral, topo, axes):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: vec.sum(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: vec.sum(axes))
+        return
+    result = vec.sum()
+    assert isinstance(result, fr.VectorField)
+    for f in result:
+        assert f.topo == (False, False)
+        assert f.arr.shape == (1, 1)
 
-def test_max(): ...
+def test_max(mset, is_spectral, topo, axes):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: vec.max(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: vec.max(axes))
+        return
+    result = vec.max()
+    assert isinstance(result, fr.VectorField)
+    for f in result:
+        assert f.topo == (False, False)
+        assert f.arr.shape == (1, 1)
 
-def test_min(): ...
+def test_min(mset, is_spectral, topo, axes):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: vec.min(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: vec.min(axes))
+        return
+    result = vec.min()
+    assert isinstance(result, fr.VectorField)
+    for f in result:
+        assert f.topo == (False, False)
+        assert f.arr.shape == (1, 1)
 
-def test_integrate(): ...
+def test_integrate(mset, is_spectral, topo, axes):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if not all(topo):
+        not_implemented_for_non_full_domain_fields(lambda: vec.integrate(axes))
+        return
+    if axes is not None:
+        not_implemented_axes(lambda: vec.integrate(axes))
+        return
+    msg = "Integration is not implemented yet"
+    with pytest.raises(NotImplementedError, match=msg):
+        vec.integrate(axes)
 
 # ----------------------------------------------------------------
 #  Test arithmetic operations

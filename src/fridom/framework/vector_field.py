@@ -366,16 +366,16 @@ class VectorField(fr.FieldBase):
         self.apply_elementwise(self, lambda field: field.extend(topo))
 
     def sum(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
-        self.apply_elementwise(self, lambda field: field.sum(axes))
+        return self.apply_elementwise(self, lambda field: field.sum(axes))
 
     def max(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
-        self.apply_elementwise(self, lambda field: field.max(axes))
+        return self.apply_elementwise(self, lambda field: field.max(axes))
 
     def min(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
-        self.apply_elementwise(self, lambda field: field.min(axes))
+        return self.apply_elementwise(self, lambda field: field.min(axes))
 
     def integrate(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
-        self.apply_elementwise(self, lambda field: field.integrate(axes))
+        return self.apply_elementwise(self, lambda field: field.integrate(axes))
 
     # ================================================================
     #  Arithmetic Operations
