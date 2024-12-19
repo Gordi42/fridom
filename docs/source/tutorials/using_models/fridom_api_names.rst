@@ -7,8 +7,9 @@
 
 .. |config| replace:: :py:class:`config <fridom.framework.configuration.Config>`
 .. |ModelSettings| replace:: :py:class:`ModelSettings <fridom.framework.model_settings_base.ModelSettingsBase>`
+.. |ScalarField| replace:: :py:class:`ScalarField <fridom.framework.scalar_field.ScalarField>`
+.. |VectorField| replace:: :py:class:`VectorField <fridom.framework.vector_field.VectorField>`
 .. |ModelState| replace:: :py:class:`ModelState <fridom.framework.model_state.ModelState>`
-.. |State| replace:: :py:class:`State <fridom.framework.state_base.StateBase>`
 .. |Clock| replace:: :py:class:`Clock <fridom.framework.clock.Clock>`
 .. |ClockTrigger| replace:: :py:class:`ClockTrigger <fridom.framework.clock_trigger.ClockTrigger>`
 .. |Model| replace:: :py:class:`Model <fridom.framework.model.Model>`

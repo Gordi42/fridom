@@ -70,11 +70,11 @@ class OptimalBalance(fr.projection.Projection):
         self.z_base = None
         return
 
-    def calc_base_coord(self, z: 'fr.StateBase') -> None:
+    def calc_base_coord(self, z: 'fr.VectorField') -> None:
         self.z_base = self.base_proj(z)
         return
 
-    def forward_to_nonlinear(self, z: 'fr.StateBase') -> 'fr.StateBase':
+    def forward_to_nonlinear(self, z: 'fr.VectorField') -> 'fr.VectorField':
         """
         Perform forward ramping from linear model to nonlinear model.
         """
@@ -95,7 +95,7 @@ class OptimalBalance(fr.projection.Projection):
             model.step()
         return model.z
     
-    def backward_to_linear(self, z: 'fr.StateBase') -> 'fr.StateBase':
+    def backward_to_linear(self, z: 'fr.VectorField') -> 'fr.VectorField':
         """
         Perform backward ramping from nonlinear model to linear model.
         """
@@ -115,7 +115,7 @@ class OptimalBalance(fr.projection.Projection):
             model.step()
         return model.z
 
-    def forward_to_linear(self, z: 'fr.StateBase') -> 'fr.StateBase':
+    def forward_to_linear(self, z: 'fr.VectorField') -> 'fr.VectorField':
         """
         Perform forward ramping from nonlinear model to linear model.
         """
@@ -135,7 +135,7 @@ class OptimalBalance(fr.projection.Projection):
             model.step()
         return model.z
 
-    def backward_to_nonlinear(self, z: 'fr.StateBase') -> 'fr.StateBase':
+    def backward_to_nonlinear(self, z: 'fr.VectorField') -> 'fr.VectorField':
         """
         Perform backward ramping from linear model to nonlinear model.
         """
@@ -177,7 +177,7 @@ class OptimalBalance(fr.projection.Projection):
         return ramp_func
         
 
-    def __call__(self, z: 'fr.StateBase') -> 'fr.StateBase':
+    def __call__(self, z: 'fr.VectorField') -> 'fr.VectorField':
         """
         Project a state to the balanced subspace using optimal balance.
         

@@ -14,24 +14,24 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
 
     Parameters
     ----------
-    `kh` : `float | fr.FieldVariable`
+    `kh` : `float | fr.ScalarField`
         Harmonic mixing coefficient.
     """
     name = "Harmonic Mixing"
     def __init__(self, 
-                 kh: float | fr.FieldVariable):
+                 kh: float | fr.ScalarField):
         diffusion_coefficients = [kh, kh]
         super().__init__(field_flags=["ENABLE_MIXING"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def kh(self) -> float | fr.FieldVariable:
+    def kh(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @kh.setter
-    def kh(self, value: float | fr.FieldVariable):
+    def kh(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return
@@ -50,24 +50,24 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
 
     Parameters
     ----------
-    `ah` : `float | fr.FieldVariable`
+    `ah` : `float | fr.ScalarField`
         Harmonic friction coefficient (viscosity).
     """
     name = "Harmonic Friction"
     def __init__(self, 
-                 ah: float | fr.FieldVariable):
+                 ah: float | fr.ScalarField):
         diffusion_coefficients = [ah, ah]
         super().__init__(field_flags=["ENABLE_FRICTION"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def ah(self) -> float | fr.FieldVariable:
+    def ah(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @ah.setter
-    def ah(self, value: float | fr.FieldVariable):
+    def ah(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return
@@ -86,24 +86,24 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
 
     Parameters
     ----------
-    `kh` : `float | fr.FieldVariable`
+    `kh` : `float | fr.ScalarField`
         Horizontal mixing coefficient.
     """
     name = "Biharmonic Mixing"
     def __init__(self, 
-                 kh: float | fr.FieldVariable):
+                 kh: float | fr.ScalarField):
         diffusion_coefficients = [kh, kh]
         super().__init__(field_flags=["ENABLE_MIXING"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def kh(self) -> float | fr.FieldVariable:
+    def kh(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @kh.setter
-    def kh(self, value: float | fr.FieldVariable):
+    def kh(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return
@@ -122,24 +122,24 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
 
     Parameters
     ----------
-    `ah` : `float | fr.FieldVariable`
+    `ah` : `float | fr.ScalarField`
         Horizontal friction coefficient.
     """
     name = "Biharmonic Friction"
     def __init__(self, 
-                 ah: float | fr.FieldVariable):
+                 ah: float | fr.ScalarField):
         diffusion_coefficients = [ah, ah]
         super().__init__(field_flags=["ENABLE_FRICTION"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def ah(self) -> float | fr.FieldVariable:
+    def ah(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @ah.setter
-    def ah(self, value: float | fr.FieldVariable):
+    def ah(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return

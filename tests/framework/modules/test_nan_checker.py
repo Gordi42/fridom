@@ -10,12 +10,12 @@ def mset():
     grid = fr.grid.cartesian.Grid(N=(128, 64), L=(1, 1))
     mset = fr.ModelSettingsBase(grid=grid)
     mset.setup()
-    def _state_constructor() -> fr.StateBase:
-        var1 = fr.FieldVariable(
+    def _state_constructor() -> fr.VectorField:
+        var1 = fr.ScalarField(
             mset, name="var1", long_name="Variable 1", units="unit1")
-        var2 = fr.FieldVariable(
+        var2 = fr.ScalarField(
             mset, name="var2", long_name="Variable 2", units="unit2")
-        return fr.StateBase(mset, field_list=[var1, var2])
+        return fr.VectorField(mset, field_list=[var1, var2])
     mset.state_constructor = _state_constructor
     return mset
 

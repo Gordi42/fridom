@@ -131,11 +131,11 @@ class ModelSettingsBase:
 
     def state_constructor(self) -> None:
         """Construct the state vector from this model settings."""
-        return fr.StateBase(self, {})
+        return fr.VectorField(self)
 
-    def diagnostic_state_constructor(self) -> fr.StateBase:
+    def diagnostic_state_constructor(self) -> fr.VectorField:
         """Construct the diagnostic state vector from this model settings."""
-        return fr.StateBase(self, {})
+        return fr.VectorField(self)
 
     def __repr__(self) -> str:
         return f"""
@@ -154,7 +154,7 @@ class ModelSettingsBase:
 
     def add_field_to_state(self, kwargs: dict) -> None:
         """
-        Add a field variable to the state vector.
+        Add a scalar field to the state vector.
 
         Description
         -----------

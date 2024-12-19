@@ -97,7 +97,7 @@ class CoherentEddy(nh.State):
         DIRICHLET = nh.grid.BCType.DIRICHLET; NEUMANN = nh.grid.BCType.NEUMANN
         bc_types = (DIRICHLET, DIRICHLET, NEUMANN)
 
-        field = nh.FieldVariable(
+        field = nh.ScalarField(
             mset, position=position, name="psi", bc_types=bc_types)
 
         X, Y, Z = field.get_mesh()

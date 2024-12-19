@@ -20,7 +20,7 @@ class GeostrophicSpectral(fr.projection.Projection):
         self.p = mset.grid.vec_p(s=0, use_discrete=use_discrete)
         return
 
-    def __call__(self, z: fr.StateBase) -> fr.StateBase:
+    def __call__(self, z: fr.VectorField) -> fr.VectorField:
         return z.project(self.p, self.q)
 
 class WaveSpectral(fr.projection.Projection):
@@ -49,7 +49,7 @@ class WaveSpectral(fr.projection.Projection):
         self.p = mset.grid.vec_p(s=1, use_discrete=use_discrete)
         return
 
-    def __call__(self, z: fr.StateBase) -> fr.StateBase:
+    def __call__(self, z: fr.VectorField) -> fr.VectorField:
         return z.project(self.p, self.q) * 2
 
 
@@ -72,5 +72,5 @@ class DivergenceSpectral(fr.projection.Projection):
         self.p = mset.grid.vec_p(s="d", use_discrete=use_discrete)
         return
 
-    def __call__(self, z: fr.StateBase) -> fr.StateBase:
+    def __call__(self, z: fr.VectorField) -> fr.VectorField:
         return z.project(self.p, self.q)

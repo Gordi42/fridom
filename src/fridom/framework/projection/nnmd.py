@@ -411,7 +411,7 @@ class NNMD(fr.projection.Projection):
         self.enable_dealiasing = enable_dealiasing
         return
     
-    def __call__(self, z: fr.StateBase) -> fr.StateBase:
+    def __call__(self, z: fr.VectorField) -> fr.VectorField:
         """
         Project a state to the balanced subspace.
         """
@@ -456,7 +456,7 @@ class NNMD(fr.projection.Projection):
     # ================================================================
     #  The nonlinear interaction terms
     # ================================================================
-    def _advect_state(self, z: fr.StateBase) -> fr.StateBase:
+    def _advect_state(self, z: fr.VectorField) -> fr.VectorField:
         # we need to disable the scaling factor here. We simply do it by dividing by the scaling factor
         dz = self.advection.advect_state(z, self.mset.state_constructor())
         try:
@@ -466,8 +466,8 @@ class NNMD(fr.projection.Projection):
         return dz
 
     def bilinear_form(self, 
-                   z1: fr.StateBase, 
-                   z2: fr.StateBase) -> fr.StateBase:
+                   z1: fr.VectorField, 
+                   z2: fr.VectorField) -> fr.VectorField:
         r"""
         Calculate the symmetrical bilinear form.
 
@@ -514,7 +514,7 @@ class NNMD(fr.projection.Projection):
                             - self._advect_state(z2))
         return bilinear.fft()
 
-    def interaction(self, order_series: int, order_derivative: int) -> fr.StateBase:
+    def interaction(self, order_series: int, order_derivative: int) -> fr.VectorField:
         n = order_series
         k = order_derivative
 

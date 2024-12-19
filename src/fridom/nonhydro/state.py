@@ -1,3 +1,8 @@
+"""The state vector class for the nonhydrostatic model."""
+from __future__ import annotations
+
+from collections import OrderedDict
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
@@ -5,139 +10,136 @@ NEUMANN = fr.grid.BCType.NEUMANN
 DIRICHLET = fr.grid.BCType.DIRICHLET
 
 @fr.utils.jaxify
-class State(fr.StateBase):
-    def __init__(self, 
-                 mset: 'nh.ModelSettings', 
-                 is_spectral: bool = False, 
-                 field_list = None) -> None:
+class State(fr.VectorField):
 
-        if field_list is None:
-            cell_center = mset.grid.cell_center
+    """
+    The state vector class for the nonhydrostatic model.
 
-            u = fr.FieldVariable(
-                mset,
-                name="u", 
-                long_name="u - velocity",
-                units="m/s", 
-                is_spectral=is_spectral, 
-                position=cell_center.shift(axis=0),
-                bc_types=(DIRICHLET, NEUMANN, NEUMANN),
-                flags={"ENABLE_FRICTION": True},
-                )
+    Description
+    -----------
+    The default scalar fields of the state vector are:
 
-            v = fr.FieldVariable(
-                mset,
-                name="v", 
-                long_name="v - velocity",
-                units="m/s", 
-                is_spectral=is_spectral, 
-                position=cell_center.shift(axis=1),
-                bc_types=(NEUMANN, DIRICHLET, NEUMANN),
-                flags={"ENABLE_FRICTION": True},
-                )
+    - u: Velocity in the x-direction.
+    - v: Velocity in the y-direction.
+    - w: Velocity in the z-direction.
+    - b: Buoyancy.
 
-            w = fr.FieldVariable(
-                mset,
-                name="w", 
-                long_name="w - velocity",
-                units="m/s", 
-                is_spectral=is_spectral, 
-                position=cell_center.shift(axis=2),
-                bc_types=(NEUMANN, NEUMANN, DIRICHLET),
-                flags={"ENABLE_FRICTION": True},
-                )
+    A variety of diagnostic fields can be calculated from the state vector,
+    such as the kinetic energy, potential energy, total energy, relative
+    vorticity, potential vorticity, and the local Rossby number.
 
-            b = fr.FieldVariable(
-                mset,
-                name="b",
-                long_name="Buoyancy",
-                units="m/s²",
-                is_spectral=is_spectral,
-                position=cell_center,
-                bc_types=(NEUMANN, NEUMANN, DIRICHLET),
-                flags={"ENABLE_MIXING": True},
-                )
+    """
 
-            field_list = [u, v, w, b]
-
-            # add the fields from the custom field list
-            for kw in mset.custom_fields:
-                # Set default parameters if not provided
-                if "position" not in kw:
-                    # default position is cell center
-                    kw["position"] = cell_center
-                if "bc_types" not in kw:
-                    kw["bc_types"] = (NEUMANN, NEUMANN, NEUMANN)
-                kw["mset"] = mset
-                kw["is_spectral"] = is_spectral
-                field_list.append(fr.FieldVariable(**kw))
-
-        super().__init__(mset, field_list, is_spectral)
+    def __init__(self, mset: nh.ModelSettings, **kwargs: any) -> None:
+        super().__init__(mset, **kwargs)
+        # we set the class to State, so that child classes will always be of type State
         self.__class__ = State
+
+    @staticmethod
+    def _create_default_fields(mset: nh.ModelSettings,
+                               vector_dim: int | None,  # noqa: ARG004
+                               **kwargs: any,
+                               ) -> OrderedDict[str, fr.ScalarField]:
+        cell_center = mset.grid.cell_center
+
+        u = fr.ScalarField(
+            mset,
+            name="u",
+            long_name="u - velocity",
+            units="m/s",
+            position=cell_center.shift(axis=0),
+            bc_types=(DIRICHLET, NEUMANN, NEUMANN),
+            flags={"ENABLE_FRICTION": True},
+            **kwargs)
+
+        v = fr.ScalarField(
+            mset,
+            name="v",
+            long_name="v - velocity",
+            units="m/s",
+            position=cell_center.shift(axis=1),
+            bc_types=(NEUMANN, DIRICHLET, NEUMANN),
+            flags={"ENABLE_FRICTION": True},
+            **kwargs)
+
+        w = fr.ScalarField(
+            mset,
+            name="w",
+            long_name="w - velocity",
+            units="m/s",
+            position=cell_center.shift(axis=2),
+            bc_types=(NEUMANN, NEUMANN, DIRICHLET),
+            flags={"ENABLE_FRICTION": True},
+            **kwargs)
+
+        b = fr.ScalarField(
+            mset,
+            name="b",
+            long_name="Buoyancy",
+            units="m/s²",
+            position=cell_center,
+            bc_types=(NEUMANN, NEUMANN, DIRICHLET),
+            flags={"ENABLE_MIXING": True},
+            **kwargs)
+
+        # TODO(Silvano): add the custom fields from model settings
+
+        return OrderedDict([("u", u), ("v", v), ("w", w), ("b", b)])
 
     # ----------------------------------------------------------------
     #  State Variables
     # ----------------------------------------------------------------
 
     @property
-    def u(self) -> fr.FieldVariable:
-        """
-        Velocity in the x-direction.
-        """
+    def u(self) -> fr.ScalarField:
+        """Velocity in the x-direction."""
         return self.fields["u"]
-    
+
     @u.setter
-    def u(self, value: fr.FieldVariable):
+    def u(self, value: fr.ScalarField) -> None:
         self.fields["u"] = value
-        return
-    
+
     @property
-    def v(self) -> fr.FieldVariable:
-        """
-        Velocity in the y-direction.
-        """
+    def v(self) -> fr.ScalarField:
+        """Velocity in the y-direction."""
         return self.fields["v"]
-    
+
     @v.setter
-    def v(self, value: fr.FieldVariable):
-        """
-        Velocity in the y-direction.
-        """
+    def v(self, value: fr.ScalarField) -> None:
+        """Velocity in the y-direction."""
         self.fields["v"] = value
-        return
-    
+
     @property
-    def w(self) -> fr.FieldVariable:
-        """
-        Velocity in the z-direction.
-        """
+    def w(self) -> fr.ScalarField:
+        """Velocity in the z-direction."""
         return self.fields["w"]
 
     @w.setter
-    def w(self, value: fr.FieldVariable):
+    def w(self, value: fr.ScalarField) -> None:
         self.fields["w"] = value
-        return
-    
+
     @property
-    def b(self) -> fr.FieldVariable:
-        """
-        Buoyancy
-        """
+    def b(self) -> fr.ScalarField:
+        """Buoyancy."""
         return self.fields["b"]
-    
+
     @b.setter
-    def b(self, value: fr.FieldVariable):
+    def b(self, value: fr.ScalarField) -> None:
         self.fields["b"] = value
-        return
+
+    @property
+    def velocity(self) -> fr.VectorField:
+        """The velocity vector field."""
+        return self[:3]
 
     # ----------------------------------------------------------------
     #  Energy Variables
     # ----------------------------------------------------------------
 
     @property
-    def ekin(self) -> fr.FieldVariable:
+    def ekin(self) -> fr.ScalarField:
         r"""
-        The kinetic energy
+        The kinetic energy.
 
         .. math::
             E_{kin} = \frac{1}{2} (u^2 + v^2 + \delta^2 w^2)
@@ -152,9 +154,9 @@ class State(fr.StateBase):
         return ekin
 
     @property
-    def epot(self) -> fr.FieldVariable:
+    def epot(self) -> fr.ScalarField:
         r"""
-        The potential energy
+        The potential energy.
 
         If the background stratification is set, the potential energy is
         calculated as:
@@ -181,11 +183,11 @@ class State(fr.StateBase):
         epot.units = "m²/s²"
         epot.position = self.grid.cell_center
         return epot
-    
+
     @property
-    def etot(self) -> fr.FieldVariable:
+    def etot(self) -> fr.ScalarField:
         r"""
-        The total energy
+        The total energy.
 
         .. math::
             E_{tot} = E_{kin} + E_{pot}
@@ -204,19 +206,21 @@ class State(fr.StateBase):
     # ----------------------------------------------------------------
 
     @property
-    def rel_vort(self) -> tuple[fr.FieldVariable]:
+    def rel_vort(self) -> fr.VectorField:
         r"""
-        The relative vorticity
+        The relative vorticity.
 
         .. math::
             \boldsymbol{\zeta} = \nabla \times \boldsymbol{u}
         """
-        return (self.rel_vort_x, self.rel_vort_y, self.rel_vort_z)
+        return fr.VectorField(self.mset, field_list=[self.rel_vort_x,
+                                                     self.rel_vort_y,
+                                                     self.rel_vort_z])
 
     @property
-    def rel_vort_x(self) -> fr.FieldVariable:
+    def rel_vort_x(self) -> fr.ScalarField:
         r"""
-        X-component of the relative vorticity
+        X-component of the relative vorticity.
 
         .. math::
             \zeta_x = \delta^2 \partial_y w - \partial_z v
@@ -232,9 +236,9 @@ class State(fr.StateBase):
         return rel_vort_x
 
     @property
-    def rel_vort_y(self) -> fr.FieldVariable:
+    def rel_vort_y(self) -> fr.ScalarField:
         r"""
-        Y-component of the relative vorticity
+        Y-component of the relative vorticity.
 
         .. math::
             \zeta_y = \partial_z u - \delta^2 \partial_x w
@@ -250,9 +254,9 @@ class State(fr.StateBase):
         return rel_vort_y
 
     @property
-    def rel_vort_z(self) -> fr.FieldVariable:
+    def rel_vort_z(self) -> fr.ScalarField:
         r"""
-        Z-component of the relative vorticity (Horizontal Vorticity)
+        Z-component of the relative vorticity (horizontal vorticity).
 
         .. math::
             \zeta_z = \partial_x v - \partial_y u
@@ -268,33 +272,35 @@ class State(fr.StateBase):
         return rel_vort_z
 
     @property
-    def pot_vort(self) -> fr.FieldVariable:
+    def pot_vort(self) -> fr.ScalarField:
         r"""
         Scaled potential vorticity field.
 
         .. math::
-            Q = \left( f \boldsymbol{k} + Ro\,\boldsymbol{\zeta} \right) 
+            Q = \left( f \boldsymbol{k} + Ro\,\boldsymbol{\zeta} \right)
                 \cdot \nabla \left( Ro\,b + N^2 z \right)
-        
+
         where :math:`\boldsymbol{k}` is the vertical unit vector, :math:`f` is
         the Coriolis parameter, :math:`\boldsymbol{\zeta}` is the relative
         vorticity, :math:`b` is the buoyancy field, and :math:`N^2` is the
         buoyancy frequency.
         """
         if self.is_spectral:
-            raise NotImplementedError(
-                "Potential vorticity is not implemented for spectral fields.")
+            msg = "Potential vorticity is not implemented for spectral fields."
+            raise NotImplementedError(msg)
 
         # shortcuts
-        f0 = self.mset.f0; N2 = self.mset.N2; Ro = self.mset.Ro
+        f0 = self.mset.f0
+        brunt_vaisala_n2 = self.mset.N2
+        rossby_number = self.mset.Ro
 
         # calculate the horizontal vorticity
-        ver_vort_x = self.rel_vort_x * Ro
-        ver_vort_y = self.rel_vort_y * Ro
-        ver_vort_z = self.rel_vort_z * Ro
+        ver_vort_x = self.rel_vort_x * rossby_number
+        ver_vort_y = self.rel_vort_y * rossby_number
+        ver_vort_z = self.rel_vort_z * rossby_number
 
         # calculate the buoyancy gradient
-        buo_grad_x, buo_grad_y, buo_grad_z = (self.b * Ro).grad()
+        buo_grad_x, buo_grad_y, buo_grad_z = (self.b * rossby_number).grad()
 
         # interpolate the buoyancy gradient to the voriticities
         buo_grad_x = buo_grad_x.interpolate(ver_vort_x.position)
@@ -304,7 +310,7 @@ class State(fr.StateBase):
         # Calculate each component of the potential vorticity
         x_part = ver_vort_x * buo_grad_x
         y_part = ver_vort_y * buo_grad_y
-        z_part = (ver_vort_z + f0) * (N2 + buo_grad_z)
+        z_part = (ver_vort_z + f0) * (brunt_vaisala_n2 + buo_grad_z)
 
         pot_vort = x_part + y_part + z_part
 
@@ -317,9 +323,9 @@ class State(fr.StateBase):
         return pot_vort
 
     @property
-    def linear_pot_vort(self) -> fr.FieldVariable:
+    def linear_pot_vort(self) -> fr.ScalarField:
         r"""
-        Linearized potential vorticity
+        Linearized potential vorticity.
 
         .. math::
             Q = Ro \left( \frac{f}{N^2} \partial_z b + \zeta_z \right)
@@ -330,11 +336,13 @@ class State(fr.StateBase):
         relative vorticity.
         """
         # shortcuts
-        f0 = self.mset.f0; N2 = self.mset.N2; Ro = self.mset.Ro
+        f0 = self.mset.f0
+        brunt_vaisala_n2 = self.mset.N2
+        rossby_number = self.mset.Ro
 
         hor_vort = self.rel_vort_z.interpolate(self.grid.cell_center)
         dbdz = self.b.diff(axis=2).interpolate(self.grid.cell_center)
-        pot_vort = Ro * (f0/N2 * dbdz + hor_vort)
+        pot_vort = rossby_number * (f0/brunt_vaisala_n2 * dbdz + hor_vort)
 
         # Set the attributes
         pot_vort.name = "linear pot vort"
@@ -345,9 +353,9 @@ class State(fr.StateBase):
         return pot_vort
 
     @property
-    def local_Ro(self) -> fr.FieldVariable:
+    def local_rossby_number(self) -> fr.ScalarField:
         r"""
-        Local Rossby number
+        Local Rossby number.
 
         .. math::
             Ro_\text{local} = Ro \, \frac{\zeta_z}{f_0}
@@ -357,35 +365,37 @@ class State(fr.StateBase):
         parameter.
         """
         # shortcuts
-        f = self.mset.f_coriolis; Ro = self.mset.Ro
+        f_coriolis = self.mset.f_coriolis
+        rossby_number = self.mset.Ro
 
-        local_Ro = Ro * self.rel_vort_z / f
+        local_rossby_number = rossby_number * self.rel_vort_z / f_coriolis
 
         # Set the attributes
-        local_Ro.name = "loc Ro"
-        local_Ro.long_name = "Local Rossby Number"
-        local_Ro.units = "1"
-        
-        return local_Ro
+        local_rossby_number.name = "loc Ro"
+        local_rossby_number.long_name = "Local Rossby Number"
+        local_rossby_number.units = "1"
+
+        return local_rossby_number
 
     # ----------------------------------------------------------------
     #  CFL numbers
     # ----------------------------------------------------------------
 
     @property
-    def cfl(self) -> fr.FieldVariable:
+    def cfl(self) -> fr.ScalarField:
         r"""
         The CFL number.
 
         .. math::
-            CFL = \max\left\{ \frac{u}{\Delta x}, \frac{v}{\Delta y}, 
+            CFL = \max\left\{ \frac{u}{\Delta x}, \frac{v}{\Delta y},
                               \frac{w}{\Delta z} \right\} \Delta t
 
         where :math:`\Delta t` is the time step and :math:`\Delta x` is the
-        grid spacing. 
+        grid spacing.
 
         Returns:
-            cfl (FieldVariable)  : Horizontal CFL number.
+            cfl (ScalarField)  : Horizontal CFL number.
+
         """
         dx, dy, dz = self.grid.dx
         dt = self.mset.time_stepper.dt
@@ -396,59 +406,70 @@ class State(fr.StateBase):
         cfl = fr.config.ncp.maximum(cfl_u.arr, cfl_v.arr)
         cfl = fr.config.ncp.maximum(cfl, cfl_w.arr)
 
-        # Create the field variable
-        return fr.FieldVariable(
-            self.mset, 
+        # Create the scalar field
+        return fr.ScalarField(
+            self.mset,
             arr=cfl,
-            is_spectral=self.is_spectral, 
+            is_spectral=self.is_spectral,
             name="cfl",
             long_name="CFL Number",
             position=self.grid.cell_center)
 
 
 @fr.utils.jaxify
-class DiagnosticState(fr.StateBase):
-    def __init__(self, 
-                 mset: 'nh.ModelSettings', 
-                 is_spectral=False, 
-                 field_list=None) -> None:
-        from fridom.framework.field_variable import FieldVariable
-        if field_list is None:
-            p = FieldVariable(
-                mset, 
-                name="p", 
-                long_name="Pressure",
-                units="m²/s",
-                is_spectral=is_spectral, 
-                position=mset.grid.cell_center)
+class DiagnosticState(fr.VectorField):
 
-            div = FieldVariable(
-                mset,
-                name="div", 
-                long_name="Divergence",
-                units="1/s",
-                is_spectral=is_spectral, 
-                position=mset.grid.cell_center)
+    """
+    The diagnostic state vector class for the nonhydrostatic model.
 
-            field_list = [p, div]
-        super().__init__(mset, field_list, is_spectral)
-        self.constructor = DiagnosticState
-        return
+    Description
+    -----------
+    The default scalar fields of the diagnostic state vector are:
+
+    - p: Pressure.
+    - div: Divergence.
+
+    """
+
+    @staticmethod
+    def _create_default_fields(mset: fr.ModelSettingsBase,
+                               vector_dim: int | None,  # noqa: ARG004
+                               **kwargs: any,
+                               ) -> OrderedDict[str, fr.ScalarField]:
+        p = fr.ScalarField(
+            mset,
+            name="p",
+            long_name="Pressure",
+            units="m²/s",
+            position=mset.grid.cell_center,
+            **kwargs)
+
+        div = fr.ScalarField(
+            mset,
+            name="div",
+            long_name="Divergence",
+            units="1/s",
+            position=mset.grid.cell_center,
+            **kwargs)
+
+        # TODO(Silvano): add the custom fields from model settings
+
+        return OrderedDict([("p", p), ("div", div)])
 
     @property
-    def p(self) -> fr.FieldVariable:
+    def p(self) -> fr.ScalarField:
         """The pressure field."""
         return self.fields["p"]
 
     @p.setter
-    def p(self, value: fr.FieldVariable) -> None:
+    def p(self, value: fr.ScalarField) -> None:
         self.fields["p"] = value
-    
+
     @property
-    def div(self) -> fr.FieldVariable:
+    def div(self) -> fr.ScalarField:
         """The divergence field."""
         return self.fields["div"]
-    
+
     @div.setter
-    def div(self, value: fr.FieldVariable) -> None:
+    def div(self, value: fr.ScalarField) -> None:
         self.fields["div"] = value

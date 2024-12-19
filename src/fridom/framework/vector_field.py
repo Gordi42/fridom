@@ -9,6 +9,7 @@ from typing import Callable, Iterator, TypeVar
 import numpy as np
 
 import fridom.framework as fr
+from fridom.framework.grid.fft_padding import FFTPadding
 
 T = TypeVar("T", bound="VectorField")
 
@@ -82,7 +83,7 @@ class VectorField(fr.FieldBase):
 
         # set the properties
         self._fields = field_list
-        self._vector_dim = vector_dim
+        self._vector_dim = len(field_list)
 
     def _check_for_valid_kwargs(self, kwargs: any) -> None:
         allowed_keys = {
@@ -93,13 +94,11 @@ class VectorField(fr.FieldBase):
 
     @staticmethod
     def _create_default_fields(mset: fr.ModelSettingsBase,
-                               vector_dim: int,
+                               vector_dim: int | None,
                                **kwargs: any,
                                ) -> OrderedDict[str, fr.ScalarField]:
-        # check the vector dimension
-        if vector_dim is None or vector_dim < 1:
-            msg = f"Invalid vector dimension: {vector_dim}"
-            raise ValueError(msg)
+        # if no vector dimension is given, set it to 0
+        vector_dim = vector_dim or 0
         # create a dictionary of scalar fields
         field_list = OrderedDict()
         for i in range(vector_dim):
@@ -112,13 +111,13 @@ class VectorField(fr.FieldBase):
     # ================================================================
 
     def fft(self: T,  # noqa: D102
-            padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
+            padding: FFTPadding = FFTPadding.NOPADDING,
             ) -> T:
         return self.apply_elementwise(self,
                                       lambda field: field.fft(padding=padding))
 
     def ifft(self: T,  # noqa: D102
-             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
+             padding: FFTPadding = FFTPadding.NOPADDING,
              ) -> T:
         return self.apply_elementwise(self,
                                       lambda field: field.ifft(padding=padding))
@@ -172,7 +171,9 @@ class VectorField(fr.FieldBase):
         return vec
 
     def sync(self: T) -> T:  # noqa: D102
-        if self.is_spectral:
+        # TODO(Silvano): the test for spectral space should not be necessary
+        # sync should move to the grid
+        if self.vector_dim == 0 or self.is_spectral:
             # nothing to synchronize in spectral space
             return self
         # sync all arrays at once
@@ -356,6 +357,9 @@ class VectorField(fr.FieldBase):
 
     @property
     def is_spectral(self) -> bool:  # noqa: D102
+        if self.vector_dim == 0:
+            msg = "Cannot determine if vector field is spectral with 0 components"
+            raise ValueError(msg)
         return next(iter(self.fields.values())).is_spectral
 
     # ================================================================
@@ -488,8 +492,12 @@ class VectorField(fr.FieldBase):
                 (name, op(field.fields[name], other.fields[name]))
                 for name in names)
             return cls(field.mset, field_list=fields, vector_dim=field.vector_dim)
-        if isinstance(other, (fr.ScalarField, float, int, complex, np.number)):
+        if isinstance(other, (fr.ScalarField,
+                              float,
+                              int,
+                              complex,
+                              np.number,
+                              fr.config.ncp.ndarray)) or other is None:
             return field.apply_elementwise(field, lambda x: op(x, other))
-        msg = "Operation not supported for the given type"
-        raise TypeError(msg)
+        return NotImplemented
 

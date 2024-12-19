@@ -317,23 +317,23 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Array operations
     # ================================================================
 
-    def sum(self, 
+    def sum(self,
             arr: ndarray, 
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         arr = self.unpad(arr)
-        return fr.config.ncp.sum(arr, axis=axes)
+        return fr.config.ncp.sum(arr, axis=axes, keepdims=True)
 
     def max(self,
             arr: ndarray, 
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         arr = self.unpad(arr)
-        return fr.config.ncp.max(arr, axis=axes)
+        return fr.config.ncp.max(arr, axis=axes, keepdims=True)
 
     def min(self,
             arr: ndarray, 
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         arr = self.unpad(arr)
-        return fr.config.ncp.min(arr, axis=axes)
+        return fr.config.ncp.min(arr, axis=axes, keepdims=True)

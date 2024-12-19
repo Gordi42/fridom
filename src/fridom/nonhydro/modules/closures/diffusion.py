@@ -14,38 +14,38 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
 
     Parameters
     ----------
-    `kh` : `float | fr.FieldVariable`
+    `kh` : `float | fr.ScalarField`
         Horizontal harmonic mixing coefficient.
-    `kv` : `float | fr.FieldVariable`
+    `kv` : `float | fr.ScalarField`
         Vertical harmonic mixing coefficient.
     """
     name = "Harmonic Mixing"
     def __init__(self, 
-                 kh: float | fr.FieldVariable,
-                 kv: float | fr.FieldVariable):
+                 kh: float | fr.ScalarField,
+                 kv: float | fr.ScalarField):
         diffusion_coefficients = [kh, kh, kv]
         super().__init__(field_flags=["ENABLE_MIXING"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def kh(self) -> float | fr.FieldVariable:
+    def kh(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @kh.setter
-    def kh(self, value: float | fr.FieldVariable):
+    def kh(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return
 
     @property
-    def kv(self) -> float | fr.FieldVariable:
+    def kv(self) -> float | fr.ScalarField:
         """The vertical diffusion coefficient."""
         return self.diffusion_coefficients[2]
     
     @kv.setter
-    def kv(self, value: float | fr.FieldVariable):
+    def kv(self, value: float | fr.ScalarField):
         coeffs = [self.diffusion_coefficients[0], self.diffusion_coefficients[1], value]
         self.diffusion_coefficients = coeffs
         return
@@ -64,38 +64,38 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
 
     Parameters
     ----------
-    `ah` : `float | fr.FieldVariable`
+    `ah` : `float | fr.ScalarField`
         Horizontal harmonic friction coefficient.
-    `av` : `float | fr.FieldVariable`
+    `av` : `float | fr.ScalarField`
         Vertical harmonic friction coefficient.
     """
     name = "Harmonic Friction"
     def __init__(self, 
-                 ah: float | fr.FieldVariable,
-                 av: float | fr.FieldVariable):
+                 ah: float | fr.ScalarField,
+                 av: float | fr.ScalarField):
         diffusion_coefficients = [ah, ah, av]
         super().__init__(field_flags=["ENABLE_FRICTION"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def ah(self) -> float | fr.FieldVariable:
+    def ah(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @ah.setter
-    def ah(self, value: float | fr.FieldVariable):
+    def ah(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return
 
     @property
-    def av(self) -> float | fr.FieldVariable:
+    def av(self) -> float | fr.ScalarField:
         """The vertical diffusion coefficient."""
         return self.diffusion_coefficients[2]
     
     @av.setter
-    def av(self, value: float | fr.FieldVariable):
+    def av(self, value: float | fr.ScalarField):
         coeffs = [self.diffusion_coefficients[0], self.diffusion_coefficients[1], value]
         self.diffusion_coefficients = coeffs
         return
@@ -114,38 +114,38 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
 
     Parameters
     ----------
-    `kh` : `float | fr.FieldVariable`
+    `kh` : `float | fr.ScalarField`
         Horizontal mixing coefficient.
-    `kv` : `float | fr.FieldVariable`
+    `kv` : `float | fr.ScalarField`
         Vertical mixing coefficient.
     """
     name = "Biharmonic Mixing"
     def __init__(self, 
-                 kh: float | fr.FieldVariable,
-                 kv: float | fr.FieldVariable):
+                 kh: float | fr.ScalarField,
+                 kv: float | fr.ScalarField):
         diffusion_coefficients = [kh, kh, kv]
         super().__init__(field_flags=["ENABLE_MIXING"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def kh(self) -> float | fr.FieldVariable:
+    def kh(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @kh.setter
-    def kh(self, value: float | fr.FieldVariable):
+    def kh(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return
 
     @property
-    def kv(self) -> float | fr.FieldVariable:
+    def kv(self) -> float | fr.ScalarField:
         """The vertical diffusion coefficient."""
         return self.diffusion_coefficients[2]
     
     @kv.setter
-    def kv(self, value: float | fr.FieldVariable):
+    def kv(self, value: float | fr.ScalarField):
         coeffs = [self.diffusion_coefficients[0], self.diffusion_coefficients[1], value]
         self.diffusion_coefficients = coeffs
         return
@@ -164,38 +164,38 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
 
     Parameters
     ----------
-    `ah` : `float | fr.FieldVariable`
+    `ah` : `float | fr.ScalarField`
         Horizontal friction coefficient.
-    `av` : `float | fr.FieldVariable`
+    `av` : `float | fr.ScalarField`
         Vertical friction coefficient.
     """
     name = "Biharmonic Friction"
     def __init__(self, 
-                 ah: float | fr.FieldVariable,
-                 av: float | fr.FieldVariable):
+                 ah: float | fr.ScalarField,
+                 av: float | fr.ScalarField):
         diffusion_coefficients = [ah, ah, av]
         super().__init__(field_flags=["ENABLE_FRICTION"],
                          diffusion_coefficients=diffusion_coefficients)
         return
 
     @property
-    def ah(self) -> float | fr.FieldVariable:
+    def ah(self) -> float | fr.ScalarField:
         """The horizontal diffusion coefficient."""
         return self.diffusion_coefficients[0]
     
     @ah.setter
-    def ah(self, value: float | fr.FieldVariable):
+    def ah(self, value: float | fr.ScalarField):
         coeffs = [value, value, self.diffusion_coefficients[2]]
         self.diffusion_coefficients = coeffs
         return
 
     @property
-    def av(self) -> float | fr.FieldVariable:
+    def av(self) -> float | fr.ScalarField:
         """The vertical diffusion coefficient."""
         return self.diffusion_coefficients[2]
     
     @av.setter
-    def av(self, value: float | fr.FieldVariable):
+    def av(self, value: float | fr.ScalarField):
         coeffs = [self.diffusion_coefficients[0], self.diffusion_coefficients[1], value]
         self.diffusion_coefficients = coeffs
         return

@@ -71,7 +71,7 @@ class CoherentEddy(sw.State):
         DIRICHLET = sw.grid.BCType.DIRICHLET
         bc_types = (DIRICHLET, DIRICHLET)
 
-        field = sw.FieldVariable(
+        field = sw.ScalarField(
             mset, position=position, name="psi", bc_types=bc_types)
 
         X, Y = field.get_mesh()

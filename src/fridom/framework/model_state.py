@@ -76,14 +76,18 @@ class ModelState:
     #  Properties
     # ================================================================
     @property
-    def z(self) -> 'fr.StateBase':
+    def z(self) -> 'fr.VectorField':
         """
         The state vector.
         """
         return self._z
 
     @z.setter
-    def z(self, value: 'fr.StateBase') -> None:
+    def z(self, value: 'fr.VectorField') -> None:
+        # if the vector is empty, just set it
+        if value.vector_dim == 0:
+            self._z = value
+            return
         # convert to correct space
         spectral_grid = value.grid.spectral_grid
         if spectral_grid and not value.is_spectral:
@@ -93,15 +97,14 @@ class ModelState:
         self._z = value
 
     @property
-    def z_diag(self) -> 'fr.StateBase':
-        """
-        The diagnostic state vector.
-        """
+    def z_diag(self) -> 'fr.VectorField':
+        """The diagnostic state vector."""
         return self._z_diag
 
     @z_diag.setter
-    def z_diag(self, value: 'fr.StateBase') -> None:
-        if len(value.fields) == 0:
+    def z_diag(self, value: 'fr.VectorField') -> None:
+        # if the vector is empty, just set it
+        if value.vector_dim == 0:
             self._z_diag = value
             return
         # convert to correct space
@@ -113,13 +116,16 @@ class ModelState:
         self._z_diag = value
 
     @property
-    def dz(self) -> 'fr.StateBase':
+    def dz(self) -> 'fr.VectorField':
         """The tendency vector."""
         return self._dz
 
     @dz.setter
-    def dz(self, value: 'fr.StateBase') -> None:
+    def dz(self, value: 'fr.VectorField') -> None:
         if value is None:
+            self._dz = value
+            return
+        if value.vector_dim == 0:
             self._dz = value
             return
         # convert to correct space

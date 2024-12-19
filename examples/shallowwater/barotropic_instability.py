@@ -1,6 +1,5 @@
-r"""
+"""
 Barotropic Instability.
-
 =======================
 
 An instable barotropic jet with a perturbation on top of it.

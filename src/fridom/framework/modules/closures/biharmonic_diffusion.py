@@ -24,15 +24,15 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
         A list of strings that indicate which fields should be diffused.
         For example, if `field_flags=["ENABLE_MIXING"]`, all fields with the
         flag "ENABLE_MIXING" will be diffused. For more information on possible
-        flags, see :py:mod:`fridom.framework.FieldVariable`.
-    `diffusion_coefficients` : `tuple[float | fr.FieldVariable]`
+        flags, see :py:mod:`fridom.framework.ScalarField`.
+    `diffusion_coefficients` : `tuple[float | fr.ScalarField]`
         A tuple of diffusion coefficients. The length of the tuple must match
         the number of dimensions of the grid.
     """
     name = "Biharmonic Diffusion"
     
     @fr.utils.jaxjit
-    def diffusion_operator(self, u: fr.FieldVariable) -> fr.FieldVariable:
+    def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
         """
         Applies the biharmonic diffusion operator on a scalar field :math:`u`.
         """
@@ -47,7 +47,7 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
     # ----------------------------------------------------------------
 
     @property
-    def diffusion_coefficients(self) -> list[float | fr.FieldVariable]:
+    def diffusion_coefficients(self) -> list[float | fr.ScalarField]:
         """A list of diffusion coefficients."""
         return self._diffusion_coefficients
     
@@ -57,9 +57,9 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
         ncp = fr.config.ncp
         coeffs = []
         for coeff in value:
-            if isinstance(coeff, fr.FieldVariable):
+            if isinstance(coeff, fr.ScalarField):
                 kappa = ncp.sqrt(ncp.abs(coeff.arr))
-                kappa = fr.FieldVariable(mset=coeff.mset,
+                kappa = fr.ScalarField(mset=coeff.mset,
                                          arr=kappa,
                                          mdata=coeff.mdata)
             else:

@@ -10,7 +10,7 @@ class TendencyDivergence(fr.modules.Module):
     name = "Tendency Divergence"
 
     @fr.utils.jaxjit
-    def compute_divergence(self, dz: fr.StateBase) -> fr.FieldVariable:
+    def compute_divergence(self, dz: fr.VectorField) -> fr.ScalarField:
         """
         Compute the divergence of the tendency.
         """

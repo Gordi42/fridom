@@ -140,8 +140,8 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
 
     
     @fr.utils.jaxjit
-    def _update_state(self, z: 'fr.StateBase', dz_list: 'list[fr.StateBase]'
-                      ) -> 'fr.StateBase':
+    def _update_state(self, z: 'fr.VectorField', dz_list: 'list[fr.VectorField]'
+                      ) -> 'fr.VectorField':
         """
         Jax jitted time stepping function for Adam-Bashforth.
     

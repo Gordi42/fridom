@@ -69,7 +69,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
             self.model.diagnostics.disable()
         return
 
-    def __call__(self, z: 'fr.StateBase') -> 'fr.StateBase':
+    def __call__(self, z: 'fr.VectorField') -> 'fr.VectorField':
         """
         Project a state to the geostrophic subspace using time-averaging.
         Warning: This method is computationally expensive.

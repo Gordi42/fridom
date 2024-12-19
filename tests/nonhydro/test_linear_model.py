@@ -20,16 +20,16 @@ def test_linear_model(runlen):
     Lx, Ly, Lz = grid.L
 
     z = nh.State(mset)
-    z.u[:] = ncp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2) * ncp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2)
+    z.u.arr = ncp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2) * ncp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2)
     z.sync()
 
-    initial_total_energy = z.etot.integrate()
+    initial_total_energy = z.etot.integrate().value
 
     model = nh.Model(mset)
     model.z = z
     model.run(runlen=np.timedelta64(runlen, 'h'))
 
-    final_total_energy = model.z.etot.integrate()
+    final_total_energy = model.z.etot.integrate().value
 
     assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-3
 
@@ -59,18 +59,18 @@ def test_boundary_conditions(periodic_bounds):
 
     z = nh.State(mset)
     width = 0.05
-    z.b[:] = 0.1 * ncp.exp(-(Y - 3*Ly/4)**2 / (width*Ly)**2) * \
-                   ncp.exp(-(Z - 1*Lz/4)**2 / (width*Lz)**2) * \
-                   ncp.exp(-(X - 1*Lx/4)**2 / (width*Lx)**2)
+    z.b.arr = 0.1 * ncp.exp(-(Y - 3*Ly/4)**2 / (width*Ly)**2) * \
+                    ncp.exp(-(Z - 1*Lz/4)**2 / (width*Lz)**2) * \
+                    ncp.exp(-(X - 1*Lx/4)**2 / (width*Lx)**2)
 
     z.sync()
 
-    initial_total_energy = z.etot.integrate()
+    initial_total_energy = z.etot.integrate().value
 
     model = nh.Model(mset)
     model.z = z
     model.run(runlen=np.timedelta64(6, 'h'))
 
-    final_total_energy = model.z.etot.integrate()
+    final_total_energy = model.z.etot.integrate().value
 
     assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-2

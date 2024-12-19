@@ -21,19 +21,19 @@ ModelState
 The |ModelState| contains all relevant information about the model's current state, 
 including the following attributes:
 
-+-----------+---------+--------------------------------------------------+
-| Component | Type    | Description                                      |
-+===========+=========+==================================================+
-| ``z``     | |State| | Prognostic state vector                          |
-+-----------+---------+--------------------------------------------------+
-| ``dz``    | |State| | Tendency of the prognostic state vector          |
-+-----------+---------+--------------------------------------------------+
-| ``z_diag``| |State| | State vector with diagnostic variables           |
-+-----------+---------+--------------------------------------------------+
-| ``clock`` | |Clock| | Information about the model time                 |
-+-----------+---------+--------------------------------------------------+
++-----------+---------------+--------------------------------------------------+
+| Component | Type          | Description                                      |
++===========+===============+==================================================+
+| ``z``     | |VectorField| | Prognostic state vector                          |
++-----------+---------------+--------------------------------------------------+
+| ``dz``    | |VectorField| | Tendency of the prognostic state vector          |
++-----------+---------------+--------------------------------------------------+
+| ``z_diag``| |VectorField| | State vector with diagnostic variables           |
++-----------+---------------+--------------------------------------------------+
+| ``clock`` | |Clock|       | Information about the model time                 |
++-----------+---------------+--------------------------------------------------+
 
-You typically don’t need to create a |ModelState| manually; it is initialized 
+You typically don't need to create a |ModelState| manually; it is initialized 
 automatically when the model is set up. Instead, you interact with the existing 
 |ModelState| object. The following example demonstrates accessing the |ModelState| 
 object and its attributes.
@@ -69,10 +69,11 @@ object and its attributes.
           start_time = 0,
           passed_time = 0,
           current_time = 0)
-        State with fields:
-          u: u - velocity  [m/s]
-          v: v - velocity  [m/s]
-          p: pressure  [m²/s²]
+        State(
+          u=u - velocity  [m/s], 
+          v=v - velocity  [m/s], 
+          p=pressure  [m²/s²], 
+        )
 
 .. tip::
     The model state is abbreviated as ``mz`` to keep the code concise. 

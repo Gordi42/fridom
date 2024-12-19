@@ -30,9 +30,9 @@ class SpectralDiff(fr.grid.DiffModule):
 
     @partial(fr.utils.jaxjit, static_argnames=('axis', 'order'))
     def diff(self, 
-             f: fr.FieldVariable,
+             f: fr.ScalarField,
              axis: int,
-             order: int = 1) -> fr.FieldVariable:
+             order: int = 1) -> fr.ScalarField:
 
         # ----------------------------------------------------------------
         #  Transform to spectral space if necessary
@@ -58,7 +58,7 @@ class SpectralDiff(fr.grid.DiffModule):
         # ----------------------------------------------------------------
         #  Compute the derivative
         # ----------------------------------------------------------------
-        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
+        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
         res.bc_types = tuple(bc_types)
         k = self.grid.get_mesh(spectral=True)[axis]
         res.arr = f.arr * (1j * k) ** order

@@ -29,9 +29,9 @@ class FiniteDifferences(fr.grid.DiffModule):
 
     @partial(fr.utils.jaxjit, static_argnames=('axis', 'order'))
     def diff(self, 
-             f: fr.FieldVariable,
+             f: fr.ScalarField,
              axis: int,
-             order: int = 1) -> fr.FieldVariable:
+             order: int = 1) -> fr.ScalarField:
         # differentiate the field
         match f.position[axis]:
             case fr.grid.AxisPosition.CENTER:
@@ -47,9 +47,9 @@ class FiniteDifferences(fr.grid.DiffModule):
 
     @partial(fr.utils.jaxjit, static_argnames=('axis',))
     def _diff_forward(self, 
-                      f: fr.FieldVariable, 
-                      axis: int) -> fr.FieldVariable:
-        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
+                      f: fr.ScalarField, 
+                      axis: int) -> fr.ScalarField:
+        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
         new_pos = f.position.shift(axis)
         mask = self.water_mask.get_mask(new_pos)
 
@@ -70,9 +70,9 @@ class FiniteDifferences(fr.grid.DiffModule):
 
     @partial(fr.utils.jaxjit, static_argnames=('axis',))
     def _diff_backward(self,
-                       f: fr.FieldVariable, 
-                       axis: int) -> fr.FieldVariable:
-        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
+                       f: fr.ScalarField, 
+                       axis: int) -> fr.ScalarField:
+        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
         new_pos = f.position.shift(axis)
         mask = self.water_mask.get_mask(new_pos)
 

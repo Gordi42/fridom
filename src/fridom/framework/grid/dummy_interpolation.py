@@ -10,6 +10,6 @@ class DummyInterpolation(fr.grid.InterpolationModule):
 
     @fr.utils.jaxjit
     def interpolate(self, 
-                    f: fr.FieldVariable,
-                    destination: fr.grid.Position) -> fr.FieldVariable:
+                    f: fr.ScalarField,
+                    destination: fr.grid.Position) -> fr.ScalarField:
         return f

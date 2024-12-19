@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tempfile
+
 import numpy as np
 import pytest
 
@@ -131,7 +132,7 @@ def test_correct_clock_end_time(mset, start_time, end_time, expected_time):
         {"runlen": 0.0},
         {"start_time": np.datetime64("2021-01-01T00:00:00"),
          "end_time": np.datetime64("2021-01-01T00:00:00")},
-    ]
+    ],
 ))
 def test_satified_end_condition(mset, run_args):
     """Test if the end condition is already satisfied."""

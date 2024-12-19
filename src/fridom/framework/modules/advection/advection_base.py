@@ -42,14 +42,14 @@ class AdvectionBase(fr.modules.Module):
 
     @abstractmethod
     def advection(self,
-                  velocity: 'tuple[fr.FieldVariable]',
-                  quantity: 'fr.FieldVariable') -> 'fr.FieldVariable':
+                  velocity: 'tuple[fr.ScalarField]',
+                  quantity: 'fr.ScalarField') -> 'fr.ScalarField':
         """
         Advect a quantity using the given velocity field.
         """
 
     @fr.utils.jaxjit
-    def advect_state(self, z: fr.StateBase, dz: fr.StateBase) -> fr.StateBase:
+    def advect_state(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
         if self.background is None and self.disable_nonlinear:
             return dz
         if self.disable_nonlinear:
@@ -118,7 +118,7 @@ class AdvectionBase(fr.modules.Module):
         self._scaling = value
 
     @property
-    def background(self) -> 'fr.StateBase':
+    def background(self) -> 'fr.VectorField':
         """The background state."""
         return self._background
 

@@ -1,4 +1,4 @@
-"""dataclass for the metadata of a FieldVariable."""
+"""dataclass for the metadata of a ScalarField."""
 from __future__ import annotations
 
 from copy import copy
@@ -13,42 +13,42 @@ import fridom.framework as fr
 class FieldMetadata:
 
     """
-    Metadata for the FieldVariable.
+    Metadata for the ScalarField.
 
     Description
     -----------
-    The FieldMetadata class contains all metadata for the FieldVariable. This
+    The FieldMetadata class contains all metadata for the ScalarField. This
     includes the name, long name, units, and additional attributes for the
     NetCDF file or xarray. The metadata also contains information about the
-    position of the FieldVariable on the grid, the topology, and the boundary
+    position of the ScalarField on the grid, the topology, and the boundary
     conditions.
 
     Parameters
     ----------
     name : str (default "unnamed")
-        Name of the FieldVariable
+        Name of the ScalarField
     long_name : str (default "Unnamed")
-        Long name of the FieldVariable
+        Long name of the ScalarField
     units : str (default "n/a")
-        Units of the FieldVariable
+        Units of the ScalarField
     nc_attrs : dict | None (default None)
         Additional attributes for the NetCDF file or xarray
     is_spectral : bool (default False)
-        True if the FieldVariable should be initialized in spectral space
+        True if the ScalarField should be initialized in spectral space
     topo : list[bool] | None (default None)
-        Topology of the FieldVariable. If None, the FieldVariable is
+        Topology of the ScalarField. If None, the ScalarField is
         assumed to be fully extended in all directions. If a list of booleans
-        is given, the FieldVariable has no extend in the directions where the
+        is given, the ScalarField has no extend in the directions where the
         corresponding entry is False.
     position : fr.grid.Position | None (default None)
-        Position of the FieldVariable on the grid
+        Position of the ScalarField on the grid
     bc_types : tuple[BCType] | None (default None)
         Tuple of BCType objects that specify the type of boundary condition
         in each direction. If None, the default boundary conditions is Neumann.
     _flags : dict (default {"NO_ADV": False,
                             "ENABLE_MIXING": False,
                             "ENABLE_FRICTION": False})
-        Dictionary with flag options for the FieldVariable
+        Dictionary with flag options for the ScalarField
 
     """
 
@@ -131,7 +131,7 @@ class FieldMetadata:
 
     @property
     def bc_types(self) -> tuple[fr.grid.BCType] | None:
-        """The boundary condition types for the FieldVariable."""
+        """The boundary condition types for the ScalarField."""
         return self._bc_types
 
     @bc_types.setter
@@ -143,7 +143,7 @@ class FieldMetadata:
 
     @property
     def flags(self) -> dict:
-        """Dictionary with flag options for the FieldVariable."""
+        """Dictionary with flag options for the ScalarField."""
         return self._flags
 
     @flags.setter

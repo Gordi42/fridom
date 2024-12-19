@@ -1,8 +1,8 @@
 """Test for the vector field class."""
 import tempfile
-from copy import copy, deepcopy
-from pathlib import Path
 from collections import OrderedDict
+from copy import copy
+from pathlib import Path
 
 import dill
 import pytest
@@ -548,15 +548,20 @@ def test_min(mset, is_spectral, topo, axes):
 
 def test_integrate(mset, is_spectral, topo, axes):
     vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            vec.integrate(axes)
+        return
     if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: vec.integrate(axes))
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            vec.integrate(axes)
         return
-    if axes is not None:
-        not_implemented_axes(lambda: vec.integrate(axes))
-        return
-    msg = "Integration is not implemented yet"
-    with pytest.raises(NotImplementedError, match=msg):
-        vec.integrate(axes)
+    vec_int = vec.integrate(axes)
+    axes = axes or (0, 1)
+    for f in vec_int:
+        for axis in axes:
+            assert not f.topo[axis]
+            assert f.arr.shape[axis] == 1
 
 # ----------------------------------------------------------------
 #  Test arithmetic operations
@@ -736,27 +741,40 @@ def test_conj(mset, topo, is_spectral):
     for f, f_conj in zip(vec, vec_conj):
         assert fr.config.ncp.allclose(f.arr.conj(), f_conj.arr)
 
+def test_neg(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if all(topo):
+        vec.set_random()
+    vec_neg = -vec
+    for f, f_neg in zip(vec, vec_neg):
+        assert fr.config.ncp.allclose(-f.arr, f_neg.arr)
+
 def test_norm_l2(mset, topo, is_spectral):
     vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(vec.norm_l2)
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            vec.norm_l2()
         return
-    vec.set_random()
-    msg = "Integration is not implemented yet"
-    with pytest.raises(NotImplementedError, match=msg):
-        vec.norm_l2()
+    if not all(topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            vec.norm_l2()
+        return
+    norm = vec.norm_l2()
+    assert isinstance(norm, float)
 
 def test_norm_of_diff(mset, topo, is_spectral):
-    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2) + 1
     vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: vec1.norm_of_diff(vec2))
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            vec1.norm_of_diff(vec2)
         return
-    vec1.set_random(seed=12345)
-    vec2.set_random(seed=54321)
-    msg = "Integration is not implemented yet"
-    with pytest.raises(NotImplementedError, match=msg):
-        vec1.norm_of_diff(vec2)
+    if not all(topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            vec1.norm_of_diff(vec2)
+        return
+    norm_of_diff = vec1.norm_of_diff(vec2)
+    assert isinstance(norm_of_diff, float)
 
 def test_norm_of_diff_invalid(mset, topo, is_spectral):
     vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)

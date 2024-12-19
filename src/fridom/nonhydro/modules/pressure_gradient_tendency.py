@@ -16,7 +16,7 @@ class PressureGradientTendency(fr.modules.Module):
 
     @fr.utils.jaxjit
     def pressure_gradient_tendency(
-            self, p: fr.FieldVariable, dz: nh.State) -> nh.State:
+            self, p: fr.ScalarField, dz: nh.State) -> nh.State:
         """Compute the pressure gradient tendency of the model."""
         # compute gradient of pressure
         p_grad = self.diff_module.grad(p)

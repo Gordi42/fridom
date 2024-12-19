@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from copy import deepcopy
+
 import fridom.framework as fr
 import numpy as np
 from functools import partial
@@ -245,6 +249,68 @@ class Grid(fr.grid.GridBase):
     def sync_multi(self, 
                    arrs: tuple[np.ndarray]) -> tuple[np.ndarray]:
         return self.domain_decomp.sync_multiple(arrs)
+
+    # ================================================================
+    #  Shrinking and Expanding
+    # ================================================================
+    def _update_topo(self, topo: tuple[bool], axes: tuple[int]) -> tuple[bool]:
+        new_topo = list(topo)
+        for i in axes:
+            new_topo[i] = False
+        return tuple(new_topo)
+
+    @partial(fr.utils.jaxjit, static_argnames=["axes"])
+    def sum(self,  # noqa: D102
+            field: fr.ScalarField,
+            axes: tuple[int] | None = None) -> fr.ScalarField:
+        fr.exceptions.PartialDomainError.check(field)
+        axes = axes or tuple(range(self.n_dims))
+        value = self.domain_decomp.sum(field.arr,
+                                       axes=axes,
+                                       spectral=field.is_spectral)
+        mdata = deepcopy(field.mdata)
+        mdata.topo = self._update_topo(mdata.topo, axes)
+        return fr.ScalarField(field.mset, mdata=mdata, arr=value)
+
+    @partial(fr.utils.jaxjit, static_argnames=["axes"])
+    def max(self,  # noqa: D102
+            field: fr.ScalarField,
+            axes: tuple[int] | None = None) -> fr.ScalarField:
+        fr.exceptions.PartialDomainError.check(field)
+        axes = axes or tuple(range(self.n_dims))
+        value = self.domain_decomp.max(field.arr,
+                                       axes=axes,
+                                       spectral=field.is_spectral)
+        mdata = deepcopy(field.mdata)
+        mdata.topo = self._update_topo(mdata.topo, axes)
+        return fr.ScalarField(field.mset, mdata=mdata, arr=value)
+
+    @partial(fr.utils.jaxjit, static_argnames=["axes"])
+    def min(self,  # noqa: D102
+            field: fr.ScalarField,
+            axes: tuple[int] | None = None) -> fr.ScalarField:
+        fr.exceptions.PartialDomainError.check(field)
+        axes = axes or tuple(range(self.n_dims))
+        value = self.domain_decomp.min(field.arr,
+                                       axes=axes,
+                                       spectral=field.is_spectral)
+        mdata = deepcopy(field.mdata)
+        mdata.topo = self._update_topo(mdata.topo, axes)
+        return fr.ScalarField(field.mset, mdata=mdata, arr=value)
+
+    @partial(fr.utils.jaxjit, static_argnames=["axes"])
+    def integrate(self,  # noqa: D102
+                  field: fr.ScalarField,
+                  axes: tuple[int] | None = None) -> fr.ScalarField:
+        fr.exceptions.FieldSpaceError.check_if_physical(field)
+        axes = axes or tuple(range(self.n_dims))
+        cell_area = 1.0
+        for i in axes:
+            if field.topo[i]:
+                cell_area *= self.dx[i]
+            else:
+                cell_area *= self.L[i]
+        return self.sum(field * cell_area, axes)
 
     # ================================================================
     #  Properties

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 import fridom.framework as fr
+from fridom.framework.grid.fft_padding import FFTPadding
 
 if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
@@ -75,7 +76,7 @@ class ScalarField(fr.FieldBase):
     # ================================================================
 
     def fft(self,  # noqa: D102
-            padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
+            padding: FFTPadding = FFTPadding.NOPADDING,
             ) -> ScalarField:
         self._fft_possible()
         # TODO(Silvano): Make this work for non full domain fields
@@ -96,7 +97,7 @@ class ScalarField(fr.FieldBase):
                            is_spectral=True)
 
     def ifft(self,  # noqa: D102
-             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
+             padding: FFTPadding = FFTPadding.NOPADDING,
              ) -> ScalarField:
         self._ifft_possible()
         # TODO(Silvano): Make this work for non full domain fields
@@ -431,6 +432,33 @@ class ScalarField(fr.FieldBase):
         ds = xr.open_dataarray(path)
         return cls.from_xarray(mset, ds)
 
+    @property
+    def value(self) -> complex | float:
+        """
+        The value of the constant ScalarField.
+
+        Description
+        -----------
+        This property returns the value of a constant ScalarField. Constant
+        means that the ScalarField has no extension in any direction. If the
+        ScalarField is not constant, a ValueError is raised.
+
+        Returns
+        -------
+        complex | float
+            The value of the constant ScalarField.
+
+        Raises
+        ------
+        ValueError
+            If the ScalarField is not constant.
+
+        """
+        if any(self.topo):
+            msg = "The field is not constant"
+            raise ValueError(msg)
+        return self.arr.item()
+
     # ==================================================================
     #  SLICING
     # ==================================================================
@@ -530,7 +558,7 @@ class ScalarField(fr.FieldBase):
 
         Description
         -----------
-        Field Variables do not have to be extended in all directions. For
+        Scalar fields do not have to be extended in all directions. For
         example, one might want to create a 2D forcing field for a 3D simulation,
         that only depends on x and y. In this case, the topo of the ScalarField
         would be (True, True, False).
@@ -632,15 +660,9 @@ class ScalarField(fr.FieldBase):
         return self._set_shrinked_field(arr=result, axes=axes)
 
     def integrate(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
-        # TODO(Silvano): Make this work for non full domain fields
-        self._check_full_domain()
-        # TODO(Silvano): Implement integration over specific axes
-        self._check_axes_argument(axes)
-        # TODO(Silvano): The sum method cannot be used here because of the
-        # ghost cells. We need to implement a proper integration method
-        # that takes the grid spacing into account
-        msg = "Integration is not implemented yet"
-        raise NotImplementedError(msg)
+        if isinstance(axes, list):
+            axes = tuple(axes)
+        return self.grid.integrate(self, axes=axes)
 
     # ================================================================
     #  Arithmetic operations
@@ -678,7 +700,11 @@ class ScalarField(fr.FieldBase):
             topo = [p or q for p, q in zip(field.topo, other.topo)]
             new_mdata.topo = topo
             result = op(field.arr, other.arr)
-        elif isinstance(other, (int, float, complex, np.number)):
+        elif isinstance(other, (int,
+                                float,
+                                complex,
+                                np.number,
+                                fr.config.ncp.ndarray)) or other is None:
             result = op(field.arr, other)
         else:
             return NotImplemented

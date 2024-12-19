@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 # Import type information
 if TYPE_CHECKING:
     from fridom.framework.model_settings_base import ModelSettingsBase
-    from fridom.framework.state_base import StateBase
+    from fridom.framework.state_base import VectorField
 
 class Projection:
     """
@@ -20,7 +20,7 @@ class Projection:
         self.grid = mset.grid
 
     @abstractmethod
-    def __call__(self, z: 'StateBase') -> 'StateBase':
+    def __call__(self, z: 'VectorField') -> 'VectorField':
         """
         Project the state on the given subspace.
 

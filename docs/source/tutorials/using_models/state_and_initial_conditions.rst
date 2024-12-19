@@ -1,9 +1,9 @@
 The State Vector and Initial Conditions
 =======================================
 
-In the last tutorial, we saw that field variables in ``fridom`` are analogous to ``DataArrays`` in ``xarray``. 
+In the last tutorial, we saw that scalar fields in ``fridom`` are analogous to ``DataArrays`` in ``xarray``. 
 In this tutorial, we will introduce the state vector, which corresponds to ``Datasets`` in ``xarray``.
-Essentially, the state vector is a container for field variables, offering additional functionality useful for analysis.
+Essentially, the state vector is a container for scalar fields, offering additional functionality useful for analysis.
 For example, it provides methods to calculate quantities like energy or vorticity.
 Let's take a look at the state vector in two different model setups:
 
@@ -29,10 +29,11 @@ Let's take a look at the state vector in two different model setups:
 
             ::
 
-                State with fields:
-                  u: u - velocity  [m/s]
-                  v: v - velocity  [m/s]
-                  p: pressure  [m²/s²]
+                State(
+                  u=u - velocity  [m/s], 
+                  v=v - velocity  [m/s], 
+                  p=pressure  [m²/s²], 
+                )
 
     .. tab-item:: 3D Nonhydrostatic Model
 
@@ -54,11 +55,12 @@ Let's take a look at the state vector in two different model setups:
 
             ::
 
-                State with fields:
-                  u: u - velocity  [m/s]
-                  v: v - velocity  [m/s]
-                  w: w - velocity  [m/s]
-                  b: Buoyancy  [m/s²]
+                State(
+                  u=u - velocity  [m/s], 
+                  v=v - velocity  [m/s], 
+                  w=w - velocity  [m/s], 
+                  b=Buoyancy  [m/s²], 
+                )
 
 As you can see, the state vector of the shallow water model contains the velocities in the x and y directions and the pressure.
 In contrast, the 3D nonhydrostatic model includes the velocities in x, y, and z directions, as well as the buoyancy.
@@ -87,11 +89,11 @@ Let’s explore how to work with the state vector:
 Working with the State Vector
 -----------------------------
 
-In the examples above, you have already seen how to create a state vector and that it contains field variables.
-When initializing a state vector, all field variables are set to zero.
+In the examples above, you have already seen how to create a state vector and that it contains scalar fields.
+When initializing a state vector, all scalar fields are set to zero.
 This is typically not a very interesting state, so you often initialize the state vector with specific initial conditions.
-To do this, you first need to know how to access the field variables in the state vector.
-The following examples show two ways to access field variables:
+To do this, you first need to know how to access the scalar fields in the state vector.
+The following examples show two ways to access scalar fields:
 Either as a dictionary or as an attribute:
 
 .. tab-set::
@@ -110,7 +112,7 @@ Either as a dictionary or as an attribute:
             # Create the state vector
             z = sw.State(mset)
 
-            # Add 1.0 to the u field variable
+            # Add 1.0 to the u scalar field
             z["u"] += 1.0
 
     .. tab-item:: attribute
@@ -127,16 +129,16 @@ Either as a dictionary or as an attribute:
             # Create the state vector
             z = sw.State(mset)
 
-            # Add 1.0 to the u field variable
+            # Add 1.0 to the u scalar field
             z.u += 1.0
             
-In both cases, 1.0 is added to the u field variable.
-While the attribute approach is a bit shorter and therefore quicker to write, it requires that the field variables in the state vector are defined as properties.
-Later in this tutorial, we will see how to add custom field variables to the state vector. These will not be defined as properties and can only be accessed via the dictionary approach.
+In both cases, 1.0 is added to the u scalar field.
+While the attribute approach is a bit shorter and therefore quicker to write, it requires that the scalar fields in the state vector are defined as properties.
+Later in this tutorial, we will see how to add custom scalar fields to the state vector. These will not be defined as properties and can only be accessed via the dictionary approach.
 
-Now that you know how to access the field variables in the state vector, you can use the methods learned in the previous tutorial to modify the state vector as needed.
-Additionally, there are methods you can apply to the state vector that will be executed on all its field variables.
-This can be particularly useful in cases where you want to add two state vectors, square all field variables, apply a Fourier transform to all fields, and so on:
+Now that you know how to access the scalar fields in the state vector, you can use the methods learned in the previous tutorial to modify the state vector as needed.
+Additionally, there are methods you can apply to the state vector that will be executed on all its scalar fields.
+This can be particularly useful in cases where you want to add two state vectors, square all scalar fields, apply a Fourier transform to all fields, and so on:
 
 .. code-block:: python
     :caption: State vector operations
@@ -169,7 +171,7 @@ This can be particularly useful in cases where you want to add two state vectors
 Xarray Conversion and Plotting
 ------------------------------
 
-Similar to the field variables, state vectors also have the properties ``.xr`` and ``.xrs`` for converting the state vector into an xarray ``Dataset``.
+Similar to the scalar fields, state vectors also have the properties ``.xr`` and ``.xrs`` for converting the state vector into an xarray ``Dataset``.
 This can be particularly useful when creating a quiver plot of the velocity field:
 
 .. tab-set::
@@ -302,6 +304,7 @@ The following example shows how to create a custom initial condition that genera
     import fridom.shallowwater as sw
 
     class GaussianPressurePerturbation(sw.State):
+
         r"""
         Gaussian perturbation in the pressure field.
 
@@ -325,15 +328,20 @@ The following example shows how to create a custom initial condition that genera
             The width of the Gaussian hill.
         height : float
             The height of the Gaussian hill. Default is 1.0.
+
         """
-        def __init__(self, mset, width: float = 0.1, height: float = 1.0):
+
+        def __init__(self,
+                    mset: sw.ModelSettings,
+                    width: float = 0.1,
+                    height: float = 1.0) -> None:
             super().__init__(mset)
 
-            X, Y = self.p.get_mesh()
-            Lx, Ly = mset.grid.L
+            x, y = self.p.get_mesh()
+            lx, ly = mset.grid.L
             ncp = sw.config.ncp
 
-            self.p.arr = height * ncp.exp(-((X - Lx/2)**2 + (Y - Ly/2)**2) / (2 * width**2))
+            self.p.arr = height * ncp.exp(-((x - lx/2)**2 + (y - ly/2)**2) / (2 * width**2))
 
     # Create the grid and model settings
     grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
@@ -385,15 +393,18 @@ The following example demonstrates how to calculate the potential vorticity of t
     :align: center
 
 
-Adding Custom Field Variables to the State Vector
--------------------------------------------------
+Adding Custom Scalar Fields to the State Vector
+-----------------------------------------------
 
-In most cases, there's no need to add custom field variables to the state vector. However, there are instances where this might be desired.
-For example, if you want to add tracer field variables or additional prognostic variables for turbulence models.
-These variables are added through the model settings. In the following example, we add the CO₂ concentration as a field variable:
+.. warning::
+    FIXME: The functionality has changed, code snippet will no longer work
+
+In most cases, there's no need to add custom scalar fields to the state vector. However, there are instances where this might be desired.
+For example, if you want to add tracer scalar fields or additional prognostic variables for turbulence models.
+These variables are added through the model settings. In the following example, we add the CO₂ concentration as a scalar field:
 
 .. code-block:: python
-    :caption: Adding custom field variables
+    :caption: Adding custom scalar fields
 
     import fridom.shallowwater as sw
 
@@ -402,7 +413,7 @@ These variables are added through the model settings. In the following example, 
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
-    # Add the CO2 field variable to the model settings
+    # Add the CO2 scalar field to the model settings
     mset.add_field_to_state({'name': "co2",
                              'long_name': "CO₂ concentration",
                              'units': "ppm"})
@@ -423,7 +434,7 @@ These variables are added through the model settings. In the following example, 
         p: pressure  [m²/s²]
         co2: CO₂ concentration  [ppm]
 
-        FieldVariable
+        ScalarField
         - name: co2
         - long_name: CO² concentration
         - units: ppm
@@ -435,8 +446,8 @@ These variables are added through the model settings. In the following example, 
 
 .. note::
 
-    The dictionary passed to the ``add_field_to_state`` method contains the keyword arguments needed for creating a new field variable.
-    Field variables receive this dictionary as kwargs in their constructor.
+    The dictionary passed to the ``add_field_to_state`` method contains the keyword arguments needed for creating a new scalar field.
+    Scalar fields receive this dictionary as kwargs in their constructor.
 
 
 Saving and Loading State Vectors
@@ -488,8 +499,8 @@ The following example shows how to save a state vector to a netCDF file and load
 Summary
 -------
 
-In this tutorial, we explored the concept of the state vector in `fridom`, which acts as a container for field variables and is analogous to `Datasets` in `xarray`. We learned how to initialize a state vector, access and modify its field variables, and apply various operations on all fields simultaneously. Additionally, we covered how to convert the state vector into `xarray` datasets for visualization, and how to set initial conditions for models—whether using built-in options like the Jet initial condition or creating custom conditions such as a Gaussian hill.
+In this tutorial, we explored the concept of the state vector in `fridom`, which acts as a container for scalar fields and is analogous to `Datasets` in `xarray`. We learned how to initialize a state vector, access and modify its scalar fields, and apply various operations on all fields simultaneously. Additionally, we covered how to convert the state vector into `xarray` datasets for visualization, and how to set initial conditions for models—whether using built-in options like the Jet initial condition or creating custom conditions such as a Gaussian hill.
 
-We also discussed the option to add custom field variables to the state vector, and the use of diagnostic variables for analyzing quantities like energy and vorticity. Lastly, we covered how to save and load state vectors using the netCDF file format, enabling easy storage and reusability of model states. This provides a comprehensive foundation for working with state vectors in different models and scenarios within `fridom`.
+We also discussed the option to add custom scalar fields to the state vector, and the use of diagnostic variables for analyzing quantities like energy and vorticity. Lastly, we covered how to save and load state vectors using the netCDF file format, enabling easy storage and reusability of model states. This provides a comprehensive foundation for working with state vectors in different models and scenarios within `fridom`.
 
 Finally, in the next tutorial, we will learn how to run models in `fridom`.

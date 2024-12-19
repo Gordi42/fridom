@@ -8,7 +8,7 @@ This design choice was made to enhance the framework's flexibility,
 allowing users to tailor output based on the purpose of their model run. 
 Depending on the scenario, output requirements can vary significantly:
 
-- You might want to save all field variables at regular intervals for later analysis.
+- You might want to save all scalar fields at regular intervals for later analysis.
 - Alternatively, you could only be interested in saving the surface kinetic energy.
 - In other cases, you may wish to integrate a custom analysis tool that processes the model state directly during the run.
 
@@ -22,8 +22,8 @@ In the next tutorial, we will delve into creating custom diagnostic modules.
 Using the NetCDFWriter Module
 -----------------------------
 
-The |NetCDFWriter| module writes field variables to NetCDF files. 
-Here is a simple example where all field variables of the state vector are saved 
+The |NetCDFWriter| module writes scalar fields to NetCDF files. 
+Here is a simple example where all scalar fields of the state vector are saved 
 every 0.5 model seconds into a NetCDF file:
 
 .. code-block:: python
@@ -183,9 +183,9 @@ daily but create a new file every model year:
 Customizing Output Variables
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-By default, all field variables of the state vector are saved to the NetCDF file. 
+By default, all scalar fields of the state vector are saved to the NetCDF file. 
 If you want to change this behavior, you can define a custom callback function 
-to specify which field variables to save. For example, in a nonhydrostatic model, 
+to specify which scalar fields to save. For example, in a nonhydrostatic model, 
 you might save kinetic energy, potential vorticity, and pressure:
 
 .. tab-set::
@@ -196,7 +196,7 @@ you might save kinetic energy, potential vorticity, and pressure:
 
             import fridom.nonhydro as nh
 
-            def get_output_fields(model_state: nh.ModelState) -> list[nh.FieldVariable]:
+            def get_output_fields(model_state: nh.ModelState) -> list[nh.ScalarField]:
                 pressure = model_state.z_diag.p
                 ekin = model_state.z.ekin
                 pot_vort = model_state.z.pot_vort
@@ -214,7 +214,7 @@ you might save kinetic energy, potential vorticity, and pressure:
             import fridom.nonhydro as nh
 
             # create the custom output writer
-            def get_output_fields(model_state: nh.ModelState) -> list[nh.FieldVariable]:
+            def get_output_fields(model_state: nh.ModelState) -> list[nh.ScalarField]:
                 pressure = model_state.z_diag.p
                 ekin = model_state.z.ekin
                 pot_vort = model_state.z.pot_vort
@@ -268,7 +268,7 @@ you might save kinetic energy, potential vorticity, and pressure:
 Custom Output Region
 ~~~~~~~~~~~~~~~~~~~~
 
-To save only a specific region of a field variable, use the `snap_slice` property. 
+To save only a specific region of a scalar fields, use the `snap_slice` property. 
 For instance, to save only the first 100 points in the x-direction and every 
 second point in the y-direction:
 
@@ -350,7 +350,7 @@ Multiple Output Writers
 
 FRIDOM's modular design allows you to add multiple diagnostic modules. 
 For example, you can use multiple |NetCDFWriter| instances to save different 
-field variables at different intervals into separate files.
+scalar fields at different intervals into separate files.
 
 
 Summary
@@ -358,7 +358,7 @@ Summary
 
 In this tutorial, we explored the use of the |NetCDFWriter| module in FRIDOM to save model output in various configurations. Key takeaways include:
 
-- The |NetCDFWriter| module provides a flexible way to store field variables in NetCDF files.
+- The |NetCDFWriter| module provides a flexible way to store scalar fields in NetCDF files.
 - You can control output timing using |ClockTrigger| with different configurations (e.g., time intervals, steps, or date ranges).
 - Output can be customized by specifying variables or slicing regions of interest.
 - Multiple |NetCDFWriter| modules can be used simultaneously for complex output needs.

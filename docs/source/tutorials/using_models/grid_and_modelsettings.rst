@@ -245,4 +245,4 @@ To simplify working with different backends, you can access ``ncp`` from the con
 
 Arrays should always be based on the meshgrid to ensure that their dimensions are correct. This is particularly important for ensuring consistency with parallelized cases.
 
-The grid also provides several other functions, which are not covered in detail here. Most of these functions are not directly used but are utilized by the FieldVariable class, introduced in the next tutorial. The FieldVariable class is essentially a wrapper around ``ncp`` arrays, offering various functions to facilitate working with them.
+The grid also provides several other functions, which are not covered in detail here. Most of these functions are not directly used but are utilized by the ScalarField class, introduced in the next tutorial. The ScalarField class is essentially a wrapper around ``ncp`` arrays, offering various functions to facilitate working with them.

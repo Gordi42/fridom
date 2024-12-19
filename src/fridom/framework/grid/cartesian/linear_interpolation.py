@@ -31,9 +31,9 @@ class LinearInterpolation(fr.grid.InterpolationModule):
         return
 
     @fr.utils.jaxjit
-    def interpolate(self, 
-                    f: fr.FieldVariable,
-                    destination: fr.grid.Position) -> fr.FieldVariable:
+    def interpolate(self,
+                    f: fr.ScalarField,
+                    destination: fr.grid.Position) -> fr.ScalarField:
         for axis in range(f.arr.ndim):
             f = self.interpolate_axis(f, axis, destination.positions[axis])
         mask = self.water_mask.get_mask(destination)
@@ -42,9 +42,9 @@ class LinearInterpolation(fr.grid.InterpolationModule):
 
     @partial(fr.utils.jaxjit, static_argnames=('axis', 'destination'))
     def interpolate_axis(self, 
-                         f: fr.FieldVariable,
+                         f: fr.ScalarField,
                          axis: int,
-                         destination: fr.grid.AxisPosition) -> fr.FieldVariable:
+                         destination: fr.grid.AxisPosition) -> fr.ScalarField:
         if not f.topo[axis]:
             # no interpolation when the field has no extend along the axis
             return f
@@ -53,7 +53,7 @@ class LinearInterpolation(fr.grid.InterpolationModule):
             # no interpolation needed
             return f
 
-        res = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
+        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
         next = self._nexts[axis]
         prev = self._prevs[axis]
 

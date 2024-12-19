@@ -20,9 +20,9 @@ class DiffModule(fr.modules.Module):
 
     @abstractmethod
     def diff(self,
-             f: fr.FieldVariable,
+             f: fr.ScalarField,
              axis: int,
-             order: int = 1) -> fr.FieldVariable:
+             order: int = 1) -> fr.ScalarField:
         r"""
         Compute the partial derivative of a field along an axis.
 
@@ -33,7 +33,7 @@ class DiffModule(fr.modules.Module):
 
         Parameters
         ----------
-        `f` : `fr.FieldVariable`
+        `f` : `fr.ScalarField`
             The field to differentiate.
         `axis` : `int`
             The axis along which to differentiate.
@@ -42,7 +42,7 @@ class DiffModule(fr.modules.Module):
 
         Returns
         -------
-        `fr.FieldVariable`
+        `fr.ScalarField`
             The derivative of the field along the specified axis.
         """
         raise NotImplementedError
@@ -50,9 +50,9 @@ class DiffModule(fr.modules.Module):
     @partial(fr.utils.jaxjit, static_argnames=('axes',))
     @fr.modules.module_method
     def grad(self,
-             f: fr.FieldVariable,
+             f: fr.ScalarField,
              axes: list[int] | None = None
-             ) -> tuple[fr.FieldVariable | None]:
+             ) -> tuple[fr.ScalarField | None]:
         r"""
         Compute the gradient of a field.
 
@@ -62,7 +62,7 @@ class DiffModule(fr.modules.Module):
 
         Parameters
         ----------
-        `f` : `fr.FieldVariable`
+        `f` : `fr.ScalarField`
             The field to differentiate.
         `axes` : `list[int] | None` (default is None)
             The axes along which to compute the gradient. If `None`, the
@@ -70,7 +70,7 @@ class DiffModule(fr.modules.Module):
 
         Returns
         -------
-        `tuple[fr.FieldVariable | None]`
+        `tuple[fr.ScalarField | None]`
             The gradient of the field along the specified axes. The list contains 
             the gradient components along each axis. Axis which are not included 
             in `axes` will have a value of `None`. 
@@ -86,8 +86,8 @@ class DiffModule(fr.modules.Module):
     @fr.utils.jaxjit
     @fr.modules.module_method
     def div(self,
-            vec: tuple[fr.FieldVariable | None]
-            ) -> fr.FieldVariable:
+            vec: tuple[fr.ScalarField | None]
+            ) -> fr.ScalarField:
         r"""
         Compute the divergence of a vector field.
         
@@ -96,14 +96,14 @@ class DiffModule(fr.modules.Module):
 
         Parameters
         ----------
-        `vec` : `tuple[fr.FieldVariable | None]`
+        `vec` : `tuple[fr.ScalarField | None]`
             The vector field to compute the divergence of. Tuple entries that
             are `None` are ignored (for example to calculate 2D divergence
             in a 3D system).
 
         Returns
         -------
-        `fr.FieldVariable`
+        `fr.ScalarField`
             The divergence of the field.
 
         Examples
@@ -126,9 +126,9 @@ class DiffModule(fr.modules.Module):
     @partial(fr.utils.jaxjit, static_argnames=('axes',))
     @fr.modules.module_method
     def laplacian(self,
-                  f: fr.FieldVariable,
+                  f: fr.ScalarField,
                   axes: tuple[int] | None = None
-                  ) -> fr.FieldVariable:
+                  ) -> fr.ScalarField:
         r"""
         Compute the Laplacian of a scalar field.
 
@@ -137,7 +137,7 @@ class DiffModule(fr.modules.Module):
 
         Parameters
         ----------
-        `f` : `fr.FieldVariable`
+        `f` : `fr.ScalarField`
             The field to differentiate.
         `axes` : `tuple[int] | None` (default is None)
             The axes along which to compute the Laplacian. If `None`, the
@@ -145,13 +145,13 @@ class DiffModule(fr.modules.Module):
 
         Returns
         -------
-        `fr.FieldVariable`
+        `fr.ScalarField`
             The Laplacian of the field.
         """
         if axes is None:
             axes = list(range(f.arr.ndim))
             
-        laplace = fr.FieldVariable(mset=f.mset, mdata=deepcopy(f.mdata))
+        laplace = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
         for axis in axes:
             laplace += self.diff(f, axis, order=2)
         return laplace

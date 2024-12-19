@@ -207,7 +207,7 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
 #  Utility functions
 # ================================================================
 
-def set_nyquist_to_zero(z: fr.StateBase) -> fr.StateBase:
+def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
     r"""
     Set the nyquist frequency to zero in the spectral domain.
     

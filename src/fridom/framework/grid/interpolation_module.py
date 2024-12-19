@@ -17,21 +17,21 @@ class InterpolationModule(fr.modules.Module):
     
     @abstractmethod
     def interpolate(self, 
-                    f: fr.FieldVariable,
-                    destination: fr.grid.Position) -> fr.FieldVariable:
+                    f: fr.ScalarField,
+                    destination: fr.grid.Position) -> fr.ScalarField:
         """
         Interpolate the field to the destination position.
         
         Parameters
         ----------
-        `f` : `fr.FieldVariable`
+        `f` : `fr.ScalarField`
             The field to interpolate.
         `destination` : `fr.grid.Position`
             The position to interpolate to.
         
         Returns
         -------
-        `fr.FieldVariable`
+        `fr.ScalarField`
             The interpolated field.
         """
         raise NotImplementedError

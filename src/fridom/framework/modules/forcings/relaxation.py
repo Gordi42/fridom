@@ -37,7 +37,7 @@ class Relaxation(fr.modules.Module):
         The relaxation time scale :math:`\tau`.
     `field_name` : `str`
         The name of the field that should be relaxed.
-    `target` : `float | fr.FieldVariable`
+    `target` : `float | fr.ScalarField`
         The target value of the field.
     `domain_function` : `callable`
         A function that takes the mesh as input and returns a boolean array
@@ -47,12 +47,12 @@ class Relaxation(fr.modules.Module):
     def __init__(self, 
                  tau: float, 
                  field_name: str,
-                 target: float | fr.FieldVariable,
+                 target: float | fr.ScalarField,
                  domain_function: callable):
         super().__init__()
         self.tau = tau
         self.field_name = field_name
-        if type(target) is fr.FieldVariable:
+        if type(target) is fr.ScalarField:
             target = target.arr
         self.target = target
         self.domain_function = domain_function
@@ -72,7 +72,7 @@ class Relaxation(fr.modules.Module):
         return mz
 
     @fr.utils.jaxjit
-    def relax(self, z: fr.StateBase, dz: fr.StateBase) -> fr.StateBase:
+    def relax(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
         ncp = fr.config.ncp
         delta = (self.target - z[self.field_name].arr) / self.tau
         dz[self.field_name].arr += ncp.where(self.domain, delta, 0)

@@ -119,7 +119,7 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         self.dz_list = [self.mset.state_constructor() for _ in range(self.method.order)]
         return
 
-    def calculate_tendency(self, mz: 'fr.ModelState') -> 'fr.StateBase':
+    def calculate_tendency(self, mz: 'fr.ModelState') -> 'fr.VectorField':
         return self.mset.tendencies.update(mz).dz
 
     @fr.modules.module_method

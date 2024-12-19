@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import fridom.framework as fr
 from numpy import ndarray
 from abc import abstractmethod
@@ -201,7 +203,7 @@ class GridBase:
         raise NotImplementedError
 
     @abstractmethod
-    def vec_q(self, s: int, use_discrete: bool = True) -> fr.StateBase:
+    def vec_q(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
         Computes the eigenvector of the linear operator of the mode `s`.
         
@@ -214,13 +216,13 @@ class GridBase:
 
         Returns
         -------
-        `StateBase`
+        `fr.VectorField`
             The eigenvector of the linear operator.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def vec_p(self, s: int, use_discrete: bool = True) -> fr.StateBase:
+    def vec_p(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
         Computes the projection vector of the linear operator of the mode `s`.
         
@@ -233,8 +235,9 @@ class GridBase:
 
         Returns
         -------
-        `StateBase`
+        `fr.VectorField`
             The projection vector of the linear operator.
+
         """
         raise NotImplementedError
 
@@ -385,6 +388,99 @@ class GridBase:
         """
         return self.domain_decomp.create_random_array(
             seed=seed, pad=pad, spectral=spectral, topo=topo)
+
+    # ----------------------------------------------------------------
+    #  Shrink / Extend Methods
+    # ----------------------------------------------------------------
+
+    @abstractmethod
+    def sum(self,
+            field: fr.ScalarField,
+            axes: tuple[int] | None = None) -> fr.ScalarField:
+        """
+        Sum a field over the given axes.
+
+        Parameters
+        ----------
+        field : ScalarField
+            The field to sum.
+        axes : tuple[int] or None (default: None)
+            The axes to sum over. If None, all axes are summed over.
+
+        Returns
+        -------
+        ScalarField
+            The summed field with no extend in the summed axes.
+
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def min(self,
+            field: fr.ScalarField,
+            axes: tuple[int] | None = None) -> fr.ScalarField:
+        """
+        Compute the minimum of a field over the given axes.
+
+        Parameters
+        ----------
+        field : ScalarField
+            The field to compute the minimum.
+        axes : tuple[int] or None (default: None)
+            The axes to compute the minimum over. If None, all axes are used.
+
+        Returns
+        -------
+        ScalarField
+            The field with the minimum value in the given axes.
+
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def max(self,
+            field: fr.ScalarField,
+            axes: tuple[int] | None = None) -> fr.ScalarField:
+        """
+        Compute the maximum of a field over the given axes.
+
+        Parameters
+        ----------
+        field : ScalarField
+            The field to compute the maximum.
+        axes : tuple[int] or None (default: None)
+            The axes to compute the maximum over. If None, all axes are used.
+
+        Returns
+        -------
+        ScalarField
+            The field with the maximum value in the given axes.
+
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def integrate(self,
+                  field: fr.ScalarField,
+                  axes: tuple[int] | None = None) -> fr.ScalarField:
+        """
+        Integrate a scalar field over a given domain.
+
+        Parameters
+        ----------
+        field : ScalarField
+            The field to integrate.
+        axes : tuple[int] or None (default: None)
+            The axes to integrate over.
+
+        Returns
+        -------
+        ScalarField
+            The integrated field with no extend in the integrated axes.
+
+        """
+        raise NotImplementedError
+
     # ----------------------------------------------------------------
     #  Display methods
     # ----------------------------------------------------------------

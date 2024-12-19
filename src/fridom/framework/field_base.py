@@ -6,10 +6,12 @@ from typing import TYPE_CHECKING, Callable, TypeVar
 
 import numpy as np
 
-import fridom.framework as fr
+from fridom.framework.grid.fft_padding import FFTPadding
 
 if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
+
+    import fridom.framework as fr
 
 T = TypeVar("T", bound="FieldBase")
 
@@ -43,7 +45,7 @@ class FieldBase:
 
     @abstractmethod
     def fft(self: T,
-            padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
+            padding: FFTPadding = FFTPadding.NOPADDING,
             ) -> T:
         r"""
         Perform a Fast Fourier Transform (FFT) on the field.
@@ -68,7 +70,7 @@ class FieldBase:
 
     @abstractmethod
     def ifft(self: T,
-             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
+             padding: FFTPadding = FFTPadding.NOPADDING,
              ) -> T:
         r"""
         Perform an Inverse Fast Fourier Transform (IFFT) on the field.

@@ -34,14 +34,14 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
 
     @fr.utils.jaxjit
     def advection(self, 
-                  velocity: 'tuple[fr.FieldVariable]',
-                  quantity: 'fr.FieldVariable') -> 'fr.FieldVariable':
+                  velocity: 'tuple[fr.ScalarField]',
+                  quantity: 'fr.ScalarField') -> 'fr.ScalarField':
         # shorthand notation
         inter = self.interp_module.interpolate
         diff = self.diff_module.diff
         q_pos = quantity.position
 
-        res = fr.FieldVariable(mset=quantity.mset, mdata=deepcopy(quantity.mdata))
+        res = fr.ScalarField(mset=quantity.mset, mdata=deepcopy(quantity.mdata))
 
         for axis, v in enumerate(velocity):
             # the flux position should be shifted from the quantity position

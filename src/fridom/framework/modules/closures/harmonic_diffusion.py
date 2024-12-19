@@ -31,8 +31,8 @@ class HarmonicDiffusion(fr.modules.Module):
         A list of strings that indicate which fields should be diffused.
         For example, if `field_flags=["ENABLE_MIXING"]`, all fields with the
         flag "ENABLE_MIXING" will be diffused. For more information on possible
-        flags, see :py:mod:`fridom.framework.FieldVariable`.
-    `diffusion_coefficients` : `tuple[float | fr.FieldVariable]`
+        flags, see :py:mod:`fridom.framework.ScalarField`.
+    `diffusion_coefficients` : `tuple[float | fr.ScalarField]`
         A tuple of diffusion coefficients. The length of the tuple must match
         the number of dimensions of the grid.
     `name` : `str`, (default="Harmonic Diffusion")
@@ -41,14 +41,14 @@ class HarmonicDiffusion(fr.modules.Module):
     name = "Harmonic Diffusion"
     def __init__(self, 
                  field_flags: list[str], 
-                 diffusion_coefficients: list[float | fr.FieldVariable]):
+                 diffusion_coefficients: list[float | fr.ScalarField]):
         super().__init__()
         self.field_flags = field_flags
         self.diffusion_coefficients = diffusion_coefficients
         return
 
     @fr.utils.jaxjit
-    def diffusion_operator(self, u: fr.FieldVariable) -> fr.FieldVariable:
+    def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
         r"""
         Applies the harmonic diffusion operator on a scalar field :math:`u`.
         """
@@ -56,7 +56,7 @@ class HarmonicDiffusion(fr.modules.Module):
         grad_u = list(self.diff_module.grad(u))
         # multiply the gradient with the diffusion coefficients
         for i, coeff in enumerate(self.diffusion_coefficients):
-            if isinstance(coeff, fr.FieldVariable):
+            if isinstance(coeff, fr.ScalarField):
                 # interpolate the diffusion coefficient to the position of the field
                 c = self.interp_module.interpolate(coeff, grad_u[i].position)
             else:
@@ -67,7 +67,7 @@ class HarmonicDiffusion(fr.modules.Module):
         return div_u
 
     @fr.utils.jaxjit
-    def diffuse(self, z: fr.StateBase, dz: fr.StateBase) -> fr.StateBase:
+    def diffuse(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
         # loop over all fields
         for name, field in z.fields.items():
             if not any([field.flags[flag] for flag in self.field_flags]):
@@ -98,7 +98,7 @@ class HarmonicDiffusion(fr.modules.Module):
         return
 
     @property
-    def diffusion_coefficients(self) -> list[float | fr.FieldVariable]:
+    def diffusion_coefficients(self) -> list[float | fr.ScalarField]:
         """A list of diffusion coefficients."""
         return self._diffusion_coefficients
     

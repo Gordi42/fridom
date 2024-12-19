@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 from fridom.framework.grid.grid_base import GridBase
 import fridom.nonhydro as nh
+import fridom.framework as fr
 from functools import partial
 # Import external modules
 from typing import TYPE_CHECKING
 # Import internal modules
 from fridom.framework import config, utils
-from fridom.framework.field_variable import FieldVariable
 from fridom.framework.model_settings_base import ModelSettingsBase
 # Import type information
 if TYPE_CHECKING:
@@ -14,18 +16,24 @@ if TYPE_CHECKING:
 
 @partial(utils.jaxify, dynamic=("f_coriolis", "N2", "dsqr", "Ro"))
 class ModelSettings(ModelSettingsBase):
+
     """
     Model settings for the 3D non-hydrostatic model.
-    
+
     Parameters
     ----------
-    `grid` : `Grid`
+    grid : Grid
         The grid object.
+
     """
+
     model_name = "3D - Nonhydrostatic model"
 
-    def __init__(self, grid: GridBase, **kwargs) -> None:
+    def __init__(self, grid: GridBase, **kwargs: any) -> None:
         super().__init__(grid)
+
+        # TODO(Silvano): rename variables to meaningful names
+
         # Set standard parameters
         self.tendencies = nh.modules.MainTendency()
         self._f0 = 1             # constant coriolis parameter f0
@@ -41,27 +49,23 @@ class ModelSettings(ModelSettingsBase):
 
     def setup_settings_parameters(self):
         # Coriolis parameter
-        f_coriolis = FieldVariable(
-            self, 
+        f_coriolis = fr.ScalarField(self,
             name="f",
             long_name="Coriolis parameter",
             units="1/s",
             position=self.grid.cell_center,
-            topo=[False, True, False],
+            topo=(True, True, True),  # TODO(Silvano): don't need topo in x and z
         )
-        f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,0,:,0,None]
         self._f_coriolis = f_coriolis
+        self._update_coriolis()
         # make sure that the advection term is scaled by the Rossby number
         self.tendencies.advection.scaling = self.Ro
-        return
 
-    def state_constructor(self):
-        from fridom.nonhydro.state import State
-        return State(self, is_spectral=self.grid.spectral_grid)
+    def state_constructor(self) -> nh.State:  # noqa: D102
+        return nh.State(self, is_spectral=self.grid.spectral_grid)
 
-    def diagnostic_state_constructor(self):
-        from fridom.nonhydro.state import DiagnosticState
-        return DiagnosticState(self, is_spectral=self.grid.spectral_grid)
+    def diagnostic_state_constructor(self) -> nh.DiagnosticState:  # noqa: D102
+        return nh.DiagnosticState(self, is_spectral=self.grid.spectral_grid)
 
     # ================================================================
     #  Properties
@@ -78,70 +82,69 @@ class ModelSettings(ModelSettingsBase):
         return res
 
     @property
-    def f0(self) -> 'float':
+    def f0(self) -> float:
         """The constant term of the  Coriolis parameter (f=f0 + beta*y)."""
         return self._f0
-    
+
     @f0.setter
-    def f0(self, value: 'float'):
+    def f0(self, value: float) -> None:
         self._f0 = value
-        if self._f_coriolis is not None:
-            self.f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,:,None]
-        return
+        self._update_coriolis()
 
     @property
-    def beta(self) -> 'float':
+    def beta(self) -> float:
         """The beta term of the Coriolis parameter (f=f0 + beta*y)."""
         return self._beta
-    
+
     @beta.setter
-    def beta(self, value: 'float'):
+    def beta(self, value: float) -> None:
         self._beta = value
-        if self._f_coriolis is not None:
-            self.f_coriolis[:] = self._f0 + self._beta * self.grid.X[1][None,:,None]
-        return
+        self._update_coriolis()
 
     @property
-    def f_coriolis(self) -> 'FieldVariable':
+    def f_coriolis(self) -> fr.ScalarField:
         """The Coriolis parameter (f=f0 + beta*y)."""
         return self._f_coriolis
-    
+
     @f_coriolis.setter
-    def f_coriolis(self, value: 'FieldVariable | float | ndarray'):
-        if isinstance(value, FieldVariable):
-            self._f_coriolis = value
-        else:
-            self._f_coriolis[:] = value
-        return
+    def f_coriolis(self, value: fr.ScalarField) -> None:
+        if not isinstance(value, fr.ScalarField):
+            msg = "The coriolis parameter must be a ScalarField."
+            raise TypeError(msg)
+        self._f_coriolis = value
+
+    def _update_coriolis(self) -> None:
+        if self._f_coriolis is None:
+            # nothing to be updated if the coriolis parameter is not set
+            return
+        _x, y, _z = self.f_coriolis.get_mesh()
+        self._f_coriolis.arr = self.f0 + self.beta * y
 
     @property
-    def N2(self) -> 'float':
+    def N2(self) -> float:
         """The stratification N²."""
         return self._N2
-    
+
     @N2.setter
-    def N2(self, value: 'float'):
+    def N2(self, value: float) -> None:
         self._N2 = value
-        return
 
     @property
-    def Ro(self) -> 'float':
+    def Ro(self) -> float:
         """The Rossby number."""
         return self._Ro
-    
+
     @Ro.setter
-    def Ro(self, value: 'float'):
+    def Ro(self, value: float) -> None:
         self._Ro = value
         # scale the advection term
         self.tendencies.advection.scaling = value
-        return
 
     @property
-    def dsqr(self) -> 'float':
+    def dsqr(self) -> float:
         r"""The aspect ratio. :math:`\delta^2`."""
         return self._dsqr
-    
+
     @dsqr.setter
-    def dsqr(self, value: 'float'):
+    def dsqr(self, value: float) -> None:
         self._dsqr = value
-        return

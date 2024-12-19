@@ -28,10 +28,10 @@ class NetCDFWriter(fr.modules.Module):
     directory : str, optional
         The directory where the files should be stored. Default is "snapshots".
     get_variables : callable, (default: None)
-        A function that returns a list of field variables that should be written
+        A function that returns a list of scalar fields that should be written
         to the file. If None, all fields of the State object will be written.
         The function signature of get_variables is:
-        `get_variables(mz: 'ModelState') -> list[FieldVariable]`
+        `get_variables(mz: 'ModelState') -> list[ScalarField]`
 
     """
 
@@ -50,7 +50,7 @@ class NetCDFWriter(fr.modules.Module):
         self.execute_at_start = True
 
         if get_variables is None:
-            def get_variables(mz: fr.ModelState) -> list[fr.FieldVariable]:
+            def get_variables(mz: fr.ModelState) -> list[fr.ScalarField]:
                 return mz.z.field_list
 
         # ----------------------------------------------------------------

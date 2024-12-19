@@ -5,7 +5,7 @@ Using FRIDOM Models
    :hidden:
 
    grid_and_modelsettings
-   field_variable_and_plotting
+   scalar_fields_and_plotting
    state_and_initial_conditions
    running_the_model
    modules_part1
@@ -87,11 +87,11 @@ Tutorials
 
       Learn how to create a grid and set up the model settings.
 
-   .. grid-item-card::  2. Field Variables and Plotting
-      :link: field_variable_and_plotting
+   .. grid-item-card::  2. Scalar Fields and Plotting
+      :link: scalar_fields_and_plotting
       :link-type: doc
 
-      Learn how to work with field variables and how to plot them.
+      Learn how to work with scalar fields and how to plot them.
 
    .. grid-item-card::  3. The State Vector and Initial Conditions
       :link: state_and_initial_conditions

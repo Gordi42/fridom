@@ -38,7 +38,7 @@ class SpectralPressureSolver(fr.modules.Module):
         return
 
     @fr.utils.jaxjit
-    def solve_for_pressure(self, div: fr.FieldVariable) -> fr.FieldVariable:
+    def solve_for_pressure(self, div: fr.ScalarField) -> fr.ScalarField:
         if self.fft_required:
             return ( - div.fft() * self.k_squared_inv).ifft()
         else:

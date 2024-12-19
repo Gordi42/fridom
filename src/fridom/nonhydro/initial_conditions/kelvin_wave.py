@@ -101,28 +101,28 @@ class KelvinWave(nh.State):
             return wave
 
         if side == "N":
-            def get_wave(f: nh.FieldVariable):
+            def get_wave(f: nh.ScalarField):
                 x, y, z = f.get_mesh()
                 x_normal = Ly - y
                 x_parallel = Lx - x
                 return wave(x_parallel, x_normal, z)
             self.u.arr = (- pol_u_normal * get_wave(self.u)).imag
         elif side == "S":
-            def get_wave(f: nh.FieldVariable):
+            def get_wave(f: nh.ScalarField):
                 x, y, z = f.get_mesh()
                 x_normal = y
                 x_parallel = x
                 return wave(x_parallel, x_normal, z)
             self.u.arr = (pol_u_normal * get_wave(self.u)).imag
         elif side == "E":
-            def get_wave(f: nh.FieldVariable):
+            def get_wave(f: nh.ScalarField):
                 x, y, z = f.get_mesh()
                 x_normal = Lx - x
                 x_parallel = y
                 return wave(x_parallel, x_normal, z)
             self.v.arr = (pol_u_normal * get_wave(self.v)).imag
         elif side == "W":
-            def get_wave(f: nh.FieldVariable):
+            def get_wave(f: nh.ScalarField):
                 x, y, z = f.get_mesh()
                 x_normal = x
                 x_parallel = Ly - y

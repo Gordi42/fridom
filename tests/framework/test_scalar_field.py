@@ -234,6 +234,15 @@ def test_repr(mset, attr):
     # check if the repr string contains the name of the field
     assert str(getattr(field, attr)) in res
 
+def test_value(field, topo, is_spectral):
+    if any(topo):
+        msg = "The field is not constant"
+        with pytest.raises(ValueError, match=msg):
+            _ = field.value
+        return
+    expected_type = complex if is_spectral else float
+    assert isinstance(field.value, expected_type)
+
 # ----------------------------------------------------------------
 #  Test general methods
 # ----------------------------------------------------------------
@@ -580,16 +589,21 @@ def test_min(field, axes, topo):
     assert result.topo == (False, False)
     assert result.arr.shape == (1, 1)
 
-def test_integrate(field, axes, topo):
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: field.integrate(axes))
+def test_integrate(field, axes, is_spectral):
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            field.integrate(axes)
         return
-    if axes is not None:
-        not_implemented_axes(lambda: field.integrate(axes))
+    if not all(field.topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            field.norm_l2()
         return
-    msg = "Integration is not implemented yet"
-    with pytest.raises(NotImplementedError, match=msg):
-        field.integrate(axes)
+    field_int = field.integrate(axes)
+    # check if the topo is correct
+    axes = axes or [0, 1]
+    for axis in axes:
+        assert not field_int.topo[axis]
+        assert field_int.arr.shape[axis] == 1
 
 # ----------------------------------------------------------------
 #  Test arithmetic operations
@@ -710,13 +724,20 @@ def test_abs(field):
     # check if the array is the absolute value of the original array
     assert fr.config.ncp.allclose(new_field.arr, abs(field.arr))
 
-def test_norm_l2(field, topo):
-    if not all(topo):
-        not_implemented_for_non_full_domain_fields(lambda: field.norm_l2())
+def test_norm_l2(field, is_spectral):
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            field.norm_l2()
         return
-    msg = "Integration is not implemented yet"
-    with pytest.raises(NotImplementedError, match=msg):
-        field.norm_l2()
+    if not all(field.topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            field.norm_l2()
+        return
+    norm = field.norm_l2()
+    assert isinstance(norm, float)
+    field *= 0
+    field += 1
+    assert fr.config.ncp.allclose(field.norm_l2(), 2 ** 0.5)
 
 def test_dot_with_scalar_field(field, mset, is_spectral, dot_op):
     # if the spectral flag is different, the dot product should raise an error
@@ -750,6 +771,11 @@ def test_conj(field):
     # check if the array is the complex conjugate of the original array
     assert fr.config.ncp.allclose(new_field.arr, field.arr.conj())
 
+def test_neg(field):
+    new_field = -field
+    # check if the array is the negative of the original array
+    assert fr.config.ncp.allclose(new_field.arr, -field.arr)
+
 # ================================================================
 #  JAX JIT tests
 # ================================================================
@@ -774,5 +800,10 @@ def test_jit(mset, op):
         return
     # check if a gradient can be computed
     import jax
-    grad_func = jax.grad(lambda f: func(f).sum().arr.item().real)
-    grad_func(field)
+    @jax.grad
+    def differentiable_func(f) -> float:
+        f = func(f)
+        if f.is_spectral:
+            f = f.ifft()
+        return f.norm_l2()
+    differentiable_func(field)

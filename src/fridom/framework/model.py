@@ -256,12 +256,12 @@ class Model:
     # ============================================================
 
     @property
-    def z(self) -> fr.StateBase:
+    def z(self) -> fr.VectorField:
         """Returns the current state variable."""
         return self.model_state.z
 
     @z.setter
-    def z(self, value: fr.StateBase) -> None:
+    def z(self, value: fr.VectorField) -> None:
         """Set the current state variable."""
         self.model_state.z = value
 

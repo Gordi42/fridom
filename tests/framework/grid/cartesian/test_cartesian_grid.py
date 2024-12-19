@@ -14,7 +14,7 @@ from fridom.framework import config
 def n_dims(request):
     return request.param
 
-@pytest.fixture()
+@pytest.fixture
 def L(n_dims):
     match n_dims:
         case 1:
@@ -22,19 +22,19 @@ def L(n_dims):
         case 2:
             return (1.0, 2.0)
 
-@pytest.fixture()
+@pytest.fixture
 def N(n_dims):
     match n_dims:
         case 1:
             return (64, )
         case 2:
             return (32, 128)
-        
-@pytest.fixture()
+
+@pytest.fixture
 def dx(L, N):
     return [li/ni for li, ni in zip(L, N)]
 
-@pytest.fixture()
+@pytest.fixture
 def grid(L, N):
     grid = fr.grid.cartesian.Grid(N, L)
     mset = fr.ModelSettingsBase(grid)
