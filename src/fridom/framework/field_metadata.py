@@ -1,7 +1,7 @@
 """dataclass for the metadata of a ScalarField."""
 from __future__ import annotations
 
-from copy import copy
+from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -79,6 +79,17 @@ class FieldMetadata:
         if self.bc_types is None:
             self.bc_types = [fr.grid.BCType.NEUMANN] * mset.grid.n_dims
 
+    def __copy__(self) -> FieldMetadata:
+        return deepcopy(self)
+
+    def copy(self) -> FieldMetadata:
+        """Create a deep copy of the FieldMetadata."""
+        return deepcopy(self)
+
+    # ================================================================
+    #  Serialization
+    # ================================================================
+
     def to_serializable(self) -> dict:
         """Convert the FieldMetadata to a serializable dictionary."""
         res = {
@@ -110,6 +121,10 @@ class FieldMetadata:
                        [fr.grid.AxisPosition(x) for x in data["position"]]),
                    _bc_types=tuple(fr.grid.BCType(x) for x in data["bc_types"]),
                    _flags={key: bool(data[key]) for key in data["flags"]})
+
+    # ================================================================
+    #  Properties
+    # ================================================================
 
     @property
     def topo(self) -> tuple[bool]:
