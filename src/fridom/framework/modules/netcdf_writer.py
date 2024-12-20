@@ -95,7 +95,8 @@ class NetCDFWriter(fr.modules.Module):
     @fr.modules.module_method
     def reset(self) -> None:  # noqa: D102
         self.write_trigger.reset()
-        self.restart_trigger.reset()
+        if self.restart_trigger is not None:
+            self.restart_trigger.reset()
         super().reset()
 
     @fr.modules.module_method
