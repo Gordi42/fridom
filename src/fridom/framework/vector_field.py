@@ -106,6 +106,55 @@ class VectorField(fr.FieldBase):
             field_list[field.name] = field
         return field_list
 
+    @staticmethod
+    def _add_custom_fields(mset: fr.ModelSettingsBase,
+                           fields: OrderedDict[str, fr.ScalarField],
+                           custom_fields: list[fr.FieldMetadata],
+                           **kwargs: any,
+                           ) -> OrderedDict[str, fr.ScalarField]:
+        """
+        Add custom fields to the vector field.
+
+        Description
+        -----------
+        This method adds custom fields to the vector field. The custom fields
+        are specified as a list of field metadata objects. The method checks
+        if the names of the custom fields are unique and adds them to the
+        dictionary of fields.
+
+        This method is particularly useful for creating state or diagnostic
+        vector fields. The list of custom fields can be stored in the model
+        settings object and passed to the vector field constructor.
+
+        Parameters
+        ----------
+        mset : fr.ModelSettingsBase
+            The model settings object.
+        fields : OrderedDict[str, fr.ScalarField]
+            The dictionary of scalar fields.
+        custom_fields : list[fr.FieldMetadata]
+            The list of custom fields to add.
+        **kwargs : any
+            Additional keyword arguments to pass to the scalar fields.
+
+        Returns
+        -------
+        OrderedDict[str, fr.ScalarField]
+            The dictionary of scalar fields with the custom fields added.
+
+        """
+        # check if names are unique
+        field_names = set(fields)
+        custom_names = {field.name for field in custom_fields}
+        if not custom_names.isdisjoint(field_names):
+            msg = f"Field names not unique: {custom_names & field_names}"
+            raise ValueError(msg)
+        # add the custom fields
+        for mdata in custom_fields:
+            field = fr.ScalarField(mset, mdata=mdata.copy(), **kwargs)
+            fields[field.name] = field
+        return fields
+
     # ================================================================
     #  General Methods
     # ================================================================
