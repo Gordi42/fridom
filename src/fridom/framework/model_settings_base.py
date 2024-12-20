@@ -63,7 +63,8 @@ class ModelSettingsBase:
         self._nan_checker = fr.modules.NaNChecker()
         self._restart_module = fr.modules.RestartModule()
         self._timer = fr.timing_module.TimingModule()
-        self._custom_fields  = []
+        self._custom_state_fields = []
+        self._custom_diagnostic_fields = []
         self._halo           = None
         self.grid = grid
         self.set_attributes(**kwargs)
@@ -151,40 +152,6 @@ class ModelSettingsBase:
 # Diagnostics: {self.diagnostics}
 =================================================
         """
-
-    def add_field_to_state(self, kwargs: dict) -> None:
-        """
-        Add a scalar field to the state vector.
-
-        Description
-        -----------
-        This method can be used to extend the state vector with a new field
-        variable, for example when adding a new tracer to the model.
-
-        Parameters
-        ----------
-        kwargs : `dict`
-            Dictionary that contains the arguments required to construct
-            the field.
-
-        """
-        # check if a name is provided
-        if "name" not in kwargs:
-            fr.log.critical("Error occurred while adding a field to the state.")
-            fr.log.critical("Field name not provided")
-            fr.log.critical("Please provide a name in the kwargs dictionary.")
-            raise ValueError
-        name = kwargs["name"]
-        all_names = [field["name"] for field in self.custom_fields]
-        # check if the field name already exists
-        if name in all_names:
-            fr.log.critical("Error occurred while adding a field to the state.")
-            fr.log.critical("Field name %s already exists", name)
-            fr.log.critical("Used names: %s", all_names)
-            fr.log.critical("Please provide a unique name in the kwargs dictionary.")
-            raise ValueError
-
-        self.custom_fields.append(kwargs)
 
     # ================================================================
     #  Properties
@@ -290,15 +257,6 @@ class ModelSettingsBase:
     # ----------------------------------------------------------------
 
     @property
-    def custom_fields(self) -> list:
-        """List of custom fields to be added to the state vector."""
-        return self._custom_fields
-
-    @custom_fields.setter
-    def custom_fields(self, value: list) -> None:
-        self._custom_fields = value
-
-    @property
     def halo(self) -> int:
         """Return the halo size of the model."""
         if self._halo is not None:
@@ -308,3 +266,13 @@ class ModelSettingsBase:
     @halo.setter
     def halo(self, value: int) -> None:
         self._halo = value
+
+    @property
+    def custom_state_fields(self) -> list[fr.FieldMetadata]:
+        """List of custom state fields."""
+        return self._custom_state_fields
+
+    @property
+    def custom_diagnostic_fields(self) -> list[fr.FieldMetadata]:
+        """List of custom diagnostic fields."""
+        return self._custom_diagnostic_fields

@@ -69,7 +69,9 @@ class State(fr.VectorField):
 
         # TODO(Silvano): add the custom fields from model settings
 
-        return OrderedDict([("u", u), ("v", v), ("p", p)])
+        fields = OrderedDict([("u", u), ("v", v), ("p", p)])
+        return State._add_custom_fields(
+            mset, fields, mset.custom_state_fields, **kwargs)
 
     # ----------------------------------------------------------------
     #  State Variables

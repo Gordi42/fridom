@@ -82,9 +82,9 @@ class State(fr.VectorField):
             flags={"ENABLE_MIXING": True},
             **kwargs)
 
-        # TODO(Silvano): add the custom fields from model settings
-
-        return OrderedDict([("u", u), ("v", v), ("w", w), ("b", b)])
+        fields = OrderedDict([("u", u), ("v", v), ("w", w), ("b", b)])
+        return State._add_custom_fields(
+            mset, fields, mset.custom_state_fields, **kwargs)
 
     # ----------------------------------------------------------------
     #  State Variables
@@ -452,9 +452,9 @@ class DiagnosticState(fr.VectorField):
             position=mset.grid.cell_center,
             **kwargs)
 
-        # TODO(Silvano): add the custom fields from model settings
-
-        return OrderedDict([("p", p), ("div", div)])
+        fields = OrderedDict([("p", p), ("div", div)])
+        return DiagnosticState._add_custom_fields(
+            mset, fields, mset.custom_diagnostic_fields, **kwargs)
 
     @property
     def p(self) -> fr.ScalarField:
