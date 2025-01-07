@@ -79,3 +79,34 @@ def random_array(shape: tuple[int], seed=12345, **kwargs) -> np.ndarray:
     ncp = fr.config.ncp
     default_rng = ncp.random.default_rng
     return default_rng(seed).standard_normal(shape)
+
+def array_is_constant(arr: np.ndarray) -> bool:
+    """
+    Check if an array is constant.
+
+    Description
+    -----------
+    This function checks if all elements of an array are the same.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        The array to check.
+
+    Returns
+    -------
+    bool
+        True if the array is constant, False otherwise.
+
+    Examples
+    --------
+    >>> import fridom.framework as fr
+    >>> x = fr.config.ncp.ones(10)
+    >>> fr.utils.array_is_constant(x)
+    True
+    >>> x[5] = 0
+    >>> fr.utils.array_is_constant(x)
+    False
+
+    """
+    return fr.config.ncp.allclose(arr, arr.flatten()[0])

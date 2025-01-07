@@ -18,7 +18,12 @@ with suppress(ImportError):
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
-    from .array_ops import SliceableAttribute, modify_array, random_array
+    from .array_ops import (
+        SliceableAttribute,
+        array_is_constant,
+        modify_array,
+        random_array,
+    )
     from .decorators import cache_figure, skip_on_doc_build
     from .filesystem import chdir_to_submit_dir, stdout_is_file
     from .formatting import humanize_length, humanize_number, humanize_time
@@ -39,7 +44,9 @@ all_imports_by_origin = {
     f"{BASE}.printing": ["print_bar", "print_job_init_info"],
     f"{BASE}.formatting": ["humanize_length", "humanize_time", "humanize_number"],
     f"{BASE}.filesystem": ["chdir_to_submit_dir", "stdout_is_file"],
-    f"{BASE}.array_ops": ["SliceableAttribute", "modify_array", "random_array"],
+    f"{BASE}.array_ops": [
+        "SliceableAttribute", "modify_array", "random_array", "array_is_constant",
+        ],
     f"{BASE}.numpy_utils": ["to_numpy", "to_seconds"],
     f"{BASE}.jax_utils": [
         "jaxjit", "jaxify", "inspect_jitted_function", "free_memory",
