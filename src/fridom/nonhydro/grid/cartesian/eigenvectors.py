@@ -363,7 +363,7 @@ def omega(mset: nh.ModelSettings,
     if s == 0:
         return ncp.zeros_like(kx)
     if s == "d":
-        msg = "Divertent mode does not have eigenvalues."
+        msg = "Divergent mode does not have eigenvalues."
         raise ValueError(msg)
 
     # Define the spectral operators
