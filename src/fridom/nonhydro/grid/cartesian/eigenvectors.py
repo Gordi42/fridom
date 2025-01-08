@@ -298,7 +298,7 @@ import fridom.nonhydro as nh
 
 dso = fr.grid.cartesian.discrete_spectral_operators
 
-def check_if_spectral_analysis_is_possible(mset: nh.ModelSettings) -> None:
+def _check_if_spectral_analysis_is_possible(mset: nh.ModelSettings) -> None:
     r"""
     Check if the spectral analysis is possible.
 
@@ -321,6 +321,27 @@ def check_if_spectral_analysis_is_possible(mset: nh.ModelSettings) -> None:
     # check if the coriolis frequency and the stratification are zero
     if mset.f0 == 0 and mset.N2 == 0:
         msg = "The coriolis frequency and the stratification are zero."
+        raise ValueError(msg)
+
+def _check_for_horizontal_periodic_boundaries(mset: nh.ModelSettings) -> None:
+    r"""
+    Check if the periodic boundary in horizontal direction is set.
+
+    Parameters
+    ----------
+    mset : nh.ModelSettings
+        The model settings.
+
+    Raises
+    ------
+    ValueError
+        If the grid is nonperiodic in horizontal direction.
+
+    """
+    bc = mset.grid.periodic_bounds
+    horizontal_periodic = bc[0] and bc[1]
+    if not horizontal_periodic:
+        msg = "The grid is nonperiodic in horizontal direction."
         raise ValueError(msg)
 
 # ================================================================
@@ -348,7 +369,7 @@ def omega(mset: nh.ModelSettings,
 
     """
     # we first check if the spectral analysis is possible
-    check_if_spectral_analysis_is_possible(mset)
+    _check_if_spectral_analysis_is_possible(mset)
 
     # shorthand notation
     ncp = fr.config.ncp
@@ -393,7 +414,8 @@ def _vec_q_geostrophic(mset: nh.ModelSettings,
                        use_discrete: bool = True,  # noqa: FBT001 FBT002
                        ) -> nh.State:
     """Return geostrophic q eigenvector."""
-    check_if_spectral_analysis_is_possible(mset)
+    _check_if_spectral_analysis_is_possible(mset)
+    _check_for_horizontal_periodic_boundaries(mset)
     # Shortcuts
     grid = mset.grid
     ncp = fr.config.ncp
@@ -480,7 +502,8 @@ def _vec_q_igw(mset: nh.ModelSettings,
                use_discrete: bool = True,  # noqa: FBT001 FBT002
                ) -> nh.State:
     """Return inertial-gravity wave q eigenvectors."""
-    check_if_spectral_analysis_is_possible(mset)
+    _check_if_spectral_analysis_is_possible(mset)
+    _check_for_horizontal_periodic_boundaries(mset)
     # Shortcuts
     grid = mset.grid
     ncp = fr.config.ncp
@@ -623,7 +646,8 @@ def _vec_p_geostrophic(mset: nh.ModelSettings,
                        use_discrete: bool = True,  # noqa: FBT001 FBT002
                        ) -> nh.State:
     """Return geostrophic projection vectors."""
-    check_if_spectral_analysis_is_possible(mset)
+    _check_if_spectral_analysis_is_possible(mset)
+    _check_for_horizontal_periodic_boundaries(mset)
     # Shortcuts
     ncp = fr.config.ncp
     grid = mset.grid
@@ -691,6 +715,8 @@ def _vec_p_igw(mset: nh.ModelSettings,
                s: int,
                use_discrete: bool = True,  # noqa: FBT001 FBT002
                ) -> nh.State:
+    _check_if_spectral_analysis_is_possible(mset)
+    _check_for_horizontal_periodic_boundaries(mset)
     # Shortcuts
     ncp = fr.config.ncp
     grid = mset.grid
