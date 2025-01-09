@@ -1,6 +1,6 @@
 """Test the FieldBase class."""
-import pytest
 import numpy as np
+import pytest
 
 import fridom.framework as fr
 
@@ -87,7 +87,7 @@ def field(mset, value, is_spectral):
 def other(request):
     return request.param
 
-# # ================================================================
+# ================================================================
 #  Tests
 # ================================================================
 
@@ -166,7 +166,7 @@ def test_conj(field, value):
     assert new_field.value == value.conjugate()
     assert new_field.is_spectral == field.is_spectral
 
-@pytest.mark.parametrize("dot_op", 
+@pytest.mark.parametrize("dot_op",
     [
         pytest.param(lambda x, y: x.dot(y), id="dot method"),
         pytest.param(lambda x, y: x @ y, id="matmul operator"),
