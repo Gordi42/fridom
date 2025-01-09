@@ -1,6 +1,7 @@
-"""tests for framework/config.py"""
-import pytest
+"""tests for framework/configuration.py."""
 import numpy as np
+import pytest
+
 import fridom.framework as fr
 
 
@@ -11,14 +12,14 @@ def reset_config():
     yield
     fr.config.set_dtype(original_dtype)
 
-@pytest.mark.parametrize(
+@pytest.mark.parametrize(*(
     "dtype, expected_real, expected_comp",
     [
         ("float32", np.float32, np.complex64),
         ("float64", np.float64, np.complex128),
         ("float128", np.float128, np.complex256),
     ],
-)
+))
 def test_set_dtype(dtype, expected_real, expected_comp):
     """Test setting data types and ensuring compatibility."""
     if fr.config.backend_is_jax and dtype == "float128":
