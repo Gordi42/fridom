@@ -29,12 +29,9 @@ def test_clock_initialization(start_date, start_time, raises):
     clock = fr.Clock(start_date=start_date, start_time=start_time)
     assert isinstance(clock, fr.Clock)
 
-
 # ----------------------------------------------------------------
 #  Test the tick method of the Clock class
 # ----------------------------------------------------------------
-
-
 @pytest.mark.parametrize(*(
     "time_steps, expected",
     [
@@ -57,12 +54,9 @@ def test_tick(start_date, time_steps, expected):
     _ = [clock.tick(step) for step in time_steps]
     assert clock.passed_time == expected
 
-
 # ----------------------------------------------------------------
 #  Test the get_total_time method of the Clock class
 # ----------------------------------------------------------------
-
-
 @pytest.mark.parametrize(*(
     "start_date, start_time, passed_time, expected",
     [
@@ -82,12 +76,9 @@ def test_get_total_time(start_date, start_time, passed_time, expected):
     total_time = clock.get_total_time(passed_time)
     assert total_time == expected
 
-
 # ----------------------------------------------------------------
 #  Test the time property
 # ----------------------------------------------------------------
-
-
 @pytest.mark.parametrize(*(
     "start_date, start_time, delta_time, expected",
     [
@@ -107,12 +98,9 @@ def test_time(start_date, start_time, delta_time, expected):
     clock.tick(delta_time)
     assert clock.time == expected
 
-
 # ----------------------------------------------------------------
 #  Test the reset method
 # ----------------------------------------------------------------
-
-
 @pytest.mark.parametrize(*(
     "start_time",
     [
