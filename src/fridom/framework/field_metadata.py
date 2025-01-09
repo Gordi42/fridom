@@ -169,7 +169,7 @@ class FieldMetadata:
                 msg += f"Available flags: {self._flags}"
                 raise KeyError(msg)
             if not isinstance(value, bool):
-                fr.log.warning(f"Flag {key} must be a boolean")
-                msg = f"Flag {key} is of type {type(value)}"
+                msg = f"Flag {key} must be a boolean, "
+                msg += f"but is of type {type(value)}"
                 raise TypeError(msg)
             self._flags[key] = value
