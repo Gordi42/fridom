@@ -28,7 +28,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from .filesystem import chdir_to_submit_dir, stdout_is_file
     from .formatting import humanize_length, humanize_number, humanize_time
     from .jax_utils import free_memory, inspect_jitted_function, jaxify, jaxjit
-    from .mpi import I_AM_MAIN_RANK, MPI_AVAILABLE, get_mpi_size, mpi_barrier
+    from .mpi import (
+        I_AM_MAIN_RANK,
+        MPI_AVAILABLE,
+        get_mpi_size,
+        get_my_rank,
+        mpi_barrier,
+    )
     from .numpy_utils import to_numpy, to_seconds
     from .printing import print_bar, print_job_init_info
 
@@ -40,7 +46,10 @@ all_modules_by_origin = {}
 
 BASE = "fridom.framework.utils"
 all_imports_by_origin = {
-    f"{BASE}.mpi": ["I_AM_MAIN_RANK", "MPI_AVAILABLE", "mpi_barrier", "get_mpi_size"],
+    f"{BASE}.mpi": [
+        "I_AM_MAIN_RANK", "MPI_AVAILABLE", "mpi_barrier", "get_mpi_size",
+        "get_my_rank",
+        ],
     f"{BASE}.printing": ["print_bar", "print_job_init_info"],
     f"{BASE}.formatting": ["humanize_length", "humanize_time", "humanize_number"],
     f"{BASE}.filesystem": ["chdir_to_submit_dir", "stdout_is_file"],

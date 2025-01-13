@@ -37,7 +37,7 @@ def mpi_barrier():
 def get_mpi_size():
     """
     Get the number of MPI processes.
-    
+
     Returns
     -------
     `int`
@@ -46,3 +46,17 @@ def get_mpi_size():
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_size()
     return 1
+
+def get_my_rank() -> int:
+    """
+    Get the rank of the current MPI process.
+
+    Returns
+    -------
+    int
+        The rank of the current MPI process.
+
+    """
+    if MPI_AVAILABLE:
+        return MPI.COMM_WORLD.Get_rank()
+    return 0
