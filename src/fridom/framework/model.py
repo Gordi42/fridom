@@ -1,8 +1,6 @@
 """Model class for the fridom framework."""
 from __future__ import annotations
 
-import sys
-
 import numpy as np
 
 import fridom.framework as fr
