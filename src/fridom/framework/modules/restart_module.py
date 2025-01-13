@@ -42,7 +42,7 @@ class RestartModule(fr.modules.Module):
                  realtime_interval: np.timedelta64 | None = None,
                  clock_trigger: fr.ClockTrigger | None = None,
                  restart_command: str | None = None,
-                 file_path: Path = Path("restart/model.dill")) -> None:
+                 file_path: Path | str = Path("restart/model.dill")) -> None:
         super().__init__()
 
         # ----------------------------------------------------------------
@@ -190,7 +190,11 @@ class RestartModule(fr.modules.Module):
         return self._file_path
 
     @file_path.setter
-    def file_path(self, file_path: Path) -> None:
+    def file_path(self, file_path: Path | str) -> None:
+        # cast to Path
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+        # sanitize the filename
         filename = file_path.stem
         # replace "_" with "-"
         if "_" in filename:
@@ -198,7 +202,7 @@ class RestartModule(fr.modules.Module):
             msg += " Replacing '_' with '-' in the filename."
             fr.log.warning(msg)
             filename = filename.replace("_", "-")
-        return file_path.with_name(filename + file_path.suffix)
+        self._file_path = file_path.with_name(filename + file_path.suffix)
 
     @property
     def restart_command(self) -> str:
