@@ -70,6 +70,7 @@ class ClockTrigger:
         if time_interval is not None and isinstance(time_interval, np.timedelta64):
             time_interval = fr.utils.to_seconds(time_interval)
 
+        self._trigger_on_first_step = True
         self._time_interval = time_interval
         self._step_size = step_size
         self._start_time = None
@@ -224,6 +225,9 @@ class ClockTrigger:
         if should_advance:
             self._number_of_advanced_steps += 1
 
+            if not self.trigger_on_first_step and self._number_of_advanced_steps == 1:
+                should_advance = False
+
         return should_advance
 
     def check(self, clock: fr.Clock) -> bool:
@@ -277,3 +281,12 @@ class ClockTrigger:
         else:
             res += "stop_date=None)"
         return res
+
+    @property
+    def trigger_on_first_step(self) -> bool:
+        """Check if the module should trigger on the first step."""
+        return self._trigger_on_first_step
+
+    @trigger_on_first_step.setter
+    def trigger_on_first_step(self, value: bool) -> None:
+        self._trigger_on_first_step = value
