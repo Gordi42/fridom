@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -28,10 +29,17 @@ class RestartModule(fr.modules.Module):
     clock_trigger : fr.ClockTrigger, optional
         Triggers the restart based on the model time.
         If None, the model will not restart based on model time.
-    restart_command : str, optional
+    restart_command : str or Callable, optional
         The command to start the job.
-        If None, the model tries to find the command from the environment.
-        If the command is not found, the model will not be able to restart.
+        If the command is a string:
+            The model will restart by running the command in a subprocess.
+        If the command is a callable:
+            The model will restart by calling the function. This function should
+            simply restart the job. It should have no arguments, and should
+            return nothing.
+        If the command is None:
+            The model will try to find the command from the environment.
+            If the command is not found, the model will not be able to restart.
     file_path : Path, optional
         The path to the restart file.
 
@@ -41,7 +49,7 @@ class RestartModule(fr.modules.Module):
     def __init__(self,
                  realtime_interval: np.timedelta64 | None = None,
                  clock_trigger: fr.ClockTrigger | None = None,
-                 restart_command: str | None = None,
+                 restart_command: str | Callable | None = None,
                  file_path: Path | str = Path("restart/model.dill")) -> None:
         super().__init__()
 
@@ -72,8 +80,7 @@ class RestartModule(fr.modules.Module):
     @fr.modules.module_method
     def setup(self, mset: fr.ModelSettingsBase) -> None:  # noqa: D102
         super().setup(mset)
-        fr.log.verbose("Touching the restart directory.")
-        self.file_path.parent.mkdir(parents=True, exist_ok=True)
+        self._touch_restart_directory()
 
     @fr.modules.module_method
     def should_restart(self, mz: fr.ModelState) -> bool:
@@ -126,7 +133,7 @@ class RestartModule(fr.modules.Module):
     def set_full_filename(self, it: int) -> None:
         """Set the full filename with the iteration number and rank."""
         rank = fr.utils.get_my_rank()
-        filename = f"{self.file_path.stem}_{it}_{rank}.{self.file_path.suffix}"
+        filename = f"{self.file_path.stem}_{it}_{rank}{self.file_path.suffix}"
         self.file = self.file_path.parent / filename
 
     def restart(self, model: fr.Model) -> None:
@@ -151,11 +158,21 @@ class RestartModule(fr.modules.Module):
         model.stop()
         model.save(self.file)
         fr.log.info(model.mset.timer)
-        fr.log.info(f"Running restart command: {self.restart_command}")
-        fr.log.info(self.restart_command)
+        if isinstance(self.restart_command, str):
+            self._restart_from_command()
+            return
+        if isinstance(self.restart_command, Callable):
+            self.restart_command()
+            return
+        msg = "No restart command is set. The model can't restart."
+        raise ValueError(msg)
+
+    def _restart_from_command(self) -> None:
+        """Restart the model from the restart command."""
+        if isinstance(self.restart_command, str):
+            fr.log.info(f"Running restart command: {self.restart_command}")
         fr.utils.mpi_barrier()
         if fr.utils.MPI_AVAILABLE:
-            import subprocess
             result = subprocess.run(  # noqa: S603
                 self.restart_command.split(),
                 capture_output=True,
@@ -166,6 +183,11 @@ class RestartModule(fr.modules.Module):
                 fr.log.error(result.stderr)
         fr.utils.mpi_barrier()
         sys.exit()
+
+    def _touch_restart_directory(self) -> None:
+        """Touch the restart directory."""
+        fr.log.verbose("Touching the restart directory.")
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
     # ================================================================
     #  Properties
@@ -183,6 +205,46 @@ class RestartModule(fr.modules.Module):
             res["Restart Command"] = self.restart_command
         res["File Path"] = self.file_path
         return res
+
+    @property
+    def realtime_interval(self) -> np.timedelta64 | None:
+        """The interval in real time at which the model should restart."""
+        return self._realtime_interval
+
+    @realtime_interval.setter
+    def realtime_interval(self, realtime_interval: np.timedelta64 | None) -> None:
+        if realtime_interval is None:
+            self._realtime_interval = None
+            return
+        # check that the interval is a timedelta
+        if not isinstance(realtime_interval, np.timedelta64):
+            msg = "The interval should be a numpy timedelta64."
+            raise TypeError(msg)
+
+    @property
+    def clock_trigger(self) -> fr.ClockTrigger | None:
+        """
+        Triggers the restart based on the model time.
+
+        By default, the clock trigger will not trigger on the first step.
+        Any other option will be overridden. To trigger on the first step,
+        set the trigger_on_first_step to True after setting the clock trigger,
+        e.g.:
+
+        .. code-block:: python
+
+            import fridom.framework as fr
+            restart_module = fr.modules.RestartModule(clock_trigger=fr.ClockTrigger())
+            restart_module.clock_trigger.trigger_on_first_step = True
+
+        """
+        return self._clock_trigger
+
+    @clock_trigger.setter
+    def clock_trigger(self, clock_trigger: fr.ClockTrigger | None) -> None:
+        self._clock_trigger = clock_trigger
+        if isinstance(clock_trigger, fr.ClockTrigger):
+            clock_trigger.trigger_on_first_step = False
 
     @property
     def file_path(self) -> Path:
