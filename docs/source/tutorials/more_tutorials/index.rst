@@ -6,6 +6,7 @@ More Tutorials
 
    backend
    precision
+   logging
    building_the_documentation
 
 
@@ -24,6 +25,12 @@ More Tutorials
       :link-type: doc
 
       How to set the precision of floating point numbers in FRIDOM.
+
+   .. grid-item-card:: Logging
+      :link: logging
+      :link-type: doc
+
+      How to change the log level for more detailed progress updates.
 
    .. grid-item-card:: Building the documentation
       :link: building_the_documentation
