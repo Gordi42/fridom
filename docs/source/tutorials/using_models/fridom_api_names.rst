@@ -16,3 +16,4 @@
 .. |Module| replace:: :py:class:`Module <fridom.framework.modules.module.Module>`
 .. |ModuleContainer| replace:: :py:class:`ModuleContainer <fridom.framework.modules.module_container.ModuleContainer>`
 .. |NetCDFWriter| replace:: :py:class:`NetCDFWriter <fridom.framework.modules.netcdf_writer.NetCDFWriter>`
+.. |RestartModule| replace:: :py:class:`RestartModule <fridom.framework.modules.restart_module.RestartModule>`
