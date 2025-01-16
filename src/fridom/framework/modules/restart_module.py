@@ -220,6 +220,7 @@ class RestartModule(fr.modules.Module):
         if not isinstance(realtime_interval, np.timedelta64):
             msg = "The interval should be a numpy timedelta64."
             raise TypeError(msg)
+        self._realtime_interval = realtime_interval
 
     @property
     def clock_trigger(self) -> fr.ClockTrigger | None:
