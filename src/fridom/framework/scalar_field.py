@@ -664,6 +664,12 @@ class ScalarField(fr.FieldBase):
             axes = tuple(axes)
         return self.grid.integrate(self, axes=axes)
 
+    def mean(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
+        if isinstance(axes, list):
+            axes = tuple(axes)
+        cell_volume = self.grid.cell_volume.integrate(axes=axes)
+        return self.integrate(axes=axes) / cell_volume
+
     # ================================================================
     #  Arithmetic operations
     # ================================================================

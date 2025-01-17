@@ -563,6 +563,23 @@ def test_integrate(mset, is_spectral, topo, axes):
             assert not f.topo[axis]
             assert f.arr.shape[axis] == 1
 
+def test_mean(mset, is_spectral, topo, axes):
+    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            vec.mean(axes)
+        return
+    if not all(topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            vec.mean(axes)
+        return
+    vec_mean = vec.mean(axes)
+    axes = axes or (0, 1)
+    for f in vec_mean:
+        for axis in axes:
+            assert not f.topo[axis]
+            assert f.arr.shape[axis] == 1
+
 # ----------------------------------------------------------------
 #  Test arithmetic operations
 # ----------------------------------------------------------------

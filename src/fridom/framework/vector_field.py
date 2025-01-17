@@ -430,6 +430,9 @@ class VectorField(fr.FieldBase):
     def integrate(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.integrate(axes))
 
+    def mean(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+        return self.apply_elementwise(self, lambda field: field.mean(axes))
+
     # ================================================================
     #  Arithmetic Operations
     # ================================================================

@@ -592,10 +592,7 @@ class FieldBase:
         .. math::
             \sum_{i} \int_{x_i} f(\boldsymbol{x}) dx_i
 
-        If no axes are specified, the integral is computed over all axes and a
-        scalar (float) is returned. If axes are specified, the integral is computed
-        over the specified axes and a new Field that is shrinked in the specified
-        axes is returned.
+        If no axes are specified, the integral is computed over all axes.
 
         Parameters
         ----------
@@ -606,6 +603,34 @@ class FieldBase:
         -------
         FieldBase
             The integral of the Field over the specified axes.
+
+        """
+
+    @abstractmethod
+    def mean(self: T, axes: tuple[int] | None = None) -> T:
+        r"""
+        Global mean of the Field in specified axes.
+
+        Description
+        -----------
+        Computes the global mean of the Field in the specified axes:
+
+        .. math::
+            \frac{\sum_{i} \int_{x_i} f(\boldsymbol{x}) dx_i}
+                 {\sum_{i} \int_{x_i} dx_i}
+
+        If no axes are specified, the mean is computed over all axes.
+
+        Parameters
+        ----------
+        axes : tuple[int] | None
+            The axes to compute the mean over. If None, compute the mean
+            over all axes.
+
+        Returns
+        -------
+        FieldBase
+            The mean of the Field over the specified axes.
 
         """
 

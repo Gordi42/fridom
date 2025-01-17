@@ -596,7 +596,7 @@ def test_integrate(field, axes, is_spectral):
         return
     if not all(field.topo):
         with pytest.raises(fr.exceptions.PartialDomainError):
-            field.norm_l2()
+            field.integrate()
         return
     field_int = field.integrate(axes)
     # check if the topo is correct
@@ -604,6 +604,22 @@ def test_integrate(field, axes, is_spectral):
     for axis in axes:
         assert not field_int.topo[axis]
         assert field_int.arr.shape[axis] == 1
+
+def test_mean(field, axes, is_spectral):
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            field.mean(axes)
+        return
+    if not all(field.topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            field.mean()
+        return
+    mean = field.mean(axes)
+    # check if the topo is correct
+    axes = axes or [0, 1]
+    for axis in axes:
+        assert not mean.topo[axis]
+        assert mean.arr.shape[axis] == 1
 
 # ----------------------------------------------------------------
 #  Test arithmetic operations
