@@ -667,8 +667,8 @@ class ScalarField(fr.FieldBase):
     def mean(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
         if isinstance(axes, list):
             axes = tuple(axes)
-        cell_volume = self.grid.cell_volume.integrate(axes=axes)
-        return self.integrate(axes=axes) / cell_volume
+        volume = self.grid.characteristic_function.integrate(axes=axes)
+        return self.integrate(axes=axes) / volume
 
     # ================================================================
     #  Arithmetic operations

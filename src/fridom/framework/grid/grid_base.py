@@ -623,14 +623,24 @@ class GridBase:
         return self._dV
 
     @property
-    def cell_volume(self) -> fr.ScalarField:
-        """The volume of each cell."""
-        mdata = fr.FieldMetadata(name="cell_volume",
-                                 long_name="Cell Volume",
-                                 units="m³",
+    def characteristic_function(self) -> fr.ScalarField:
+        """
+        The characteristic function of the grid (1 inside the domain, 0 outside).
+
+        Description
+        -----------
+        The characteristic function is a scalar field that is 1 inside the
+        domain and 0 outside. It is useful for masking fields or for
+        integrating over the domain. For example, the total volume of the
+        domain can be computed as the integral of the characteristic function.
+
+        """
+        mdata = fr.FieldMetadata(name="characteristic_function",
+                                 long_name="Characteristic Function",
+                                 units="1",
                                  position=self.cell_center)
         f = fr.ScalarField(mset = self.mset, mdata = mdata)
-        f += self.dV  # add the volume element
+        f += 1
         return f.apply_water_mask()
 
     # ================================================================
