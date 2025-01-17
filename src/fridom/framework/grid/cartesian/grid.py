@@ -264,6 +264,8 @@ class Grid(fr.grid.GridBase):
             field: fr.ScalarField,
             axes: tuple[int] | None = None) -> fr.ScalarField:
         fr.exceptions.PartialDomainError.check(field)
+        # apply the boundary mask to the field
+        field = field.apply_water_mask()
         axes = axes or tuple(range(self.n_dims))
         value = self.domain_decomp.sum(field.arr,
                                        axes=axes,
