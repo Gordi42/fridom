@@ -170,7 +170,7 @@ from lazypimp import setup
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework import projection, time_steppers, utils
+    from fridom.framework import exceptions, projection, time_steppers, utils
     from fridom.framework.clock import Clock, TimingFormat
     from fridom.framework.clock_trigger import ClockTrigger
     from fridom.framework.configuration import config
@@ -192,7 +192,7 @@ if TYPE_CHECKING:  # pragma: no cover
 base_fr = "fridom.framework"
 base_sw = "fridom.shallowwater"
 all_modules_by_origin = {
-    base_fr: ["time_steppers", "utils", "projection"],
+    base_fr: ["exceptions", "projection", "time_steppers", "utils"],
     base_sw: ["grid", "modules", "initial_conditions"],
 }
 
