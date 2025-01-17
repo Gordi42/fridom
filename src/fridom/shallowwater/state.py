@@ -137,9 +137,7 @@ class State(fr.VectorField):
             The energy is scaled with the gravity acceleration g.
 
         """
-        if self.is_spectral:
-            msg = "The kinetic energy is not implemented for spectral fields."
-            raise NotImplementedError(msg)
+        sw.exceptions.FieldSpaceError.check_if_physical(self)
 
         csqr = self.mset.csqr_field
         rossby_number = self.mset.Ro
@@ -149,7 +147,7 @@ class State(fr.VectorField):
         # Set the attributes
         ekin.name = "ekin"
         ekin.long_name = "Kinetic Energy"
-        ekin.units = "m^2/s^2"
+        ekin.units = "?"
         ekin.position = self.grid.cell_center
         return ekin
 
@@ -170,9 +168,7 @@ class State(fr.VectorField):
             The energy is scaled with the gravity acceleration g.
 
         """
-        if self.is_spectral:
-            msg = "The kinetic energy is not implemented for spectral fields."
-            raise NotImplementedError(msg)
+        sw.exceptions.FieldSpaceError.check_if_physical(self)
 
         csqr = self.mset.csqr_field
         rossby_number = self.mset.Ro
@@ -182,7 +178,7 @@ class State(fr.VectorField):
         # Set the attributes
         epot.name = "epot"
         epot.long_name = "Potential Energy"
-        epot.units = "m^2/s^2"
+        epot.units = "?"
         epot.position = self.grid.cell_center
         return epot
 
@@ -199,9 +195,29 @@ class State(fr.VectorField):
         # Set the attributes
         etot.name = "etot"
         etot.long_name = "Total Energy"
-        etot.units = "m^2/s^2"
+        etot.units = "?"
         etot.position = self.grid.cell_center
         return etot
+
+    @property
+    def spectral_ekin(self) -> fr.ScalarField:
+        r"""
+        Spectral kinetic energy density.
+
+        .. math::
+            S_{\text{kin}} = \frac{1}{2} (|\hat{u}|^2 + |\hat{v}|^2)
+
+        """
+        sw.exceptions.FieldSpaceError.check_if_spectral(self)
+
+        ekin = 0.5 * (self.u * self.u.conj() + self.v * self.v.conj())
+
+        # Set the attributes
+        ekin.name = "spectral_ekin"
+        ekin.long_name = "Spectral Kinetic Energy Density"
+        ekin.units = "?"
+        ekin.position = self.grid.cell_center
+        return ekin
 
     # ----------------------------------------------------------------
     #  Vorticity
