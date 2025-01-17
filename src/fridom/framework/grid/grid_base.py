@@ -622,6 +622,17 @@ class GridBase:
         """The volume element of the grid."""
         return self._dV
 
+    @property
+    def cell_volume(self) -> fr.ScalarField:
+        """The volume of each cell."""
+        mdata = fr.FieldMetadata(name="cell_volume",
+                                 long_name="Cell Volume",
+                                 units="m³",
+                                 position=self.cell_center)
+        f = fr.ScalarField(mset = self.mset, mdata = mdata)
+        f += self.dV  # add the volume element
+        return f.apply_water_mask()
+
     # ================================================================
     #  Flags
     # ================================================================
