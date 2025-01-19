@@ -176,13 +176,22 @@ class Model:
 
         # Execute the first time step
         self.progress_bar.disable()
-        self.step()
+        self._safe_step()
         self.progress_bar.enable()
 
         # Print the compilation time
         if fr.config.backend_is_jax:
             fr.log.notice(
                 f"Compilation finished in {time()-start_time:.2f} seconds")
+
+    def _safe_step(self) -> None:
+        """Run a single time step and catch any exceptions."""
+        try:
+            self.step()
+        except Exception as e:  # noqa: BLE001
+            fr.log.error("An error occurred during the model run.")
+            fr.log.error(e)
+            self.model_state.panicked = True
 
     def _main_loop_steps(self, start_value: int, final_value: int) -> None:
         start_it = self.model_state.clock.it
@@ -191,7 +200,7 @@ class Model:
 
         # loop over the given number of steps
         for _ in range(start_it, final_value):
-            self.step()
+            self._safe_step()
 
             if self.model_state.panicked:
                 fr.log.warning(
@@ -204,7 +213,7 @@ class Model:
 
         # loop until the end time is reached
         while self.model_state.clock.time < end_time:
-            self.step()
+            self._safe_step()
 
             if self.model_state.panicked:
                 fr.log.warning(

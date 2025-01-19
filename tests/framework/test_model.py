@@ -1,6 +1,7 @@
 """Test the main model class."""
 from __future__ import annotations
 
+import logging
 import tempfile
 
 import numpy as np
@@ -8,6 +9,9 @@ import pytest
 
 import fridom.framework as fr
 
+# ================================================================
+#  Fixtures
+# ================================================================
 
 @pytest.fixture
 def mset():
@@ -15,6 +19,22 @@ def mset():
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
+
+@pytest.fixture
+def capture_logs():
+    """Fixture to capture log output."""
+    from io import StringIO
+
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(logging.Formatter("%(asctime)s: %(message)s"))
+    fr.log.addHandler(handler)
+    yield stream
+    fr.log.removeHandler(handler)
+
+# ================================================================
+#  Tests
+# ================================================================
 
 @pytest.mark.parametrize("module_name", [
     "timer",
@@ -60,6 +80,9 @@ def test_run_steps(mset, start_step):
     assert clock.it == start_step + number_of_steps
     assert np.isclose(clock._passed_time, number_of_steps * mset.time_stepper.dt)
 
+    # check that the model has not panicked
+    assert not model.model_state.panicked
+
 
 @pytest.mark.parametrize(*(
     "start_time, runlen, expected_time",
@@ -79,6 +102,9 @@ def test_correct_clock_runlen(mset, start_time, runlen, expected_time):
     runlen_in_seconds = fr.utils.to_seconds(runlen)
     assert np.isclose(clock._passed_time, runlen_in_seconds)
     assert clock.get_total_time() == expected_time
+
+    # check that the model has not panicked
+    assert not model.model_state.panicked
 
 @pytest.mark.parametrize(*(
     "start_time, steps, expected_time",
@@ -103,6 +129,9 @@ def test_correct_clock_steps(mset, start_time, steps, expected_time):
     else:
         assert np.isclose(clock.get_total_time(), expected_time)
 
+    # check that the model has not panicked
+    assert not model.model_state.panicked
+
 @pytest.mark.parametrize(*(
     "start_time, end_time, expected_time",
     [
@@ -124,6 +153,9 @@ def test_correct_clock_end_time(mset, start_time, end_time, expected_time):
         assert clock.get_total_time() == expected_time
     else:
         assert np.isclose(clock.get_total_time(), expected_time)
+
+    # check that the model has not panicked
+    assert not model.model_state.panicked
 
 @pytest.mark.parametrize(*(
     "run_args",
@@ -150,6 +182,9 @@ def test_satified_end_condition(mset, run_args):
     assert counter_diag.counter == 0
     assert counter_tend.counter == 0
 
+    # check that the model has not panicked
+    assert not model.model_state.panicked
+
 def test_manual_stepping(mset):
     number_of_steps = 10
 
@@ -165,6 +200,41 @@ def test_manual_stepping(mset):
 
     # check that the counters are correct
     assert counter_tend.counter == number_of_steps
+
+    # check that the model has not panicked
+    assert not model.model_state.panicked
+
+@pytest.mark.parametrize("run_args", [
+    {"steps": 10},
+    {"runlen": 10.0},
+    {"start_time": np.datetime64("2021-01-01T00:00:00"),
+     "end_time": np.datetime64("2021-01-01T00:00:10")},
+])
+@pytest.mark.parametrize("container_name", ["tendencies", "diagnostics"])
+def test_broken_model(mset, run_args, container_name, capture_logs):
+    class BrokenModule(fr.modules.Module):
+        def update(self, mz: fr.ModelState) -> None:
+            _ = mz  # unused variable
+            msg = "This module is broken."
+            raise RuntimeError(msg)
+
+    broken_module = BrokenModule()
+    container = getattr(mset, container_name)
+    container.add_module(broken_module)
+    mset.setup()
+
+    # check that the model runs without raising an exception
+    model = fr.Model(mset)
+    model.run(**run_args)
+
+    # check that the model state is in panic mode
+    assert model.model_state.panicked
+
+    # check that an error was printed to the log
+    logs = capture_logs.getvalue()
+    assert "Something went wrong. Stopping model." in logs
+    assert "This module is broken." in logs
+
 
 @pytest.fixture
 def directory():
@@ -190,6 +260,9 @@ def test_save_load(mset, directory):
     assert counter_tend.counter == number_of_steps
     model.save(directory + "/model_state")
 
+    # check that the model has not panicked
+    assert not model.model_state.panicked
+
     model.reset()
     # check that the counters are reset
     assert model.model_state.clock.it == 0
@@ -213,3 +286,6 @@ def test_save_load(mset, directory):
     # check that the counters are reset
     assert counter_diag.counter == number_of_steps * 2
     assert counter_tend.counter == number_of_steps * 2
+
+    # check that the model has not panicked
+    assert not model.model_state.panicked
