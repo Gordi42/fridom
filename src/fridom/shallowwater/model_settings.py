@@ -90,7 +90,41 @@ class ModelSettings(fr.ModelSettingsBase):
 
     @property
     def beta(self) -> float:
-        """The beta term of the Coriolis parameter (f=f0 + beta*y)."""
+        r"""
+        The beta term of the Coriolis parameter (f=f0 + beta*y).
+
+        Unscaled System
+        ---------------
+        For the unscaled system, the beta term is given by:
+
+        .. math::
+            \beta = \frac{df}{dy} = \frac{2\Omega \cos(\phi)}{R}
+
+        where :math:`\Omega` is the angular velocity of the Earth, :math:`\phi`
+        is the latitude, and :math:`R` is the radius of the Earth.
+
+        Scaled System
+        -------------
+        In the scaled system, the beta term is given by:
+
+        .. math::
+            \beta = \frac{\beta' L}{\Omega}
+
+        where :math:`\beta'` is the unscaled beta term, :math:`L` is the
+        domain extent in the y-direction, and :math:`\Omega` is the angular
+        velocity of the Earth. We can rewrite the domain extent in terms of
+        the latitude extent :math:`\Delta \phi`:
+
+        .. math::
+            L = R \Delta \phi
+
+        where :math:`R` is the radius of the Earth. Thus, the beta term in the
+        scaled system is given by:
+
+        .. math::
+            \beta = 2 \cos(\phi) \Delta \phi
+
+        """
         return self._beta
 
     @beta.setter
