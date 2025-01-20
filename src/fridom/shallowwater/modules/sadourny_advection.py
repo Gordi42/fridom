@@ -1,9 +1,13 @@
+"""Sadourny advection scheme for the shallow water equations."""
+from __future__ import annotations
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
 
 @fr.utils.jaxify
 class SadournyAdvection(fr.modules.advection.AdvectionBase):
+
     r"""
     Advection scheme based on Sadourny [1975] that conserves the total energy.
 
@@ -20,7 +24,7 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
         \partial_t C = - (\boldsymbol{u} + \boldsymbol{u}_b) \cdot \nabla C
 
-    where :math:`\boldsymbol{u_b}` is a divergence free background flow that can 
+    where :math:`\boldsymbol{u_b}` is a divergence free background flow that can
     be set with the `background` attribute of this module, :math:`\zeta` is the
     relative vorticity, and :math:`C` is a passive tracer.
     We express the rotational part of the momentum advection with the potential
@@ -36,29 +40,22 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
         ~, \quad
         q = \frac{\zeta}{c^2 + Ro~ p}
     """
+
     name = "Sadourny Advection"
 
-    @fr.modules.module_method
-    def setup(self, mset: sw.ModelSettings) -> None:
-        super().setup(mset)
-        self.csqr = mset.csqr_field
+    def _on_setup(self) -> None:
         self._required_halo = 2
-        return
 
     @fr.utils.jaxjit
-    def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:
+    def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:  # noqa: D102
         if self.background is None and self.disable_nonlinear:
             return dz
-
         if self.disable_nonlinear:
             zf = self.background
         else:
             # Compute the full state vector (including the background)
-            if self.background is not None:
-                zf = z + self.background
-            else:
-                zf = z
-        
+            zf = z if self.background is None else z + self.background
+
         scale = self.scaling
         interp = self.interp_module.interpolate
         diff_mod = self.diff_module
@@ -117,10 +114,10 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
         # now do the nonlinear advection
         if self.disable_nonlinear:
             return dz
-        
+
         # compute the potential vorticity
         zeta = z.rel_vort
-        h_full = self.csqr + scale * z.p  # check if we should use scale or Ro here
+        h_full = self.mset.csqr + scale * z.p  # check if we should use scale or Ro here
         q = zeta / interp(h_full, NORTHEAST)
 
         # interp set h_full to zero on boundaries, as a result values of q on

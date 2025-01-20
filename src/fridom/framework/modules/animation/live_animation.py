@@ -1,11 +1,15 @@
+"""Live animations using Jupyter notebooks and matplotlib."""
+from __future__ import annotations
+
 import fridom.framework as fr
 
 
+#TODO(Silvano): This should use a clock trigger
 class LiveAnimation(fr.modules.Module):
+
     """
-    Create a live plot of the model that gets updated at regular intervals 
-    during the simulation.
-    
+    Create a plot that gets updated at regular intervals during the simulation.
+
     Description
     -----------
     To create a live animation of the model, one must provide a `ModelPlotter`
@@ -15,14 +19,16 @@ class LiveAnimation(fr.modules.Module):
     .. warning::
         The live animation module clashes with the Progress bar module. Make
         sure to disable the progress bar module when using the live animation.
-    
+
     Parameters
     ----------
-    `model_plotter` : `ModelPlotterBase`
+    model_plotter : ModelPlotterBase
         The model plotter that will be used to create the figure.
-    `interval` : `int`, optional (default=50)
+    interval : int, optional (default=50)
         The interval (time steps) at which the plot will be updated.
+
     """
+
     name = "Live Animation"
     def __init__(self, 
                  model_plotter: fr.modules.animation.ModelPlotter,
@@ -34,25 +40,13 @@ class LiveAnimation(fr.modules.Module):
         self.model_plotter = model_plotter
         self.mpi_available = False
         self.fig = None
-        return
 
     @fr.modules.module_method
-    def start(self) -> None:
-        """
-        Initialize the figure.
-        """
+    def start(self) -> None:  # noqa: D102
         self.fig = self.model_plotter.create_figure()
 
     @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:
-        """
-        Update the figure from the model state and display it.
-        
-        Parameters
-        ----------
-        `mz` : `ModelState`
-            The model state to be used to update the figure.
-        """
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         # check if its time to update the plot
         if mz.clock.it % self.interval != 0:
             return mz

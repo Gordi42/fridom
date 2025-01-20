@@ -1,8 +1,29 @@
-import numpy as np
-from fridom.framework import ModelSettingsBase
+"""Tests for the ModelSettingsBase class."""
+import pytest
+
+import fridom.framework as fr
+
+# ================================================================
+#  Fixtures
+# ================================================================
+
+
+# ================================================================
+#  Tests
+# ================================================================
+
+def test_init(): ...
+
+def test_attributes(): ...
+
+def test_setup(): ...
+
+def test_repr(): ...
+
+def test_halo(): ...
 
 def test_doc_example():
-    class MyModelSettings(ModelSettingsBase):
+    class MyModelSettings(fr.ModelSettingsBase):
         def __init__(self, grid, **kwargs):
             super().__init__(grid)
             self.model_name = "MyModel"

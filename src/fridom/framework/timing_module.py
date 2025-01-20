@@ -26,7 +26,7 @@ class TimingComponent:
         """Start the timer."""
         # check if the timer is already active
         if self.is_active:
-            fr.log.warning(
+            fr.log.debug(
                 f"Start of TimingComponent {self.name} is called, "
                 "but the component is already active.")
             return
@@ -40,7 +40,7 @@ class TimingComponent:
         """Stop the timer."""
         # check if the timer is active
         if not self.is_active:
-            fr.log.warning(
+            fr.log.debug(
                 f"Stop of TimingComponent {self.name} is called, "
                 "but the component is not active.")
             return

@@ -23,7 +23,7 @@ class Counter(fr.modules.Module):
         called.
 
     """
-    
+
     name = "Counter"
 
     def __init__(self, clock_trigger: fr.ClockTrigger | None = None) -> None:
@@ -31,17 +31,13 @@ class Counter(fr.modules.Module):
         self.clock_trigger = clock_trigger
         self.counter: int
 
-    @fr.modules.module_method
-    def setup(self, mset: fr.ModelSettingsBase) -> None:  # noqa: D102
-        super().setup(mset)
+    def _on_setup(self) -> None:
         self.clock_trigger = self.clock_trigger or fr.ClockTrigger()
         self.counter = 0
 
-    @fr.modules.module_method
-    def reset(self) -> None:  # noqa: D102
+    def _on_reset(self) -> None:
         self.clock_trigger.reset()
         self.counter = 0
-        super().reset()
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102

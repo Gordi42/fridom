@@ -1,7 +1,6 @@
 """Test the main model class."""
 from __future__ import annotations
 
-import logging
 import tempfile
 
 import numpy as np
@@ -19,18 +18,6 @@ def mset():
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
-
-@pytest.fixture
-def capture_logs():
-    """Fixture to capture log output."""
-    from io import StringIO
-
-    stream = StringIO()
-    handler = logging.StreamHandler(stream)
-    handler.setFormatter(logging.Formatter("%(asctime)s: %(message)s"))
-    fr.log.addHandler(handler)
-    yield stream
-    fr.log.removeHandler(handler)
 
 # ================================================================
 #  Tests
@@ -53,7 +40,6 @@ def test_model_modules(mset, module_name):
     model_obj = getattr(model, module_name)
     mset_obj = getattr(mset, module_name)
     assert model_obj is mset_obj
-
 
 @pytest.mark.parametrize(
         "start_step",
@@ -82,7 +68,6 @@ def test_run_steps(mset, start_step):
 
     # check that the model has not panicked
     assert not model.model_state.panicked
-
 
 @pytest.mark.parametrize(*(
     "start_time, runlen, expected_time",

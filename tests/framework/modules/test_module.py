@@ -9,10 +9,8 @@ class Increment(fr.modules.Module):
         # sets the name of the module to "Increment", and the number to None
         super().__init__()
         self.number = None
-    
-    @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
-        super().setup(mset)
+
+    def _on_setup(self) -> None:
         self.number = 0  # sets the number to 0
 
     @fr.modules.module_method
@@ -34,7 +32,7 @@ def mset():
     mset.setup()
     return mset
 
-def test_init(mset):
+def test_init():
     # create a module
     module = Increment()
     # check if the module is enabled
@@ -43,9 +41,10 @@ def test_init(mset):
     assert module.name == "Increment"
     # check if the module has the correct number
     assert module.number == None
-    # check if the module has the attributes grid, mset, and timer
-    assert module.mset == None
-    assert module.timer == None
+    assert not module.is_setup
+    # check if access to the mset results in an error
+    with pytest.raises(fr.exceptions.NotSetUpError):
+        _ = module.mset
 
 def test_start(mset):
     # create a module
@@ -63,8 +62,8 @@ def test_start(mset):
     module.disable()
     module.setup(mset=mset)
     # check if everything is still None
-    assert module.number == None
-    assert module.mset == None
+    assert module.number is None
+    assert not module.is_setup
 
 def test_update(mset):
     # create a module

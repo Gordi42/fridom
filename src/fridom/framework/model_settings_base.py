@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import fridom.framework as fr
 
@@ -66,7 +66,9 @@ class ModelSettingsBase:
         self._custom_state_fields = []
         self._custom_diagnostic_fields = []
         self._halo           = None
+        self._raise_error_when_something_goes_wrong = False
         self.grid = grid
+        self.is_setup = False
         self.set_attributes(**kwargs)
 
     def set_attributes(self, **kwargs: dict) -> None:
@@ -92,23 +94,27 @@ class ModelSettingsBase:
                 raise AttributeError(message)
             setattr(self, key, value)
 
-    def setup_grid(self) -> None:
+    def setup_grid(self, setup_mode: Literal["default", "forced"] = "default") -> None:
         """Set the grid object up."""
+        # TODO(Silvano): Pass the setup mode to the grid setup
         self.grid.setup(mset=self)
 
-    def _setup_all_modules(self) -> None:
+    def _setup_all_modules(self,
+                           setup_mode: Literal["default", "forced"] = "default",
+                           ) -> None:
         """Set all modules up."""
         self.grid.water_mask.setup(mset=self)
-        self.progress_bar.setup(mset=self)
-        self.restart_module.setup(mset=self)
-        self.tendencies.setup(mset=self)
-        self.diagnostics.setup(mset=self)
-        self.time_stepper.setup(mset=self)
+        modules = [self.nan_checker, self.progress_bar, self.restart_module,
+                     self.tendencies, self.diagnostics, self.time_stepper]
+        for module in modules:
+            module.setup(mset=self, setup_mode=setup_mode)
 
-    def setup_settings_parameters(self) -> None:
+    def setup_settings_parameters(self,
+                                  setup_mode: Literal["default", "forced"] = "default",
+                                  ) -> None:
         """Set the model settings parameters up."""
 
-    def setup(self: T) -> T:
+    def setup(self: T, setup_mode: Literal["default", "forced"] = "default") -> T:
         """
         Set the model settings up.
 
@@ -123,10 +129,14 @@ class ModelSettingsBase:
             The model settings object
 
         """
+        if self.is_setup and setup_mode == "default":
+            # If the model settings are already set up, return
+            return self
         fr.log.verbose("Setting up model settings")
-        self.setup_grid()
-        self.setup_settings_parameters()
-        self._setup_all_modules()
+        self.setup_grid(setup_mode=setup_mode)
+        self.setup_settings_parameters(setup_mode=setup_mode)
+        self._setup_all_modules(setup_mode=setup_mode)
+        self.is_setup = True
         fr.log.info(self)
         return self
 
@@ -197,6 +207,8 @@ class ModelSettingsBase:
     @time_stepper.setter
     def time_stepper(self, value: fr.time_steppers.TimeStepper) -> None:
         self._time_stepper = value
+        if self.is_setup:
+            value.setup(mset=self)
 
     @property
     def progress_bar(self) -> fr.modules.ProgressBar:
@@ -206,6 +218,8 @@ class ModelSettingsBase:
     @progress_bar.setter
     def progress_bar(self, value: fr.modules.ProgressBar) -> None:
         self._progress_bar = value
+        if self.is_setup:
+            value.setup(mset=self)
 
     @property
     def nan_checker(self) -> fr.modules.NaNChecker:
@@ -215,6 +229,8 @@ class ModelSettingsBase:
     @nan_checker.setter
     def nan_checker(self, value: fr.modules.NaNChecker) -> None:
         self._nan_checker = value
+        if self.is_setup:
+            value.setup(mset=self)
 
     @property
     def tendencies(self) -> fr.modules.ModuleContainer:
@@ -224,6 +240,11 @@ class ModelSettingsBase:
     @tendencies.setter
     def tendencies(self, value: fr.modules.ModuleContainer) -> None:
         self._tendencies = value
+        old_halo = self.halo
+        if self.is_setup:
+            value.setup(mset=self)
+        if old_halo != self.halo:
+            self.grid.setup(mset=self)
 
     @property
     def diagnostics(self) -> fr.modules.ModuleContainer:
@@ -233,6 +254,11 @@ class ModelSettingsBase:
     @diagnostics.setter
     def diagnostics(self, value: fr.modules.ModuleContainer) -> None:
         self._diagnostics = value
+        old_halo = self.halo
+        if self.is_setup:
+            value.setup(mset=self)
+        if old_halo != self.halo:
+            self.grid.setup(mset=self)
 
     @property
     def restart_module(self) -> fr.modules.RestartModule:
@@ -242,6 +268,8 @@ class ModelSettingsBase:
     @restart_module.setter
     def restart_module(self, value: fr.modules.RestartModule) -> None:
         self._restart_module = value
+        if self.is_setup:
+            value.setup(mset=self)
 
     @property
     def timer(self) -> fr.timing_module.TimingModule:
@@ -252,9 +280,26 @@ class ModelSettingsBase:
     def timer(self, value: fr.timing_module.TimingModule) -> None:
         self._timer = value
 
+    @property
+    def raise_error_when_something_goes_wrong(self) -> bool:
+        """Raise an error when something goes wrong."""
+        return self._raise_error_when_something_goes_wrong
+
+    @raise_error_when_something_goes_wrong.setter
+    def raise_error_when_something_goes_wrong(self, value: bool) -> None:
+        self._raise_error_when_something_goes_wrong = value
+
     # ----------------------------------------------------------------
     #  Other properties
     # ----------------------------------------------------------------
+    @property
+    def is_setup(self) -> bool:
+        """Return whether the model settings are set up."""
+        return self._is_setup
+
+    @is_setup.setter
+    def is_setup(self, value: bool) -> None:
+        self._is_setup = value
 
     @property
     def halo(self) -> int:
@@ -265,7 +310,10 @@ class ModelSettingsBase:
 
     @halo.setter
     def halo(self, value: int) -> None:
+        old_halo = self.halo
         self._halo = value
+        if old_halo != self.halo:
+            self.grid.setup(mset=self)
 
     @property
     def custom_state_fields(self) -> list[fr.FieldMetadata]:

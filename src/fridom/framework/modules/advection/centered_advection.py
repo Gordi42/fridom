@@ -1,9 +1,14 @@
+"""Centered advection scheme."""
+from __future__ import annotations
+
 from copy import deepcopy
+
 import fridom.framework as fr
 
 
 @fr.utils.jaxify
 class CenteredAdvection(fr.modules.advection.AdvectionBase):
+
     r"""
     Centered advection scheme.
 
@@ -13,10 +18,10 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
     divergence-free. The advection term can then be written as:
 
     .. math::
-        \mathcal{A}(\boldsymbol{v}, q) = -\boldsymbol{v} \cdot \nabla q = 
+        \mathcal{A}(\boldsymbol{v}, q) = -\boldsymbol{v} \cdot \nabla q =
             - \nabla \cdot (\boldsymbol{v} q)
 
-    where :math:`q` is the quantity to be advected and :math:`\boldsymbol{v}` 
+    where :math:`q` is the quantity to be advected and :math:`\boldsymbol{v}`
     is the velocity field. The flux divergence :math:`\nabla \cdot (\boldsymbol{v} q)`
     is calculated using forward or backward differences. For that the flux is
     interpolated to the cell faces of the quantity :math:`q`:
@@ -30,12 +35,13 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
             Position of the flux Fx
 
     """
+
     name = "Centered Advection"
 
     @fr.utils.jaxjit
-    def advection(self, 
-                  velocity: 'tuple[fr.ScalarField]',
-                  quantity: 'fr.ScalarField') -> 'fr.ScalarField':
+    def advection(self,  # noqa: D102
+                  velocity: fr.VectorField,
+                  quantity: fr.ScalarField) -> fr.ScalarField:
         # shorthand notation
         inter = self.interp_module.interpolate
         diff = self.diff_module.diff

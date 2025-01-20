@@ -1,16 +1,17 @@
+"""A module that computes the pressure gradient tendency of the model."""
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
 @fr.utils.jaxify
 class PressureGradientTendency(fr.modules.Module):
-    """
-    This class computes the pressure gradient tendency of the model.
-    """
+
+    """Pressure gradient tendency module."""
+
     name = "Pressure Gradient"
 
     @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         mz.dz = self.pressure_gradient_tendency(mz.z_diag.p, mz.dz)
         return mz
 

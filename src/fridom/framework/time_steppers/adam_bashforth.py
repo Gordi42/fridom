@@ -1,21 +1,28 @@
-import fridom.framework as fr
-import numpy as np
+"""Adam Bashforth time stepping up to 4th order."""
+from __future__ import annotations
+
 from functools import partial
-from typing import Union
 
+import numpy as np
 
-@partial(fr.utils.jaxify, dynamic=('dz_list', 'pointer', 'it_count', 'coeff_AB', 'coeffs'))
+import fridom.framework as fr
+
+MAX_ORDER = 4
+
+@partial(fr.utils.jaxify,
+         dynamic=("dz_list", "pointer", "it_count", "coeff_AB", "coeffs"))
 class AdamBashforth(fr.time_steppers.TimeStepper):
+
     r"""
     Adam Bashforth time stepping up to 4th order.
 
     Parameters
     ----------
-    `dt` : `float`
+    dt : float
         Time step size. (default 0.01)
-    `order` : `int`
+    order : int
         Order of the time stepping. (default 3, max 4)
-    `eps` : `float`
+    eps : float
         2nd order bashforth correction. (default 0.01)
 
     Description
@@ -29,12 +36,12 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     by using the following scheme of order :math:`n`
 
     .. math::
-        \boldsymbol{z}^{n+1} = \boldsymbol{z}^n 
-            + \Delta t \sum_{j=0}^{n-1} \alpha_j 
+        \boldsymbol{z}^{n+1} = \boldsymbol{z}^n
+            + \Delta t \sum_{j=0}^{n-1} \alpha_j
                 \boldsymbol{F}(\boldsymbol{z}^{n-j}, t^{n-j})
 
-    where :math:`\alpha_i` are the Adam Bashforth coefficients, :math:`\Delta t` 
-    is the time step size, :math:`\boldsymbol{z}^j` is the state at time 
+    where :math:`\alpha_i` are the Adam Bashforth coefficients, :math:`\Delta t`
+    is the time step size, :math:`\boldsymbol{z}^j` is the state at time
     :math:`t^j = t_0 + j \Delta t`. The coefficients for orders 1 to 4 are
     given in the table below.
 
@@ -58,13 +65,13 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     .. math::
         \partial_t \boldsymbol{z} = \boldsymbol{F}(\boldsymbol{z}, t)
         = -i \lambda \boldsymbol{z}
-    
+
     Inserting this into the Adam Bashforth scheme gives:
 
     .. math::
         \boldsymbol{z}^{n+1} = \sum_{j=0}^{n-1} c_j \boldsymbol{z}^{n-j}
-    
-    where 
+
+    where
 
     .. math::
         c_j = \begin{cases}
@@ -77,10 +84,10 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     .. math::
         \boldsymbol{z}^n = \boldsymbol{z}_0 e^{-i \omega n \Delta t}
                          = \boldsymbol{z}_0 x^n
-                    
+
     with :math:`x = e^{-i \omega \Delta t}`. This yields a polynomial equation
     for :math:`x`:
-    
+
     .. math::
         x^{n+1} = \sum_{j=0}^{n-1} c_j x^{n-j}
 
@@ -90,14 +97,17 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     .. math::
         \omega = -i \log(x) / \Delta t
 
-    
     """
+
     name = "Adam Bashforth"
-    def __init__(self, dt = 1, order: int = 3, eps=0.01):
+    def __init__(self,
+                 dt: float = 1,
+                 order: int = 3,
+                 eps: float=0.01) -> None:
         # check that the order is not too high
-        if order > 4:
-            raise ValueError(
-                "Adam Bashforth Time Stepping only supports orders up to 4.")
+        if order > MAX_ORDER:
+            msg = f"Only support orders up to {MAX_ORDER}."
+            raise ValueError(msg)
 
         super().__init__()
         self.order = order
@@ -108,20 +118,17 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         self.AB4 = [55/24, -59/24, 37/24, -3/8]
         self.it_count = None
         self.dt = dt
-        return
 
-    @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
-        super().setup(mset)
+    def _on_setup(self) -> None:
         ncp = fr.config.ncp
         dtype = fr.config.dtype_real
 
         # Adam Bashforth coefficients including time step size
         self.coeffs = [
-            ncp.asarray(self.AB1, dtype=dtype) * self.dt, 
+            ncp.asarray(self.AB1, dtype=dtype) * self.dt,
             ncp.asarray(self.AB2, dtype=dtype) * self.dt,
-            ncp.asarray(self.AB3, dtype=dtype) * self.dt, 
-            ncp.asarray(self.AB4, dtype=dtype) * self.dt
+            ncp.asarray(self.AB3, dtype=dtype) * self.dt,
+            ncp.asarray(self.AB4, dtype=dtype) * self.dt,
         ]
 
         self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
@@ -132,40 +139,38 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         # tendencies
         self.dz_list = [self.mset.state_constructor() for _ in range(self.order)]
         self.it_count = 0
-        return
 
-    def reset(self):
-        self.setup(self.mset)
-        return
+    def _on_reset(self) -> None:
+        self._on_setup()
 
-    
     @fr.utils.jaxjit
-    def _update_state(self, z: 'fr.VectorField', dz_list: 'list[fr.VectorField]'
-                      ) -> 'fr.VectorField':
+    def _update_state(self,
+                      z: fr.VectorField,
+                      dz_list: list[fr.VectorField],
+                      ) -> fr.VectorField:
         """
         Jax jitted time stepping function for Adam-Bashforth.
-    
+
         Parameters
         ----------
-        `z` : `State`
+        z : State
             The state at the current time level.
-        `dz_list` : `list[State]`
+        dz_list : list[State]
             List of tendency terms at previous time levels.
-        
+
         Returns
         -------
-        `State` : The updated state.
+        State : The updated state.
+
         """
         for i in range(len(dz_list)):  # loop over all time levels
             z += dz_list[i] * self.coeff_AB[i]
         return z
 
     @fr.modules.module_method
-    def update(self, mz: 'fr.ModelState'):
-        """
-        Update the time stepper.
-        """
-        self.update_tendency()
+    def update(self, mz: fr.ModelState) -> fr.ModelState:
+        """Update the time stepper."""
+        self._update_tendency()
 
         mz.dz = self.dz
 
@@ -179,25 +184,17 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         mz.clock.tick(self.dt)
         return mz
 
-    def update_tendency(self):
+    def _update_tendency(self) -> None:
         if self.it_count <= self.order+1:
             self.update_coeff_AB()
         self.update_pointer()
-        return
-
 
     def update_pointer(self) -> None:
-        """
-        Update pointer for Adam-Bashforth time stepping.
-        """
+        """Update pointer for Adam-Bashforth time stepping."""
         self.pointer = np.roll(self.pointer, 1)
-        return
-
 
     def update_coeff_AB(self) -> None:
-        """
-        Upward ramping of Adam-Bashforth coefficients after restart.
-        """
+        """Upward ramping of Adam-Bashforth coefficients after restart."""
         # current time level (ctl)
         # maximum ctl is the number of time levels - 1
         ctl = min(self.it_count, self.order-1)
@@ -208,9 +205,8 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         # choose Adam-Bashforth coefficients of current time level
         self.coeff_AB = fr.utils.modify_array(self.coeff_AB, slice(None), 0)
         self.coeff_AB = fr.utils.modify_array(self.coeff_AB, slice(ctl+1), coeffs[ctl])
-        return
-    
-    def time_discretization_effect(self, omega: np.ndarray) -> np.ndarray:
+
+    def time_discretization_effect(self, omega: np.ndarray) -> np.ndarray:  # noqa: D102
         # shorthand notation
         ncp = fr.config.ncp
 
@@ -219,13 +215,13 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
 
         # get adam-bashforth coefficients
         ab_coefficients = [self.AB1, self.AB2, self.AB3, self.AB4]
-        
+
         # get the coefficients for the current time level
         coeff = ncp.array(ab_coefficients[self.order-1])
 
         # construct polynomial coefficients for each grid point
         # tile the array such that coeff and omega have the same shape
-        new_shape = tuple(list(omega.shape) + [1])
+        new_shape = (*tuple(omega.shape), 1)
         coeff = ncp.tile(coeff, new_shape)
         omega = omega[..., ncp.newaxis]
 
@@ -239,20 +235,25 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         # leading coefficient is 1
         paddings = [(0,0)] * len(coeff.shape)
         paddings[-1] = (1,0)
-        coeff = ncp.pad(coeff, paddings, 'constant', constant_values=(1,0))
+        coeff = ncp.pad(coeff, paddings, "constant", constant_values=(1,0))
 
         # reverse the order of the coefficients
         coeff = coeff[..., ::-1]
 
-        def find_roots(c):
+        def find_roots(c: np.ndarray) -> complex:
             """
             Find the last root of the polynomial.
 
-            Parameters:
-                c (1D array): Polynomial coefficients.
+            Parameters
+            ----------
+            c : ndarray
+                Polynomial coefficients.
 
-            Returns:
-                root (complex): Last root of the polynomial.
+            Returns
+            -------
+            complex
+                Last root of the polynomial.
+
             """
             return np.roots(c)[-1]
 
@@ -260,44 +261,32 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         # root finding only works on the CPU
         coeff = fr.utils.to_numpy(coeff)
         roots = ncp.array(np.apply_along_axis(find_roots, -1, coeff))
-    
+
         return -1j * ncp.log(roots) / self.dt
 
     # ================================================================
     #  Properties
     # ================================================================
-    @property
-    def dt(self) -> np.timedelta64:
-        return self._dt
-
-    @dt.setter
-    def dt(self, value: Union[np.timedelta64, float]) -> None:
-        if isinstance(value, float) or isinstance(value, int):
-            self._dt = value
-        else:
-            self._dt = fr.config.dtype_real(value / np.timedelta64(1, 's'))
-        if self.mset is not None:
-            self.setup(self.mset)
+    def _on_time_step_change(self) -> None:
+        if not self.is_setup:
+            return
+        # we need to call the setup method again when the time step is changed
+        self._on_setup()
 
     @property
-    def info(self) -> dict:
+    def info(self) -> dict:  # noqa: D102
+        second_order = 2
         res = super().info
         res["order"] = self.order
-        if self.order == 2:
+        if self.order == second_order:
             res["eps"] = self.eps
         return res
 
     @property
-    def dz(self):
-        """
-        Returns a pointer on the current tendency term.
-        """
+    def dz(self) -> fr.VectorField:
+        """Pointer on the current tendency term."""
         return self.dz_list[self.pointer[0]]
 
     @dz.setter
-    def dz(self, value):
-        """
-        Set the current tendency term.
-        """
+    def dz(self, value: fr.VectorField) -> None:
         self.dz_list[self.pointer[0]] = value
-        return

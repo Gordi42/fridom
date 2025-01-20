@@ -1,8 +1,12 @@
+"""The main tendency module for the shallow water model."""
+from __future__ import annotations
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
 
 class MainTendency(fr.modules.ModuleContainer):
+
     r"""
     Container for the main tendency modules of the shallow water model.
 
@@ -11,13 +15,14 @@ class MainTendency(fr.modules.ModuleContainer):
 
     .. math::
         \partial_t \boldsymbol{u} = \text{Linear} + \text{Advection} + \text{Additional}
-    
+
     with the default modules being:
     - `linear_tendency`: :py:class:`LinearTendency <fridom.shallowwater.modules.LinearTendency>`
     - `advection`: :py:class:`SadournyAdvection <fridom.shallowwater.modules.advection.SadournyAdvection>`
     """
+
     name = "Main Tendencies: Shallow Water Model"
-    def __init__(self):
+    def __init__(self) -> None:
         mods = sw.modules
         self._reset_tendency = mods.ResetTendency()
         self._linear_tendency = mods.LinearTendency()
@@ -26,17 +31,17 @@ class MainTendency(fr.modules.ModuleContainer):
         self._set_module_list()
 
         super().__init__(module_list=self.module_list)
-        return
 
-    def add_module(self, module):
+    def add_module(self, module: fr.modules.Module) -> None:  # noqa: D102
         self._additional_modules.append(module)
         self._set_module_list()
-        return
+        if self.is_setup:
+            module.setup(mset=self.mset)
 
-    def _set_module_list(self):
+    def _set_module_list(self) -> None:
         """
         Set the module list.
-        
+
         Description
         -----------
         This function make sure that the pressure solver and the pressure
@@ -48,28 +53,29 @@ class MainTendency(fr.modules.ModuleContainer):
         module_list.append(self.advection)
         module_list += self._additional_modules
         self.module_list = module_list
-        return
 
     # ============================================================
     #   PROPERTIES
     # ============================================================
 
     @property
-    def linear_tendency(self):
+    def linear_tendency(self) -> sw.modules.LinearTendency:
         """The core linear momentum tendency module."""
         return self._linear_tendency
-    
+
     @linear_tendency.setter
-    def linear_tendency(self, value):
+    def linear_tendency(self, value: sw.modules.Module) -> None:
         self._linear_tendency = value
-        return
-    
+        if self.is_setup:
+            value.setup(mset=self.mset)
+
     @property
-    def advection(self):
+    def advection(self) -> fr.modules.advection.AdvectionBase:
         """The advection module (nonlinear + linear by backgound state)."""
         return self._advection
-    
+
     @advection.setter
-    def advection(self, value):
+    def advection(self, value: fr.modules.Module) -> None:
         self._advection = value
-        return
+        if self.is_setup:
+            value.setup(mset=self.mset)

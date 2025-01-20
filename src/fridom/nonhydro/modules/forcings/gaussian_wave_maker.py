@@ -1,9 +1,13 @@
+"""A gaussian wave maker module."""
+from __future__ import annotations
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
 @fr.utils.jaxify
 class GaussianWaveMaker(fr.modules.Module):
+
     r"""
     A Gaussian wave maker that forces the u-component of the velocity field.
 
@@ -27,27 +31,29 @@ class GaussianWaveMaker(fr.modules.Module):
 
     Parameters
     ----------
-    `position` : `tuple[float | None]`
+    position : tuple[float | None]
         The position of the wave maker (center of the gaussian).
         The wave maker is constant over axis with `position[axis]=None`.
-    `width` : `tuple[float | None]`
+    width : tuple[float | None]
         The width of the wave maker (width of the gaussian).
         The wave maker is constant over axis with `width[axis]=None`.
-    `frequency` : `float`
+    frequency : float
         The frequency of the wave maker.
-    `amplitude` : `float`
+    amplitude : float
         The amplitude of the wave maker.
-    `variable` : `str`
+    variable : str
         The variable to force. (Default: "u")
+
     """
+
     name = "Gaussian Wave Maker"
 
-    def __init__(self, 
+    def __init__(self,
                  position: tuple[float | None],
-                 width: tuple[float | None], 
+                 width: tuple[float | None],
                  frequency: float,
                  amplitude: float,
-                 variable: str = "u"):
+                 variable: str = "u") -> None:
         super().__init__()
         self.position = position
         self.width = width
@@ -55,9 +61,7 @@ class GaussianWaveMaker(fr.modules.Module):
         self.amplitude = amplitude
         self.variable = variable
 
-    @fr.modules.module_method
-    def setup(self, mset: 'nh.ModelSettings'):
-        super().setup(mset)
+    def _on_setup(self) -> None:
         ncp = fr.config.ncp
         # Construct mask
         mask = ncp.ones_like(self.grid.X[0])
@@ -66,22 +70,22 @@ class GaussianWaveMaker(fr.modules.Module):
                 mask *= ncp.exp(-(x - pos)**2 / width**2)
         mask *= self.amplitude
         self.mask = mask
-        return
 
     @fr.utils.jaxjit
     def add_source_term(self, dz: nh.State, time: float) -> nh.State:
+        """Add the source term to the u-component of the velocity field."""
         ncp = fr.config.ncp
         tendency = self.mask * ncp.sin(2 * ncp.pi * self.frequency * time)
         dz.fields[self.variable] += tendency
         return dz
 
     @fr.modules.module_method
-    def update(self, mz: nh.ModelState) -> nh.ModelState:
+    def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
         mz.dz = self.add_source_term(mz.dz, mz.clock.time)
         return mz
 
     @property
-    def info(self) -> dict:
+    def info(self) -> dict:  # noqa: D102
         res = super().info
         res["position"] = self.position
         res["width"] = self.width

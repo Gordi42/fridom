@@ -43,10 +43,12 @@ class NaNChecker(fr.modules.Module):
 
         return mz
 
-    @fr.modules.module_method
-    def reset(self) -> None:  # noqa: D102
+    def _on_reset(self) -> None:
         self.clock_trigger.reset()
-        super().reset()
+
+    # ================================================================
+    #  Properties
+    # ================================================================
 
     @property
     def clock_trigger(self) -> fr.ClockTrigger:

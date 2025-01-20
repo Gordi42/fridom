@@ -1,17 +1,22 @@
-import fridom.framework as fr
+"""A relaxation module."""
+from __future__ import annotations
+
 from functools import partial
+
+import fridom.framework as fr
 
 
 @partial(fr.utils.jaxify, dynamic=("target", "domain"))
 class Relaxation(fr.modules.Module):
+
     r"""
-    Biharmonic diffusion module
+    A relaxation module for scalar fields.
 
     Description
     -----------
     This module implements the relaxation operator :math:`\mathcal{R}(\phi)`
     for a scalar field :math:`\phi`. The relaxation operator is defined as:
-    
+
     .. math::
         \mathcal{R}(\phi) = \frac{\phi^* - \phi}{\tau} \delta_\Omega
 
@@ -26,29 +31,31 @@ class Relaxation(fr.modules.Module):
 
         \Rightarrow \phi(t) = \phi^* + C e^{-t/\tau}
 
-    with a constant :math:`C`. 
+    with a constant :math:`C`.
 
     The relaxation operator can be used to add heating or cooling to
     a fluid, but also for example for wind stress forcing.
 
     Parameters
     ----------
-    `tau` : `float`
+    tau : float
         The relaxation time scale :math:`\tau`.
-    `field_name` : `str`
+    field_name : str
         The name of the field that should be relaxed.
-    `target` : `float | fr.ScalarField`
+    target : float | fr.ScalarField
         The target value of the field.
-    `domain_function` : `callable`
+    domain_function : callable
         A function that takes the mesh as input and returns a boolean array
         that indicates the domain where the relaxation should be applied.
+
     """
+
     name = "Relaxation"
-    def __init__(self, 
-                 tau: float, 
+    def __init__(self,
+                 tau: float,
                  field_name: str,
                  target: float | fr.ScalarField,
-                 domain_function: callable):
+                 domain_function: callable) -> None:
         super().__init__()
         self.tau = tau
         self.field_name = field_name
@@ -58,16 +65,14 @@ class Relaxation(fr.modules.Module):
         self.domain_function = domain_function
         self.domain = None
 
-    @fr.modules.module_method
-    def setup(self, mset: fr.ModelSettingsBase):
-        super().setup(mset)
+    def _on_setup(self, mset: fr.ModelSettingsBase) -> None:
         z = mset.state_constructor()
         mesh = z[self.field_name].get_mesh()
         self.domain = self.domain_function(mesh)
         del z
 
     @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         mz.dz = self.relax(mz.z, mz.dz)
         return mz
 
@@ -77,4 +82,3 @@ class Relaxation(fr.modules.Module):
         delta = (self.target - z[self.field_name].arr) / self.tau
         dz[self.field_name].arr += ncp.where(self.domain, delta, 0)
         return dz
-    

@@ -1,6 +1,4 @@
 """Tests for the logger module."""
-import logging
-
 import pytest
 
 import fridom.framework as fr
@@ -9,18 +7,6 @@ import fridom.framework as fr
 # ================================================================
 #  Fixtures
 # ================================================================
-@pytest.fixture
-def capture_logs():
-    """Fixture to capture log output."""
-    from io import StringIO
-
-    stream = StringIO()
-    handler = logging.StreamHandler(stream)
-    handler.setFormatter(logging.Formatter("%(asctime)s: %(message)s"))
-    fr.log.addHandler(handler)
-    yield stream
-    fr.log.removeHandler(handler)
-
 # ================================================================
 #  Tests
 # ================================================================

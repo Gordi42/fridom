@@ -132,3 +132,33 @@ class FieldSpaceError(NotImplementedError):
         """
         if field.is_spectral:
             raise FieldSpaceError(field.is_spectral)
+
+
+class NotSetUpError(AttributeError):
+
+    """Raise when an operation is attempted before the module is set up."""
+
+    def __init__(self, module_name: str, attribute: str) -> None:
+        msg = f"Trying to access attribute '{attribute}' of '{module_name}'."
+        msg += " But the module is not set up yet.\n"
+        msg += " Call the 'setup' method first."
+        super().__init__(msg)
+
+    @staticmethod
+    def check(instance: fr.modules.Module | fr.grid.GridBase,
+              attribute: str) -> None:
+        """
+        Check if the module or grid is set up.
+
+        Parameters
+        ----------
+        instance : Module | GridBase
+            The instance to check.
+        attribute : str
+            The attribute being accessed.
+
+        """
+        if not instance.is_setup:
+            # get the class name of the instance
+            cls_name = instance.__class__.__name__
+            raise NotSetUpError(cls_name, attribute)

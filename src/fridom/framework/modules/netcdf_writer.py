@@ -68,9 +68,7 @@ class NetCDFWriter(fr.modules.Module):
         self._file_is_open = False
         self._ncfile = None
 
-    @fr.modules.module_method
-    def setup(self, mset: fr.ModelSettingsBase) -> None:  # noqa: D102
-        super().setup(mset)
+    def _on_setup(self) -> None:
         # create snapshot folder if it doesn't exist
         fr.log.verbose(f"Touching snapshot directory: {self.directory}")
         Path(self.directory).mkdir(parents=True, exist_ok=True)
@@ -78,7 +76,6 @@ class NetCDFWriter(fr.modules.Module):
         # snap slice:
         if self._snap_slice is None:
             self._snap_slice = tuple([slice(None)]*self.grid.n_dims)
-
 
     @fr.modules.module_method
     def start(self) -> None:  # noqa: D102
@@ -92,12 +89,10 @@ class NetCDFWriter(fr.modules.Module):
         if self._file_is_open:
             self._close_file()
 
-    @fr.modules.module_method
-    def reset(self) -> None:  # noqa: D102
+    def _on_reset(self) -> None:
         self.write_trigger.reset()
         if self.restart_trigger is not None:
             self.restart_trigger.reset()
-        super().reset()
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102

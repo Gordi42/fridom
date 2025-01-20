@@ -1,3 +1,6 @@
+"""Conjugate Gradient Pressure Solver."""
+#TODO(Silvano): This is very old code and needs to be updated to the new framework.
+
 from fridom.nonhydro.state import State
 from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, update_module, start_module

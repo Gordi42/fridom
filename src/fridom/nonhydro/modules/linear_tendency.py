@@ -1,38 +1,31 @@
+"""Linear Tendency Module of the nonhydrostatic model."""
+from __future__ import annotations
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
-from functools import partial
 
 
-@partial(fr.utils.jaxify, dynamic=("f_coriolis", ))
+@fr.utils.jaxify
 class LinearTendency(fr.modules.Module):
-    """
-    This class computes the linear tendency of the model.
-    """
+
+    """Computes the linear tendency of the nonhydrostatic model."""
+
     name = "Linear Tendency"
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.f_coriolis = None
 
     @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
-        super().setup(mset)
-        self.f_coriolis = self.mset.f_coriolis
-        return
-
-    @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         mz.dz = self.linear_tendency(mz.z, mz.dz)
         return mz
 
     @fr.utils.jaxjit
     def linear_tendency(self, z: nh.State, dz: nh.State) -> nh.State:
-        """
-        Compute the linear tendency of the model.
-        """
+        """Compute the linear tendency of the model."""
         interp = self.interp_module.interpolate
 
         # interpolate the coriolis parameter to the u position
-        f = interp(self.f_coriolis, z.u.position)
+        f = interp(self.mset.f_coriolis, z.u.position)
 
         # calculate u-tendency
         dz.u +=   interp(z.v, z.u.position) * f

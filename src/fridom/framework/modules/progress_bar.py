@@ -1,23 +1,31 @@
-import fridom.framework as fr
-import numpy as np
+"""A progress bar module to display the progress of the simulation."""
+from __future__ import annotations
+
 import time
+
+import numpy as np
+
+import fridom.framework as fr
 
 
 class ProgressBar(fr.modules.Module):
+
     """
     A progress bar module to display the progress of the simulation.
-    
+
     Description
     -----------
     The progress bar class is a wrapper around the tqdm progress bar. It
     has a custom format and handles the output to the stdout when the
     stdout is a file.
-    
+
     Parameters
     ----------
-    `disable` : `bool`
+    disable : bool
         Whether to disable the progress bar.
+
     """
+
     name = "Progress Bar"
     def __init__(self) -> None:
         super().__init__()
@@ -29,15 +37,12 @@ class ProgressBar(fr.modules.Module):
         self._datetime_formatting = None
         self._start_value = None
         self._final_value = None
-        return
 
     @fr.modules.module_method
-    def start(self) -> None:
+    def start(self) -> None:  # noqa: D102
         # only the main rank should print the progress bar
-        if fr.utils.I_AM_MAIN_RANK:
-            disable = False
-        else:
-            disable = True
+        disable = not fr.utils.I_AM_MAIN_RANK
+
         # ----------------------------------------------------------------
         #  Set the progress bar format
         # ----------------------------------------------------------------
@@ -65,12 +70,12 @@ class ProgressBar(fr.modules.Module):
         # ----------------------------------------------------------------
         from tqdm import tqdm
         pbar = tqdm(
-            total=100, 
-            disable=disable, 
-            bar_format=bar_format, 
-            unit="%", 
+            total=100,
+            disable=disable,
+            bar_format=bar_format,
+            unit="%",
             file=output)
-        
+
         # ----------------------------------------------------------------
         #  Set the attributes
         # ----------------------------------------------------------------
@@ -82,10 +87,9 @@ class ProgressBar(fr.modules.Module):
         self._datetime_formatting = None
         self._start_value = None
         self._final_value = None
-        return
 
     @fr.modules.module_method
-    def stop(self) -> None:
+    def stop(self) -> None:  # noqa: D102
         if self._pbar is not None:
             self._pbar.close()
         self._pbar = None
@@ -97,21 +101,20 @@ class ProgressBar(fr.modules.Module):
         self._start_value = None
         self._final_value = None
 
-    def set_options(self, 
-                    main_loop_type: str, 
+    def set_options(self,
+                    main_loop_type: str,
                     datetime_formatting: bool,
-                    start_value: float | int,
-                    final_value: float | int):
+                    start_value: float,
+                    final_value: float):
         self._main_loop_type = main_loop_type
         self._datetime_formatting = datetime_formatting
         self._start_value = start_value
         self._final_value = final_value
-        return
 
     @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         if self._start_value is None:
-            return
+            return mz
 
         # get the time between the last call (in milliseconds)
         now = time.time()
@@ -135,7 +138,7 @@ class ProgressBar(fr.modules.Module):
 
         # Create a postfix string for the progress bar
         if self._datetime_formatting:
-            time_str = np.datetime64(int(mz.clock.time), 's')
+            time_str = np.datetime64(int(mz.clock.time), "s")
         else:
             time_str = fr.utils.humanize_number(mz.clock.time, unit="seconds")
         postfix = f"It: {mz.clock.it} - Time: {time_str}"
@@ -144,13 +147,8 @@ class ProgressBar(fr.modules.Module):
         self._pbar.n = value
         self._pbar.set_postfix_str(f"{elapsed}  at {postfix}")
 
-        # I had some problem with the bar not updating, so I added the refresh
-        # method below. However this takes a lot of time and it seems to be 
-        # working fine without it now.
-        # self._pbar.refresh()
-
         if not self._file_output:
-            return
+            return mz
 
         # print the progress to the stdout
         fr.log.info(self._output.getvalue().split("\r")[1])
@@ -158,4 +156,4 @@ class ProgressBar(fr.modules.Module):
         # clear the output string
         self._output.seek(0)
 
-        return
+        return mz

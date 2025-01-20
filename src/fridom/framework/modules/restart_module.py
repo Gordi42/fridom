@@ -77,9 +77,7 @@ class RestartModule(fr.modules.Module):
         self.restart_command = restart_command
         self.file = None
 
-    @fr.modules.module_method
-    def setup(self, mset: fr.ModelSettingsBase) -> None:  # noqa: D102
-        super().setup(mset)
+    def _on_setup(self) -> None:
         self._touch_restart_directory()
 
     @fr.modules.module_method
@@ -126,8 +124,7 @@ class RestartModule(fr.modules.Module):
         fr.log.info("No restart files found. Model will not reload.")
         return False
 
-    @fr.modules.module_method
-    def reset(self) -> None:  # noqa: D102
+    def _on_reset(self) -> None:
         self.clock_trigger.reset()
 
     def set_full_filename(self, it: int) -> None:

@@ -1,21 +1,15 @@
+"""Model settings for the nonhydrostatic model."""
 from __future__ import annotations
 
-from fridom.framework.grid.grid_base import GridBase
-import fridom.nonhydro as nh
-import fridom.framework as fr
 from functools import partial
-# Import external modules
-from typing import TYPE_CHECKING
-# Import internal modules
-from fridom.framework import config, utils
-from fridom.framework.model_settings_base import ModelSettingsBase
-# Import type information
-if TYPE_CHECKING:
-    from fridom.framework.grid.grid_base import GridBase
-    from numpy import ndarray
+from typing import Literal
 
-@partial(utils.jaxify, dynamic=("f_coriolis", "N2", "dsqr", "Ro"))
-class ModelSettings(ModelSettingsBase):
+import fridom.framework as fr
+import fridom.nonhydro as nh
+
+
+@partial(fr.utils.jaxify, dynamic=("f_coriolis", "N2", "dsqr", "Ro"))
+class ModelSettings(fr.ModelSettingsBase):
 
     """
     Model settings for the 3D non-hydrostatic model.
@@ -29,7 +23,7 @@ class ModelSettings(ModelSettingsBase):
 
     model_name = "3D - Nonhydrostatic model"
 
-    def __init__(self, grid: GridBase, **kwargs: any) -> None:
+    def __init__(self, grid: fr.grid.GridBase, **kwargs: any) -> None:
         super().__init__(grid)
 
         # TODO(Silvano): rename variables to meaningful names
@@ -47,7 +41,11 @@ class ModelSettings(ModelSettingsBase):
         # Finally, set attributes from keyword arguments
         self.set_attributes(**kwargs)
 
-    def setup_settings_parameters(self):
+    def setup_settings_parameters(self,  # noqa: D102
+                                  setup_mode: Literal["default", "forced"] = "default",
+                                  ) -> None:
+        if self.is_setup and setup_mode == "default":
+            return
         # Coriolis parameter
         f_coriolis = fr.ScalarField(self,
             name="f",
@@ -72,7 +70,7 @@ class ModelSettings(ModelSettingsBase):
     # ================================================================
 
     @property
-    def parameters(self) -> dict:
+    def parameters(self) -> dict:  # noqa: D102
         res = super().parameters
         res["coriolis parameter f0"] = f"{self.f0} 1/s"
         res["beta term"] = f"{self.beta} 1/(m*s)"

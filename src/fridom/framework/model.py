@@ -186,6 +186,9 @@ class Model:
 
     def _safe_step(self) -> None:
         """Run a single time step and catch any exceptions."""
+        if self.mset.raise_error_when_something_goes_wrong:
+            self.step()
+            return
         try:
             self.step()
         except Exception as e:  # noqa: BLE001

@@ -1,3 +1,6 @@
+"""A gaussian wave maker that forces the u-component of the velocity field."""
+# TODO(Silvano): This is very old code. Update it to the new framework structure.
+
 from fridom.shallowwater.state import State
 from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, update_module, start_module

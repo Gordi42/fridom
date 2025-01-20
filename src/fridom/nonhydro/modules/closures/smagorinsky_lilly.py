@@ -1,10 +1,15 @@
+"""Smagorinsky-Lilly closure model for the non-hydrostatic model."""
+from __future__ import annotations
+
+import numpy as np
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
-import numpy as np
 
 
 @fr.utils.jaxify
 class SmagorinskyLilly(fr.modules.Module):
+
     r"""
     A Smagorinsky-Lilly closure model for the non-hydrostatic model.
 
@@ -44,7 +49,7 @@ class SmagorinskyLilly(fr.modules.Module):
     and :math:`\nu_s` is the Smagorinsky viscosity given by:
 
     .. math::
-        \nu_s = \left( C_s \sqrt[3]{\Delta V} \right)^2 
+        \nu_s = \left( C_s \sqrt[3]{\Delta V} \right)^2
                 |\mathbf{\Sigma}| \Gamma(\text{Ri})
 
     where :math:`C_s` is the Smagorinsky constant, :math:`\Delta V` is the
@@ -72,46 +77,43 @@ class SmagorinskyLilly(fr.modules.Module):
 
     .. math::
         |\mathbf{\Sigma}|^2 = \sum_{i=1}^3 \sum_{j=1}^3 \Sigma_{ij}^2
-    
+
     Parameters
     ----------
-    `background_viscosity` : `float`, (default=1.05e-6)
+    background_viscosity : float, (default=1.05e-6)
         The background viscosity for velocity fields.
-    `background_diffusivity` : `float`, (default=1.46e-7)
+    background_diffusivity : float, (default=1.46e-7)
         The background diffusivity for tracer fields.
-    `turbulent_prandtl_number` : `float`, (default=1.0)
+    turbulent_prandtl_number : float, (default=1.0)
         The turbulent Prandtl number.
-    `smagorinsky_constant` : `float`, (default=0.16)
+    smagorinsky_constant : float, (default=0.16)
         The Smagorinsky constant.
-    `buoyancy_multiplier` : `float | None`, (default=None)
+    buoyancy_multiplier : float | None, (default=None)
         The buoyancy multiplier. If None, the buoyancy multiplier is set to
         :math:`1 / \text{turbulent_prandtl_number}`.
+
     """
+
     name = "Smagorinsky-Lilly"
-    def __init__(self, 
+    def __init__(self,
                  background_viscosity: float = 1.05e-6,
                  background_diffusivity: float = 1.46e-7,
                  turbulent_prandtl_number: float = 1.0,
                  smagorinsky_constant: float = 0.16,
-                 buoyancy_multiplier: float | None = None
-                 ):
+                 buoyancy_multiplier: float | None = None,
+                 ) -> None:
         super().__init__()
         self.background_viscosity = background_viscosity
         self.background_diffusivity = background_diffusivity
         self.turbulent_prandtl_number = turbulent_prandtl_number
         self.smagorinsky_constant = smagorinsky_constant
         self.buoyancy_multiplier = buoyancy_multiplier or 1 / turbulent_prandtl_number
-        return
 
-    @fr.modules.module_method
-    def setup(self, mset: 'nh.ModelSettings') -> None:
-        super().setup(mset)
+    def _on_setup(self) -> None:
         self.filter_width = self.grid.dV**(1/3)
-        return
 
     @fr.utils.jaxjit
     def smagorinsky_lilly_operator(self, z: nh.State, dz: nh.State) -> nh.State:
-        self.mset
 
         diff_mod = self.diff_module
         ncp = fr.config.ncp
@@ -122,6 +124,7 @@ class SmagorinskyLilly(fr.modules.Module):
         dw = diff_mod.grad(z.w)
 
         # Compute the strain rate tensor
+        # TODO(Silvano): Make use of the tensor module
         s_11 = du[0]; s_12 = 0.5 * (du[1] + dv[0]); s_13 = 0.5 * (du[2] + dw[0])
         s_21 = s_12 ; s_22 = dv[1]                ; s_23 = 0.5 * (dv[2] + dw[1])
         s_31 = s_13 ; s_32 = s_23                 ; s_33 = dw[2]
@@ -138,7 +141,7 @@ class SmagorinskyLilly(fr.modules.Module):
         N2 = ncp.maximum(N2, 0.0)
 
         # Compute the resolved Richardson number
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             Ri = N2 / sigma2
 
         # Compute the stratification damping factor
@@ -148,9 +151,9 @@ class SmagorinskyLilly(fr.modules.Module):
         gamma = ncp.nan_to_num(gamma, nan=0)
 
         # Compute the smagorinsky viscosity
-        nu_s = ( (self.smagorinsky_constant * self.filter_width)**2 
+        nu_s = ( (self.smagorinsky_constant * self.filter_width)**2
                 * ncp.sqrt(sigma2) * gamma )
-        
+
         # Compute the turbulent diffusivities
         nu_t = nu_s + self.background_viscosity
         kappa_t = (  nu_s / self.turbulent_prandtl_number
@@ -183,6 +186,6 @@ class SmagorinskyLilly(fr.modules.Module):
 
         return dz
 
-    def update(self, mz: fr.ModelState) -> fr.ModelState:
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         mz.dz = self.smagorinsky_lilly_operator(mz.z, mz.dz)
         return mz

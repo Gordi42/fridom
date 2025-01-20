@@ -177,12 +177,12 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
             # this should never happen
             fr.log.error("The class %s does not have the dynamic_jax_attrs attribute.", cls)
             cls.dynamic_jax_attrs = set()
-        # set dynamic attributes
-        for i, attr in enumerate(cls.dynamic_jax_attrs):
-            setattr(obj, attr, children[i])
         # set static attributes
         for key, value in aux_data.items():
             setattr(obj, key, value)
+        # set dynamic attributes
+        for i, attr in enumerate(cls.dynamic_jax_attrs):
+            setattr(obj, attr, children[i])
         return obj
 
     # set the new method to the class

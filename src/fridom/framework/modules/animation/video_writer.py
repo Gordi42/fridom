@@ -1,45 +1,52 @@
-import fridom.framework as fr
-import numpy as np
-from typing import Union
-import warnings
+"""Create a mp4 video from the model."""
+from __future__ import annotations
+
 import os
+import warnings
 from pathlib import Path
+from typing import Union
+
+import numpy as np
+
+import fridom.framework as fr
 
 
 class VideoWriter(fr.modules.Module):
+
     """
     Create a mp4 video from the model.
-    
+
     Description
     -----------
     To create a mp4 video from the model, one must provide a `ModelPlotter`
     that will be used to create the figure. The video writer does not support
     MPI parallelism.
-    
+
     Parameters
     ----------
-    `model_plotter` : `ModelPlotter`
+    model_plotter : ModelPlotter
         The model plotter that will be used to create the figure.
-    `write_interval` : `np.timedelta64 | float`
+    write_interval : np.timedelta64 | float
         The interval at which the data should be written to the file.
-    `filename` : `str`, optional (default="output.mp4")
+    filename : str, optional (default="output.mp4")
         The filename of the video (will be stored in videos/filename).
-    `fps` : `int`, optional (default=30)
+    fps : int, optional (default=30)
         The frames per second of the video.
-    'parallel' : `bool`, optional (default=True)
+    parallel : bool, optional (default=True)
         If True, the video writer will use parallelism to create the video.
-    `max_jobs` : `float`, optional (default=0.4)
+    max_jobs : float, optional (default=0.4)
         The maximum fraction of the available threads that will be used.
 
     """
+
     name = "Video Writer"
-    def __init__(self, 
-                 model_plotter: 'fr.ModelPlotter', 
-                 model_time_per_second: Union[np.timedelta64, float],
-                 filename: str="output.mp4", 
-                 fps: int=30,
-                 parallel: bool=True,
-                 max_jobs: float=0.2,
+    def __init__(self,
+                 model_plotter: fr.modules.animation.ModelPlotter,
+                 model_time_per_second: np.timedelta64 | float,
+                 filename: str = "output.mp4",
+                 fps: int = 30,
+                 parallel: bool = True,
+                 max_jobs: float = 0.2,
                  ) -> None:
         super().__init__()
 
@@ -67,11 +74,8 @@ class VideoWriter(fr.modules.Module):
         self.fig = None
         self._last_write_time = None
         self._last_checkpoint_time = None
-        return
 
-    @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
-        super().setup(mset)
+    def _on_setup(self) -> None:
         # create video folder if it does not exist
         if not os.path.exists("videos"):
             fr.log.info("Creating videos folder")
@@ -87,13 +91,9 @@ class VideoWriter(fr.modules.Module):
             import multiprocessing as mp
             self.maximum_jobs = int(self.max_jobs*mp.cpu_count())
         self.fig = None
-        return
 
     @fr.modules.module_method
-    def start(self):
-        """
-        Method to start the writer process.
-        """
+    def start(self) -> None:  # noqa: D102
         # list for the jobs and queues for creating the figures
         self.running_jobs = []       # Processes
         self.open_queues  = []       # Queues
@@ -106,13 +106,9 @@ class VideoWriter(fr.modules.Module):
         else:
             import imageio
             self.writer = imageio.get_writer(self.filename, fps=self.fps)
-        return
 
     @fr.modules.module_method
-    def stop(self):
-        """
-        Method to stop the writer process.
-        """
+    def stop(self) -> None:  # noqa: D102
         # collect all figures
         while len(self.running_jobs) > 0:
             fr.log.info("Collecting remaining figures")
@@ -126,13 +122,9 @@ class VideoWriter(fr.modules.Module):
             self.fig = None
         self._last_write_time = None
         self._last_checkpoint_time = None
-        return
 
     @fr.modules.module_method
-    def update(self, mz: 'fr.ModelState') -> 'fr.ModelState':
-        """
-        Update method of the parallel animated model.
-        """
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         time = mz.clock.time
         # ----------------------------------------------------------------
         #  Check if it is time to write
@@ -158,7 +150,7 @@ class VideoWriter(fr.modules.Module):
             self.single_update(mz)
         return mz
 
-    def parallel_update(self, mz: 'fr.ModelState'):
+    def parallel_update(self, mz: fr.ModelState) -> None:
         # collect finished figures
         self.collect_figures()
 
@@ -184,9 +176,8 @@ class VideoWriter(fr.modules.Module):
 
         self.open_queues.append(q)
         self.running_jobs.append(job)
-        return
-    
-    def single_update(self, mz: 'fr.ModelState'):
+
+    def single_update(self, mz: fr.ModelState) -> None:
         if self.fig is None:
             self.fig = self.model_plotter.create_figure()
         else:
@@ -198,9 +189,8 @@ class VideoWriter(fr.modules.Module):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             self.writer.append_data(img)
-        return
 
-    def collect_figures(self):
+    def collect_figures(self) -> None:
         while len(self.running_jobs) > 0:
             try :
                 img = self.open_queues[0].get(timeout=0.05)
@@ -216,7 +206,6 @@ class VideoWriter(fr.modules.Module):
             self.running_jobs[0].join()
             self.running_jobs.pop(0)
             self.open_queues.pop(0)
-        return
 
     def show_video(self, width=600):
         from IPython.display import Video
@@ -267,4 +256,3 @@ class VideoWriter(fr.modules.Module):
 
         img = model_plotter.convert_to_img(fig)
         output_queue.put(img)
-        return

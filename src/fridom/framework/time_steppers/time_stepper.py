@@ -1,13 +1,19 @@
-import fridom.framework as fr
-from typing import Union
-from numpy import ndarray
+"""Time stepper base class."""
+from __future__ import annotations
+
+from abc import abstractmethod
+
 import numpy as np
+from numpy import ndarray
+
+import fridom.framework as fr
 
 
 class TimeStepper(fr.modules.Module):
+
     """
     Base class for all time steppers.
-    
+
     Description
     -----------
     Required methods:
@@ -29,48 +35,51 @@ class TimeStepper(fr.modules.Module):
     Make sure to wrap the method with the `@stop_module` decorator from the
     `Module` class.
     """
+
     name = "Time Stepper"
     def __init__(self) -> None:
         super().__init__()
         self._dt = None  # set the time step size
-        return
 
     def time_discretization_effect(self, omega: ndarray) -> ndarray:
         """
         Compute the time discretization effect on a frequency.
-        
+
         Parameters
         ----------
-        `omega` : `ndarray | float | complex`
+        omega : ndarray | float | complex
             The frequency of the wave.
-        
+
         Returns
         -------
-        `ndarray`
+        ndarray
             The frequency of the wave including the time discretization effect.
+
         """
-        fr.log.warning(
-            f"The time stepper {self.name} has no method to compute the time discretization effect."
-        )
+        msg = f"The time stepper {self.name} has no method to compute the "
+        msg += "time discretization effect."
+        fr.log.warning(msg)
         return omega
 
     @property
-    def info(self) -> dict:
+    def info(self) -> dict:  # noqa: D102
         res = super().info
         res["dt"] = f"{self.dt} s"
         return res
 
     @property
     def dt(self) -> np.timedelta64:
-        """
-        Time step size.
-        """
+        """Time step size."""
         return self._dt
 
     @dt.setter
-    def dt(self, value: Union[np.timedelta64, float]) -> None:
-        if isinstance(value, float) or isinstance(value, int):
+    def dt(self, value: np.timedelta64 | float) -> None:
+        if isinstance(value, float | int):
             self._dt = value
         else:
-            self._dt = fr.config.dtype_real(value / np.timedelta64(1, 's'))
-        return
+            self._dt = fr.config.dtype_real(value / np.timedelta64(1, "s"))
+        self._on_time_step_change()
+
+    @abstractmethod
+    def _on_time_step_change(self) -> None:
+        """Actions to perform when the time step size."""

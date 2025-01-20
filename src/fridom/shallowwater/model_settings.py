@@ -1,6 +1,7 @@
+"""Model settings for the 2D shallow water model."""
 from __future__ import annotations
 
-import numpy as np
+from typing import Literal
 
 import fridom.framework as fr
 import fridom.shallowwater as sw
@@ -37,7 +38,11 @@ class ModelSettings(fr.ModelSettingsBase):
         # Finally, set attributes from keyword arguments
         self.set_attributes(**kwargs)
 
-    def setup_settings_parameters(self):
+    def setup_settings_parameters(self,  # noqa: D102
+                                  setup_mode: Literal["default", "forced"] = "default",
+                                  ) -> None:
+        if self.is_setup and setup_mode == "default":
+            return
         # Coriolis parameter
         f_coriolis = fr.ScalarField(self,
             name="f",
@@ -70,7 +75,7 @@ class ModelSettings(fr.ModelSettingsBase):
     # ================================================================
 
     @property
-    def parameters(self) -> dict:
+    def parameters(self) -> dict:  # noqa: D102
         res = super().parameters
         res["coriolis parameter f0"] = f"{self.f0} s⁻¹"
         res["beta term"] = f"{self.beta} m⁻¹ s⁻¹)"

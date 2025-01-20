@@ -1,10 +1,15 @@
-import fridom.framework as fr
+"""Base class for advection schemes."""
+from __future__ import annotations
+
 from abc import abstractmethod
 from functools import partial
+
+import fridom.framework as fr
 
 
 @partial(fr.utils.jaxify, dynamic=("_scaling", "_background"))
 class AdvectionBase(fr.modules.Module):
+
     r"""
     Base class for advection schemes.
 
@@ -24,13 +29,14 @@ class AdvectionBase(fr.modules.Module):
     This update routine of this module adds the advection term multiplied by the
     nonlinear scaling factor to the tendency term of all fields that are not flagged
     with `NO_ADV`:
-    
+
     .. math::
-        \partial_t q \leftarrow \partial_t q 
+        \partial_t q \leftarrow \partial_t q
                             + \rho \mathcal{A}(\boldsymbol{v}, q)
 
     where :math:`\rho` is the nonlinear scaling factor.
     """
+
     name = "Advection Base"
 
     def __init__(self) -> None:
@@ -38,47 +44,33 @@ class AdvectionBase(fr.modules.Module):
         self._scaling = 1
         self._background = None
         self._disable_nonlinear = False
-        return
 
     @abstractmethod
     def advection(self,
-                  velocity: 'tuple[fr.ScalarField]',
-                  quantity: 'fr.ScalarField') -> 'fr.ScalarField':
-        """
-        Advect a quantity using the given velocity field.
-        """
+                  velocity: fr.VectorField,
+                  quantity: fr.ScalarField) -> fr.ScalarField:
+        """Advect a quantity using the given velocity field."""
 
     @fr.utils.jaxjit
     def advect_state(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
+        """Advect the state vector."""
         if self.background is None and self.disable_nonlinear:
             return dz
         if self.disable_nonlinear:
             zf = self.background
         else:
             # Compute the full state vector (including the background)
-            if self.background is not None:
-                zf = z + self.background
-            else:
-                zf = z
-        # Compute the velocity field
-        if self.grid.n_dims == 1:
-            velocity = (zf.u,)
-        elif self.grid.n_dims == 2:
-            velocity = (zf.u, zf.v)
-        elif self.grid.n_dims == 3:
-            velocity = (zf.u, zf.v, zf.w)
-        else:
-            raise ValueError("Unsupported number of dimensions")
+            zf = z if self.background is None else z + self.background
 
         # calculate the advection term
-        for name, quantity in z.fields.items():
-            if quantity.flags["NO_ADV"]:
+        for field in z:
+            if field.flags["NO_ADV"]:
                 continue
-            dz.fields[name] += self.scaling * self.advection(velocity, quantity)
+            dz[field.name] += self.scaling * self.advection(zf.velocity, field)
         return dz
 
     @fr.modules.module_method
-    def update(self, mz: 'fr.ModelState') -> None:
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         mz.dz = self.advect_state(mz.z, mz.dz)
         return mz
 
@@ -87,22 +79,22 @@ class AdvectionBase(fr.modules.Module):
     # ================================================================
 
     @property
-    def disable_nonlinear(self):
+    def disable_nonlinear(self) -> bool:
         """
         Whether to disable advection by the state vector itself.
-        
+
         Advection by the background state is still enabled.
         """
         return self._disable_nonlinear
 
     @disable_nonlinear.setter
-    def disable_nonlinear(self, value):
+    def disable_nonlinear(self, value: bool) -> None:
         self._disable_nonlinear = value
 
     @property
-    def scaling(self):
+    def scaling(self) -> float:
         """
-        A scaling factor for the nonlinear terms (default: 1.0)
+        A scaling factor for the nonlinear terms (default: 1.0).
 
         Description
         -----------
@@ -112,16 +104,16 @@ class AdvectionBase(fr.modules.Module):
         provides an interface to set this scaling factor.
         """
         return self._scaling
-    
+
     @scaling.setter
-    def scaling(self, value):
+    def scaling(self, value: float) -> None:
         self._scaling = value
 
     @property
-    def background(self) -> 'fr.VectorField':
+    def background(self) -> fr.VectorField:
         """The background state."""
         return self._background
 
     @background.setter
-    def background(self, value):
+    def background(self, value: fr.VectorField) -> None:
         self._background = value

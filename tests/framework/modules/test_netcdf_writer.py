@@ -35,7 +35,6 @@ def netcdf_module(directory_name):
 def mset():
     grid = fr.grid.cartesian.Grid(N=(128, 64), L=(1, 1))
     mset = fr.ModelSettingsBase(grid=grid)
-    mset.setup()
     def _state_constructor() -> fr.VectorField:
         var1 = fr.ScalarField(
             mset, name="var1", long_name="Variable 1", units="unit1")
@@ -43,7 +42,7 @@ def mset():
             mset, name="var2", long_name="Variable 2", units="unit2")
         return fr.VectorField(mset, field_list=[var1, var2])
     mset.state_constructor = _state_constructor
-    return mset
+    return mset.setup()
 
 def test_setup(netcdf_module, directory_name, mset):
     # check that the directory is created
@@ -54,7 +53,6 @@ def test_setup(netcdf_module, directory_name, mset):
 
 def test_model_run(mset, netcdf_module, directory_name):
     mset.diagnostics.add_module(netcdf_module)
-    mset.setup()
     # check that the model runs without error
     model = fr.Model(mset)
     model.run(runlen=np.timedelta64(1, "h"))
