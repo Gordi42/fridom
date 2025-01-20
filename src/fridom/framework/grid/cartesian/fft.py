@@ -52,7 +52,7 @@ def dst_type1(x, axis, N):
     n, k = _create_kn_mesh(N)
     weights = 2 * ncp.sin(ncp.pi * k * (n+1) / N)
     # apply the rotation factor
-    weights *= -1j * ncp.exp(1j*k*ncp.pi/(2*N))
+    weights = weights * -1j * ncp.exp(1j*k*ncp.pi/(2*N))
     return _apply_weights(x, weights, axis)
 
 @partial(utils.jaxjit, static_argnames=['axis', 'N'])
@@ -61,7 +61,7 @@ def idst_type1(x, axis, N):
     k, n = _create_kn_mesh(N)
     weights = 2 * ncp.sin(ncp.pi * k * (n+1) / N)
     # similar as the dst1, we need to apply the inverse rotation factor
-    weights *= 1j * ncp.exp(-1j*k*ncp.pi/(2 * N))
+    weights = weights * 1j * ncp.exp(-1j*k*ncp.pi/(2 * N))
     return _apply_weights(x, weights, axis) / (2 * N)
 
 @partial(utils.jaxjit, static_argnames=['axis', 'N'])
