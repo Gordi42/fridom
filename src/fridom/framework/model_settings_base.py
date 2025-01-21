@@ -255,7 +255,7 @@ class ModelSettingsBase:
     def diagnostics(self, value: fr.modules.ModuleContainer) -> None:
         self._diagnostics = value
         old_halo = self.halo
-        if self.is_setup:
+        if self.is_setup and value is not None:
             value.setup(mset=self)
         if old_halo != self.halo:
             self.grid.setup(mset=self)
