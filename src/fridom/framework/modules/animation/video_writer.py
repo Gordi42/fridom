@@ -11,6 +11,7 @@ import numpy as np
 import fridom.framework as fr
 
 
+# FIXME(Silvano): The parallel option is not working with jax anymore
 class VideoWriter(fr.modules.Module):
 
     """
@@ -113,9 +114,10 @@ class VideoWriter(fr.modules.Module):
         while len(self.running_jobs) > 0:
             fr.log.info("Collecting remaining figures")
             self.collect_figures()
-        fr.log.debug("Closing the video writer")
-        self.writer.close()
-        fr.log.debug("Video writer closed")
+        if self.writer is not None:
+            fr.log.debug("Closing the video writer")
+            self.writer.close()
+            fr.log.debug("Video writer closed")
         if self.fig is not None:
             import matplotlib.pyplot as plt
             plt.close(self.fig)
@@ -165,7 +167,7 @@ class VideoWriter(fr.modules.Module):
         self.mset.diagnostics = None
 
         kw = {"kwargs": self.model_plotter.prepare_arguments(mz),
-              "output_queue": q, 
+              "output_queue": q,
               "model_plotter": self.model_plotter}
         job = mp.Process(target=VideoWriter.p_make_figure, kwargs=kw)
         self.mset.diagnostics = diagnostics
@@ -211,12 +213,12 @@ class VideoWriter(fr.modules.Module):
         from IPython.display import Video
         return Video(self.filename, width=width, embed=True) 
 
-    def __repr__(self) -> str:
-        res = super().__repr__()
-        res += f"    filename: {self.filename}\n"
-        res += f"    interval: {self.interval}\n"
-        res += f"    fps: {self.fps}\n"
-        res += f"    max_jobs: {self.max_jobs}\n"
+    @property
+    def info(self) -> dict:  # noqa: D102
+        res = super().info
+        res["filename"] = self.filename
+        res["fps"] = self.fps
+        res["max_jobs"] = self.max_jobs
         return res
 
     def __to_numpy__(self, memo):
