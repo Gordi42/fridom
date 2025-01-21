@@ -1,11 +1,13 @@
 """Sadourny advection scheme for the shallow water equations."""
 from __future__ import annotations
 
+from functools import partial
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
 
-@fr.utils.jaxify
+@partial(fr.utils.jaxify, dynamic=("csqr", ))
 class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
     r"""
@@ -45,6 +47,7 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
     def _on_setup(self) -> None:
         self._required_halo = 2
+        self.csqr = self.mset.csqr
 
     @fr.utils.jaxjit
     def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:  # noqa: D102
@@ -117,7 +120,7 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
         # compute the potential vorticity
         zeta = z.rel_vort
-        h_full = self.mset.csqr + scale * z.p  # check if we should use scale or Ro here
+        h_full = self.csqr + scale * z.p  # check if we should use scale or Ro here
         q = zeta / interp(h_full, NORTHEAST)
 
         # interp set h_full to zero on boundaries, as a result values of q on

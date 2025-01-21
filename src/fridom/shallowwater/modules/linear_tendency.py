@@ -1,11 +1,13 @@
 """Linear tendency module for the shallow water model."""
 from __future__ import annotations
 
+from functools import partial
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
 
-@fr.utils.jaxify
+@partial(fr.utils.jaxify, dynamic=("csqr", "f_coriolis"))
 class LinearTendency(fr.modules.Module):
 
     r"""
@@ -22,6 +24,10 @@ class LinearTendency(fr.modules.Module):
 
     name = "Linear Tendency"
 
+    def _on_setup(self) -> None:
+        self.f_coriolis = self.mset.f_coriolis
+        self.csqr = self.mset.csqr
+
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         mz.dz = self.linear_tendency(mz.z, mz.dz)
@@ -35,11 +41,11 @@ class LinearTendency(fr.modules.Module):
         div = self.diff_module.div
 
         # interpolate the coriolis parameter to the u position
-        f = interp(self.mset.f_coriolis, z.u.position)
+        f = interp(self.f_coriolis, z.u.position)
 
         # calculate u-tendency
         dz.u +=   interp(z.v, z.u.position) * f - diff(z.p, axis=0)
         dz.v += - interp(z.u * f, z.v.position) - diff(z.p, axis=1)
-        dz.p += - self.mset.csqr * div((z.u, z.v))
+        dz.p += - self.csqr * div((z.u, z.v))
 
         return dz
