@@ -116,6 +116,11 @@ class State(fr.VectorField):
     def p(self, value: fr.ScalarField) -> None:
         self.fields["p"] = value
 
+    @property
+    def velocity(self) -> fr.VectorField:
+        """Velocity vector."""
+        return fr.VectorField(self.mset, field_list=[self.u, self.v])
+
     # ----------------------------------------------------------------
     #  Energy Variables
     # ----------------------------------------------------------------
