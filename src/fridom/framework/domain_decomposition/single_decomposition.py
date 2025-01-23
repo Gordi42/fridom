@@ -66,6 +66,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         extend_second_halfs = []
         extend_paddings = []
         extend_unpad_slices = []
+        extend_factor = 1
         for i in range(self.n_dims):
             first_half = [slice(None)] * self.n_dims
             first_half[i] = slice(0, int((self.shape[i]+1)/2))
@@ -79,6 +80,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             paddings[i] = (0, int((self.shape[i]+1)/2))
             extend_paddings.append(tuple(paddings))
 
+            extend_factor *= (int((self.shape[i]+1)/2) / self.shape[i] + 1.0)
+
             sl = [slice(None)] * self.n_dims
             sl[i] = slice(0, self.shape[i])
             extend_unpad_slices.append(tuple(sl))
@@ -88,6 +91,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         self._extend_second_halfs: tuple[tuple[slice]] = tuple(extend_second_halfs)
         self._extend_pad: tuple[tuple[int]] = tuple(extend_paddings)
         self._extend_unpad_slices: tuple[tuple[slice]] = tuple(extend_unpad_slices)
+        self._extend_factor = extend_factor
 
     # ================================================================
     #  Halo exchange
@@ -211,12 +215,12 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def pad_extend(self, arr: ndarray) -> ndarray:
         for axis in range(self.n_dims):
             arr = self._pad_extend_axis(arr, axis)
-        return arr
+        return arr * self._extend_factor
 
     def unpad_extend(self, arr: ndarray) -> ndarray:
         for axis in range(self.n_dims):
             arr = self._unpad_extend_axis(arr, axis)
-        return arr
+        return arr / self._extend_factor
 
     def pad_trim(self, arr: ndarray) -> ndarray:
         for axis in range(self.n_dims):
