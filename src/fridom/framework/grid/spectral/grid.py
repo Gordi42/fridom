@@ -8,11 +8,10 @@ class Grid(fr.grid.cartesian.Grid):
                  N: list[int],
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
-                 shared_axes=[0],) -> None:
+                 ) -> None:
         super().__init__(N=N, 
                          L=L, 
                          periodic_bounds=periodic_bounds,
-                         shared_axes=shared_axes, 
                          diff_mod=fr.grid.cartesian.SpectralDiff(),
                          interp_mod=fr.grid.DummyInterpolation())
         self.name = "Spectral Grid"
