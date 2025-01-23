@@ -132,6 +132,11 @@ class State(fr.VectorField):
         """The velocity vector field."""
         return self[:3]
 
+    @property
+    def tracers(self) -> fr.VectorField:
+        """The tracer fields."""
+        return self[3:]
+
     # ----------------------------------------------------------------
     #  Energy Variables
     # ----------------------------------------------------------------
