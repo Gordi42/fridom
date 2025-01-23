@@ -14,12 +14,11 @@ if TYPE_CHECKING:  # pragma: no cover
         NetCDFWriter,
         ResetTendency,
         RestartModule,
-        advection,
         animation,
         module_method,
     )
 
-    from . import closures, forcings, pressure_solvers
+    from . import closures, forcings, pressure_solvers, advection
     from .diagnostics import Diagnostics
     from .linear_tendency import LinearTendency
     from .main_tendency import MainTendency
@@ -37,8 +36,9 @@ all_modules_by_origin = {
         "advection",
         "closures",
         "pressure_solvers",
+        "advection",
         "forcings"],
-    fr_base_path: ["animation", "advection"],
+    fr_base_path: ["animation"],
 }
 
 all_imports_by_origin = {

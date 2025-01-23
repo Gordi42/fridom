@@ -13,14 +13,19 @@ class MainTendency(fr.modules.ModuleContainer):
         mods = nh.modules
         self._reset_tendency = mods.ResetTendency()
         self._linear_tendency = mods.LinearTendency()
-        self._advection = mods.advection.CenteredAdvection()
         self._tendency_divergence = mods.TendencyDivergence()
+        self._advection = mods.advection.CenteredAdvection()
         self._pressure_solver = mods.pressure_solvers.SpectralPressureSolver()
         self._pressure_gradient_tendency = mods.PressureGradientTendency()
         self._additional_modules = []
         self._set_module_list()
 
         super().__init__(module_list=self.module_list)
+
+    def _on_setup(self) -> None:
+        # update the advection module if the grid is spectral
+        if type(self.mset.grid) is nh.grid.spectral.Grid:
+            self.advection = nh.modules.advection.SpectralAdvection()
 
     def add_module(self, module: fr.modules.Module) -> None:  # noqa: D102
         self._additional_modules.append(module)
@@ -66,6 +71,9 @@ class MainTendency(fr.modules.ModuleContainer):
     @property
     def advection(self) -> nh.modules.advection.AdvectionBase:
         """The advection module (nonlinear + linear by backgound state)."""
+        if self._advection is None:
+            msg = "The advection module is available after the setup."
+            raise ValueError(msg)
         return self._advection
 
     @advection.setter
