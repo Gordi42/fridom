@@ -1,24 +1,25 @@
+from __future__ import annotations
+
 from numpy import ndarray
-import fridom.nonhydro as nh
+
 import fridom.framework as fr
+import fridom.nonhydro as nh
 
 
 @fr.utils.jaxify
 class Grid(fr.grid.spectral.Grid):
-    def __init__(self, N: list[int], L: list[int],
-                 periodic_bounds: list[bool] = [True, True, True],
-                 decomposition: str = 'slab'):
-        if decomposition == 'slab':
-            shared_axes = [0, 1]
-        elif decomposition == 'pencil':
-            shared_axes = [0]
-        else:
-            raise ValueError(f"Unknown decomposition {decomposition}")
-        super().__init__(N, L, periodic_bounds, shared_axes)
+
+    def __init__(self, N: list[int], L: list[int], *args: any, **kwargs: dict) -> None:
+
+        if "periodic_bounds" in kwargs and not all(kwargs["periodic_bounds"]):
+            msg = "Only periodic boundaries are supported in the spectral grid."
+            raise ValueError(msg)
+
+        super().__init__(N=N, L=L, periodic_bounds=[True, True, True])
 
     def omega(self, 
               k: tuple[float] | tuple[ndarray],
-              use_discrete: bool = False
+              use_discrete: bool = False,
               ) -> ndarray:
         # always use non-discrete eigenvalues even if use_discrete is True
         return nh.grid.cartesian.eigenvectors.omega(
