@@ -18,6 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .nan_checker import NaNChecker
     from .netcdf_writer import NetCDFWriter
     from .progress_bar import ProgressBar
+    from .ramper import Ramper
     from .reset_tendency import ResetTendency
     from .restart_module import RestartModule
 
@@ -36,6 +37,7 @@ all_imports_by_origin = {
     f"{base_path}.module": ["Module", "module_method"],
     f"{base_path}.module_container": ["ModuleContainer"],
     f"{base_path}.progress_bar": ["ProgressBar"],
+    f"{base_path}.ramper": ["Ramper"],
     f"{base_path}.restart_module": ["RestartModule"],
     f"{base_path}.nan_checker": ["NaNChecker"],
     f"{base_path}.netcdf_writer": ["NetCDFWriter"],
