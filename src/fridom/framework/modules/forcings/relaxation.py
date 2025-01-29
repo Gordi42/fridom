@@ -65,8 +65,8 @@ class Relaxation(fr.modules.Module):
         self.domain_function = domain_function
         self.domain = None
 
-    def _on_setup(self, mset: fr.ModelSettingsBase) -> None:
-        z = mset.state_constructor()
+    def _on_setup(self) -> None:
+        z = self.mset.state_constructor()
         mesh = z[self.field_name].get_mesh()
         self.domain = self.domain_function(mesh)
         del z
