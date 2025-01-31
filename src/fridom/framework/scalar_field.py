@@ -454,7 +454,7 @@ class ScalarField(fr.FieldBase):
             If the ScalarField is not constant.
 
         """
-        if any(self.topo):
+        if not self.is_constant:
             msg = "The field is not constant"
             raise ValueError(msg)
         return self.arr.item()
@@ -481,6 +481,8 @@ class ScalarField(fr.FieldBase):
     def info(self) -> dict:
         """Dictionary with information about the field."""
         res = {}
+        if not any(self.topo):
+            res["value"] = self.arr.item()
         res["name"] = self.name
         res["long_name"] = self.long_name
         res["units"] = self.units
@@ -564,6 +566,10 @@ class ScalarField(fr.FieldBase):
         would be (True, True, False).
         """
         return self.mdata.topo
+
+    @property
+    def is_constant(self) -> bool:  # noqa: D102
+        return not any(self.topo)
 
     @property
     def position(self) -> fr.grid.Position:

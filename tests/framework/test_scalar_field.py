@@ -234,6 +234,10 @@ def test_repr(mset, attr):
     # check if the repr string contains the name of the field
     assert str(getattr(field, attr)) in res
 
+def test_is_constant(field, topo):
+    expected = not any(topo)
+    assert field.is_constant == expected
+
 def test_value(field, topo, is_spectral):
     if any(topo):
         msg = "The field is not constant"

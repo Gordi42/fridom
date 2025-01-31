@@ -411,6 +411,10 @@ class VectorField(fr.FieldBase):
             raise ValueError(msg)
         return next(iter(self.fields.values())).is_spectral
 
+    @property
+    def is_constant(self) -> bool:  # noqa: D102
+        return all(field.is_constant for field in self)
+
     # ================================================================
     #  Shrink / Extend operations
     # ================================================================

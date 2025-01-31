@@ -191,6 +191,11 @@ def test_set_attr(): ...
 
 def test_repr(): ...
 
+def test_is_constant(mset, topo, is_spectral):
+    vec = fr.VectorField(mset, topo=topo, is_spectral=is_spectral, vector_dim=2)
+    expected = not any(topo)
+    assert vec.is_constant == expected
+
 # ----------------------------------------------------------------
 #  Test general methods
 # ----------------------------------------------------------------

@@ -461,6 +461,11 @@ class FieldBase:
     def is_spectral(self) -> bool:
         """Flag indicating whether the field is in spectral space."""
 
+    @property
+    @abstractmethod
+    def is_constant(self) -> bool:
+        """Flag indicating whether the field is constant."""
+
     # ================================================================
     #  Shrink / Extend operations
     # ================================================================
