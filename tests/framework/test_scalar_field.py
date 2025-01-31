@@ -228,11 +228,14 @@ def test_set_attr(mset, attr, value):
 @pytest.mark.parametrize("attr", [
     "name", "long_name", "units", "topo", "position", "bc_types",
 ])
-def test_repr(mset, attr):
-    field = fr.ScalarField(mset)
+def test_repr(mset, attr, topo):
+    field = fr.ScalarField(mset, topo=topo)
     res = repr(field)
     # check if the repr string contains the name of the field
     assert str(getattr(field, attr)) in res
+    # check that the value of the field is printed if the field is constant
+    if not any(topo):
+        assert "value" in res
 
 def test_is_constant(field, topo):
     expected = not any(topo)
