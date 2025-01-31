@@ -101,6 +101,7 @@ jobs:
     name: Publish Python 🐍 distribution 📦 to TestPyPI
     needs:
     - build
+    if: "!startsWith(github.ref, 'refs/tags/')"  # don't push on testpypi if it is a tag push
     runs-on: ubuntu-latest
 
     environment:
