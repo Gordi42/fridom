@@ -26,7 +26,7 @@ class MainTendency(fr.modules.ModuleContainer):
         mods = sw.modules
         self._reset_tendency = mods.ResetTendency()
         self._linear_tendency = mods.LinearTendency()
-        self._advection = mods.SadournyAdvection()
+        self._advection = mods.advection.SadournyAdvection()
         self._additional_modules = []
         self._set_module_list()
 
@@ -68,6 +68,7 @@ class MainTendency(fr.modules.ModuleContainer):
         self._linear_tendency = value
         if self.is_setup:
             value.setup(mset=self.mset)
+        self._set_module_list()
 
     @property
     def advection(self) -> fr.modules.advection.AdvectionBase:
@@ -79,3 +80,4 @@ class MainTendency(fr.modules.ModuleContainer):
         self._advection = value
         if self.is_setup:
             value.setup(mset=self.mset)
+        self._set_module_list()
