@@ -109,9 +109,7 @@ class ModelSettingsBase:
         for module in modules:
             module.setup(mset=self, setup_mode=setup_mode)
 
-    def setup_settings_parameters(self,
-                                  setup_mode: Literal["default", "forced"] = "default",
-                                  ) -> None:
+    def setup_settings_parameters(self) -> None:
         """Set the model settings parameters up."""
 
     def setup(self: T, setup_mode: Literal["default", "forced"] = "default") -> T:
@@ -135,7 +133,7 @@ class ModelSettingsBase:
         fr.log.verbose("Setting up model settings")
         self.is_setup = True
         self.setup_grid(setup_mode=setup_mode)
-        self.setup_settings_parameters(setup_mode=setup_mode)
+        self.setup_settings_parameters()
         self._setup_all_modules(setup_mode=setup_mode)
         fr.log.info(self)
         return self

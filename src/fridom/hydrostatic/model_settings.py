@@ -43,7 +43,7 @@ class ModelSettings(fr.ModelSettingsBase):
         # Finally, set attributes from keyword arguments
         self.set_attributes(**kwargs)
 
-    def setup_settings_parameters(self, **_kwargs: dict) -> None:  # noqa: D102
+    def setup_settings_parameters(self) -> None:  # noqa: D102
         # This will make sure that the coriolis parameter is a scalar field
         self.coriolis_parameter = self.coriolis_parameter
         # Setup the background stratification

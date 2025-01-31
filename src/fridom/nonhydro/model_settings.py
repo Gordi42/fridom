@@ -41,11 +41,7 @@ class ModelSettings(fr.ModelSettingsBase):
         # Finally, set attributes from keyword arguments
         self.set_attributes(**kwargs)
 
-    def setup_settings_parameters(self,  # noqa: D102
-                                  setup_mode: Literal["default", "forced"] = "default",
-                                  ) -> None:
-        if self.is_setup and setup_mode == "default":
-            return
+    def setup_settings_parameters(self) -> None:  # noqa: D102
         # Coriolis parameter
         f_coriolis = fr.ScalarField(self,
             name="f",
