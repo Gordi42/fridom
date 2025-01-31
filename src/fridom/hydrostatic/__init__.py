@@ -103,6 +103,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.vector_field import VectorField
     from fridom.hydrostatic import grid
 
+    from .model_settings import ModelSettings
+
 # ================================================================
 #  Setup lazy loading
 # ================================================================
@@ -110,6 +112,8 @@ all_modules_by_origin = {
     "fridom.framework": ["time_steppers", "utils", "projection"],
     "fridom.hydrostatic": ["grid"],
 }
+
+hs_base = "fridom.hydrostatic"
 
 all_imports_by_origin = {
     "fridom.framework.configuration": ["config"],
@@ -122,6 +126,8 @@ all_imports_by_origin = {
     "fridom.framework.model": ["Model"],
     "fridom.framework.clock": ["Clock", "TimingFormat"],
     "fridom.framework.clock_trigger": ["ClockTrigger"],
+    f"{hs_base}.model_settings": ["ModelSettings"],
+
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
