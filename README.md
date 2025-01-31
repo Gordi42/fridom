@@ -1,6 +1,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docs](https://readthedocs.org/projects/fridom/badge/?version=latest)](https://fridom.readthedocs.io/en/latest/index.html)
 [![codecov](https://codecov.io/github/Gordi42/fridom/graph/badge.svg?token=6LY1CFM6KU)](https://codecov.io/github/Gordi42/fridom)
+[![DOI](https://zenodo.org/badge/714260615.svg)](https://doi.org/10.5281/zenodo.14536978)
 
 [![](media/fridom-title.png)](https://www.youtube.com/watch?v=Fotni4P2ZQs)
 
@@ -84,9 +85,10 @@ https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc
 - [x] make mpi4py dependency optional
 - [x] adapt shallowwater to new model structure
 - [x] adapt optimal balance to new model structure
-- [ ] make NNMD work
+- [x] make NNMD work
 - [ ] fix the CG pressure solver in nonhydro model
-- [ ] refactor diagnose imbalance experiment
+- [ ] increase test coverage to at least 90%
+- [ ] adjust code to linting standards
 
 ### Long term Todos:
 **Grid:**
@@ -108,6 +110,20 @@ https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc
 **Others:**
 - [ ] Optimize parallelization for CPUs
 - [ ] Add possibility to couple multiple fridom models
+
+## How to cite
+
+```
+@software{Rosenau_fridom_2024,
+          author = {Rosenau, Silvano Gordian},
+          doi = {10.5281/zenodo.14536979},
+          month = dec,
+          title = {{Fridom: A framework for idealized ocean models.}},
+          url = {https://github.com/Gordi42/fridom},
+          version = {0.0.1},
+          year = {2024}
+}
+```
 
 ## Author
     * Silvano Rosenau
