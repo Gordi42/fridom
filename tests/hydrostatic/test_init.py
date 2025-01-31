@@ -1,7 +1,7 @@
 """Test the imports in the fridom/hydro/__init__.py file."""
 import pytest
 
-import fridom.hydro as test_module
+import fridom.hydrostatic as test_module
 
 all_imports = []
 for mod in test_module.all_modules_by_origin.values():
