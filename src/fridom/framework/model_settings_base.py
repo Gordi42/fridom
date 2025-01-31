@@ -133,10 +133,10 @@ class ModelSettingsBase:
             # If the model settings are already set up, return
             return self
         fr.log.verbose("Setting up model settings")
+        self.is_setup = True
         self.setup_grid(setup_mode=setup_mode)
         self.setup_settings_parameters(setup_mode=setup_mode)
         self._setup_all_modules(setup_mode=setup_mode)
-        self.is_setup = True
         fr.log.info(self)
         return self
 

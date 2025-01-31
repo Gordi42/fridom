@@ -5,7 +5,7 @@ from functools import partial
 from typing import Literal
 
 import fridom.framework as fr
-import fridom.nonhydro as nh
+import fridom.hydrostatic as hs
 
 
 @partial(fr.utils.jaxify, dynamic=("coriolis_parameter",
@@ -35,7 +35,7 @@ class ModelSettings(fr.ModelSettingsBase):
         super().__init__(grid)
 
         # Set standard parameters
-        self.tendencies = nh.modules.MainTendency()
+        self.tendencies = hs.modules.MainTendency()
         self.coriolis_parameter = 0
         self.background_stratification = 0
         self.rossby_number = 1
@@ -43,21 +43,17 @@ class ModelSettings(fr.ModelSettingsBase):
         # Finally, set attributes from keyword arguments
         self.set_attributes(**kwargs)
 
-    def setup_settings_parameters(self,  # noqa: D102
-                                  setup_mode: Literal["default", "forced"] = "default",
-                                  ) -> None:
-        if self.is_setup and setup_mode == "default":
-            return
+    def setup_settings_parameters(self, **_kwargs: dict) -> None:  # noqa: D102
         # This will make sure that the coriolis parameter is a scalar field
         self.coriolis_parameter = self.coriolis_parameter
-        # make sure that the advection term is scaled by the Rossby number
-        self.tendencies.advection.scaling = self.Ro
+        # Setup the background stratification
+        self.background_stratification = self.background_stratification
 
-    def state_constructor(self) -> None:  # noqa: D102
-        raise NotImplementedError
+    def state_constructor(self) -> hs.State:  # noqa: D102
+        return hs.State(self, is_spectral=self.grid.spectral_grid)
 
     def diagnostic_state_constructor(self) -> None:  # noqa: D102
-        raise NotImplementedError
+        return hs.DiagnosticState(self, is_spectral=self.grid.spectral_grid)
 
     # ================================================================
     #  Properties
@@ -68,7 +64,7 @@ class ModelSettings(fr.ModelSettingsBase):
         res = super().parameters
         res["coriolis parameter"] = self._format_coriolis_parameter()
         res["background stratification"] = self._format_background_stratification()
-        res["Rossby number Ro"] = f"{self.Ro}"
+        res["Rossby number"] = f"{self.rossby_number}"
         return res
 
     @property
@@ -215,5 +211,4 @@ class ModelSettings(fr.ModelSettingsBase):
     @rossby_number.setter
     def rossby_number(self, value: float) -> None:
         self._rossby_number = value
-        # scale the advection term
-        self.tendencies.advection.scaling = value
+        # TODO(Silvano): scale the advection term

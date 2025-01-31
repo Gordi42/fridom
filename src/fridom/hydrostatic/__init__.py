@@ -101,7 +101,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.scalar_field import ScalarField
     from fridom.framework.tensor_field import TensorField
     from fridom.framework.vector_field import VectorField
-    from fridom.hydrostatic import grid
+    from fridom.hydrostatic import grid, modules
 
     from .model_settings import ModelSettings
     from .state import DiagnosticState, State
@@ -111,7 +111,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 all_modules_by_origin = {
     "fridom.framework": ["time_steppers", "utils", "projection"],
-    "fridom.hydrostatic": ["grid"],
+    "fridom.hydrostatic": ["grid", "modules"],
 }
 
 hs_base = "fridom.hydrostatic"
