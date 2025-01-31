@@ -104,6 +104,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.hydrostatic import grid
 
     from .model_settings import ModelSettings
+    from .state import DiagnosticState, State
 
 # ================================================================
 #  Setup lazy loading
@@ -127,6 +128,7 @@ all_imports_by_origin = {
     "fridom.framework.clock": ["Clock", "TimingFormat"],
     "fridom.framework.clock_trigger": ["ClockTrigger"],
     f"{hs_base}.model_settings": ["ModelSettings"],
+    f"{hs_base}.state": ["State", "DiagnosticState"],
 
 }
 
