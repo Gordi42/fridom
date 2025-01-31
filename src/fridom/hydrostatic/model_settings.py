@@ -62,8 +62,8 @@ class ModelSettings(fr.ModelSettingsBase):
     @property
     def parameters(self) -> dict:  # noqa: D102
         res = super().parameters
-        res["coriolis parameter"] = self._format_coriolis_parameter()
-        res["background stratification"] = self._format_background_stratification()
+        res["Coriolis parameter"] = self._format_coriolis_parameter()
+        res["Background stratification"] = self._format_background_stratification()
         res["Rossby number"] = f"{self.rossby_number}"
         return res
 

@@ -44,27 +44,47 @@ def test_setup(grid):
     mset.setup(setup_mode="forced")
     assert isinstance(mset.coriolis_parameter, hs.ScalarField)
 
-# TODO(Silvano): Test the remaining methods
-# def test_state_constructor(grid):
-#     mset = hs.ModelSettings(grid).setup()
-#     state = mset.state_constructor()
-#     assert isinstance(state, hs.State)
+# TODO(Silvano): Test once the state vectors are implemented
+def test_state_constructor(grid):
+    mset = hs.ModelSettings(grid).setup()
+    state = mset.state_constructor()
+    assert isinstance(state, hs.State)
 #     assert state.is_spectral == grid.spectral_grid
 
-# def test_diagnostic_constructor(grid):
-#     mset = hs.ModelSettings(grid).setup()
-#     state = mset.diagnostic_state_constructor()
-#     assert isinstance(state, hs.DiagnosticState)
+def test_diagnostic_constructor(grid):
+    mset = hs.ModelSettings(grid).setup()
+    state = mset.diagnostic_state_constructor()
+    assert isinstance(state, hs.DiagnosticState)
 #     assert state.is_spectral == grid.spectral_grid
 
-def test_format_coriolis_parameter(): ...
+def test_format_coriolis_parameter(grid):
+    mset = hs.ModelSettings(grid)
+    assert mset._format_coriolis_parameter() == "0 1/s"
+    mset.setup()
+    assert mset._format_coriolis_parameter() == "Variable"
+    mset.coriolis_parameter = hs.ScalarField(mset, name="f", topo=(False, False, False))
+    mset.coriolis_parameter += 1
+    assert mset._format_coriolis_parameter() == "1.0 1/s"
 
-def test_format_background_stratification(): ...
+def test_format_background_stratification(grid):
+    mset = hs.ModelSettings(grid)
+    assert mset._format_background_stratification() == "0 1/s^2"
+    mset.setup()
+    assert mset._format_background_stratification() == "Variable"
+    mset.background_stratification = hs.ScalarField(mset,
+                                                    name="N2",
+                                                    topo=(False, False, False))
+    mset.background_stratification += 1
+    assert mset._format_background_stratification() == "1.0 1/s^2"
 
-def test_repr(): ...
+@pytest.mark.parametrize("entry", [
+    "Coriolis parameter",
+    "Background stratification",
+    "Rossby number",
+])
+def test_repr(grid, entry):
+    mset = hs.ModelSettings(grid)
+    assert entry in repr(mset)
 
-def test_coriolis_parameter(): ...
-
-def test_background_stratification(): ...
-
+# TODO(Silvano): Test once the advection term is implemented
 def test_rossby_number(): ...
