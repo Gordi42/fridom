@@ -57,6 +57,10 @@ def test_diagnostic_constructor(grid):
     assert isinstance(state, hs.DiagnosticState)
 #     assert state.is_spectral == grid.spectral_grid
 
+# ----------------------------------------------------------------
+#  Test formatting methods
+# ----------------------------------------------------------------
+
 def test_format_coriolis_parameter(grid):
     mset = hs.ModelSettings(grid)
     assert mset._format_coriolis_parameter() == "0 1/s"
@@ -85,6 +89,35 @@ def test_format_background_stratification(grid):
 def test_repr(grid, entry):
     mset = hs.ModelSettings(grid)
     assert entry in repr(mset)
+
+# ----------------------------------------------------------------
+#  Test the properties
+# ----------------------------------------------------------------
+@pytest.mark.parametrize("name", ["coriolis_parameter", "background_stratification"])
+def test_scalar_field_properties(grid, name):
+    mset = hs.ModelSettings(grid)
+    # first the field should be a float or int
+    field = getattr(mset, name)
+    assert isinstance(field, (int, float))
+    # when setting it to a float value, it should be exactly that
+    my_value = 3.14
+    setattr(mset, name, my_value)
+    field = getattr(mset, name)
+    assert field == my_value
+    # after setup it should be a ScalarField
+    mset.setup()
+    field = getattr(mset, name)
+    assert isinstance(field, hs.ScalarField)
+    # when setting it to a float value, it should be a ScalarField with that value
+    setattr(mset, name, my_value)
+    field = getattr(mset, name)
+    assert isinstance(field, hs.ScalarField)
+    assert (field.arr == my_value).all()
+    # when setting it to a ScalarField, it should be that
+    my_field = hs.ScalarField(mset, name="test", topo=(False, False, False))
+    setattr(mset, name, my_field)
+    field = getattr(mset, name)
+    assert field is my_field
 
 # TODO(Silvano): Test once the advection term is implemented
 def test_rossby_number(): ...
