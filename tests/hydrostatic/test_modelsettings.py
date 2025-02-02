@@ -44,18 +44,17 @@ def test_setup(grid):
     mset.setup(setup_mode="forced")
     assert isinstance(mset.coriolis_parameter, hs.ScalarField)
 
-# TODO(Silvano): Test once the state vectors are implemented
 def test_state_constructor(grid):
     mset = hs.ModelSettings(grid).setup()
     state = mset.state_constructor()
     assert isinstance(state, hs.State)
-#     assert state.is_spectral == grid.spectral_grid
+    assert state.is_spectral == grid.spectral_grid
 
 def test_diagnostic_constructor(grid):
     mset = hs.ModelSettings(grid).setup()
     state = mset.diagnostic_state_constructor()
     assert isinstance(state, hs.DiagnosticState)
-#     assert state.is_spectral == grid.spectral_grid
+    # assert state.is_spectral == grid.spectral_grid
 
 # ----------------------------------------------------------------
 #  Test formatting methods

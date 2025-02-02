@@ -313,7 +313,8 @@ def test_apply_watermask(field, topo, is_spectral):
     # TODO(Silvano): should test a custom watermask array
     # if the field is not fully extended, apply_watermask should raise an error
     if not all(topo):
-        not_implemented_for_non_full_domain_fields(field.apply_water_mask)
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            field.apply_water_mask()
         return
     # if the field is spectral, apply_watermask should raise an error
     if is_spectral:
@@ -375,7 +376,8 @@ def test_unpad(field, topo, is_spectral):
 def test_get_mesh(field, topo):
     # if the field is not fully extended, get_mesh should raise an error
     if not all(topo):
-        not_implemented_for_non_full_domain_fields(field.get_mesh)
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            field.get_mesh()
         return
     mesh = field.get_mesh()
     grid_mesh = field.grid.get_mesh(position=field.position,
@@ -438,6 +440,103 @@ def test_div(field):
     msg = "Divergence is not defined for scalar fields"
     with pytest.raises(ValueError, match=msg):
         field.div()
+
+@pytest.mark.parametrize(*(
+    "axis, base_func, integral_func",
+    [
+        (0, lambda x, _y: x, lambda x, _y: x ** 2 / 2),
+        (1, lambda _x, y: y, lambda _x, y: y ** 2 / 2),
+        (0, lambda x, y: x + y, lambda x, y: x ** 2 / 2 + x * y),
+    ],
+))
+def test_cumulative_integral(field,
+                             axis,
+                             base_func,
+                             integral_func):
+    ncp = fr.config.ncp
+    # if the field is spectral, cumulative_integral should raise an error
+    if field.is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            field.cumulative_integral(axis)
+        return
+    if not all(field.topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            field.cumulative_integral(axis)
+        return
+    # TODO(Silvano): do tests once the cumulative_integral method is implemented
+    x, y = field.get_mesh()
+    field.arr = base_func(x, y)
+    cum_int = field.cumulative_integral(axis)
+    # we need to evaluate the integral function at the correct position
+    x, y = cum_int.get_mesh()
+    expected = integral_func(x, y)
+    assert ncp.allclose(cum_int.arr, expected)
+
+@pytest.mark.parametrize("position", [
+    pytest.param(fr.grid.AxisPosition.CENTER, id="center"),
+    pytest.param(fr.grid.AxisPosition.FACE, id="face", marks=pytest.mark.xfail),
+])
+@pytest.mark.parametrize("periodic", [True, False])
+def test_1d_forward_cumulative_integral(position, periodic):
+    # setup grid and model settings
+    grid = fr.grid.cartesian.Grid(N=(10,), L=(3,), periodic_bounds=(periodic,))
+    mset = fr.ModelSettingsBase(grid)
+    mset.halo = 1
+    mset.setup()
+
+    # create the field and set it to f(x) = x + 1
+    field = fr.ScalarField(mset, position=fr.grid.Position((position,)))
+    x, = field.get_mesh()
+    field.arr = x + 1.0
+    # compute the cumulative integral
+    cum_int = field.cumulative_integral(0, direction="forward")
+
+    # create the expected field: F(x) = x^2 / 2 + x
+    x, = cum_int.get_mesh()
+    expected = x ** 2 / 2 + x
+    expected_field = fr.ScalarField(mset,
+                                    position=field.position.shift(0),
+                                    arr=expected)
+    # we need to apply the water mask to the expected values
+    expected_field = expected_field.apply_water_mask()
+
+    # check if the cumulative integral is correct
+    assert fr.config.ncp.allclose(cum_int.arr, expected_field.arr)
+
+@pytest.mark.parametrize("position", [
+    pytest.param(fr.grid.AxisPosition.CENTER, id="center", marks=pytest.mark.xfail),
+    pytest.param(fr.grid.AxisPosition.FACE, id="face"),
+])
+@pytest.mark.parametrize("periodic", [True, False])
+def test_1d_backward_cumulative_integral(position, periodic):
+    lx = 3
+    # setup grid and model settings
+    grid = fr.grid.cartesian.Grid(N=(10,), L=(lx,), periodic_bounds=(periodic,))
+    mset = fr.ModelSettingsBase(grid)
+    mset.halo = 1
+    mset.setup()
+
+    # create the field and set it to f(x) = lx - x
+    field = fr.ScalarField(mset, position=fr.grid.Position((position,)))
+    x, = field.get_mesh()
+    field.arr = lx - x
+    # compute the cumulative integral
+    cum_int = field.cumulative_integral(0, direction="backward")
+
+    # create the expected field: F(x) = lx² + x² - lx * x
+    x, = cum_int.get_mesh()
+    expected = (lx ** 2 + x ** 2) / 2 - lx * x
+    expected_field = fr.ScalarField(mset,
+                                    position=field.position.shift(0),
+                                    arr=expected)
+    # we need to apply the water mask to the expected values
+    expected_field = expected_field.apply_water_mask()
+
+    # check if the cumulative integral is correct
+    difference = (cum_int - expected_field).unpad()
+
+    # check that the difference is everywhere the same
+    assert fr.config.ncp.allclose(difference, difference[0])
 
 # ----------------------------------------------------------------
 #  Test xarray interface

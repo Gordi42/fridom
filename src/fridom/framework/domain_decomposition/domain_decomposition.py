@@ -1,6 +1,6 @@
-"""
-Base class for domain decomposition.
-"""
+"""Base class for domain decomposition."""
+from __future__ import annotations
+
 from abc import abstractmethod
 import numpy as np
 from numpy import ndarray
@@ -361,6 +361,61 @@ class DomainDecomposition:
         `spectral` : bool
             Whether the array is in spectral space.
         """
+
+    @abstractmethod
+    def cumsum(self,
+               arr: ndarray,
+               axis: int) -> ndarray:
+        """
+        Cumulative sum of an array along a specified axis.
+
+        Parameters
+        ----------
+        arr : ndarray
+            The array to cumsum.
+        axis : int
+            The axis to cumsum along.
+
+        """
+
+    @abstractmethod
+    def inv_cumsum(self,
+                   arr: ndarray,
+                   axis: int) -> ndarray:
+        """
+        Inverse cumulative sum of an array along a specified axis.
+
+        Parameters
+        ----------
+        arr : ndarray
+            The array to inv_cumsum.
+        axis : int
+            The axis to inv_cumsum along.
+
+        """
+
+    @abstractmethod
+    def roll(self,
+             arr: ndarray,
+             shift: int | tuple[int],
+             axis: int | tuple[int]) -> ndarray:
+        """
+        Roll an array along specified axes.
+
+        Parameters
+        ----------
+        arr : ndarray
+            The array to roll.
+        shift : int | tuple[int]
+            The number of places by which elements are shifted. Rolling the array
+            [1,2,3,4,5] with shift=1 results in [5,1,2,3,4]. If a tuple is given,
+            the axis must also be a tuple of the same length.
+        axis : int | tuple[int]
+            The axis or axes to roll along. If a tuple is given, the shift must
+            also be a tuple of the same length.
+
+        """
+
 
     # ================================================================
     #  Helper functions

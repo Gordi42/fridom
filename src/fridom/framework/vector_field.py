@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from copy import copy
 from functools import partial
-from typing import Callable, Iterator, TypeVar
+from typing import Callable, Iterator, Literal, TypeVar
 
 import numpy as np
 
@@ -275,6 +275,13 @@ class VectorField(fr.FieldBase):
     def div(self) -> fr.ScalarField:  # noqa: D102
         msg = "div not implemented yet"
         raise NotImplementedError(msg)
+
+    def cumulative_integral(self,  # noqa: D102
+                            axis: int,
+                            direction: Literal["forward", "backward"] = "forward",
+                            ) -> VectorField:
+        return self.apply_elementwise(
+            self, lambda field: field.cumulative_integral(axis, direction))
 
     # ================================================================
     #  xarray Interface

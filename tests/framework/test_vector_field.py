@@ -245,7 +245,8 @@ def test_apply_watermask(mset, topo, is_spectral):
     vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     # if the field is not fully extended, apply_watermask should raise an error
     if not all(topo):
-        not_implemented_for_non_full_domain_fields(vec.apply_water_mask)
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            vec.apply_water_mask()
         return
     # if the field is spectral, apply_watermask should raise an error
     if is_spectral:
@@ -312,7 +313,9 @@ def test_diff(mset, topo, is_spectral):
         not_implemented_for_spectral_fields(
             lambda: vec.diff(axis=0))
         return
-    # TODO(Silvano): do tests once the diff method is implemented
+    diff_vec = vec.diff(axis=0)
+    for f, f_diff in zip(vec, diff_vec):
+        assert fr.config.ncp.allclose(f_diff.arr, f.diff(axis=0).arr)
 
 def test_grad(mset, topo, is_spectral):
     vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
@@ -329,13 +332,43 @@ def test_laplacian(mset, topo, is_spectral):
     if is_spectral:
         not_implemented_for_spectral_fields(vec.laplacian)
         return
-    # TODO(Silvano): do tests once the diff method is implemented
+    lap_vec = vec.laplacian()
+    for f, f_lap in zip(vec, lap_vec):
+        assert fr.config.ncp.allclose(f_lap.arr, f.laplacian().arr)
 
 def test_div(mset, topo, is_spectral):
     vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     msg = "div not implemented yet"
     with pytest.raises(NotImplementedError, match=msg):
         vec.div()
+
+@pytest.mark.parametrize("direction", ["forward", "backward"])
+def test_cumulative_integral(mset, topo, is_spectral, direction):
+    pos = mset.grid.cell_center
+    if direction == "backward":
+        pos = pos.shift(axis=1)
+    vec = fr.VectorField(mset,
+                         is_spectral=is_spectral,
+                         topo=topo,
+                         vector_dim=2,
+                         position=pos)
+    # we need to shift the field position for the backward direction
+    # if the field is spectral, diff should raise an error
+    if is_spectral:
+        with pytest.raises(fr.exceptions.FieldSpaceError):
+            vec.cumulative_integral(axis=1, direction=direction)
+        return
+    if not all(topo):
+        with pytest.raises(fr.exceptions.PartialDomainError):
+            vec.cumulative_integral(axis=1, direction=direction)
+        return
+
+    cumvec = vec.cumulative_integral(axis=1, direction=direction)
+    for cv, f in zip(cumvec, vec):
+        cum_f = f.cumulative_integral(axis=1, direction=direction)
+        # check if the fields are the same
+        assert fr.config.ncp.allclose(cv.arr, cum_f.arr)
+
 
 # ----------------------------------------------------------------
 #  Test xarray interface

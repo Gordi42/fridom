@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -134,7 +134,7 @@ class ScalarField(fr.FieldBase):
         # for non full domain fields
         # TODO(Silvano): Maybe we can assign custom water masks for scalar fields
         # so that we can apply them to non full domain fields
-        self._check_full_domain()
+        fr.exceptions.PartialDomainError.check(self)
         self._check_not_spectral()
         self.arr *= self.grid.water_mask.get_mask(self.position)
         return self
@@ -192,7 +192,7 @@ class ScalarField(fr.FieldBase):
 
         """
         # TODO(Silvano): Make this work for non full domain fields
-        self._check_full_domain()
+        fr.exceptions.PartialDomainError.check(self)
         return self.grid.get_mesh(self.position, self.is_spectral)
 
     def interpolate(self, destination: fr.grid.Position) -> ScalarField:
@@ -266,6 +266,12 @@ class ScalarField(fr.FieldBase):
         _ = axes
         msg = "Divergence is not defined for scalar fields"
         raise ValueError(msg)
+
+    def cumulative_integral(self,  # noqa: D102
+                            axis: int,
+                            direction: Literal["forward", "backward"] = "forward",
+                            ) -> ScalarField:
+        return self.grid.cumulative_integral(self, axis, direction)
 
     # ================================================================
     #  xarray Interface

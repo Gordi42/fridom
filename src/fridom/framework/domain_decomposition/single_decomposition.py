@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from functools import partial
 from numpy import ndarray
 import fridom.framework as fr
@@ -341,3 +343,30 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             spectral: bool = False) -> ndarray:
         arr = self.unpad(arr)
         return fr.config.ncp.min(arr, axis=axes, keepdims=True)
+
+    def cumsum(self,  # noqa: D102
+               arr: ndarray,
+               axis: int,
+               ) -> ndarray:
+        arr = self.unpad(arr)
+        cumsum = fr.config.ncp.cumsum(arr, axis=axis)
+        return self.pad(cumsum)
+
+    def inv_cumsum(self,  # noqa: D102
+                   arr: ndarray,
+                   axis: int,
+                   ) -> ndarray:
+        arr = self.unpad(arr)
+        # reverse the array in the given axis
+        arr = fr.config.ncp.flip(arr, axis=axis)
+        # calculate the cumsum
+        cumsum = fr.config.ncp.cumsum(arr, axis=axis)
+        # reverse the array back
+        cumsum = fr.config.ncp.flip(cumsum, axis=axis)
+        return self.pad(cumsum)
+
+    def roll(self,  # noqa: D102
+             arr: ndarray,
+             shift: int | tuple[int],
+             axis: int | tuple[int]) -> ndarray:
+        return fr.config.ncp.roll(arr, shift, axis)

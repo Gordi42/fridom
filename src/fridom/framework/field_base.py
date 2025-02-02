@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Callable, TypeVar
+from typing import TYPE_CHECKING, Callable, Literal, TypeVar
 
 import numpy as np
 
@@ -335,6 +335,48 @@ class FieldBase:
         -------
         fr.ScalarField | fr.VectorField
             The divergence of the field.
+
+        """
+
+    @abstractmethod
+    def cumulative_integral(self: T,
+                            axis: int,
+                            direction: Literal["forward", "backward"] = "forward",
+                            ) -> T:
+        r"""
+        Compute the cumulative integral along an axis.
+
+        Description
+        -----------
+        The cumulative integral computes the integral starting at one end of
+        the domain and accumulates the integral along the specified axis. The
+        integral is computed in either the forward or backward direction.
+
+        Forward integral:
+
+        .. math::
+            \int_{x_0}^{x} f(x') dx'
+
+        with axis :math:`x` and :math:`x_0` the lower bound of the domain.
+
+        Backward integral:
+
+        .. math::
+            \int_{x}^{x_1} f(x') dx'
+
+        with axis :math:`x` and :math:`x_1` the upper bound of the domain.
+
+        Parameters
+        ----------
+        axis : int
+            The axis along which to integrate.
+        direction : str (default is "forward")
+            The direction of the integration. Can be "forward" or "backward".
+
+        Returns
+        -------
+        fr.ScalarField | fr.VectorField | fr.TensorField
+            The cumulative integral of the field along the specified axis.
 
         """
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import fridom.framework as fr
 from numpy import ndarray
 from abc import abstractmethod
@@ -477,6 +479,54 @@ class GridBase:
         -------
         ScalarField
             The integrated field with no extend in the integrated axes.
+
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def cumulative_integral(self,
+                            field: fr.ScalarField,
+                            axis: int,
+                            direction: Literal["forward", "backward"] = "forward",
+                            ) -> fr.ScalarField:
+        r"""
+        Compute the cumulative integral of a field along a given axis.
+
+        Description
+        -----------
+        The cumulative integral computes the integral starting at one end of
+        the domain and accumulates the integral along the specified axis. The
+        integral is computed in either the forward or backward direction.
+
+        Forward integral:
+
+        .. math::
+            F(x) = \int_{x_0}^{x} f(x') dx'
+
+        with axis :math:`x` and :math:`x_0` the lower bound of the domain.
+
+        Backward integral:
+
+        .. math::
+            F(x) = \int_{x}^{x_1} f(x') dx'
+
+        with axis :math:`x` and :math:`x_1` the upper bound of the domain.
+
+
+        Parameters
+        ----------
+        field : ScalarField
+            The field to integrate.
+        axis : int
+            The axis to integrate over.
+        direction : str (default is "forward")
+            The direction of the integration. Can be "forward" or "backward".
+
+
+        Returns
+        -------
+        ScalarField
+            The cumulative integral of the field along the given axis.
 
         """
         raise NotImplementedError

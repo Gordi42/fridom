@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Literal
 
 import fridom.framework as fr
 import numpy as np
@@ -253,10 +254,16 @@ class Grid(fr.grid.GridBase):
     # ================================================================
     #  Shrinking and Expanding
     # ================================================================
-    def _update_topo(self, topo: tuple[bool], axes: tuple[int]) -> tuple[bool]:
+    def _shrink_topo(self, topo: tuple[bool], axes: tuple[int]) -> tuple[bool]:
         new_topo = list(topo)
         for i in axes:
             new_topo[i] = False
+        return tuple(new_topo)
+
+    def _extend_topo(self, topo: tuple[bool], axes: tuple[int]) -> tuple[bool]:
+        new_topo = list(topo)
+        for i in axes:
+            new_topo[i] = True
         return tuple(new_topo)
 
     @partial(fr.utils.jaxjit, static_argnames=["axes"])
@@ -271,7 +278,7 @@ class Grid(fr.grid.GridBase):
                                        axes=axes,
                                        spectral=field.is_spectral)
         mdata = deepcopy(field.mdata)
-        mdata.topo = self._update_topo(mdata.topo, axes)
+        mdata.topo = self._shrink_topo(mdata.topo, axes)
         return fr.ScalarField(field.mset, mdata=mdata, arr=value)
 
     @partial(fr.utils.jaxjit, static_argnames=["axes"])
@@ -284,7 +291,7 @@ class Grid(fr.grid.GridBase):
                                        axes=axes,
                                        spectral=field.is_spectral)
         mdata = deepcopy(field.mdata)
-        mdata.topo = self._update_topo(mdata.topo, axes)
+        mdata.topo = self._shrink_topo(mdata.topo, axes)
         return fr.ScalarField(field.mset, mdata=mdata, arr=value)
 
     @partial(fr.utils.jaxjit, static_argnames=["axes"])
@@ -297,7 +304,7 @@ class Grid(fr.grid.GridBase):
                                        axes=axes,
                                        spectral=field.is_spectral)
         mdata = deepcopy(field.mdata)
-        mdata.topo = self._update_topo(mdata.topo, axes)
+        mdata.topo = self._shrink_topo(mdata.topo, axes)
         return fr.ScalarField(field.mset, mdata=mdata, arr=value)
 
     @partial(fr.utils.jaxjit, static_argnames=["axes"])
@@ -313,6 +320,51 @@ class Grid(fr.grid.GridBase):
             else:
                 cell_area *= self.L[i]
         return self.sum(field * cell_area, axes)
+
+    @partial(fr.utils.jaxjit, static_argnames=["axis", "direction"])
+    def cumulative_integral(self,  # noqa: D102
+                            field: fr.ScalarField,
+                            axis: int,
+                            direction: Literal["forward", "backward"] = "forward",
+                            ) -> fr.ScalarField:
+        # 1. CHECK THE INPUT
+
+        # At the moment, we only support cumulative integrals on physical fields
+        fr.exceptions.FieldSpaceError.check_if_physical(field)
+
+        # At the moment, we only support cumulative integrals on fields that
+        # are extended in all directions
+        fr.exceptions.PartialDomainError.check(field)
+
+        # only support forward + center position and backward + face position
+        pos = field.position.positions[axis]
+        face = fr.grid.AxisPosition.FACE
+        center = fr.grid.AxisPosition.CENTER
+        if direction == "forward" and pos != center:
+            msg = "Can only do forward cumulative integral for fields on the"
+            msg += " cell center."
+            raise ValueError(msg)
+        if direction == "backward" and pos != face:
+            msg = "Can only do backward cumulative integral for fields on the"
+            msg += " cell face."
+            raise ValueError(msg)
+
+
+        # 2. DO THE CUMULATIVE INTEGRAL
+
+        # Apply the boundary mask before doing the cumulative integral
+        field = field.apply_water_mask()
+        if direction == "forward":
+            field.arr = self.domain_decomp.cumsum(field.arr, axis=axis)
+        if direction == "backward":
+            field.arr = self.domain_decomp.inv_cumsum(field.arr, axis=axis)
+
+        # multiply by the cell area
+        field *= self.dx[axis]
+
+        # update the position
+        field.position = field.position.shift(axis)
+        return field.sync()
 
     # ================================================================
     #  Properties
