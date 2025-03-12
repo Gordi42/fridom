@@ -7,7 +7,7 @@ import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
-@partial(fr.utils.jaxify, dynamic=("f_coriolis",))
+@partial(fr.utils.jaxify, dynamic=("f_coriolis", "N2", "dsqr"))
 class LinearTendency(fr.modules.Module):
 
     """Computes the linear tendency of the nonhydrostatic model."""
@@ -16,6 +16,8 @@ class LinearTendency(fr.modules.Module):
 
     def _on_setup(self) -> None:
         self.f_coriolis = self.mset.f_coriolis
+        self.N2 = self.mset.N2
+        self.dsqr = self.mset.dsqr
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
@@ -33,7 +35,7 @@ class LinearTendency(fr.modules.Module):
         # calculate u-tendency
         dz.u +=   interp(z.v, z.u.position) * f
         dz.v += - interp(z.u * f, z.v.position)
-        dz.w +=   interp(z.b, z.w.position) / self.mset.dsqr
-        dz.b += - interp(z.w, z.b.position) * self.mset.N2
+        dz.w +=   interp(z.b, z.w.position) / self.dsqr
+        dz.b += - interp(z.w, z.b.position) * self.N2
 
         return dz

@@ -1,13 +1,15 @@
 """Solver for the pressure field using a spectral method."""
 from __future__ import annotations
 
+from functools import partial
+
 import numpy as np
 
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
-@fr.utils.jaxify
+@partial(fr.utils.jaxify, dynamic=("k_squared_inv",))
 class SpectralPressureSolver(fr.modules.Module):
 
     """Solve for the pressure field with a spectral solver."""
