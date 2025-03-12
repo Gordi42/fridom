@@ -114,6 +114,24 @@ class State(hs.VectorField):
         """The tracer fields."""
         return self[2:]
 
+    # ----------------------------------------------------------------
+    #  Derived Variables
+    # ----------------------------------------------------------------
+    @property
+    def w(self) -> fr.ScalarField:
+        r"""
+        Vertical velocity derived from horizontal divergence.
+
+        The vertical velocity is derived from the horizontal divergence of the
+        horizontal velocity field:
+
+        .. math::
+
+            w = - \int_{0}^{z} (\partial_x u + \partial_y v) \, dz
+
+        """
+        divergence = self.u.diff(axis=0) + self.v.diff(axis=1)
+        return - divergence.cumulative_integral(axis=2, direction="forward")
 
 class DiagnosticState(hs.VectorField):
 
