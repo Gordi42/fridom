@@ -8,6 +8,7 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     from .coherent_eddy import CoherentEddy
+    from .equatorial_wave import EquatorialWave
     from .geostrophic_spectra import (
         RandomGeostrophicSpectra,
         geostrophic_energy_spectrum,
@@ -24,6 +25,7 @@ all_modules_by_origin = { }
 
 all_imports_by_origin = {
     f"{base_path}.coherent_eddy": ["CoherentEddy"],
+    f"{base_path}.equatorial_wave": ["EquatorialWave"],
     f"{base_path}.geostrophic_spectra": [
         "RandomGeostrophicSpectra",
         "geostrophic_energy_spectrum",
