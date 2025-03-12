@@ -185,18 +185,18 @@ class Grid(fr.grid.GridBase):
         super().setup(mset)
         return
 
-    def get_mesh(self, 
+    def get_mesh(self,
                  position: fr.grid.Position | None = None,
-                 spectral: bool = False
+                 spectral: bool = False,
     ) -> tuple[np.ndarray]:
         if spectral:
             return self.K
+        # compute the offsets based on the position
         position = position or self.cell_center
-        X = list(self.X)
-        for i in range(self.n_dims):
-            if position.positions[i] == fr.grid.AxisPosition.FACE:
-                X[i] += 0.5 * self.dx[i]
-        return tuple(X)
+        offsets = [0.5 * dx if pos == fr.grid.AxisPosition.FACE else 0
+                   for dx, pos in zip(self.dx, position.positions)]
+        # apply the offsets
+        return tuple(x + offset for x, offset in zip(self.X, offsets))
 
     # ================================================================
     #  Fourier Transforms
