@@ -26,15 +26,15 @@ We define a background state :math:`(U,V,W,B,P)` that is in thermal wind balance
 .. math::
     U = 0
     \quad , \quad
-    V(z) = - \frac{M^2}{f} z
+    V(z) = \frac{M^2}{f} z
     \quad , \quad
     W = 0
     
-    B(x,z) = N^2 z - M^2 x
+    B(x,z) = N^2 z + M^2 x
     \quad , \quad
-    P(x,z) = \frac{N^2}{2} z^2 - M^2 x z
+    P(x,z) = \frac{N^2}{2} z^2 + M^2 x z
 
-where :math:`M^2` is the vertical shear and :math:`N^2` is the horizontal shear.
+where :math:`M^2` is the horizontal shear and :math:`N^2` is the vertical shear.
 Inserting :math:`u = U + u'`, etc. into the model equations and dropping the primes yield:
 
 .. math::
@@ -42,9 +42,9 @@ Inserting :math:`u = U + u'`, etc. into the model equations and dropping the pri
     \quad , \quad
     D_t w = b - \partial_z p
 
-    D_t v = - f u + \frac{M^2}{f} w
+    D_t v = - f u - \frac{M^2}{f} w
     \quad , \quad
-    D_t b = M^2 u - N^2 w
+    D_t b = - M^2 u - N^2 w
 
 The background vertical stratification is already implemented in the nonhydrostatic model,
 but we need to add the tendency terms due to the horizontal background shear. In the
@@ -59,7 +59,7 @@ We use the following parameters:
 +=============+====================+==========================================+
 | :math:`f`   | :math:`10^{-4}`    | Coriolis parameter                       |
 +-------------+--------------------+------------------------------------------+
-| :math:`M^2` | :math:`10^{-7}`    | Horizontal background buoyancy gradient  |
+| :math:`M^2` | :math:`-10^{-7}`   | Horizontal background buoyancy gradient  |
 +-------------+--------------------+------------------------------------------+
 | :math:`N^2` | :math:`Ri~M^4/f^2` | Vertical background buoyancy gradient    |
 +-------------+--------------------+------------------------------------------+
@@ -117,7 +117,7 @@ thumbnail   = f"figures/{exp_name}.png"
 
 # Physical parameters
 f0 = 1e-4         # Coriolis parameter
-M2 = 1e-7         # Horizontal background density gradient
+M2 = -1e-7        # Horizontal background density gradient
 Lx = 500          # 500 m in x
 Lz = 200          # 200 m in z
 
@@ -185,8 +185,8 @@ def perform_experiment(richardson_number, make_thumbnail=False):
         @nh.utils.jaxjit
         def advect(self, z: nh.State, dz: nh.State) -> nh.State:
             interp = self.interp_module.interpolate
-            dz.v += interp(z.w, z.v.position) * M2 / f0
-            dz.b += interp(z.u, z.b.position) * M2
+            dz.v -= interp(z.w, z.v.position) * M2 / f0
+            dz.b -= interp(z.u, z.b.position) * M2
             return dz
 
     # ----------------------------------------------------------------
