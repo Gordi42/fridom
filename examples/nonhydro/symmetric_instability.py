@@ -111,7 +111,6 @@ import matplotlib.lines as mlines
 make_video  = True
 fps         = 30
 make_netcdf = False
-run_length  = np.timedelta64(6, 'D')     # simulation run length
 exp_name    = "symmetric_instability"
 thumbnail   = f"figures/{exp_name}.png"
 
@@ -122,7 +121,7 @@ Lx = 500          # 500 m in x
 Lz = 200          # 200 m in z
 
 # Numerical parameters
-resolution_factor = 9            # 2^9 = 512 grid points
+resolution_factor = 8            # 2^9 = 512 grid points
 Nx = 2**(resolution_factor + 1)  # Number of grid points in x
 Nz = 2**resolution_factor        # Number of grid points in z
 
@@ -144,15 +143,16 @@ class Plotter(nh.modules.animation.ModelPlotter):
         ax = fig.add_subplot(111)
         # plot the buoyancy field in log scale
         b.plot(ax=ax, norm=SymLogNorm(
-            linthresh=1e-7, linscale=1, vmax=1e-5, vmin=-1e-5))
+            linthresh=1e-7, linscale=1, vmax=1e-4, vmin=-1e-4),
+            cmap="RdBu_r", extend="both")
         # add a quiver plot to show the velocity field
         Q = z.plot.quiver('x', 'z', 'u', 'w', 
-                          scale=0.4, ax=fig.gca(), width=0.001, add_guide=False)
-        arrow = ax.quiverkey(Q, 0.83, 1.03, 0.005, label='Velocity: 0.5 cm/s', 
+                          scale=1.6, ax=fig.gca(), width=0.0015, add_guide=False)
+        arrow = ax.quiverkey(Q, 0.83, 1.03, 0.02, label='Velocity: 2.0 cm/s', 
                              labelpos='E', coordinates='axes')
         # add contours for the background density
         X, Z = np.meshgrid(z.x, z.z)
-        contours = ax.contour(X, Z, N2*Z-M2*X, colors='black', linestyles="solid")
+        contours = ax.contour(X, Z, N2*Z+M2*X, colors='black', linestyles="solid")
         line = mlines.Line2D([], [], color='black', label='Background Density')
         ax.legend(handles=[line], loc='upper right')
         time = nh.utils.humanize_number(int(t), "seconds")
@@ -160,15 +160,14 @@ class Plotter(nh.modules.animation.ModelPlotter):
 
 
 @nh.utils.skip_on_doc_build
-def perform_experiment(richardson_number, make_thumbnail=False):
+def perform_experiment(richardson_number, run_length, make_thumbnail=False):
     # ----------------------------------------------------------------
     #  Create the grid and model settings
     # ----------------------------------------------------------------
     N2 = richardson_number * M2**2 / f0**2
     grid = nh.grid.cartesian.Grid(N=(Nx, 1, Nz), L=(Lx, 1, Lz), 
-                                periodic_bounds=(True, True, True))
-    time_stepper = nh.time_steppers.RungeKutta(
-        method=nh.time_steppers.RKMethods.RKF45)
+                                periodic_bounds=(True, True, False))
+    time_stepper = nh.time_steppers.AdamBashforth(order=2, dt=3)
     mset = nh.ModelSettings(grid=grid, f0=f0, N2=N2, dsqr=1, time_stepper=time_stepper)
 
     # ----------------------------------------------------------------
@@ -208,7 +207,7 @@ def perform_experiment(richardson_number, make_thumbnail=False):
         mset.diagnostics.add_module(nh.modules.NetCDFWriter(
             get_variables = lambda mz: [*mz.z.field_list, mz.z.ekin],
             write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(20, "m")),
-            filename=f"{exp_name}_ri_{richardson_number:.2f}.nc"))
+            filename=f"{exp_name}_ri_{richardson_number:.2f}".replace(".", "_")))
 
     mset.setup()
 
@@ -216,7 +215,7 @@ def perform_experiment(richardson_number, make_thumbnail=False):
     #  Create the initial condition
     # ----------------------------------------------------------------
     z = nh.State(mset)
-    z.v.arr += nh.utils.random_array(z.v.arr.shape) * 1e-6
+    z.v.arr += grid.create_random_array(seed=12345) * 1e-6
 
     # ----------------------------------------------------------------
     #  Run the model
@@ -232,6 +231,6 @@ def perform_experiment(richardson_number, make_thumbnail=False):
         fig.savefig(thumbnail, dpi=200)
 
 if __name__ == "__main__":
-    perform_experiment(0.25)
-    perform_experiment(0.50, make_thumbnail=True)
-    perform_experiment(0.75)
+    perform_experiment(0.25, run_length=np.timedelta64(2, "D"))
+    perform_experiment(0.50, run_length=np.timedelta64(3, "D"), make_thumbnail=True)
+    perform_experiment(0.75, run_length=np.timedelta64(4, "D"))
