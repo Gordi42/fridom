@@ -30,8 +30,7 @@ class MainTendency(fr.modules.ModuleContainer):
     def add_module(self, module: fr.modules.Module) -> None:  # noqa: D102
         self._additional_modules.append(module)
         self._set_module_list()
-        if self.is_setup:
-            module.setup(mset=self.mset)
+        self._setup_new_module(module)
 
     def _set_module_list(self) -> None:
         """

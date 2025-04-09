@@ -52,6 +52,16 @@ class ModelSettings(fr.ModelSettingsBase):
         )
         self._f_coriolis = f_coriolis
         self._update_coriolis()
+        # Background stratification
+        stratification = fr.ScalarField(self,
+            name="N²",
+            long_name="Stratification",
+            units="1/s^2",
+            position=self.grid.cell_center,
+            topo=(True, True, True),  # TODO(Silvano): don't need topo in x and y
+        )
+        self._N2_field = stratification
+        self.N2 = self.N2
         # make sure that the advection term is scaled by the Rossby number
         self.tendencies.advection.scaling = self.Ro
 
@@ -121,7 +131,23 @@ class ModelSettings(fr.ModelSettingsBase):
 
     @N2.setter
     def N2(self, value: float) -> None:
+        # update the stratification field
+        if self._N2_field is not None:
+            x, y, z = self._N2_field.get_mesh()
+            self._N2_field.arr = z*0 + value
         self._N2 = value
+
+    @property
+    def N2_field(self) -> fr.ScalarField:
+        """The stratification N² field."""
+        return self._N2_field
+
+    @N2_field.setter
+    def N2_field(self, value: fr.ScalarField) -> None:
+        if not isinstance(value, fr.ScalarField):
+            msg = "The stratification field must be a ScalarField."
+            raise TypeError(msg)
+        self._N2_field = value
 
     @property
     def Ro(self) -> float:

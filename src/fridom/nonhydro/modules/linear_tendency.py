@@ -16,7 +16,7 @@ class LinearTendency(fr.modules.Module):
 
     def _on_setup(self) -> None:
         self.f_coriolis = self.mset.f_coriolis
-        self.N2 = self.mset.N2
+        self.N2 = self.mset.N2_field
         self.dsqr = self.mset.dsqr
 
     @fr.modules.module_method

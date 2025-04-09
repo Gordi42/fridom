@@ -178,7 +178,7 @@ class State(fr.VectorField):
         where :math:`z` is the vertical coordinate.
         """
         if self.mset.N2 != 0:
-            epot = 0.5*(self.b**2 / self.mset.N2)
+            epot = 0.5*(self.b**2 / self.mset.N2_field)
         else:
             epot = self.b * self.grid.X[2]
 
@@ -296,7 +296,7 @@ class State(fr.VectorField):
 
         # shortcuts
         f0 = self.mset.f0
-        brunt_vaisala_n2 = self.mset.N2
+        brunt_vaisala_n2 = self.mset.N2_field
         rossby_number = self.mset.Ro
 
         # calculate the horizontal vorticity
@@ -342,7 +342,7 @@ class State(fr.VectorField):
         """
         # shortcuts
         f0 = self.mset.f0
-        brunt_vaisala_n2 = self.mset.N2
+        brunt_vaisala_n2 = self.mset.N2_field
         rossby_number = self.mset.Ro
 
         hor_vort = self.rel_vort_z.interpolate(self.grid.cell_center)
