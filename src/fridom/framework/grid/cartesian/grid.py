@@ -132,16 +132,14 @@ class Grid(fr.grid.GridBase):
             req_halo = max(req_halo, mset.halo)
         # get the domain decomposition module
         if self._domain_decomp is None:
-            DomainDecomposition = fr.domain_decomposition.get_default_domain_decomposition()
-            
-            # construct the domain decomposition
-            domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(
-                shape=tuple(self._N), 
-                halo=req_halo, 
-                periods=self._periodic_bounds, 
-                shared_axes=None)
-        else:
-            domain_decomp = self._domain_decomp
+            # if there is no domain decomposition created yet, create a new one
+            self._construct_domain_decomp(req_halo)
+        if self._domain_decomp.halo != req_halo:
+            # if there was a domain decomposition with wrong halo size,
+            # create a new
+            self._construct_domain_decomp(req_halo)
+
+        domain_decomp = self._domain_decomp
 
         # --------------------------------------------------------------
         #  Initialize the fourier transform
@@ -197,6 +195,17 @@ class Grid(fr.grid.GridBase):
                    for dx, pos in zip(self.dx, position.positions)]
         # apply the offsets
         return tuple(x + offset for x, offset in zip(self.X, offsets))
+
+    def _construct_domain_decomp(self, halo: int) -> None:
+        DomainDecomposition = fr.domain_decomposition.get_default_domain_decomposition()
+
+        # construct the domain decomposition
+        domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(
+            shape=tuple(self._N),
+            halo=halo,
+            periods=self._periodic_bounds,
+            shared_axes=None)
+        self._domain_decomp = domain_decomp
 
     # ================================================================
     #  Fourier Transforms

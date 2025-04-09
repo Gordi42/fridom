@@ -43,7 +43,7 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
         div1 = super().diffusion_operator(u)
         # apply the second harmonic diffusion operator
         div2 = super().diffusion_operator(div1)
-        return - div2
+        return - div2 * self._sign
 
     # ----------------------------------------------------------------
     #  Properties
@@ -60,11 +60,13 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
         coeffs = []
         for coeff in value:
             if isinstance(coeff, fr.ScalarField):
+                self._sign = ncp.sign(coeff.arr)
                 kappa = ncp.sqrt(ncp.abs(coeff.arr))
                 kappa = fr.ScalarField(mset=coeff.mset,
                                          arr=kappa,
                                          mdata=coeff.mdata)
             else:
+                self._sign = ncp.sign(coeff)
                 kappa = ncp.sqrt(ncp.abs(coeff))
             coeffs.append(kappa)
         self._diffusion_coefficients = coeffs

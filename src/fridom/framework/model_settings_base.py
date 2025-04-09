@@ -310,8 +310,8 @@ class ModelSettingsBase:
     def halo(self, value: int) -> None:
         old_halo = self.halo
         self._halo = value
-        if old_halo != self.halo:
-            self.grid.setup(mset=self)
+        if old_halo != self.halo: # we need to force a new setup
+            self.setup(setup_mode="forced")
 
     @property
     def custom_state_fields(self) -> list[fr.FieldMetadata]:

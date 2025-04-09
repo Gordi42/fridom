@@ -77,7 +77,15 @@ class ModuleContainer(fr.modules.Module):
 
         """
         self.module_list.append(module)
+        self._setup_new_module(module)
+
+    def _setup_new_module(self, module: fr.modules.Module) -> None:
+        if self.is_setup and module.required_halo > self.grid.halo:
+            # force a new setup of the model settings
+            self.mset.setup(setup_mode="forced")
+            return
         if self.is_setup:
+            # Otherwise we only need to setup the individual module
             module.setup(mset=self.mset)
 
     def get(self, name: str) -> list[fr.modules.Module]:

@@ -612,6 +612,16 @@ class GridBase:
         return self._domain_decomp
 
     @property
+    def halo(self) -> int:
+        """
+        The halo size of the grid.
+
+        To change the halo size of the grid, modify the halo attribute of the
+        model settings.
+        """
+        return self.domain_decomp.halo
+
+    @property
     def n_dims(self) -> int:
         """The number of dimensions of the grid."""
         return self._n_dims
