@@ -9,6 +9,7 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.modules.advection import AdvectionBase, CenteredAdvection
 
+    from .flux_divergence_base import FluxDivergenceBase
     from .spectral_advection import SpectralAdvection
 
 # ================================================================
@@ -21,6 +22,7 @@ all_modules_by_origin = {}
 
 all_imports_by_origin = {
     f"{fr_base_path}": ["AdvectionBase", "CenteredAdvection"],
+    f"{base_path}.flux_divergence_base": ["FluxDivergenceBase"],
     f"{base_path}.spectral_advection": ["SpectralAdvection"],
 }
 
