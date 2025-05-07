@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Callable, Literal
+
 import fridom.framework as fr
 from typing import Union
 from copy import copy, deepcopy
@@ -16,6 +20,9 @@ class OptimalBalance(fr.projection.Projection):
         The projection onto the base point.
     `ramp_period` : `np.timedelta64 | float | int` (default: None)
         The ramping period.
+    update_parameters : Callable[[ModelSettings, float, str], None], optional
+        A method that updates the model parameters based on the ramped value.
+        It should take the model settings and the ramped value which is between 0 and 1.
     `mset_backwards` : `ModelSettings`
         The model settings for the backward ramping. If None, the forward model
         settings are used. This option is useful when the backwards ramping should
@@ -32,10 +39,11 @@ class OptimalBalance(fr.projection.Projection):
     `stop_criterion` : `float`
         The stopping criterion.
     """
-    def __init__(self, mset: 'fr.ModelSettingsBase',
-                 base_proj: 'fr.projection.Projection',
+    def __init__(self, mset: fr.ModelSettingsBase,
+                 base_proj: fr.projection.Projection,
                  ramp_period: Union[np.timedelta64, float, int, None],
-                 mset_backwards: 'fr.ModelSettingsBase' = None,
+                 update_parameters: Callable[[fr.ModelSettings, float, str], None] = None,
+                 mset_backwards: fr.ModelSettingsBase = None,
                  ramp_type: str = "exp",
                  update_base_point: bool = True,
                  max_it: int = 3,
@@ -48,6 +56,10 @@ class OptimalBalance(fr.projection.Projection):
 
         self.base_proj = base_proj
         self.return_details = return_details
+
+        # If the update_parameters is not None, set it to the default
+        if update_parameters is not None:
+            self.update_parameters = update_parameters
         
         # initialize the model
         self.model_forward = fr.Model(self.mset)
@@ -74,6 +86,13 @@ class OptimalBalance(fr.projection.Projection):
         self.z_base = self.base_proj(z)
         return
 
+    def update_parameters(self,
+                          mset: fr.ModelSettings,
+                          ramped_value: float,
+                          mode: Literal["forward", "backward"]) -> None:
+        mset.tendencies.advection.scaling = ramped_value * self.default_scaling 
+
+
     def forward_to_nonlinear(self, z: 'fr.VectorField') -> 'fr.VectorField':
         """
         Perform forward ramping from linear model to nonlinear model.
@@ -91,7 +110,7 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            mset.tendencies.advection.scaling = self.ramp_func(n / self.ramp_steps) * self.default_scaling
+            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "forward")
             model.step()
         return model.z
     
@@ -111,7 +130,7 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            mset.tendencies.advection.scaling = self.ramp_func(1 - n / self.ramp_steps) * self.default_scaling
+            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "backward")
             model.step()
         return model.z
 
@@ -131,7 +150,7 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            mset.tendencies.advection.scaling = self.ramp_func(n / self.ramp_steps) * self.default_scaling
+            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "forward")
             model.step()
         return model.z
 
@@ -151,7 +170,7 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            mset.tendencies.advection.scaling = self.ramp_func(1 - n / self.ramp_steps) * self.default_scaling
+            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "backward")
             model.step()
 
         return model.z
