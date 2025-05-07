@@ -31,7 +31,7 @@ class WENO(nh.modules.advection.AdvectionBase):
                  order: int = 5,
                  eno_ip: fr.grid.InterpolationModule = None,
                  weno_ip: fr.grid.InterpolationModule = None,
-                 flux_function: fr.grid.InterpolationModule = None,
+                 flux_function: fr.modules.flux_functions.FluxFunctionBase = None,
                  ) -> None:
 
         super().__init__()

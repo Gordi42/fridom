@@ -8,7 +8,7 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     # importing modules
-    from . import advection, animation, closures, forcings
+    from . import advection, animation, closures, flux_functions, forcings
 
     # importing the classes and functions
     from .counter import Counter
@@ -30,6 +30,7 @@ base_path = "fridom.framework.modules"
 all_modules_by_origin = { base_path: ["animation",
                                       "advection",
                                       "closures",
+                                      "flux_functions",
                                       "forcings"] }
 
 all_imports_by_origin = {
