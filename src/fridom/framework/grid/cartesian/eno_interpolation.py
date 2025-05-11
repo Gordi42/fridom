@@ -81,16 +81,29 @@ class InterENO(fr.grid.InterpolationModule):
             raise ValueError(msg)
 
         if self.method == "pointwise":
-            self.compute_polynomial_coefficients_pointwise()
+            self._coeffs = self.compute_polynomial_coefficients_pointwise(
+                stencil_size=self.order+1)
         elif self.method == "cell_average":
-            self.compute_polynomial_coefficients_cell_average()
+            self._coeffs = self.compute_polynomial_coefficients_cell_average(
+                stencil_size=self.order+1)
         else:
             msg = f"Unknown method {self.method}, must be 'pointwise' or 'cell_average'"
             raise ValueError(msg)
 
-    def compute_polynomial_coefficients_pointwise(self) -> None:
+    def compute_polynomial_coefficients_pointwise(self,
+                                                  stencil_size: int) -> np.ndarray:
         r"""
         Polynomial coefficients for the ENO interpolation for pointwise values.
+
+        Parameters
+        ----------
+        stencil_size : int
+            The size of the stencil.
+
+        Returns
+        -------
+        np.ndarray
+            The polynomial coefficients for the ENO interpolation.
 
         Description
         -----------
@@ -135,15 +148,13 @@ class InterENO(fr.grid.InterpolationModule):
             \frac{k - j - 1/2}{i - j}
 
         """
-        stencil_size = self.order + 1
-
         # we zero out and then accumulate
         coeffs = np.zeros((stencil_size+1, stencil_size))
 
         def compute_coeff(k: int, i: int, n: int) -> float:
             """Compute the coefficients for the ENO interpolation."""
             total = 1.0
-            for j in range(n+1):
+            for j in range(n):
                 if j == i:
                     continue
                 total *= (k - j - 0.5) / (i - j)
@@ -152,14 +163,25 @@ class InterENO(fr.grid.InterpolationModule):
         # sum over each i and k of the coefficients
         for i in range(stencil_size):
             for k in range(stencil_size+1):
-                coeffs[k, i] = compute_coeff(k, i, self.order)
+                coeffs[k, i] = compute_coeff(k, i, stencil_size)
 
-        self._coeffs = fr.config.ncp.asarray(coeffs, dtype=fr.config.dtype_real)
+        return fr.config.ncp.asarray(coeffs, dtype=fr.config.dtype_real)
 
 
-    def compute_polynomial_coefficients_cell_average(self) -> None:
+    def compute_polynomial_coefficients_cell_average(
+              self, stencil_size: int) -> np.ndarray:
         r"""
         Polynomial coefficients for the ENO interpolation for cell averages.
+
+        Parameters
+        ----------
+        stencil_size : int
+            The size of the stencil.
+
+        Returns
+        -------
+        np.ndarray
+            The polynomial coefficients for the ENO interpolation.
 
         Description
         -----------
@@ -248,10 +270,8 @@ class InterENO(fr.grid.InterpolationModule):
                 \prod_{r=0, r \neq m, j}^{n} \frac{k - r}{m - r}
 
         """
-        n = self.order + 1
-
         # we zero out and then accumulate
-        coeffs = np.zeros((n+1, n))
+        coeffs = np.zeros((stencil_size+1, stencil_size))
 
         def compute_coeff(k: int, i: int, n: int) -> float:
             """Compute the coefficients for the ENO interpolation."""
@@ -274,11 +294,11 @@ class InterENO(fr.grid.InterpolationModule):
             return total
 
         # sum over each i and k of the coefficients
-        for i in range(n):
-            for k in range(n+1):
-                coeffs[k, i] = compute_coeff(k, i, n)
+        for i in range(stencil_size):
+            for k in range(stencil_size+1):
+                coeffs[k, i] = compute_coeff(k, i, stencil_size)
 
-        self._coeffs = fr.config.ncp.asarray(coeffs, dtype=fr.config.dtype_real)
+        return fr.config.ncp.asarray(coeffs, dtype=fr.config.dtype_real)
 
     @fr.utils.jaxjit
     def interpolate(self,  # noqa: D102

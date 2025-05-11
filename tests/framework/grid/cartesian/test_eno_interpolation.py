@@ -61,9 +61,9 @@ def test_cell_average_reconstruction_coefficients(order):
         ]),
     }[order]
 
-    grid = fr.grid.GridBase(1)
+    grid = fr.grid.cartesian.Grid(N=(1,), L=(1.0,))
     mset = fr.ModelSettingsBase(grid).setup()
-    eno = fr.grid.cartesian.InterENO(order=order)
+    eno = fr.grid.cartesian.InterENO(order=order, method="cell_average")
     eno.setup(mset)
     coeffs = eno._coeffs
     # check that the coefficients have the expected shape
