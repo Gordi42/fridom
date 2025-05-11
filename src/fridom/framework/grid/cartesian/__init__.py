@@ -9,10 +9,11 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import discrete_spectral_operators
-    from .fft import FFT
-    from .finite_differences import FiniteDifferences
 
     # import all classes
+    from .eno_interpolation import InterENO
+    from .fft import FFT
+    from .finite_differences import FiniteDifferences
     from .grid import Grid
     from .linear_interpolation import LinearInterpolation
     from .polynomial_interpolation import PolynomialInterpolation
@@ -29,6 +30,7 @@ all_modules_by_origin = {
 
 all_imports_by_origin = {
     f"{base}.grid": ["Grid"],
+    f"{base}.eno_interpolation": ["InterENO"],
     f"{base}.fft": ["FFT"],
     f"{base}.finite_differences": ["FiniteDifferences"],
     f"{base}.spectral_diff": ["SpectralDiff"],
