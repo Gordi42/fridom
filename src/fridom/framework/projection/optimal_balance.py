@@ -150,7 +150,7 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "forward")
+            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "forward")
             model.step()
         return model.z
 
@@ -170,7 +170,7 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "backward")
+            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "backward")
             model.step()
 
         return model.z

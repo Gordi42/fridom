@@ -299,20 +299,20 @@ class Module:
         used to print the time stepper in the `__repr__` method.
         """
         info = {}
-        # ----------------------------------------------------------------
-        #  Check if the differentiation module should be printed
-        # ----------------------------------------------------------------
-        if ( (self.is_setup and self.diff_module is not self.grid.diff_module) or
-             (not self.is_setup and self.diff_module is not None) ):
-            info["Diff. Module"] = self.diff_module.name
+        # # ----------------------------------------------------------------
+        # #  Check if the differentiation module should be printed
+        # # ----------------------------------------------------------------
+        # if ( (self.is_setup and self.diff_module is not self.grid.diff_module) or
+        #      (not self.is_setup and self.diff_module is not None) ):
+        #     info["Diff. Module"] = self.diff_module.name
 
-        # ----------------------------------------------------------------
-        #  Check if the differentiation module should be printed
-        # ----------------------------------------------------------------
-        if ( (self.is_setup and
-              self.interp_module is not self.grid.interp_module) or
-             (not self.is_setup and self.interp_module is not None) ):
-            info["Interp. Module"] = self.interp_module.name
+        # # ----------------------------------------------------------------
+        # #  Check if the differentiation module should be printed
+        # # ----------------------------------------------------------------
+        # if ( (self.is_setup and
+        #       self.interp_module is not self.grid.interp_module) or
+        #      (not self.is_setup and self.interp_module is not None) ):
+        #     info["Interp. Module"] = self.interp_module.name
 
         # ----------------------------------------------------------------
         #  Check if the required halo should be printed

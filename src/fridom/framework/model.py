@@ -48,6 +48,43 @@ class Model:
     #   RUN MODEL
     # ============================================================
 
+    def run_backward(self, steps: int | None = None) -> None:
+        """
+        Run the model backward in time.
+
+        Description
+        -----------
+        This method runs the model backward in time for a given number of steps.
+        """
+        # Prepare the model for running
+        if self.restart_module.should_reload():
+            self.load(self.restart_module.file)
+        self.time_stepper.dt = -abs(self.time_stepper.dt)  # ensure dt is negative
+        start_value = self.model_state.clock.it
+        # step count always increases even when running backward
+        final_value = start_value + steps
+
+        self.start()
+
+        # Execute the first time step
+        self._execute_first_time_step()
+
+        # Start the progress bar
+        self.progress_bar.start()
+        self.progress_bar.set_options(
+            main_loop_type="for loop",
+            datetime_formatting=False,
+            start_value=start_value,
+            final_value=final_value)
+
+        # ----------------------------------------------------------------
+        #  Main loop
+        # ----------------------------------------------------------------
+        self._main_loop_steps(start_value+1, final_value)
+
+        # stop the model
+        self._finalize_run()
+
     def run(self,
             steps: int | None = None,
             runlen: np.timedelta64 | float | None = None,
@@ -92,6 +129,9 @@ class Model:
         # Prepare the model for running
         if self.restart_module.should_reload():
             self.load(self.restart_module.file)
+
+        # make sure the time stepper has a positive time step
+        self.time_stepper.dt = abs(self.time_stepper.dt)
 
         self.start()
 

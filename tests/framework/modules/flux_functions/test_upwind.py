@@ -31,80 +31,29 @@ def mset(grid):
 #  Tests
 # ================================================================
 
-@pytest.mark.parametrize("position",
-                         [fr.grid.AxisPosition.CENTER, fr.grid.AxisPosition.FACE])
-def test_upwind_random(mset, n_dims, position):
+def test_upwind_random(mset, n_dims):
     # create scalar fields for velocity and flux
     velocity = fr.ScalarField(mset)
-    flux = fr.ScalarField(mset)
-    flux.name = "flux"
+    flux_left = fr.ScalarField(mset)
+    flux_right = fr.ScalarField(mset)
 
     # fill with random values
     velocity.set_random(seed=12345)
-    flux.set_random(seed=12345)
-
-    # set the position of the flux
-    flux.position = fr.grid.Position(tuple([position] * n_dims))
+    flux_left.set_random(seed=62343)
+    flux_right.set_random(seed=96787)
 
     # create the upwind flux function and setup
     upwind = fr.modules.flux_functions.Upwind()
     upwind.setup(mset)
 
     # test the upwind flux function in every axis
-    for axis in range(n_dims):
-        # compute the upwind flux
-        upwind_flux = upwind.compute(flux, velocity, axis)
-        # check if the shape is correct
-        assert upwind_flux.arr.shape == flux.arr.shape
-        # check that the metadata is correct
-        assert upwind_flux.mdata == flux.mdata
-
-def test_1d_upwind_face():
-    # create a 1D grid
-    grid = fr.grid.cartesian.Grid(N=(4,), L=(1,))
-    mset = fr.ModelSettingsBase(grid)
-    mset.halo = 1
-    mset.setup()
-
-    # create scalar fields for velocity and flux
-    velocity = fr.ScalarField(mset)
-    flux = fr.ScalarField(mset)
-    velocity.position = fr.grid.Position((fr.grid.AxisPosition.FACE,))
-    flux.position = fr.grid.Position((fr.grid.AxisPosition.FACE,))
-
-    velocity.arr = grid.pad(fr.config.ncp.array([-1.0, 0.0, 1.0, 1.0]))
-    flux.arr = grid.pad(fr.config.ncp.array([1.0, 2.0, 3.0, 4.0]))
-
-    # create the upwind flux function and setup
-    upwind = fr.modules.flux_functions.Upwind()
-    upwind.setup(mset)
     # compute the upwind flux
-    upwind_flux = upwind.compute(flux, velocity, 0)
-    # check the result
-    expected = fr.config.ncp.array([1.0, 2.0, 2.0, 3.0])
-    assert fr.config.ncp.allclose(grid.unpad(upwind_flux.arr), expected)
-
-def test_1d_upwind_center():
-    # create a 1D grid
-    grid = fr.grid.cartesian.Grid(N=(4,), L=(1,))
-    mset = fr.ModelSettingsBase(grid)
-    mset.halo = 1
-    mset.setup()
-
-    # create scalar fields for velocity and flux
-    velocity = fr.ScalarField(mset)
-    flux = fr.ScalarField(mset)
-    velocity.position = fr.grid.Position((fr.grid.AxisPosition.CENTER,))
-    flux.position = fr.grid.Position((fr.grid.AxisPosition.CENTER,))
-
-    velocity.arr = grid.pad(fr.config.ncp.array([-1.0, 0.0, 1.0, 1.0]))
-    flux.arr = grid.pad(fr.config.ncp.array([1.0, 2.0, 3.0, 4.0]))
-
-    # create the upwind flux function and setup
-    upwind = fr.modules.flux_functions.Upwind()
-    upwind.setup(mset)
-    # compute the upwind flux
-    upwind_flux = upwind.compute(flux, velocity, 0)
-    # check the result
-    expected = fr.config.ncp.array([2.0, 2.0, 3.0, 4.0])
-    assert fr.config.ncp.allclose(grid.unpad(upwind_flux.arr), expected)
+    upwind_flux = upwind.compute(flux_left, flux_right, velocity)
+    # get the mask for positive and negative velocity
+    pos_mask = velocity.arr >= 0
+    neg_mask = velocity.arr < 0
+    # check that the upwind flux is correct
+    assert fr.config.ncp.allclose(
+        upwind_flux.arr[pos_mask], flux_left.arr[pos_mask])
+    assert fr.config.ncp.allclose(
+        upwind_flux.arr[neg_mask], flux_right.arr[neg_mask])

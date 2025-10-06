@@ -43,14 +43,14 @@ class WaveSpectral(fr.projection.Projection):
                  mset: fr.ModelSettingsBase,
                  use_discrete: bool = True) -> None:
         super().__init__(mset)
-        # use that the projection on the positive and negative eigenspaces
-        # are the same. Hence, we only need to construct one of them.
-        self.q = mset.grid.vec_q(s=1, use_discrete=use_discrete)
-        self.p = mset.grid.vec_p(s=1, use_discrete=use_discrete)
-        return
+
+        self.qp = mset.grid.vec_q(1, use_discrete=use_discrete)
+        self.pp = mset.grid.vec_p(1, use_discrete=use_discrete)
+        self.qm = mset.grid.vec_q(-1, use_discrete=use_discrete)
+        self.pm = mset.grid.vec_p(-1, use_discrete=use_discrete)
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
-        return z.project(self.p, self.q) * 2
+        return z.project(self.pp, self.qp) + z.project(self.pm, self.qm)
 
 
 class DivergenceSpectral(fr.projection.Projection):

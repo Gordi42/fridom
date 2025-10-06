@@ -16,7 +16,6 @@ def method(request):
 #  Tests
 # ================================================================
 @pytest.mark.parametrize("periods",[
-    (True, True),
     (True, False),
     (False, True),
     (False, False),

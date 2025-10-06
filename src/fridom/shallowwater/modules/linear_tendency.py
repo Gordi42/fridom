@@ -26,7 +26,7 @@ class LinearTendency(fr.modules.Module):
 
     def _on_setup(self) -> None:
         self.f_coriolis = self.mset.f_coriolis
-        self.csqr = self.mset.csqr
+        self.csqr = self.mset.csqr_field
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
@@ -40,12 +40,17 @@ class LinearTendency(fr.modules.Module):
         diff = self.diff_module.diff
         div = self.diff_module.div
 
+        # positions
+        upos = z.u.position
+        vpos = z.v.position
+
+        c = self.csqr
         # interpolate the coriolis parameter to the u position
         f = interp(self.f_coriolis, z.u.position)
 
         # calculate u-tendency
-        dz.u +=   interp(z.v, z.u.position) * f - diff(z.p, axis=0)
-        dz.v += - interp(z.u * f, z.v.position) - diff(z.p, axis=1)
-        dz.p += - self.csqr * div((z.u, z.v))
+        dz.u +=   interp(z.v, upos) * f - diff(z.p, axis=0)
+        dz.v += - interp(z.u * f, vpos) - diff(z.p, axis=1)
+        dz.p += - div((interp(c, upos) * z.u, interp(c, vpos) * z.v))
 
         return dz

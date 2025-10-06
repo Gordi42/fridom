@@ -18,6 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .linear_interpolation import LinearInterpolation
     from .polynomial_interpolation import PolynomialInterpolation
     from .spectral_diff import SpectralDiff
+    from .weno_interpolation import InterWENO
 
 # ================================================================
 #  Setup lazy loading
@@ -36,6 +37,7 @@ all_imports_by_origin = {
     f"{base}.spectral_diff": ["SpectralDiff"],
     f"{base}.linear_interpolation": ["LinearInterpolation"],
     f"{base}.polynomial_interpolation": ["PolynomialInterpolation"],
+    f"{base}.weno_interpolation": ["InterWENO"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

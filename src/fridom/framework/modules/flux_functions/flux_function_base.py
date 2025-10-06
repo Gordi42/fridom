@@ -22,20 +22,20 @@ class FluxFunctionBase(fr.modules.Module):
 
     @abstractmethod
     def compute(self,
-                flux: fr.ScalarField,
-                velocity: fr.ScalarField,
-                axis: int) -> fr.ScalarField:
+                flux_left: fr.ScalarField,
+                flux_right: fr.ScalarField,
+                velocity: fr.ScalarField ) -> fr.ScalarField:
         """
         Compute the flux function.
 
         Parameters
         ----------
-        flux : fr.ScalarField
-            The flux to compute.
+        flux_left : fr.ScalarField
+            The flux field which is biased to the left.
+        flux_right : fr.ScalarField
+            The flux field which is biased to the right.
         velocity : fr.ScalarField
             The velocity field.
-        axis : int
-            The axis along which to compute the flux function.
 
         Returns
         -------
