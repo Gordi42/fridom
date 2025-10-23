@@ -8,6 +8,7 @@ from lazypimp import setup
 # ================================================================
 
 if TYPE_CHECKING:  # pragma: no cover
+    from .biharmonic_closure import BiharmonicClosure
     from .diffusion import (
         BiharmonicFriction,
         BiharmonicMixing,
@@ -24,6 +25,7 @@ all_modules_by_origin = {}
 
 base = "fridom.nonhydro.modules.closures"
 all_imports_by_origin = {
+    f"{base}.biharmonic_closure": ["BiharmonicClosure"],
     f"{base}.diffusion": [
         "HarmonicMixing", "HarmonicFriction",
         "BiharmonicMixing", "BiharmonicFriction"],

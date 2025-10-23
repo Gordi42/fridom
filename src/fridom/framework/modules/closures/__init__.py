@@ -19,7 +19,6 @@ all_modules_by_origin = {}
 
 base = "fridom.framework.modules.closures"
 all_imports_by_origin = {
-    f"{base}.biharmonic_closure": ["BiharmonicClosure"],
     f"{base}.biharmonic_diffusion": ["BiharmonicDiffusion"],
     f"{base}.harmonic_diffusion": ["HarmonicDiffusion"],
 }
