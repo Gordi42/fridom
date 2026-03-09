@@ -248,7 +248,6 @@ class FieldBase:
     @abstractmethod
     def diff(self: T,
              axis: int,
-             order: int = 1,
              ) -> T:
         r"""
         Compute the partial derivative along an axis.
@@ -262,8 +261,6 @@ class FieldBase:
         ----------
         axis : int
             The axis along which to differentiate.
-        order : int
-            The order of the derivative. Default is 1.
 
         Returns
         -------

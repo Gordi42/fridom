@@ -15,6 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
         Ramper,
         ResetTendency,
         RestartModule,
+        ZarrWriter,
         animation,
         module_method,
     )
@@ -52,7 +53,8 @@ all_imports_by_origin = {
                         "NetCDFWriter",
                         "Ramper",
                         "RestartModule",
-                        "ResetTendency"],
+                        "ResetTendency",
+                        "ZarrWriter"],
     f"{fr_base_path}.module": ["Module", "module_method"],
     f"{fr_base_path}.figure_saver": ["FigureSaver"],
 }

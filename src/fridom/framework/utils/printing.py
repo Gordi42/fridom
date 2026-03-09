@@ -12,7 +12,7 @@ def print_bar(char='='):
         Character to use for the bar.
     """
     if fr.utils.I_AM_MAIN_RANK:
-        print(char*80, flush=True)
+        fr.log.info(char*80)
 
 def print_job_init_info():
     """
@@ -29,9 +29,9 @@ def print_job_init_info():
     fr.log.info(formatted_time)
 
     # get the number of MPI processes
-    if fr.utils.MPI_AVAILABLE:
-        size = fr.utils.get_mpi_size()
-        fr.log.info(" > Running on %d MPI processes.", size)
+    size = fr.utils.get_mpi_size()
+    fr.log.info(" > Running on %d processes.", size)
     fr.log.info(" > Backend: %s", fr.config.backend)
     print_bar("#")
     _ = [print_bar(" ") for _ in range(3)]
+

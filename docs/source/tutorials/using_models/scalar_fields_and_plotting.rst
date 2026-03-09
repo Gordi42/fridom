@@ -390,7 +390,7 @@ You may wonder why we have the ``.xrs`` method if you can achieve the same resul
 Differentiation and Interpolation
 ---------------------------------
 
-When modeling partial differential equations, one is often interested in the derivatives of scalar fields. Simple partial derivatives can be calculated using the ``diff`` method. The method takes as arguments the axis along which the derivative should be computed and the order of the derivative.
+When modeling partial differential equations, one is often interested in the derivatives of scalar fields. Simple partial derivatives can be calculated using the ``diff`` method. The method takes as arguments the axis along which the derivative should be computed.
 
 .. code-block:: python
     :caption: Differentiation
@@ -408,7 +408,7 @@ When modeling partial differential equations, one is often interested in the der
     u.arr = ncp.sin(2 * ncp.pi * X)
 
     # Calculate the first derivative in the x-direction
-    du_dx = u.diff(axis=0, order=1)
+    du_dx = u.diff(axis=0)
 
     u.xrs[:, 0].plot(label="u")
     du_dx.xrs[:, 0].plot(label="du/dx")

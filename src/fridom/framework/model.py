@@ -215,9 +215,14 @@ class Model:
                 self.model_state = module.update(self.model_state)
 
         # Execute the first time step
+        was_enabled = self.progress_bar.is_enabled()
         self.progress_bar.disable()
+
         self._safe_step()
-        self.progress_bar.enable()
+
+        # re-enable the progress bar if it was enabled before
+        if was_enabled:
+            self.progress_bar.enable()
 
         # Print the compilation time
         if fr.config.backend_is_jax:

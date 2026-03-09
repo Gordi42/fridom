@@ -53,6 +53,7 @@ class Config:
             except RuntimeError:
                 pass
 
+
     # ----------------------------------------------------------------
     #  Representation
     # ----------------------------------------------------------------
@@ -126,6 +127,17 @@ class Config:
         cls._scp = jsp
         cls._backend = "jax_gpu"
 
+        # if multiple devices are available, enable parallelism by default
+        cls._enable_parallel = jax.device_count() > 1
+
+        # if multiple hosts are available, update the logger level
+        if jax.process_count() > 1:
+            if jax.process_index() == 0:
+                log.setLevel("INFO")
+            else:
+                log.setLevel("SILENT")
+
+
     # ----------------------------------------------------------------
     #  Data Types
     # ----------------------------------------------------------------
@@ -187,9 +199,7 @@ class Config:
 
     @enable_parallel.setter
     def enable_parallel(self, value: bool) -> bool:
-        _ = value
-        message = "Parallelism is not yet supported."
-        raise ValueError(message)
+        self._enable_parallel = value
 
     @property
     def backend(self) -> str:
@@ -227,3 +237,7 @@ class Config:
 
 
 config = Config()
+
+import fridom.framework as fr  # noqa: E402
+
+fr.utils.print_job_init_info()

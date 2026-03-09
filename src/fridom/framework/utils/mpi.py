@@ -1,4 +1,5 @@
 """mpi.py - MPI utilities for Fridom framework."""
+import fridom.framework as fr
 try:
     from mpi4py import MPI
 except ImportError:
@@ -17,13 +18,14 @@ def am_i_main_rank():
     `bool`
         True if the current rank is the main rank, False otherwise.
     """
-    i_am_main_rank = False
     if MPI_AVAILABLE:
-        i_am_main_rank = MPI.COMM_WORLD
-    else:
-        # if no MPI is available, assume that the current rank is the main rank
-        i_am_main_rank = True
-    return i_am_main_rank
+        return MPI.COMM_WORLD.Get_rank() == 0
+    if fr.config.backend_is_jax:
+        import jax
+        return jax.process_index() == 0
+
+    # if no MPI is available, assume that the current rank is the main rank
+    return True
 
 I_AM_MAIN_RANK = am_i_main_rank()
 
@@ -33,6 +35,9 @@ def mpi_barrier():
     """
     if MPI_AVAILABLE:
         MPI.COMM_WORLD.Barrier()
+    if fr.config.backend_is_jax:
+        from jax.experimental import multihost_utils
+        multihost_utils.sync_global_devices("mpi_barrier")
 
 def get_mpi_size():
     """
@@ -45,6 +50,9 @@ def get_mpi_size():
     """
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_size()
+    if fr.config.backend_is_jax:
+        import jax
+        return jax.process_count()
     return 1
 
 def get_my_rank() -> int:
@@ -59,4 +67,7 @@ def get_my_rank() -> int:
     """
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_rank()
+    if fr.config.backend_is_jax:
+        import jax
+        return jax.process_index()
     return 0

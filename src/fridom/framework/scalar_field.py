@@ -239,12 +239,12 @@ class ScalarField(fr.FieldBase):
     #  Differential Operators
     # ================================================================
 
-    def diff(self, axis: int, order: int = 1) -> ScalarField:  # noqa: D102
+    def diff(self, axis: int) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Make this work for spectral fields
         self._check_not_spectral()
-        return self.grid.diff_module.diff(self, axis, order)
+        return self.grid.diff_module.diff(self, axis)
 
     def grad(self, axes: list[int] | None = None ) -> fr.VectorField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields

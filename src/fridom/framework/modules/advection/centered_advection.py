@@ -38,7 +38,6 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
 
     name = "Centered Advection"
 
-    @fr.utils.jaxjit
     def advection(self,  # noqa: D102
                   velocity: fr.VectorField,
                   quantity: fr.ScalarField) -> fr.ScalarField:
@@ -53,5 +52,5 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
             # the flux position should be shifted from the quantity position
             flux_pos = q_pos.shift(axis)
             flux = inter(v, flux_pos) * inter(quantity, flux_pos)
-            res -= diff(flux, axis, order=1)
+            res -= diff(flux, axis)
         return res

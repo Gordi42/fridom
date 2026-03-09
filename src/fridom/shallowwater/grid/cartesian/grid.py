@@ -6,8 +6,10 @@ from numpy import ndarray
 @fr.utils.jaxify
 class Grid(fr.grid.cartesian.Grid):
     def __init__(self, N: list[int], L: list[int],
-                 periodic_bounds: list[bool] = [True, True]):
-        super().__init__(N, L, periodic_bounds)
+                 periodic_bounds: list[bool] = [True, True],
+                 domain_decomp: fr.domain_decomposition.DomainDecomposition | None = None,
+                 ):
+        super().__init__(N, L, periodic_bounds, domain_decomp=domain_decomp)
 
     def omega(self, 
               k: tuple[float] | tuple[ndarray],

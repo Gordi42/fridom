@@ -1,81 +1,56 @@
 from copy import deepcopy
+
 import fridom.framework as fr
-from functools import partial
 
 
-@partial(fr.utils.jaxify, dynamic=('water_mask',))
+@fr.utils.jaxify
 class LinearInterpolation(fr.grid.InterpolationModule):
+
     r"""
     Simple linear interpolation for cartesian grids.
 
     .. math::
         f(x + 0.5 \Delta x) = \frac{1}{2} (f(x) + f(x + \Delta x))
     """
+
     name = "Linear Interpolation"
-    def __init__(self) -> None:
-        super().__init__()
-        self.ndim: int = None
-        self._nexts: tuple[slice] = None
-        self._prevs: tuple[slice] = None
-        self.water_mask = None
-        self.required_halo = 1
-        return
+    required_halo = 1
 
-    @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
-        super().setup(mset)
-        self.ndim = ndim = self.mset.grid.n_dims
-        self._nexts = tuple(self._get_slices(axis)[0] for axis in range(ndim))
-        self._prevs = tuple(self._get_slices(axis)[1] for axis in range(ndim))
-        self.water_mask = self.mset.grid.water_mask
-        return
-
-    @fr.utils.jaxjit
     def interpolate(self,
                     f: fr.ScalarField,
                     destination: fr.grid.Position) -> fr.ScalarField:
         for axis in range(f.arr.ndim):
-            f = self.interpolate_axis(f, axis, destination.positions[axis])
-        mask = self.water_mask.get_mask(destination)
-        f.arr = f.arr * mask
+            f = self._interpolate_axis(f, axis, destination.positions[axis])
         return f
+        if all(self.grid.periodic_bounds):
+            return f
+        return self.grid.water_mask.apply_mask(f)
 
-    @partial(fr.utils.jaxjit, static_argnames=('axis', 'destination'))
-    def interpolate_axis(self, 
+    def _create_scalar_field(self,
+                             f: fr.ScalarField,
+                             axis: int,
+                             arr: fr.config.ncp.ndarray) -> fr.ScalarField:
+        mdata = deepcopy(f.mdata)
+        mdata.position = f.position.shift(axis)
+        return fr.ScalarField(mset=f.mset, mdata=mdata, arr=arr)
+
+    def _interpolate_axis(self, 
                          f: fr.ScalarField,
                          axis: int,
                          destination: fr.grid.AxisPosition) -> fr.ScalarField:
-        if not f.topo[axis]:
-            # no interpolation when the field has no extend along the axis
-            return f
 
         if f.position[axis] == destination:
             # no interpolation needed
             return f
+        if not f.topo[axis]:
+            # no interpolation when the field has no extend along the axis
+            return self._create_scalar_field(f, axis, f.arr)
 
-        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
-        next = self._nexts[axis]
-        prev = self._prevs[axis]
+        shift = -1 if destination == fr.grid.AxisPosition.FACE else 1
 
-        # get the destination slice
-        match destination:
-            case fr.grid.AxisPosition.CENTER:
-                dest_slice = next
-            case fr.grid.AxisPosition.FACE:
-                dest_slice = prev
+        @self.grid.domain_decomp.shard_map
+        def _interpolate(arr):
+            rolled = fr.config.ncp.roll(arr, shift=shift, axis=axis)
+            return 0.5 * (arr + rolled)
 
-        # @self.grid.domain_decomp.shard_map
-        def interpolate(arr):
-            average = 0.5 * (arr[next] + arr[prev])
-            return fr.utils.modify_array(arr, dest_slice, average)
-
-        res.arr = interpolate(f.arr)
-        res.position = f.position.shift(axis)
-        return res
-
-    def _get_slices(self, axis):
-        next = tuple(slice(1, None) if i == axis else slice(None) 
-                     for i in range(self.ndim))
-        prev = tuple(slice(None, -1) if i == axis else slice(None) 
-                     for i in range(self.ndim))
-        return next, prev
+        return self._create_scalar_field(f, axis, _interpolate(f.arr))

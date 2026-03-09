@@ -225,10 +225,7 @@ class FFT:
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
-                if config.backend_is_jax:
-                    u_hat = dct_type2(u_hat, axis, u_hat.shape[axis])
-                else:
-                    u_hat = scp.fft.dct(u_hat, axis=axis)
+                u_hat = scp.fft.dct(u_hat, axis=axis, type=2)
             
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:
@@ -286,10 +283,7 @@ class FFT:
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
-                if config.backend_is_jax:
-                    u = idct_type2(u, axis, u.shape[axis])
-                else:
-                    u = scp.fft.idct(u, axis=axis)
+                u = scp.fft.idct(u, axis=axis, type=2)
             
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:

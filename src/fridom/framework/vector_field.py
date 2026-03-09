@@ -257,9 +257,8 @@ class VectorField(fr.FieldBase):
 
     def diff(self: T,  # noqa: D102
              axis: int,
-             order: int = 1,
              ) -> T:
-        return self.apply_elementwise(self, lambda field: field.diff(axis, order))
+        return self.apply_elementwise(self, lambda field: field.diff(axis))
 
     def grad(self,  # noqa: D102
              axes: list[int] | None = None,

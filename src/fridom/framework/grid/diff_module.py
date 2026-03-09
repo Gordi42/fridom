@@ -22,14 +22,14 @@ class DiffModule(fr.modules.Module):
     def diff(self,
              f: fr.ScalarField,
              axis: int,
-             order: int = 1) -> fr.ScalarField:
+             ) -> fr.ScalarField:
         r"""
         Compute the partial derivative of a field along an axis.
 
         .. math::
             \partial_i^n f
 
-        with axis :math:`i` and order :math:`n`.
+        with axis :math:`i`.
 
         Parameters
         ----------
@@ -37,8 +37,6 @@ class DiffModule(fr.modules.Module):
             The field to differentiate.
         `axis` : `int`
             The axis along which to differentiate.
-        `order` : `int`
-            The order of the derivative. Default is 1.
 
         Returns
         -------
@@ -47,7 +45,6 @@ class DiffModule(fr.modules.Module):
         """
         raise NotImplementedError
 
-    @partial(fr.utils.jaxjit, static_argnames=('axes',))
     @fr.modules.module_method
     def grad(self,
              f: fr.ScalarField,
@@ -83,7 +80,6 @@ class DiffModule(fr.modules.Module):
         return [self.diff(f, i) if i in axes else None
                 for i in range(f.arr.ndim)]
 
-    @fr.utils.jaxjit
     @fr.modules.module_method
     def div(self,
             vec: tuple[fr.ScalarField | None]
@@ -123,7 +119,6 @@ class DiffModule(fr.modules.Module):
                   for axis, f in enumerate(vec) if f is not None)
         return div
 
-    @partial(fr.utils.jaxjit, static_argnames=('axes',))
     @fr.modules.module_method
     def laplacian(self,
                   f: fr.ScalarField,
@@ -150,8 +145,8 @@ class DiffModule(fr.modules.Module):
         """
         if axes is None:
             axes = list(range(f.arr.ndim))
-            
+
         laplace = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
         for axis in axes:
-            laplace += self.diff(f, axis, order=2)
+            laplace += self.diff(self.diff(f, axis), axis)
         return laplace

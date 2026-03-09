@@ -298,7 +298,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                             topo: tuple[bool] | None = None
                             ) -> ndarray:
         dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
-        shape, flat_axes = self._get_array_attrs(None)
+        shape, flat_axes = self._get_array_attrs(topo)
         # create the array
         arr = fr.utils.random_array(shape, seed, ignore_warning=True).astype(dtype)
         # add imaginary part if the array is complex

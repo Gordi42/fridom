@@ -57,7 +57,7 @@ def free_memory():
     """
     if fr.config.backend_is_jax:
         # we can safely access the jax backend here since jax is available
-        backend = jax.lib.xla_bridge.get_backend()
+        backend = jax.extend.backend.get_backend()
         for buf in backend.live_buffers():
             buf.delete()
 

@@ -3,7 +3,7 @@ import fridom.framework as fr
 from functools import partial
 
 
-@partial(fr.utils.jaxify, dynamic=('_dx1', 'water_mask'))
+@partial(fr.utils.jaxify, dynamic=('_dx1', ))
 class FiniteDifferences(fr.grid.DiffModule):
     name = "Finite Differences"
     def __init__(self) -> None:
@@ -13,7 +13,6 @@ class FiniteDifferences(fr.grid.DiffModule):
         # ----------------------------------------------------------------
         self.required_halo = 1
         self._dx1 = None
-        self.water_mask = None
 
     @fr.modules.module_method
     def setup(self, mset: 'fr.ModelSettingsBase') -> None:
@@ -21,17 +20,13 @@ class FiniteDifferences(fr.grid.DiffModule):
         from .grid import Grid
         if not isinstance(self.mset.grid, Grid):
             raise ValueError("Finite differences only work with Cartesian grids.")
-        
+
         conf = fr.config
         self._dx1 = 1 / conf.ncp.array(self.mset.grid.dx, dtype=conf.dtype_real)
-        self.water_mask = self.mset.grid.water_mask
-        return
 
-    @partial(fr.utils.jaxjit, static_argnames=('axis', 'order'))
     def diff(self, 
              f: fr.ScalarField,
-             axis: int,
-             order: int = 1) -> fr.ScalarField:
+             axis: int) -> fr.ScalarField:
         # differentiate the field
         match f.position[axis]:
             case fr.grid.AxisPosition.CENTER:
@@ -39,54 +34,36 @@ class FiniteDifferences(fr.grid.DiffModule):
             case fr.grid.AxisPosition.FACE:
                 f = self._diff_backward(f, axis)
 
-        # check if we need to differentiate more
-        if order == 1:
+        return f
+        if all(self.grid.periodic_bounds):
             return f
-        else:
-            return self.diff(f, axis, order-1)
+        return self.grid.water_mask.apply_mask(f)
+        return f.apply_water_mask()
 
-    @partial(fr.utils.jaxjit, static_argnames=('axis',))
     def _diff_forward(self, 
                       f: fr.ScalarField, 
                       axis: int) -> fr.ScalarField:
-        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
-        new_pos = f.position.shift(axis)
-        mask = self.water_mask.get_mask(new_pos)
-
-        next = tuple(slice(1, None) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
-        prev = tuple(slice(None, -1) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
+        # update the metadata
+        mdata = deepcopy(f.mdata)
+        mdata.position = f.position.shift(axis)
 
         @self.grid.domain_decomp.shard_map
         def _diff(arr):
-            diff = (arr[next] - arr[prev]) * self._dx1[axis]
-            return fr.utils.modify_array(arr, prev, diff)
+            rolled = fr.config.ncp.roll(arr, shift=-1, axis=axis)
+            return (rolled - arr) * self._dx1[axis]
 
-        res.arr = _diff(f.arr) * mask
-        res.position = new_pos
+        return fr.ScalarField(mset=f.mset, mdata=mdata, arr=_diff(f.arr))
 
-        return res
-
-    @partial(fr.utils.jaxjit, static_argnames=('axis',))
     def _diff_backward(self,
                        f: fr.ScalarField, 
                        axis: int) -> fr.ScalarField:
-        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
-        new_pos = f.position.shift(axis)
-        mask = self.water_mask.get_mask(new_pos)
-
-        next = tuple(slice(1, None) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
-        prev = tuple(slice(None, -1) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
+        # update the metadata
+        mdata = deepcopy(f.mdata)
+        mdata.position = f.position.shift(axis)
 
         @self.grid.domain_decomp.shard_map
         def _diff(arr):
-            diff = (arr[next] - arr[prev]) * self._dx1[axis]
-            return fr.utils.modify_array(arr, next, diff)
+            rolled = fr.config.ncp.roll(arr, shift=1, axis=axis)
+            return (arr - rolled) * self._dx1[axis]
 
-        res.arr = _diff(f.arr) * mask
-        res.position = new_pos
-
-        return res
+        return fr.ScalarField(mset=f.mset, mdata=mdata, arr=_diff(f.arr))

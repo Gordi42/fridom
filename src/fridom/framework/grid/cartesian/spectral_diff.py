@@ -28,11 +28,11 @@ class SpectralDiff(fr.grid.DiffModule):
             raise ValueError("SpectralDiff requires a spectral or cartesian grid")
         return
 
-    @partial(fr.utils.jaxjit, static_argnames=('axis', 'order'))
+    @partial(fr.utils.jaxjit, static_argnames=('axis', ))
     def diff(self, 
              f: fr.ScalarField,
              axis: int,
-             order: int = 1) -> fr.ScalarField:
+             ) -> fr.ScalarField:
 
         # ----------------------------------------------------------------
         #  Transform to spectral space if necessary
@@ -48,12 +48,11 @@ class SpectralDiff(fr.grid.DiffModule):
         #  Update the type of the boundary conditions
         # ----------------------------------------------------------------
         bc_types = list(f.bc_types)
-        if order % 2 == 1:
-            match f.bc_types[axis]:
-                case fr.grid.BCType.DIRICHLET:
-                    bc_types[axis] = fr.grid.BCType.NEUMANN
-                case fr.grid.BCType.NEUMANN:
-                    bc_types[axis] = fr.grid.BCType.DIRICHLET
+        match f.bc_types[axis]:
+            case fr.grid.BCType.DIRICHLET:
+                bc_types[axis] = fr.grid.BCType.NEUMANN
+            case fr.grid.BCType.NEUMANN:
+                bc_types[axis] = fr.grid.BCType.DIRICHLET
 
         # ----------------------------------------------------------------
         #  Compute the derivative
@@ -61,7 +60,7 @@ class SpectralDiff(fr.grid.DiffModule):
         res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
         res.bc_types = tuple(bc_types)
         k = self.grid.get_mesh(spectral=True)[axis]
-        res.arr = f.arr * (1j * k) ** order
+        res.arr = f.arr * (1j * k)
 
         # ----------------------------------------------------------------
         #  Transform back to physical space if necessary

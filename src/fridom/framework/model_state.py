@@ -4,7 +4,7 @@ import fridom.framework as fr
 
 
 # pylint: disable=too-many-instance-attributes
-@partial(fr.utils.jaxify, dynamic=('_z', '_z_diag', '_dz', '_it', '_clock'))
+@partial(fr.utils.jaxify, dynamic=('_z', '_z_diag', '_dz', '_clock'))
 class ModelState:
     """
     Stores the model state variables and the time information.
@@ -135,21 +135,6 @@ class ModelState:
         if not spectral_grid and value.is_spectral:
             value = value.ifft()
         self._dz = value
-
-    @property
-    def it(self) -> int:
-        """The iteration number."""
-        fr.log.warning(
-            "The iteration number is deprecated. Use the clock.it attribute instead."
-        )
-        return self._it
-
-    @it.setter
-    def it(self, value: int) -> None:
-        fr.log.warning(
-            "The iteration number is deprecated. Use the clock.it attribute instead."
-        )
-        self._it = value
 
     @property
     def clock(self) -> 'fr.Clock':

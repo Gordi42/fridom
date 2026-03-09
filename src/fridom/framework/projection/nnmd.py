@@ -12,8 +12,6 @@ class NNMD(fr.projection.Projection):
         The model settings.
     `order` : `int`
         The order of the balanced state.
-    `epsilon` : `float` (default: None)
-        The small parameter epsilon.
     `use_discrete` : `bool` (default: True)
         Whether to use the discrete eigenvectors vectors.
     `enable_dealiasing` : `bool` (default: True)
@@ -357,10 +355,10 @@ class NNMD(fr.projection.Projection):
     def __init__(self, 
                  mset: fr.ModelSettingsBase,
                  order=3,
-                 epsilon=None,
                  use_model=True,
                  time_step_factor=0.01,
                  use_discrete=True,
+                 advection=None,
                  enable_dealiasing=True) -> None:
         super().__init__(mset)
 
@@ -378,17 +376,7 @@ class NNMD(fr.projection.Projection):
         self.one_over_omega = ncp.where(omega == 0, 0, 1 / omega)
 
         # set the advection module
-        self.advection: fr.modules.advection.AdvectionBase = mset.tendencies.advection
-
-        # set the epsilon
-        if epsilon is None:
-            # try to get the scaling factor from the advection module and 
-            # use it as epsilon
-            try:
-                epsilon = self.advection.scaling
-            except AttributeError:
-                raise ValueError("Can't find the scaling factor in the advection module. Please provide epsilon with the keyword arguments.")
-        self.epsilon = epsilon
+        self.advection = advection or self._advect_tendency_difference
 
         # set the model
         self.use_model = use_model
@@ -401,9 +389,9 @@ class NNMD(fr.projection.Projection):
             self.subnnmd = NNMD(
                 mset, 
                 order=order-1, 
-                epsilon=epsilon, 
                 use_model=self.use_model,
                 use_discrete=use_discrete,
+                advection=advection,
                 enable_dealiasing=enable_dealiasing)
 
         # set other parameters
@@ -415,8 +403,6 @@ class NNMD(fr.projection.Projection):
         """
         Project a state to the balanced subspace.
         """
-        epsilon = self.epsilon
-
         # reset the fields
         self.reset_fields()
 
@@ -442,28 +428,32 @@ class NNMD(fr.projection.Projection):
         `spectral` : `bool` (default: False)
             Whether the returned state should be in spectral space.
         """
-        epsilon = self.epsilon
         # compute the two wave modes:
-        zw1 = sum(epsilon**n * self[1,n,0] for n in range(1, order+1))
-        zw2 = sum(epsilon**n * self[2,n,0] for n in range(1, order+1))
+        zw1 = sum(self[1,n,0] for n in range(1, order+1))
+        zw2 = sum(self[2,n,0] for n in range(1, order+1))
 
         # compute the balanced state
         z_bal = self.fields[0,0,0] * self.q[0] + zw1 * self.q[1] + zw2 * self.q[2]
 
         # return the balanced state
         return z_bal if spectral else z_bal.ifft()
+
+    def _advect_tendency_difference(self, z: fr.VectorField):
+        mset = self.mset
+        mz = fr.ModelState(self.mset)
+        mz.z = z
+        mz.dz = self.mset.state_constructor()
+        mset.tendencies.advection.disable()
+        linear_tendency = mset.tendencies.update(mz).dz
+        mset.tendencies.advection.enable()
+        return (mset.tendencies.update(mz).dz - linear_tendency)
+    
     
     # ================================================================
     #  The nonlinear interaction terms
     # ================================================================
     def _advect_state(self, z: fr.VectorField) -> fr.VectorField:
-        # we need to disable the scaling factor here. We simply do it by dividing by the scaling factor
-        dz = self.advection.advect_state(z, self.mset.state_constructor())
-        try:
-            dz /= self.advection.scaling
-        except AttributeError:
-            pass # no scaling factor => do nothing
-        return dz
+        return self.advection(z)
 
     def bilinear_form(self, 
                    z1: fr.VectorField, 
@@ -575,13 +565,13 @@ class NNMD(fr.projection.Projection):
         f_ind = (mode, order_series, order_derivative)
         if self.fields[f_ind] is not None:
             return self.fields[f_ind]
-        
+
         # compute the mode 0:
         if mode == 0:
             interaction = self.interaction(order_series=0, order_derivative=order_derivative-1)
             self.fields[f_ind] = interaction @ self.p[0]
             return self.fields[f_ind]
-        
+
         # compute the first derivative with the model
         if self.use_model:
             if order_derivative == 1 and order_series > 1:
@@ -592,7 +582,7 @@ class NNMD(fr.projection.Projection):
         interaction = self.interaction(order_series=order_series-1, order_derivative=order_derivative)
         for j, sign in zip([1, 2], [-1, 1]):
             z_prev = self[j, order_series-1, order_derivative+1]
-            z_new = 1j * sign * self.one_over_omega * (
+            z_new = - 1j * sign * self.one_over_omega * (
                 z_prev - interaction @ self.p[j] )
             self.fields[j, order_series, order_derivative] = z_new
         return self.fields[f_ind]
@@ -605,7 +595,7 @@ class NNMD(fr.projection.Projection):
         self.model_state.z = z
         dz = self.mset.tendencies.update(self.model_state).dz
 
-        time_step = self.time_step_factor / self.epsilon
+        time_step = self.time_step_factor
         z_next = z + dz * time_step
 
         # balance the next state
@@ -615,5 +605,5 @@ class NNMD(fr.projection.Projection):
         # nnmd.fields[0,0,0] = z_next.fft() @ self.p[0]
         for j in [1, 2]:
             df = self.fields[j, order_series, 0] - nnmd.fields[j, order_series, 0]
-            df *= self.epsilon / time_step
+            df *= 1 / time_step
             self.fields[j, order_series, 1] = df

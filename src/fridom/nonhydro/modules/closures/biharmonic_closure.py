@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import Literal
 
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
-@partial(fr.utils.jaxify, dynamic=("kh", "kv"))
+@partial(fr.utils.jaxify, dynamic=("_kh", "_kv", "_hor_diff_coeff", "_ver_diff_coeff"))
 class BiharmonicClosure(fr.modules.Module):
 
     r"""
@@ -23,12 +24,31 @@ class BiharmonicClosure(fr.modules.Module):
     """
 
     name = "Biharmonic Closure"
-    def __init__(self, kh: float, kv: float, velocity_scale: float = 1.0) -> None:
+    def __init__(self,
+                 kh: float,
+                 kv: float,
+                 velocity_scale: float = 1.0,
+                 # free-slip and no-slip modes
+                 mode: Literal["free-slip", "no-slip"] = "free-slip"
+                 ) -> None:
         super().__init__()
-        self.kh = kh
-        self.kv = kv
+        self._kh = kh
+        self._kv = kv
         self.velocity_scale = velocity_scale
         self.required_halo = 2
+        self._hor_diff_coeff = None
+        self._ver_diff_coeff = None
+        self._hor_grid_coeff = None
+        self._ver_grid_coeff = None
+
+        match mode:
+            case "free-slip":
+                self._second_derivative = self._second_derivative_free_slip
+            case "no-slip":
+                self._second_derivative = self._second_derivative_no_slip
+            case _:
+                msg = f"Invalid mode '{mode}'. Must be 'free-slip' or 'no-slip'."
+                raise ValueError(msg)
 
     def _on_setup(self) -> None:
         ncp = fr.config.ncp
@@ -46,29 +66,62 @@ class BiharmonicClosure(fr.modules.Module):
         kv_max = ncp.pi / dz
         ver_diff_coeff = aspect_ratio * velocity_scale * rossby_number / kv_max**3
 
-        self._kh = self.kh * hor_diff_coeff
-        self._kv = self.kv * ver_diff_coeff
+        self._hor_grid_coeff = hor_diff_coeff
+        self._ver_grid_coeff = ver_diff_coeff
+
+        self._hor_diff_coeff = self._kh * hor_diff_coeff
+        self._ver_diff_coeff = self._kv * ver_diff_coeff
+
+    def _second_derivative_no_slip(self, f: fr.ScalarField, axis: int) -> fr.ScalarField:
+        # when not applying the water mask, results look like a no-slip condition
+        # I am not entirely sure why, maybe because gradients at the boundary
+        # can be non-zero when not applying the water mask, which leads to stronger
+        # diffusion at the boundary leading to a no-slip like condition
+        first_derivative = self.diff_module.diff(f, axis)
+        return self.diff_module.diff(first_derivative, axis)
+
+    def _second_derivative_free_slip(self, f: fr.ScalarField, axis: int) -> fr.ScalarField:
+        first_derivative = self.diff_module.diff(f, axis)
+        first_derivative = self.grid.water_mask.apply_mask(first_derivative)
+        second_derivative = self.diff_module.diff(first_derivative, axis)
+        return self.grid.water_mask.apply_mask(second_derivative)
 
     @fr.utils.jaxjit
     def _compute_tendency(self, z: nh.State, dz: nh.State) -> nh.State:
-        diff = self.diff_module.diff
         for f in z:
             # first two derivatives
-            f_hor = (diff(f, axis=0, order=2) +
-                          diff(f, axis=1, order=2) )
-            f_ver = diff(f, axis=2, order=2)
+            f_hor = self._second_derivative(f, 0) + self._second_derivative(f, 1)
+            f_ver = self._second_derivative(f, 2)
 
             # multiply diffusion coefficients
-            f_hor *= self._kh
-            f_ver *= self._kv
+            f_hor *= self._hor_diff_coeff
+            f_ver *= self._ver_diff_coeff
 
             # second two derivatives
-            dz[f.name] -= (diff(f_hor, axis=0, order=2) +
-                           diff(f_hor, axis=1, order=2) +
-                           diff(f_ver, axis=2, order=2) )
+            dz[f.name] -= (self._second_derivative(f_hor, 0) +
+                           self._second_derivative(f_hor, 1) +
+                           self._second_derivative(f_ver, 2))
         return dz
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         mz.dz = self._compute_tendency(mz.z, mz.dz)
         return mz
+
+    @property
+    def kh(self) -> float:
+        return self._kh
+
+    @kh.setter
+    def kh(self, value: float) -> None:
+        self._hor_diff_coeff = value * self._hor_grid_coeff
+        self._kh = value
+
+    @property
+    def kv(self) -> float:
+        return self._kv
+
+    @kv.setter
+    def kv(self, value: float) -> None:
+        self._ver_diff_coeff = value * self._ver_grid_coeff
+        self._kv = value

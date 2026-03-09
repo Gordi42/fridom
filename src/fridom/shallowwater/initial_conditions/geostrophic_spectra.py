@@ -7,8 +7,6 @@ from typing import Callable, TypeVar
 import fridom.shallowwater as sw
 import numpy as np
 
-import stop_earth_rotation as ser
-
 T = TypeVar("T", float, np.ndarray)
 
 def geostrophic_energy_spectrum(kx: T, ky: T, d: float = 7, k0: float = 4) -> T:
@@ -141,10 +139,7 @@ class PrescribedSpectraRandomPhase(sw.State):
         kx, ky = grid.get_mesh(spectral=True)
 
         # construct the eigenvector
-        if mset.f0 == 0:
-            q = ser.veq_q(mset, s=mode)
-        else:
-            q = grid.vec_q(s=mode, use_discrete=True)
+        q = grid.vec_q(s=mode, use_discrete=True)
 
         # We want to normalize the eigenvector such that the spectral energy
         # density at wavenumber k is 1. Let the spectral energy $E(kx, ky)$ be

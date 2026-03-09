@@ -109,4 +109,5 @@ def array_is_constant(arr: np.ndarray) -> bool:
     False
 
     """
-    return fr.config.ncp.allclose(arr, arr.flatten()[0])
+    ncp = fr.config.ncp
+    return ncp.allclose(arr, ncp.mean(arr))

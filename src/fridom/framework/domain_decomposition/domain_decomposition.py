@@ -119,7 +119,7 @@ class DomainDecomposition:
             # unpad the array
             arr = self.unpad(arr)
             # apply the forward transform
-            arr = func(arr, axes)
+            arr = func(arr, axes=axes)
             return arr
         return wrapper
 
@@ -135,7 +135,7 @@ class DomainDecomposition:
         """
         def wrapper(arr: ndarray, axes: list[int] | None = None) -> ndarray:
             # apply the backward transform
-            arr = func(arr, axes)
+            arr = func(arr, axes=axes)
             # pad the array
             arr = self.pad(arr)
             return arr
@@ -430,6 +430,30 @@ class DomainDecomposition:
             The function to apply.
         """
         return func
+
+    def to_alterative_sharding(self, arr: ndarray) -> ndarray:
+        """
+        Convert an array to the alternative sharding.
+
+        Parameters
+        ----------
+        arr : ndarray
+            The array to convert.
+
+        """
+        return arr
+
+    def to_main_sharding(self, arr: ndarray) -> ndarray:
+        """
+        Convert an array to the main sharding.
+
+        Parameters
+        ----------
+        arr : ndarray
+            The array to convert.
+
+        """
+        return arr
 
     # ================================================================
     #  Properties

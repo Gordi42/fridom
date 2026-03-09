@@ -18,10 +18,10 @@ class TendencyDivergence(fr.modules.Module):
     @fr.utils.jaxjit
     def compute_divergence(self, dz: fr.VectorField) -> fr.ScalarField:
         """Compute the divergence of the tendency."""
-        dz.sync()
         return self.diff_module.div((dz.u, dz.v, dz.w))
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
+        mz.dz = mz.dz.sync()
         mz.z_diag.div.arr = self.compute_divergence(mz.dz).arr
         return mz
