@@ -217,7 +217,7 @@ class ZarrWriter(fr.modules.Module):
         for var in self.get_variables(mz):
             zarr_arr = store.create_array(
                 var.name,
-                shape=(0, *var.unpad().T.shape),
+                shape=(0, *var.unpad().shape[::-1]),
                 chunks=self._get_chunk_shape(var),
                 dtype=dtype,
                 dimension_names=("time", *x_names[::-1]),
@@ -258,7 +258,7 @@ class ZarrWriter(fr.modules.Module):
 
     def _get_chunk_shape(self, var: fr.ScalarField) -> tuple[int, ...]:
         if fr.config.backend_is_jax:
-            return (1, *var.unpad().T.addressable_shards[0].data.shape)
+            return (1, *var.unpad().addressable_shards[0].data.shape[::-1])
         return (1, *var.unpad().T.shape)
 
 
