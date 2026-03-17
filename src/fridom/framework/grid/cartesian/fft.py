@@ -1,4 +1,7 @@
 import fridom.framework as fr
+
+from typing import Callable
+
 # Import external modules
 import numpy as np
 from functools import partial
@@ -78,6 +81,15 @@ def idst_type2(x, axis, N):
     weights = 2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*N))
     return _apply_weights(x, weights, axis) / (2 * N)
 
+def r2r(transform: Callable) -> Callable:
+    """Apply the given transform to both the real and imaginary parts of the input."""
+    ncp = config.ncp
+    def _r2r(x, *args, **kwargs):
+        if ncp.iscomplexobj(x):
+            return ( transform(x.real, *args, **kwargs)
+                    + 1j * transform(x.imag, *args, **kwargs) )
+        return transform(x, *args, **kwargs)
+    return _r2r
 
 @utils.jaxify
 class FFT:
@@ -225,7 +237,7 @@ class FFT:
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
-                u_hat = scp.fft.dct(u_hat, axis=axis, type=2)
+                u_hat = r2r(scp.fft.dct)(u_hat, axis=axis, type=2)
             
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:
@@ -283,7 +295,7 @@ class FFT:
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
-                u = scp.fft.idct(u, axis=axis, type=2)
+                u = r2r(scp.fft.idct)(u, axis=axis, type=2)
             
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:
