@@ -53,7 +53,6 @@ class HarmonicDiffusion(fr.modules.Module):
         self.field_flags = field_flags
         self.diffusion_coefficients = diffusion_coefficients
 
-    @fr.utils.jaxjit
     def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
         r"""Apply the harmonic diffusion operator on a scalar field :math:`u`."""
         # compute the gradient of the field
@@ -66,8 +65,12 @@ class HarmonicDiffusion(fr.modules.Module):
             else:
                 c = coeff
             grad_u[i] *= c
+            # apply the water mask to the gradient
+            grad_u[i] = grad_u[i].apply_water_mask()
         # compute the divergence of the gradient
-        return self.diff_module.div(tuple(grad_u))
+        div = self.diff_module.div(tuple(grad_u))
+        # apply the boundary conditions
+        return div.apply_water_mask()
 
     @fr.utils.jaxjit
     def diffuse(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
