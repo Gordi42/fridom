@@ -242,6 +242,11 @@ class VectorField(fr.FieldBase):
     def has_nan(self) -> bool:  # noqa: D102
         return any(field.has_nan() for field in self.fields.values())
 
+    def block_until_ready(self) -> T:  # noqa: D102
+        for field in self:
+            field.block_until_ready()
+        return self
+
     def set_random(self: T, seed: int = 1234) -> T:  # noqa: D102
         for i, field in enumerate(self):
             field.set_random(i * seed)

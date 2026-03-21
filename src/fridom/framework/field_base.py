@@ -216,6 +216,23 @@ class FieldBase:
 
         """
 
+    @abstractmethod
+    def block_until_ready(self: T) -> T:
+        r"""
+        Block until the field is ready.
+
+        Description
+        -----------
+        This method blocks until the field is ready. This is necessary when
+        using asynchronous operations, such as GPU computations, to ensure that
+        the field is ready before it is used.
+
+        Returns
+        -------
+        FieldBase
+            The field itself.
+
+        """
 
     @abstractmethod
     def __copy__(self: T) -> T:

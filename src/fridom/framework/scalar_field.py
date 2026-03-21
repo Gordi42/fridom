@@ -143,6 +143,11 @@ class ScalarField(fr.FieldBase):
         ncp = fr.config.ncp
         return ncp.any(ncp.isnan(self.arr))
 
+    def block_until_ready(self) -> ScalarField:  # noqa: D102
+        if fr.config.backend_is_jax:
+            self.arr.block_until_ready()
+        return self
+
     def set_random(self, seed: int = 1234) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
