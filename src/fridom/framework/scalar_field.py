@@ -70,6 +70,7 @@ class ScalarField(fr.FieldBase):
         # ----------------------------------------------------------------
         self._mdata = mdata
         self._arr = data
+        self._water_mask = mset.grid.water_mask
 
     # ================================================================
     #  General methods
@@ -126,7 +127,6 @@ class ScalarField(fr.FieldBase):
         self._check_full_domain()
         # synchronize the array
         self.arr = self.grid.sync(self.arr)
-        self.apply_water_mask()
         return self
 
     def apply_water_mask(self) -> ScalarField:  # noqa: D102
@@ -136,7 +136,7 @@ class ScalarField(fr.FieldBase):
         # so that we can apply them to non full domain fields
         fr.exceptions.PartialDomainError.check(self)
         self._check_not_spectral()
-        self.arr *= self.grid.water_mask.get_mask(self.position)
+        self.arr *= self._water_mask.get_mask(self.position)
         return self
 
     def has_nan(self) -> bool:  # noqa: D102
