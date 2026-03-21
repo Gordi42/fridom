@@ -1,6 +1,7 @@
 """clock_trigger.py - Emits signals based on the state of a clock."""
 from __future__ import annotations
 
+from copy import copy
 from typing import Callable
 
 import numpy as np
@@ -159,8 +160,8 @@ class ClockTrigger:
         should_start = not self._started and self._start_callback(clock)
         if should_start:
             self._started = True
-            self._start_it = clock.it
-            self._start_time = clock.time
+            self._start_it = copy(clock.it)
+            self._start_time = copy(clock.time)
         return should_start
 
     def should_stop(self, clock: fr.Clock) -> bool:
