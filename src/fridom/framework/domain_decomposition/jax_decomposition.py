@@ -14,7 +14,7 @@ from numpy import ndarray
 import fridom.framework as fr
 
 MINIMUM_NUMBER_OF_DIMS = 2
-
+ncp = fr.config.ncp
 
 @fr.utils.jaxify
 class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
@@ -103,23 +103,21 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                 perm=permutations_backward,
             )
 
-            x = x.at[0:halo].set(received_left_halo)
-            x = x.at[-halo:].set(received_right_halo)
-            return x
+            return jax.numpy.concatenate(
+                [received_left_halo, x[halo:-halo], received_right_halo], axis=0)
 
         def halo_exchange_axis(x, dim):
-            x = jax.numpy.swapaxes(x, 0, dim)
+            x = ncp.swapaxes(x, 0, dim)
             spec = self._permute_spec(0, dim)
             def halo_exchange(x):
                 if not self.periods[dim]:
-                    x = x.at[0:halo].set(0)
-                    x = x.at[-halo:].set(0)
+                    left = right = ncp.zeros_like(x[:halo])
                 else:
-                    x = x.at[0:halo].set(x[-(2 * halo) : -halo])
-                    x = x.at[-halo:].set(x[halo : 2 * halo])
-                return x
+                    left = x[halo : 2 * halo]
+                    right = x[-(2 * halo) : -halo]
+                return ncp.concatenate([right, x[halo:-halo], left], axis=0)
             x = shard_map(halo_exchange, mesh=self.mesh, in_specs=spec, out_specs=spec)(x)
-            return jax.numpy.swapaxes(x, 0, dim)
+            return ncp.swapaxes(x, 0, dim)
 
         x = halo_exchange_across_x(arr)
         for dim in range(1, self.n_dims):

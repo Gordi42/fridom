@@ -4,7 +4,7 @@ from functools import partial
 from numpy import ndarray
 import fridom.framework as fr
 
-
+ncp = fr.config.ncp
 @fr.utils.jaxify
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def __init__(self, shape: tuple[int],
@@ -106,7 +106,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             return arr
 
         flat_axes = flat_axes or []
-        
+
         # synchronize cpu and gpu on cupy backend
         if fr.config.backend == "cupy":
             fr.config.ncp.cuda.Stream.null.synchronize()
@@ -121,37 +121,18 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                 arr = self._sync_non_periodic_axis(arr, axis)
         return arr
 
-    @partial(fr.utils.jaxjit, static_argnames=['axis'])
-    def _sync_periodic_axis(self, arr: ndarray, axis: int,) -> ndarray:
-        if self.shape[axis] < self.halo:
-            pad = fr.config.ncp.pad
-            ics = self._inner[axis]
-            pad_width = self._paddings[axis]
-            return pad(arr[ics], pad_width, mode='wrap')
-        else:
-            rfn = self._recv_from_next[axis]
-            rfp = self._recv_from_prev[axis]
-            stn = self._send_to_next[axis]
-            stp = self._send_to_prev[axis]
-            if fr.config.backend_is_jax:
-                arr = arr.at[rfn].set(arr[stp])
-                arr = arr.at[rfp].set(arr[stn])
-            else:
-                arr[rfn] = arr[stp]
-                arr[rfp] = arr[stn]
-            return arr
+    def _sync_periodic_axis(self, x: ndarray, axis: int,) -> ndarray:
+        halo = self.halo
+        x = ncp.swapaxes(x, 0, axis)
+        x = ncp.concatenate([ x[-2*halo:-halo], x[halo:-halo], x[halo:2*halo] ], axis=0)
+        return ncp.swapaxes(x, 0, axis)
 
-    @partial(fr.utils.jaxjit, static_argnames=['axis'])
-    def _sync_non_periodic_axis(self, arr: ndarray, axis: int,) -> ndarray:
-        rfn = self._recv_from_next[axis]
-        rfp = self._recv_from_prev[axis]
-        if fr.config.backend_is_jax:
-            arr = arr.at[rfn].set(0)
-            arr = arr.at[rfp].set(0)
-        else:
-            arr[rfn] = 0
-            arr[rfp] = 0
-        return arr
+    def _sync_non_periodic_axis(self, x: ndarray, axis: int,) -> ndarray:
+        halo = self.halo
+        x = ncp.swapaxes(x, 0, axis)
+        halo_region = ncp.zeros_like(x[:halo])
+        x = ncp.concatenate([halo_region, x[halo:-halo], halo_region], axis=0)
+        return ncp.swapaxes(x, 0, axis)
 
     # ================================================================
     #  Padding
