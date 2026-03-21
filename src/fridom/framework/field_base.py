@@ -195,6 +195,23 @@ class FieldBase:
         """
 
     @abstractmethod
+    def set_zero(self: T) -> T:
+        r"""
+        Set the field to zero.
+
+        Description
+        -----------
+        This method sets the field to zero. The field is changed in-place, but
+        also returned.
+
+        Returns
+        -------
+        FieldBase
+            The field with all values set to zero.
+
+        """
+
+    @abstractmethod
     def set_random(self: T, seed: int = 1234) -> T:
         r"""
         Set the field to random values.

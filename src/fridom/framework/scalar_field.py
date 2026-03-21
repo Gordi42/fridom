@@ -148,6 +148,10 @@ class ScalarField(fr.FieldBase):
             self.arr.block_until_ready()
         return self
 
+    def set_zero(self) -> ScalarField:  # noqa: D102
+        self.arr = fr.config.ncp.zeros_like(self.arr)
+        return self
+
     def set_random(self, seed: int = 1234) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
