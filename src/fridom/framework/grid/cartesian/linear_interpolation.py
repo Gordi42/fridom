@@ -22,9 +22,6 @@ class LinearInterpolation(fr.grid.InterpolationModule):
         for axis in range(f.arr.ndim):
             f = self._interpolate_axis(f, axis, destination.positions[axis])
         return f
-        if all(self.grid.periodic_bounds):
-            return f
-        return self.grid.water_mask.apply_mask(f)
 
     def _create_scalar_field(self,
                              f: fr.ScalarField,
