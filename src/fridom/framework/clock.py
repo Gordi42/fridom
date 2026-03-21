@@ -17,7 +17,7 @@ class TimingFormat(Enum):
     SECONDS = auto()
     DATETIME = auto()
 
-@partial(fr.utils.jaxify, dynamic=("_start_time", "_passed_time"))
+@partial(fr.utils.jaxify, dynamic=("_start_time", "_passed_time", "_it"))
 class Clock:
 
     """
