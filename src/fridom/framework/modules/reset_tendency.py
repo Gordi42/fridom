@@ -28,5 +28,4 @@ class ResetTendency(fr.modules.Module):
     @fr.utils.jaxjit
     def _set_state_to_zero(self, dz: fr.VectorField) -> fr.VectorField:
         """Set the state to zero."""
-        dz *= 0
-        return dz
+        return dz.set_zero()
