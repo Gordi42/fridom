@@ -1,21 +1,9 @@
 """Model class for the fridom framework."""
 from __future__ import annotations
 
-from functools import partial
-
 import numpy as np
 
 import fridom.framework as fr
-
-
-@partial(fr.utils.jaxjit, donate_argnames=("z",))
-def _sync_state(z: fr.VectorField, water_mask: fr.grid.WaterMask) -> fr.VectorField:
-    """Synchronize the state vector (ghost points)."""
-    z = z.sync()
-    for f in z:
-        mask = water_mask.get_mask(f.position)
-        f.arr = f.arr * mask
-    return z
 
 
 class Model:
@@ -298,10 +286,6 @@ class Model:
 
     def step(self) -> None:
         """Update the model state by one time step."""
-        # synchronize the state vector (ghost points)
-        with self.timer["sync"]:
-            self.z = _sync_state(self.z, self.mset.grid.water_mask)
-
         # perform the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
 
