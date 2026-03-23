@@ -13,6 +13,12 @@ class LinearTendency(fr.modules.Module):
 
     name = "Linear Tendency"
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.f_coriolis = None
+        self.N2 = None
+        self.dsqr = None
+
     def _on_setup(self) -> None:
         self.f_coriolis = self.mset.f_coriolis
         self.N2 = self.mset.N2_field
