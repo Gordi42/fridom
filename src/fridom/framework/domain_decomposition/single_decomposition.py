@@ -99,7 +99,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Halo exchange
     # ================================================================
 
-    @partial(fr.utils.jaxjit, static_argnames='flat_axes')
     def sync(self, arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
         # nothing to do if there are no halo regions
         if self.halo == 0:
@@ -138,7 +137,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Padding
     # ================================================================
 
-    @partial(fr.utils.jaxjit, static_argnames='flat_axes')
     def pad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
         if self.halo == 0:
             return arr
@@ -154,7 +152,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         arr = ncp.pad(arr, tuple(pw_nonperiodic), mode='constant')
         return arr
 
-    @partial(fr.utils.jaxjit, static_argnames='flat_axes')
     def unpad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
         if self.halo == 0:
             return arr
