@@ -48,6 +48,7 @@ def module_method(method: T) -> T:
         return None
     return wrapper
 
+@fr.utils.jaxify
 class Module:
 
     """
