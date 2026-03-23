@@ -2,6 +2,8 @@ from numpy import ndarray
 import fridom.nonhydro as nh
 import fridom.framework as fr
 
+from functools import lru_cache
+
 
 @fr.utils.jaxify
 class Grid(fr.grid.cartesian.Grid):
@@ -25,7 +27,8 @@ class Grid(fr.grid.cartesian.Grid):
               use_discrete: bool = False
               ) -> ndarray:
         return nh.grid.cartesian.eigenvectors.omega(
-            mset=self.mset, s=1, k=k, use_discrete=use_discrete)
+            s = 1, f0=self.mset.f0, stratification_n2=self.mset.N2, dsqr=self.mset.dsqr,
+            k=k, dx=self.dx, use_discrete=use_discrete)
 
     def vec_q(self, s: int, use_discrete=True) -> nh.State:
         return nh.grid.cartesian.eigenvectors.vec_q(

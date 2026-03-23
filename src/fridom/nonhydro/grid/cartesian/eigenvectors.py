@@ -290,12 +290,15 @@ with
 """
 from __future__ import annotations
 
+from functools import partial
+
 import numpy as np
 from numpy import ndarray
 
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
+ncp = fr.config.ncp
 dso = fr.grid.cartesian.discrete_spectral_operators
 
 def _check_if_spectral_analysis_is_possible(mset: nh.ModelSettings) -> None:
@@ -344,12 +347,40 @@ def _check_for_horizontal_periodic_boundaries(mset: nh.ModelSettings) -> None:
         msg = "The grid is nonperiodic in horizontal direction."
         raise ValueError(msg)
 
+def _check_use_discrete_argument(
+        dx: tuple[float] | None,
+        use_discrete: bool,  # noqa: FBT001
+) -> None:
+    r"""
+    Check if the use_discrete argument is used correctly.
+
+    Parameters
+    ----------
+    dx : tuple[float] | None
+        The grid spacing. Required if `use_discrete` is True.
+    use_discrete : bool
+        If True, the discrete eigenvalues are returned. Otherwise, the continuous
+        eigenvalues are returned.
+
+    Raises
+    ------
+    ValueError
+        If `use_discrete` is True and `dx` is None.
+
+    """
+    if use_discrete and dx is None:
+        msg = "The grid spacing `dx` is required when `use_discrete` is True."
+        raise ValueError(msg)
+
 # ================================================================
 #  The eigenvalues
 # ================================================================
-def omega(mset: nh.ModelSettings,
-          s: int,
+def omega(s: int,
+          f0: float,
+          stratification_n2: float,
+          dsqr: float,
           k: tuple[float] | tuple[ndarray],
+          dx: tuple[float] | None = None,
           use_discrete: bool = False,  # noqa: FBT001 FBT002
           ) -> ndarray:
     r"""
@@ -357,28 +388,31 @@ def omega(mset: nh.ModelSettings,
 
     Parameters
     ----------
-    mset : nh.ModelSettings
-        The model settings.
     s : int
         The mode of the eigenvector. (0, 1, -1)
     k : tuple[float] | tuple[ndarray]
         The wavenumbers.
+    f0 : float
+        The constant Coriolis parameter.
+    stratification_n2 : float
+        The constant stratification.
+    dsqr : float
+        The square of the aspect ratio.
+    dx : tuple[float], optional
+        The grid spacing. Required if `use_discrete` is True.
     use_discrete : bool (default: False)
         If True, the discrete eigenvalues are returned. Otherwise, the continuous
         eigenvalues are returned.
 
     """
-    # we first check if the spectral analysis is possible
-    _check_if_spectral_analysis_is_possible(mset)
+    _check_use_discrete_argument(dx, use_discrete)
 
     # shorthand notation
-    ncp = fr.config.ncp
-    dsqr = mset.dsqr
-    f2 = mset.f0**2
-    n_squared = mset.N2
+    f2 = f0**2
+    n_squared = stratification_n2
     # cast k to ndarray
     kx, ky, kz = tuple(ncp.asarray(k) for k in k)
-    dx, dy, dz = mset.grid.dx
+    dx, dy, dz = dx or (None, None, None)
 
     # eigenvector of geostrophic mode is zero
     if s == 0:
@@ -410,18 +444,17 @@ def omega(mset: nh.ModelSettings,
 #  The q eigenvectors
 # ================================================================
 
-def _vec_q_geostrophic(mset: nh.ModelSettings,
-                       use_discrete: bool = True,  # noqa: FBT001 FBT002
-                       ) -> nh.State:
+def _vec_q_geostrophic(
+        f0: float,
+        k: tuple[float] | tuple[ndarray],
+        dx: tuple[float] | None = None,
+        use_discrete: bool = True,  # noqa: FBT001 FBT002
+) -> tuple[ndarray]:
     """Return geostrophic q eigenvector."""
-    _check_if_spectral_analysis_is_possible(mset)
-    _check_for_horizontal_periodic_boundaries(mset)
-    # Shortcuts
-    grid = mset.grid
-    ncp = fr.config.ncp
-    kx, ky, kz = grid.K
-    dx, dy, dz = grid.dx
-    f0 = mset.f0
+    _check_use_discrete_argument(dx, use_discrete)
+
+    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
     def ohp(k: tuple[float] | tuple[ndarray], d: float) -> ndarray:
@@ -449,24 +482,24 @@ def _vec_q_geostrophic(mset: nh.ModelSettings,
     # Mask to separate inertial modes from inertia-gravity modes
     nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
 
-    z = nh.State(mset, is_spectral=True)
-    z.u.arr = ncp.where(nonzero_horizontal, u, u_ov)
-    z.v.arr = ncp.where(nonzero_horizontal, v, v_ov)
-    z.w.arr = ncp.where(nonzero_horizontal, w, w_ov)
-    z.b.arr = ncp.where(nonzero_horizontal, b, b_ov)
+    u = ncp.where(nonzero_horizontal, u, u_ov)
+    v = ncp.where(nonzero_horizontal, v, v_ov)
+    w = ncp.where(nonzero_horizontal, w, w_ov)
+    b = ncp.where(nonzero_horizontal, b, b_ov)
 
-    # Set the nyquist frequency to zero
-    return dso.set_nyquist_to_zero(z)
+    return u, v, w, b
 
-def _vec_q_divergent(mset: nh.ModelSettings,
-                     use_discrete: bool = True,  # noqa: FBT001 FBT002
-                     ) -> nh.State:
+def _vec_q_divergent(
+        k: tuple[float] | tuple[ndarray],
+        dx: tuple[float] | None = None,
+        use_discrete: bool = True,  # noqa: FBT001 FBT002
+    ) -> tuple[ndarray]:
     """Return divergent q eigenvector."""
-    # Shortcuts
-    grid = mset.grid
-    ncp = fr.config.ncp
-    kx, ky, kz = grid.K
-    dx, dy, dz = grid.dx
+
+    _check_use_discrete_argument(dx, use_discrete)
+
+    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
     def khp(k: tuple[float] | tuple[ndarray], d: float) -> ndarray:
@@ -488,29 +521,27 @@ def _vec_q_divergent(mset: nh.ModelSettings,
     # Mask to separate inertial modes from inertia-gravity modes
     nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
 
-    z = nh.State(mset, is_spectral=True)
-    z.u.arr = ncp.where(nonzero_horizontal, u, u_ov)
-    z.v.arr = ncp.where(nonzero_horizontal, v, v_ov)
-    z.w.arr = ncp.where(nonzero_horizontal, w, w_ov)
-    z.b.arr = ncp.where(nonzero_horizontal, b, b_ov)
+    u = ncp.where(nonzero_horizontal, u, u_ov)
+    v = ncp.where(nonzero_horizontal, v, v_ov)
+    w = ncp.where(nonzero_horizontal, w, w_ov)
+    b = ncp.where(nonzero_horizontal, b, b_ov)
 
-    # Set the nyquist frequency to zero
-    return dso.set_nyquist_to_zero(z)
+    return u, v, w, b
 
-def _vec_q_igw(mset: nh.ModelSettings,
-               s: int,
-               use_discrete: bool = True,  # noqa: FBT001 FBT002
-               ) -> nh.State:
+def _vec_q_igw(
+        s: int,
+        f0: float,
+        n_squared: float,
+        dsqr: float,
+        k: tuple[float] | tuple[ndarray],
+        dx: tuple[float] | None = None,
+        use_discrete: bool = True,  # noqa: FBT001 FBT002
+    ) -> tuple[ndarray]:
     """Return inertial-gravity wave q eigenvectors."""
-    _check_if_spectral_analysis_is_possible(mset)
-    _check_for_horizontal_periodic_boundaries(mset)
-    # Shortcuts
-    grid = mset.grid
-    ncp = fr.config.ncp
-    kx, ky, kz = grid.K
-    dx, dy, dz = grid.dx
-    f0 = mset.f0
-    n_squared = mset.N2**(1/2)
+    _check_use_discrete_argument(dx, use_discrete)
+
+    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
     def ohp(k: tuple[float] | tuple[ndarray], d: float) -> ndarray:
@@ -528,7 +559,8 @@ def _vec_q_igw(mset: nh.ModelSettings,
     kh2 = khpm(kx, dx) + khpm(ky, dy)
 
     # calculate eigenvalue
-    om = omega(mset=mset, s=s, k=(kx, ky, kz), use_discrete=use_discrete)
+    om = omega(s=s, f0=f0, stratification_n2=n_squared, dsqr=dsqr,
+               k=(kx, ky, kz), dx=(dx, dy, dz), use_discrete=use_discrete)
 
     # We first consider the case of nonzero horizontal wavenumbers
     u = (khm(kz,dz) * (-1j*om*khp(kx,dx) +
@@ -548,14 +580,31 @@ def _vec_q_igw(mset: nh.ModelSettings,
     # Mask to separate inertial modes from inertia-gravity modes
     nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
 
-    z = nh.State(mset, is_spectral=True)
-    z.u.arr = ncp.where(nonzero_horizontal, u, u_ov)
-    z.v.arr = ncp.where(nonzero_horizontal, v, v_ov)
-    z.w.arr = ncp.where(nonzero_horizontal, w, w_ov)
-    z.b.arr = ncp.where(nonzero_horizontal, b, b_ov)
+    u = ncp.where(nonzero_horizontal, u, u_ov)
+    v = ncp.where(nonzero_horizontal, v, v_ov)
+    w = ncp.where(nonzero_horizontal, w, w_ov)
+    b = ncp.where(nonzero_horizontal, b, b_ov)
 
-    # Set the nyquist frequency to zero
-    return dso.set_nyquist_to_zero(z)
+    return u, v, w, b
+
+@partial(fr.utils.jaxjit, static_argnames=["s", "use_discrete"])
+def _vec_q(
+        s: int | str,
+        f0: float,
+        n_squared: float,
+        dsqr: float,
+        k: tuple[float] | tuple[ndarray],
+        dx: tuple[float] | None = None,
+        use_discrete: bool = True,  # noqa: FBT001 FBT002
+) -> tuple[ndarray]:
+    if s == 0:
+        return _vec_q_geostrophic(f0, k, dx, use_discrete)
+    if s == "d":
+        return _vec_q_divergent(k, dx, use_discrete)
+    if s in (1, -1):
+        return _vec_q_igw(s, f0, n_squared, dsqr, k, dx, use_discrete)
+    msg = "Invalid mode of the eigenvector."
+    raise ValueError(msg)
 
 def vec_q(mset: nh.ModelSettings,
           s: int | str,
@@ -610,51 +659,65 @@ def vec_q(mset: nh.ModelSettings,
     The discrete projection vector is given in the docstring of the eigenvectors.
 
     """
-    if s == 0:
-        return _vec_q_geostrophic(mset, use_discrete)
-    if s == "d":
-        return _vec_q_divergent(mset, use_discrete)
-    if s in (1, -1):
-        return _vec_q_igw(mset, s, use_discrete)
-    msg = "Invalid mode of the eigenvector."
-    raise ValueError(msg)
+    # We first check if the spectral analysis is possible
+    _check_if_spectral_analysis_is_possible(mset)
+    _check_for_horizontal_periodic_boundaries(mset)
+
+    # Then we calculate the eigenvector arrays
+    u, v, w, b = _vec_q(s, mset.f0, mset.N2, mset.dsqr,
+                        mset.grid.K, mset.grid.dx, use_discrete)
+
+    # Finally we construct the state and set the nyquist frequency to zero
+    z = nh.State(mset, is_spectral=True)
+    z.u.arr = u
+    z.v.arr = v
+    z.w.arr = w
+    z.b.arr = b
+    return dso.set_nyquist_to_zero(z)
+
 
 # ================================================================
 #  The projection vectors
 # ================================================================
-def _normalize_p_vec(z: nh.State, q: nh.State) -> nh.State:
+def _normalize_p_vec(
+        p: tuple[ndarray],
+        q: tuple[ndarray],
+        f0: float,
+        n_squared: float,
+        k: tuple[float] | tuple[ndarray],
+) -> tuple[ndarray]:
     """Normalize the projection vectors."""
-    ncp = fr.config.ncp
-    kx, ky, kz = z.mset.grid.K
-    # normalize the vector
-    if z.mset.f0 == 0:
-        mask = (kx**2 + ky**2 != 0)
-    elif z.mset.N2 == 0:
-        mask = (kz**2 != 0)
-    else:
-        mask = (kx**2 + ky**2 + kz**2 != 0)
+    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
 
-    norm = ncp.abs((q.dot(z)).arr)
-    # avoid division by zero
-    for name in ("u", "v", "w", "b"):
-        z[name].arr = ncp.where(mask, z[name].arr/norm, 0)
+    f0 = ncp.asarray(f0)
+    n_squared = ncp.asarray(n_squared)
 
-    # Set the nyquist frequency to zero
-    return dso.set_nyquist_to_zero(z)
+    horizontal_mask = (kx**2 + ky**2 != 0)
+    vertical_mask = (kz**2 != 0)
+    full_mask = (kx**2 + ky**2 + kz**2 != 0)
 
-def _vec_p_geostrophic(mset: nh.ModelSettings,
-                       use_discrete: bool = True,  # noqa: FBT001 FBT002
-                       ) -> nh.State:
+    # if N2 == 0 => use the vertical mask
+    mask = ncp.where(n_squared == 0, vertical_mask, full_mask)
+    # if f0 == 0 => use the horizontal mask
+    mask = ncp.where(f0 == 0, horizontal_mask, mask)
+    # if both f0 and N2 are zero => This case should never happen
+
+    norm = ncp.abs(sum(p_i * q_i.conj() for p_i, q_i in zip(p, q)))
+
+    return tuple(ncp.where(mask, p_i/norm, 0) for p_i in p)
+
+def _vec_p_geostrophic(
+        f0: float,
+        n_squared: float,
+        k: tuple[float] | tuple[ndarray],
+        dx: tuple[float] | None = None,
+        use_discrete: bool = True,  # noqa: FBT001 FBT002
+) -> tuple[ndarray]:
     """Return geostrophic projection vectors."""
-    _check_if_spectral_analysis_is_possible(mset)
-    _check_for_horizontal_periodic_boundaries(mset)
-    # Shortcuts
-    ncp = fr.config.ncp
-    grid = mset.grid
-    kx, ky, kz = grid.K
-    dx, dy, dz = grid.dx
-    f0 = mset.f0
-    n_squared = mset.N2
+    _check_use_discrete_argument(dx, use_discrete)
+
+    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
     def ohp(k: tuple[float] | tuple[ndarray], d: float) -> ndarray:
@@ -670,7 +733,7 @@ def _vec_p_geostrophic(mset: nh.ModelSettings,
     nonzero_horizontal = (kx**2 + ky**2 != 0)
 
     # Construct the eigenvector
-    q = _vec_q_geostrophic(mset, use_discrete)
+    q = _vec_q_geostrophic(f0, k, (dx, dy, dz), use_discrete)
 
     # the zero horizontal wavenumber modes are the same as the eigenvector
     # So we only need to calculate the horizontal varying modes
@@ -679,51 +742,44 @@ def _vec_p_geostrophic(mset: nh.ModelSettings,
     w = 0
     b = ohpm(kx,dx) * ohpm(ky,dy) * f0 * khp(kz,dz)
 
-    z = nh.State(mset, is_spectral=True)
-    for name, arr in zip(("u", "v", "w", "b"), (u, v, w, b)):
-        z[name].arr = ncp.where(nonzero_horizontal, arr, q[name].arr)
+    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q))
 
-    return _normalize_p_vec(z, q)
+    return _normalize_p_vec(p, q, f0, n_squared, k)
 
-def _vec_p_divergent(mset: nh.ModelSettings,
-                     use_discrete: bool = True,  # noqa: FBT001 FBT002
-                     ) -> nh.State:
+def _vec_p_divergent(
+    k: tuple[float] | tuple[ndarray],
+    dx: tuple[float] | None = None,
+    use_discrete: bool = True,  # noqa: FBT001 FBT002
+) -> tuple[ndarray]:
     """Return divergent projection vectors."""
-    # Shortcuts
-    ncp = fr.config.ncp
-    grid = mset.grid
-    kx, ky, kz = grid.K
+    _check_use_discrete_argument(dx, use_discrete)
 
-    # Construct the eigenvector
-    q = _vec_q_divergent(mset, use_discrete)
+    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
 
     # Divergent modes are the same as the eigenvector
-    z = q
+    p = _vec_q_divergent(k, dx, use_discrete)
 
     # normalize the vector
-    norm = ncp.abs((q.dot(z)).arr)
+    norm = ncp.abs(sum(p_i * p_i.conj() for p_i in p))
+
     # avoid division by zero
     mask = (kx**2 + ky**2 + kz**2 != 0)
 
-    for name in ("u", "v", "w", "b"):
-        z[name].arr = ncp.where(mask, z[name].arr/norm, 0)
+    return tuple(ncp.where(mask, p_i/norm, 0) for p_i in p)
 
-    # Set the nyquist frequency to zero
-    return dso.set_nyquist_to_zero(z)
+def _vec_p_igw(
+        s: int,
+        f0: float,
+        n_squared: float,
+        dsqr: float,
+        k: tuple[float] | tuple[ndarray],
+        dx: tuple[float] | None = None,
+        use_discrete: bool = True,  # noqa: FBT001 FBT002
+) -> tuple[ndarray]:
+    _check_use_discrete_argument(dx, use_discrete)
 
-def _vec_p_igw(mset: nh.ModelSettings,
-               s: int,
-               use_discrete: bool = True,  # noqa: FBT001 FBT002
-               ) -> nh.State:
-    _check_if_spectral_analysis_is_possible(mset)
-    _check_for_horizontal_periodic_boundaries(mset)
-    # Shortcuts
-    ncp = fr.config.ncp
-    grid = mset.grid
-    kx, ky, kz = grid.K
-    dx, dy, dz = grid.dx
-    f0 = mset.f0
-    dsqr = mset.dsqr
+    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
     def ohp(k: tuple[float] | tuple[ndarray], d: float) -> ndarray:
@@ -744,7 +800,7 @@ def _vec_p_igw(mset: nh.ModelSettings,
     nonzero_horizontal = (kx**2 + ky**2 != 0)
 
     # Construct the eigenvector
-    q = vec_q(mset, s, use_discrete=use_discrete)
+    q = _vec_q_igw(s, f0, n_squared, dsqr, k, (dx, dy, dz), use_discrete)
 
     # the zero horizontal wavenumber modes are the same as the eigenvector
     # So we only need to calculate the horizontal varying modes
@@ -753,7 +809,8 @@ def _vec_p_igw(mset: nh.ModelSettings,
                 / (dsqr * kh2 + khpm(kz,dz)) )
 
     # compute the eigenvalues (frequency)
-    om = omega(mset, s, (kx, ky, kz), use_discrete=use_discrete)
+    om = omega(s=s, f0=f0, stratification_n2=n_squared, dsqr=dsqr,
+               k=(kx, ky, kz), dx=(dx, dy, dz), use_discrete=use_discrete)
 
     u = (khm(kz,dz) * (-1j*om*khp(kx,dx) +
             ohp(kx,dx)*ohm(ky,dy)*f0*gamma*khp(ky,dy)))
@@ -762,13 +819,30 @@ def _vec_p_igw(mset: nh.ModelSettings,
     w = 1j * om * kh2
     b = ohm(kz,dz) * gamma * kh2
 
-    z = nh.State(mset, is_spectral=True)
-    for name, arr in zip(("u", "v", "w", "b"), (u, v, w, b)):
-        z[name].arr = ncp.where(nonzero_horizontal, arr, q[name].arr)
+    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q))
 
     # normalize the vector
-    return _normalize_p_vec(z, q)
+    return _normalize_p_vec(p, q, f0, n_squared, k)
 
+
+@partial(fr.utils.jaxjit, static_argnames=["s", "use_discrete"])
+def _vec_p(
+        s: int | str,
+        f0: float,
+        n_squared: float,
+        dsqr: float,
+        k: tuple[float] | tuple[ndarray],
+        dx: tuple[float] | None = None,
+        use_discrete: bool = True,  # noqa: FBT001 FBT002
+) -> tuple[ndarray]:
+    if s == 0:
+        return _vec_p_geostrophic(f0, n_squared, k, dx, use_discrete)
+    if s == "d":
+        return _vec_p_divergent(k, dx, use_discrete)
+    if s in (1, -1):
+        return _vec_p_igw(s, f0, n_squared, dsqr, k, dx, use_discrete)
+    msg = "Invalid mode of the eigenvector."
+    raise ValueError(msg)
 
 def vec_p(mset: nh.ModelSettings,
           s: int | str,
@@ -820,11 +894,13 @@ def vec_p(mset: nh.ModelSettings,
     The discrete projection vector is given in the docstring of the eigenvectors.
 
     """
-    if s == 0:
-        return _vec_p_geostrophic(mset, use_discrete)
-    if s == "d":
-        return _vec_p_divergent(mset, use_discrete)
-    if s in (1, -1):
-        return _vec_p_igw(mset, s, use_discrete)
-    msg = "Invalid mode of the eigenvector."
-    raise ValueError(msg)
+    _check_if_spectral_analysis_is_possible(mset)
+    _check_for_horizontal_periodic_boundaries(mset)
+    (u, v, w, b) = _vec_p(s, mset.f0, mset.N2, mset.dsqr,
+                          mset.grid.K, mset.grid.dx, use_discrete)
+    z = nh.State(mset, is_spectral=True)
+    z.u.arr = u
+    z.v.arr = v
+    z.w.arr = w
+    z.b.arr = b
+    return dso.set_nyquist_to_zero(z)
