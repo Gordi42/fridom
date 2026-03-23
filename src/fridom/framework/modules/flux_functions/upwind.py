@@ -43,7 +43,6 @@ class Upwind(fr.modules.flux_functions.FluxFunctionBase):
 
     name = "Upwind"
 
-    @fr.utils.jaxjit
     def compute(self,  # noqa: D102
                 flux_left: fr.ScalarField,
                 flux_right: fr.ScalarField,
