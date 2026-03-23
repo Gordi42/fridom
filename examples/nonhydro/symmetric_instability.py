@@ -178,15 +178,13 @@ def perform_experiment(richardson_number, run_length, make_thumbnail=False):
         name = "Background Advection"
         @nh.modules.module_method
         def update(self, mz: nh.ModelState) -> nh.ModelState:
-            mz.dz = self.advect(mz.z, mz.dz)
-            return mz
-
-        @nh.utils.jaxjit
-        def advect(self, z: nh.State, dz: nh.State) -> nh.State:
             interp = self.interp_module.interpolate
-            dz.v -= interp(z.w, z.v.position) * M2 / f0
-            dz.b -= interp(z.u, z.b.position) * M2
-            return dz
+
+            z = mz.z
+
+            mz.dz.v -= interp(z.w, z.v.position) * M2 / f0
+            mz.dz.b -= interp(z.u, z.b.position) * M2
+            return mz
 
     # ----------------------------------------------------------------
     #  Add custom modules to the model settings
