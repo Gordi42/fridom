@@ -121,6 +121,13 @@ class RKMethods(Enum):
 def sum_product(coeefs, dt, k):
     return sum(coeefs[i] * dt * k[i] for i in range(len(k)))
 
+@fr.utils.jaxjit
+def _compute_tendency(
+    tendency: fr.modules.Module,
+    mz: fr.ModelState,
+) -> fr.ModelState:
+    return tendency.update(mz=mz)
+
 #TODO(Silvano): Jaxify this class
 class RungeKutta(fr.time_steppers.TimeStepper):
 
@@ -141,9 +148,6 @@ class RungeKutta(fr.time_steppers.TimeStepper):
 
     def _on_setup(self) -> None:
         self.dz_list = [self.mset.state_constructor() for _ in range(self.method.order)]
-
-    def _calculate_tendency(self, mz: fr.ModelState) -> fr.VectorField:
-        return self.mset.tendencies.update(mz).dz
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
@@ -169,8 +173,8 @@ class RungeKutta(fr.time_steppers.TimeStepper):
                 mod_state.clock.tick(method.c[i] * dt)
                 mod_state.z = mz.z + sum_product(method.A[i], dt, k)
                 mod_state.dz = self.dz_list[i]
-                dz = self._calculate_tendency(mod_state)
-                k.append(dz)
+                mod_state = _compute_tendency(self.mset.tendencies, mod_state)
+                k.append(mod_state.dz)
 
             if method.b_error is not None:
                 te = sum_product(method.b_error, dt, k)
