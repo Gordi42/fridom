@@ -45,6 +45,10 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
     name = "Sadourny Advection"
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.csqr = None
+
     def _on_setup(self) -> None:
         self._required_halo = 2
         self.csqr = self.mset.csqr
