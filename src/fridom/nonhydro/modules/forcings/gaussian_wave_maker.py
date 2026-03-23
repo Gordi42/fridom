@@ -71,17 +71,11 @@ class GaussianWaveMaker(fr.modules.Module):
         mask *= self.amplitude
         self.mask = mask
 
-    @fr.utils.jaxjit
-    def add_source_term(self, dz: nh.State, time: float) -> nh.State:
-        """Add the source term to the u-component of the velocity field."""
-        ncp = fr.config.ncp
-        tendency = self.mask * ncp.sin(2 * ncp.pi * self.frequency * time)
-        dz.fields[self.variable] += tendency
-        return dz
-
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
-        mz.dz = self.add_source_term(mz.dz, mz.clock.time)
+        ncp = fr.config.ncp
+        tendency = self.mask * ncp.sin(2 * ncp.pi * self.frequency * mz.clock.time)
+        mz.dz.fields[self.variable] += tendency
         return mz
 
     @property
