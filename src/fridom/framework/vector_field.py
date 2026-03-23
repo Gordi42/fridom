@@ -231,8 +231,7 @@ class VectorField(fr.FieldBase):
         # set the arrays to the fields
         for field, arr in zip(self.fields.values(), arrs):
             field.arr = arr
-        # apply the water mask
-        return self.apply_water_mask()
+        return self
 
     def apply_water_mask(self: T) -> T:  # noqa: D102
         for field in self:
