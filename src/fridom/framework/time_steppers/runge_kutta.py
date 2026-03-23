@@ -191,6 +191,8 @@ class RungeKutta(fr.time_steppers.TimeStepper):
                 error = 0
 
         mz.z += sum_product(method.b, dt, k)
+        mz.dz = k[-1]
+        mz.z_diag = mod_state.z_diag
         mz.clock.tick(dt)
         return mz
 
