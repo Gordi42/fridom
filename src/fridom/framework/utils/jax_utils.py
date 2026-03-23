@@ -187,6 +187,7 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
 
     # set the new method to the class
     cls.tree_unflatten = _tree_unflatten
+    cls.tree_flatten = _tree_flatten
 
     # register the class with jax
     jax.tree_util.register_pytree_node(cls, _tree_flatten, cls.tree_unflatten)
