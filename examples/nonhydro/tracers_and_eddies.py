@@ -80,9 +80,9 @@ def create_modelsettings(exp_name, quiver_skip):
     mset.time_stepper.dt = 0.4 * 1/Nx
 
     # add the passive tracer to the state vector
-    mset.add_field_to_state({'name':"dye", 
-                             'long_name':"Dye concentration",
-                             "flags": {'ENABLE_MIXING': True}})
+    mdata = nh.FieldMetadata(name="dye", long_name="Dye concentration")
+    mdata.flags["ENABLE_MIXING"] = True
+    mset.custom_state_fields.append(mdata)
 
     # ----------------------------------------------------------------
     #  Add custom modules to the model settings
