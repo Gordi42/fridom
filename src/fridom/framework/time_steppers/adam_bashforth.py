@@ -9,27 +9,24 @@ import fridom.framework as fr
 
 MAX_ORDER = 4
 
-@partial(fr.utils.jaxjit, donate_argnames=("mz", ))
-def _perform_time_step(
+
+@fr.utils.jaxjit
+def _compute_tendency(
     tendency: fr.modules.Module,
     mz: fr.ModelState,
-    buffers: list[fr.VectorField],
-    coeffs: np.ndarray,
     dt: float,
 ) -> fr.ModelState:
-    # compute the tendency
     mz = tendency.update(mz=mz)
-
-    # update the buffers
-    buffers = [mz.dz, *buffers[:-1]]
-
-    # weighted sum over history axis
-    mz.z += sum(c * b for c, b in zip(coeffs, buffers))
-
-    # update the clock
     mz.clock.tick(dt)
-
     return mz
+
+@fr.utils.jaxjit
+def _update_state(
+    z: fr.VectorField,
+    buffers: tuple[fr.VectorField],
+    coeffs: np.ndarray,
+) -> fr.VectorField:
+    return z + sum(c * b for c, b in zip(coeffs, buffers))
 
 
 @partial(fr.utils.jaxify,
@@ -169,20 +166,20 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         if self.it_count <= self.order+1:
             self.update_coeff_AB()
 
-        mz = _perform_time_step(
-            self.mset.tendencies,
-            mz,
-            self.dz_list,
-            self.coeff_AB,
-            self.dt,
-        )
+        # compute the tendency
+        mz = _compute_tendency(self.mset.tendencies, mz, self.dt)
 
+        # update the buffers
         self.dz_list = [mz.dz, *self.dz_list[:-1]]
+
+        # weighted sum over history axis
+        mz.z = _update_state(mz.z, self.dz_list, self.coeff_AB)
+
         self.it_count += 1
 
         return mz
 
-    def update_coeff_AB(self) -> None:
+    def update_coeff_AB(self) -> None:  # noqa: N802
         """Upward ramping of Adam-Bashforth coefficients after restart."""
         # current time level (ctl)
         # maximum ctl is the number of time levels - 1
