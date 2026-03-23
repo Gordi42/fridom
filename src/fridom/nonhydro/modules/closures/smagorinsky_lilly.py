@@ -4,7 +4,6 @@ from __future__ import annotations
 import numpy as np
 
 import fridom.framework as fr
-import fridom.nonhydro as nh
 
 
 @fr.utils.jaxify
@@ -112,8 +111,8 @@ class SmagorinskyLilly(fr.modules.Module):
     def _on_setup(self) -> None:
         self.filter_width = self.grid.dV**(1/3)
 
-    @fr.utils.jaxjit
-    def smagorinsky_lilly_operator(self, z: nh.State, dz: nh.State) -> nh.State:
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
+        z = mz.z
 
         diff_mod = self.diff_module
         ncp = fr.config.ncp
@@ -165,9 +164,9 @@ class SmagorinskyLilly(fr.modules.Module):
         tau_31 = tau_13     ; tau_32 = tau_23     ; tau_33 = s_33 * nu_t
 
         # Compute the friction terms
-        dz.u += diff_mod.div((tau_11, tau_12, tau_13))
-        dz.v += diff_mod.div((tau_21, tau_22, tau_23))
-        dz.w += diff_mod.div((tau_31, tau_32, tau_33))
+        mz.dz.u += diff_mod.div((tau_11, tau_12, tau_13))
+        mz.dz.v += diff_mod.div((tau_21, tau_22, tau_23))
+        mz.dz.w += diff_mod.div((tau_31, tau_32, tau_33))
 
         # Compute the mixing terms
         for name, field in z.fields.items():
@@ -182,10 +181,6 @@ class SmagorinskyLilly(fr.modules.Module):
             df = tuple(d * kappa_t for d in df)
 
             # Compute the divergence of the gradient
-            dz.fields[name] += diff_mod.div(df)
+            mz.dz.fields[name] += diff_mod.div(df)
 
-        return dz
-
-    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self.smagorinsky_lilly_operator(mz.z, mz.dz)
         return mz
