@@ -1,10 +1,28 @@
+"""Finite difference differentiation module for Cartesian grids."""
+from __future__ import annotations
+
 from copy import deepcopy
-import fridom.framework as fr
 from functools import partial
 
+import fridom.framework as fr
 
-@partial(fr.utils.jaxify, dynamic=('_dx1', ))
+ncp = fr.config.ncp
+
+@partial(fr.utils.jaxify, dynamic=("_dx1", ))
 class FiniteDifferences(fr.grid.DiffModule):
+
+    """
+    Finite difference differentiation for Cartesian grids.
+
+    Description
+    -----------
+    If a field is defined at the cell center, the field is differentiated using
+    a forward difference, and the resulting field is defined at the cell face.
+    If a field is defined at the cell face, the field is differentiated using
+    a backward difference, and the resulting field is defined at the cell center.
+
+    """
+
     name = "Finite Differences"
     def __init__(self) -> None:
         super().__init__()
@@ -14,56 +32,27 @@ class FiniteDifferences(fr.grid.DiffModule):
         self.required_halo = 1
         self._dx1 = None
 
-    @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
-        super().setup(mset)
-        from .grid import Grid
-        if not isinstance(self.mset.grid, Grid):
-            raise ValueError("Finite differences only work with Cartesian grids.")
+    def _on_setup(self) -> None:
+        if not isinstance(self.mset.grid, fr.grid.cartesian.Grid):
+            msg = "Finite differences only work with Cartesian grids."
+            raise TypeError(msg)
 
-        conf = fr.config
-        self._dx1 = 1 / conf.ncp.array(self.mset.grid.dx, dtype=conf.dtype_real)
+        self._dx1 = 1 / ncp.array(self.mset.grid.dx, dtype=fr.config.dtype_real)
 
-    def diff(self, 
+    def diff(self,  # noqa: D102
              f: fr.ScalarField,
              axis: int) -> fr.ScalarField:
-        # differentiate the field
-        match f.position[axis]:
-            case fr.grid.AxisPosition.CENTER:
-                f = self._diff_forward(f, axis)
-            case fr.grid.AxisPosition.FACE:
-                f = self._diff_backward(f, axis)
 
-        return f
-        if all(self.grid.periodic_bounds):
-            return f
-        return self.grid.water_mask.apply_mask(f)
-        return f.apply_water_mask()
+        destination = f.position.shift(axis)
 
-    def _diff_forward(self, 
-                      f: fr.ScalarField, 
-                      axis: int) -> fr.ScalarField:
+        view = fr.grid.Stencil(
+            grid=self.grid, size=2, offset=0, destination=destination[axis],
+        ).view(f.arr, axis=axis)
+
+        diff = (view[1] - view[0]) * self._dx1[axis]
+
         # update the metadata
         mdata = deepcopy(f.mdata)
-        mdata.position = f.position.shift(axis)
+        mdata.position = destination
 
-        @self.grid.domain_decomp.shard_map
-        def _diff(arr):
-            rolled = fr.config.ncp.roll(arr, shift=-1, axis=axis)
-            return (rolled - arr) * self._dx1[axis]
-
-        return fr.ScalarField(mset=f.mset, mdata=mdata, arr=_diff(f.arr))
-
-    def _diff_backward(self,
-                       f: fr.ScalarField, 
-                       axis: int) -> fr.ScalarField:
-        # update the metadata
-        mdata = deepcopy(f.mdata)
-        mdata.position = f.position.shift(axis)
-
-        @self.grid.domain_decomp.shard_map
-        def _diff(arr):
-            rolled = fr.config.ncp.roll(arr, shift=1, axis=axis)
-            return (arr - rolled) * self._dx1[axis]
-
-        return fr.ScalarField(mset=f.mset, mdata=mdata, arr=_diff(f.arr))
+        return fr.ScalarField(mset=f.mset, mdata=mdata, arr=diff)
