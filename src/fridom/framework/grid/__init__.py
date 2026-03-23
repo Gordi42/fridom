@@ -9,12 +9,13 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import cartesian, spectral
+
+    # import all classes
+    from .biased_interpolation import BiasedInterpolationModule
     from .boundary_type import BCType
     from .diff_module import DiffModule
     from .dummy_interpolation import DummyInterpolation
     from .fft_padding import FFTPadding
-
-    # import all classes
     from .grid_base import GridBase
     from .interpolation_module import InterpolationModule
     from .position import AxisPosition, Position
@@ -29,14 +30,15 @@ all_modules_by_origin = { base: ["cartesian",
                                  "spectral"] }
 
 all_imports_by_origin = {
-    f"{base}.grid_base": ["GridBase"],
+    f"{base}.biased_interpolation": ["BiasedInterpolationModule"],
+    f"{base}.boundary_type": ["BCType"],
     f"{base}.diff_module": ["DiffModule"],
-    f"{base}.interpolation_module": ["InterpolationModule"],
     f"{base}.dummy_interpolation": ["DummyInterpolation"],
+    f"{base}.fft_padding": ["FFTPadding"],
+    f"{base}.grid_base": ["GridBase"],
+    f"{base}.interpolation_module": ["InterpolationModule"],
     f"{base}.position": ["AxisPosition", "Position"],
     f"{base}.water_mask": ["WaterMask"],
-    f"{base}.boundary_type": ["BCType"],
-    f"{base}.fft_padding": ["FFTPadding"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
