@@ -11,7 +11,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from .flux_divergence_base import FluxDivergenceBase
     from .spectral_advection import SpectralAdvection
-    from .weno_advection import WENO
 
 # ================================================================
 #  Setup lazy loading
@@ -25,7 +24,6 @@ all_imports_by_origin = {
     f"{fr_base_path}": ["AdvectionBase", "CenteredAdvection"],
     f"{base_path}.flux_divergence_base": ["FluxDivergenceBase"],
     f"{base_path}.spectral_advection": ["SpectralAdvection"],
-    f"{base_path}.weno_advection": ["WENO"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
