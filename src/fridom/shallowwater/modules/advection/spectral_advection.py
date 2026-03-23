@@ -28,7 +28,6 @@ class SpectralAdvection(fr.modules.advection.AdvectionBase):
         if hasattr(self.mset, "Ro"):
             self.scaling = self.mset.Ro
 
-    @fr.utils.jaxjit
     def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:  # noqa: D102
 
         def fft(x: fr.FieldBase) -> fr.FieldBase:
