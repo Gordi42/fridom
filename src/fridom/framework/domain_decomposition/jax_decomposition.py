@@ -73,7 +73,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Halo exchange
     # ================================================================
 
-    @partial(fr.utils.jaxjit, static_argnames=["flat_axes"])
     def sync(self, arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
         halo = self.halo
         n_devices = self.n_devices
@@ -133,7 +132,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     def parallel_forward_transform(self, func: callable) -> callable:
 
-        @partial(jax.jit, static_argnames=["axes"])
         def _my_forward_transform(arr: ndarray, axes: list[int] | None = None) -> ndarray:
             axes = set(axes or list(range(self.n_dims)))
             # unpad the array
@@ -160,7 +158,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     def parallel_backward_transform(self, func: callable) -> callable:
 
-        @partial(jax.jit, static_argnames=['axes'])
         def _my_backward_transform(arr, axes: list[int] | None = None):
             axes = set(axes or list(range(self.n_dims)))
             # apply the backward transform in the x-axis
@@ -192,7 +189,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     @cached_property
     def pad(self) -> callable:
-        @partial(jax.jit, static_argnames=['flat_axes'])
         def pad(arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
             if self.halo == 0:
                 return arr
@@ -213,7 +209,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     @cached_property
     def unpad(self) -> callable:
-        @partial(jax.jit, static_argnames=['flat_axes'])
         def unpad(arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
             if self.halo == 0:
                 return arr
