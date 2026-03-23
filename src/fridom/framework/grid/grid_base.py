@@ -297,7 +297,6 @@ class GridBase:
         """
         return self.domain_decomp.sync(arr, flat_axes=flat_axes)
 
-    @fr.utils.jaxjit
     def sync_multi(self, arrs: tuple[ndarray]) -> tuple[ndarray]:
         """
         Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
@@ -314,7 +313,6 @@ class GridBase:
         """
         return self.domain_decomp.sync_multiple(arrs)
 
-    @fr.utils.jaxjit
     def unpad(self, arr: ndarray) -> ndarray:
         """
         Remove the halo padding from an array.
@@ -331,7 +329,6 @@ class GridBase:
         """
         return self.domain_decomp.unpad(arr)
 
-    @fr.utils.jaxjit
     def pad(self, arr: ndarray) -> ndarray:
         """
         Add halo padding to an array.
