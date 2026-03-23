@@ -6,8 +6,6 @@ from functools import partial
 
 
 
-
-
 @partial(fr.utils.jaxify, dynamic=('_water_mask', '_cache'))
 class WaterMask:
     """
@@ -71,10 +69,7 @@ class WaterMask:
         return self._cache[id]
 
     def apply_mask(self, f: fr.ScalarField) -> fr.ScalarField:
-        mask = (self._domain_decomposition.create_array(pad=True)+1).astype(bool)
-        mask = self._sync_mask(mask)
-        for axis, axpos in enumerate(f.position.positions):
-            mask = self.shift_mask_along_axis(mask, axis, axpos)
+        mask = self.get_mask(f.position)
         f.arr *= mask
         return f
 
