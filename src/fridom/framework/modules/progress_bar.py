@@ -32,11 +32,14 @@ class ProgressBar(fr.modules.Module):
         self._pbar = None
         self._file_output = None
         self._output = None
+        self._last_it = None
         self._last_call = None
+        self._aimed_interval = None
         self._main_loop_type = None
         self._datetime_formatting = None
         self._start_value = None
         self._final_value = None
+        self._interval = None
 
     @fr.modules.module_method
     def start(self) -> None:  # noqa: D102
@@ -83,7 +86,9 @@ class ProgressBar(fr.modules.Module):
         self._pbar = pbar
         self._file_output = file_output
         self._output = output
+        self._last_it = None
         self._last_call = time.time()
+        self._aimed_interval = None
         self._main_loop_type = None
         self._datetime_formatting = None
         self._start_value = None
@@ -96,7 +101,9 @@ class ProgressBar(fr.modules.Module):
         self._pbar = None
         self._file_output = None
         self._output = None
+        self._last_it = None
         self._last_call = None
+        self._aimed_interval = None
         self._main_loop_type = None
         self._datetime_formatting = None
         self._start_value = None
@@ -112,18 +119,22 @@ class ProgressBar(fr.modules.Module):
         self._start_value = start_value
         self._final_value = final_value
 
-    @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        if self._start_value is None:
-            return mz
+    def print_progress_bar(self, mz: fr.ModelState) -> None:
+        if not self.is_enabled():
+            return None
+
+        it = int(mz.clock.it)
+        last_it = self._last_it or it - 1
+        n_its = it - last_it
 
         # get the time between the last call (in milliseconds)
         now = time.time()
-        elapsed = now - self._last_call
+        elapsed = 1e3 * (now - self._last_call) / max(n_its, 1)
         self._last_call = now
-        elapsed = f"{int(elapsed*1e3)} ms/it"
+        self._last_it = it
+        self._aimed_interval = max(min(1000, 200 / max(elapsed, 1e-3)), 1)
+        elapsed = f"{int(elapsed)} ms/it"
 
-        it = int(mz.clock.it)
 
         # Get the current progress value
         match self._main_loop_type:
@@ -137,13 +148,13 @@ class ProgressBar(fr.modules.Module):
                        / (self._final_value - self._start_value) )
 
         # clamp the value between 0 and 100
-        value = max(0, min(100, value))
+        value = float(max(0, min(100, value)))
 
         # Create a postfix string for the progress bar
         if self._datetime_formatting:
             time_str = np.datetime64(int(mz.clock.time), "s")
         else:
-            time_str = fr.utils.humanize_number(mz.clock.time, unit="seconds")
+            time_str = fr.utils.humanize_number(float(mz.clock.time), unit="seconds")
 
         postfix = f"It: {it} - Time: {time_str}"
 
@@ -160,4 +171,39 @@ class ProgressBar(fr.modules.Module):
         # clear the output string
         self._output.seek(0)
 
+        return None
+
+
+    @fr.modules.module_method
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
+        if self._start_value is None:
+            return mz
+
+        it = int(mz.clock.it)
+
+        if self._last_it is None:
+            self._last_it = it
+
+        n_its = it - self._last_it
+
+
+        # check if an interval was set
+        if self._interval and n_its % self._interval != 0:
+            return mz
+
+        if (self._interval is None and self._aimed_interval is not None
+                and n_its % int(self._aimed_interval) != 0):
+            return mz
+
+        self.print_progress_bar(mz)
+
         return mz
+
+    @property
+    def interval(self) -> int | None:
+        """The interval at which to update the progress bar."""
+        return self._interval
+
+    @interval.setter
+    def interval(self, value: int | None) -> None:
+        self._interval = value
