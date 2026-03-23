@@ -1,6 +1,8 @@
 """A WENO advection scheme following S. Mishra et al. (2021)."""
 from __future__ import annotations
 
+from copy import deepcopy
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
@@ -29,9 +31,8 @@ class WENO(nh.modules.advection.AdvectionBase):
 
     def __init__(self,
                  order: int = 5,
-                 inter: fr.grid.InterpolationModule = None,
-                 weno: fr.grid.cartesian.InterWENO = None,
-                 flux_function: fr.modules.flux_functions.FluxFunctionBase = None,
+                 symmetric_inter: fr.grid.InterpolationModule = None,
+                 biased_inter: fr.grid.cartesian.InterWENO = None,
                  ) -> None:
 
         super().__init__()
@@ -41,62 +42,43 @@ class WENO(nh.modules.advection.AdvectionBase):
             msg = f"Invalid order {order}. Only odd orders >= 1 are allowed."
             raise ValueError(msg)
 
+        cart = fr.grid.cartesian
+
         self.order = order
-        self.inter = inter or fr.grid.cartesian.PolynomialInterpolation(order=order)
-        self.weno = weno or fr.grid.cartesian.InterWENO(order=order)
-        self.flux_function = flux_function or fr.modules.flux_functions.Upwind()
+        self.symmetric_inter = symmetric_inter or cart.PolynomialInterpolation(
+            order=order - 1)
+        self.biased_inter = biased_inter or cart.InterWENO(order=order)
 
     def _on_setup(self) -> None:
-        self.inter.setup(self.mset)
-        self.weno.setup(self.mset)
-        self.flux_function.setup(self.mset)
+        self.symmetric_inter.setup(self.mset)
+        self.biased_inter.setup(self.mset)
 
-    @fr.utils.jaxjit
-    def advect_state(self, z: nh.State, dz: nh.State) -> nh.State:  # noqa: D102
+    def advection(self,
+                  velocity: fr.VectorField,
+                  quantity: fr.ScalarField) -> fr.ScalarField:
         # Get the interpolation functions
-        ip = self.inter.interpolate
-        weno = self.weno.reconstruct
-        flux_fun = self.flux_function.compute
+        symmetric_interpolate = self.symmetric_inter.interpolate
+        biased_interpolate = self.biased_inter.interpolate
         diff = self.diff_module
 
-        # ----------------------------------------------------------------
-        #  Momentum advection
-        # ----------------------------------------------------------------
-        for v1 in z.velocity:
-            for axis, v2 in enumerate(z.velocity):
-                # Interpolate v2 to the position of v1
-                v2_at_v1 = ip(v2, v1.position)
-                # Interpolate v1*v2 to the face of v1 using WENO
-                flux_left, flux_right = weno(v1*v2_at_v1,
-                                                v1.position.shift(axis=axis))
-                # Take the flux based on the advecting velocity
-                # flux = flux_fun(flux_left=flux_left,
-                #                 flux_right=flux_right,
-                #                 velocity=v2_at_v1)
-                flux = 0.5 * (flux_left + flux_right)# - 0.1 * (flux_right - flux_left)
-                dz[v1.name] -= self.scaling * diff.diff(flux, axis=axis)
+        res = fr.ScalarField(mset=quantity.mset, mdata=deepcopy(quantity.mdata))
 
-        # ----------------------------------------------------------------
-        #  Tracer advection
-        # ----------------------------------------------------------------
-        # interpolate the velocity to the cell centers
-        vel_at_center = (ip(v, self.grid.cell_center) for v in z.velocity)
-        for field in z.tracers:
-            if field.flags["NO_ADV"]:
-                continue
-            for axis, v in enumerate(vel_at_center):
-                # Interpolate the tracer to the face using WENO
-                tracer_left, tracer_right = weno(field,
-                                                    field.position.shift(axis=axis))
-                # Take the tracer from the face based on the advecting velocity
-                # tracer = flux_fun(flux_left=tracer_left,
-                #                   flux_right=tracer_right,
-                #                   velocity=v)
-                tracer = 0.5 * (tracer_left + tracer_right)
-                # Add the gradient to the field
-                dz[field.name] -= self.scaling * diff.diff(tracer, axis=axis) * v
+        for axis, v in enumerate(velocity):
+            # the flux position should be shifted from the quantity position
+            flux_pos = quantity.position.shift(axis)
 
-        return dz
+            # interpolate the velocity to the flux position using 
+            # a symmetric interpolation
+            v_at_flux = symmetric_interpolate(v, flux_pos)
+
+            # interpolate the quantity to the flux position using WENO
+            q_at_flux = biased_interpolate(quantity, flux_pos, velocity=v_at_flux)
+
+            # calculate the flux
+            flux = v_at_flux * q_at_flux
+
+            res -= diff(flux, axis)
+        return res
 
     @property
     def required_halo(self) -> int:
