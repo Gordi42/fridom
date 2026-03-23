@@ -9,6 +9,7 @@ import numpy as np
 
 import fridom.framework as fr
 
+ncp = fr.config.ncp
 
 class TimingFormat(Enum):
 
@@ -48,15 +49,15 @@ class Clock:
         )
 
         self._timing_format = TimingFormat.SECONDS
-        self.start_time = start_time or 0
+        self.start_time = start_time or ncp.float64(0)
         self.start_date = start_date
-        self._passed_time = 0
-        self._it = 0
+        self._passed_time = ncp.float64(0)
+        self._it = ncp.int64(0)
 
     def reset(self) -> None:
         """Reset the passed time to zero."""
-        self._passed_time = 0
-        self._it = 0
+        self._passed_time = ncp.float64(0)
+        self._it = ncp.int64(0)
 
     def tick(self, time_step: float | np.timedelta64) -> None:
         """
@@ -68,9 +69,6 @@ class Clock:
             The time step in seconds.
 
         """
-        # convert the time step to seconds if it is a timedelta
-        if isinstance(time_step, np.timedelta64):
-            time_step = fr.utils.to_seconds(time_step)
         self._passed_time += time_step
         self._it += 1
 
@@ -133,7 +131,7 @@ class Clock:
 
     @start_time.setter
     def start_time(self, value: float) -> None:
-        self._start_time = value
+        self._start_time = ncp.float64(value)
         self._timing_format = TimingFormat.SECONDS
 
     @property
@@ -146,7 +144,7 @@ class Clock:
         self._start_date = value
         if value is None:
             return
-        self._start_time = fr.utils.to_seconds(value)
+        self._start_time = ncp.float64(fr.utils.to_seconds(value))
         self._timing_format = TimingFormat.DATETIME
 
     @property
@@ -161,7 +159,7 @@ class Clock:
 
     @time.setter
     def time(self, value: float) -> None:
-        self._passed_time = value - self.start_time
+        self._passed_time = ncp.float64(value - self.start_time)
 
     @property
     def it(self) -> int:
@@ -170,4 +168,4 @@ class Clock:
 
     @it.setter
     def it(self, value: int) -> None:
-        self._it = value
+        self._it = ncp.int64(value)
