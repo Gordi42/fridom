@@ -41,16 +41,14 @@ class SpectralPressureSolver(fr.modules.Module):
         self.k_squared_inv = fr.config.ncp.where(k_squared == 0, 0, k_squared_inv)
         self.fft_required = fft_required
 
-    @fr.utils.jaxjit
-    def _solve_for_pressure(self, div: fr.ScalarField) -> fr.ScalarField:
-        if self.fft_required:
-            return ( - div.fft() * self.k_squared_inv).ifft()
-        return - div * self.k_squared_inv
-
-
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.z_diag.p.arr = self._solve_for_pressure(mz.z_diag.div).arr
+        div = mz.z_diag.div
+        if self.fft_required:
+            p = ( - div.fft() * self.k_squared_inv).ifft()
+        else:
+            p = - div * self.k_squared_inv
+        mz.z_diag.p.arr = p.arr
         return mz
 
     @property
