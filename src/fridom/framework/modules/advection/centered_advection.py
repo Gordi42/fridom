@@ -38,6 +38,11 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
 
     name = "Centered Advection"
 
+    def __init__(self, order: int = 2) -> None:
+        super().__init__()
+        self.order = order
+        self.interp_module = fr.grid.cartesian.PolynomialInterpolation(order=order-1)
+
     def advection(self,  # noqa: D102
                   velocity: fr.VectorField,
                   quantity: fr.ScalarField) -> fr.ScalarField:
