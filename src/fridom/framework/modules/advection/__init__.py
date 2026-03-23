@@ -11,6 +11,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .advection_base import AdvectionBase
     from .centered_advection import CenteredAdvection
     from .upwind_advection import UpwindAdvection
+    from .weno_advection import WENO
 
 # ================================================================
 #  Setup lazy loading
@@ -23,6 +24,7 @@ all_imports_by_origin = {
     f"{base}.advection_base": ["AdvectionBase"],
     f"{base}.centered_advection": ["CenteredAdvection"],
     f"{base}.upwind_advection": ["UpwindAdvection"],
+    f"{base}.weno_advection": ["WENO"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

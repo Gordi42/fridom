@@ -50,7 +50,7 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
 
     def __init__(
             self,
-            order: int = 2,
+            order: int = 5,
             eps: float = 1e-10,
             method: Literal["pointwise", "cell_average"] = "cell_average",
     ) -> None:
