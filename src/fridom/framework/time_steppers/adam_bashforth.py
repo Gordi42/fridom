@@ -9,8 +9,31 @@ import fridom.framework as fr
 
 MAX_ORDER = 4
 
+@partial(fr.utils.jaxjit, donate_argnames=("mz", ))
+def _perform_time_step(
+    tendency: fr.modules.Module,
+    mz: fr.ModelState,
+    buffers: list[fr.VectorField],
+    coeffs: np.ndarray,
+    dt: float,
+) -> fr.ModelState:
+    # compute the tendency
+    mz = tendency.update(mz=mz)
+
+    # update the buffers
+    buffers = [mz.dz, *buffers[:-1]]
+
+    # weighted sum over history axis
+    mz.z += sum(c * b for c, b in zip(coeffs, buffers))
+
+    # update the clock
+    mz.clock.tick(dt)
+
+    return mz
+
+
 @partial(fr.utils.jaxify,
-         dynamic=("dz_list", "pointer", "it_count", "coeff_AB", "coeffs"))
+         dynamic=("dz_list", "it_count", "coeff_AB", "coeffs"))
 class AdamBashforth(fr.time_steppers.TimeStepper):
 
     r"""
@@ -133,9 +156,6 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
 
         self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
 
-        # pointers
-        self.pointer = np.arange(self.order, dtype=ncp.int32)
-
         # tendencies
         self.dz_list = [self.mset.state_constructor() for _ in range(self.order)]
         self.it_count = 0
@@ -143,55 +163,24 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     def _on_reset(self) -> None:
         self._on_setup()
 
-    @fr.utils.jaxjit
-    def _update_state(self,
-                      z: fr.VectorField,
-                      dz_list: list[fr.VectorField],
-                      ) -> fr.VectorField:
-        """
-        Jax jitted time stepping function for Adam-Bashforth.
-
-        Parameters
-        ----------
-        z : State
-            The state at the current time level.
-        dz_list : list[State]
-            List of tendency terms at previous time levels.
-
-        Returns
-        -------
-        State : The updated state.
-
-        """
-        for i in range(len(dz_list)):  # loop over all time levels
-            z += dz_list[i] * self.coeff_AB[i]
-        return z
-
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
         """Update the time stepper."""
-        self._update_tendency()
-
-        mz.dz = self.dz
-
-        mz = self.mset.tendencies.update(mz)
-        self.dz = mz.dz
-
-        dz_list = [self.dz_list[p] for p in self.pointer]
-        mz.z = self._update_state(mz.z, dz_list)
-
-        self.it_count += 1
-        mz.clock.tick(self.dt)
-        return mz
-
-    def _update_tendency(self) -> None:
         if self.it_count <= self.order+1:
             self.update_coeff_AB()
-        self.update_pointer()
 
-    def update_pointer(self) -> None:
-        """Update pointer for Adam-Bashforth time stepping."""
-        self.pointer = np.roll(self.pointer, 1)
+        mz = _perform_time_step(
+            self.mset.tendencies,
+            mz,
+            self.dz_list,
+            self.coeff_AB,
+            self.dt,
+        )
+
+        self.dz_list = [mz.dz, *self.dz_list[:-1]]
+        self.it_count += 1
+
+        return mz
 
     def update_coeff_AB(self) -> None:
         """Upward ramping of Adam-Bashforth coefficients after restart."""
@@ -281,12 +270,3 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         if self.order == second_order:
             res["eps"] = self.eps
         return res
-
-    @property
-    def dz(self) -> fr.VectorField:
-        """Pointer on the current tendency term."""
-        return self.dz_list[self.pointer[0]]
-
-    @dz.setter
-    def dz(self, value: fr.VectorField) -> None:
-        self.dz_list[self.pointer[0]] = value
