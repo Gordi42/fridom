@@ -170,6 +170,9 @@ class RungeKutta(fr.time_steppers.TimeStepper):
             k = []
             dt = self.dt
             for i in range(order):
+                # FIXME(Silvano): in each error estimation step, we currently 
+                # advance the clock.
+                # This is likely a problem for tendencies that depend on the cock
                 mod_state.clock.tick(method.c[i] * dt)
                 mod_state.z = mz.z + sum_product(method.A[i], dt, k)
                 mod_state.dz = self.dz_list[i]
