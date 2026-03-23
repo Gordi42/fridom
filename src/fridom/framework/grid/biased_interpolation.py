@@ -56,10 +56,14 @@ class BiasedInterpolationModule(fr.modules.Module):
             raise ValueError(msg)
 
         # check that the bias field has the same position as the destination
-        if bias.position != destination:
+        if isinstance(bias, fr.ScalarField) and bias.position != destination:
             msg = ("The bias field must have the same position as the destination "
                    "position.")
             raise ValueError(msg)
+
+        # only pass the array of the bias field to the interpolation function
+        if isinstance(bias, fr.ScalarField):
+            bias = bias.arr
 
         if f.position == destination:
             return f
@@ -70,6 +74,6 @@ class BiasedInterpolationModule(fr.modules.Module):
 
         mdata = deepcopy(f.mdata)
         mdata.position = destination
-        arr = self._interpolate_axis(f.arr, bias.arr, axis=diff_axes[0],
+        arr = self._interpolate_axis(f.arr, bias, axis=diff_axes[0],
                                      destination=destination.positions[diff_axes[0]])
         return fr.ScalarField(mset=f.mset, mdata=mdata, arr=arr)

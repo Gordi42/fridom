@@ -19,7 +19,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from .grid_base import GridBase
     from .interpolation_module import InterpolationModule
     from .position import AxisPosition, Position
-    from .upwind_interpolation import UpwindInterpolation
     from .water_mask import WaterMask
 
 # ================================================================
@@ -39,7 +38,6 @@ all_imports_by_origin = {
     f"{base}.grid_base": ["GridBase"],
     f"{base}.interpolation_module": ["InterpolationModule"],
     f"{base}.position": ["AxisPosition", "Position"],
-    f"{base}.upwind_interpolation": ["UpwindInterpolation"],
     f"{base}.water_mask": ["WaterMask"],
 }
 

@@ -43,7 +43,7 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
     name = "Upwind Advection"
 
     def __init__(self,
-                 order: int = 1,
+                 order: int = 3,
                  symmetric_inter: fr.grid.InterpolationModule = None,
                  biased_inter: fr.grid.UpwindInterpolation = None,
                  ) -> None:
@@ -53,12 +53,11 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
         cart = fr.grid.cartesian
 
         self.order = order
-        self.symmetric_inter = symmetric_inter or cart.PolynomialInterpolation(
-            order=order)
-        self.biased_inter = biased_inter or fr.grid.UpwindInterpolation()
+        self.interp_module = symmetric_inter or cart.PolynomialInterpolation(
+            order=order - 2)
+        self.biased_inter = biased_inter or cart.UpwindInterpolation(order=order-1)
 
     def _on_setup(self) -> None:
-        self.symmetric_inter.setup(self.mset)
         self.biased_inter.setup(self.mset)
 
     def advection(self,  # noqa: D102
@@ -66,7 +65,7 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
                   quantity: fr.ScalarField) -> fr.ScalarField:
 
         # Get the interpolation functions
-        symmetric_interpolate = self.symmetric_inter.interpolate
+        symmetric_interpolate = self.interp_module.interpolate
         biased_interpolate = self.biased_inter.interpolate
         diff = self.diff_module.diff
 
@@ -92,4 +91,4 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
     @property
     def required_halo(self) -> int:
         """The required halo size based on the interpolation modules."""
-        return max(self.symmetric_inter.required_halo, self.biased_inter.required_halo)
+        return max(self.interp_module.required_halo, self.biased_inter.required_halo)
