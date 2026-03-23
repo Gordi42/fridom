@@ -270,6 +270,7 @@ class Model:
 
     def _finalize_run(self) -> None:
         """Finalize the model run."""
+        self.progress_bar.print_progress_bar(self.model_state)
         # finalize the model
         self.stop()
 
