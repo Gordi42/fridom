@@ -26,11 +26,15 @@ class ModelState:
     """
     def __init__(self,
                  mset: 'fr.ModelSettingsBase',
-                 clock: fr.Clock | None = None) -> None:
+                 z: 'fr.VectorField' | None = None,
+                 z_diag: 'fr.VectorField' | None = None,
+                 dz: 'fr.VectorField' | None = None,
+                 clock: fr.Clock | None = None,
+                 ) -> None:
         self.mset = mset
-        self.z = mset.state_constructor()
-        self.z_diag = mset.diagnostic_state_constructor()
-        self.dz = mset.state_constructor()
+        self.z = z or mset.state_constructor()
+        self.z_diag = z_diag or mset.diagnostic_state_constructor()
+        self.dz = dz or mset.state_constructor()
         self._clock = clock or fr.Clock()
         # flag to cancel the model run in case something goes wrong
         self.panicked = False
