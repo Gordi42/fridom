@@ -78,16 +78,15 @@ class HarmonicDiffusion(fr.modules.Module):
         #TODO(Silvano): Use new vector field methods
         for name, field in z.fields.items():
             if not any([field.flags[flag] for flag in self.field_flags]):
+    @fr.modules.module_method
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
+        for f in mz.z:
+            if not any(f.flags[flag] for flag in self.field_flags):
                 # skip the field if it does not have any of the field flags
                 continue
 
             # apply the diffusion operator
-            dz.fields[name] += self.diffusion_operator(field)
-        return dz
-
-    @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self.diffuse(mz.z, mz.dz)
+            mz.dz[f.name] += self.diffusion_operator(f)
         return mz
 
     # ----------------------------------------------------------------
