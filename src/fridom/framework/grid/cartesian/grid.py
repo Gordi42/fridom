@@ -248,14 +248,6 @@ class Grid(fr.grid.GridBase):
         return backward(u, axes)
 
     # ================================================================
-    #  Syncing and Boundary Conditions
-    # ================================================================
-
-    def sync_multi(self, 
-                   arrs: tuple[np.ndarray]) -> tuple[np.ndarray]:
-        return self.domain_decomp.sync_multiple(arrs)
-
-    # ================================================================
     #  Shrinking and Expanding
     # ================================================================
     def _shrink_topo(self, topo: tuple[bool], axes: tuple[int]) -> tuple[bool]:
