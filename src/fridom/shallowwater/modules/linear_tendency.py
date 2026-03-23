@@ -30,15 +30,10 @@ class LinearTendency(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self.linear_tendency(mz.z, mz.dz)
-        return mz
-
-    @fr.utils.jaxjit
-    def linear_tendency(self, z: sw.State, dz: sw.State) -> sw.State:
-        """Compute the linear tendency term."""
         interp = self.interp_module.interpolate
         diff = self.diff_module.diff
         div = self.diff_module.div
+        z = mz.z
 
         # positions
         upos = z.u.position
@@ -49,8 +44,8 @@ class LinearTendency(fr.modules.Module):
         f = interp(self.f_coriolis, z.u.position)
 
         # calculate u-tendency
-        dz.u +=   interp(z.v, upos) * f - diff(z.p, axis=0)
-        dz.v += - interp(z.u * f, vpos) - diff(z.p, axis=1)
-        dz.p += - div((interp(c, upos) * z.u, interp(c, vpos) * z.v))
+        mz.dz.u +=   interp(z.v, upos) * f - diff(z.p, axis=0)
+        mz.dz.v += - interp(z.u * f, vpos) - diff(z.p, axis=1)
+        mz.dz.p += - div((interp(c, upos) * z.u, interp(c, vpos) * z.v))
 
-        return dz
+        return mz
