@@ -1,6 +1,8 @@
 """Various functions to compute reconstruction coefficients."""
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 
 import fridom.framework as fr
@@ -10,7 +12,7 @@ ncp = fr.config.ncp
 def compute_polynomial_coefficients_cell_average(
             stencil_size: int) -> ncp.ndarray:
     r"""
-    Polynomial coefficients for the ENO interpolation for cell averages.
+    Polynomial coefficients for cell averages.
 
     Parameters
     ----------
@@ -20,7 +22,7 @@ def compute_polynomial_coefficients_cell_average(
     Returns
     -------
     np.ndarray
-        The polynomial coefficients for the ENO interpolation.
+        The polynomial coefficients for the interpolation.
         The first dimension corresponds to the position where we want to reconstruct
         the field, and the second dimension corresponds to the position of the
         cell average in the stencil.
@@ -120,7 +122,7 @@ def compute_polynomial_coefficients_cell_average(
     coeffs = np.zeros((stencil_size+1, stencil_size))
 
     def compute_coeff(k: int, i: int, n: int) -> float:
-        """Compute the coefficients for the ENO interpolation."""
+        """Compute the coefficients for the interpolation."""
         total = 0.0
         # sum over m and j
         for m in range(i+1, n+1):
@@ -149,7 +151,7 @@ def compute_polynomial_coefficients_cell_average(
 
 def compute_polynomial_coefficients_pointwise(stencil_size: int) -> np.ndarray:
     r"""
-    Polynomial coefficients for the ENO interpolation for pointwise values.
+    Polynomial coefficients for the interpolation for pointwise values.
 
     Parameters
     ----------
@@ -159,7 +161,7 @@ def compute_polynomial_coefficients_pointwise(stencil_size: int) -> np.ndarray:
     Returns
     -------
     np.ndarray
-        The polynomial coefficients for the ENO interpolation.
+        The polynomial coefficients for the interpolation.
 
     Description
     -----------
@@ -208,7 +210,7 @@ def compute_polynomial_coefficients_pointwise(stencil_size: int) -> np.ndarray:
     coeffs = np.zeros((stencil_size+1, stencil_size))
 
     def compute_coeff(k: int, i: int, n: int) -> float:
-        """Compute the coefficients for the ENO interpolation."""
+        """Compute the coefficients for the interpolation."""
         total = 1.0
         for j in range(n):
             if j == i:
@@ -222,3 +224,39 @@ def compute_polynomial_coefficients_pointwise(stencil_size: int) -> np.ndarray:
             coeffs[k, i] = compute_coeff(k, i, stencil_size)
 
     return fr.config.ncp.asarray(coeffs, dtype=fr.config.dtype_real)
+
+
+def compute_polynomial_coefficients(
+        stencil_size: int,
+        method: Literal["pointwise", "cell_average"] = "cell_average",
+        ) -> ncp.ndarray:
+    """
+    Compute the polynomial coefficients.
+
+    Parameters
+    ----------
+    stencil_size : int
+        The size of the stencil.
+    method : Literal["pointwise", "cell_average"] (default is "cell_average")
+        The method for computing the polynomial coefficients.
+        "pointwise" computes coefficients for pointwise values.
+        "cell_average" computes coefficients for cell averages.
+
+    Returns
+    -------
+    np.ndarray
+        The polynomial coefficients for the interpolation.
+
+    """
+    if method == "pointwise":
+        coeffs = compute_polynomial_coefficients_pointwise(
+            stencil_size=stencil_size)
+    elif method == "cell_average":
+        coeffs = fr.grid.cartesian.compute_polynomial_coefficients_cell_average(
+            stencil_size=stencil_size)
+    else:
+        msg = (f"Invalid method {method}",
+                "Only 'pointwise' and 'cell_average' are supported.")
+        raise ValueError(msg)
+
+    return coeffs

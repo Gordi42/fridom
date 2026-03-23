@@ -18,6 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .linear_interpolation import LinearInterpolation
     from .polynomial_interpolation import PolynomialInterpolation
     from .reconstruction_coefficients import (
+        compute_polynomial_coefficients,
         compute_polynomial_coefficients_cell_average,
         compute_polynomial_coefficients_pointwise,
     )
@@ -42,6 +43,7 @@ all_imports_by_origin = {
     f"{base}.linear_interpolation": ["LinearInterpolation"],
     f"{base}.polynomial_interpolation": ["PolynomialInterpolation"],
     f"{base}.reconstruction_coefficients": [
+        "compute_polynomial_coefficients",
         "compute_polynomial_coefficients_cell_average",
         "compute_polynomial_coefficients_pointwise",
     ],
