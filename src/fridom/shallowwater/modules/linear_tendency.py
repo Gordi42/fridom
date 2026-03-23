@@ -4,7 +4,6 @@ from __future__ import annotations
 from functools import partial
 
 import fridom.framework as fr
-import fridom.shallowwater as sw
 
 
 @partial(fr.utils.jaxify, dynamic=("csqr", "f_coriolis"))
