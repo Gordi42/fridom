@@ -73,12 +73,10 @@ class Relaxation(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self.relax(mz.z, mz.dz)
-        return mz
-
-    @fr.utils.jaxjit
-    def relax(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
         ncp = fr.config.ncp
+        z = mz.z
+
         delta = (self.target - z[self.field_name].arr) / self.tau
-        dz[self.field_name].arr += ncp.where(self.domain, delta, 0)
-        return dz
+        mz.dz[self.field_name].arr += ncp.where(self.domain, delta, 0)
+
+        return mz
