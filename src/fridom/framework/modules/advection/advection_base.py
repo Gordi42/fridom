@@ -51,7 +51,6 @@ class AdvectionBase(fr.modules.Module):
                   quantity: fr.ScalarField) -> fr.ScalarField:
         """Advect a quantity using the given velocity field."""
 
-    @fr.utils.jaxjit
     def advect_state(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
         """Advect the state vector."""
         if self.background is None and self.disable_nonlinear:
