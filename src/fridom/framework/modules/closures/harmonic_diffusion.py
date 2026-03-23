@@ -6,7 +6,7 @@ from functools import partial
 import fridom.framework as fr
 
 
-@partial(fr.utils.jaxify, dynamic=("_diffusion_coefficients",))
+@partial(fr.utils.jaxify, dynamic=("_diffusion_coefficients", "_water_mask"))
 class HarmonicDiffusion(fr.modules.Module):
 
     r"""
@@ -52,6 +52,11 @@ class HarmonicDiffusion(fr.modules.Module):
         super().__init__()
         self.field_flags = field_flags
         self.diffusion_coefficients = diffusion_coefficients
+        self._water_mask = None
+
+    def _on_setup(self) -> None:
+        super()._on_setup()
+        self._water_mask = self.mset.grid.water_mask
 
     def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
         r"""Apply the harmonic diffusion operator on a scalar field :math:`u`."""
@@ -66,18 +71,12 @@ class HarmonicDiffusion(fr.modules.Module):
                 c = coeff
             grad_u[i] *= c
             # apply the water mask to the gradient
-            grad_u[i] = grad_u[i].apply_water_mask()
+            grad_u[i] = self._water_mask.apply_mask(grad_u[i])
         # compute the divergence of the gradient
         div = self.diff_module.div(tuple(grad_u))
         # apply the boundary conditions
-        return div.apply_water_mask()
+        return self._water_mask.apply_mask(div)
 
-    @fr.utils.jaxjit
-    def diffuse(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
-        # loop over all fields
-        #TODO(Silvano): Use new vector field methods
-        for name, field in z.fields.items():
-            if not any([field.flags[flag] for flag in self.field_flags]):
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         for f in mz.z:
