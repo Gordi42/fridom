@@ -1,6 +1,8 @@
 """Centered polynomial interpolation for cartesian grids."""
 from __future__ import annotations
 
+from typing import Literal
+
 import fridom.framework as fr
 
 ncp = fr.config.ncp
@@ -53,7 +55,11 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
     """
 
     name = "Polynomial Interpolation"
-    def __init__(self, order: int = 1) -> None:
+    def __init__(
+            self,
+            order: int = 1,
+            method: Literal["pointwise", "cell_average"] = "cell_average",
+) -> None:
         super().__init__()
 
         # check if the order is valid (only odd orders are allowed)
@@ -63,16 +69,22 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
 
         self.required_halo = order // 2 + 1
         self.order = order
+        self.method = method
 
-        coeffs = []
-        for i in range(order+1):
-            c = fr.config.dtype_real(1)
-            for j in range(order+1):
-                if j != i:
-                    c *= (j - order/2) / (j - i)
-            coeffs.append(c)
+        if method == "pointwise":
+            coeffs = fr.grid.cartesian.compute_polynomial_coefficients_pointwise(
+                stencil_size=order+1)
+        elif method == "cell_average":
+            coeffs = fr.grid.cartesian.compute_polynomial_coefficients_cell_average(
+                stencil_size=order+1)
+        else:
+            msg = (f"Invalid method {method}",
+                   "Only 'pointwise' and 'cell_average' are supported.")
+            raise ValueError(msg)
 
-        self._coeffs = ncp.asarray(coeffs, dtype=fr.config.dtype_real)
+        # this is a symmetric interpolation, so we only need the coefficients
+        # for interpolation to the center of the stencil
+        self._coeffs = coeffs[(self.order + 1) // 2]
 
     def _interpolate_axis(self,
                           x: ncp.ndarray,
