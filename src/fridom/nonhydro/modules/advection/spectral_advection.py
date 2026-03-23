@@ -26,7 +26,6 @@ class SpectralAdvection(fr.modules.advection.AdvectionBase):
         if hasattr(self.mset, "Ro"):
             self.scaling = self.mset.Ro
 
-    @nh.utils.jaxjit
     def advect_state(self, z: nh.State, dz: nh.State) -> nh.State:  # noqa: D102
         divergence = self.diff_module.div
         padding = self.padding

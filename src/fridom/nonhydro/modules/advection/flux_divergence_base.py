@@ -76,7 +76,6 @@ class FluxDivergenceBase(fr.modules.advection.AdvectionBase):
         msg = "Subclasses must implement the compute_tracer_advection method."
         raise NotImplementedError(msg)
 
-    @fr.utils.jaxjit
     def advect_state(self, z: nh.State, dz: nh.State) -> nh.State:
         """Advect the state vector."""
         # get the differential operator
