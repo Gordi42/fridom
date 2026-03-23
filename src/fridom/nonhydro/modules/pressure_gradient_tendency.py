@@ -17,19 +17,12 @@ class PressureGradientTendency(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self.pressure_gradient_tendency(mz.z_diag.p, mz.dz)
-        return mz
-
-    @fr.utils.jaxjit
-    def pressure_gradient_tendency(
-            self, p: fr.ScalarField, dz: nh.State) -> nh.State:
-        """Compute the pressure gradient tendency of the model."""
         # compute gradient of pressure
-        p_grad = self.diff_module.grad(p)
+        p_grad = self.diff_module.grad(mz.z_diag.p)
 
         # remove the gradient from the velocity tendency
-        dz.u -= p_grad[0]
-        dz.v -= p_grad[1]
-        dz.w -= p_grad[2] / self.dsqr
+        mz.dz.u -= p_grad[0]
+        mz.dz.v -= p_grad[1]
+        mz.dz.w -= p_grad[2] / self.dsqr
 
-        return dz
+        return mz
