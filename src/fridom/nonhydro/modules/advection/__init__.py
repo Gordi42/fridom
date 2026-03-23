@@ -7,7 +7,12 @@ from lazypimp import setup
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework.modules.advection import AdvectionBase, CenteredAdvection
+    from fridom.framework.modules.advection import (
+        WENO,
+        AdvectionBase,
+        CenteredAdvection,
+        UpwindAdvection,
+    )
 
     from .flux_divergence_base import FluxDivergenceBase
     from .spectral_advection import SpectralAdvection
@@ -21,7 +26,12 @@ fr_base_path = "fridom.framework.modules.advection"
 all_modules_by_origin = {}
 
 all_imports_by_origin = {
-    f"{fr_base_path}": ["AdvectionBase", "CenteredAdvection"],
+    f"{fr_base_path}": [
+        "WENO",
+        "AdvectionBase",
+        "CenteredAdvection",
+        "UpwindAdvection",
+    ],
     f"{base_path}.flux_divergence_base": ["FluxDivergenceBase"],
     f"{base_path}.spectral_advection": ["SpectralAdvection"],
 }
