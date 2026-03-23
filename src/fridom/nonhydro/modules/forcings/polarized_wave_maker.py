@@ -55,15 +55,10 @@ class PolarizedWaveMaker(fr.modules.Module):
         self.source = source * self.amplitude
         self.frequency = source.omega.real
 
-    @fr.utils.jaxjit
-    def _add_source_term(self, dz: nh.State, time: float) -> nh.State:
-        ncp = fr.config.ncp
-        dz += self.source * ncp.sin(self.frequency * time)
-        return dz
-
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
-        mz.dz = self._add_source_term(mz.dz, mz.clock.time)
+        ncp = fr.config.ncp
+        mz.dz += self.source * ncp.sin(self.frequency * mz.clock.time)
         return mz
 
     @property
