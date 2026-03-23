@@ -136,6 +136,8 @@ class TimingModule:
 
     def __str__(self) -> str:
         """Return string representation of the model settings."""
+        if self.total.time == 0:
+            return "TimingModule: No time recorded yet."
         res = "=====================================================\n"
         res += " Timing Summary: \n"
         res += "=====================================================\n"
