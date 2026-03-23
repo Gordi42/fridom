@@ -17,7 +17,7 @@ class MainTendency(fr.modules.ModuleContainer):
         self._linear_tendency = mods.LinearTendency()
         self._tendency_divergence = mods.TendencyDivergence()
         self._advection = mods.advection.CenteredAdvection()
-        self._pressure_solver = mods.pressure_solvers.SpectralPressureSolver()
+        self._pressure_solver = mods.pressure_solvers.RFFTPressureSolver()
         self._pressure_gradient_tendency = mods.PressureGradientTendency()
         self._additional_modules = []
         self._set_module_list()

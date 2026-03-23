@@ -7,6 +7,7 @@ from lazypimp import setup
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
+    from .rfft_pressure_solver import RFFTPressureSolver
     from .spectral_pressure_solver import SpectralPressureSolver
 
 # ================================================================
@@ -18,6 +19,7 @@ base_path = "fridom.nonhydro.modules.pressure_solvers"
 all_modules_by_origin = { }
 
 all_imports_by_origin = {
+    f"{base_path}.rfft_pressure_solver": ["RFFTPressureSolver"],
     f"{base_path}.spectral_pressure_solver": ["SpectralPressureSolver"],
 }
 
