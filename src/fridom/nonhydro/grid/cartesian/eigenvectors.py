@@ -536,7 +536,7 @@ def _vec_q_igw(mset: nh.ModelSettings,
     v = (khm(kz,dz) * (-1j*om*khp(ky,dy) -
             ohm(kx,dx)*ohp(ky,dy)*f0*khp(kx,dx)))
     w = 1j * om * kh2
-    b = ohm(kz,dz) * n_squared**2 * kh2
+    b = ohm(kz,dz) * n_squared * kh2
 
     # Now we consider the purely vertical case
     # (ov -> only vertical)
