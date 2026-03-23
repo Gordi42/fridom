@@ -28,7 +28,6 @@ class SpectralDiff(fr.grid.DiffModule):
             raise ValueError("SpectralDiff requires a spectral or cartesian grid")
         return
 
-    @partial(fr.utils.jaxjit, static_argnames=('axis', ))
     def diff(self, 
              f: fr.ScalarField,
              axis: int,
