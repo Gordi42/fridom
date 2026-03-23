@@ -5,10 +5,10 @@ from functools import partial
 from typing import Literal
 
 import fridom.framework as fr
-import fridom.nonhydro as nh
 
 
-@partial(fr.utils.jaxify, dynamic=("_kh", "_kv", "_hor_diff_coeff", "_ver_diff_coeff"))
+@partial(fr.utils.jaxify,
+         dynamic=("_kh", "_kv", "_hor_diff_coeff", "_ver_diff_coeff", "_water_mask"))
 class BiharmonicClosure(fr.modules.Module):
 
     r"""
@@ -72,6 +72,8 @@ class BiharmonicClosure(fr.modules.Module):
         self._hor_diff_coeff = self._kh * hor_diff_coeff
         self._ver_diff_coeff = self._kv * ver_diff_coeff
 
+        self._water_mask = self.mset.grid.water_mask
+
     def _second_derivative_no_slip(self, f: fr.ScalarField, axis: int) -> fr.ScalarField:
         # when not applying the water mask, results look like a no-slip condition
         # I am not entirely sure why, maybe because gradients at the boundary
@@ -82,9 +84,9 @@ class BiharmonicClosure(fr.modules.Module):
 
     def _second_derivative_free_slip(self, f: fr.ScalarField, axis: int) -> fr.ScalarField:
         first_derivative = self.diff_module.diff(f, axis)
-        first_derivative = self.grid.water_mask.apply_mask(first_derivative)
+        first_derivative = self._water_mask.apply_mask(first_derivative)
         second_derivative = self.diff_module.diff(first_derivative, axis)
-        return self.grid.water_mask.apply_mask(second_derivative)
+        return self._water_mask.apply_mask(second_derivative)
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
