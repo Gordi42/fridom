@@ -49,7 +49,6 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
         self._required_halo = 2
         self.csqr = self.mset.csqr
 
-    @fr.utils.jaxjit
     def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:  # noqa: D102
         if self.background is None and self.disable_nonlinear:
             return dz
