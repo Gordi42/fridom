@@ -81,11 +81,6 @@ https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc
 
 ## Roadmap
 ### Todos for version 0.1.0:
-- [ ] parallelization using jaxDecomp
-- [x] make mpi4py dependency optional
-- [x] adapt shallowwater to new model structure
-- [x] adapt optimal balance to new model structure
-- [x] make NNMD work
 - [ ] fix the CG pressure solver in nonhydro model
 - [ ] increase test coverage to at least 90%
 - [ ] adjust code to linting standards
@@ -103,9 +98,6 @@ https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc
 
 **Time Steppers:**
 - [ ] Adding implicit and semi implicit time steppers
-
-**Advection Schemes:**
-- [ ] Add higher order advection schemes like WENO
 
 **Others:**
 - [ ] Optimize parallelization for CPUs
