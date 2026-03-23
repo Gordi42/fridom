@@ -19,6 +19,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from .grid_base import GridBase
     from .interpolation_module import InterpolationModule
     from .position import AxisPosition, Position
+    from .stencil import Stencil
+    from .stencil_view import StencilView
     from .water_mask import WaterMask
 
 # ================================================================
@@ -38,6 +40,8 @@ all_imports_by_origin = {
     f"{base}.grid_base": ["GridBase"],
     f"{base}.interpolation_module": ["InterpolationModule"],
     f"{base}.position": ["AxisPosition", "Position"],
+    f"{base}.stencil": ["Stencil"],
+    f"{base}.stencil_view": ["StencilView"],
     f"{base}.water_mask": ["WaterMask"],
 }
 
