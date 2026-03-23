@@ -32,21 +32,10 @@ class UpwindInterpolation(fr.grid.BiasedInterpolationModule):
         self.stencil_size = order + 1
         self.method = method
 
-        if method == "pointwise":
-            coeffs = fr.grid.cartesian.compute_polynomial_coefficients_pointwise(
-                stencil_size=self.stencil_size)
-        elif method == "cell_average":
-            coeffs = fr.grid.cartesian.compute_polynomial_coefficients_cell_average(
-                stencil_size=self.stencil_size)
-        else:
-            msg = (f"Invalid method {method}",
-                   "Only 'pointwise' and 'cell_average' are supported.")
-            raise ValueError(msg)
-
-
+        coeffs = fr.grid.cartesian.compute_polynomial_coefficients(
+            stencil_size=self.stencil_size, method=method)
         self.left_coeffs = coeffs[order//2 + 1]
         self.right_coeffs = coeffs[order//2]
-
 
     def _interpolate_axis(self,
                           x: ncp.ndarray,
@@ -54,19 +43,17 @@ class UpwindInterpolation(fr.grid.BiasedInterpolationModule):
                           axis: int,
                           destination: fr.grid.AxisPosition) -> ncp.ndarray:
 
-        offset = 1 if destination == fr.grid.AxisPosition.CENTER else 0
-        start = self.order // 2 + offset
+        size = self.stencil_size
+        start = self.order // 2
 
-        cl = self.left_coeffs
-        cr = self.right_coeffs
+        left_view = fr.grid.Stencil(
+            grid=self.grid, size=size, offset=start, destination=destination,
+            ).view(x, axis=axis)
 
-        @self.grid.domain_decomp.shard_map
-        def _interpolate(arr: ncp.ndarray, axis: int, v: ncp.ndarray) -> ncp.ndarray:
-            left = sum(ncp.roll(arr, shift=start - i, axis=axis) * cl[i]
-                        for i in range(self.stencil_size))
-            right = sum(ncp.roll(arr, shift=start - i - 1, axis=axis) * cr[i]
-                        for i in range(self.stencil_size))
+        right_view = fr.grid.Stencil(
+            grid=self.grid, size=size, offset=start-1, destination=destination,
+            ).view(x, axis=axis)
 
-            return ncp.where(v > 0, left, right)
-
-        return _interpolate(x, axis=axis, v=bias)
+        left = sum(c * v for c, v in zip(self.left_coeffs, left_view))
+        right = sum(c * v for c, v in zip(self.right_coeffs, right_view))
+        return ncp.where(bias > 0, left, right)
