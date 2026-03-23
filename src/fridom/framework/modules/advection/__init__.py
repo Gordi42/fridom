@@ -10,6 +10,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all classes
     from .advection_base import AdvectionBase
     from .centered_advection import CenteredAdvection
+    from .upwind_advection import UpwindAdvection
 
 # ================================================================
 #  Setup lazy loading
@@ -21,6 +22,7 @@ base = "fridom.framework.modules.advection"
 all_imports_by_origin = {
     f"{base}.advection_base": ["AdvectionBase"],
     f"{base}.centered_advection": ["CenteredAdvection"],
+    f"{base}.upwind_advection": ["UpwindAdvection"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
