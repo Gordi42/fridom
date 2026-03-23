@@ -23,11 +23,6 @@ class LinearInterpolation(fr.grid.InterpolationModule):
                           axis: int,
                           destination: fr.grid.AxisPosition) -> ncp.ndarray:
 
-        shift = -1 if destination == fr.grid.AxisPosition.FACE else 1
-
-        @self.grid.domain_decomp.shard_map
-        def _interpolate(arr: ncp.ndarray) -> ncp.ndarray:
-            rolled = ncp.roll(arr, shift=shift, axis=axis)
-            return 0.5 * (arr + rolled)
-
-        return _interpolate(x)
+        stencil = fr.grid.Stencil(
+            grid=self.grid, size=2, offset=0, destination=destination)
+        return sum(stencil.view(x, axis=axis)) * 0.5
