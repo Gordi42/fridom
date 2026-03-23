@@ -86,9 +86,9 @@ class BiharmonicClosure(fr.modules.Module):
         second_derivative = self.diff_module.diff(first_derivative, axis)
         return self.grid.water_mask.apply_mask(second_derivative)
 
-    @fr.utils.jaxjit
-    def _compute_tendency(self, z: nh.State, dz: nh.State) -> nh.State:
-        for f in z:
+    @fr.modules.module_method
+    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
+        for f in mz.z:
             # first two derivatives
             f_hor = self._second_derivative(f, 0) + self._second_derivative(f, 1)
             f_ver = self._second_derivative(f, 2)
@@ -98,14 +98,10 @@ class BiharmonicClosure(fr.modules.Module):
             f_ver *= self._ver_diff_coeff
 
             # second two derivatives
-            dz[f.name] -= (self._second_derivative(f_hor, 0) +
+            mz.dz[f.name] -= (self._second_derivative(f_hor, 0) +
                            self._second_derivative(f_hor, 1) +
                            self._second_derivative(f_ver, 2))
-        return dz
 
-    @fr.modules.module_method
-    def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self._compute_tendency(mz.z, mz.dz)
         return mz
 
     @property
