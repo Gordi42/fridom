@@ -192,7 +192,7 @@ class Model:
 
         if steps is not None:
             main_loop_type = "for loop"
-            start_value = self.model_state.clock.it
+            start_value = int(self.model_state.clock.it)
             final_value = start_value + steps
         else:
             main_loop_type = "while loop"
