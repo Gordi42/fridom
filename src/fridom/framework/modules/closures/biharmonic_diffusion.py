@@ -36,7 +36,6 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
     """
 
     name = "Biharmonic Diffusion"
-    @fr.utils.jaxjit
     def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
         """Apply the biharmonic diffusion operator on a scalar field :math:`u`."""
         # apply the first harmonic diffusion operator
