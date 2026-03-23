@@ -8,7 +8,6 @@ class DummyInterpolation(fr.grid.InterpolationModule):
     """
     name = "Dummy Interpolation"
 
-    @fr.utils.jaxjit
     def interpolate(self, 
                     f: fr.ScalarField,
                     destination: fr.grid.Position) -> fr.ScalarField:
