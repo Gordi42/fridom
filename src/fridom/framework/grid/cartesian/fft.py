@@ -191,7 +191,6 @@ class FFT:
                 k.append(ncp.linspace(0, ncp.pi/dx[i], shape[i], endpoint=False))
         return tuple(k)
 
-    @partial(utils.jaxjit, static_argnames=['axes', 'bc_types', 'positions'])
     def forward(self, 
                 u: np.ndarray, 
                 axes: list[int] | None = None,
@@ -250,7 +249,6 @@ class FFT:
 
         return u_hat
 
-    @partial(utils.jaxjit, static_argnames=['axes', 'bc_types', 'positions'])
     def backward(self, u_hat: np.ndarray, 
                  axes: list[int] | None = None,
                  bc_types: tuple[fr.grid.BCType] | None = None,
