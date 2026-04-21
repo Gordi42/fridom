@@ -57,6 +57,7 @@ class ModelSettingsBase:
 
     def __init__(self, grid: fr.grid.GridBase, **kwargs: dict) -> None:
         self._tendencies = fr.modules.ModuleContainer("All Tendencies")
+        self._pre_step_diagnostics = fr.modules.ModuleContainer("Pre-step Diagnostics")
         self._diagnostics = fr.modules.ModuleContainer("All Diagnostics")
         self._time_stepper = fr.time_steppers.AdamBashforth()
         self._progress_bar = fr.modules.ProgressBar()
@@ -105,7 +106,8 @@ class ModelSettingsBase:
         """Set all modules up."""
         self.grid.water_mask.setup(mset=self)
         modules = [self.nan_checker, self.progress_bar, self.restart_module,
-                     self.tendencies, self.diagnostics, self.time_stepper]
+                    self.tendencies, self.diagnostics, self.time_stepper,
+                    self.pre_step_diagnostics]
         for module in modules:
             module.setup(mset=self, setup_mode=setup_mode)
 
@@ -130,7 +132,7 @@ class ModelSettingsBase:
         if self.is_setup and setup_mode == "default":
             # If the model settings are already set up, return
             return self
-        fr.log.verbose("Setting up model settings")
+        fr.log.verbose("Setting up model settingss")
         self.is_setup = True
         self.setup_grid(setup_mode=setup_mode)
         self.setup_settings_parameters()
@@ -252,6 +254,20 @@ class ModelSettingsBase:
     @diagnostics.setter
     def diagnostics(self, value: fr.modules.ModuleContainer) -> None:
         self._diagnostics = value
+        old_halo = self.halo
+        if self.is_setup and value is not None:
+            value.setup(mset=self)
+        if old_halo != self.halo:
+            self.grid.setup(mset=self)
+
+    @property
+    def pre_step_diagnostics(self) -> fr.modules.ModuleContainer:
+        """The module container for all diagnostics that should run before the time step."""
+        return self._pre_step_diagnostics
+    
+    @pre_step_diagnostics.setter
+    def pre_step_diagnostics(self, value: fr.modules.ModuleContainer) -> None:
+        self._pre_step_diagnostics = value
         old_halo = self.halo
         if self.is_setup and value is not None:
             value.setup(mset=self)

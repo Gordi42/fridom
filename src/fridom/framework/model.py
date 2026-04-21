@@ -287,6 +287,9 @@ class Model:
 
     def step(self) -> None:
         """Update the model state by one time step."""
+        # run the pre-step diagnostics
+        self.model_state = self.pre_step_diagnostics.update(self.model_state)
+
         # perform the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
 
@@ -351,6 +354,11 @@ class Model:
     def diagnostics(self) -> fr.modules.ModuleContainer:
         """The module container for all diagnostics."""
         return self.mset.diagnostics
+
+    @property
+    def pre_step_diagnostics(self) -> fr.modules.ModuleContainer:
+        """The module container for all diagnostics that should run before the time step."""
+        return self.mset.pre_step_diagnostics
 
     @property
     def _modules(self) -> list[fr.modules.Module]:
