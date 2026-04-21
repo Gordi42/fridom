@@ -145,7 +145,7 @@ class Module:
     def setup(self,
               mset: fr.ModelSettingsBase,
               setup_mode: Literal["default", "forced"] = "default",
-              ) -> None:
+              ) -> Module:
         """
         Set the module up.
 
@@ -174,6 +174,8 @@ class Module:
             self._setup_submodule("diff_module", mset)
             self._setup_submodule("interp_module", mset)
         self._on_setup()
+
+        return self
 
     def _setup_submodule(self, name: str, mset: fr.ModelSettingsBase) -> None:
         submodule = getattr(self, name)
