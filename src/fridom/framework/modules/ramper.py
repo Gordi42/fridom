@@ -60,14 +60,15 @@ class Ramper(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
+        time = float(mz.clock.time)
         # Check if the time is smaller than the start time
-        if mz.clock.time < self.start_time:
+        if time < self.start_time:
             return mz
         # Check if the time is greater than the start time + ramp period
-        if mz.clock.time > self.start_time + self.ramp_period:
+        if time > self.start_time + self.ramp_period:
             return mz
         # get the scaled time value
-        theta = (mz.clock.time - self.start_time) / self.ramp_period
+        theta = (time - self.start_time) / self.ramp_period
         # get the ramped value
         ramped_value = self.ramp_function(theta)
         # call the custom update parameters method
