@@ -245,6 +245,9 @@ class State(fr.VectorField):
         dudy = self.u.diff(axis=1).interpolate(dvdx.position)
         rel_vort = dvdx - dudy
 
+        # Apply the water mask
+        rel_vort = rel_vort.apply_water_mask()
+
         # Set the attributes
         rel_vort.name = "rel_vort"
         rel_vort.long_name = "relative vorticity"
