@@ -319,15 +319,41 @@ def test_create_meshgrid(halo):
 # ================================================================
 #  Array operations
 # ================================================================
+def scalar(arr):
+    return float(np.asarray(arr).squeeze())
+
+
 def test_reductions(domain, u):
+    # like the fields, the reductions expect halo-padded arrays
+    u_np = np.asarray(u)
+    u_padded = domain.sync(domain.pad(u))
+
+    assert np.isclose(scalar(domain.sum(u_padded)), u_np.sum())
+    assert np.isclose(scalar(domain.max(u_padded)), u_np.max())
+    assert np.isclose(scalar(domain.min(u_padded)), u_np.min())
+
+    partial_sum = domain.sum(u_padded, axes=(0,))
+    assert np.allclose(np.asarray(partial_sum).squeeze(), u_np.sum(axis=0))
+
+
+def test_reductions_exclude_halo_cells(domain, u):
+    # reductions on padded arrays must not include the halo cells:
+    # - after a sync, the halos duplicate interior values, which would
+    #   inflate the sum
+    # - fresh padding fills the halos with zeros, which would corrupt
+    #   the extrema of sign-definite data
     u_np = np.asarray(u)
 
-    assert np.isclose(float(domain.sum(u)), u_np.sum())
-    assert np.isclose(float(domain.max(u)), u_np.max())
-    assert np.isclose(float(domain.min(u)), u_np.min())
+    u_synced = domain.sync(domain.pad(u))
+    assert np.isclose(scalar(domain.sum(u_synced)), u_np.sum())
 
-    partial_sum = domain.sum(u, axes=(0,))
-    assert np.allclose(np.asarray(partial_sum), u_np.sum(axis=0))
+    positive = jnp.abs(u) + 1.0
+    assert np.isclose(scalar(domain.min(domain.pad(positive))),
+                      np.abs(u_np).min() + 1.0)
+
+    negative = -(jnp.abs(u) + 1.0)
+    assert np.isclose(scalar(domain.max(domain.pad(negative))),
+                      -(np.abs(u_np).min() + 1.0))
 
 
 # ================================================================

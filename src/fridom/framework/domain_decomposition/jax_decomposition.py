@@ -380,21 +380,27 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """Sum an array across specified axes."""
-        return jax.numpy.sum(arr, axis=axes)
+        # the halo cells must not contribute to the sum
+        arr = self.unpad(arr)
+        return jax.numpy.sum(arr, axis=axes, keepdims=True)
 
     def max(self,
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """Find the maximum of an array across specified axes."""
-        return jax.numpy.max(arr, axis=axes)
+        # the halo cells must not contribute to the maximum
+        arr = self.unpad(arr)
+        return jax.numpy.max(arr, axis=axes, keepdims=True)
 
     def min(self,
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """Find the minimum of an array across specified axes."""
-        return jax.numpy.min(arr, axis=axes)
+        # the halo cells must not contribute to the minimum
+        arr = self.unpad(arr)
+        return jax.numpy.min(arr, axis=axes, keepdims=True)
 
 
     # ================================================================

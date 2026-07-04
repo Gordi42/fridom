@@ -26,12 +26,15 @@ class StencilView:
 
     @cache  # noqa: B019
     def __getitem__(self, index: int) -> jnp.ndarray:
+        # the shift must be closed over (and not passed as an argument)
+        # because the sharded map only accepts array arguments
+        shift_value = self.stencil.shifts[index]
 
         @self.stencil.grid.domain_decomp.shard_map
-        def shift(arr: jnp.ndarray, shift: int) -> jnp.ndarray:
-            return jnp.roll(arr, shift=shift, axis=self.axis)
+        def shift(arr: jnp.ndarray) -> jnp.ndarray:
+            return jnp.roll(arr, shift=shift_value, axis=self.axis)
 
-        return shift(self.arr, shift=self.stencil.shifts[index])
+        return shift(self.arr)
 
     def __iter__(self) -> Iterator[jnp.ndarray]:
         for i in range(self.stencil.size):

@@ -95,6 +95,11 @@ class RFFTPressureSolver(fr.modules.Module):
         else:
             self.rfft_axis = max(self.fft_axes)
 
+    def _determine_rfft_axis_multiple_gpus(self) -> None:
+        # the multi-device transforms support the same rfft axis choice
+        # as the single-device transforms
+        self._determine_rfft_axis_single_gpu()
+
     def _setup_k_squared_inv(self) -> None:
         grid = self.mset.grid
         self.k_squared_inv = _compute_k_squared_inv(
