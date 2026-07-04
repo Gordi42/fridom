@@ -93,8 +93,8 @@ class Config:
 
     @classmethod
     def _set_cupy_as_backend_unsafe(cls) -> None:
-        import cupy
-        import cupyx.scipy
+        import cupy  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        import cupyx.scipy  # noqa: PLC0415 (deferred import of optional/heavy dependency)
 
         cls._ncp = cupy
         cls._scp = cupyx.scipy
@@ -102,9 +102,9 @@ class Config:
 
     @classmethod
     def _set_jax_cpu_as_backend_unsafe(cls) -> None:
-        import jax
-        import jax.numpy as jnp
-        import jax.scipy as jsp
+        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        import jax.numpy as jnp  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        import jax.scipy as jsp  # noqa: PLC0415 (deferred import of optional/heavy dependency)
 
         cls._ncp = jnp
         cls._scp = jsp
@@ -114,10 +114,10 @@ class Config:
 
     @classmethod
     def _set_jax_gpu_as_backend_unsafe(cls) -> None:
-        import jax
-        import jax.numpy as jnp
-        import jax.scipy as jsp
-        from jax import extend
+        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        import jax.numpy as jnp  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        import jax.scipy as jsp  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        from jax import extend  # noqa: PLC0415 (deferred import of optional/heavy dependency)
 
         jax.config.update("jax_platform_name", "gpu")
         jax.config.update("jax_enable_x64", val=True)

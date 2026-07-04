@@ -533,7 +533,7 @@ def get_default_domain_decomposition() -> DomainDecomposition:
     # if the backend is jax, use the jax decomposition
     if fr.config.backend_is_jax:
         # count the number of devices
-        import jax
+        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         n_devices = jax.device_count()
         # if we only have one available device, we use single decomposition
         if n_devices == 1:

@@ -291,7 +291,7 @@ class ScalarField(fr.FieldBase):
                                  ) -> xr.DataArray:
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         # normalize the key
         key = self._normalize_slice_key(key)
 
@@ -443,7 +443,7 @@ class ScalarField(fr.FieldBase):
     def from_netcdf(cls,  # noqa: D102
                     mset: fr.ModelSettingsBase,
                     path: str) -> ScalarField:
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         ds = xr.open_dataarray(path)
         return cls.from_xarray(mset, ds)
 

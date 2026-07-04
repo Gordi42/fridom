@@ -1,5 +1,6 @@
 """Configuration for pytest."""
 import logging
+from io import StringIO
 import os
 import sys
 
@@ -20,7 +21,6 @@ if backend is not None and fr.config.backend != backend:
 @pytest.fixture
 def capture_logs():
     """Fixture to capture log output."""
-    from io import StringIO
 
     stream = StringIO()
     handler = logging.StreamHandler(stream)

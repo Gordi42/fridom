@@ -26,9 +26,9 @@ class CGPressureSolver(Module):
 
         # Create a function to solve for pressure
         if self.mset.gpu:
-            from cupyx.scipy.sparse.linalg import LinearOperator, cg
+            from cupyx.scipy.sparse.linalg import LinearOperator, cg  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         else:
-            from scipy.sparse.linalg import LinearOperator, cg
+            from scipy.sparse.linalg import LinearOperator, cg  # noqa: PLC0415 (deferred import of optional/heavy dependency)
 
         self.cg = cg
 

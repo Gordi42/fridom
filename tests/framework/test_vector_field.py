@@ -862,6 +862,6 @@ def test_jit(mset, op):
     if not fr.config.backend_is_jax:
         return
     # check if a gradient can be computed
-    import jax
+    import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
     grad_func = jax.grad(lambda f: func(f).sum()[0].arr.item().real)
     grad_func(vec)

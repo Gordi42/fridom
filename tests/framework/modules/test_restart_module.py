@@ -1,5 +1,6 @@
 """Test of framework/modules/restart_module.py."""
 import logging
+from io import StringIO
 import shutil
 import tempfile
 from pathlib import Path
@@ -26,7 +27,6 @@ def file_path(directory):
 @pytest.fixture
 def capture_logs():
     """Fixture to capture log output."""
-    from io import StringIO
 
     stream = StringIO()
     handler = logging.StreamHandler(stream)

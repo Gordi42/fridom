@@ -305,7 +305,7 @@ class VectorField(fr.FieldBase):
 
     @property
     def xrs(self) -> fr.utils.SliceableAttribute[xr.Dataset]:  # noqa: D102
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         def slicer(key: int | slice | tuple[int | slice]) -> xr.Dataset:
             ds = xr.Dataset({f.name: f.xrs[key] for f in self})
             # we need to add the variable names in the correct order

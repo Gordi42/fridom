@@ -45,7 +45,7 @@ class ModelPlotter:
         This method should create a figure object
         (e.g. matplotlib figure) and return it.
         """
-        import matplotlib.pyplot as plt  # pylint: disable=import-outside-toplevel
+        import matplotlib.pyplot as plt  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         return plt.figure()
 
     @staticmethod

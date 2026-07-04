@@ -1,6 +1,7 @@
 """timing_module.py - Keep track of the time spent in different model components."""
 from collections.abc import Generator
 from contextlib import contextmanager
+from time import time
 
 import fridom.framework as fr
 
@@ -32,7 +33,6 @@ class TimingComponent:
             return
         # start the timer
         self.is_active = True
-        from time import time
         self.start_time = time()
         return
 
@@ -45,7 +45,6 @@ class TimingComponent:
                 "but the component is not active.")
             return
         # stop the timer
-        from time import time
         self.time += time() - self.start_time
         self.is_active = False
         return

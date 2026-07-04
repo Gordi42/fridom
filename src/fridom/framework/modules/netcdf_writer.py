@@ -1,6 +1,7 @@
 """netcdf_writer.py - Writing model output to NetCDF files."""
 from __future__ import annotations
 
+import time as system_time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -184,7 +185,6 @@ class NetCDFWriter(fr.modules.Module):
         #  General attributes
         # ----------------------------------------------------------------
         ncfile.description = f"fridom: {self.mset.model_name}"
-        import time as system_time
         ncfile.created = system_time.ctime(system_time.time())
 
         # ----------------------------------------------------------------

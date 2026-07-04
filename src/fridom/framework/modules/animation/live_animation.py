@@ -57,7 +57,7 @@ class LiveAnimation(fr.modules.Module):
         args = self.model_plotter.prepare_arguments(mz)
         self.model_plotter.update_figure(fig=self.fig, **args)
         # display the figure
-        from IPython import display
+        from IPython import display  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         display.display(self.fig)
         # clear the output when the next figure is ready
         display.clear_output(wait=True)

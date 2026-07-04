@@ -76,7 +76,7 @@ def random_array(shape: tuple[int], seed=12345, **kwargs) -> np.ndarray:
         fr.log.warning("Please use the create array method from the grid object instead")
     if fr.config.backend_is_jax:
         # we need to import jax here since it is an optional dependency
-        import jax  # pylint: disable=import-outside-toplevel
+        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         key = jax.random.key(seed)
         return jax.random.normal(key, shape)
     ncp = fr.config.ncp

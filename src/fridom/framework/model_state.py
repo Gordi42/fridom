@@ -63,7 +63,7 @@ class ModelState:
         # xarray sometimes takes a long time to load, so we only import it here
         # if it is actually needed
         try:
-            import xarray as xr  # pylint: disable=import-outside-toplevel
+            import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         except ImportError as e:
             raise ImportError(
                 "xarray is not installed. Please install it to use this feature."

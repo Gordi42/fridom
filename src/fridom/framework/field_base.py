@@ -508,7 +508,7 @@ class FieldBase:
             The field.
 
         """
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         ds = xr.open_dataset(path)
         return cls.from_xarray(mset, ds)
 

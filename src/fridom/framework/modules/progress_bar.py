@@ -1,9 +1,12 @@
 """A progress bar module to display the progress of the simulation."""
 from __future__ import annotations
 
+import io
+import sys
 import time
 
 import numpy as np
+from tqdm import tqdm
 
 import fridom.framework as fr
 
@@ -62,16 +65,13 @@ class ProgressBar(fr.modules.Module):
             # the look of the progress bar due to "\r" characters
             # so we create a StringIO object to capture the output
             # and adjust the progress bar accordingly
-            import io
             output = io.StringIO()
         else:
-            import sys
             output = sys.stdout
 
         # ----------------------------------------------------------------
         #  Create the progress bar
         # ----------------------------------------------------------------
-        from tqdm import tqdm
         pbar = tqdm(
             total=100,
             disable=disable,

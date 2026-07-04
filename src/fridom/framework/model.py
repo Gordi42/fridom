@@ -1,6 +1,10 @@
 """Model class for the fridom framework."""
 from __future__ import annotations
 
+from pathlib import Path
+from time import time
+
+import dill
 import numpy as np
 
 import fridom.framework as fr
@@ -204,7 +208,6 @@ class Model:
     def _execute_first_time_step(self) -> None:
         """Print the timing of the first time step."""
         # compile the modules
-        from time import time
         if fr.config.backend_is_jax:
             fr.log.notice("Compiling modules at first time step")
             start_time = time()
@@ -386,9 +389,7 @@ class Model:
 
         """
         # underscores are not allowed in the filename
-        from pathlib import Path
 
-        import dill
         # get a list of all files in the directory that start with the filename
         with Path(file).open("rb") as f:
             model = dill.load(f)  # noqa: S301
@@ -407,9 +408,7 @@ class Model:
             The filename to save the model to
 
         """
-        from pathlib import Path
 
-        import dill
         with Path(file).open("wb") as f:
             fr.log.verbose(f"Saving model to {file}")
             grid = self.mset.grid

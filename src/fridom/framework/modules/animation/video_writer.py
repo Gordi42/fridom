@@ -1,8 +1,10 @@
 """Create a mp4 video from the model."""
 from __future__ import annotations
 
+import multiprocessing as mp
 import queue
 import warnings
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -88,7 +90,6 @@ class VideoWriter(fr.modules.Module):
 
         # use maximum of 40% the available threads
         if self.parallel:
-            import multiprocessing as mp
             self.maximum_jobs = int(self.max_jobs*mp.cpu_count())
         self.fig = None
 
@@ -104,7 +105,7 @@ class VideoWriter(fr.modules.Module):
                 "VideoWriter.start() called without closing the previous writer.",
                 "Continue with the previous writer.")
         else:
-            import imageio
+            import imageio  # noqa: PLC0415 (deferred import of optional/heavy dependency)
             self.writer = imageio.get_writer(self.filename, fps=self.fps)
 
     @fr.modules.module_method
@@ -118,7 +119,7 @@ class VideoWriter(fr.modules.Module):
             self.writer.close()
             fr.log.debug("Video writer closed")
         if self.fig is not None:
-            import matplotlib.pyplot as plt
+            import matplotlib.pyplot as plt  # noqa: PLC0415 (deferred import of optional/heavy dependency)
             plt.close(self.fig)
             self.fig = None
         self._last_write_time = None
@@ -160,7 +161,6 @@ class VideoWriter(fr.modules.Module):
             self.collect_figures()
 
         # create a new figure
-        import multiprocessing as mp
         q = mp.Queue()
         diagnostics = self.mset.diagnostics
         self.mset.diagnostics = None
@@ -209,7 +209,7 @@ class VideoWriter(fr.modules.Module):
             self.open_queues.pop(0)
 
     def show_video(self, width=600):
-        from IPython.display import Video
+        from IPython.display import Video  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         return Video(self.filename, width=width, embed=True)
 
     @property
@@ -226,7 +226,6 @@ class VideoWriter(fr.modules.Module):
     def __deepcopy__(self, memo):
         dont_copy = ["writer", "fig"]
         # now deepcopy the object
-        from copy import deepcopy
         new = self.__class__.__new__(self.__class__)
         for key in self.__dict__:
             if key in dont_copy:

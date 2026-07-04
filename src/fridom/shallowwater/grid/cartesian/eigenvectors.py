@@ -160,6 +160,9 @@ from numpy import ndarray
 
 import fridom.framework as fr
 import fridom.shallowwater as sw
+from fridom.framework.grid.cartesian import (
+    discrete_spectral_operators as dso,
+)
 
 # threshold below which a norm is considered zero (avoid division by zero)
 _NORM_THRESHOLD = 1e-10
@@ -228,10 +231,6 @@ def omega(mset: sw.ModelSettings,
         fr.log.warning("c² is varying.")
         fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
 
-    # get discrete spectral operators
-    from fridom.framework.grid.cartesian import (
-        discrete_spectral_operators as dso,
-    )
     def ohpm(k, d):
         return dso.one_hat_squared(k, d, use_discrete)
     def khpm(k, d):
@@ -284,10 +283,6 @@ def vec_q(mset: sw.ModelSettings,
     dx, dy = grid.dx
     f0 = mset.f0
 
-    # import the discrete spectral operators
-    from fridom.framework.grid.cartesian import (
-        discrete_spectral_operators as dso,
-    )
     def ohp(k, d):
         return dso.one_hat(k, d, +1, use_discrete)
     def ohm(k, d):
@@ -371,7 +366,4 @@ def vec_p(mset: sw.ModelSettings,
         z.p.arr = ncp.where(mask, z.p.arr/norm, 0)
 
     # Set the nyquist frequency to zero
-    from fridom.framework.grid.cartesian import (
-        discrete_spectral_operators as dso,
-    )
     return dso.set_nyquist_to_zero(z)

@@ -22,7 +22,7 @@ def am_i_main_rank():
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_rank() == 0
     if fr.config.backend_is_jax:
-        import jax
+        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         return jax.process_index() == 0
 
     # if no MPI is available, assume that the current rank is the main rank
@@ -35,7 +35,7 @@ def mpi_barrier() -> None:
     if MPI_AVAILABLE:
         MPI.COMM_WORLD.Barrier()
     if fr.config.backend_is_jax:
-        from jax.experimental import multihost_utils
+        from jax.experimental import multihost_utils  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         multihost_utils.sync_global_devices("mpi_barrier")
 
 def get_mpi_size():
@@ -50,7 +50,7 @@ def get_mpi_size():
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_size()
     if fr.config.backend_is_jax:
-        import jax
+        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         return jax.process_count()
     return 1
 
@@ -67,6 +67,6 @@ def get_my_rank() -> int:
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_rank()
     if fr.config.backend_is_jax:
-        import jax
+        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         return jax.process_index()
     return 0
