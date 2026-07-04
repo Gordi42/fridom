@@ -42,6 +42,27 @@ uv run pre-commit install                  # install the ruff pre-commit hook
   JAX directly (e.g. the `JAX_PLATFORMS` env var); tests run on whatever
   platform jax picks.
 
+### Testing policy
+
+- Run only the tests for the files you changed; do **not** run the full
+  test suite unless the user explicitly asks for it (CI runs the full
+  suite on every push).
+- Map each edited source file to its mirrored test file:
+  `src/fridom/<pkg>/<path>/<mod>.py` ->
+  `tests/<pkg>/<path>/test_<mod>.py`.
+  - If the mirrored test file does not exist, run the nearest mirrored
+    test directory instead (e.g. `src/fridom/framework/utils/*.py` ->
+    `tests/framework/utils`, falling back to `tests/framework`).
+  - When editing an `__init__.py`, also run the sibling `test_init.py`.
+  - When editing a test file, run that test file.
+- Changes to framework core machinery (`framework/utils/`, fields, the
+  module system, `model.py`, `model_settings_base.py`, time steppers,
+  grid base classes) affect all model packages. After the mirrored
+  tests pass, additionally run one model smoke file:
+  `uv run pytest tests/nonhydro/test_linear_model.py`.
+- Full-suite runs (only when explicitly requested):
+  `uv run pytest tests/ -n 8 --dist loadfile`.
+
 ## Conventions
 
 ### Imports
