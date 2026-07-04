@@ -33,3 +33,60 @@ def test_model_settings(grid_ini, f, N2):
     assert mset.grid == grid_ini
     assert jnp.allclose(mset.f_coriolis.arr, f)
     assert mset.stratification_n2 == N2
+
+
+@pytest.fixture
+def mset():
+    grid = nh.grid.cartesian.Grid((8, 8, 8), (1.0, 1.0, 1.0))
+    return nh.ModelSettings(grid, f0=1.0, stratification_n2=4.0).setup()
+
+
+def test_parameters(mset):
+    parameters = mset.parameters
+    assert parameters["coriolis parameter f0"] == "1.0 1/s"
+    assert parameters["Stratification N²"] == "4.0 1/s^2"
+    assert "Rossby number Ro" in parameters
+    assert "Aspect ratio dsqr" in parameters
+
+
+def test_beta_plane(mset):
+    mset.beta = 2.0
+    assert mset.beta == 2.0
+    # the coriolis field is updated: f = f0 + beta * y
+    y = mset.f_coriolis.get_mesh()[1]
+    assert jnp.allclose(mset.f_coriolis.arr, 1.0 + 2.0 * y)
+
+
+def test_f_coriolis_setter(mset):
+    field = nh.ScalarField(mset, name="my f")
+    mset.f_coriolis = field
+    assert mset.f_coriolis is field
+
+    with pytest.raises(TypeError, match="must be a ScalarField"):
+        mset.f_coriolis = 42
+
+
+def test_stratification_field_setter(mset):
+    field = nh.ScalarField(mset, name="my N2")
+    mset.stratification_n2_field = field
+    assert mset.stratification_n2_field is field
+
+    with pytest.raises(TypeError, match="must be a ScalarField"):
+        mset.stratification_n2_field = 42
+
+
+def test_stratification_setter_updates_field(mset):
+    mset.stratification_n2 = 9.0
+    assert mset.stratification_n2 == 9.0
+    assert jnp.allclose(mset.stratification_n2_field.arr, 9.0)
+
+
+def test_rossby_number_scales_advection(mset):
+    mset.rossby_number = 0.25
+    assert mset.rossby_number == 0.25
+    assert mset.tendencies.advection.scaling == 0.25
+
+
+def test_dsqr_setter(mset):
+    mset.dsqr = 0.5
+    assert mset.dsqr == 0.5
