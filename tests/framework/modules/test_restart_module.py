@@ -31,7 +31,12 @@ def capture_logs():
     handler = logging.StreamHandler(stream)
     handler.setFormatter(logging.Formatter("%(asctime)s: %(message)s"))
     fr.log.addHandler(handler)
+    # other tests may have silenced the logger; the tests below rely on
+    # NOTICE-level messages
+    old_level = fr.log.level
+    fr.log.setLevel("NOTICE")
     yield stream
+    fr.log.setLevel(old_level)
     fr.log.removeHandler(handler)
 
 @pytest.fixture
