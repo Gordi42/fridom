@@ -76,6 +76,18 @@ def test_run_default_output(suite_dir, capsys):
     capsys.readouterr()
 
 
+def test_run_first_only(suite_dir, capsys):
+    output = suite_dir / "out.json"
+    exit_code = main([
+        "run", str(suite_dir), "--no-isolate", "--reps", "1",
+        "--first-only", "-o", str(output),
+    ])
+    assert exit_code == 0
+    suite = SuiteResult.load(output)
+    assert [r.full_name for r in suite.results] == ["bench_scalar[n=2]"]
+    capsys.readouterr()
+
+
 def test_run_with_filter(suite_dir, capsys):
     output = suite_dir / "out.json"
     exit_code = main([

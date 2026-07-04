@@ -87,6 +87,13 @@ def test_run_suite_failing_case(suite_dir):
     assert "[1/4] bench_broken FAILED" in messages
 
 
+def test_run_suite_first_only(suite_dir):
+    suite = run_suite(suite_dir, isolate=False, first_only=True)
+    assert [result.full_name for result in suite.results] == [
+        "bench_square[n=2]", "bench_scalar",
+    ]
+
+
 def test_run_suite_without_progress(suite_dir):
     suite = run_suite(suite_dir, isolate=False, pattern="bench_scalar")
     assert len(suite.results) == 1

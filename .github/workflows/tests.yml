@@ -48,3 +48,25 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Smoke-run the benchmark suite (one repetition, smallest sizes) so
+  # that the suite files cannot go stale. No timing assertions.
+  benchmark-smoke:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        uv sync --extra dev
+
+    - name: Smoke-run the benchmark suite
+      run: |
+        uv run python -m fridom.benchmarking run benchmarks \
+          --first-only --reps 1 --warmup 1

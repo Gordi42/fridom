@@ -101,6 +101,7 @@ def run_suite(
     warmup: int | None = None,
     isolate: bool = True,
     timeout: float | None = None,
+    first_only: bool = False,
     progress: Callable[[str], None] | None = None,
 ) -> SuiteResult:
     """
@@ -133,6 +134,10 @@ def run_suite(
         (default: True).
     timeout : float | None, optional
         Timeout per isolated case instance in seconds (default: None).
+    first_only : bool, optional
+        Whether to run each case only at its first parameter
+        combination (by convention the smallest); used for cheap
+        smoke runs, e.g. in CI (default: False).
     progress : Callable[[str], None] | None, optional
         Callback receiving a progress message per instance
         (default: None).
@@ -144,7 +149,10 @@ def run_suite(
     """
     cases = discover_cases(directory)
     instances = [
-        instance for case in cases for instance in case.instances()
+        instance for case in cases
+        for instance in (
+            case.instances()[:1] if first_only else case.instances()
+        )
     ]
     if pattern is not None:
         instances = [

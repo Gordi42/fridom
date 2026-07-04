@@ -36,6 +36,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         warmup=args.warmup,
         isolate=not args.no_isolate,
         timeout=args.timeout,
+        first_only=args.first_only,
         progress=print,
     )
     output = (
@@ -102,6 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--no-isolate", action="store_true",
         help="run cases in-process instead of in fresh subprocesses")
+    run.add_argument(
+        "--first-only", action="store_true",
+        help="run each case only at its first parameter combination "
+             "(cheap smoke run)")
     run.add_argument(
         "--timeout", type=float, default=None,
         help="timeout per isolated case in seconds")

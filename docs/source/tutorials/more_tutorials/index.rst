@@ -7,6 +7,7 @@ More Tutorials
    backend
    precision
    logging
+   benchmarking
    building_the_documentation
 
 
@@ -32,6 +33,13 @@ More Tutorials
       :link-type: doc
 
       How to change the log level for more detailed progress updates.
+
+   .. grid-item-card:: Benchmarking
+      :link: benchmarking
+      :link-type: doc
+
+      How to benchmark functions and compare benchmark runs across
+      branches.
 
    .. grid-item-card:: Building the documentation
       :link: building_the_documentation
