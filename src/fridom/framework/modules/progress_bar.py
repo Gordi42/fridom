@@ -121,6 +121,10 @@ class ProgressBar(fr.modules.Module):
         if not self.is_enabled():
             return None
 
+        # nothing to print if the progress bar was already stopped
+        if self._pbar is None:
+            return None
+
         it = int(mz.clock.it)
         last_it = self._last_it or it - 1
         n_its = it - last_it

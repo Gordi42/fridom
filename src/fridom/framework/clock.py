@@ -69,7 +69,7 @@ class Clock:
             The time step in seconds.
 
         """
-        self._passed_time += time_step
+        self._passed_time += fr.utils.to_seconds(time_step)
         self._it += 1
 
     def get_total_time(
