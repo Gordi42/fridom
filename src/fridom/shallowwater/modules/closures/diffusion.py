@@ -36,7 +36,7 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
 
     @kh.setter
     def kh(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs
 
 
@@ -73,7 +73,7 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
 
     @ah.setter
     def ah(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs
 
 
@@ -109,7 +109,7 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
 
     @kh.setter
     def kh(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs
 
 
@@ -146,5 +146,5 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
 
     @ah.setter
     def ah(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs
