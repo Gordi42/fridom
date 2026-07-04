@@ -54,9 +54,8 @@ def free_memory() -> None:
     Note that the memory is only freed within JAX, not in the operating
     system. The operating system will still show the same memory usage.
     """
-    backend = jax.extend.backend.get_backend()
-    for buf in backend.live_buffers():
-        buf.delete()
+    for arr in jax.live_arrays():
+        arr.delete()
 
 # ================================================================
 #  Structural equality (jit-cache friendly)
