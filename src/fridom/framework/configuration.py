@@ -153,7 +153,7 @@ class Config:
 
         Parameters
         ----------
-        dtype : str or np.dtype
+        dtype : str | np.dtype
             The new default data type for real arrays. Complex arrays will be
             set so that both real and imaginary parts have the same data type.
             Available data types are:

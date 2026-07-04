@@ -26,7 +26,7 @@ class Ramper(fr.modules.Module):
         A method that updates the model parameters based on the ramped
         value. It should take the model state and the ramped value which
         is between 0 and 1.
-    ramp_function : str or Callable[[float], float], optional
+    ramp_function : str | Callable[[float], float], optional
         The ramp function. It can be one of the following strings:
         "exponential", "power_3", "cosine", "linear" or a custom callable.
         The default is "exponential".

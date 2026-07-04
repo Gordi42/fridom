@@ -98,7 +98,7 @@ class GridBase:
 
         Parameters
         ----------
-        position : Position or None, optional
+        position : Position | None, optional
             The position of the field (default: None).
         spectral : bool, optional
             Whether to return the meshgrid of the spectral domain (default:
@@ -138,11 +138,11 @@ class GridBase:
             The input array.
         padding : FFTPadding, optional
             The padding to apply to the array (default: FFTPadding.NOPADDING).
-        bc_types : tuple[BCType] or None, optional
+        bc_types : tuple[BCType] | None, optional
             The boundary conditions to apply to each axis (default: None).
-        positions : tuple[AxisPosition] or None, optional
+        positions : tuple[AxisPosition] | None, optional
             The position of the field (default: None).
-        axes : tuple[int] or None, optional
+        axes : tuple[int] | None, optional
             The axes to transform (default: None).
 
         Returns
@@ -169,11 +169,11 @@ class GridBase:
             The input array.
         padding : FFTPadding, optional
             The padding to apply to the array (default: FFTPadding.NOPADDING).
-        bc_types : tuple[BCType] or None, optional
+        bc_types : tuple[BCType] | None, optional
             The boundary conditions to apply to each axis (default: None).
-        positions : tuple[AxisPosition] or None, optional
+        positions : tuple[AxisPosition] | None, optional
             The position of the field (default: None).
-        axes : tuple[int] or None, optional
+        axes : tuple[int] | None, optional
             The axes to transform (default: None).
 
         Returns
@@ -408,7 +408,7 @@ class GridBase:
         ----------
         field : ScalarField
             The field to sum.
-        axes : tuple[int] or None, optional
+        axes : tuple[int] | None, optional
             The axes to sum over. If None, all axes are summed over (default:
             None).
 
@@ -431,7 +431,7 @@ class GridBase:
         ----------
         field : ScalarField
             The field to compute the minimum.
-        axes : tuple[int] or None, optional
+        axes : tuple[int] | None, optional
             The axes to compute the minimum over. If None, all axes are used
             (default: None).
 
@@ -454,7 +454,7 @@ class GridBase:
         ----------
         field : ScalarField
             The field to compute the maximum.
-        axes : tuple[int] or None, optional
+        axes : tuple[int] | None, optional
             The axes to compute the maximum over. If None, all axes are used
             (default: None).
 
@@ -477,7 +477,7 @@ class GridBase:
         ----------
         field : ScalarField
             The field to integrate.
-        axes : tuple[int] or None, optional
+        axes : tuple[int] | None, optional
             The axes to integrate over (default: None).
 
         Returns

@@ -29,7 +29,7 @@ class RestartModule(fr.modules.Module):
     clock_trigger : fr.ClockTrigger, optional
         Triggers the restart based on the model time.
         If None, the model will not restart based on model time.
-    restart_command : str or Callable, optional
+    restart_command : str | Callable, optional
         The command to start the job.
         If the command is a string:
             The model will restart by running the command in a subprocess.
