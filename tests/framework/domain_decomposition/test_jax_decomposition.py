@@ -1,10 +1,41 @@
-"""Tests for the jax-sharding based domain decomposition."""
+"""
+Tests for the jax-sharding based domain decomposition.
 
+Description
+-----------
+The tests in this file run on however many devices jax provides. In a
+default test session this is a single device. To also exercise real
+multi-device sharding, `test_multi_device` reruns this file in a
+subprocess with ``XLA_FLAGS=--xla_force_host_platform_device_count=N``
+(the flag must be set before jax initializes, hence the subprocess).
+"""
+
+import os
+import subprocess
+import sys
+
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom.framework as fr
+
+FORCED_DEVICES_ENV = "FRIDOM_TEST_FORCED_DEVICES"
+
+
+# ================================================================
+#  Helper functions
+# ================================================================
+def padded_shape(domain):
+    """Compute the expected shape of a padded array.
+
+    The sharded axis (axis 0) carries one halo region per device
+    shard, all other axes carry a single halo region.
+    """
+    shape = [n + 2 * domain.halo for n in domain.shape]
+    shape[0] = domain.shape[0] + 2 * domain.halo * domain.n_devices
+    return tuple(shape)
 
 
 # ================================================================
@@ -52,11 +83,10 @@ def test_too_large_halo_raises():
 # ================================================================
 #  Padding
 # ================================================================
-def test_pad_unpad_roundtrip(domain, u, halo, shape):
+def test_pad_unpad_roundtrip(domain, u):
     u_padded = domain.pad(u)
 
-    padded_shape = tuple(n + 2 * halo for n in shape)
-    assert u_padded.shape == padded_shape
+    assert u_padded.shape == padded_shape(domain)
 
     u_unpadded = domain.unpad(u_padded)
     assert u_unpadded.shape == u.shape
@@ -72,7 +102,7 @@ def test_flat_axis_padding(halo):
     u_padded = domain.pad(u, flat_axes)
 
     # the flat axis is not padded
-    assert u_padded.shape == (32 + 2 * halo, 1)
+    assert u_padded.shape == (padded_shape(domain)[0], 1)
 
     u_unpadded = domain.unpad(u_padded, flat_axes)
     assert u_unpadded.shape == u.shape
@@ -87,6 +117,11 @@ def test_spectral_paddings_are_not_supported(domain, u):
 # ================================================================
 #  Halo exchange
 # ================================================================
+def shard_blocks(domain, u_synced):
+    """Split the synced array into the per-device blocks along axis 0."""
+    return np.split(u_synced, domain.n_devices, axis=0)
+
+
 def test_halo_exchange_periodic(domain, u, halo, shape):
     u_synced = np.asarray(domain.sync(domain.pad(u)))
 
@@ -94,7 +129,20 @@ def test_halo_exchange_periodic(domain, u, halo, shape):
         assert (u_synced == np.asarray(u)).all()
         return
 
-    for axis in range(len(shape)):
+    # axis 0 is sharded: every device block carries its own halo
+    # regions, which must contain the neighbor blocks' edge values
+    # (this verifies the ppermute exchange at every shard boundary)
+    blocks = shard_blocks(domain, u_synced)
+    n_blocks = len(blocks)
+    for i, block in enumerate(blocks):
+        left_neighbor = blocks[(i - 1) % n_blocks]
+        right_neighbor = blocks[(i + 1) % n_blocks]
+
+        assert (block[:halo] == left_neighbor[-2 * halo:-halo]).all()
+        assert (block[-halo:] == right_neighbor[halo:2 * halo]).all()
+
+    # all other axes are not sharded: a single periodic halo wrap
+    for axis in range(1, len(shape)):
         left_halo = [slice(None)] * len(shape)
         left_halo[axis] = slice(0, halo)
         right_inside = [slice(None)] * len(shape)
@@ -119,8 +167,19 @@ def test_halo_exchange_nonperiodic(halo, shape):
     if halo == 0:
         return
 
-    # all halo regions on non-periodic axes are zero
-    for axis in range(len(shape)):
+    # on the sharded axis, only the two domain-boundary halos are
+    # zero; interior shard boundaries still exchange their halos
+    blocks = shard_blocks(domain, u_synced)
+    assert (blocks[0][:halo] == 0).all()
+    assert (blocks[-1][-halo:] == 0).all()
+    for i, block in enumerate(blocks[:-1]):
+        right_neighbor = blocks[i + 1]
+
+        assert (block[-halo:] == right_neighbor[halo:2 * halo]).all()
+        assert (right_neighbor[:halo] == block[-2 * halo:-halo]).all()
+
+    # all other axes have zero halo regions
+    for axis in range(1, len(shape)):
         left_halo = [slice(None)] * len(shape)
         left_halo[axis] = slice(0, halo)
         right_halo = [slice(None)] * len(shape)
@@ -191,10 +250,10 @@ def test_gather_with_slice(domain, u, shape):
 # ================================================================
 #  Array creation
 # ================================================================
-def test_create_array(domain, halo, shape):
+def test_create_array(domain):
     arr = domain.create_array()
 
-    assert arr.shape == tuple(n + 2 * halo for n in shape)
+    assert arr.shape == padded_shape(domain)
     assert arr.dtype == fr.utils.dtype_real()
     assert (np.asarray(arr) == 0).all()
 
@@ -213,7 +272,7 @@ def test_create_array_with_topography(halo):
     arr = domain.create_array(topo=(True, False))
 
     # the flat axis has size one and is not padded
-    assert arr.shape == (32 + 2 * halo, 1)
+    assert arr.shape == (padded_shape(domain)[0], 1)
 
 
 def test_create_random_array(domain):
@@ -239,9 +298,8 @@ def test_create_meshgrid(halo):
     y = jnp.arange(shape[1], dtype=fr.utils.dtype_real())
 
     x_mesh, y_mesh = domain.create_meshgrid(x, y)
-    padded_shape = tuple(n + 2 * halo for n in shape)
-    assert x_mesh.shape == padded_shape
-    assert y_mesh.shape == padded_shape
+    assert x_mesh.shape == padded_shape(domain)
+    assert y_mesh.shape == padded_shape(domain)
 
     x_mesh, y_mesh = domain.create_meshgrid(x, y, pad=False)
     x_expected, y_expected = jnp.meshgrid(x, y, indexing="ij")
@@ -277,3 +335,36 @@ def test_shard_map(domain, u):
     double = domain.shard_map(lambda x: 2 * x)
 
     assert np.allclose(np.asarray(double(u)), 2 * np.asarray(u))
+
+
+# ================================================================
+#  Multi-device runs
+# ================================================================
+def test_forced_device_count():
+    """Inside a multi-device subprocess, check the forced device count."""
+    forced_devices = os.environ.get(FORCED_DEVICES_ENV)
+    if forced_devices is None:
+        pytest.skip("only relevant in a multi-device subprocess")
+
+    # guards against XLA_FLAGS being set too late to take effect
+    assert jax.device_count() == int(forced_devices)
+
+
+@pytest.mark.parametrize("n_devices", [4])
+def test_multi_device(n_devices):
+    """Rerun this test file on multiple (forced host) devices."""
+    if os.environ.get(FORCED_DEVICES_ENV) is not None:
+        pytest.skip("already running in a multi-device subprocess")
+
+    env = os.environ.copy()
+    env[FORCED_DEVICES_ENV] = str(n_devices)
+    xla_flags = env.get("XLA_FLAGS", "")
+    env["XLA_FLAGS"] = (
+        f"{xla_flags} --xla_force_host_platform_device_count={n_devices}")
+
+    result = subprocess.run(  # noqa: S603 (runs this very test file)
+        [sys.executable, "-m", "pytest", __file__, "-q",
+         "-p", "no:cacheprovider"],
+        env=env, capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0, result.stdout + result.stderr
