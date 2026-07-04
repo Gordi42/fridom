@@ -51,6 +51,6 @@ class LinearTendency(fr.modules.Module):
         # calculate u-tendency
         mz.dz.u +=   interp(z.v, upos) * f - diff(z.p, axis=0)
         mz.dz.v += - interp(z.u * f, vpos) - diff(z.p, axis=1)
-        mz.dz.p += - div((interp(c, upos) * z.u, interp(c, vpos) * z.v))
+        mz.dz.p += - div((z.u * interp(c, upos), z.v * interp(c, vpos)))
 
         return mz
