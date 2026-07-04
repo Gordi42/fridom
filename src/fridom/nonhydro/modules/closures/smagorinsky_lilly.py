@@ -113,6 +113,7 @@ class SmagorinskyLilly(fr.modules.Module):
     def _on_setup(self) -> None:
         self.filter_width = self.grid.cell_volume**(1/3)
 
+    @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         z = mz.z
 
