@@ -49,6 +49,9 @@ class BiasedInterpolationModule(fr.modules.Module):
             The interpolated field.
 
         """
+        if f.position == destination:
+            return f
+
         # check that the destination is only one axis different from the
         # field position
         diff_axes = [i for i in range(f.arr.ndim)
@@ -68,9 +71,6 @@ class BiasedInterpolationModule(fr.modules.Module):
         # only pass the array of the bias field to the interpolation function
         if isinstance(bias, fr.ScalarField):
             bias = bias.arr
-
-        if f.position == destination:
-            return f
 
         if not f.topo[diff_axes[0]]:
             # no interpolation when the field has no extend along the axis
