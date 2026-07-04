@@ -117,6 +117,9 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     By default, all attributes of an object are considered static, i.e., they
     they will not be traced by jax. Attributes that should be dynamic must
     be marked specified with the `dynamic` argument.
+    Subclasses of a jaxified class are automatically registered as pytrees
+    as well; they only need to apply this decorator themselves when they
+    want to mark additional attributes as dynamic.
 
     .. note::
         The `dynamic` argument must be a tuple of attribute names. If
@@ -186,8 +189,23 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     cls.tree_flatten = _tree_flatten
 
     # register the class with jax
-    jax.tree_util.register_pytree_node(
-        cls, cls.tree_flatten, cls.tree_unflatten)
+    # a class may reach this point twice, for example when a subclass of a
+    # jaxified class (automatically registered on creation, see below) is
+    # decorated with @jaxify to mark additional dynamic attributes. In that
+    # case we only update `dynamic_jax_attrs` (done above) and skip the
+    # registration.
+    if not cls.__dict__.get("_jaxify_registered", False):
+        jax.tree_util.register_pytree_node(
+            cls, cls.tree_flatten, cls.tree_unflatten)
+        cls._jaxify_registered = True
+
+    # automatically register subclasses as pytrees
+    if not cls.__dict__.get("_jaxify_hooked", False):
+        def _auto_jaxify(sub_cls: type, **kwargs: dict) -> None:
+            super(cls, sub_cls).__init_subclass__(**kwargs)
+            jaxify(sub_cls)
+        cls.__init_subclass__ = classmethod(_auto_jaxify)
+        cls._jaxify_hooked = True
 
     return cls
 
