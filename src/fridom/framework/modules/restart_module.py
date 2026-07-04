@@ -130,7 +130,8 @@ class RestartModule(fr.modules.Module):
         return False
 
     def _on_reset(self) -> None:
-        self.clock_trigger.reset()
+        if self.clock_trigger is not None:
+            self.clock_trigger.reset()
 
     def set_full_filename(self, it: int) -> None:
         """Set the full filename with the iteration number and rank."""
@@ -162,7 +163,7 @@ class RestartModule(fr.modules.Module):
         fr.log.info(model.mset.timer)
         if isinstance(self.restart_command, str):
             self._restart_from_command()
-            return
+            return  # pragma: no cover (sys.exit never returns)
         if isinstance(self.restart_command, Callable):
             self.restart_command()
             return
@@ -197,7 +198,7 @@ class RestartModule(fr.modules.Module):
     @property
     def info(self) -> dict:  # noqa: D102
         res = super().info
-        if not self.is_enabled:
+        if not self.is_enabled():
             return res
         if self.realtime_interval is not None:
             res["Realtime Restart Interval"] = self.realtime_interval
@@ -279,10 +280,11 @@ class RestartModule(fr.modules.Module):
     @restart_command.setter
     def restart_command(self, restart_command: str | None) -> None:
         self._restart_command = None
-        if not self.is_enabled:
-            return
         if restart_command is not None:
             self._restart_command = restart_command
+            return
+        if not self.is_enabled():
+            # do not query the environment for disabled modules
             return
 
         # Get the job id from the environment
@@ -313,4 +315,5 @@ class RestartModule(fr.modules.Module):
             fr.log.warning(
                 "No restart command is set."
                 " The model will not be able to restart.")
+            return
         self._restart_command = f"sbatch {command}"
