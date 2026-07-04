@@ -107,8 +107,7 @@ class VideoWriter(fr.modules.Module):
         if self.writer is not None and not self.writer.closed:
             fr.log.warning(
                 "VideoWriter.start() called without closing the previous"
-                " writer.",
-                "Continue with the previous writer.")
+                " writer. Continue with the previous writer.")
         else:
             import imageio  # noqa: PLC0415 (deferred import of optional/heavy dependency)
             self.writer = imageio.get_writer(self.filename, fps=self.fps)

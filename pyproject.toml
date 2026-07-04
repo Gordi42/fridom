@@ -81,6 +81,10 @@ filterwarnings = [
   # format 3 (the source ignores this warning as well); see
   # fridom/framework/modules/zarr_writer.py
   "ignore:Consolidated metadata is currently not part in the Zarr format 3:zarr.errors.ZarrUserWarning",
+  # imageio spawns the ffmpeg subprocess with fork, which jax (being
+  # multithreaded) warns about; the video writer only forks to run
+  # ffmpeg, which does not touch jax
+  "ignore:os.fork\\(\\) was called:RuntimeWarning",
 ]
 
 [tool.coverage.run]
