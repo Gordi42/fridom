@@ -1,5 +1,6 @@
 from copy import deepcopy
 
+import jax.numpy as jnp
 import pytest
 
 import fridom.framework as fr
@@ -169,19 +170,18 @@ def test_halo_exchange(halo, shape):
 #  Test fft
 # ================================================================
 def test_fft(halo, shape):
-    ncp = fr.config.ncp
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=shape, halo=halo, shared_axes=[0])
     u = fr.utils.random_array(shape)
-    u_hat = ncp.fft.fftn(u)
+    u_hat = jnp.fft.fftn(u)
 
     v = domain.pad(u)
-    forward = domain.parallel_forward_transform(ncp.fft.fftn)
+    forward = domain.parallel_forward_transform(jnp.fft.fftn)
     v_hat = forward(v)
 
     assert (v_hat == u_hat).all()
 
-    backward = domain.parallel_backward_transform(ncp.fft.ifftn)
+    backward = domain.parallel_backward_transform(jnp.fft.ifftn)
     w = backward(v_hat)
-    w_test = domain.pad(ncp.fft.ifftn(u_hat))
+    w_test = domain.pad(jnp.fft.ifftn(u_hat))
     assert (w == w_test).all()

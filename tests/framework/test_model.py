@@ -47,19 +47,18 @@ def test_model_modules(mset, module_name):
 )
 def test_run_steps(mset, start_step):
     """Test the run method."""
+    # note: the tendency modules are jit-compiled, so stateful modules
+    # like the Counter can only be used in the diagnostics
     number_of_steps = 10
     counter_diag = fr.modules.Counter()
-    counter_tend = fr.modules.Counter()
     mset.diagnostics.add_module(counter_diag)
-    mset.tendencies.add_module(counter_tend)
     mset.setup()
 
     model = fr.Model(mset)
     model.run(steps=number_of_steps, start_step=start_step)
 
-    # check that the counters are correct
+    # check that the counter is correct
     assert counter_diag.counter == number_of_steps
-    assert counter_tend.counter == number_of_steps
 
     # check that the clock is correct
     clock = model.model_state.clock
@@ -155,18 +154,15 @@ def test_correct_clock_end_time(mset, start_time, end_time, expected_time):
 def test_satified_end_condition(mset, run_args):
     """Test if the end condition is already satisfied."""
     counter_diag = fr.modules.Counter()
-    counter_tend = fr.modules.Counter()
     mset.diagnostics.add_module(counter_diag)
-    mset.tendencies.add_module(counter_tend)
     mset.setup()
 
     model = fr.Model(mset)
 
     model.run(**run_args)
 
-    # check that the counters are correct
+    # check that the counter is correct
     assert counter_diag.counter == 0
-    assert counter_tend.counter == 0
 
     # check that the model has not panicked
     assert not model.model_state.panicked
@@ -174,8 +170,8 @@ def test_satified_end_condition(mset, run_args):
 def test_manual_stepping(mset):
     number_of_steps = 10
 
-    counter_tend = fr.modules.Counter()
-    mset.tendencies.add_module(counter_tend)
+    counter_diag = fr.modules.Counter()
+    mset.diagnostics.add_module(counter_diag)
     mset.setup()
 
     model = fr.Model(mset)
@@ -184,8 +180,8 @@ def test_manual_stepping(mset):
         model.step()
     model.stop()
 
-    # check that the counters are correct
-    assert counter_tend.counter == number_of_steps
+    # check that the counter is correct
+    assert counter_diag.counter == number_of_steps
 
     # check that the model has not panicked
     assert not model.model_state.panicked
@@ -232,46 +228,39 @@ def test_save_load(mset, directory):
     number_of_steps = 10
 
     counter_diag = fr.modules.Counter()
-    counter_tend = fr.modules.Counter()
     mset.diagnostics.add_module(counter_diag)
-    mset.tendencies.add_module(counter_tend)
     mset.setup()
 
     model = fr.Model(mset)
 
     model.run(steps=number_of_steps)
-    # check that the counters are reset
+    # check that the counter is correct
     assert model.model_state.clock.it == number_of_steps
     assert counter_diag.counter == number_of_steps
-    assert counter_tend.counter == number_of_steps
     model.save(directory + "/model_state")
 
     # check that the model has not panicked
     assert not model.model_state.panicked
 
     model.reset()
-    # check that the counters are reset
+    # check that the counter is reset
     assert model.model_state.clock.it == 0
     assert counter_diag.counter == 0
-    assert counter_tend.counter == 0
 
     # load the model state
     model = fr.Model(mset)
     model.load(directory + "/model_state")
 
     counter_diag = model.diagnostics.get("Counter")[0]
-    counter_tend = model.tendencies.get("Counter")[0]
 
-    # check that the counters are reset
+    # check that the counter is restored
     assert model.model_state.clock.it == number_of_steps
     assert counter_diag.counter == number_of_steps
-    assert counter_tend.counter == number_of_steps
 
     model.run(steps=number_of_steps)
 
-    # check that the counters are reset
+    # check that the counter continued counting
     assert counter_diag.counter == number_of_steps * 2
-    assert counter_tend.counter == number_of_steps * 2
 
     # check that the model has not panicked
     assert not model.model_state.panicked

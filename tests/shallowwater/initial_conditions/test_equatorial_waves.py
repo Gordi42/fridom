@@ -1,4 +1,5 @@
 """Test for the equatorial wave initial condition."""
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -8,7 +9,7 @@ import fridom.shallowwater as sw
 #  Constants
 # ================================================================
 RESOLUTION = 6  # N = 2**RESOLUTION = 64
-PI = sw.config.ncp.pi
+PI = jnp.pi
 
 # Constants related to the Earth
 EARTH_RADIUS = 6371e3

@@ -13,23 +13,20 @@ def test_standard_variable_to_numpy(variable):
 
 def test_array_to_numpy():
     x = fr.utils.random_array((10,))
-    if fr.config.backend != "numpy":
-        assert not isinstance(x, np.ndarray)
+    assert not isinstance(x, np.ndarray)
     y = to_numpy(x)
     assert isinstance(y, np.ndarray)
 
-def test_cupy_list_to_numpy():
+def test_list_to_numpy():
     x = [fr.utils.random_array((10,)) for _ in range(3)]
-    if fr.config.backend != "numpy":
-        assert not isinstance(x[0], np.ndarray)
+    assert not isinstance(x[0], np.ndarray)
     y = to_numpy(x)
     for yi in y:
         assert isinstance(yi, np.ndarray)
 
-def test_cupy_tuple_to_numpy():
+def test_tuple_to_numpy():
     x = tuple([fr.utils.random_array((10,)) for _ in range(3)])
-    if fr.config.backend != "numpy":
-        assert not isinstance(x[0], np.ndarray)
+    assert not isinstance(x[0], np.ndarray)
     y = to_numpy(x)
     for yi in y:
         assert isinstance(yi, np.ndarray)

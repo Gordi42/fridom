@@ -1,8 +1,8 @@
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom.framework as fr
-from fridom.framework import config
 
 # --------------------------------------------------------------
 #  Create fixtures for the tests
@@ -46,9 +46,9 @@ def grid(L, N):
 #  Testing
 # --------------------------------------------------------------
 
-def test_backend(grid):
+def test_array_type(grid):
     x = grid.x_mesh[0]
-    assert isinstance(x, config.ncp.ndarray)
+    assert isinstance(x, jnp.ndarray)
 
 def test_x(grid, n_dims, N, L, dx):
     x = grid.x_global
@@ -64,12 +64,11 @@ def test_X(grid, n_dims):
 
 def test_k(grid, n_dims, N, L):
     k = grid.k_global
-    ncp = config.ncp
     assert len(k) == n_dims
     for i in range(n_dims):
         assert k[i][0] == 0
         k_max = np.pi * N[i] / L[i]
-        assert max(ncp.abs(k[i])) == k_max
+        assert max(jnp.abs(k[i])) == k_max
 
 def test_K(grid, n_dims):
     K = grid.k_mesh

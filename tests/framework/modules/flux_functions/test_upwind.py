@@ -1,5 +1,6 @@
 """Tests for the upwind flux function."""
 
+import jax.numpy as jnp
 import pytest
 
 import fridom.framework as fr
@@ -54,7 +55,7 @@ def test_upwind_random(mset, n_dims):  # noqa: ARG001 (parametrized fixture)
     pos_mask = velocity.arr >= 0
     neg_mask = velocity.arr < 0
     # check that the upwind flux is correct
-    assert fr.config.ncp.allclose(
+    assert jnp.allclose(
         upwind_flux.arr[pos_mask], flux_left.arr[pos_mask])
-    assert fr.config.ncp.allclose(
+    assert jnp.allclose(
         upwind_flux.arr[neg_mask], flux_right.arr[neg_mask])

@@ -1,4 +1,5 @@
 """test_eigenvectors.py - Test the eigenvectors of the nonhydro model."""
+import jax.numpy as jnp
 import pytest
 
 import fridom.nonhydro as nh
@@ -73,7 +74,7 @@ def test_pq_is_kronecker_product(
     kx, ky, kz = grid.k_mesh
     mask = (kx ** 2 + ky ** 2 + kz ** 2) > 0
 
-    assert nh.config.ncp.allclose(pq.arr[mask], expected)
+    assert jnp.allclose(pq.arr[mask], expected)
 
 @pytest.mark.parametrize(*(
     "f0, beta, n_squared",
@@ -134,7 +135,7 @@ def test_nonperiodic_boundaries(mode1, periodic_boundaries, should_pass):
     kx, ky, kz = grid.k_mesh
     mask = (kx ** 2 + ky ** 2 + kz ** 2) > 0
 
-    assert nh.config.ncp.allclose(pq.arr[mask], expected)
+    assert jnp.allclose(pq.arr[mask], expected)
 
 @pytest.mark.parametrize("grid_shape", [(3, 3, 4), (3, 4, 3), (4, 4, 3)])
 def test_even_grid_size(mode1, mode2, grid_shape):
@@ -158,27 +159,26 @@ def test_even_grid_size(mode1, mode2, grid_shape):
             k_nyquist = grid.k_global[i][ni // 2]
             mask &= (grid.k_mesh[i] != k_nyquist)
 
-    assert nh.config.ncp.allclose(pq.arr[mask], expected)
+    assert jnp.allclose(pq.arr[mask], expected)
 
 def test_model_run(mset_2d: nh.ModelSettings, use_discrete):
-    ncp = nh.config.ncp
     grid = mset_2d.grid
     steps = 100
     # construct a wave using the eigenvector
     q = grid.vec_q(s=1, use_discrete=use_discrete)
     # we test a wave that fits twice in x and once in z
     lx, _ly, lz = grid.domain_size
-    kx = 4 * ncp.pi / lx
-    kz = 2 * ncp.pi / lz
+    kx = 4 * jnp.pi / lx
+    kz = 2 * jnp.pi / lz
     # construct a mask to select the mode
-    k_loc = ncp.isclose(grid.k_mesh[0], kx) & ncp.isclose(grid.k_mesh[2], kz)
-    mask = ncp.where(k_loc, 1, 0)
+    k_loc = jnp.isclose(grid.k_mesh[0], kx) & jnp.isclose(grid.k_mesh[2], kz)
+    mask = jnp.where(k_loc, 1, 0)
     # construct the initial condition
     z_ini = (q * mask).ifft()
     # get the frequency of the mode
     om = grid.omega(k=(kx, 0, kz), use_discrete=use_discrete)
     # set the time_step to a fraction of the period
-    period = 2 * ncp.pi / om.real
+    period = 2 * jnp.pi / om.real
     dt = float(0.001 * period)
     mset_2d.time_stepper.dt = dt
     # compute the time discretization effect on that frequency
@@ -193,7 +193,7 @@ def test_model_run(mset_2d: nh.ModelSettings, use_discrete):
     z_res = model.z
 
     # compute the expected solution
-    fac = ncp.exp(-1j * omt * steps * dt)
+    fac = jnp.exp(-1j * omt * steps * dt)
     z_exp = (q * mask * fac).ifft()
 
     # compute the tolerance based on whether discrete values are used or not

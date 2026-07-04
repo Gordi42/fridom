@@ -1,3 +1,4 @@
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -6,7 +7,6 @@ import fridom.nonhydro as nh
 
 @pytest.mark.parametrize("runlen", [1, 6, 24])  # in hours
 def test_linear_model(runlen):
-    ncp = nh.config.ncp
     f0 = 1e-4
     N2 = (50 * f0) ** 2
     N = tuple([16] * 3)
@@ -22,8 +22,8 @@ def test_linear_model(runlen):
     _Lx, Ly, Lz = grid.domain_size
 
     z = nh.State(mset)
-    z.u.arr = (ncp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2)
-               * ncp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2))
+    z.u.arr = (jnp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2)
+               * jnp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2))
     z.sync()
 
     initial_total_energy = z.etot.integrate().value
@@ -34,7 +34,7 @@ def test_linear_model(runlen):
 
     final_total_energy = model.z.etot.integrate().value
 
-    assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-3
+    assert jnp.abs(1 - final_total_energy / initial_total_energy) < 1e-3
 
 @pytest.mark.parametrize("periodic_bounds",
     [
@@ -45,7 +45,6 @@ def test_linear_model(runlen):
         (False, False, False),
     ])
 def test_boundary_conditions(periodic_bounds):
-    ncp = nh.config.ncp
     f0 = 1e-4
     N2 = (50 * f0) ** 2
     N = tuple([16] * 3)
@@ -63,9 +62,9 @@ def test_boundary_conditions(periodic_bounds):
 
     z = nh.State(mset)
     width = 0.05
-    z.b.arr = 0.1 * ncp.exp(-(Y - 3*Ly/4)**2 / (width*Ly)**2) * \
-                    ncp.exp(-(Z - 1*Lz/4)**2 / (width*Lz)**2) * \
-                    ncp.exp(-(X - 1*Lx/4)**2 / (width*Lx)**2)
+    z.b.arr = 0.1 * jnp.exp(-(Y - 3*Ly/4)**2 / (width*Ly)**2) * \
+                    jnp.exp(-(Z - 1*Lz/4)**2 / (width*Lz)**2) * \
+                    jnp.exp(-(X - 1*Lx/4)**2 / (width*Lx)**2)
 
     z.sync()
 
@@ -77,4 +76,4 @@ def test_boundary_conditions(periodic_bounds):
 
     final_total_energy = model.z.etot.integrate().value
 
-    assert ncp.abs(1 - final_total_energy / initial_total_energy) < 1e-2
+    assert jnp.abs(1 - final_total_energy / initial_total_energy) < 1e-2

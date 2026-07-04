@@ -1,3 +1,4 @@
+import jax.numpy as jnp
 import pytest
 
 import fridom.nonhydro as nh
@@ -30,5 +31,5 @@ def test_model_settings(grid_ini, f, N2):
     mset = nh.ModelSettings(grid_ini, f0=f, stratification_n2=N2)
     mset.setup()
     assert mset.grid == grid_ini
-    assert nh.config.ncp.allclose(mset.f_coriolis.arr, f)
+    assert jnp.allclose(mset.f_coriolis.arr, f)
     assert mset.stratification_n2 == N2

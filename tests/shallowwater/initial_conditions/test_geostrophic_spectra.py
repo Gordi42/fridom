@@ -2,6 +2,7 @@
 
 from functools import partial
 
+import jax.numpy as jnp
 import pytest
 
 import fridom.shallowwater as sw
@@ -10,7 +11,7 @@ import fridom.shallowwater as sw
 #  Constants
 # ================================================================
 RESOLUTION = 6  # N = 2**RESOLUTION - 1 = 63
-PI = sw.config.ncp.pi
+PI = jnp.pi
 
 # ================================================================
 #  Fixtures

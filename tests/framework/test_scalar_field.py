@@ -4,6 +4,7 @@ from copy import copy, deepcopy
 from pathlib import Path
 
 import dill
+import jax.numpy as jnp
 import pytest
 import xarray as xr
 
@@ -117,11 +118,11 @@ def test_init(mset_all, is_spectral, n_dims):
     # check if the field has the correct grid
     assert field.is_spectral == is_spectral
     # check if the underlying data is a numpy array with the correct dimensions
-    assert isinstance(field.arr, fr.config.ncp.ndarray)
+    assert isinstance(field.arr, jnp.ndarray)
     assert len(field.arr.shape) == n_dims
     # test if arr has the correct dtype
-    c = fr.config
-    expected_dtype = c.dtype_comp if is_spectral else c.dtype_real
+    expected_dtype = (fr.utils.dtype_comp() if is_spectral
+                      else fr.utils.dtype_real())
     assert field.arr.dtype == expected_dtype
 
 @pytest.mark.parametrize(*(
@@ -168,7 +169,7 @@ def test_topo_shape(mset, topo):
         ("mset", fr.ModelSettingsBase, None),  # mset is set in the fixture
         ("grid", fr.grid.cartesian.Grid, None),  # grid is set in the fixture
         ("is_spectral", bool, False),
-        ("arr", fr.config.ncp.ndarray, None),
+        ("arr", jnp.ndarray, None),
         # too lazy to set the expected value
         ("mdata", fr.FieldMetadata, None),
         ("name", str, "unnamed"),
@@ -201,7 +202,7 @@ def test_get_attr(mset, attr, expected_type, expected_value):
         ("mset", "readonly"),
         ("grid", "readonly"),
         ("is_spectral", "readonly"),
-        ("arr", fr.config.ncp.array([1, 2, 3])),
+        ("arr", jnp.array([1, 2, 3])),
         ("mdata", fr.FieldMetadata()),
         ("name", "new_name"),
         ("long_name", "New Name"),
@@ -222,7 +223,7 @@ def test_set_attr(mset, attr, value):
         return
     # set the attribute
     setattr(field, attr, value)
-    if isinstance(value, fr.config.ncp.ndarray):
+    if isinstance(value, jnp.ndarray):
         assert (field.arr == value).all()
     else:
         assert getattr(field, attr) == value
@@ -275,7 +276,7 @@ def test_fft_ifft(mset_all):
     # compute the inverse fft
     field_ifft = field_fft.ifft()
     assert not field_ifft.is_spectral
-    assert fr.config.ncp.allclose(field.arr, field_ifft.arr)
+    assert jnp.allclose(field.arr, field_ifft.arr)
 
 def test_fft_ifft_topo(field, topo, is_spectral):
     if all(topo):
@@ -286,7 +287,6 @@ def test_fft_ifft_topo(field, topo, is_spectral):
     not_implemented_for_non_full_domain_fields(op)
 
 def test_sync(field, topo, is_spectral):
-    ncp = fr.config.ncp
     # if the field is spectral, sync should do nothing (also no error)
     if is_spectral:
         field.sync()
@@ -305,9 +305,9 @@ def test_sync(field, topo, is_spectral):
     field_copy = deepcopy(diff_field)
     synced_field = field_copy.sync()
     # check if the inner points are the same
-    assert ncp.allclose(diff_field.unpad(), synced_field.unpad())
+    assert jnp.allclose(diff_field.unpad(), synced_field.unpad())
     # but the ghost points should be different
-    assert not ncp.allclose(diff_field.arr, synced_field.arr)
+    assert not jnp.allclose(diff_field.arr, synced_field.arr)
     # we did not rigourously check if the ghost points are correct since this
     # is tested in the grid class
 
@@ -330,7 +330,7 @@ def test_has_nan(field):
     # field should not have any nan values initially
     assert not field.has_nan()
     # set some nan values
-    field.arr = fr.utils.modify_array(field.arr, (0, 0), fr.config.ncp.nan)
+    field.arr = fr.utils.modify_array(field.arr, (0, 0), jnp.nan)
     assert field.has_nan()
 
 def test_copy(field):
@@ -350,10 +350,10 @@ def test_set_random(mset, topo, is_spectral):
         not_implemented_for_non_full_domain_fields(field.set_random)
         return
     # check that the field is all zeros initially
-    assert fr.config.ncp.allclose(field.arr, 0)
+    assert jnp.allclose(field.arr, 0)
     field.set_random(seed=12345)
     # check if the field is not all zeros
-    assert not fr.config.ncp.allclose(field.arr, 0)
+    assert not jnp.allclose(field.arr, 0)
 
 def test_unpad(field, topo, is_spectral):
     # if the field is not fully extended, unpad should raise an error
@@ -385,7 +385,7 @@ def test_get_mesh(field, topo):
     grid_mesh = field.grid.get_mesh(position=field.position,
                                     spectral=field.is_spectral)
     for (x1, x2) in zip(mesh, grid_mesh, strict=False):
-        assert fr.config.ncp.allclose(x1, x2)
+        assert jnp.allclose(x1, x2)
 
 @pytest.mark.parametrize("new_position", [
     fr.grid.Position((fr.grid.AxisPosition.FACE, fr.grid.AxisPosition.CENTER)),
@@ -455,7 +455,6 @@ def test_cumulative_integral(field,
                              axis,
                              base_func,
                              integral_func):
-    ncp = fr.config.ncp
     # if the field is spectral, cumulative_integral should raise an error
     if field.is_spectral:
         with pytest.raises(fr.exceptions.FieldSpaceError):
@@ -473,7 +472,7 @@ def test_cumulative_integral(field,
     # we need to evaluate the integral function at the correct position
     x, y = cum_int.get_mesh()
     expected = integral_func(x, y)
-    assert ncp.allclose(cum_int.arr, expected)
+    assert jnp.allclose(cum_int.arr, expected)
 
 @pytest.mark.parametrize("position", [
     pytest.param(fr.grid.AxisPosition.CENTER, id="center"),
@@ -506,7 +505,7 @@ def test_1d_forward_cumulative_integral(position, periodic):
     expected_field = expected_field.apply_water_mask()
 
     # check if the cumulative integral is correct
-    assert fr.config.ncp.allclose(cum_int.arr, expected_field.arr)
+    assert jnp.allclose(cum_int.arr, expected_field.arr)
 
 @pytest.mark.parametrize("position", [
     pytest.param(fr.grid.AxisPosition.CENTER, id="center",
@@ -543,7 +542,7 @@ def test_1d_backward_cumulative_integral(position, periodic):
     difference = (cum_int - expected_field).unpad()
 
     # check that the difference is everywhere the same
-    assert fr.config.ncp.allclose(difference, difference[0])
+    assert jnp.allclose(difference, difference[0])
 
 # ----------------------------------------------------------------
 #  Test xarray interface
@@ -598,7 +597,7 @@ def test_from_xr(mset, topo, field, key, possible):
     # new field should not be the same as the old field
     assert new_field is not field
     # arrays should be the same (up to machine precision)
-    assert fr.config.ncp.allclose(new_field.arr, field.arr)
+    assert jnp.allclose(new_field.arr, field.arr)
     # metadata should be the same
     assert new_field.mdata == field.mdata
 
@@ -611,7 +610,7 @@ def test_netcdf_save_load(mset, is_spectral, tmp_dir):
     new_field = fr.ScalarField.from_netcdf(mset, tmp_dir + "/field.nc")
     # check that the metadata and the array are the same
     assert new_field.mdata == field.mdata
-    assert fr.config.ncp.allclose(new_field.arr, field.arr)
+    assert jnp.allclose(new_field.arr, field.arr)
 
 # ----------------------------------------------------------------
 #  Test slicing methods
@@ -647,7 +646,7 @@ def test_dill(field, tmp_dir):
     # check if the metadata and the array are the same
     assert new_field is not field
     assert new_field.mdata == field.mdata
-    assert fr.config.ncp.allclose(new_field.arr, field.arr)
+    assert jnp.allclose(new_field.arr, field.arr)
 
 # ----------------------------------------------------------------
 #  Test shrink / extend methods
@@ -767,7 +766,7 @@ def test_apply_operator_with_field(mset, topo, is_spectral, op):
     # check if the metadata is the same
     assert new_field.mdata == field1.mdata
     # check if the array is the result of the operation
-    assert fr.config.ncp.allclose(new_field.arr, op(field1.arr, field2.arr))
+    assert jnp.allclose(new_field.arr, op(field1.arr, field2.arr))
 
 @pytest.mark.parametrize(*(
     "op",
@@ -796,7 +795,7 @@ def test_apply_operator_with_scalar(field, op):
     # check if the metadata is the same
     assert new_field.mdata == field.mdata
     # check if the array is the result of the operation
-    assert fr.config.ncp.allclose(new_field.arr, op(field.arr, scalar))
+    assert jnp.allclose(new_field.arr, op(field.arr, scalar))
 
 @pytest.mark.parametrize(*(
     "other",
@@ -847,12 +846,12 @@ def test_apply_operator_topo(mset, is_spectral, topo1, topo2):
         expected_data = field2.arr * 2.0
     else:
         expected_data = 4.0
-    assert fr.config.ncp.allclose(new_field.arr, expected_data)
+    assert jnp.allclose(new_field.arr, expected_data)
 
 def test_abs(field):
     new_field = abs(field)
     # check if the array is the absolute value of the original array
-    assert fr.config.ncp.allclose(new_field.arr, abs(field.arr))
+    assert jnp.allclose(new_field.arr, abs(field.arr))
 
 def test_norm_l2(field, is_spectral):
     if is_spectral:
@@ -867,7 +866,7 @@ def test_norm_l2(field, is_spectral):
     assert isinstance(norm, float)
     field *= 0
     field += 1
-    assert fr.config.ncp.allclose(field.norm_l2(), 2 ** 0.5)
+    assert jnp.allclose(field.norm_l2(), 2 ** 0.5)
 
 def test_dot_with_scalar_field(field, mset, is_spectral, dot_op):
     # if the spectral flag is different, the dot product should raise an error
@@ -881,7 +880,7 @@ def test_dot_with_scalar_field(field, mset, is_spectral, dot_op):
     # check if the result is a scalar field
     assert isinstance(result, fr.ScalarField)
     # check if the array is a * b.conj()
-    assert fr.config.ncp.allclose(result.arr, field.arr * other.arr.conj())
+    assert jnp.allclose(result.arr, field.arr * other.arr.conj())
 
 def test_dot_with_vector_field(field, mset, is_spectral, dot_op):
     # if the spectral flag is different, the dot product should raise an error
@@ -900,12 +899,12 @@ def test_dot_with_tensor_field(field, mset, is_spectral):...
 def test_conj(field):
     new_field = field.conj()
     # check if the array is the complex conjugate of the original array
-    assert fr.config.ncp.allclose(new_field.arr, field.arr.conj())
+    assert jnp.allclose(new_field.arr, field.arr.conj())
 
 def test_neg(field):
     new_field = -field
     # check if the array is the negative of the original array
-    assert fr.config.ncp.allclose(new_field.arr, -field.arr)
+    assert jnp.allclose(new_field.arr, -field.arr)
 
 # ================================================================
 #  JAX JIT tests
@@ -926,9 +925,7 @@ def test_jit(mset, op):
         return op(f)
     new_field = func(field)
     assert isinstance(new_field, fr.ScalarField)
-    assert fr.config.ncp.allclose(new_field.arr, op(field).arr)
-    if not fr.config.backend_is_jax:
-        return
+    assert jnp.allclose(new_field.arr, op(field).arr)
     # check if a gradient can be computed
     import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
     @jax.grad
