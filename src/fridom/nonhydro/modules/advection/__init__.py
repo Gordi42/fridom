@@ -14,7 +14,6 @@ if TYPE_CHECKING:  # pragma: no cover
         UpwindAdvection,
     )
 
-    from .flux_divergence_base import FluxDivergenceBase
     from .spectral_advection import SpectralAdvection
 
 # ================================================================
@@ -32,7 +31,6 @@ all_imports_by_origin = {
         "CenteredAdvection",
         "UpwindAdvection",
     ],
-    f"{base_path}.flux_divergence_base": ["FluxDivergenceBase"],
     f"{base_path}.spectral_advection": ["SpectralAdvection"],
 }
 
