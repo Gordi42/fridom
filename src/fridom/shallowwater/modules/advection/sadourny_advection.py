@@ -105,8 +105,9 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
             fx = zf.u * interp(quantity, east)
             fy = zf.v * interp(quantity, north)
 
+            # df = -∇(vC) + C ∇v = -v ∇C is the advective tendency
             df = - diff_mod.div((fx, fy)) + quantity * div
-            dz.fields[name] -= scale * df
+            dz.fields[name] += scale * df
 
         # ----------------------------------------------------------------
         #  Advection of momentum
