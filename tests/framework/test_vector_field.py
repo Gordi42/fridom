@@ -910,3 +910,98 @@ def test_jit(mset, op):
     import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
     grad_func = jax.grad(lambda f: func(f).sum()[0].arr.item().real)
     grad_func(vec)
+
+# ================================================================
+#  Additional branch tests
+# ================================================================
+
+def test_vector_dim_mismatch_raises(mset):
+    field = fr.ScalarField(mset, name="f")
+    with pytest.raises(ValueError, match="Vector dimension mismatch"):
+        fr.VectorField(mset, field_list=[field], vector_dim=2)
+
+def test_duplicate_custom_field_names_raise(mset):
+    field = fr.ScalarField(mset, name="u")
+    fields = OrderedDict([("u", field)])
+    custom = [fr.FieldMetadata(name="u")]
+    with pytest.raises(ValueError, match="Field names not unique"):
+        fr.VectorField._add_custom_fields(mset, fields, custom)
+
+def test_project_with_physical_vectors(mset, vector):
+    p_vec = fr.VectorField(mset, vector_dim=2).set_random(seed=1)
+    q_vec = fr.VectorField(mset, vector_dim=2).set_random(seed=2)
+
+    projected = vector.project(p_vec, q_vec)
+
+    assert isinstance(projected, fr.VectorField)
+    assert not projected.is_spectral
+
+def test_block_until_ready(vector):
+    assert vector.block_until_ready() is vector
+
+def test_getitem_invalid_key_raises(vector):
+    with pytest.raises(ValueError, match="Invalid key type"):
+        _ = vector[object()]
+
+def test_setitem_invalid_key_raises(mset, vector):
+    field = fr.ScalarField(mset, name="new")
+    with pytest.raises(TypeError, match="Invalid key type"):
+        vector[object()] = field
+
+def test_info_property(mset):
+    field = fr.ScalarField(mset, name="f", long_name="My Field",
+                           units="m/s")
+    vec = fr.VectorField(mset, field_list=[field])
+    assert vec.info == {"f": "My Field  [m/s]"}
+
+def test_fields_setter_with_mixed_spectral_raises(mset, vector):
+    physical = fr.ScalarField(mset, name="a")
+    spectral = fr.ScalarField(mset, name="b", is_spectral=True)
+    with pytest.raises(ValueError, match="same spectral flag"):
+        vector.fields = OrderedDict([("a", physical), ("b", spectral)])
+
+def test_is_spectral_with_no_fields_raises(mset):
+    vec = fr.VectorField(mset, vector_dim=0)
+    with pytest.raises(ValueError, match="0 components"):
+        _ = vec.is_spectral
+
+def test_dot_with_tensor_field_raises(vector):
+    class FakeTensor(fr.TensorField):
+        def __init__(self):
+            pass
+
+        @property
+        def is_spectral(self):
+            return False
+
+    with pytest.raises(TypeError, match="tensor field not possible"):
+        vector.dot(FakeTensor())
+
+def test_dot_with_invalid_type_raises(vector):
+    class FakeField:
+        is_spectral = False
+
+    with pytest.raises(TypeError, match="Invalid type for dot product"):
+        vector.dot(FakeField())
+
+def test_project_with_spectral_vectors(mset, vector):
+    p_vec = fr.VectorField(mset, vector_dim=2).set_random(seed=1).fft()
+    q_vec = fr.VectorField(mset, vector_dim=2).set_random(seed=2).fft()
+
+    projected = vector.fft().project(p_vec, q_vec)
+    assert projected.is_spectral
+
+def test_sync_spectral_is_noop(vector):
+    spectral = vector.fft()
+    assert spectral.sync() is spectral
+
+def test_set_zero(vector):
+    vector.set_zero()
+    for field in vector:
+        assert jnp.abs(field.arr).max() == 0
+
+def test_fields_setter_and_field_list(mset, vector):
+    a = fr.ScalarField(mset, name="a")
+    b = fr.ScalarField(mset, name="b")
+    vector.fields = OrderedDict([("a", a), ("b", b)])
+    assert vector.field_list == [a, b]
