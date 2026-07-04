@@ -19,35 +19,36 @@ def tmp_dir():
     with tempfile.TemporaryDirectory() as tmpdirname:
         yield tmpdirname
 
-@pytest.fixture(params=[1, 2, 3])
+@pytest.fixture(scope="module", params=[1, 2, 3])
 def n_dims(request):
     return request.param
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def shape(n_dims):
     return (3, 10, 4)[:n_dims]
 
 # default grid is 2D with shape (3, 10)
-@pytest.fixture
+@pytest.fixture(scope="module")
 def grid():
     return fr.grid.cartesian.Grid(shape=(3, 10), domain_size=(1, 2))
 
 # for some tests we test different grid shapes
-@pytest.fixture
+@pytest.fixture(scope="module")
 def grid_all(shape):
     return fr.grid.cartesian.Grid(shape=shape,
                                   domain_size=(1, 2, 3)[:len(shape)])
 
-# default model settings
-@pytest.fixture
+# default model settings (module-scoped: tests must not mutate it)
+@pytest.fixture(scope="module")
 def mset(grid):
     mset = fr.ModelSettingsBase(grid)
     mset.halo = 1
     mset.setup()
     return mset
 
-# model settings for different grid shapes
-@pytest.fixture
+# model settings for different grid shapes (module-scoped: tests must
+# not mutate it)
+@pytest.fixture(scope="module")
 def mset_all(grid_all):
     mset = fr.ModelSettingsBase(grid_all)
     mset.halo = 1

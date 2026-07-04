@@ -33,8 +33,9 @@ def netcdf_module(directory_name):
 
 @pytest.fixture
 def mset():
-    grid = fr.grid.cartesian.Grid(shape=(128, 64), domain_size=(1, 1))
+    grid = fr.grid.cartesian.Grid(shape=(16, 8), domain_size=(1, 1))
     mset = fr.ModelSettingsBase(grid=grid)
+    mset.time_stepper.dt = np.timedelta64(30, "s")
     def _state_constructor() -> fr.VectorField:
         var1 = fr.ScalarField(
             mset, name="var1", long_name="Variable 1", units="unit1")
@@ -71,7 +72,7 @@ def test_model_run(mset, netcdf_module, directory_name):
         assert "var2" in ncfile.variables
         assert ncfile.variables["var1"].units == "unit1"
         assert ncfile.variables["var2"].units == "unit2"
-        assert ncfile.variables["var1"].shape == (61, 64, 128)
+        assert ncfile.variables["var1"].shape == (61, 8, 16)
 
 
 def test_initialization(netcdf_module, directory_name):

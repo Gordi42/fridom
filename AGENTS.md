@@ -22,11 +22,16 @@ which the modern code (e.g. `framework/modules/module.py`,
 
 ```bash
 uv sync --extra dev                        # create/refresh .venv with dev deps
-uv run pytest tests/                       # run the test suite
-uv run pytest tests/framework              # run a subset
+uv run pytest tests/ -n 8 --dist loadfile  # run the full test suite (parallel)
+uv run pytest tests/framework              # run a subset (serial)
 uv run ruff check src tests                # lint (must stay at zero errors)
 uv run pre-commit install                  # install the ruff pre-commit hook
 ```
+
+- For full-suite runs use pytest-xdist with `--dist loadfile`: tests in the
+  same file share jit-compilation caches, so grouping by file minimizes
+  redundant compilations across workers. For single files or debugging
+  (`-x`, `--pdb`), run serially.
 
 - The repo ships a uv-managed environment (`.venv` + `uv.lock`); run everything
   through `uv run` (or activate `.venv`) so the correct interpreter and pinned

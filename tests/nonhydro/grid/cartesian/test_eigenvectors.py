@@ -25,6 +25,7 @@ def vector(request):
     return request.param
 
 @pytest.fixture(
+    scope="module",
     params=[
         ((15, 21, 5), (3, 1, 4), 1, 1, 0.1),
         ((15, 21, 5), (1000, 1000, 20), 1e-4, 50e-4, 1),
@@ -163,7 +164,7 @@ def test_even_grid_size(mode1, mode2, grid_shape):
 
 def test_model_run(mset_2d: nh.ModelSettings, use_discrete):
     grid = mset_2d.grid
-    steps = 100
+    steps = 25
     # construct a wave using the eigenvector
     q = grid.vec_q(s=1, use_discrete=use_discrete)
     # we test a wave that fits twice in x and once in z

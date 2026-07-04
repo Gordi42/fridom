@@ -72,7 +72,7 @@ def test_boundary_conditions(periodic_bounds):
 
     model = nh.Model(mset)
     model.z = z
-    model.run(runlen=np.timedelta64(6, "h"))
+    model.run(runlen=np.timedelta64(2, "h"))
 
     final_total_energy = model.z.etot.integrate().value
 

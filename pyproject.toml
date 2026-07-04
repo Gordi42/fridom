@@ -41,6 +41,7 @@ cuda = ["jax[cuda12]"]
 dev = [
   "pylint",
   "pytest",
+  "pytest-xdist",
   "coverage",
   "ruff",
   "pre-commit",

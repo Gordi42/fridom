@@ -20,11 +20,12 @@ def tmp_dir():
     with tempfile.TemporaryDirectory() as tmpdirname:
         yield tmpdirname
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def grid():
     return fr.grid.cartesian.Grid(shape=(3, 10), domain_size=(1, 2))
 
-@pytest.fixture
+# module-scoped: tests must not mutate the model settings
+@pytest.fixture(scope="module")
 def mset(grid):
     mset = fr.ModelSettingsBase(grid)
     mset.halo = 1

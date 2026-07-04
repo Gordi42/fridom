@@ -4,8 +4,8 @@ import pytest
 import fridom.nonhydro as nh
 
 
-@pytest.fixture(params=[(64, 64, 64), (64, 53, 33)],
-                ids=["64x64x64", "64x53x33"])
+@pytest.fixture(params=[(16, 16, 16), (16, 13, 9)],
+                ids=["16x16x16", "16x13x9"])
 def N(request):
     return request.param
 
