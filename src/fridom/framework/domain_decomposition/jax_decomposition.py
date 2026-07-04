@@ -83,6 +83,10 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         self, arr: ndarray, flat_axes: list[int] | None = None,
     ) -> ndarray:
         """Synchronize the halo regions of an array across all processes."""
+        # nothing to do if there are no halo regions
+        if self.halo == 0:
+            return arr
+
         halo = self.halo
         n_devices = self.n_devices
 
