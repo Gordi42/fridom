@@ -290,10 +290,9 @@ class ZarrWriter(fr.modules.Module):
             fr.log.debug(f"Closing Zarr store: {self._zarr_store.store_path}")
             zarr.consolidate_metadata(self._zarr_store.store_path)
 
-        del self._zarr_store
+        self._zarr_store = None
         self._var_arrs = None
         self._time = None
-        self._ncfile = None
         self._file_is_open = False
 
     # ----------------------------------------------------------------

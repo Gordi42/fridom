@@ -77,6 +77,10 @@ filterwarnings = [
   # netCDF4 1.7.4 was compiled against an older numpy; the size-changed
   # warning on import is benign (cython binary compatibility notice).
   "ignore:numpy.ndarray size changed:RuntimeWarning",
+  # the zarr writer intentionally uses consolidated metadata with zarr
+  # format 3 (the source ignores this warning as well); see
+  # fridom/framework/modules/zarr_writer.py
+  "ignore:Consolidated metadata is currently not part in the Zarr format 3:zarr.errors.ZarrUserWarning",
 ]
 
 [tool.coverage.run]
