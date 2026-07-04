@@ -22,9 +22,11 @@ classifiers = [
 ]
 dependencies = [
   "lazypimp",
+  "jax",
   "numpy",
   "scipy",
   "netCDF4",
+  "zarr",
   "tqdm",
   "dill",
   "IPython",
@@ -35,12 +37,8 @@ dependencies = [
 license = {file = "LICENSE"}
 
 [project.optional-dependencies]
-cupy = ["cupy"]
-jax = ["jax"]
-jax-cuda = ["jax[cuda12]"]
+cuda = ["jax[cuda12]"]
 dev = [
-  "jax[cuda12]",
-  "cupy-cuda12x",
   "pylint",
   "pytest",
   "coverage",

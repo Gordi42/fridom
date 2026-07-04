@@ -11,11 +11,10 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
-        backend: ["numpy", "jax_cpu"]  # TODO: Should also test gpu backends
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
       with:
@@ -30,23 +29,12 @@ jobs:
       run: |
         pip install -e .
 
-    - name: Install the backends
-      run: |
-        if [ "${{ matrix.backend }}" == "jax_cpu" ]; then
-          pip install jax
-        elif [ "${{ matrix.backend }}" == "jax_gpu" ]; then
-          pip install jax["cuda12"]
-        elif [ "${{ matrix.backend }}" == "cupy" ]; then
-          pip install cupy-cuda12
-        fi
-      
     - name: Install additional dependencies
       run: |
         pip install xarray
 
     - name: Run the tests
       run: |
-        export FRIDOM_BACKEND="${{ matrix.backend }}"
         pytest --cov=src --junitxml=junit.xml -o junit_family=legacy .
 
     - name: Upload test results
@@ -54,10 +42,8 @@ jobs:
       uses: codecov/test-results-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        flags: ${{ matrix.backend }}
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        flags: ${{ matrix.backend }}
