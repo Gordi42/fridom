@@ -349,7 +349,7 @@ def _check_for_horizontal_periodic_boundaries(mset: nh.ModelSettings) -> None:
 
 def _check_use_discrete_argument(
         dx: tuple[float] | None,
-        use_discrete: bool,  # noqa: FBT001
+        use_discrete: bool,
 ) -> None:
     r"""
     Check if the use_discrete argument is used correctly.
@@ -381,7 +381,7 @@ def omega(s: int,
           dsqr: float,
           k: tuple[float] | tuple[ndarray],
           dx: tuple[float] | None = None,
-          use_discrete: bool = False,  # noqa: FBT001 FBT002
+          use_discrete: bool = False,
           ) -> ndarray:
     r"""
     Return eigenvalues of the System matrix.
@@ -448,7 +448,7 @@ def _vec_q_geostrophic(
         f0: float,
         k: tuple[float] | tuple[ndarray],
         dx: tuple[float] | None = None,
-        use_discrete: bool = True,  # noqa: FBT001 FBT002
+        use_discrete: bool = True,
 ) -> tuple[ndarray]:
     """Return geostrophic q eigenvector."""
     _check_use_discrete_argument(dx, use_discrete)
@@ -492,10 +492,9 @@ def _vec_q_geostrophic(
 def _vec_q_divergent(
         k: tuple[float] | tuple[ndarray],
         dx: tuple[float] | None = None,
-        use_discrete: bool = True,  # noqa: FBT001 FBT002
+        use_discrete: bool = True,
     ) -> tuple[ndarray]:
     """Return divergent q eigenvector."""
-
     _check_use_discrete_argument(dx, use_discrete)
 
     kx, ky, kz = tuple(ncp.asarray(k) for k in k)
@@ -535,7 +534,7 @@ def _vec_q_igw(
         dsqr: float,
         k: tuple[float] | tuple[ndarray],
         dx: tuple[float] | None = None,
-        use_discrete: bool = True,  # noqa: FBT001 FBT002
+        use_discrete: bool = True,
     ) -> tuple[ndarray]:
     """Return inertial-gravity wave q eigenvectors."""
     _check_use_discrete_argument(dx, use_discrete)
@@ -595,7 +594,7 @@ def _vec_q(
         dsqr: float,
         k: tuple[float] | tuple[ndarray],
         dx: tuple[float] | None = None,
-        use_discrete: bool = True,  # noqa: FBT001 FBT002
+        use_discrete: bool = True,
 ) -> tuple[ndarray]:
     if s == 0:
         return _vec_q_geostrophic(f0, k, dx, use_discrete)
@@ -608,7 +607,7 @@ def _vec_q(
 
 def vec_q(mset: nh.ModelSettings,
           s: int | str,
-          use_discrete: bool = True) -> None:  # noqa: FBT001 FBT002
+          use_discrete: bool = True) -> None:
     r"""
     Return eigenvectors of the System matrix and the divergence vector.
 
@@ -711,7 +710,7 @@ def _vec_p_geostrophic(
         n_squared: float,
         k: tuple[float] | tuple[ndarray],
         dx: tuple[float] | None = None,
-        use_discrete: bool = True,  # noqa: FBT001 FBT002
+        use_discrete: bool = True,
 ) -> tuple[ndarray]:
     """Return geostrophic projection vectors."""
     _check_use_discrete_argument(dx, use_discrete)
@@ -749,7 +748,7 @@ def _vec_p_geostrophic(
 def _vec_p_divergent(
     k: tuple[float] | tuple[ndarray],
     dx: tuple[float] | None = None,
-    use_discrete: bool = True,  # noqa: FBT001 FBT002
+    use_discrete: bool = True,
 ) -> tuple[ndarray]:
     """Return divergent projection vectors."""
     _check_use_discrete_argument(dx, use_discrete)
@@ -774,7 +773,7 @@ def _vec_p_igw(
         dsqr: float,
         k: tuple[float] | tuple[ndarray],
         dx: tuple[float] | None = None,
-        use_discrete: bool = True,  # noqa: FBT001 FBT002
+        use_discrete: bool = True,
 ) -> tuple[ndarray]:
     _check_use_discrete_argument(dx, use_discrete)
 
@@ -833,7 +832,7 @@ def _vec_p(
         dsqr: float,
         k: tuple[float] | tuple[ndarray],
         dx: tuple[float] | None = None,
-        use_discrete: bool = True,  # noqa: FBT001 FBT002
+        use_discrete: bool = True,
 ) -> tuple[ndarray]:
     if s == 0:
         return _vec_p_geostrophic(f0, n_squared, k, dx, use_discrete)
@@ -846,7 +845,7 @@ def _vec_p(
 
 def vec_p(mset: nh.ModelSettings,
           s: int | str,
-          use_discrete: bool = True) -> None:  # noqa: FBT001 FBT002
+          use_discrete: bool = True) -> None:
     r"""
     Return the projection vectors of the System matrix.
 

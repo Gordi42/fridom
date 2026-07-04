@@ -1,7 +1,10 @@
-import fridom.framework as fr
 import os
 
+import fridom.framework as fr
+
+
 class FigureSaver(fr.modules.Module):
+
     r"""
     Saves a figure created by a Plotter module to a file.
 
@@ -22,7 +25,8 @@ class FigureSaver(fr.modules.Module):
     `dpi` : `int`
         The resolution of the figure in dots per inch.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  filename: str,
                  model_time: float,
                  plotter: fr.modules.animation.ModelPlotter,

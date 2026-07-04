@@ -1,6 +1,7 @@
+from numpy import ndarray
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
-from numpy import ndarray
 
 
 @fr.utils.jaxify
@@ -11,7 +12,7 @@ class Grid(fr.grid.cartesian.Grid):
                  ):
         super().__init__(N, L, periodic_bounds, domain_decomp=domain_decomp)
 
-    def omega(self, 
+    def omega(self,
               k: tuple[float] | tuple[ndarray],
               use_discrete: bool = False
               ) -> ndarray:

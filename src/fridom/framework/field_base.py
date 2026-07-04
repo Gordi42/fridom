@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Callable, Literal, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Literal, Self, TypeVar
 
 import numpy as np
 
@@ -488,8 +489,8 @@ class FieldBase:
         self.xr.to_netcdf(path, auto_complex=True)
 
     @classmethod
-    def from_netcdf(cls: type[T],
-                    mset: fr.ModelSettingsBase, path: str) -> T:
+    def from_netcdf(cls,
+                    mset: fr.ModelSettingsBase, path: str) -> Self:
         r"""
         Create a field from a NetCDF file.
 
@@ -793,10 +794,10 @@ class FieldBase:
 
         """
 
-    def __abs__(self: T) -> T:
+    def __abs__(self) -> Self:
         return self.abs()
 
-    def norm_l2(self: T) -> float:
+    def norm_l2(self) -> float:
         r"""
         Calculate the L2 norm of the field.
 
@@ -825,40 +826,40 @@ class FieldBase:
         field: T,
         other: any) -> T: ...
 
-    def __add__(self: T, other: any) -> T:
+    def __add__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x + y, self, other)
 
-    def __radd__(self: T, other: any) -> T:
+    def __radd__(self, other: any) -> Self:
         return self.__add__(other)
 
-    def __sub__(self: T, other: any) -> T:
+    def __sub__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x - y, self, other)
 
-    def __rsub__(self: T, other: any) -> T:
+    def __rsub__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: y - x, self, other)
 
-    def __mul__(self: T, other: any) -> T:
+    def __mul__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x * y, self, other)
 
-    def __rmul__(self: T, other: any) -> T:
+    def __rmul__(self, other: any) -> Self:
         return self.__mul__(other)
 
-    def __truediv__(self: T, other: any) -> T:
+    def __truediv__(self, other: any) -> Self:
         with np.errstate(divide="ignore", invalid="ignore"):
             return self._apply_operation(lambda x, y: x / y, self, other)
 
-    def __rtruediv__(self: T, other: any) -> T:
+    def __rtruediv__(self, other: any) -> Self:
         with np.errstate(divide="ignore", invalid="ignore"):
             return self._apply_operation(lambda x, y: y / x, self, other)
 
-    def __pow__(self: T, other: any) -> T:
+    def __pow__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x ** y, self, other)
 
-    def __rpow__(self: T, other: any) -> T:
+    def __rpow__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: y ** x, self, other)
 
     def __matmul__(self, other: FieldBase) -> FieldBase:
         return self.dot(other)
 
-    def __neg__(self: T) -> T:
+    def __neg__(self) -> Self:
         return self._apply_operation(lambda x, _: -x, self, None)

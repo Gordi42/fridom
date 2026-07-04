@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable, Iterator
 from copy import copy
 from functools import partial
-from typing import Callable, Iterator, Literal, TypeVar
+from typing import Literal, Self, TypeVar
 
 import numpy as np
 
@@ -159,21 +160,21 @@ class VectorField(fr.FieldBase):
     #  General Methods
     # ================================================================
 
-    def fft(self: T,  # noqa: D102
+    def fft(self,  # noqa: D102
             padding: FFTPadding = FFTPadding.NOPADDING,
-            ) -> T:
+            ) -> Self:
         return self.apply_elementwise(self,
                                       lambda field: field.fft(padding=padding))
 
-    def ifft(self: T,  # noqa: D102
+    def ifft(self,  # noqa: D102
              padding: FFTPadding = FFTPadding.NOPADDING,
-             ) -> T:
+             ) -> Self:
         return self.apply_elementwise(self,
                                       lambda field: field.ifft(padding=padding))
 
-    def project(self: T,
-                p_vec: T,
-                q_vec: T) -> T:
+    def project(self,
+                p_vec: Self,
+                q_vec: Self) -> Self:
         r"""
         Project a Vector Field onto a (spectral) vector.
 
@@ -219,7 +220,7 @@ class VectorField(fr.FieldBase):
             vec = vec.ifft()
         return vec
 
-    def sync(self: T) -> T:  # noqa: D102
+    def sync(self) -> Self:  # noqa: D102
         # TODO(Silvano): the test for spectral space should not be necessary
         # sync should move to the grid
         if self.vector_dim == 0 or self.is_spectral:
@@ -233,7 +234,7 @@ class VectorField(fr.FieldBase):
             field.arr = arr
         return self
 
-    def apply_water_mask(self: T) -> T:  # noqa: D102
+    def apply_water_mask(self) -> Self:  # noqa: D102
         for field in self:
             field.apply_water_mask()
         return self
@@ -247,17 +248,17 @@ class VectorField(fr.FieldBase):
             field.block_until_ready()
         return self
 
-    def set_zero(self: T) -> T:  # noqa: D102
+    def set_zero(self) -> Self:  # noqa: D102
         for field in self:
             field.set_zero()
         return self
 
-    def set_random(self: T, seed: int = 1234) -> T:  # noqa: D102
+    def set_random(self, seed: int = 1234) -> Self:  # noqa: D102
         for i, field in enumerate(self):
             field.set_random(i * seed)
         return self
 
-    def __copy__(self: T) -> T:
+    def __copy__(self) -> Self:
         # create a new vector field, but copy the fields
         return self.apply_elementwise(self, lambda field: copy(field))
 
@@ -265,9 +266,9 @@ class VectorField(fr.FieldBase):
     #  Differential Operators
     # ================================================================
 
-    def diff(self: T,  # noqa: D102
+    def diff(self,  # noqa: D102
              axis: int,
-             ) -> T:
+             ) -> Self:
         return self.apply_elementwise(self, lambda field: field.diff(axis))
 
     def grad(self,  # noqa: D102
@@ -276,9 +277,9 @@ class VectorField(fr.FieldBase):
         # TODO(Silvano): add implementation after TensorField is implemented
         raise NotImplementedError("grad not implemented yet")
 
-    def laplacian(self: T,  # noqa: D102
+    def laplacian(self,  # noqa: D102
                   axes: tuple[int] | None = None,
-                  ) -> T:
+                  ) -> Self:
         return self.apply_elementwise(self, lambda field: field.laplacian(axes))
 
     def div(self) -> fr.ScalarField:  # noqa: D102
@@ -314,10 +315,10 @@ class VectorField(fr.FieldBase):
         return fr.utils.SliceableAttribute(slicer)
 
     @classmethod
-    def from_xarray(cls: type[T],  # noqa: D102
+    def from_xarray(cls,  # noqa: D102
                     mset: fr.ModelSettingsBase,
                     ds: xr.Dataset,
-                    ) -> T:
+                    ) -> Self:
         # get the list of variable names
         var_names = ds.attrs["var_names"]
         vector_dim = ds.attrs["vector_dim"]
@@ -435,22 +436,22 @@ class VectorField(fr.FieldBase):
     #  Shrink / Extend operations
     # ================================================================
 
-    def extend(self: T, topo: tuple[bool]) -> T:  # noqa: D102
+    def extend(self, topo: tuple[bool]) -> Self:  # noqa: D102
         self.apply_elementwise(self, lambda field: field.extend(topo))
 
-    def sum(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def sum(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.sum(axes))
 
-    def max(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def max(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.max(axes))
 
-    def min(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def min(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.min(axes))
 
-    def integrate(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def integrate(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.integrate(axes))
 
-    def mean(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def mean(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.mean(axes))
 
     # ================================================================
@@ -487,9 +488,9 @@ class VectorField(fr.FieldBase):
         """
         return 2 * (self - other).norm_l2() / (self.norm_l2() + other.norm_l2())
 
-    def dot(self: T,  # noqa: D102
+    def dot(self,  # noqa: D102
             other: fr.ScalarField | VectorField | fr.TensorField,
-            ) -> fr.ScalarField | VectorField | T:
+            ) -> fr.ScalarField | VectorField | Self:
         # check that the spectral flag is the same
         if self.is_spectral != other.is_spectral:
             msg = "Cannot take dot product of spectral and real fields"
@@ -508,10 +509,10 @@ class VectorField(fr.FieldBase):
         msg = f"Invalid type for dot product: {type(other)}"
         raise TypeError(msg)
 
-    def conj(self: T) -> T:  # noqa: D102
+    def conj(self) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.conj())
 
-    def abs(self: T) -> T:  # noqa: D102
+    def abs(self) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: abs(field))
 
     @staticmethod

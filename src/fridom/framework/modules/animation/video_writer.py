@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
-from typing import Union
 
 import numpy as np
 
@@ -211,7 +210,7 @@ class VideoWriter(fr.modules.Module):
 
     def show_video(self, width=600):
         from IPython.display import Video
-        return Video(self.filename, width=width, embed=True) 
+        return Video(self.filename, width=width, embed=True)
 
     @property
     def info(self) -> dict:  # noqa: D102

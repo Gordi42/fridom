@@ -2,6 +2,7 @@ import fridom.shallowwater as sw
 
 
 class Jet(sw.State):
+
     """
     Two opposing instable jets.
 
@@ -41,7 +42,8 @@ class Jet(sw.State):
     `geo_proj` : `bool`
         Whether to project the initial condition to the geostrophic subspace.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: sw.ModelSettings,
                  wavenum: int = 2,
                  waveamp: float = 0.1,

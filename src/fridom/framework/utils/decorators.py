@@ -1,7 +1,9 @@
 """decorators.py: Utilities for decorators."""
 import os
-from typing import Callable
+from collections.abc import Callable
+
 from PIL import Image
+
 
 def skip_on_doc_build(func: callable) -> callable:
     """
@@ -30,7 +32,7 @@ def skip_on_doc_build(func: callable) -> callable:
     ...     return "This function is skipped when building the documentation."
     """
     # check if we are building the documentation
-    if os.getenv('FRIDOM_DOC_GENERATION') == 'True':
+    if os.getenv("FRIDOM_DOC_GENERATION") == "True":
         def do_nothing(*args, **kwargs):  # pylint: disable=unused-argument
             return None
         return do_nothing
@@ -70,7 +72,7 @@ def cache_figure(
     """
     def wrapper():
         # Find out the main file name
-        filename = f"figures/{name.split('.')[0]}.png"
+        filename = f"figures/{name.split('.', maxsplit=1)[0]}.png"
         # Create the cache directory if it does not exist
         os.makedirs("figures", exist_ok=True)
         # Check if we need to compute the figure

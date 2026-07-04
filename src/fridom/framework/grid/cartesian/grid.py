@@ -3,13 +3,14 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Literal
 
-import fridom.framework as fr
 import numpy as np
-from functools import partial
+
+import fridom.framework as fr
 
 
 @fr.utils.jaxify
 class Grid(fr.grid.GridBase):
+
     """
     An n-dimensional cartesian grid with capabilities for fourier transforms.
     
@@ -61,7 +62,8 @@ class Grid(fr.grid.GridBase):
         dx, dy, dz = grid.dx
 
     """
-    def __init__(self, 
+
+    def __init__(self,
                  N: list[int],
                  L: list[float],
                  periodic_bounds: list[bool] | None = None,
@@ -113,12 +115,11 @@ class Grid(fr.grid.GridBase):
         self._fft: fr.grid.cartesian.FFT | None = None
         self._diff_module = diff_mod or fr.grid.cartesian.FiniteDifferences()
         self._interp_module = interp_mod or fr.grid.cartesian.LinearInterpolation()
-        return
 
-    def setup(self, 
-              mset: 'fr.ModelSettingsBase', 
+    def setup(self,
+              mset: fr.ModelSettingsBase,
               req_halo: int | None = None,
-              fft_module: 'fr.grid.cartesian.FFT | None' = None,
+              fft_module: fr.grid.cartesian.FFT | None = None,
               ) -> None:
         ncp = fr.config.ncp
         dtype = fr.config.dtype_real
@@ -127,7 +128,7 @@ class Grid(fr.grid.GridBase):
         #  Initialize the domain decomposition
         # --------------------------------------------------------------
         if req_halo is None:
-            req_halo = max(self._diff_module.required_halo, 
+            req_halo = max(self._diff_module.required_halo,
                            self._interp_module.required_halo)
             req_halo = max(req_halo, mset.halo)
         # get the domain decomposition module
@@ -181,7 +182,6 @@ class Grid(fr.grid.GridBase):
         # This is called last since some of the setup methods of the grid base
         # class depend on the attributes set here.
         super().setup(mset)
-        return
 
     def get_mesh(self,
                  position: fr.grid.Position | None = None,
@@ -210,7 +210,7 @@ class Grid(fr.grid.GridBase):
     # ================================================================
     #  Fourier Transforms
     # ================================================================
-    def fft(self, 
+    def fft(self,
             arr: np.ndarray,
             padding = fr.grid.FFTPadding.NOPADDING,
             bc_types: tuple[fr.grid.BCType] | None = None,
@@ -221,13 +221,13 @@ class Grid(fr.grid.GridBase):
         f = lambda x, axes: self._fft.forward(x, axes, bc_types, positions)
         forward = self._domain_decomp.parallel_forward_transform(f)
         u_hat = forward(arr, axes)
-        
+
         # Apply padding if necessary
         if padding == fr.grid.FFTPadding.EXTEND:
             u_hat = self.domain_decomp.unpad_extend(u_hat)
         return u_hat
 
-    def ifft(self, 
+    def ifft(self,
              arr: np.ndarray,
              padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
@@ -373,7 +373,7 @@ class Grid(fr.grid.GridBase):
             res["dx"] += f" x {fr.utils.humanize_number(self.dx[i], 'meters')}"
             res["Periodic"] += f" x {self.periodic_bounds[i]}"
         return res
-        
+
     @property
     def L(self) -> tuple:
         """Domain size in each direction."""
@@ -399,12 +399,12 @@ class Grid(fr.grid.GridBase):
     def K(self) -> tuple | None:
         """Spectral meshgrid on the local domain."""
         return self._K
-    
+
     @property
     def k_local(self) -> tuple | None:
         """Spectral k-vectors on the local domain."""
         return self._k_local
-    
+
     @property
     def k_global(self) -> tuple | None:
         """Global spectral k-vectors."""

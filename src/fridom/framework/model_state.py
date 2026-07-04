@@ -1,11 +1,13 @@
 """model_state.py - The base class for model states."""
 from functools import partial
+
 import fridom.framework as fr
 
 
 # pylint: disable=too-many-instance-attributes
-@partial(fr.utils.jaxify, dynamic=('_z', '_z_diag', '_dz', '_clock'))
+@partial(fr.utils.jaxify, dynamic=("_z", "_z_diag", "_dz", "_clock"))
 class ModelState:
+
     """
     Stores the model state variables and the time information.
     
@@ -24,11 +26,12 @@ class ModelState:
         The clock object to keep track of the model time.
 
     """
+
     def __init__(self,
-                 mset: 'fr.ModelSettingsBase',
-                 z: 'fr.VectorField' | None = None,
-                 z_diag: 'fr.VectorField' | None = None,
-                 dz: 'fr.VectorField' | None = None,
+                 mset: "fr.ModelSettingsBase",
+                 z: "fr.VectorField" | None = None,
+                 z_diag: "fr.VectorField" | None = None,
+                 dz: "fr.VectorField" | None = None,
                  clock: fr.Clock | None = None,
                  ) -> None:
         self.mset = mset
@@ -80,14 +83,14 @@ class ModelState:
     #  Properties
     # ================================================================
     @property
-    def z(self) -> 'fr.VectorField':
+    def z(self) -> "fr.VectorField":
         """
         The state vector.
         """
         return self._z
 
     @z.setter
-    def z(self, value: 'fr.VectorField') -> None:
+    def z(self, value: "fr.VectorField") -> None:
         # if the vector is empty, just set it
         if value.vector_dim == 0:
             self._z = value
@@ -101,12 +104,12 @@ class ModelState:
         self._z = value
 
     @property
-    def z_diag(self) -> 'fr.VectorField':
+    def z_diag(self) -> "fr.VectorField":
         """The diagnostic state vector."""
         return self._z_diag
 
     @z_diag.setter
-    def z_diag(self, value: 'fr.VectorField') -> None:
+    def z_diag(self, value: "fr.VectorField") -> None:
         # if the vector is empty, just set it
         if value.vector_dim == 0:
             self._z_diag = value
@@ -120,12 +123,12 @@ class ModelState:
         self._z_diag = value
 
     @property
-    def dz(self) -> 'fr.VectorField':
+    def dz(self) -> "fr.VectorField":
         """The tendency vector."""
         return self._dz
 
     @dz.setter
-    def dz(self, value: 'fr.VectorField') -> None:
+    def dz(self, value: "fr.VectorField") -> None:
         if value is None:
             self._dz = value
             return
@@ -141,7 +144,7 @@ class ModelState:
         self._dz = value
 
     @property
-    def clock(self) -> 'fr.Clock':
+    def clock(self) -> "fr.Clock":
         """
         The clock of the model.
         """

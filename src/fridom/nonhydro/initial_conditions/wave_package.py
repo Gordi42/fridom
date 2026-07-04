@@ -1,6 +1,8 @@
 import fridom.nonhydro as nh
 
+
 class WavePackage(nh.State):
+
     r"""
     Wave package initial condition.
     
@@ -54,13 +56,14 @@ class WavePackage(nh.State):
         The period of the wave (only for inertia-gravity modes).
     
     """
-    def __init__(self, 
-                 mset: nh.ModelSettings, 
+
+    def __init__(self,
+                 mset: nh.ModelSettings,
                  mask_pos: tuple[float | None],
                  mask_width: tuple[float | None],
                  k: tuple[int],
-                 s: int = 1, 
-                 phase: float = 0, 
+                 s: int = 1,
+                 phase: float = 0,
                  ) -> None:
         super().__init__(mset)
 
@@ -95,5 +98,4 @@ class WavePackage(nh.State):
 
         # save the state
         self.fields = z.fields
-        return
-        
+

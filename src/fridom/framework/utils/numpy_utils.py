@@ -1,9 +1,11 @@
 """numpy_utils.py - Utilities for numpy operations."""
-from copy import deepcopy
 import inspect
-from typing import Union
+from copy import deepcopy
+
 import numpy as np
+
 import fridom.framework as fr
+
 if fr.utils.MPI_AVAILABLE:
     from mpi4py import MPI
 else:
@@ -28,8 +30,8 @@ def _handle_ndarray(obj: np.ndarray) -> np.ndarray:
         case "jax_cpu" | "jax_gpu":
             return np.array(obj)
 
-def _handle_iterable(obj: Union[dict, list, tuple, set],
-                     memo: dict) -> Union[dict, list, tuple, set]:
+def _handle_iterable(obj: dict | list | tuple | set,
+                     memo: dict) -> dict | list | tuple | set:
     """Handle dictionaries, lists, tuples, and sets."""
     if isinstance(obj, dict):
         return {key: to_numpy(value, memo) for key, value in obj.items()}
@@ -135,7 +137,7 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object
 
     return memo[d]
 
-def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
+def to_seconds(t: float | np.datetime64 | np.timedelta64) -> float:
     """
     Convert a time to seconds.
 

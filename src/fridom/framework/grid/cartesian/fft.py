@@ -1,10 +1,11 @@
-import fridom.framework as fr
-
-from typing import Callable
+from collections.abc import Callable
+from functools import partial
 
 # Import external modules
 import numpy as np
-from functools import partial
+
+import fridom.framework as fr
+
 # Import internal modules
 from fridom.framework import config, utils
 
@@ -21,14 +22,14 @@ def _apply_weights(x, weights, axis):
     y = ncp.moveaxis(y, -1, axis)
     return y
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+@partial(utils.jaxjit, static_argnames=["axis", "N"])
 def dct_type2(x, axis, N):
     ncp = config.ncp
     n, k = _create_kn_mesh(N)
     weights = 2 * ncp.cos((ncp.pi / N) * k * (n + 0.5))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+@partial(utils.jaxjit, static_argnames=["axis", "N"])
 def idct_type2(x, axis, N):
     ncp = config.ncp
     k, n = _create_kn_mesh(N)
@@ -36,7 +37,7 @@ def idct_type2(x, axis, N):
     weights = utils.modify_array(weights, (0, slice(None)), 1)
     return _apply_weights(x, weights, axis) / (2 * N)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+@partial(utils.jaxjit, static_argnames=["axis", "N"])
 def dst_type1(x, axis, N):
     # we assume that the position of the variable is at the cell edges
     # |-----x-----|-----x-----|-----x-----|-----x-----|
@@ -58,7 +59,7 @@ def dst_type1(x, axis, N):
     weights = weights * -1j * ncp.exp(1j*k*ncp.pi/(2*N))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+@partial(utils.jaxjit, static_argnames=["axis", "N"])
 def idst_type1(x, axis, N):
     ncp = config.ncp
     k, n = _create_kn_mesh(N)
@@ -67,14 +68,14 @@ def idst_type1(x, axis, N):
     weights = weights * 1j * ncp.exp(-1j*k*ncp.pi/(2 * N))
     return _apply_weights(x, weights, axis) / (2 * N)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+@partial(utils.jaxjit, static_argnames=["axis", "N"])
 def dst_type2(x, axis, N):
     ncp = config.ncp
     n, k = _create_kn_mesh(N)
     weights = -2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*N))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
+@partial(utils.jaxjit, static_argnames=["axis", "N"])
 def idst_type2(x, axis, N):
     ncp = config.ncp
     k, n = _create_kn_mesh(N)
@@ -93,6 +94,7 @@ def r2r(transform: Callable) -> Callable:
 
 @utils.jaxify
 class FFT:
+
     """
     Class for performing fourier transforms on a cartesian grid.
     
@@ -124,9 +126,10 @@ class FFT:
         w = fft.backward(v).real
         assert np.allclose(u, w)
     """
-    def __init__(self, 
+
+    def __init__(self,
                  periodic: tuple[bool]) -> None:
-        
+
         # --------------------------------------------------------------
         #  Check which axis to apply fft, dct
         # --------------------------------------------------------------
@@ -146,10 +149,9 @@ class FFT:
         self._periodic = periodic
         self._fft_axes = fft_axes
         self._dct_axes = dct_axes
-        return
 
-    def get_freq(self, shape: tuple[int], 
-                 dx: tuple[float], ) -> tuple[np.ndarray]:
+    def get_freq(self, shape: tuple[int],
+                 dx: tuple[float] ) -> tuple[np.ndarray]:
         """
         Get the frequencies for the given shape and dx.
         
@@ -191,8 +193,8 @@ class FFT:
                 k.append(ncp.linspace(0, ncp.pi/dx[i], shape[i], endpoint=False))
         return tuple(k)
 
-    def forward(self, 
-                u: np.ndarray, 
+    def forward(self,
+                u: np.ndarray,
                 axes: list[int] | None = None,
                 bc_types: tuple[fr.grid.BCType] | None = None,
                 positions: tuple[fr.grid.AxisPosition] | None = None,
@@ -232,12 +234,12 @@ class FFT:
 
         if positions is None:
             positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
-        
+
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
                 u_hat = r2r(scp.fft.dct)(u_hat, axis=axis, type=2)
-            
+
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:
                     u_hat = dst_type2(u_hat, axis, u_hat.shape[axis])
@@ -249,7 +251,7 @@ class FFT:
 
         return u_hat
 
-    def backward(self, u_hat: np.ndarray, 
+    def backward(self, u_hat: np.ndarray,
                  axes: list[int] | None = None,
                  bc_types: tuple[fr.grid.BCType] | None = None,
                  positions: tuple[fr.grid.AxisPosition] | None = None,
@@ -289,12 +291,12 @@ class FFT:
 
         if positions is None:
             positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
-        
+
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
                 u = r2r(scp.fft.idct)(u, axis=axis, type=2)
-            
+
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:
                     u = idst_type2(u, axis, u.shape[axis])

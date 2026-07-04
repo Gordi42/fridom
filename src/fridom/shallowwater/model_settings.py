@@ -1,8 +1,6 @@
 """Model settings for the 2D shallow water model."""
 from __future__ import annotations
 
-from typing import Literal
-
 import fridom.framework as fr
 import fridom.shallowwater as sw
 

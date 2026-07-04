@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from functools import partial
 from numpy import ndarray
+
 import fridom.framework as fr
 
 ncp = fr.config.ncp
@@ -37,11 +37,11 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         self._recv_from_prev = _make_slice_tuple(slice(None, halo))
 
         # create paddings for halo exchange
-        self._pw_periodic = [(halo, halo) if self.periods[i] else (0, 0) 
+        self._pw_periodic = [(halo, halo) if self.periods[i] else (0, 0)
                              for i in range(self.n_dims)]
-        self._pw_nonperiodic = [(0, 0) if self.periods[i] else (halo, halo) 
+        self._pw_nonperiodic = [(0, 0) if self.periods[i] else (halo, halo)
                                 for i in range(self.n_dims)]
-        paddings = tuple(tuple((halo, halo) if i == j else (0, 0) 
+        paddings = tuple(tuple((halo, halo) if i == j else (0, 0)
                                for i in range(self.n_dims))
                          for j in range(self.n_dims))
         self._paddings = paddings
@@ -120,13 +120,13 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                 arr = self._sync_non_periodic_axis(arr, axis)
         return arr
 
-    def _sync_periodic_axis(self, x: ndarray, axis: int,) -> ndarray:
+    def _sync_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
         halo = self.halo
         x = ncp.swapaxes(x, 0, axis)
         x = ncp.concatenate([ x[-2*halo:-halo], x[halo:-halo], x[halo:2*halo] ], axis=0)
         return ncp.swapaxes(x, 0, axis)
 
-    def _sync_non_periodic_axis(self, x: ndarray, axis: int,) -> ndarray:
+    def _sync_non_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
         halo = self.halo
         x = ncp.swapaxes(x, 0, axis)
         halo_region = ncp.zeros_like(x[:halo])
@@ -148,8 +148,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             pw_periodic[axis] = (0, 0)
             pw_nonperiodic[axis] = (0, 0)
         # pad the array
-        arr = ncp.pad(arr, tuple(pw_periodic), mode='wrap')
-        arr = ncp.pad(arr, tuple(pw_nonperiodic), mode='constant')
+        arr = ncp.pad(arr, tuple(pw_periodic), mode="wrap")
+        arr = ncp.pad(arr, tuple(pw_nonperiodic), mode="constant")
         return arr
 
     def unpad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
@@ -165,28 +165,28 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Spectral paddings
     # ----------------------------------------------------------------
 
-    def _pad_extend_axis(self, 
-                         arr: ndarray, 
+    def _pad_extend_axis(self,
+                         arr: ndarray,
                          axis: int,
                          ) -> ndarray:
         ncp = fr.config.ncp
         if self.periods[axis]:
             first_part = arr[self._extend_first_halfs[axis]]
             second_part = arr[self._extend_second_halfs[axis]]
-            first_part = ncp.pad(first_part, self._extend_pad[axis], mode='constant')
+            first_part = ncp.pad(first_part, self._extend_pad[axis], mode="constant")
             arr = ncp.concatenate((first_part, second_part), axis=axis)
         else:
-            arr = ncp.pad(arr, self._extend_pad[axis], mode='constant')
+            arr = ncp.pad(arr, self._extend_pad[axis], mode="constant")
         return arr
 
-    def _unpad_extend_axis(self, 
-                           arr: ndarray, 
+    def _unpad_extend_axis(self,
+                           arr: ndarray,
                            axis: int,
                            ) -> ndarray:
         ncp = fr.config.ncp
         if self.periods[axis]:
             arr = ncp.concatenate(
-                (arr[self._extend_first_halfs[axis]], 
+                (arr[self._extend_first_halfs[axis]],
                  arr[self._extend_second_halfs[axis]]), axis=axis)
         else:
             arr = arr[self._extend_unpad_slices[axis]]
@@ -212,21 +212,20 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Gather
     # ================================================================
 
-    def gather(self, 
-               arr: ndarray, 
+    def gather(self,
+               arr: ndarray,
                slc: tuple[slice] | None = None,
                dest_rank: int | None = None,
                spectral: bool = False) -> ndarray:
         if arr.shape == self.shape:
             return arr[slc]
-        else:
-            return arr[self._inner_slice][slc]
+        return arr[self._inner_slice][slc]
 
     # ================================================================
     #  Array creation
     # ================================================================
 
-    def _get_array_attrs(self, 
+    def _get_array_attrs(self,
                          topo: tuple[bool] | None
                          ) -> tuple[tuple[int], tuple[int]]:
         """
@@ -255,8 +254,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                     shape[i] = 1
         return tuple(shape), tuple(flat_axes)
 
-    def create_array(self, 
-                     pad: bool = True, 
+    def create_array(self,
+                     pad: bool = True,
                      spectral: bool = False,
                      topo: tuple[bool] | None = None
                      ) -> ndarray:
@@ -269,7 +268,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr = self.pad(arr, flat_axes)
         return arr
 
-    def create_random_array(self, 
+    def create_random_array(self,
                             seed: int = 1234,
                             pad: bool = True,
                             spectral: bool = False,
@@ -288,11 +287,11 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             return self.pad(arr, flat_axes)
         return arr
 
-    def create_meshgrid(self, 
-                        *args: ndarray, 
+    def create_meshgrid(self,
+                        *args: ndarray,
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:
-        X = fr.config.ncp.meshgrid(*args, indexing='ij')
+        X = fr.config.ncp.meshgrid(*args, indexing="ij")
         if pad:
             X = tuple(self.pad(x) for x in X)
         return X
@@ -302,21 +301,21 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     # ================================================================
 
     def sum(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         arr = self.unpad(arr)
         return fr.config.ncp.sum(arr, axis=axes, keepdims=True)
 
     def max(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         arr = self.unpad(arr)
         return fr.config.ncp.max(arr, axis=axes, keepdims=True)
 
     def min(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         arr = self.unpad(arr)

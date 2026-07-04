@@ -2,6 +2,7 @@ import fridom.shallowwater as sw
 
 
 class SingleWave(sw.State):
+
     r"""
     An initial condition that consist of a single wave with a
     given wavenumber and a given mode.
@@ -51,11 +52,12 @@ class SingleWave(sw.State):
         Whether to use the discrete eigenvectors or the analytical ones.
 
     """
-    def __init__(self, 
-                 mset: sw.ModelSettings, 
+
+    def __init__(self,
+                 mset: sw.ModelSettings,
                  k: tuple[int],
-                 s: int = 1, 
-                 phase: float = 0, 
+                 s: int = 1,
+                 phase: float = 0,
                  use_discrete: bool = True) -> None:
         super().__init__(mset, is_spectral=False)
 
@@ -85,7 +87,7 @@ class SingleWave(sw.State):
 
         # Normalize the state
         z /= z.norm_l2()
-        
+
         # Set the state
         self.fields = z.fields
 
@@ -98,4 +100,3 @@ class SingleWave(sw.State):
         # save the wavenumbers
         self.kx = kx
         self.ky = ky
-        return

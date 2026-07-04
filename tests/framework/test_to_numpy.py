@@ -1,9 +1,11 @@
-import fridom.framework as fr
-from fridom.framework.utils import to_numpy
 import numpy as np
 import pytest
 
-@pytest.mark.parametrize("variable", [1, 1.0, "string", 'c'])
+import fridom.framework as fr
+from fridom.framework.utils import to_numpy
+
+
+@pytest.mark.parametrize("variable", [1, 1.0, "string", "c"])
 def test_standard_variable_to_numpy(variable):
     np.variable = to_numpy(variable)
     assert np.variable == variable

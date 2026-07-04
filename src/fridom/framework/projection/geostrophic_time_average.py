@@ -1,9 +1,12 @@
-import fridom.framework as fr
-from typing import Union
-import numpy as np
 from copy import copy, deepcopy
 
+import numpy as np
+
+import fridom.framework as fr
+
+
 class GeostrophicTimeAverage(fr.projection.Projection):
+
     """
     Projection onto the geostrophic subspace using time-averaging
     
@@ -36,9 +39,10 @@ class GeostrophicTimeAverage(fr.projection.Projection):
     `__call__(z: State) -> State`
         The projection of the state onto the geostrophic subspace using time-averaging.
     """
-    def __init__(self, 
-                 mset: 'fr.ModelSettingsBase', 
-                 max_period: Union[np.timedelta64, float, int, None],
+
+    def __init__(self,
+                 mset: "fr.ModelSettingsBase",
+                 max_period: np.timedelta64 | float | None,
                  n_ave: int = 4,
                  equidistant_chunks: bool = True,
                  backward_forward: bool = False,
@@ -48,7 +52,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         super().__init__(mset)
         self.n_ave = n_ave
         self.max_period = max_period
-        
+
         # construct the averaging periods
         if equidistant_chunks:
             self.periods = np.linspace(max_period/2, max_period, n_ave+1)[1:][::-1]
@@ -67,9 +71,8 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         # disable diagnostics
         if disable_diagnostic:
             self.model.diagnostics.disable()
-        return
 
-    def __call__(self, z: 'fr.VectorField') -> 'fr.VectorField':
+    def __call__(self, z: "fr.VectorField") -> "fr.VectorField":
         """
         Project a state to the geostrophic subspace using time-averaging.
         Warning: This method is computationally expensive.
@@ -87,7 +90,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         z_ave = copy(z)
         model = self.model
         time_stepper = model.time_stepper
-        
+
         fr.log.info("Starting time averaging")
         for n_its in self.n_steps:
             # forward averaging

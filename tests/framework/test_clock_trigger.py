@@ -151,7 +151,7 @@ def test_count_triggers_with_stop(time_interval, step_number, expected_triggers)
 @pytest.mark.parametrize(*(
     "clock_trigger, expected_repr",
     [
-        (fr.ClockTrigger(), 
+        (fr.ClockTrigger(),
          "ClockTrigger(start_date=None, time_interval=None, stop_date=None)"),
         (fr.ClockTrigger(start_date=10.0, time_interval=1.0, stop_date=20.0),
          "ClockTrigger(start_date=10.0, time_interval=1.0, stop_date=20.0)"),

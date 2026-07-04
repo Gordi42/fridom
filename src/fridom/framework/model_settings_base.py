@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Literal, TypeVar
+from typing import Literal, Self, TypeVar
 
 import fridom.framework as fr
 
@@ -114,7 +114,7 @@ class ModelSettingsBase:
     def setup_settings_parameters(self) -> None:
         """Set the model settings parameters up."""
 
-    def setup(self: T, setup_mode: Literal["default", "forced"] = "default") -> T:
+    def setup(self, setup_mode: Literal["default", "forced"] = "default") -> Self:
         """
         Set the model settings up.
 
@@ -264,7 +264,7 @@ class ModelSettingsBase:
     def pre_step_diagnostics(self) -> fr.modules.ModuleContainer:
         """The module container for all diagnostics that should run before the time step."""
         return self._pre_step_diagnostics
-    
+
     @pre_step_diagnostics.setter
     def pre_step_diagnostics(self, value: fr.modules.ModuleContainer) -> None:
         self._pre_step_diagnostics = value

@@ -1,15 +1,17 @@
 # TODO(Silvano): This is very old code. Update it to the new framework structure.
 
-from fridom.shallowwater.state import State
 from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+from fridom.framework.modules.module import Module, start_module, update_module
+from fridom.shallowwater.state import State
 
 
 class PolarizedWaveMaker(Module):
+
     """
     A polarized wave maker
     """
-    def __init__(self, 
+
+    def __init__(self,
                  kx: float = 6.0,
                  ky: float = 0.0,
                  s: int = 1,
@@ -37,7 +39,7 @@ class PolarizedWaveMaker(Module):
                          amplitude=amplitude,
                          mask_pos=mask_pos,
                          mask_width=mask_width)
-    
+
     @start_module
     def start(self):
         # Shortcuts
@@ -65,7 +67,7 @@ class PolarizedWaveMaker(Module):
         self.z_mask = z.copy()
 
         # project again on wave mode
-        from fridom.shallowwater.eigenvectors import VecQ, VecP
+        from fridom.shallowwater.eigenvectors import VecP, VecQ
         q = VecQ(self.s, self.grid)
         p = VecP(self.s, self.grid)
         z = z.fft()
@@ -76,8 +78,7 @@ class PolarizedWaveMaker(Module):
         # save the state
         self.z_real = z_real
         self.z_imag = z_imag
-        return
-    
+
     @update_module
     def update(self, mz: ModelState, dz: State) -> None:
         """
@@ -93,7 +94,6 @@ class PolarizedWaveMaker(Module):
         dz.u[:] += z.u
         dz.v[:] += z.v
         dz.h[:] += z.h
-        return
 
     def __repr__(self) -> str:
         res = super().__repr__()
@@ -104,6 +104,6 @@ class PolarizedWaveMaker(Module):
         res += f"    mask_pos: {self.mask_pos}\n"
         res += f"    mask_width: {self.mask_width}\n"
         return res
-    
+
 # remove symbols from namespace
 del State, ModelState, Module, update_module, start_module

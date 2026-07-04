@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from abc import abstractmethod
+
 import numpy as np
 from numpy import ndarray
+
 import fridom.framework as fr
 
 
 @fr.utils.jaxify
 class DomainDecomposition:
+
     """
     Construct a grid of processors and decompose a global domain into subdomains.
     
@@ -57,6 +60,7 @@ class DomainDecomposition:
         Optional list of device ids to use. If None, all devices are used.
         This option is useful for coupled simulations.
     """
+
     def __init__(self,
                  shape: tuple[int],
                  halo: int = 0,
@@ -216,8 +220,8 @@ class DomainDecomposition:
     # ================================================================
 
     @abstractmethod
-    def gather(self, 
-               arr: ndarray, 
+    def gather(self,
+               arr: ndarray,
                slc: tuple[slice] | None = None,
                dest_rank: int | None = None,
                spectral: bool = False) -> ndarray:
@@ -243,8 +247,8 @@ class DomainDecomposition:
     # ================================================================
 
     @abstractmethod
-    def create_array(self, 
-                     pad: bool = True, 
+    def create_array(self,
+                     pad: bool = True,
                      spectral: bool = False,
                      topo: tuple[bool] | None = None) -> ndarray:
         """
@@ -261,7 +265,7 @@ class DomainDecomposition:
         """
 
     @abstractmethod
-    def create_random_array(self, 
+    def create_random_array(self,
                             seed: int = 1234,
                             pad: bool = True,
                             spectral: bool = False,
@@ -284,8 +288,8 @@ class DomainDecomposition:
         """
 
     @abstractmethod
-    def create_meshgrid(self, 
-                        *args: ndarray, 
+    def create_meshgrid(self,
+                        *args: ndarray,
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:
         """
@@ -306,8 +310,8 @@ class DomainDecomposition:
     # ================================================================
 
     @abstractmethod
-    def sum(self, 
-            arr: ndarray, 
+    def sum(self,
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         """
@@ -326,7 +330,7 @@ class DomainDecomposition:
 
     @abstractmethod
     def max(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         """
@@ -345,7 +349,7 @@ class DomainDecomposition:
 
     @abstractmethod
     def min(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         """

@@ -1,6 +1,7 @@
 from copy import deepcopy
+
 import fridom.framework as fr
-from functools import partial
+
 
 @fr.utils.jaxify
 class SpectralDiff(fr.grid.DiffModule):
@@ -20,15 +21,14 @@ class SpectralDiff(fr.grid.DiffModule):
     name = "Spectral Difference"
 
     @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
+    def setup(self, mset: "fr.ModelSettingsBase") -> None:
         super().setup(mset)
         # check if the grid is either a cartesian grid or a spectral grid
-        if not isinstance(self.mset.grid, 
+        if not isinstance(self.mset.grid,
                           (fr.grid.spectral.Grid, fr.grid.cartesian.Grid)):
             raise ValueError("SpectralDiff requires a spectral or cartesian grid")
-        return
 
-    def diff(self, 
+    def diff(self,
              f: fr.ScalarField,
              axis: int,
              ) -> fr.ScalarField:

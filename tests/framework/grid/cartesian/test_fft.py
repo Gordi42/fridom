@@ -1,5 +1,7 @@
 import pytest
+
 import fridom.framework as fr
+
 
 @pytest.fixture(params=[10, 11], ids=["nx=10", "nx=11"])
 def nx(request):
@@ -37,7 +39,7 @@ def test_dct1D(nx, lx, kx):
     u_hat = fr.utils.modify_array(u_hat, kx, 0)
     assert ncp.allclose(u_hat, 0)
 
-@pytest.fixture(params=[(True, True, True), 
+@pytest.fixture(params=[(True, True, True),
                         (False, True, True),
                         (True, False, True),
                         (True, True, False),

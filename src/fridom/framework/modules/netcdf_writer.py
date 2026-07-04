@@ -1,8 +1,8 @@
 """netcdf_writer.py - Writing model output to NetCDF files."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 from netCDF4 import Dataset

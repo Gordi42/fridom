@@ -1,8 +1,11 @@
 """model_plotter.py - A module for creating and updating a figure object"""
 import numpy as np
+
 import fridom.framework as fr
 
+
 class ModelPlotter:
+
     """
     A model plotter contains the logic for creating and updating a figure object
     
@@ -27,7 +30,8 @@ class ModelPlotter:
         this method does not need to be overwritten. However, if a different
         plotting library is used, this method must be overwritten.
     """
-    def __new__(cls, mz: 'fr.ModelState'):
+
+    def __new__(cls, mz: "fr.ModelState"):
         fig = cls.create_figure()
         cls.update_figure(fig, **cls.prepare_arguments(mz))
         return fig
@@ -42,7 +46,7 @@ class ModelPlotter:
         return plt.figure()
 
     @staticmethod
-    def prepare_arguments(mz: 'fr.ModelState') -> dict:
+    def prepare_arguments(mz: "fr.ModelState") -> dict:
         """
         This method should prepare the arguments for the update_figure method.
         """

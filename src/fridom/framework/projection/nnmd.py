@@ -1,8 +1,11 @@
-import fridom.framework as fr
-from scipy.special import comb
 import numpy as np
+from scipy.special import comb
+
+import fridom.framework as fr
+
 
 class NNMD(fr.projection.Projection):
+
     r"""
     Nonlinear normal mode decomposition
 
@@ -352,7 +355,8 @@ class NNMD(fr.projection.Projection):
     .. [3] Warn, T., Bokhove, O., Shepherd, T.G. and Vallis, G.K. (1995), Rossby number expansions, slaving principles, and balance dynamics. Q.J.R. Meteorol. Soc., 121: 723-739. https://doi.org/10.1002/qj.49712152313
     .. [4] Eden, C., Chouksey, M., & Olbers, D. (2019). Gravity wave emission by shear instability. Journal of Physical Oceanography, 49(9), 2393-2406.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: fr.ModelSettingsBase,
                  order=3,
                  use_model=True,
@@ -387,8 +391,8 @@ class NNMD(fr.projection.Projection):
             self.model_state = fr.ModelState(mset)
             self.model_state.dz = mset.state_constructor()
             self.subnnmd = NNMD(
-                mset, 
-                order=order-1, 
+                mset,
+                order=order-1,
                 use_model=self.use_model,
                 use_discrete=use_discrete,
                 advection=advection,
@@ -397,8 +401,7 @@ class NNMD(fr.projection.Projection):
         # set other parameters
         self.order = order
         self.enable_dealiasing = enable_dealiasing
-        return
-    
+
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
         """
         Project a state to the balanced subspace.
@@ -447,16 +450,16 @@ class NNMD(fr.projection.Projection):
         linear_tendency = mset.tendencies.update(mz).dz
         mset.tendencies.advection.enable()
         return (mset.tendencies.update(mz).dz - linear_tendency)
-    
-    
+
+
     # ================================================================
     #  The nonlinear interaction terms
     # ================================================================
     def _advect_state(self, z: fr.VectorField) -> fr.VectorField:
         return self.advection(z)
 
-    def bilinear_form(self, 
-                   z1: fr.VectorField, 
+    def bilinear_form(self,
+                   z1: fr.VectorField,
                    z2: fr.VectorField) -> fr.VectorField:
         r"""
         Calculate the symmetrical bilinear form.
@@ -542,7 +545,6 @@ class NNMD(fr.projection.Projection):
         self.fields = np.full((3, self.order+1, self.order+1), None, dtype=object)
         # the zero-order terms of the wave modes are zero
         self.fields[1:,0,:] = 0
-        return
 
     # ================================================================
     #  The n-th order terms of k-th order derivative
@@ -554,7 +556,7 @@ class NNMD(fr.projection.Projection):
         mode, order_series, order_derivative = key
 
         # check if the mode is valid
-        if not mode in [0, 1, 2]:
+        if mode not in [0, 1, 2]:
             raise ValueError("Mode must be 0, 1, or 2.")
 
         # check if the order is zero for mode 0

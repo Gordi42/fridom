@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from typing import Literal
-
-import fridom.framework as fr
-from numpy import ndarray
 from abc import abstractmethod
 from functools import partial
+from typing import Literal
+
+from numpy import ndarray
+
+import fridom.framework as fr
 
 
-@partial(fr.utils.jaxify, dynamic=('_X', '_x_global', '_K', '_k_global'))
+@partial(fr.utils.jaxify, dynamic=("_X", "_x_global", "_K", "_k_global"))
 class GridBase:
+
     """
     Base class for all grids in the framework.
     
@@ -27,6 +29,7 @@ class GridBase:
     `mpi_available` : `bool`
         Indicates whether the grid supports MPI parallelization.
     """
+
     def __init__(self, n_dims: int) -> None:
 
         self.name = "GridBase"
@@ -69,7 +72,6 @@ class GridBase:
         self._mpi_available = False
         self._spectral_grid = False
 
-        return
 
     def setup(self, mset: fr.ModelSettingsBase) -> None:
         """
@@ -80,12 +82,11 @@ class GridBase:
         `mset` : `ModelSettingsBase`
             The model settings object. This is for example needed to
             determine the required halo size.
-        """       
+        """
         self._diff_module.setup(mset=mset)
         self._interp_module.setup(mset=mset)
-        return
 
-    def get_mesh(self, 
+    def get_mesh(self,
                  position: fr.grid.Position | None = None,
                  spectral: bool = False
     ) -> tuple[ndarray]:
@@ -117,7 +118,7 @@ class GridBase:
     # ----------------------------------------------------------------
 
     @abstractmethod
-    def fft(self, 
+    def fft(self,
              arr: ndarray,
              padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
@@ -148,7 +149,7 @@ class GridBase:
         raise NotImplementedError
 
     @abstractmethod
-    def ifft(self, 
+    def ifft(self,
              arr: ndarray,
              padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
@@ -183,7 +184,7 @@ class GridBase:
     # ----------------------------------------------------------------
 
     @abstractmethod
-    def omega(self, 
+    def omega(self,
               k: tuple[float] | tuple[ndarray],
               use_discrete: bool = False
               ) -> ndarray:
@@ -259,7 +260,7 @@ class GridBase:
         """
         if self._omega_space_discrete is None:
             self._omega_space_discrete = self.omega(self.K, use_discrete=True)
-        
+
         return self._omega_space_discrete
 
     @property
@@ -279,8 +280,8 @@ class GridBase:
     #  Domain Decomposition Methods
     # ----------------------------------------------------------------
 
-    def sync(self, 
-             arr: ndarray, 
+    def sync(self,
+             arr: ndarray,
              flat_axes: list[int] | None = None) -> ndarray:
         """
         Synchronize the halo (boundary) points of an array across all MPI ranks.
@@ -346,7 +347,7 @@ class GridBase:
         return self.domain_decomp.pad(arr)
 
     def create_array(self,
-                     pad: bool = True, 
+                     pad: bool = True,
                      spectral: bool = False,
                      topo: tuple[bool] | None = None) -> ndarray:
         """
@@ -363,8 +364,8 @@ class GridBase:
         """
         return self.domain_decomp.create_array(
             pad=pad, spectral=spectral, topo=topo)
-    
-    def create_random_array(self, 
+
+    def create_random_array(self,
                             seed: int = 1234,
                             pad: bool = True,
                             spectral: bool = False,
@@ -550,7 +551,7 @@ class GridBase:
         """
         res = self.name
         for key, value in self.info.items():
-            res += "\n  - {}: {}".format(key, value)
+            res += f"\n  - {key}: {value}"
         return res
 
     # ----------------------------------------------------------------
@@ -561,25 +562,23 @@ class GridBase:
     def diff_module(self) -> fr.grid.DiffModule:
         """The differential operator module."""
         return self._diff_module
-    
+
     @diff_module.setter
     def diff_module(self, value: fr.grid.DiffModule) -> None:
         if not isinstance(value, fr.grid.DiffModule):
             raise ValueError("The differential operator module must be a DiffBase object")
         self._diff_module = value
-        return
-    
+
     @property
     def interp_module(self) -> fr.grid.InterpolationModule:
         """The interpolation operator module."""
         return self._interp_module
-    
+
     @interp_module.setter
     def interp_module(self, value: fr.grid.InterpolationModule) -> None:
         if not isinstance(value, fr.grid.InterpolationModule):
             raise ValueError("The interpolation operator module must be an InterpolationBase object")
         self._interp_module = value
-        return
 
     @property
     def water_mask(self) -> fr.grid.WaterMask:
@@ -591,7 +590,6 @@ class GridBase:
     @water_mask.setter
     def water_mask(self, value: fr.grid.WaterMask) -> None:
         self._water_mask = value
-        return
 
     # ----------------------------------------------------------------
     #  Properties
@@ -639,8 +637,9 @@ class GridBase:
 
     @property
     def periodic_bounds(self) -> list[bool]:
-        """A tuple of booleans indicating whether the grid is periodic 
-        in each dimension."""
+        """A tuple of booleans indicating whether the grid is periodic
+        in each dimension.
+        """
         return self._periodic_bounds
 
     @property
@@ -662,12 +661,12 @@ class GridBase:
     def K(self) -> ndarray:
         """The wavenumber of the grid."""
         return self._K
-    
+
     @property
     def k_global(self) -> ndarray:
         """The global wavenumber of the grid."""
         return self._k_global
-    
+
     @property
     def dx(self) -> tuple[ndarray]:
         """The grid spacing in each dimension."""
@@ -725,8 +724,7 @@ class GridBase:
     def spectral_grid(self) -> bool:
         """Indicates whether the grid is a spectral grid."""
         return self._spectral_grid
-    
+
     @spectral_grid.setter
     def spectral_grid(self, value: bool) -> None:
         self._spectral_grid = value
-        return

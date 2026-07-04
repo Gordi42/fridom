@@ -1,5 +1,6 @@
-import pytest
 import numpy as np
+import pytest
+
 import fridom.framework as fr
 from fridom.framework import config
 

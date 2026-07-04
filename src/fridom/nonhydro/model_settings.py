@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Literal
 
 import fridom.framework as fr
 import fridom.nonhydro as nh

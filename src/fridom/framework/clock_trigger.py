@@ -1,8 +1,8 @@
 """clock_trigger.py - Emits signals based on the state of a clock."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import copy
-from typing import Callable
 
 import numpy as np
 
@@ -44,7 +44,7 @@ class ClockTrigger:
 
     """
 
-    def __init__(self,  # noqa: PLR0913
+    def __init__(self,
                  start_date: np.datetime64 | float | None = None,
                  start_step: int | None = None,
                  stop_date: np.datetime64 | float | None = None,

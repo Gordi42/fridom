@@ -1,5 +1,4 @@
 """Tests for the ModelSettingsBase class."""
-import pytest
 
 import fridom.framework as fr
 
@@ -31,7 +30,7 @@ def test_doc_example():
             self.set_attributes(**kwargs)
         def __str__(self) -> str:
             res = super().__str__()
-            res += "  My parameter: {}\\n".format(self.my_parameter)
+            res += f"  My parameter: {self.my_parameter}\\n"
             return res
 
     mset = MyModelSettings(None, my_parameter=2.0)

@@ -2,6 +2,7 @@ import fridom.nonhydro as nh
 
 
 class BarotropicJet(nh.State):
+
     r"""
     Barotropic instable jet setup with 2 zonal jets
 
@@ -40,10 +41,11 @@ class BarotropicJet(nh.State):
     `geo_proj` : `bool`
         Whether to project the initial condition to the geostrophic subspace.
     """
-    def __init__(self, 
-                 mset: nh.ModelSettings, 
-                 wavenum=5, 
-                 waveamp=0.1, 
+
+    def __init__(self,
+                 mset: nh.ModelSettings,
+                 wavenum=5,
+                 waveamp=0.1,
                  jet_width=0.04,
                  geo_proj=True):
         super().__init__(mset)
@@ -55,7 +57,7 @@ class BarotropicJet(nh.State):
         width = jet_width * Ly * PI
 
         # Construct the zonal jets
-        self.u.arr  = 2.5*( ncp.exp(-((Y - 0.75*Ly)/(width))**2) - 
+        self.u.arr  = 2.5*( ncp.exp(-((Y - 0.75*Ly)/(width))**2) -
                             ncp.exp(-((Y - 0.25*Ly)/(width))**2) )
 
         # Construct the perturbation
@@ -66,4 +68,3 @@ class BarotropicJet(nh.State):
             proj_geo = nh.projection.GeostrophicSpectral(mset)
             z_geo = proj_geo(self)
             self.fields = z_geo.fields
-        return

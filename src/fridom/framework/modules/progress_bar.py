@@ -144,7 +144,7 @@ class ProgressBar(fr.modules.Module):
                 value = mz.clock.time
 
         # map the value to a percentage
-        value = 100 * ( (value - self._start_value) 
+        value = 100 * ( (value - self._start_value)
                        / (self._final_value - self._start_value) )
 
         # clamp the value between 0 and 100

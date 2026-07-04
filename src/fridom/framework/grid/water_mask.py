@@ -1,13 +1,14 @@
-import fridom.framework as fr
-from numpy import ndarray
 import itertools
 from functools import partial
 
+from numpy import ndarray
+
+import fridom.framework as fr
 
 
-
-@partial(fr.utils.jaxify, dynamic=('_water_mask', '_cache'))
+@partial(fr.utils.jaxify, dynamic=("_water_mask", "_cache"))
 class WaterMask:
+
     """
     Water mask for the grid cells (for boundary conditions).
     
@@ -43,13 +44,13 @@ class WaterMask:
             [0, 1, 1]           [0, 1, 0]           [0, 0, 1]
     
     """
+
     def __init__(self):
         self.name = "Water Mask"
         self._water_mask = None
         self._cache = {}
         self._domain_decomposition: fr.domain_decomposition.DomainDecomposition = None
         self._periodic_bounds = None
-        return
 
     def setup(self, mset: fr.ModelSettingsBase) -> None:
         # we can't set mset or grid as attributes due to recursion issues
@@ -57,7 +58,6 @@ class WaterMask:
         self._domain_decomposition = mset.grid.domain_decomp
         self._periodic_bounds = mset.grid.periodic_bounds
         self.water_mask = (mset.grid.domain_decomp.create_array(pad=True)+1).astype(bool)
-        return
 
     def get_mask(self, position: fr.grid.Position) -> ndarray:
         """
@@ -83,9 +83,9 @@ class WaterMask:
         return new_mask
 
     def shift_mask_along_axis(
-            self, 
+            self,
             mask: ndarray,
-            axis: int, 
+            axis: int,
             axpos: fr.grid.AxisPosition) -> ndarray:
         """
         Shift the mask along the given axis to the new position.
@@ -177,4 +177,3 @@ class WaterMask:
         CENTER = fr.grid.AxisPosition.CENTER; FACE = fr.grid.AxisPosition.FACE
         for position in itertools.product([CENTER, FACE], repeat=ndim):
             self.get_mask(fr.grid.Position(position))
-        return

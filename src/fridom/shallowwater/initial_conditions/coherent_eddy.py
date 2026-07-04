@@ -1,6 +1,8 @@
 import fridom.shallowwater as sw
 
+
 class CoherentEddy(sw.State):
+
     r"""
     Coherent barotropic eddy with Gaussian shape.
 
@@ -51,13 +53,14 @@ class CoherentEddy(sw.State):
         The field that is prescribed as a gaussian function. It can be either
         'vorticity' or 'streamfunction'.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: sw.ModelSettings,
                  pos_x: float = 0.5,
                  pos_y: float = 0.5,
                  width: float = 0.1,
                  amplitude: float = 1,
-                 gauss_field: str = 'vorticity'
+                 gauss_field: str = "vorticity"
                  ) -> None:
         super().__init__(mset)
 
@@ -78,14 +81,14 @@ class CoherentEddy(sw.State):
         field.arr = amplitude * ncp.exp(
             -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
 
-        if gauss_field == 'vorticity':
+        if gauss_field == "vorticity":
             kx, ky = grid.K
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
             psi.arr = ncp.where(k2 == 0, 0, psi.arr)
             psi = psi.ifft()
             self.psi = psi
-        elif gauss_field == 'streamfunction':
+        elif gauss_field == "streamfunction":
             psi = field
         else:
             raise ValueError(f"Unknown gauss_field: {gauss_field}")
@@ -93,5 +96,4 @@ class CoherentEddy(sw.State):
         self.p.arr = psi.arr * mset.f_coriolis.arr
         self.u.arr = - psi.diff(axis=1).arr
         self.v.arr = psi.diff(axis=0).arr
-        
-        return
+

@@ -1,6 +1,8 @@
 from enum import Enum, auto
 
+
 class FFTPadding(Enum):
+
     r"""
     Zero padding options for the FFT.
 
@@ -25,6 +27,7 @@ class FFTPadding(Enum):
     - TRIM: no modification
     - EXTEND: remove all frequencies :math:`k > k_{\text{max}}` to restore the original shape.
     """
+
     NOPADDING = auto()
     TRIM = auto()
     EXTEND = auto()

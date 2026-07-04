@@ -1,7 +1,9 @@
 import fridom.nonhydro as nh
+
 nh.grid.cartesian
 
 class SingleWave(nh.State):
+
     r"""
     An initial condition that consist of a single wave with a
     given wavenumber and a given mode.
@@ -51,11 +53,12 @@ class SingleWave(nh.State):
         Whether to use the discrete eigenvectors or the analytical ones.
 
     """
-    def __init__(self, 
-                 mset: nh.ModelSettings, 
+
+    def __init__(self,
+                 mset: nh.ModelSettings,
                  k: tuple[int],
-                 s: int = 1, 
-                 phase: float = 0, 
+                 s: int = 1,
+                 phase: float = 0,
                  use_discrete: bool = True) -> None:
         super().__init__(mset, is_spectral=False)
 
@@ -86,7 +89,7 @@ class SingleWave(nh.State):
 
         # Normalize the state
         z /= z.norm_l2()
-        
+
         # Set the state
         self.fields = z.fields
 
@@ -100,5 +103,4 @@ class SingleWave(nh.State):
         self.kx = kx
         self.ky = ky
         self.kz = kz
-        return
-        
+

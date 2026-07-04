@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from typing import Callable, Literal
+from collections.abc import Callable
+from copy import copy, deepcopy
+from typing import Literal
+
+import numpy as np
 
 import fridom.framework as fr
-from typing import Union
-from copy import copy, deepcopy
-import numpy as np
 
 
 class OptimalBalance(fr.projection.Projection):
+
     """
     Nonlinear balancing using the optimal balance method.
 
@@ -39,9 +41,10 @@ class OptimalBalance(fr.projection.Projection):
     `stop_criterion` : `float`
         The stopping criterion.
     """
+
     def __init__(self, mset: fr.ModelSettingsBase,
                  base_proj: fr.projection.Projection,
-                 ramp_period: Union[np.timedelta64, float, int, None],
+                 ramp_period: np.timedelta64 | float | None,
                  update_parameters: Callable[[fr.ModelSettings, float, str], None] = None,
                  mset_backwards: fr.ModelSettingsBase = None,
                  ramp_type: str = "exp",
@@ -60,7 +63,7 @@ class OptimalBalance(fr.projection.Projection):
         # If the update_parameters is not None, set it to the default
         if update_parameters is not None:
             self.update_parameters = update_parameters
-        
+
         # initialize the model
         self.model_forward = fr.Model(self.mset)
         self.model_backward = fr.Model(self.mset_backwards)
@@ -80,20 +83,18 @@ class OptimalBalance(fr.projection.Projection):
 
         # prepare the balancing
         self.z_base = None
-        return
 
-    def calc_base_coord(self, z: 'fr.VectorField') -> None:
+    def calc_base_coord(self, z: fr.VectorField) -> None:
         self.z_base = self.base_proj(z)
-        return
 
     def update_parameters(self,
                           mset: fr.ModelSettings,
                           ramped_value: float,
                           mode: Literal["forward", "backward"]) -> None:
-        mset.tendencies.advection.scaling = ramped_value * self.default_scaling 
+        mset.tendencies.advection.scaling = ramped_value * self.default_scaling
 
 
-    def forward_to_nonlinear(self, z: 'fr.VectorField') -> 'fr.VectorField':
+    def forward_to_nonlinear(self, z: fr.VectorField) -> fr.VectorField:
         """
         Perform forward ramping from linear model to nonlinear model.
         """
@@ -113,8 +114,8 @@ class OptimalBalance(fr.projection.Projection):
             self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "forward")
             model.step()
         return model.z
-    
-    def backward_to_linear(self, z: 'fr.VectorField') -> 'fr.VectorField':
+
+    def backward_to_linear(self, z: fr.VectorField) -> fr.VectorField:
         """
         Perform backward ramping from nonlinear model to linear model.
         """
@@ -134,7 +135,7 @@ class OptimalBalance(fr.projection.Projection):
             model.step()
         return model.z
 
-    def forward_to_linear(self, z: 'fr.VectorField') -> 'fr.VectorField':
+    def forward_to_linear(self, z: fr.VectorField) -> fr.VectorField:
         """
         Perform forward ramping from nonlinear model to linear model.
         """
@@ -154,7 +155,7 @@ class OptimalBalance(fr.projection.Projection):
             model.step()
         return model.z
 
-    def backward_to_nonlinear(self, z: 'fr.VectorField') -> 'fr.VectorField':
+    def backward_to_nonlinear(self, z: fr.VectorField) -> fr.VectorField:
         """
         Perform backward ramping from linear model to nonlinear model.
         """
@@ -180,7 +181,7 @@ class OptimalBalance(fr.projection.Projection):
             def ramp_func(theta):
                 t1 = 1./np.maximum(1e-32,theta )
                 t2 = 1./np.maximum(1e-32,1.-theta )
-                return np.exp(-t1)/(np.exp(-t1)+np.exp(-t2))  
+                return np.exp(-t1)/(np.exp(-t1)+np.exp(-t2))
         elif ramp_type == "pow":
             def ramp_func(theta):
                 return theta**3/(theta**3+(1.-theta)**3)
@@ -194,9 +195,9 @@ class OptimalBalance(fr.projection.Projection):
             raise ValueError(
                 "Invalid ramp type. Choose from 'exp', 'pow', 'cos', 'lin'.")
         return ramp_func
-        
 
-    def __call__(self, z: 'fr.VectorField') -> 'fr.VectorField':
+
+    def __call__(self, z: fr.VectorField) -> fr.VectorField:
         """
         Project a state to the balanced subspace using optimal balance.
         
@@ -260,5 +261,4 @@ class OptimalBalance(fr.projection.Projection):
 
         if self.return_details:
             return z_res, (iterations, errors)
-        else:
-            return z_res
+        return z_res

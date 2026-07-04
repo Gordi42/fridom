@@ -3,10 +3,12 @@ from fridom.shallowwater.state import State
 
 
 class WaveSpectra(State):
+
     """
     Wave spectra with power law scaling of frequency.
     """
-    def __init__(self, grid:Grid, 
+
+    def __init__(self, grid:Grid,
                  power_law=-2, seed=12345,
                  random_type="normal") -> None:
         super().__init__(grid)
@@ -32,9 +34,8 @@ class WaveSpectra(State):
         # Normalize
         max_amp = cp.amax(cp.abs(z.h))
         z /= max_amp
-        
+
         self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
-        return
 
 
 # remove symbols from namespace

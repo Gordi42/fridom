@@ -2,7 +2,6 @@
 from functools import partial
 
 import fridom.framework as fr
-import fridom.nonhydro as nh
 
 
 @partial(fr.utils.jaxify, dynamic=("dsqr", ))

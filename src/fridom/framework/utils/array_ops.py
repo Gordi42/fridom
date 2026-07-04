@@ -1,7 +1,8 @@
 """array_ops.py - Utilities for array operations."""
 from __future__ import annotations
 
-from typing import Callable, Generic, TypeVar
+from collections.abc import Callable
+from typing import Generic, TypeVar
 
 import numpy as np
 

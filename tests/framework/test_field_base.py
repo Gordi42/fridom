@@ -12,7 +12,7 @@ class Field(fr.FieldBase):
     def __init__(self,
                  mset,
                  value = 0,
-                 is_spectral = False) -> None:  # noqa: FBT002
+                 is_spectral = False) -> None:
         super().__init__(mset)
         self.value = value
         self._is_spectral = is_spectral

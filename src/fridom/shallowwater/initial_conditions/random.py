@@ -3,12 +3,14 @@ from fridom.shallowwater.state import State
 
 
 class Random(State):
+
     """
     Oceanic spectra with random phases.
     Used in the OBTA paper.
     """
-    def __init__(self, grid:Grid, 
-                 d=7, k0=6, seed=12345, amplitude_geostrophy=0.2, 
+
+    def __init__(self, grid:Grid,
+                 d=7, k0=6, seed=12345, amplitude_geostrophy=0.2,
                  amplitude_wave=0.1, wave_power_law=-2) -> None:
         super().__init__(grid)
 
@@ -25,7 +27,6 @@ class Random(State):
         # combine the two fields
         z = z_geo * amplitude_geostrophy + z_wav * amplitude_wave
         self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
-        return
 
 
 # remove symbols from namespace

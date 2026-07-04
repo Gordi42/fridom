@@ -1,6 +1,8 @@
 import fridom.nonhydro as nh
 
+
 class CoherentEddy(nh.State):
+
     r"""
     Coherent barotropic eddy with Gaussian shape.
 
@@ -77,13 +79,14 @@ class CoherentEddy(nh.State):
 
         mset.tendencies.advection.disable()
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: nh.ModelSettings,
                  pos_x: float = 0.5,
                  pos_y: float = 0.5,
                  width: float = 0.1,
                  amplitude: float = 1,
-                 gauss_field: str = 'streamfunction'
+                 gauss_field: str = "streamfunction"
                  ) -> None:
         super().__init__(mset)
 
@@ -104,19 +107,18 @@ class CoherentEddy(nh.State):
         field.arr = amplitude * ncp.exp(
             -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
 
-        if gauss_field == 'vorticity':
+        if gauss_field == "vorticity":
             kx, ky, kz = grid.K
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
             psi.arr = ncp.where(k2 == 0, 0, psi.arr)
             psi = psi.ifft()
             self.psi = psi
-        elif gauss_field == 'streamfunction':
+        elif gauss_field == "streamfunction":
             psi = field
         else:
             raise ValueError(f"Unknown gauss_field: {gauss_field}")
 
         self.u.arr = psi.diff(axis=1).arr
         self.v.arr = - psi.diff(axis=0).arr
-        
-        return
+

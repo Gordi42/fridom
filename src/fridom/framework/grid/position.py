@@ -1,4 +1,5 @@
 from enum import StrEnum
+
 import fridom.framework as fr
 
 
@@ -27,7 +28,7 @@ class AxisPosition(StrEnum):
     CENTER = "center"
     FACE = "face"
 
-    def shift(self) -> 'AxisPosition':
+    def shift(self) -> "AxisPosition":
         """
         Shift the position of the field. Center -> Face and vice versa.
 
@@ -59,9 +60,8 @@ class Position:
 
     def __init__(self, positions: tuple[AxisPosition]) -> None:
         self._positions = tuple(positions)
-        return
 
-    def shift(self, axis: int) -> 'Position':
+    def shift(self, axis: int) -> "Position":
         """
         Shift the position of the field along an axis.
 
@@ -106,7 +106,6 @@ class Position:
         positions = list(self._positions)
         positions[key] = value
         self._positions = tuple(positions)
-        return
 
     def __repr__(self) -> str:
         return f"Position: {self._positions}"

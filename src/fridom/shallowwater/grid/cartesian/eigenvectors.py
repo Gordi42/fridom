@@ -157,8 +157,10 @@ but by using the discrete eigenvectors.
 """
 import numpy as np
 from numpy import ndarray
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
+
 
 # ================================================================
 #  The eigenvalues
@@ -223,7 +225,9 @@ def omega(mset: sw.ModelSettings,
         fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
 
     # get discrete spectral operators
-    from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
+    from fridom.framework.grid.cartesian import (
+        discrete_spectral_operators as dso,
+    )
     ohpm = lambda k, d: dso.one_hat_squared(k, d, use_discrete)
     khpm = lambda k, d: dso.k_hat_squared(k, d, use_discrete)
 
@@ -240,8 +244,8 @@ def omega(mset: sw.ModelSettings,
 #  The eigenvectors
 # ================================================================
 
-def vec_q(mset: sw.ModelSettings, 
-          s: int, 
+def vec_q(mset: sw.ModelSettings,
+          s: int,
           use_discrete=True) -> sw.State:
     r"""
     The eigenvectors of the system matrix
@@ -275,12 +279,14 @@ def vec_q(mset: sw.ModelSettings,
     f0 = mset.f0
 
     # import the discrete spectral operators
-    from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
+    from fridom.framework.grid.cartesian import (
+        discrete_spectral_operators as dso,
+    )
     ohp = lambda k, d: dso.one_hat(k, d, +1, use_discrete)
     ohm = lambda k, d: dso.one_hat(k, d, -1, use_discrete)
     khp = lambda k, d: dso.k_hat(k, d, +1, use_discrete)
     ohpm = lambda k, d: dso.one_hat_squared(k, d, use_discrete)
-        
+
     # compute the eigenvalue
     om = omega(mset, s, (kx, ky), use_discrete=use_discrete)
 
@@ -295,7 +301,7 @@ def vec_q(mset: sw.ModelSettings,
     p_in = 1 - s**2
 
     # Mask to separate (k != 0) from (k = 0)
-    k_nonzero = (kx**2 + ky**2 != 0) 
+    k_nonzero = (kx**2 + ky**2 != 0)
 
     z = sw.State(mset, is_spectral=True)
     z.u.arr = ncp.where(k_nonzero, u, u_in)
@@ -306,7 +312,7 @@ def vec_q(mset: sw.ModelSettings,
     z = dso.set_nyquist_to_zero(z)
     return z
 
-def vec_p(mset: sw.ModelSettings, 
+def vec_p(mset: sw.ModelSettings,
           s: int,
           use_discrete: bool = True) -> sw.State:
     r"""
@@ -350,12 +356,14 @@ def vec_p(mset: sw.ModelSettings,
     norm = ncp.abs((q.dot(z)).arr)
     # avoid division by zero
     mask = (norm > 1e-10)
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         z.u.arr = ncp.where(mask, z.u.arr/norm, 0)
         z.v.arr = ncp.where(mask, z.v.arr/norm, 0)
         z.p.arr = ncp.where(mask, z.p.arr/norm, 0)
 
     # Set the nyquist frequency to zero
-    from fridom.framework.grid.cartesian import discrete_spectral_operators as dso
+    from fridom.framework.grid.cartesian import (
+        discrete_spectral_operators as dso,
+    )
     z = dso.set_nyquist_to_zero(z)
     return z

@@ -2,6 +2,7 @@ import fridom.nonhydro as nh
 
 
 class Jet(nh.State):
+
     """
     A 3D jet with horizontal and vertical shear.
     
@@ -47,10 +48,11 @@ class Jet(nh.State):
             pert_strength=0.1, pert_wavenum=2)
         model.run(runlen=50.0)
     """
-    def __init__(self, mset: nh.ModelSettings, 
-                 jet_strength=1, 
+
+    def __init__(self, mset: nh.ModelSettings,
+                 jet_strength=1,
                  jet_width=0.16,
-                 pert_strength=0.05, 
+                 pert_strength=0.05,
                  pert_wavenum=5,
                  geo_proj=True):
         super().__init__(mset)
@@ -79,4 +81,3 @@ class Jet(nh.State):
             proj_geo = nh.projection.GeostrophicSpectral(mset)
             z_geo = proj_geo(self)
             self.fields = z_geo.fields
-        return

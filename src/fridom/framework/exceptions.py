@@ -90,7 +90,7 @@ class FieldSpaceError(NotImplementedError):
 
     """
 
-    def __init__(self, is_spectral: bool) -> None:  # noqa: FBT001
+    def __init__(self, is_spectral: bool) -> None:
         self.is_spectral = is_spectral
         state = "spectral" if is_spectral else "physical"
         super().__init__(

@@ -63,8 +63,10 @@ versa), the discrete spectral operator `k_hat_squared` is given by:
     \hat{k}_x^2 = \hat{k}_x^+ \hat{k}_x^- =
         2 \frac{1 - \cos(k_x \Delta x)}{\Delta x^2}
 """
-import fridom.framework as fr
 from numpy import ndarray
+
+import fridom.framework as fr
+
 
 # ================================================================
 #  Discrete spectral operators (one-hat-plus etc.)
@@ -100,8 +102,7 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
     """
     if use_discrete:
         return (1 + fr.config.ncp.exp(sign * 1j * kx * dx)) / 2
-    else:
-        return 1
+    return 1
 
 def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     r"""
@@ -133,8 +134,7 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
     """
     if use_discrete:
         return (1 + fr.config.ncp.cos(kx*dx)) / 2
-    else:
-        return 1
+    return 1
 
 def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
     r"""
@@ -167,8 +167,7 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
     """
     if use_discrete:
         return sign * 1j * (1 - fr.config.ncp.exp(sign * 1j * kx * dx)) / dx
-    else:
-        return kx
+    return kx
 
 def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     r"""
@@ -200,8 +199,7 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     """
     if use_discrete:
         return 2 * (1 - fr.config.ncp.cos(kx*dx)) / dx**2
-    else:
-        return kx**2
+    return kx**2
 
 # ================================================================
 #  Utility functions

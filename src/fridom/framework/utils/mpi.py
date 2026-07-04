@@ -1,5 +1,6 @@
 """mpi.py - MPI utilities for Fridom framework."""
 import fridom.framework as fr
+
 try:
     from mpi4py import MPI
 except ImportError:

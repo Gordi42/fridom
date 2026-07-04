@@ -165,7 +165,7 @@ class Module:
 
         """
         if self.is_setup and setup_mode == "default":
-            return
+            return None
 
         self.is_setup = True
         self.mset = mset

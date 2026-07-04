@@ -1,7 +1,7 @@
 """Stencil class representing a stencil of a given size and offset."""
 from __future__ import annotations
 
-from typing import Iterator
+from collections.abc import Iterator
 
 import fridom.framework as fr
 

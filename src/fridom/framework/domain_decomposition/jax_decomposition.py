@@ -3,11 +3,9 @@ from __future__ import annotations
 from functools import cached_property, partial
 
 import jax
-import numpy as np
-from jax.experimental import mesh_utils, multihost_utils
-from jax.experimental.custom_partitioning import custom_partitioning
+from jax.experimental import multihost_utils
 from jax.experimental.shard_map import shard_map
-from jax.sharding import Mesh, NamedSharding
+from jax.sharding import NamedSharding
 from jax.sharding import PartitionSpec as P
 from numpy import ndarray
 
@@ -93,12 +91,12 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
             received_left_halo = jax.lax.ppermute(
                 right_halo,
-                axis_name='x',
+                axis_name="x",
                 perm=permutations_forward,
             )
             received_right_halo = jax.lax.ppermute(
                 left_halo,
-                axis_name='x',
+                axis_name="x",
                 perm=permutations_backward,
             )
 
@@ -259,7 +257,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     # ================================================================
     #  Array creation
     # ================================================================
-    def _get_array_attrs(self, 
+    def _get_array_attrs(self,
                          topo: tuple[bool] | None
                          ) -> tuple[tuple[int], tuple[int]]:
         shape = self.shape
@@ -273,8 +271,8 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                     shape[i] = 1
         return tuple(shape), tuple(flat_axes)
 
-    def create_array(self, 
-                     pad: bool = True, 
+    def create_array(self,
+                     pad: bool = True,
                      spectral: bool = False,
                      topo: tuple[bool] | None = None,
                      ) -> ndarray:
@@ -293,7 +291,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr = self.sync(arr, flat_axes)
         return arr
 
-    def create_random_array(self, 
+    def create_random_array(self,
                             seed: int = 1234,
                             pad: bool = True,
                             spectral: bool = False,
@@ -319,15 +317,15 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         return arr
 
 
-    def create_meshgrid(self, 
-                        *args: ndarray, 
+    def create_meshgrid(self,
+                        *args: ndarray,
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:
         sharding = self._get_sharding(spectral, None)
         shardings = [sharding]*len(args)
         @partial(jax.jit, out_shardings=shardings)
         def create_meshgrid():
-            return jax.numpy.meshgrid(*args, indexing='ij')
+            return jax.numpy.meshgrid(*args, indexing="ij")
         arrs = create_meshgrid()
         arrs = [jax.reshard(arr, sharding) for arr in arrs]
 
@@ -340,20 +338,20 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Array operations
     # ================================================================
 
-    def sum(self, 
-            arr: ndarray, 
+    def sum(self,
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         return jax.numpy.sum(arr, axis=axes)
 
     def max(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         return jax.numpy.max(arr, axis=axes)
 
     def min(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:
         return jax.numpy.min(arr, axis=axes)
@@ -375,14 +373,14 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         return shard
 
     def main_shard_map(self, func: callable) -> callable:
-        return shard_map(func, 
-                         mesh=self.mesh, 
+        return shard_map(func,
+                         mesh=self.mesh,
                          in_specs=self._spec_main,
                          out_specs=self._spec_main)
 
     def alt_shard_map(self, func: callable) -> callable:
-        return shard_map(func, 
-                         mesh=self.mesh, 
+        return shard_map(func,
+                         mesh=self.mesh,
                          in_specs=self._spec_alt,
                          out_specs=self._spec_alt)
 

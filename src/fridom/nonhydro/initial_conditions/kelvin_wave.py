@@ -1,6 +1,8 @@
 import fridom.nonhydro as nh
 
+
 class KelvinWave(nh.State):
+
     """
     Initial condition with a kelvin wave at the boundary.
 
@@ -15,7 +17,8 @@ class KelvinWave(nh.State):
     .. math::
         (U, V, W, B) \\exp(- k_n y) \\exp(i(k_h x + k_z z - \\omega t))
     
-    yields
+    Yields
+    ------
 
     .. math::
         \\omega = \\sqrt{\\frac{k_h^2 N^2}{k_h^2 + k_z^2}} \\quad
@@ -67,11 +70,12 @@ class KelvinWave(nh.State):
         z  = nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=2)
         z += nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=-2, phase=np.pi)
     """
-    def __init__(self, 
-                 mset: nh.ModelSettings, 
-                 side: str, 
-                 kz: int, 
-                 k_parallel: int, 
+
+    def __init__(self,
+                 mset: nh.ModelSettings,
+                 side: str,
+                 kz: int,
+                 k_parallel: int,
                  phase: float = 0):
         super().__init__(mset, is_spectral=False)
         ncp = nh.config.ncp
@@ -86,7 +90,7 @@ class KelvinWave(nh.State):
         k_parallel = 2 * ncp.pi * k_parallel / L_parallel
 
         # calculate the frequency
-        om = ncp.sqrt((k_parallel**2 * mset.N2) / 
+        om = ncp.sqrt((k_parallel**2 * mset.N2) /
                       (kz**2 + mset.dsqr * k_parallel**2))
 
         # calculate the polarizations

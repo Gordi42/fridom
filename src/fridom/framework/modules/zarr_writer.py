@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import time as system_time
 import warnings
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import zarr

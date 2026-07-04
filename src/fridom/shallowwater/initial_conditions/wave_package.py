@@ -3,9 +3,12 @@ from fridom.shallowwater.state import State
 
 
 class WavePackage(State):
+
     """
     A single wave package.
-    Attributes:
+
+    Attributes
+    ----------
         kx (float)     : The wavenumber in the x-direction.
         ky (float)     : The wavenumber in the y-direction.
         mode (int)     : The mode (0, 1, -1)
@@ -16,8 +19,9 @@ class WavePackage(State):
                          (includes effects of time discretization)
                          (only for inertia-gravity modes).
     """
-    def __init__(self, grid:Grid, 
-                 kx=6, ky=0, s=1, phase=0, 
+
+    def __init__(self, grid:Grid,
+                 kx=6, ky=0, s=1, phase=0,
                  mask_pos=(0.5, 0.5), mask_width=(0.2, 0.2)) -> None:
         """
         Constructor of the initial condition.
@@ -57,7 +61,7 @@ class WavePackage(State):
         z.h *= mask
 
         # Project onto the mode again
-        from fridom.shallowwater.eigenvectors import VecQ, VecP
+        from fridom.shallowwater.eigenvectors import VecP, VecQ
         q = VecQ(s, grid)
         p = VecP(s, grid)
 
@@ -69,7 +73,6 @@ class WavePackage(State):
         # save the state
         self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
 
-        return
 
 
 # remove symbols from namespace

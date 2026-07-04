@@ -1,12 +1,13 @@
 """Conjugate Gradient Pressure Solver."""
 #TODO(Silvano): This is very old code and needs to be updated to the new framework.
 
-from fridom.nonhydro.state import State
 from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+from fridom.framework.modules.module import Module, start_module, update_module
+from fridom.nonhydro.state import State
 
 
 class CGPressureSolver(Module):
+
     """
     This class solves the pressure field with a conjugate gradient solver.
     """
@@ -27,12 +28,12 @@ class CGPressureSolver(Module):
 
         # Create a function to solve for pressure
         if self.mset.gpu:
-            from cupyx.scipy.sparse.linalg import cg, LinearOperator
+            from cupyx.scipy.sparse.linalg import LinearOperator, cg
         else:
-            from scipy.sparse.linalg import cg, LinearOperator
+            from scipy.sparse.linalg import LinearOperator, cg
 
         self.cg = cg
-        
+
         # shorthand notation
         mset = self.mset
         Nx  = mset.N[0]; Ny  = mset.N[1]; Nz  = mset.N[2]
@@ -59,7 +60,6 @@ class CGPressureSolver(Module):
             return p_laplace.reshape(-1)
 
         self.A = LinearOperator((NxNyNz, NxNyNz), matvec=laplace)
-        return
 
     @update_module
     def update(self, mz: ModelState) -> None:
@@ -72,11 +72,10 @@ class CGPressureSolver(Module):
         p_flat, info = self.cg(self.A, mz.z_diag.div.reshape(-1), x0=mz.p.reshape(-1),
                              tol=self.tol, maxiter=self.max_iter)
         mz.z_diag.p[:] = p_flat.reshape(self.mset.N)
-        return
 
     def __repr__(self) -> str:
         res = super().__repr__()
-        res += f"    solver = CG\n"
+        res += "    solver = CG\n"
         res += f"    max_iter = {self.max_iter}\n"
         res += f"    tol = {self.tol}\n"
         return res

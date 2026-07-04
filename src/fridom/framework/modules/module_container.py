@@ -1,8 +1,9 @@
 """A module container that can hold multiple modules."""
 from __future__ import annotations
 
+from collections.abc import Iterator
 from functools import partial
-from typing import Iterator, Literal
+from typing import Literal
 
 import fridom.framework as fr
 

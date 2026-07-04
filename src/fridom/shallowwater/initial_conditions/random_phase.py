@@ -5,11 +5,13 @@ from fridom.shallowwater.state import State
 
 
 class RandomPhase(State):
+
     """
     Calculates a random phase field with a presribed spectral scaling for
     the layer thickness h.
     """
-    def __init__(self, grid:Grid, 
+
+    def __init__(self, grid:Grid,
                  spectral_function, random_type="normal",
                  amplitude=1.0, seed=12345) -> None:
         """
@@ -63,7 +65,7 @@ class RandomPhase(State):
         kx_max = 2./3.*cp.amax(cp.abs(k_hor))
         large_k = (k_hor >= kx_max*1.0)
         spectra = cp.where(large_k, 0, spectral_function(K))
-        # divide by K 
+        # divide by K
         spectra[K!=0] /= K[K!=0]
 
         from fridom.shallowwater.state import State
@@ -77,7 +79,6 @@ class RandomPhase(State):
         z *= scal
 
         self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
-        return
 
 
 # remove symbols from namespace

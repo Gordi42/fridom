@@ -1,4 +1,5 @@
 import pytest
+
 import fridom.framework as fr
 
 
@@ -25,7 +26,7 @@ class Increment(fr.modules.Module):
     def stop(self):
         self.number = None  # sets the number to None
 
-@pytest.fixture()
+@pytest.fixture
 def mset():
     grid = fr.grid.cartesian.Grid(N=(32, ), L=(1.0, ))
     mset = fr.ModelSettingsBase(grid)
@@ -84,7 +85,7 @@ def test_update(mset):
     module.update(mz=None)
     # check if the number is still 2
     assert module.number == 2
-    
+
 def test_stop(mset):
     # create a module
     module = Increment()

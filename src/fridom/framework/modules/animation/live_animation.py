@@ -30,7 +30,7 @@ class LiveAnimation(fr.modules.Module):
     """
 
     name = "Live Animation"
-    def __init__(self, 
+    def __init__(self,
                  model_plotter: fr.modules.animation.ModelPlotter,
                  interval: int = 50,
                  ) -> None:

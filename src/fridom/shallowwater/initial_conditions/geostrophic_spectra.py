@@ -1,11 +1,13 @@
 """Initial conditions with prescribed spectra and random phases."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import partial
-from typing import Callable, TypeVar
+from typing import TypeVar
+
+import numpy as np
 
 import fridom.shallowwater as sw
-import numpy as np
 
 T = TypeVar("T", float, np.ndarray)
 
@@ -259,7 +261,7 @@ class ShallowWaterRandom(sw.State):
 
     """
 
-    def __init__(self,  # noqa: PLR0913
+    def __init__(self,
                  mset: sw.ModelSettings,
                  amplitude_geo: float = 1.0,
                  amplitude_wave: float = 0.1,

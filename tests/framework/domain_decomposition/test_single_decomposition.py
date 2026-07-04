@@ -1,6 +1,9 @@
-import pytest
-import fridom.framework as fr
 from copy import deepcopy
+
+import pytest
+
+import fridom.framework as fr
+
 
 # ================================================================
 #  Fixtures

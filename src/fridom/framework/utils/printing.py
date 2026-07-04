@@ -1,8 +1,10 @@
 """printing.py: Utilities for printing to the console."""
 import datetime
+
 import fridom.framework as fr
 
-def print_bar(char='='):
+
+def print_bar(char="="):
     """
     Print a bar to the log file.
 

@@ -464,13 +464,13 @@ def test_getitem_slice(mset, is_spectral):
     # test with slice
     vec_slice = vec[:2]
     assert isinstance(vec_slice, fr.VectorField)
-    assert vec_slice.vector_dim == 2  # noqa: PLR2004
+    assert vec_slice.vector_dim == 2
     assert vec_slice[0].name == "f0"
     assert vec_slice[1].name == "f1"
     # test with another slice
     vec_slice = vec[1:]
     assert isinstance(vec_slice, fr.VectorField)
-    assert vec_slice.vector_dim == 2  # noqa: PLR2004
+    assert vec_slice.vector_dim == 2
     assert vec_slice[0].name == "f1"
     assert vec_slice[1].name == "f2"
 

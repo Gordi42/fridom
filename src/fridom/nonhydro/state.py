@@ -398,7 +398,8 @@ class State(fr.VectorField):
         where :math:`\Delta t` is the time step and :math:`\Delta x` is the
         grid spacing.
 
-        Returns:
+        Returns
+        -------
             cfl (ScalarField)  : Horizontal CFL number.
 
         """

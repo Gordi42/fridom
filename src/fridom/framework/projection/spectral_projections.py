@@ -1,6 +1,8 @@
 import fridom.framework as fr
 
+
 class GeostrophicSpectral(fr.projection.Projection):
+
     """
     Projection onto the geostrophic subspace using spectral eigenvectors.
 
@@ -11,19 +13,20 @@ class GeostrophicSpectral(fr.projection.Projection):
     `use_discrete` : `bool` (default: `True`)
         Whether to use discrete eigenvectors.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: fr.ModelSettingsBase,
                  use_discrete: bool = True) -> None:
         super().__init__(mset)
         # Construct the eigenvectors
         self.q = mset.grid.vec_q(s=0, use_discrete=use_discrete)
         self.p = mset.grid.vec_p(s=0, use_discrete=use_discrete)
-        return
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
         return z.project(self.p, self.q)
 
 class WaveSpectral(fr.projection.Projection):
+
     """
     Projection onto the inertia-gravity wave subspace using spectral eigenvectors.
     
@@ -39,6 +42,7 @@ class WaveSpectral(fr.projection.Projection):
     `__call__(z: State) -> State`
         Project a state to the inertia-gravity wave subspace.
     """
+
     def __init__(self,
                  mset: fr.ModelSettingsBase,
                  use_discrete: bool = True) -> None:
@@ -54,6 +58,7 @@ class WaveSpectral(fr.projection.Projection):
 
 
 class DivergenceSpectral(fr.projection.Projection):
+
     """
     Projection onto the divergence subspace using spectral eigenvectors.
     
@@ -64,13 +69,13 @@ class DivergenceSpectral(fr.projection.Projection):
     `use_discrete` : `bool` (default: `True`)
         Whether to use discrete eigenvectors.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: fr.ModelSettingsBase,
                  use_discrete: bool = True) -> None:
         super().__init__(mset)
         self.q = mset.grid.vec_q(s="d", use_discrete=use_discrete)
         self.p = mset.grid.vec_p(s="d", use_discrete=use_discrete)
-        return
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
         return z.project(self.p, self.q)

@@ -1,8 +1,8 @@
 """StencilView class representing a view of a stencil on a given array and axis."""
 from __future__ import annotations
 
-from functools import lru_cache
-from typing import Iterator
+from collections.abc import Iterator
+from functools import cache
 
 import fridom.framework as fr
 
@@ -17,7 +17,7 @@ class StencilView:
         self.arr = arr
         self.axis = axis
 
-    @lru_cache(maxsize=None)  # noqa: B019
+    @cache  # noqa: B019
     def __getitem__(self, index: int) -> ncp.ndarray:
 
         @self.stencil.grid.domain_decomp.shard_map

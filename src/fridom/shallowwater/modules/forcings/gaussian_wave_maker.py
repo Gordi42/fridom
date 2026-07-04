@@ -1,19 +1,20 @@
 """A gaussian wave maker that forces the u-component of the velocity field."""
 # TODO(Silvano): This is very old code. Update it to the new framework structure.
 
-from fridom.shallowwater.state import State
 from fridom.framework.model_state import ModelState
-from fridom.framework.modules.module import Module, update_module, start_module
+from fridom.framework.modules.module import Module, start_module, update_module
+from fridom.shallowwater.state import State
 
 
 class GaussianWaveMaker(Module):
+
     """
     A Gaussian wave maker that forces the u-component of the velocity field.
     """
 
-    def __init__(self, 
-                 position: tuple, 
-                 width: tuple, 
+    def __init__(self,
+                 position: tuple,
+                 width: tuple,
                  frequency: float,
                  amplitude: float):
         """
@@ -42,7 +43,6 @@ class GaussianWaveMaker(Module):
         self.mask = cp.exp(-((X - self.position[0])**2 / self.width[0]**2 +
                              (Y - self.position[1])**2 / self.width[1]**2 ) )
         self.mask *= self.amplitude
-        return
 
     @update_module
     def update(self, mz: ModelState, dz: State) -> None:
@@ -55,7 +55,6 @@ class GaussianWaveMaker(Module):
         """
         cp = self.grid.cp
         dz.h += self.mask * cp.sin(2 * cp.pi * self.frequency * mz.clock.time)
-        return
 
     def __repr__(self) -> str:
         res = super().__repr__()

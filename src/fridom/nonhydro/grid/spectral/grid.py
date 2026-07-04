@@ -17,7 +17,7 @@ class Grid(fr.grid.spectral.Grid):
 
         super().__init__(N=N, L=L, periodic_bounds=[True, True, True])
 
-    def omega(self, 
+    def omega(self,
               k: tuple[float] | tuple[ndarray],
               use_discrete: bool = False,
               ) -> ndarray:

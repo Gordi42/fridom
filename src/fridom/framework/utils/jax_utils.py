@@ -1,13 +1,15 @@
 """jax_utils.py - Utilities for JAX operations."""
 from typing import Generic, TypeVar
+
 try:
     import jax
 except ImportError:
     pass
 import regex as re
+
 import fridom.framework as fr
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 def jaxjit(fun: callable, *args, **kwargs) -> callable:
     """
@@ -212,12 +214,12 @@ def inspect_jitted_function(func: callable, args: tuple):
     print("================================================")
     print(f"Checking HLO of {func.__name__}")
     patterns = ["all-gather",
-                "all-reduce", 
-                "all-to-all", 
+                "all-reduce",
+                "all-to-all",
                 "scatter",
                 "gather",
                 "cross-replica-sum",
-                "collective-permute", 
+                "collective-permute",
                 "dynamic-slice"]
     for pattern in patterns:
         print(f"{pattern}: {bool(re.search(pattern, hlo))}")

@@ -1,6 +1,7 @@
 """formatting.py - Utilities for formatting data."""
 import datetime
 
+
 def humanize_length(value: float):
     """
     Format a length in human readable format [mm, cm, m, km].
