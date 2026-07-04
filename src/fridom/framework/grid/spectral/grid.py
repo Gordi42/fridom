@@ -1,7 +1,12 @@
 """Spectral grid based on the cartesian grid."""
-import numpy as np
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:  # pragma: no cover
+    import numpy as np
 
 
 @fr.utils.jaxify
@@ -23,7 +28,7 @@ class Grid(fr.grid.cartesian.Grid):
         self.mpi_available = False
         self.spectral_grid = True
 
-    def setup(self, mset: "fr.ModelSettingsBase") -> None:
+    def setup(self, mset: fr.ModelSettingsBase) -> None:
         """Set up the grid (see :py:meth:`fr.grid.GridBase.setup`)."""
         super().setup(mset, req_halo=0)
 

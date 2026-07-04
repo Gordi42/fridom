@@ -1,4 +1,6 @@
 """Positions of fields on the staggered grid."""
+from __future__ import annotations
+
 from enum import StrEnum
 
 import fridom.framework as fr
@@ -29,7 +31,7 @@ class AxisPosition(StrEnum):
     CENTER = "center"
     FACE = "face"
 
-    def shift(self) -> "AxisPosition":
+    def shift(self) -> AxisPosition:
         """
         Shift the position of the field. Center -> Face and vice versa.
 
@@ -62,7 +64,7 @@ class Position:
     def __init__(self, positions: tuple[AxisPosition]) -> None:
         self._positions = tuple(positions)
 
-    def shift(self, axis: int) -> "Position":
+    def shift(self, axis: int) -> Position:
         """
         Shift the position of the field along an axis.
 

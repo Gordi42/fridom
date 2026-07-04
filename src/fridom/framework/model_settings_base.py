@@ -1,4 +1,4 @@
-"""model_settings_base.py - Base class for model settings container."""
+"""Base class for model settings container."""
 from __future__ import annotations
 
 from functools import partial

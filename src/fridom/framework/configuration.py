@@ -1,4 +1,4 @@
-"""config.py - The configuration file for the fridom framework."""
+"""The configuration file for the fridom framework."""
 from __future__ import annotations
 
 import os

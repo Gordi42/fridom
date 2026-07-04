@@ -1,4 +1,4 @@
-"""clock.py - Keep track of the model time."""
+"""Keep track of the model time."""
 
 from __future__ import annotations
 

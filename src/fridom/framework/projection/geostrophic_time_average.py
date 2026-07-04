@@ -1,4 +1,6 @@
 """Geostrophic projection based on time-averaging."""
+from __future__ import annotations
+
 from copy import copy, deepcopy
 
 import numpy as np
@@ -44,7 +46,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
     """
 
     def __init__(self,
-                 mset: "fr.ModelSettingsBase",
+                 mset: fr.ModelSettingsBase,
                  max_period: np.timedelta64 | float | None,
                  n_ave: int = 4,
                  equidistant_chunks: bool = True,
@@ -76,7 +78,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         if disable_diagnostic:
             self.model.diagnostics.disable()
 
-    def __call__(self, z: "fr.VectorField") -> "fr.VectorField":
+    def __call__(self, z: fr.VectorField) -> fr.VectorField:
         """
         Project a state to the geostrophic subspace using time-averaging.
 

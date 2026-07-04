@@ -1,4 +1,4 @@
-"""clock_trigger.py - Emits signals based on the state of a clock."""
+"""Emits signals based on the state of a clock."""
 from __future__ import annotations
 
 from copy import copy

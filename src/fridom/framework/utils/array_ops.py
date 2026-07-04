@@ -1,4 +1,4 @@
-"""array_ops.py - Utilities for array operations."""
+"""Utilities for array operations."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Generic, TypeVar

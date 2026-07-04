@@ -1,4 +1,6 @@
 """Zero padding options for the FFT."""
+from __future__ import annotations
+
 from enum import Enum, auto
 
 

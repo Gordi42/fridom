@@ -1,4 +1,6 @@
 """Dummy interpolation module (identity interpolation)."""
+from __future__ import annotations
+
 import fridom.framework as fr
 
 

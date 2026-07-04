@@ -1,4 +1,6 @@
 """Projections based on spectral eigenvectors of the linear operator."""
+from __future__ import annotations
+
 import fridom.framework as fr
 
 

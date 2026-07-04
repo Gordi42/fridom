@@ -1,9 +1,14 @@
-"""timing_module.py - Track the time spent in different model components."""
-from collections.abc import Generator
+"""Track the time spent in different model components."""
+from __future__ import annotations
+
 from contextlib import contextmanager
 from time import time
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Generator
 
 
 class TimingComponent:

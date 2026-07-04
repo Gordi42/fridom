@@ -1,4 +1,6 @@
-"""numpy_utils.py - Utilities for numpy operations."""
+"""Utilities for numpy operations."""
+from __future__ import annotations
+
 import inspect
 from copy import deepcopy
 

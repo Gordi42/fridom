@@ -1,4 +1,6 @@
 """A module that computes the pressure gradient tendency of the model."""
+from __future__ import annotations
+
 from functools import partial
 
 import fridom.framework as fr

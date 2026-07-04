@@ -1,10 +1,14 @@
 """Water mask for the grid cells (for boundary conditions)."""
+from __future__ import annotations
+
 import itertools
 from functools import partial
-
-from numpy import ndarray
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:  # pragma: no cover
+    from numpy import ndarray
 
 
 @partial(fr.utils.jaxify, dynamic=("_water_mask", "_cache"))

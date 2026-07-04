@@ -1,4 +1,6 @@
-"""mpi.py - MPI utilities for Fridom framework."""
+"""MPI utilities for Fridom framework."""
+from __future__ import annotations
+
 import fridom.framework as fr
 
 try:

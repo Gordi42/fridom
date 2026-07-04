@@ -1,4 +1,4 @@
-"""model_plotter.py - A module for creating and updating a figure object."""
+"""A module for creating and updating a figure object."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any

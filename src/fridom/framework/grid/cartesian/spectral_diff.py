@@ -1,4 +1,6 @@
 """Differentiation module in spectral space."""
+from __future__ import annotations
+
 from copy import deepcopy
 
 import fridom.framework as fr
@@ -23,7 +25,7 @@ class SpectralDiff(fr.grid.DiffModule):
     name = "Spectral Difference"
 
     @fr.modules.module_method
-    def setup(self, mset: "fr.ModelSettingsBase") -> None:
+    def setup(self, mset: fr.ModelSettingsBase) -> None:
         """Set up the module and check the grid type."""
         super().setup(mset)
         # check if the grid is either a cartesian grid or a spectral grid

@@ -1,4 +1,4 @@
-"""filesystem.py: Utility functions for file system operations."""
+"""Utility functions for file system operations."""
 from __future__ import annotations
 
 import os

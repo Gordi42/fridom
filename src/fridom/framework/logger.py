@@ -1,4 +1,5 @@
-"""logger.py - Logging module for the fridom framework."""
+"""Logging module for the fridom framework."""
+from __future__ import annotations
 
 import logging
 import os

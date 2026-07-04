@@ -1,4 +1,6 @@
 """Base class for projections onto flow subspaces."""
+from __future__ import annotations
+
 # Import external modules
 from abc import abstractmethod
 from typing import TYPE_CHECKING
@@ -19,12 +21,12 @@ class Projection:
         The model settings.
     """
 
-    def __init__(self, mset: "ModelSettingsBase") -> None:
+    def __init__(self, mset: ModelSettingsBase) -> None:
         self.mset = mset
         self.grid = mset.grid
 
     @abstractmethod
-    def __call__(self, z: "VectorField") -> "VectorField":
+    def __call__(self, z: VectorField) -> VectorField:
         """
         Project the state on the given subspace.
 

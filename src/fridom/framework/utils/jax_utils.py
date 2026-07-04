@@ -1,4 +1,4 @@
-"""jax_utils.py - Utilities for JAX operations."""
+"""Utilities for JAX operations."""
 from __future__ import annotations
 
 import contextlib

@@ -1,4 +1,6 @@
 """Module that computes the divergence of the tendency of the model."""
+from __future__ import annotations
+
 from functools import partial
 
 import fridom.framework as fr

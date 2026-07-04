@@ -1,4 +1,6 @@
-"""printing.py: Utilities for printing to the console."""
+"""Utilities for printing to the console."""
+from __future__ import annotations
+
 import datetime
 
 import fridom.framework as fr

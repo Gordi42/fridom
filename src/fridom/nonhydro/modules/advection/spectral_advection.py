@@ -1,4 +1,6 @@
 """Spectral advection for the nonhydrostatic model."""
+from __future__ import annotations
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 

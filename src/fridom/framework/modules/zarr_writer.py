@@ -1,4 +1,4 @@
-"""zarr_writer.py - Writing model output to zarr stores."""
+"""Writing model output to zarr stores."""
 from __future__ import annotations
 
 import time as system_time

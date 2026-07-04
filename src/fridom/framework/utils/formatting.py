@@ -1,4 +1,4 @@
-"""formatting.py - Utilities for formatting data."""
+"""Utilities for formatting data."""
 from __future__ import annotations
 
 import datetime

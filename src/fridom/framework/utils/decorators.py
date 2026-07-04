@@ -1,4 +1,4 @@
-"""decorators.py: Utilities for decorators."""
+"""Utilities for decorators."""
 from __future__ import annotations
 
 import os

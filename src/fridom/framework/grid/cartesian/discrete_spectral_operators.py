@@ -64,9 +64,14 @@ versa), the discrete spectral operator `k_hat_squared` is given by:
     \hat{k}_x^2 = \hat{k}_x^+ \hat{k}_x^- =
         2 \frac{1 - \cos(k_x \Delta x)}{\Delta x^2}
 """
-from numpy import ndarray
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:  # pragma: no cover
+    from numpy import ndarray
 
 
 # ================================================================

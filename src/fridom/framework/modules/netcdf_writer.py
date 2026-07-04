@@ -1,4 +1,4 @@
-"""netcdf_writer.py - Writing model output to NetCDF files."""
+"""Writing model output to NetCDF files."""
 from __future__ import annotations
 
 import time as system_time

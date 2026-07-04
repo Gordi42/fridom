@@ -1,4 +1,4 @@
-"""model_state.py - The base class for model states."""
+"""The base class for model states."""
 from __future__ import annotations
 
 from functools import partial
