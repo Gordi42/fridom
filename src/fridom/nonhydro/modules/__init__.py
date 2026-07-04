@@ -22,7 +22,6 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from . import advection, closures, forcings, pressure_solvers
-    from .diagnostics import Diagnostics
     from .linear_tendency import LinearTendency
     from .main_tendency import MainTendency
     from .pressure_gradient_tendency import PressureGradientTendency
@@ -49,7 +48,6 @@ all_imports_by_origin = {
     f"{base_path}.tendency_divergence": ["TendencyDivergence"],
     f"{base_path}.pressure_gradient_tendency": ["PressureGradientTendency"],
     f"{base_path}.main_tendency": ["MainTendency"],
-    f"{base_path}.diagnostics": ["Diagnostics"],
     f"{fr_base_path}": ["NaNChecker",
                         "NetCDFWriter",
                         "Ramper",
