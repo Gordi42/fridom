@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+from jax import shard_map
 from jax.experimental import multihost_utils
-from jax.experimental.shard_map import shard_map
 from jax.sharding import NamedSharding
 from jax.sharding import PartitionSpec as P
 

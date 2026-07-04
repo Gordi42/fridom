@@ -62,6 +62,17 @@ where = ["src"]
 addopts = [
   "--import-mode=importlib",
 ]
+filterwarnings = [
+  "error",
+  # netCDF4 1.7.4 sets `.shape` on numpy arrays inside its compiled
+  # __setitem__, which numpy >= 2.5 deprecates. Nothing we can do until
+  # an upstream fix is released. Also triggered through xarray's
+  # netCDF4 backend.
+  "ignore:Setting the shape on a NumPy array:DeprecationWarning",
+  # netCDF4 1.7.4 was compiled against an older numpy; the size-changed
+  # warning on import is benign (cython binary compatibility notice).
+  "ignore:numpy.ndarray size changed:RuntimeWarning",
+]
 
 [tool.coverage.run]
 source_pkgs = ["fridom"]
