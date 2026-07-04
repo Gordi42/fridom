@@ -37,7 +37,10 @@ class Grid(fr.grid.spectral.Grid):
         """Return the eigenvalues (frequencies) of the system matrix."""
         # always use non-discrete eigenvalues even if use_discrete is True
         return nh.grid.cartesian.eigenvectors.omega(
-            mset=self.mset, s=1, k=k, use_discrete=False)
+            s=1, f0=self.mset.f0,
+            stratification_n2=self.mset.stratification_n2,
+            dsqr=self.mset.dsqr,
+            k=k, use_discrete=False)
 
     def vec_q(self, s: int, use_discrete: bool = False) -> nh.State:  # noqa: ARG002 (interface conformity)
         """Return the eigenvectors of the system matrix."""
