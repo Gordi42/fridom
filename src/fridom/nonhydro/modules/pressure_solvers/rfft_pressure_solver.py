@@ -11,6 +11,36 @@ import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
+# jit-compiled to avoid allocating memory for intermediate arrays when
+# computing the wave numbers; defined at module level so that the
+# compilation is shared between solver instances
+@partial(fr.utils.jaxjit, static_argnames=("shape", "rfft_axis"))
+def _compute_k_squared_inv(
+    k_global: tuple[jnp.ndarray, ...],
+    dx: tuple[float, ...],
+    shape: tuple[int, ...],
+    domain_decomp: fr.domain_decomposition.DomainDecomposition,
+    rfft_axis: int | None,
+    dsqr: float,
+) -> jnp.ndarray:
+    """Compute the (negative) inverse of the squared wave numbers."""
+    k = list(k_global)
+    if rfft_axis is not None:
+        i = rfft_axis
+        k[i] = jnp.fft.rfftfreq(
+            shape[i], d=dx[i] / (2 * np.pi),
+        )
+    dso = fr.grid.cartesian.discrete_spectral_operators
+    k = [dso.k_hat_squared(kx, delta, use_discrete=True)
+            for (kx, delta) in zip(k, dx, strict=False)]
+    k = domain_decomp.create_meshgrid(
+        *k, pad=False, spectral=True)
+    k_squared = k[0] + k[1] + k[2] / dsqr
+    with np.errstate(divide="ignore", invalid="ignore"):
+        k_squared_inv = 1 / k_squared
+    return - jnp.where(k_squared == 0, 0, k_squared_inv)
+
+
 @partial(fr.utils.jaxify, dynamic=("k_squared_inv",))
 class RFFTPressureSolver(fr.modules.Module):
 
@@ -66,28 +96,10 @@ class RFFTPressureSolver(fr.modules.Module):
             self.rfft_axis = max(self.fft_axes)
 
     def _setup_k_squared_inv(self) -> None:
-        # use jaxjit here to avoid allocating memory for intermediate arrays
-        # when computing the wave numbers
-        @fr.utils.jaxjit
-        def _setup_k_squared_inv() -> jnp.ndarray:
-            grid = self.mset.grid
-            k = list(grid.k_global)
-            if self.rfft_axis is not None:
-                i = self.rfft_axis
-                k[self.rfft_axis] = jnp.fft.rfftfreq(
-                    grid.shape[i], d=grid.dx[i] / (2 * np.pi),
-                )
-            dso = fr.grid.cartesian.discrete_spectral_operators
-            k = [dso.k_hat_squared(kx, dx, use_discrete=True)
-                    for (kx,dx) in zip(k, grid.dx, strict=False)]
-            k = grid.domain_decomp.create_meshgrid(
-                *k, pad=False, spectral=True)
-            k_squared = k[0] + k[1] + k[2] / self.mset.dsqr
-            with np.errstate(divide="ignore", invalid="ignore"):
-                k_squared_inv = 1 / k_squared
-            return - jnp.where(k_squared == 0, 0, k_squared_inv)
-
-        self.k_squared_inv = _setup_k_squared_inv()
+        grid = self.mset.grid
+        self.k_squared_inv = _compute_k_squared_inv(
+            tuple(grid.k_global), tuple(grid.dx), tuple(grid.shape),
+            grid.domain_decomp, self.rfft_axis, self.mset.dsqr)
 
     def _setup_transform_functions(self) -> None:
         if self.rfft_axis is None:

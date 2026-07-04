@@ -266,6 +266,33 @@ class ClockTrigger:
         self._started = False
         self._stopped = False
 
+    def _configuration(self) -> tuple:
+        """Return the configuration (excluding the mutable state)."""
+        return (self._start_date, self._start_step,
+                self._stop_date, self._stop_step,
+                self._time_interval, self._step_size,
+                self._trigger_on_first_step)
+
+    def __eq__(self, other: object) -> bool:
+        """
+        Compare two clock triggers by their configuration.
+
+        Description
+        -----------
+        Only the configuration (start/stop conditions and intervals) is
+        compared, not the mutable trigger state. Trigger decisions are
+        made on the host side and can never influence jit-compiled
+        computations, so equally configured triggers are considered
+        equal. This keeps the jit-cache keys of objects that contain a
+        clock trigger stable.
+        """
+        if not isinstance(other, ClockTrigger):
+            return NotImplemented
+        return self._configuration() == other._configuration()
+
+    def __hash__(self) -> int:
+        return hash(type(self))
+
     def __repr__(self) -> str:
         res = "ClockTrigger("
         if self._start_date is not None:

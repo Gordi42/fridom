@@ -138,6 +138,13 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
     """
 
     name = "Adam Bashforth"
+
+    # evolving integration state; always passed explicitly (traced) to
+    # the jit-compiled helpers and never read from a static position,
+    # so it is excluded from the structural equality (see
+    # fr.utils.jaxify)
+    _eq_ignored_attrs = frozenset({"dz_list", "it_count", "coeff_AB"})
+
     def __init__(self,
                  dt: float = 1,
                  order: int = 3,

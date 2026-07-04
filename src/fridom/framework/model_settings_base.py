@@ -56,6 +56,18 @@ class ModelSettingsBase:
 
     model_name = "Unnamed model"
 
+    # host-side machinery that can never influence jit-compiled
+    # computations; excluded from the structural equality so that the
+    # jit-cache keys of objects referencing the model settings stay
+    # stable (see fr.utils.jaxify)
+    _eq_ignored_attrs = frozenset({
+        "_timer",
+        "_progress_bar",
+        "_pre_step_diagnostics",
+        "_diagnostics",
+        "_restart_module",
+    })
+
     def __init__(self, grid: fr.grid.GridBase, **kwargs: dict) -> None:
         self._tendencies = fr.modules.ModuleContainer("All Tendencies")
         self._pre_step_diagnostics = fr.modules.ModuleContainer(

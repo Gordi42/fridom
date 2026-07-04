@@ -32,7 +32,10 @@ def test_deepcopy():
     domain = fr.domain_decomposition.SingleDecomposition(
         shape=(64, 64), halo=0, shared_axes=[0])
     domain_copy = deepcopy(domain)
-    assert domain != domain_copy
+    # the copy is an independent object ...
+    assert domain_copy is not domain
+    # ... but structurally equal to the original
+    assert domain == domain_copy
     assert domain.shape == domain_copy.shape
 
 # ================================================================

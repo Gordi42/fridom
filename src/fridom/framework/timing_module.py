@@ -138,6 +138,24 @@ class TimingModule:
         component.stop()
 
 
+    def __eq__(self, other: object) -> bool:
+        """
+        Compare two timing modules (always equal).
+
+        Description
+        -----------
+        The state of a timing module can never influence jit-compiled
+        computations, so all timing modules are considered equal. This
+        keeps the jit-cache keys of objects that contain a timing
+        module (e.g. the model settings) stable.
+        """
+        if not isinstance(other, TimingModule):
+            return NotImplemented
+        return True
+
+    def __hash__(self) -> int:
+        return hash(type(self))
+
     def __str__(self) -> str:
         """Return string representation of the model settings."""
         if self.total.time == 0:
