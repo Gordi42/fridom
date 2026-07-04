@@ -610,13 +610,17 @@ class NNMD(fr.projection.Projection):
     def _advect_tendency_difference(
             self, z: fr.VectorField) -> fr.VectorField:
         mset = self.mset
-        mz = fr.ModelState(self.mset)
-        mz.z = z
-        mz.dz = self.mset.state_constructor()
+
+        def tendency(z: fr.VectorField) -> fr.VectorField:
+            mz = fr.ModelState(mset)
+            mz.z = z
+            mz.dz = mset.state_constructor()
+            return mset.tendencies.update(mz).dz
+
         mset.tendencies.advection.disable()
-        linear_tendency = mset.tendencies.update(mz).dz
+        linear_tendency = tendency(z)
         mset.tendencies.advection.enable()
-        return (mset.tendencies.update(mz).dz - linear_tendency)
+        return tendency(z) - linear_tendency
 
 
     # ================================================================
@@ -770,7 +774,7 @@ class NNMD(fr.projection.Projection):
         interaction = self.interaction(
             order_series=order_series-1,
             order_derivative=order_derivative)
-        for j, sign in zip([1, 2], [-1, 1], strict=False):
+        for j, sign in zip([1, 2], [1, -1], strict=True):
             z_prev = self[j, order_series-1, order_derivative+1]
             z_new = - 1j * sign * self.one_over_omega * (
                 z_prev - interaction @ self.p[j] )
