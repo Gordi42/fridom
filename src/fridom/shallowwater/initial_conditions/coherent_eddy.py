@@ -66,20 +66,20 @@ class CoherentEddy(sw.State):
 
         ncp = sw.config.ncp
         grid = self.grid
-        Lx, Ly = grid.domain_size
+        lx, ly = grid.domain_size
 
-        FACE = sw.grid.AxisPosition.FACE
-        position = sw.grid.Position((FACE, FACE))
+        face = sw.grid.AxisPosition.FACE
+        position = sw.grid.Position((face, face))
 
-        DIRICHLET = sw.grid.BCType.DIRICHLET
-        bc_types = (DIRICHLET, DIRICHLET)
+        dirichlet = sw.grid.BCType.DIRICHLET
+        bc_types = (dirichlet, dirichlet)
 
         field = sw.ScalarField(
             mset, position=position, name="psi", bc_types=bc_types)
 
-        X, Y = field.get_mesh()
+        x, y = field.get_mesh()
         field.arr = amplitude * ncp.exp(
-            -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
+            -((x - pos_x * lx)**2 + (y - pos_y * ly)**2) / (width*lx)**2)
 
         if gauss_field == "vorticity":
             kx, ky = grid.k_mesh

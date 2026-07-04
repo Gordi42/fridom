@@ -14,8 +14,8 @@ class WaveSpectra(State):
         cp = self.cp
         mset = grid.mset
 
-        def spectral_function(K):
-            spectra = cp.sqrt(mset.f0 ** 2 + mset.csqr * K ** 2)
+        def spectral_function(k):
+            spectra = cp.sqrt(mset.f0 ** 2 + mset.csqr * k ** 2)
             spectra[spectra!=0] **= power_law
             return spectra
 

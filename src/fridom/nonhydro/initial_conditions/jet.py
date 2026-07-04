@@ -58,13 +58,13 @@ class Jet(nh.State):
         super().__init__(mset)
         ncp = nh.config.ncp
 
-        _X, Y, Z = mset.grid.x_mesh
-        _Lx, Ly, Lz = mset.grid.domain_size
+        _x, y, z = mset.grid.x_mesh
+        _lx, ly, lz = mset.grid.domain_size
 
         # two opposite jets
-        self.u.arr = -ncp.exp(-(Y-Ly/4)**2/(jet_width)**2)
-        self.u.arr += ncp.exp(-(Y-3*Ly/4)**2/(jet_width)**2)
-        self.u.arr *= jet_strength * ncp.cos(2*ncp.pi*Z/Lz)
+        self.u.arr = -ncp.exp(-(y-ly/4)**2/(jet_width)**2)
+        self.u.arr += ncp.exp(-(y-3*ly/4)**2/(jet_width)**2)
+        self.u.arr *= jet_strength * ncp.cos(2*ncp.pi*z/lz)
 
         # add a small perturbation
         z_per = nh.initial_conditions.SingleWave(

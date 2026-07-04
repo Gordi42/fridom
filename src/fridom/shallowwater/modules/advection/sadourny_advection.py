@@ -70,16 +70,16 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
         #  Define some grid positions
         # ================================================================
 
-        CENTER = z.p.position
-        EAST = z.p.position.shift(0)
-        NORTH = z.p.position.shift(1)
-        NORTHEAST = EAST.shift(1)
+        center = z.p.position
+        east = z.p.position.shift(0)
+        north = z.p.position.shift(1)
+        northeast = east.shift(1)
 
         # ----------------------------------------------------------------
         #  Compute the nonlinear term of the pressure tendency - ∇(vp)
         # ----------------------------------------------------------------
-        fx = zf.u * interp(z.p, EAST)
-        fy = zf.v * interp(z.p, NORTH)
+        fx = zf.u * interp(z.p, east)
+        fy = zf.v * interp(z.p, north)
         dz.p -= scale * diff_mod.div((fx, fy))
 
         # ----------------------------------------------------------------
@@ -95,8 +95,8 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
             if div is None:
                 div = diff_mod.div((zf.u, zf.v))
 
-            fx = zf.u * interp(quantity, EAST)
-            fy = zf.v * interp(quantity, NORTH)
+            fx = zf.u * interp(quantity, east)
+            fy = zf.v * interp(quantity, north)
 
             df = - diff_mod.div((fx, fy)) + quantity * div
             dz.fields[name] -= scale * df
@@ -109,12 +109,12 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
         if self.background is not None:
             u_b = self.background.u; v_b = self.background.v
             # u-component
-            fx = interp(u_b, CENTER) * interp(z.u, CENTER)
-            fy = interp(v_b, NORTHEAST) * interp(z.u, NORTHEAST)
+            fx = interp(u_b, center) * interp(z.u, center)
+            fy = interp(v_b, northeast) * interp(z.u, northeast)
             dz.u -= scale * diff_mod.div((fx, fy))
             # v-component
-            fx = interp(u_b, NORTHEAST) * interp(z.v, NORTHEAST)
-            fy = interp(v_b, CENTER) * interp(z.v, CENTER)
+            fx = interp(u_b, northeast) * interp(z.v, northeast)
+            fy = interp(v_b, center) * interp(z.v, center)
             dz.v -= scale * diff_mod.div((fx, fy))
 
         # now do the nonlinear advection
@@ -124,20 +124,20 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
         # compute the potential vorticity
         zeta = z.rel_vort
         h_full = self.csqr + scale * z.p  # check if we should use scale or Ro here
-        q = zeta / interp(h_full, NORTHEAST)
+        q = zeta / interp(h_full, northeast)
 
         # interp set h_full to zero on boundaries, as a result values of q on
         # boundaries are nan. We set them to zero here.
         q.arr = fr.config.ncp.nan_to_num(q.arr, 0.0)
 
         # compute the fluxes fu and fv at the northeast position (to match the vorticity)
-        fu = interp(z.u * interp(h_full, EAST), NORTHEAST)
-        fv = interp(z.v * interp(h_full, NORTH), NORTHEAST)
+        fu = interp(z.u * interp(h_full, east), northeast)
+        fv = interp(z.v * interp(h_full, north), northeast)
 
         # compute the kinetic energy
-        ekin = 0.5 * (interp(z.u**2, CENTER) + interp(z.v**2, CENTER))
+        ekin = 0.5 * (interp(z.u**2, center) + interp(z.v**2, center))
 
         # compute the advection terms
-        dz.u += scale * ( interp(fv * q, EAST ) - diff_mod.diff(ekin, axis=0))
-        dz.v += scale * (-interp(fu * q, NORTH) - diff_mod.diff(ekin, axis=1))
+        dz.u += scale * ( interp(fv * q, east ) - diff_mod.diff(ekin, axis=0))
+        dz.v += scale * (-interp(fu * q, north) - diff_mod.diff(ekin, axis=1))
         return dz

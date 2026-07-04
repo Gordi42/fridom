@@ -164,6 +164,6 @@ class WaterMask:
         self._cache = {}
         # construct all possible masks
         ndim = mask.ndim
-        CENTER = fr.grid.AxisPosition.CENTER; FACE = fr.grid.AxisPosition.FACE
-        for position in itertools.product([CENTER, FACE], repeat=ndim):
+        center = fr.grid.AxisPosition.CENTER; face = fr.grid.AxisPosition.FACE
+        for position in itertools.product([center, face], repeat=ndim):
             self.get_mask(fr.grid.Position(position))

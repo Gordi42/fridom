@@ -293,10 +293,10 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                         *args: ndarray,
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:
-        X = fr.config.ncp.meshgrid(*args, indexing="ij")
+        mesh = fr.config.ncp.meshgrid(*args, indexing="ij")
         if pad:
-            X = tuple(self.pad(x) for x in X)
-        return X
+            mesh = tuple(self.pad(x) for x in mesh)
+        return mesh
 
     # ================================================================
     #  Array operations

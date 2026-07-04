@@ -53,12 +53,12 @@ class Jet(sw.State):
         super().__init__(mset)
         # Shortcuts
         ncp = sw.config.ncp
-        _X, Y = self.grid.x_mesh
-        _Lx, Ly = self.grid.domain_size
+        _x, y = self.grid.x_mesh
+        _lx, ly = self.grid.domain_size
 
         # Construct the zonal jets
         z_jet = sw.State(mset)
-        z_jet.u.arr = ncp.exp(- ((Y - pos * Ly)/(width * Ly))**2)
+        z_jet.u.arr = ncp.exp(- ((y - pos * ly)/(width * ly))**2)
 
         # Project to geostrophic subspace
         if geo_proj:

@@ -202,7 +202,8 @@ class Grid(fr.grid.GridBase):
         return tuple(x + offset for x, offset in zip(self.x_mesh, offsets, strict=False))
 
     def _construct_domain_decomp(self, halo: int) -> None:
-        DomainDecomposition = fr.domain_decomposition.get_default_domain_decomposition()
+        DomainDecomposition = (  # noqa: N806 (holds a class)
+            fr.domain_decomposition.get_default_domain_decomposition())
 
         # construct the domain decomposition
         domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(

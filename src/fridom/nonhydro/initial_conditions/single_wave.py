@@ -65,16 +65,16 @@ class SingleWave(nh.State):
         # Shortcuts
         ncp = nh.config.ncp
         grid = mset.grid
-        Kx, Ky, Kz = grid.k_mesh
+        kx, ky, kz = grid.k_mesh
         kx, ky, kz = k
-        Lx, Ly, Lz = grid.domain_size
+        lx, ly, lz = grid.domain_size
         pi = ncp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)
-        kx = 2*pi*kx/Lx; ky = 2*pi*ky/Ly; kz = 2*pi*kz/Lz
-        is_kx = ncp.isclose(Kx, kx)
-        is_ky = ncp.isclose(Ky, ky)
-        is_kz = ncp.isclose(Kz, kz)
+        kx = 2*pi*kx/lx; ky = 2*pi*ky/ly; kz = 2*pi*kz/lz
+        is_kx = ncp.isclose(kx, kx)
+        is_ky = ncp.isclose(ky, ky)
+        is_kz = ncp.isclose(kz, kz)
         k_loc = is_kx & is_ky & is_kz
 
         # Construct the spectral field of the corresponding mode

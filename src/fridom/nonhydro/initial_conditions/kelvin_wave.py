@@ -81,13 +81,13 @@ class KelvinWave(nh.State):
         ncp = nh.config.ncp
 
         # convert the wavenumbers
-        Lx, Ly, Lz = mset.grid.domain_size
-        kz = 2 * ncp.pi * kz / Lz
+        lx, ly, lz = mset.grid.domain_size
+        kz = 2 * ncp.pi * kz / lz
         if side in {"N", "S"}:
-            L_parallel = Lx
+            l_parallel = lx
         if side in {"E", "W"}:
-            L_parallel = Ly
-        k_parallel = 2 * ncp.pi * k_parallel / L_parallel
+            l_parallel = ly
+        k_parallel = 2 * ncp.pi * k_parallel / l_parallel
 
         # calculate the frequency
         om = ncp.sqrt((k_parallel**2 * mset.stratification_n2) /
@@ -107,8 +107,8 @@ class KelvinWave(nh.State):
         if side == "N":
             def get_wave(f: nh.ScalarField):
                 x, y, z = f.get_mesh()
-                x_normal = Ly - y
-                x_parallel = Lx - x
+                x_normal = ly - y
+                x_parallel = lx - x
                 return wave(x_parallel, x_normal, z)
             self.u.arr = (- pol_u_normal * get_wave(self.u)).imag
         elif side == "S":
@@ -121,7 +121,7 @@ class KelvinWave(nh.State):
         elif side == "E":
             def get_wave(f: nh.ScalarField):
                 x, y, z = f.get_mesh()
-                x_normal = Lx - x
+                x_normal = lx - x
                 x_parallel = y
                 return wave(x_parallel, x_normal, z)
             self.v.arr = (pol_u_normal * get_wave(self.v)).imag
@@ -129,7 +129,7 @@ class KelvinWave(nh.State):
             def get_wave(f: nh.ScalarField):
                 x, y, z = f.get_mesh()
                 x_normal = x
-                x_parallel = Ly - y
+                x_parallel = ly - y
                 return wave(x_parallel, x_normal, z)
             self.v.arr = (- pol_u_normal * get_wave(self.v)).imag
 

@@ -50,8 +50,8 @@ class GridBase:
         # The domain decomposition
         self._domain_decomposition = None
         # The cell center
-        CENTER = fr.grid.AxisPosition.CENTER
-        self._cell_center = fr.grid.Position(tuple([CENTER] * n_dims))
+        center = fr.grid.AxisPosition.CENTER
+        self._cell_center = fr.grid.Position(tuple([center] * n_dims))
         # spectral properties
         self._k_mesh = None
         self._k_global = None

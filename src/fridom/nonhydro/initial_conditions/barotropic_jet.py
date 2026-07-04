@@ -51,18 +51,18 @@ class BarotropicJet(nh.State):
         super().__init__(mset)
         # Shortcuts
         ncp = nh.config.ncp
-        PI = ncp.pi
-        X, Y, _Z = mset.grid.x_mesh
-        Lx, Ly, _Lz = mset.grid.domain_size
-        width = jet_width * Ly * PI
+        pi = ncp.pi
+        x, y, _z = mset.grid.x_mesh
+        lx, ly, _lz = mset.grid.domain_size
+        width = jet_width * ly * pi
 
         # Construct the zonal jets
-        self.u.arr  = 2.5*( ncp.exp(-((Y - 0.75*Ly)/(width))**2) -
-                            ncp.exp(-((Y - 0.25*Ly)/(width))**2) )
+        self.u.arr  = 2.5*( ncp.exp(-((y - 0.75*ly)/(width))**2) -
+                            ncp.exp(-((y - 0.25*ly)/(width))**2) )
 
         # Construct the perturbation
-        kx_p = 2*PI/Lx * wavenum
-        self.v.arr  = waveamp * ncp.sin(kx_p*X)
+        kx_p = 2*pi/lx * wavenum
+        self.v.arr  = waveamp * ncp.sin(kx_p*x)
 
         if geo_proj:
             proj_geo = nh.projection.GeostrophicSpectral(mset)

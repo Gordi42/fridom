@@ -10,9 +10,9 @@ import fridom.framework as fr
 from fridom.framework import config, utils
 
 
-def _create_kn_mesh(N: int):
+def _create_kn_mesh(n_points: int):
     ncp = config.ncp
-    n = ncp.arange(0, N)
+    n = ncp.arange(0, n_points)
     n, k = ncp.meshgrid(n, n, indexing="ij")
     return n, k
 
@@ -21,27 +21,27 @@ def _apply_weights(x, weights, axis):
     y = ncp.tensordot(x, weights, axes=([axis], [0]))
     return ncp.moveaxis(y, -1, axis)
 
-@partial(utils.jaxjit, static_argnames=["axis", "N"])
-def dct_type2(x, axis, N):
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def dct_type2(x, axis, n_points):
     ncp = config.ncp
-    n, k = _create_kn_mesh(N)
-    weights = 2 * ncp.cos((ncp.pi / N) * k * (n + 0.5))
+    n, k = _create_kn_mesh(n_points)
+    weights = 2 * ncp.cos((ncp.pi / n_points) * k * (n + 0.5))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=["axis", "N"])
-def idct_type2(x, axis, N):
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def idct_type2(x, axis, n_points):
     ncp = config.ncp
-    k, n = _create_kn_mesh(N)
-    weights = 2 * ncp.cos((ncp.pi / N) * k * (n + 0.5))
+    k, n = _create_kn_mesh(n_points)
+    weights = 2 * ncp.cos((ncp.pi / n_points) * k * (n + 0.5))
     weights = utils.modify_array(weights, (0, slice(None)), 1)
-    return _apply_weights(x, weights, axis) / (2 * N)
+    return _apply_weights(x, weights, axis) / (2 * n_points)
 
-@partial(utils.jaxjit, static_argnames=["axis", "N"])
-def dst_type1(x, axis, N):
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def dst_type1(x, axis, n_points):
     # we assume that the position of the variable is at the cell edges
     # |-----x-----|-----x-----|-----x-----|-----x-----|
     #             ^           ^           ^           ^
-    #            x0          x1          x2          x(N-1)
+    #            x0          x1          x2          x(n_points-1)
     # A function f with frequency k is given by:
     # f(xi) = sin(k*(xi+dx/2))
     #       = -i/2 * (exp(i*k*(xi+dx/2)) - exp(-i*k*(xi+dx/2)))
@@ -50,36 +50,36 @@ def dst_type1(x, axis, N):
     #       = -i/2 * exp(i*k*dx/2) * exp(i*k*xi)
     # the factor 1/2 does not matter, but we need the rotation by -i*exp(i*k*dx/2)
     # so that the sine transform is consistent with fourier transforms
-    # Note that dx is given by pi/N
+    # Note that dx is given by pi/n_points
     ncp = config.ncp
-    n, k = _create_kn_mesh(N)
-    weights = 2 * ncp.sin(ncp.pi * k * (n+1) / N)
+    n, k = _create_kn_mesh(n_points)
+    weights = 2 * ncp.sin(ncp.pi * k * (n+1) / n_points)
     # apply the rotation factor
-    weights = weights * -1j * ncp.exp(1j*k*ncp.pi/(2*N))
+    weights = weights * -1j * ncp.exp(1j*k*ncp.pi/(2*n_points))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=["axis", "N"])
-def idst_type1(x, axis, N):
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def idst_type1(x, axis, n_points):
     ncp = config.ncp
-    k, n = _create_kn_mesh(N)
-    weights = 2 * ncp.sin(ncp.pi * k * (n+1) / N)
+    k, n = _create_kn_mesh(n_points)
+    weights = 2 * ncp.sin(ncp.pi * k * (n+1) / n_points)
     # similar as the dst1, we need to apply the inverse rotation factor
-    weights = weights * 1j * ncp.exp(-1j*k*ncp.pi/(2 * N))
-    return _apply_weights(x, weights, axis) / (2 * N)
+    weights = weights * 1j * ncp.exp(-1j*k*ncp.pi/(2 * n_points))
+    return _apply_weights(x, weights, axis) / (2 * n_points)
 
-@partial(utils.jaxjit, static_argnames=["axis", "N"])
-def dst_type2(x, axis, N):
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def dst_type2(x, axis, n_points):
     ncp = config.ncp
-    n, k = _create_kn_mesh(N)
-    weights = -2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*N))
+    n, k = _create_kn_mesh(n_points)
+    weights = -2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*n_points))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=["axis", "N"])
-def idst_type2(x, axis, N):
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def idst_type2(x, axis, n_points):
     ncp = config.ncp
-    k, n = _create_kn_mesh(N)
-    weights = 2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*N))
-    return _apply_weights(x, weights, axis) / (2 * N)
+    k, n = _create_kn_mesh(n_points)
+    weights = 2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*n_points))
+    return _apply_weights(x, weights, axis) / (2 * n_points)
 
 def r2r(transform: Callable) -> Callable:
     """Apply the given transform to both the real and imaginary parts of the input."""

@@ -16,7 +16,7 @@ class ButcherTableau:
 
     Parameters
     ----------
-    A : np.ndarray
+    a : np.ndarray
         Matrix of coefficients.
     b : np.ndarray
         Vector of coefficients.
@@ -26,11 +26,11 @@ class ButcherTableau:
     """
 
     def __init__(self,
-                 A: np.ndarray,
+                 a: np.ndarray,
                  b: np.ndarray,
                  c: np.ndarray,
                  b_error: np.ndarray | None = None) -> None:
-        self.A = A
+        self.a = a
         self.b = b
         self.c = c
         self.b_error = b_error
@@ -45,20 +45,20 @@ class RKMethods(Enum):
     # ----------------------------------------------------------------
 
     Euler = ButcherTableau(
-        A = np.array([0]),
+        a = np.array([0]),
         b = np.array([1]),
         c = np.array([0]),
     )
 
     RK2 = ButcherTableau(
-        A = np.array([[0,   0],
+        a = np.array([[0,   0],
                       [1/2, 0]]),
         b = np.array([0,   1]),
         c = np.array([0, 1/2]),
     )
 
     RK3 = ButcherTableau(
-        A = np.array([[  0, 0, 0],
+        a = np.array([[  0, 0, 0],
                       [1/2, 0, 0],
                       [ -1, 2, 0]]),
         b = np.array([1/6, 2/3, 1/6]),
@@ -66,7 +66,7 @@ class RKMethods(Enum):
     )
 
     RK4 = ButcherTableau(
-        A = np.array([[  0,   0, 0, 0],
+        a = np.array([[  0,   0, 0, 0],
                       [1/2,   0, 0, 0],
                       [  0, 1/2, 0, 0],
                       [  0,   0, 1, 0]]),
@@ -75,7 +75,7 @@ class RKMethods(Enum):
     )
 
     RK4_38 = ButcherTableau(
-        A = np.array([[   0,  0, 0, 0],
+        a = np.array([[   0,  0, 0, 0],
                       [ 1/3,  0, 0, 0],
                       [-1/3,  1, 0, 0],
                       [   1, -1, 1, 0]]),
@@ -88,7 +88,7 @@ class RKMethods(Enum):
     # ----------------------------------------------------------------
 
     HEUN_EULER = ButcherTableau(
-        A = np.array([[0, 0],
+        a = np.array([[0, 0],
                       [1, 0]]),
         b = np.array([1/2, 1/2]),
         c = np.array([  0,   1]),
@@ -96,7 +96,7 @@ class RKMethods(Enum):
     )
 
     BOGACKI_SHAMPINE = ButcherTableau(
-        A = np.array([[  0,   0,   0, 0],
+        a = np.array([[  0,   0,   0, 0],
                       [1/2,   0,   0, 0],
                       [  0, 3/4,   0, 0],
                       [2/9, 1/3, 4/9, 0]]),
@@ -106,7 +106,7 @@ class RKMethods(Enum):
     )
 
     RKF45 = ButcherTableau(
-        A = np.array([[        0,          0,          0,         0,      0, 0],
+        a = np.array([[        0,          0,          0,         0,      0, 0],
                       [      1/4,          0,          0,         0,      0, 0],
                       [     3/32,       9/32,          0,         0,      0, 0],
                       [1932/2197, -7200/2197,  7296/2197,         0,      0, 0],
@@ -174,7 +174,7 @@ class RungeKutta(fr.time_steppers.TimeStepper):
                 # advance the clock.
                 # This is likely a problem for tendencies that depend on the cock
                 mod_state.clock.tick(method.c[i] * dt)
-                mod_state.z = mz.z + sum_product(method.A[i], dt, k)
+                mod_state.z = mz.z + sum_product(method.a[i], dt, k)
                 mod_state.dz = self.dz_list[i]
                 mod_state = _compute_tendency(self.mset.tendencies, mod_state)
                 k.append(mod_state.dz)

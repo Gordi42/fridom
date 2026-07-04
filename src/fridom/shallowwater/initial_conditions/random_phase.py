@@ -16,7 +16,7 @@ class RandomPhase(State):
                  amplitude=1.0, seed=12345) -> None:
         """
         Arguments:
-            spectral_function (callable) : with interface spectral_function(K)
+            spectral_function (callable) : with interface spectral_function(k_mag)
             random_type (str)            : "uniform" or "normal"
                 => uniform: The phase is randomized by multiplying the complex
                             value e^ip to the state where p is uniformly
@@ -32,12 +32,12 @@ class RandomPhase(State):
         # get the wavenumber
         cp = self.cp
         mset = grid.mset
-        Kx, Ky = tuple(grid.k_mesh)
-        K = cp.sqrt(Kx**2 + Ky**2)
-        k_hor = cp.sqrt(Kx**2 + Ky**2)
+        kx, ky = tuple(grid.k_mesh)
+        k_mag = cp.sqrt(kx**2 + ky**2)
+        k_hor = cp.sqrt(kx**2 + ky**2)
 
         # Define Function for random phase
-        kx_flat = Kx.flatten(); ky_flat = Ky.flatten()
+        kx_flat = kx.flatten(); ky_flat = ky.flatten()
         k_order = cp.max(cp.abs(cp.array([kx_flat, ky_flat])), axis=0)
         angle = cp.angle(kx_flat + 1j*ky_flat)
         if mset.gpu:
@@ -52,21 +52,21 @@ class RandomPhase(State):
             def random_phase(seed):
                 # random phase between 0 and 2pi
                 phase = default_rng(seed).uniform(0, 2*cp.pi, kx_flat.shape)
-                return cp.exp(1j*phase).reshape(K.shape)
+                return cp.exp(1j*phase).reshape(k_mag.shape)
 
         elif random_type == "normal":
             def random_phase(seed):
                 r = kx_flat*0 + 0j
                 r[sort] = default_rng(seed).standard_normal(kx_flat.shape) + 1j*default_rng(2*seed).standard_normal(kx_flat.shape)
-                return r.reshape(K.shape)
+                return r.reshape(k_mag.shape)
         else:
             raise ValueError("Unknown random phase type")
 
         kx_max = 2./3.*cp.amax(cp.abs(k_hor))
         large_k = (k_hor >= kx_max*1.0)
-        spectra = cp.where(large_k, 0, spectral_function(K))
-        # divide by K
-        spectra[K!=0] /= K[K!=0]
+        spectra = cp.where(large_k, 0, spectral_function(k_mag))
+        # divide by k_mag
+        spectra[k_mag!=0] /= k_mag[k_mag!=0]
 
         from fridom.shallowwater.state import State
         z = State(grid, is_spectral=True)
