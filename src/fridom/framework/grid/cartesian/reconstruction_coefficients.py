@@ -256,8 +256,8 @@ def compute_polynomial_coefficients(
             fr.grid.cartesian.compute_polynomial_coefficients_cell_average)
         coeffs = cell_average(stencil_size=stencil_size)
     else:
-        msg = (f"Invalid method {method}",
-                "Only 'pointwise' and 'cell_average' are supported.")
+        msg = (f"Invalid method {method}. "
+               "Only 'pointwise' and 'cell_average' are supported.")
         raise ValueError(msg)
 
     return coeffs

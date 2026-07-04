@@ -28,8 +28,12 @@ COEFFS_BETA2 = {
     3: [13.0/12.0, 1.0/4.0],
 }
 
-MAX_STENCIL_SIZE = max(
-    *COEFFS_D.keys(), *COEFFS_BETA1.keys(), *COEFFS_BETA2.keys())
+# only stencil sizes for which all coefficient tables are available
+# are supported
+MIN_STENCIL_SIZE = max(
+    min(COEFFS_D), min(COEFFS_BETA1), min(COEFFS_BETA2))
+MAX_STENCIL_SIZE = min(
+    max(COEFFS_D), max(COEFFS_BETA1), max(COEFFS_BETA2))
 
 
 @fr.utils.jaxify
@@ -69,9 +73,11 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
         self.required_halo = self.stencil_size
         self.eps = eps
 
-        if self.stencil_size > MAX_STENCIL_SIZE:
-            msg = f"Order {order} is too high. "
-            msg += f"Please use an order <= {2 * MAX_STENCIL_SIZE - 1}."
+        if not MIN_STENCIL_SIZE <= self.stencil_size <= MAX_STENCIL_SIZE:
+            msg = f"Order {order} is not supported. "
+            msg += (f"Please use an order between "
+                    f"{2 * MIN_STENCIL_SIZE - 1} and "
+                    f"{2 * MAX_STENCIL_SIZE - 1}.")
             raise ValueError(msg)
 
         self.pol_coeffs = fr.grid.cartesian.compute_polynomial_coefficients(

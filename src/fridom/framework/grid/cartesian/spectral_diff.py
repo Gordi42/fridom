@@ -73,6 +73,6 @@ class SpectralDiff(fr.grid.DiffModule):
         #  Transform back to physical space if necessary
         # ----------------------------------------------------------------
         if transformed:
-            res = res.fft()
+            res = res.ifft()
 
         return res
