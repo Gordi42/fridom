@@ -74,14 +74,14 @@ class Jet(nh.State):
 
         # add a small perturbation
         z_per = nh.initial_conditions.SingleWave(
-            mset, kx=pert_wavenum, ky=0, kz=0, s=0)
+            mset, k=(pert_wavenum, 0, 0), s=0)
         vel = (z_per.u**2 + z_per.v**2 + z_per.w**2)**0.5
         z_per /= vel.max()
 
-        self.u.arr += pert_strength * z_per.u
-        self.v.arr += pert_strength * z_per.v
-        self.w.arr += pert_strength * z_per.w
-        self.b.arr += pert_strength * z_per.b
+        self.u.arr += pert_strength * z_per.u.arr
+        self.v.arr += pert_strength * z_per.v.arr
+        self.w.arr += pert_strength * z_per.w.arr
+        self.b.arr += pert_strength * z_per.b.arr
 
         if geo_proj:
             proj_geo = nh.projection.GeostrophicSpectral(mset)
