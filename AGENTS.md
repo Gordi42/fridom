@@ -24,6 +24,8 @@ which the modern code (e.g. `framework/modules/module.py`,
 uv sync --extra dev                        # create/refresh .venv with dev deps
 uv run pytest tests/ -n 8 --dist loadfile  # run the full test suite (parallel)
 uv run pytest tests/framework              # run a subset (serial)
+uv run pytest tests/ -n 8 --dist loadfile --cov  # full suite with coverage
+
 uv run ruff check src tests                # lint (must stay at zero errors)
 uv run pre-commit install                  # install the ruff pre-commit hook
 ```
@@ -62,6 +64,20 @@ uv run pre-commit install                  # install the ruff pre-commit hook
   `uv run pytest tests/nonhydro/test_linear_model.py`.
 - Full-suite runs (only when explicitly requested):
   `uv run pytest tests/ -n 8 --dist loadfile`.
+
+### Coverage policy
+
+- The project enforces **95% branch coverage** (`fail_under = 95` in
+  `pyproject.toml`; Codecov gates project and patch coverage at 95%).
+- New or changed code must ship with tests in the mirrored test file so
+  that patch coverage stays >= 95%.
+- Coverage is opt-in locally: add `--cov` to the pytest invocation
+  (pytest-cov combines data across xdist workers automatically).
+- Prefer testing hard-to-test code (I/O, animation, MPI) with
+  monkeypatching/mocks. Use `# pragma: no cover` only for lines that are
+  truly unreachable in tests; structural exclusions
+  (`if TYPE_CHECKING:`, `@abstractmethod`, `raise NotImplementedError`)
+  are already configured in `[tool.coverage.report]`.
 
 ## Conventions
 

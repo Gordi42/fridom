@@ -41,6 +41,7 @@ cuda = ["jax[cuda12]"]
 dev = [
   "pylint",
   "pytest",
+  "pytest-cov",
   "pytest-xdist",
   "coverage",
   "ruff",
@@ -60,6 +61,28 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = [
   "--import-mode=importlib",
+]
+
+[tool.coverage.run]
+source_pkgs = ["fridom"]
+branch = true
+relative_files = true
+
+[tool.coverage.paths]
+source = [
+  "src/fridom",
+  "**/site-packages/fridom",
+]
+
+[tool.coverage.report]
+fail_under = 95
+precision = 1
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "@(abc\\.)?abstractmethod",
+  "raise NotImplementedError",
 ]
 
 [tool.pylint]
