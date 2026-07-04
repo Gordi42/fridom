@@ -299,13 +299,13 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
 import numpy as np
 from numpy import ndarray
 
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
-ncp = fr.config.ncp
 dso = fr.grid.cartesian.discrete_spectral_operators
 
 def _check_if_spectral_analysis_is_possible(mset: nh.ModelSettings) -> None:
@@ -418,12 +418,12 @@ def omega(s: int,
     f2 = f0**2
     n_squared = stratification_n2
     # cast k to ndarray
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
     dx, dy, dz = dx or (None, None, None)
 
     # eigenvector of geostrophic mode is zero
     if s == 0:
-        return ncp.zeros_like(kx)
+        return jnp.zeros_like(kx)
     if s == "d":
         msg = "Divergent mode does not have eigenvalues."
         raise ValueError(msg)
@@ -440,11 +440,11 @@ def omega(s: int,
         buoyancy_part = ohpm(kz,dz) * n_squared * kh2
         denominator = dsqr * kh2 + khpm(kz,dz)
 
-    om = ncp.sqrt((coriolis_part + buoyancy_part) / denominator)
+    om = jnp.sqrt((coriolis_part + buoyancy_part) / denominator)
 
     # set the result to zero where the denominator is zero
     nonzero = (kx**2 + ky**2 + kz**2 > 0)
-    om = ncp.where(nonzero, om, 0)
+    om = jnp.where(nonzero, om, 0)
     return s * om
 
 # ================================================================
@@ -460,7 +460,7 @@ def _vec_q_geostrophic(
     """Return geostrophic q eigenvector."""
     _check_use_discrete_argument(dx, use_discrete)
 
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
     dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
@@ -476,7 +476,7 @@ def _vec_q_geostrophic(
     # We first consider the case of nonzero horizontal wavenumbers
     u = -ohp(kx,dx)*ohm(ky,dy)*ohp(kz,dz)*khp(ky,dy)
     v =  ohm(kx,dx)*ohp(ky,dy)*ohp(kz,dz)*khp(kx,dx)
-    w = ncp.zeros_like(kx)
+    w = jnp.zeros_like(kx)
     b = ohpm(kx,dx)*ohpm(ky,dy)*f0*khp(kz,dz)
 
     # Now we consider the purely vertical case
@@ -489,10 +489,10 @@ def _vec_q_geostrophic(
     # Mask to separate inertial modes from inertia-gravity modes
     nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
 
-    u = ncp.where(nonzero_horizontal, u, u_ov)
-    v = ncp.where(nonzero_horizontal, v, v_ov)
-    w = ncp.where(nonzero_horizontal, w, w_ov)
-    b = ncp.where(nonzero_horizontal, b, b_ov)
+    u = jnp.where(nonzero_horizontal, u, u_ov)
+    v = jnp.where(nonzero_horizontal, v, v_ov)
+    w = jnp.where(nonzero_horizontal, w, w_ov)
+    b = jnp.where(nonzero_horizontal, b, b_ov)
 
     return u, v, w, b
 
@@ -504,7 +504,7 @@ def _vec_q_divergent(
     """Return divergent q eigenvector."""
     _check_use_discrete_argument(dx, use_discrete)
 
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
     dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
@@ -515,7 +515,7 @@ def _vec_q_divergent(
     u = khp(kx,dx)
     v = khp(ky,dy)
     w = khp(kz,dz)
-    b = ncp.zeros_like(kx)
+    b = jnp.zeros_like(kx)
 
     # Now we consider the purely vertical case
     # (ov -> only vertical)
@@ -527,10 +527,10 @@ def _vec_q_divergent(
     # Mask to separate inertial modes from inertia-gravity modes
     nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
 
-    u = ncp.where(nonzero_horizontal, u, u_ov)
-    v = ncp.where(nonzero_horizontal, v, v_ov)
-    w = ncp.where(nonzero_horizontal, w, w_ov)
-    b = ncp.where(nonzero_horizontal, b, b_ov)
+    u = jnp.where(nonzero_horizontal, u, u_ov)
+    v = jnp.where(nonzero_horizontal, v, v_ov)
+    w = jnp.where(nonzero_horizontal, w, w_ov)
+    b = jnp.where(nonzero_horizontal, b, b_ov)
 
     return u, v, w, b
 
@@ -546,7 +546,7 @@ def _vec_q_igw(
     """Return inertial-gravity wave q eigenvectors."""
     _check_use_discrete_argument(dx, use_discrete)
 
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
     dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
@@ -586,10 +586,10 @@ def _vec_q_igw(
     # Mask to separate inertial modes from inertia-gravity modes
     nonzero_horizontal = (kx**2 + ky**2 != 0)  # nonzero horizontal wavenumbers
 
-    u = ncp.where(nonzero_horizontal, u, u_ov)
-    v = ncp.where(nonzero_horizontal, v, v_ov)
-    w = ncp.where(nonzero_horizontal, w, w_ov)
-    b = ncp.where(nonzero_horizontal, b, b_ov)
+    u = jnp.where(nonzero_horizontal, u, u_ov)
+    v = jnp.where(nonzero_horizontal, v, v_ov)
+    w = jnp.where(nonzero_horizontal, w, w_ov)
+    b = jnp.where(nonzero_horizontal, b, b_ov)
 
     return u, v, w, b
 
@@ -696,25 +696,25 @@ def _normalize_p_vec(
         k: tuple[float] | tuple[ndarray],
 ) -> tuple[ndarray]:
     """Normalize the projection vectors."""
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
 
-    f0 = ncp.asarray(f0)
-    n_squared = ncp.asarray(n_squared)
+    f0 = jnp.asarray(f0)
+    n_squared = jnp.asarray(n_squared)
 
     horizontal_mask = (kx**2 + ky**2 != 0)
     vertical_mask = (kz**2 != 0)
     full_mask = (kx**2 + ky**2 + kz**2 != 0)
 
     # if N2 == 0 => use the vertical mask
-    mask = ncp.where(n_squared == 0, vertical_mask, full_mask)
+    mask = jnp.where(n_squared == 0, vertical_mask, full_mask)
     # if f0 == 0 => use the horizontal mask
-    mask = ncp.where(f0 == 0, horizontal_mask, mask)
+    mask = jnp.where(f0 == 0, horizontal_mask, mask)
     # if both f0 and N2 are zero => This case should never happen
 
-    norm = ncp.abs(
+    norm = jnp.abs(
         sum(p_i * q_i.conj() for p_i, q_i in zip(p, q, strict=False)))
 
-    return tuple(ncp.where(mask, p_i/norm, 0) for p_i in p)
+    return tuple(jnp.where(mask, p_i/norm, 0) for p_i in p)
 
 def _vec_p_geostrophic(
         f0: float,
@@ -726,7 +726,7 @@ def _vec_p_geostrophic(
     """Return geostrophic projection vectors."""
     _check_use_discrete_argument(dx, use_discrete)
 
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
     dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
@@ -752,7 +752,7 @@ def _vec_p_geostrophic(
     w = 0
     b = ohpm(kx,dx) * ohpm(ky,dy) * f0 * khp(kz,dz)
 
-    p = tuple(ncp.where(nonzero_horizontal, arr, q_i)
+    p = tuple(jnp.where(nonzero_horizontal, arr, q_i)
               for arr, q_i in zip((u, v, w, b), q, strict=False))
 
     return _normalize_p_vec(p, q, f0, n_squared, k)
@@ -765,18 +765,18 @@ def _vec_p_divergent(
     """Return divergent projection vectors."""
     _check_use_discrete_argument(dx, use_discrete)
 
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
 
     # Divergent modes are the same as the eigenvector
     p = _vec_q_divergent(k, dx, use_discrete)
 
     # normalize the vector
-    norm = ncp.abs(sum(p_i * p_i.conj() for p_i in p))
+    norm = jnp.abs(sum(p_i * p_i.conj() for p_i in p))
 
     # avoid division by zero
     mask = (kx**2 + ky**2 + kz**2 != 0)
 
-    return tuple(ncp.where(mask, p_i/norm, 0) for p_i in p)
+    return tuple(jnp.where(mask, p_i/norm, 0) for p_i in p)
 
 def _vec_p_igw(
         s: int,
@@ -789,7 +789,7 @@ def _vec_p_igw(
 ) -> tuple[ndarray]:
     _check_use_discrete_argument(dx, use_discrete)
 
-    kx, ky, kz = tuple(ncp.asarray(k) for k in k)
+    kx, ky, kz = tuple(jnp.asarray(k) for k in k)
     dx, dy, dz = dx or (None, None, None)
 
     # Define the spectral operators
@@ -830,7 +830,7 @@ def _vec_p_igw(
     w = 1j * om * kh2
     b = ohm(kz,dz) * gamma * kh2
 
-    p = tuple(ncp.where(nonzero_horizontal, arr, q_i)
+    p = tuple(jnp.where(nonzero_horizontal, arr, q_i)
               for arr, q_i in zip((u, v, w, b), q, strict=False))
 
     # normalize the vector

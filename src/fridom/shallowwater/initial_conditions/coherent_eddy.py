@@ -1,6 +1,8 @@
 """Coherent eddy initial condition for the shallow water model."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.shallowwater as sw
 
 
@@ -67,7 +69,6 @@ class CoherentEddy(sw.State):
                  ) -> None:
         super().__init__(mset)
 
-        ncp = sw.config.ncp
         grid = self.grid
         lx, ly = grid.domain_size
 
@@ -81,14 +82,14 @@ class CoherentEddy(sw.State):
             mset, position=position, name="psi", bc_types=bc_types)
 
         x, y = field.get_mesh()
-        field.arr = amplitude * ncp.exp(
+        field.arr = amplitude * jnp.exp(
             -((x - pos_x * lx)**2 + (y - pos_y * ly)**2) / (width*lx)**2)
 
         if gauss_field == "vorticity":
             kx, ky = grid.k_mesh
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
-            psi.arr = ncp.where(k2 == 0, 0, psi.arr)
+            psi.arr = jnp.where(k2 == 0, 0, psi.arr)
             psi = psi.ifft()
             self.psi = psi
         elif gauss_field == "streamfunction":

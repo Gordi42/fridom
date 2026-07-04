@@ -169,7 +169,7 @@ class ZarrWriter(fr.modules.Module):
 
         store = zarr.group(filename, overwrite=True)
 
-        dtype = fr.config.dtype_real
+        dtype = fr.utils.dtype_real()
         n_dims = self.grid.n_dims
         if n_dims <= 3:  # noqa: PLR2004
             x_names = ["x", "y", "z"][:n_dims]
@@ -264,9 +264,7 @@ class ZarrWriter(fr.modules.Module):
         self._var_arrs = var_arrs
 
     def _get_chunk_shape(self, var: fr.ScalarField) -> tuple[int, ...]:
-        if fr.config.backend_is_jax:
-            return (1, *var.unpad().addressable_shards[0].data.shape[::-1])
-        return (1, *var.unpad().T.shape)
+        return (1, *var.unpad().addressable_shards[0].data.shape[::-1])
 
 
     def _write_data(self, mz: fr.ModelState) -> None:
@@ -283,10 +281,6 @@ class ZarrWriter(fr.modules.Module):
         var_arr = self._var_arrs[var.name]
         new_shape = (nt, *var_arr.shape[1:])
         var_arr.resize(new_shape)
-        if not fr.config.backend_is_jax:
-            var_arr[nt - 1, ...] = var.unpad().T
-            return
-
         for shard in var.unpad().T.addressable_shards:
             indexer = (nt - 1, *shard.index)
             var_arr[indexer] = shard.data

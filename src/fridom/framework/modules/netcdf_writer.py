@@ -178,7 +178,7 @@ class NetCDFWriter(fr.modules.Module):
         parallel = (self.grid.domain_decomp.parallel)
         ncfile = Dataset(filename, "w", format="NETCDF4", parallel=parallel)
 
-        dtype = fr.config.dtype_real
+        dtype = fr.utils.dtype_real()
         n_dims = self.grid.n_dims
         if n_dims <= 3:  # noqa: PLR2004
             x_names = ["x", "y", "z"][:n_dims]

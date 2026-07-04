@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
@@ -135,7 +137,7 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
         # interp set h_full to zero on boundaries, as a result values of q on
         # boundaries are nan. We set them to zero here.
-        q.arr = fr.config.ncp.nan_to_num(q.arr, 0.0)
+        q.arr = jnp.nan_to_num(q.arr, 0.0)
 
         # compute the fluxes fu and fv at the northeast position
         # (to match the vorticity)

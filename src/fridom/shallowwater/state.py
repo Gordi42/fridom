@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
@@ -332,7 +334,7 @@ class State(fr.VectorField):
         cfl_u = self.u.abs() * dt / dx
         cfl_v = self.v.abs() * dt / dy
 
-        cfl = fr.config.ncp.maximum(cfl_u.arr, cfl_v.arr)
+        cfl = jnp.maximum(cfl_u.arr, cfl_v.arr)
 
         # Create the scalar field
         return fr.ScalarField(

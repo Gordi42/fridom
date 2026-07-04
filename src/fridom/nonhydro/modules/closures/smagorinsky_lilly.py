@@ -1,6 +1,7 @@
 """Smagorinsky-Lilly closure model for the non-hydrostatic model."""
 from __future__ import annotations
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
@@ -116,7 +117,6 @@ class SmagorinskyLilly(fr.modules.Module):
         z = mz.z
 
         diff_mod = self.diff_module
-        ncp = fr.config.ncp
 
         # Compute the velocity gradients
         du = diff_mod.grad(z.u)
@@ -141,21 +141,21 @@ class SmagorinskyLilly(fr.modules.Module):
         n2 = (diff_mod.diff(z.b, axis=2) + self.mset.stratification_n2).arr
 
         # Set the buoyancy frequency to zero where it is negative
-        n2 = ncp.maximum(n2, 0.0)
+        n2 = jnp.maximum(n2, 0.0)
 
         # Compute the resolved Richardson number
         with np.errstate(divide="ignore", invalid="ignore"):
             ri = n2 / sigma2
 
         # Compute the stratification damping factor
-        gamma = ncp.sqrt(1 - ncp.minimum(self.buoyancy_multiplier * ri, 1.0))
+        gamma = jnp.sqrt(1 - jnp.minimum(self.buoyancy_multiplier * ri, 1.0))
 
         # set nan values to 0
-        gamma = ncp.nan_to_num(gamma, nan=0)
+        gamma = jnp.nan_to_num(gamma, nan=0)
 
         # Compute the smagorinsky viscosity
         nu_s = ( (self.smagorinsky_constant * self.filter_width)**2
-                * ncp.sqrt(sigma2) * gamma )
+                * jnp.sqrt(sigma2) * gamma )
 
         # Compute the turbulent diffusivities
         nu_t = nu_s + self.background_viscosity

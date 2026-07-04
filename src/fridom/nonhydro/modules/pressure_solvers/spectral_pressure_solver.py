@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
@@ -39,7 +40,7 @@ class SpectralPressureSolver(fr.modules.Module):
             k_squared_inv = 1 / k_squared
 
         # Set k2_hat_inv to zero where k2_hat is zero
-        self.k_squared_inv = fr.config.ncp.where(
+        self.k_squared_inv = jnp.where(
             k_squared == 0, 0, k_squared_inv)
         self.fft_required = fft_required
 

@@ -1,6 +1,8 @@
 """Biharmonic diffusion module."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 
@@ -57,17 +59,16 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
     def diffusion_coefficients(
             self, value: tuple[float | fr.ScalarField]) -> None:
         # we need to take the square root of the diffusion coefficients
-        ncp = fr.config.ncp
         coeffs = []
         for coeff in value:
             if isinstance(coeff, fr.ScalarField):
-                self._sign = ncp.sign(coeff.arr)
-                kappa = ncp.sqrt(ncp.abs(coeff.arr))
+                self._sign = jnp.sign(coeff.arr)
+                kappa = jnp.sqrt(jnp.abs(coeff.arr))
                 kappa = fr.ScalarField(mset=coeff.mset,
                                          arr=kappa,
                                          mdata=coeff.mdata)
             else:
-                self._sign = ncp.sign(coeff)
-                kappa = ncp.sqrt(ncp.abs(coeff))
+                self._sign = jnp.sign(coeff)
+                kappa = jnp.sqrt(jnp.abs(coeff))
             coeffs.append(kappa)
         self._diffusion_coefficients = coeffs

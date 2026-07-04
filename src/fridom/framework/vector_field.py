@@ -6,6 +6,7 @@ from copy import copy
 from functools import partial
 from typing import TYPE_CHECKING, Literal, Self, TypeVar
 
+import jax
 import numpy as np
 
 import fridom.framework as fr
@@ -587,7 +588,7 @@ class VectorField(fr.FieldBase):
                               int,
                               complex,
                               np.number,
-                              fr.config.ncp.ndarray)) or other is None:
+                              jax.Array)) or other is None:
             return field.apply_elementwise(field, lambda x: op(x, other))
         return NotImplemented
 

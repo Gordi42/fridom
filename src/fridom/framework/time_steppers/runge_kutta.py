@@ -220,5 +220,6 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         if isinstance(value, float | int):
             self._max_dt = value
         else:
-            self._max_dt = fr.config.dtype_real(value / np.timedelta64(1, "s"))
+            self._max_dt = fr.utils.dtype_real()(
+                value / np.timedelta64(1, "s"))
         self.dt = self._max_dt

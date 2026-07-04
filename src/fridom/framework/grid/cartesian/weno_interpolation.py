@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-import fridom.framework as fr
+import jax.numpy as jnp
 
-ncp = fr.config.ncp
+import fridom.framework as fr
 
 COEFFS_D = {
     1: [1.0],
@@ -76,15 +76,15 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
 
         self.pol_coeffs = fr.grid.cartesian.compute_polynomial_coefficients(
             stencil_size=self.stencil_size, method=method)
-        self.coeff_d = ncp.asarray(COEFFS_D[self.stencil_size])
-        self.coeff_beta1 = ncp.asarray(COEFFS_BETA1[self.stencil_size])
-        self.coeff_beta2 = ncp.asarray(COEFFS_BETA2[self.stencil_size])
+        self.coeff_d = jnp.asarray(COEFFS_D[self.stencil_size])
+        self.coeff_beta1 = jnp.asarray(COEFFS_BETA1[self.stencil_size])
+        self.coeff_beta2 = jnp.asarray(COEFFS_BETA2[self.stencil_size])
 
     def _interpolate_axis(self,
-                          x: ncp.ndarray,
-                          bias: ncp.ndarray,
+                          x: jnp.ndarray,
+                          bias: jnp.ndarray,
                           axis: int,
-                          destination: fr.grid.AxisPosition) -> ncp.ndarray:
+                          destination: fr.grid.AxisPosition) -> jnp.ndarray:
 
         size = self.stencil_size
 
@@ -106,14 +106,14 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
         right = sum(w*c for w, c
                     in zip(right_weights, candidates[1:], strict=False))
 
-        return ncp.where(bias > 0, left, right)
+        return jnp.where(bias > 0, left, right)
 
 
     def _compute_weights(
             self,
             stencils: list[fr.grid.Stencil],
             mode: Literal["left", "right"],
-    ) -> list[ncp.ndarray]:
+    ) -> list[jnp.ndarray]:
 
         def sort(x: list) -> list:
             return x if mode == "left" else list(x)[::-1]

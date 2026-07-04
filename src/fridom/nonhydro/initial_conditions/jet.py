@@ -1,6 +1,8 @@
 """A 3D jet initial condition with horizontal and vertical shear."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
 
@@ -61,15 +63,14 @@ class Jet(nh.State):
                  pert_wavenum: int = 5,
                  geo_proj: bool = True) -> None:
         super().__init__(mset)
-        ncp = nh.config.ncp
 
         _x, y, z = mset.grid.x_mesh
         _lx, ly, lz = mset.grid.domain_size
 
         # two opposite jets
-        self.u.arr = -ncp.exp(-(y-ly/4)**2/(jet_width)**2)
-        self.u.arr += ncp.exp(-(y-3*ly/4)**2/(jet_width)**2)
-        self.u.arr *= jet_strength * ncp.cos(2*ncp.pi*z/lz)
+        self.u.arr = -jnp.exp(-(y-ly/4)**2/(jet_width)**2)
+        self.u.arr += jnp.exp(-(y-3*ly/4)**2/(jet_width)**2)
+        self.u.arr *= jet_strength * jnp.cos(2*jnp.pi*z/lz)
 
         # add a small perturbation
         z_per = nh.initial_conditions.SingleWave(

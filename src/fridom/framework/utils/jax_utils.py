@@ -1,11 +1,9 @@
 """Utilities for JAX operations."""
 from __future__ import annotations
 
-import contextlib
 from typing import Any, Generic, TypeVar
 
-with contextlib.suppress(ImportError):
-    import jax
+import jax
 
 import fridom.framework as fr
 
@@ -17,8 +15,9 @@ def jaxjit(fun: callable, *args: Any, **kwargs: Any) -> callable:
 
     Description
     -----------
-    This decorator is a wrapper around jax.jit. When jax is not installed,
-    the function is returned as it is.
+    This decorator is a thin wrapper around jax.jit. To disable jit
+    compilation (e.g. for debugging), use the jax.disable_jit() context
+    manager.
 
     Parameters
     ----------
@@ -37,13 +36,7 @@ def jaxjit(fun: callable, *args: Any, **kwargs: Any) -> callable:
     ... def my_function(x):
     ...     return x**2
     """
-    if not fr.config.enable_jax_jit:
-        return fun
-
-    if fr.config.backend_is_jax:
-        # we can safely run jax.jit here since jax is available
-        return jax.jit(fun, *args, **kwargs)
-    return fun
+    return jax.jit(fun, *args, **kwargs)
 
 def free_memory() -> None:
     """
@@ -57,11 +50,60 @@ def free_memory() -> None:
     Note that the memory is only freed within JAX, not in the operating
     system. The operating system will still show the same memory usage.
     """
-    if fr.config.backend_is_jax:
-        # we can safely access the jax backend here since jax is available
-        backend = jax.extend.backend.get_backend()
-        for buf in backend.live_buffers():
-            buf.delete()
+    backend = jax.extend.backend.get_backend()
+    for buf in backend.live_buffers():
+        buf.delete()
+
+def _merge_dynamic_attrs(
+        cls: type, dynamic: tuple[str] | None) -> set[str]:
+    """Validate `dynamic` and merge it with inherited dynamic attributes."""
+    # make sure dynamic is either a tuple or None:
+    if not isinstance(dynamic, (tuple, type(None))):
+        fr.log.error("dynamic must be a tuple or None, not %s", type(dynamic))
+        fr.log.error("In case you only have one dynamic attribute, ")
+        fr.log.error("use dynamic=('attr',) instead of dynamic=('attr').")
+        raise TypeError
+
+    dynamic = list(dynamic or [])
+
+    # merge with the (possibly inherited) dynamic attributes
+    if hasattr(cls, "dynamic_jax_attrs"):
+        dynamic += list(cls.dynamic_jax_attrs)
+
+    # remove duplicates
+    return set(dynamic)
+
+def _tree_flatten(self: T) -> tuple[tuple, dict]:
+    """Flatten a jaxified object into (children, aux_data)."""
+    # Store all attributes that are marked as dynamic
+    children = tuple(
+        getattr(self, attr) for attr in self.dynamic_jax_attrs)
+
+    # Store all other attributes as aux_data
+    aux_data = {key: att for key, att in self.__dict__.items()
+                if key not in self.dynamic_jax_attrs}
+
+    return (children, aux_data)
+
+@classmethod
+def _tree_unflatten(cls: type[T], aux_data: dict, children: tuple) -> T:
+    """Reconstruct a jaxified object from (aux_data, children)."""
+    obj = object.__new__(cls)
+    # be paranoid and check that the class has the
+    # dynamic_jax_attrs attribute
+    if not hasattr(cls, "dynamic_jax_attrs"):
+        # this should never happen
+        fr.log.error(
+            "The class %s does not have the dynamic_jax_attrs "
+            "attribute.", cls)
+        cls.dynamic_jax_attrs = set()
+    # set static attributes
+    for key, value in aux_data.items():
+        setattr(obj, key, value)
+    # set dynamic attributes
+    for i, attr in enumerate(cls.dynamic_jax_attrs):
+        setattr(obj, attr, children[i])
+    return obj
 
 def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     """
@@ -136,70 +178,16 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
             def raise_to_power(self):
                 return self.arr**self.power
     """
-    # if the backend is not jax, return the class as it is
-    if not fr.config.backend_is_jax:
-        return cls
+    # set the merged dynamic attributes on the class
+    cls.dynamic_jax_attrs = _merge_dynamic_attrs(cls, dynamic)
 
-    # make sure dynamic is either a tuple or None:
-    if not isinstance(dynamic, (tuple, type(None))):
-        fr.log.error("dynamic must be a tuple or None, not %s", type(dynamic))
-        fr.log.error("In case you only have one dynamic attribute, ")
-        fr.log.error("use dynamic=('attr',) instead of dynamic=('attr').")
-        raise TypeError
-
-    if dynamic is None:
-        dynamic = []
-
-    dynamic = list(dynamic) or []
-
-    # check if the class has a _dynamic_attributes attribute
-    if hasattr(cls, "dynamic_jax_attrs"):
-        dynamic += list(cls.dynamic_jax_attrs)
-
-    # remove duplicates
-    dynamic = set(dynamic)
-
-    # set the new attributes
-    cls.dynamic_jax_attrs = dynamic
-
-    # define a function to flatten the class
-    def _tree_flatten(self: T) -> tuple[tuple, dict]:
-        # Store all attributes that are marked as dynamic
-        children = tuple(
-            getattr(self, attr) for attr in self.dynamic_jax_attrs)
-
-        # Store all other attributes as aux_data
-        aux_data = {key: att for key, att in self.__dict__.items()
-                    if key not in self.dynamic_jax_attrs}
-
-        return (children, aux_data)
-
-    # define a function to unflatten the class
-    @classmethod
-    def _tree_unflatten(cls: type[T], aux_data: dict, children: tuple) -> T:
-        obj = object.__new__(cls)
-        # be paranoid and check that the class has the
-        # dynamic_jax_attrs attribute
-        if not hasattr(cls, "dynamic_jax_attrs"):
-            # this should never happen
-            fr.log.error(
-                "The class %s does not have the dynamic_jax_attrs "
-                "attribute.", cls)
-            cls.dynamic_jax_attrs = set()
-        # set static attributes
-        for key, value in aux_data.items():
-            setattr(obj, key, value)
-        # set dynamic attributes
-        for i, attr in enumerate(cls.dynamic_jax_attrs):
-            setattr(obj, attr, children[i])
-        return obj
-
-    # set the new method to the class
+    # set the flatten/unflatten methods on the class
     cls.tree_unflatten = _tree_unflatten
     cls.tree_flatten = _tree_flatten
 
     # register the class with jax
-    jax.tree_util.register_pytree_node(cls, _tree_flatten, cls.tree_unflatten)
+    jax.tree_util.register_pytree_node(
+        cls, cls.tree_flatten, cls.tree_unflatten)
 
     return cls
 

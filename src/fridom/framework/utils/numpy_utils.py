@@ -4,6 +4,7 @@ from __future__ import annotations
 import inspect
 from copy import deepcopy
 
+import jax
 import numpy as np
 
 import fridom.framework as fr
@@ -22,15 +23,9 @@ def _handle_cpu(obj: object) -> object:
     """Handle objects with a _cpu attribute."""
     return obj._cpu  # noqa: SLF001  # pylint: disable=protected-access
 
-def _handle_ndarray(obj: np.ndarray) -> np.ndarray:
-    """Handle ndarrays based on the backend."""
-    match fr.config.backend:
-        case "numpy":
-            return deepcopy(obj)
-        case "cupy":
-            return fr.config.ncp.asnumpy(obj)
-        case "jax_cpu" | "jax_gpu":
-            return np.array(obj)
+def _handle_ndarray(obj: jax.Array) -> np.ndarray:
+    """Convert a jax array to a numpy array."""
+    return np.array(obj)
 
 def _handle_iterable(obj: dict | list | tuple | set,
                      memo: dict) -> dict | list | tuple | set:
@@ -62,7 +57,7 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
     elif hasattr(obj, "_cpu") and obj._cpu is not None:  # noqa: SLF001
         result = _handle_cpu(obj)
 
-    elif isinstance(obj, fr.config.ncp.ndarray):
+    elif isinstance(obj, jax.Array):
         result = _handle_ndarray(obj)
 
     elif isinstance(obj, (np.ndarray, np.generic)):
@@ -123,10 +118,6 @@ def to_numpy(
         The object with all arrays converted to numpy.
     """
     _nil = _nil or []
-    # if the backend is numpy, return a deepcopy
-    if fr.config.backend == "numpy":
-        return deepcopy(obj)
-
     # if the object was already converted to numpy, return it (recursive call)
     if memo is None:
         memo = {}

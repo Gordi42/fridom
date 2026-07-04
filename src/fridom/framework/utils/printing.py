@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import datetime
 
+import jax
+
 import fridom.framework as fr
 
 
@@ -34,7 +36,8 @@ def print_job_init_info() -> None:
     # get the number of MPI processes
     size = fr.utils.get_mpi_size()
     fr.log.info(" > Running on %d processes.", size)
-    fr.log.info(" > Backend: %s", fr.config.backend)
+    fr.log.info(" > Platform: %s (%d device(s))",
+                jax.default_backend(), jax.device_count())
     print_bar("#")
     _ = [print_bar(" ") for _ in range(3)]
 

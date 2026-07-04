@@ -1,6 +1,8 @@
 """Coherent barotropic eddy initial condition."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
 
@@ -94,7 +96,6 @@ class CoherentEddy(nh.State):
                  ) -> None:
         super().__init__(mset)
 
-        ncp = nh.config.ncp
         grid = self.grid
         lx, ly, _lz = grid.domain_size
 
@@ -110,14 +111,14 @@ class CoherentEddy(nh.State):
             mset, position=position, name="psi", bc_types=bc_types)
 
         x, y, _z = field.get_mesh()
-        field.arr = amplitude * ncp.exp(
+        field.arr = amplitude * jnp.exp(
             -((x - pos_x * lx)**2 + (y - pos_y * ly)**2) / (width*lx)**2)
 
         if gauss_field == "vorticity":
             kx, ky, _kz = grid.k_mesh
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
-            psi.arr = ncp.where(k2 == 0, 0, psi.arr)
+            psi.arr = jnp.where(k2 == 0, 0, psi.arr)
             psi = psi.ifft()
             self.psi = psi
         elif gauss_field == "streamfunction":

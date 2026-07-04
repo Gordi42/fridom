@@ -12,6 +12,9 @@ import numpy as np
 
 import fridom.framework as fr
 
+# reference time for the realtime restart interval (job start time)
+_LOAD_TIME = time.time()
+
 
 class RestartModule(fr.modules.Module):
 
@@ -87,7 +90,7 @@ class RestartModule(fr.modules.Module):
         #  Realtime interval
         # ----------------------------------------------------------------
         elapsed_time = np.timedelta64(
-            int(time.time() - fr.config.load_time), "s")
+            int(time.time() - _LOAD_TIME), "s")
         interval = self.realtime_interval
         if interval is not None and elapsed_time >= interval:
             fr.log.info(

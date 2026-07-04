@@ -5,6 +5,7 @@ from functools import cached_property, partial
 from typing import TYPE_CHECKING
 
 import jax
+import jax.numpy as jnp
 from jax.experimental import multihost_utils
 from jax.experimental.shard_map import shard_map
 from jax.sharding import NamedSharding
@@ -16,7 +17,6 @@ if TYPE_CHECKING:
     from numpy import ndarray
 
 MINIMUM_NUMBER_OF_DIMS = 2
-ncp = fr.config.ncp
 
 @fr.utils.jaxify
 class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
@@ -118,19 +118,19 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                 axis=0)
 
         def halo_exchange_axis(x: ndarray, dim: int) -> ndarray:
-            x = ncp.swapaxes(x, 0, dim)
+            x = jnp.swapaxes(x, 0, dim)
             spec = self._permute_spec(0, dim)
             def halo_exchange(x: ndarray) -> ndarray:
                 if not self.periods[dim]:
-                    left = right = ncp.zeros_like(x[:halo])
+                    left = right = jnp.zeros_like(x[:halo])
                 else:
                     left = x[halo : 2 * halo]
                     right = x[-(2 * halo) : -halo]
-                return ncp.concatenate([right, x[halo:-halo], left], axis=0)
+                return jnp.concatenate([right, x[halo:-halo], left], axis=0)
             x = shard_map(
                 halo_exchange, mesh=self.mesh,
                 in_specs=spec, out_specs=spec)(x)
-            return ncp.swapaxes(x, 0, dim)
+            return jnp.swapaxes(x, 0, dim)
 
         x = halo_exchange_across_x(arr)
         for dim in range(1, self.n_dims):
@@ -221,8 +221,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
             @self.main_shard_map
             def _pad(arr: ndarray) -> ndarray:
-                ncp = fr.config.ncp
-                return ncp.pad(arr, tuple(paddings))
+                return jnp.pad(arr, tuple(paddings))
 
             return _pad(arr)
         return pad
@@ -308,7 +307,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                      topo: tuple[bool] | None = None,
                      ) -> ndarray:
         """Create a sharded array filled with zeros."""
-        dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
+        dtype = fr.utils.dtype_comp() if spectral else fr.utils.dtype_real()
         sharding = self._get_sharding(spectral, topo)
         shape, flat_axes = self._get_array_attrs(topo)
 
@@ -330,7 +329,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                             topo: tuple[bool] | None = None,
                             ) -> ndarray:
         """Create a sharded array filled with random numbers."""
-        dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
+        dtype = fr.utils.dtype_comp() if spectral else fr.utils.dtype_real()
         sharding = self._get_sharding(spectral, topo)
         shape, flat_axes = self._get_array_attrs(topo)
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
 if TYPE_CHECKING:
@@ -63,16 +65,14 @@ def geostrophic_energy_spectrum(kx: ndarray,
     c : float, optional
         The decay rate of the vertical energy spectrum (default: 2).
     """
-    ncp = nh.config.ncp
-
     # horizontal spectra
-    kh = ncp.sqrt(kx**2 + ky**2)
+    kh = jnp.sqrt(kx**2 + ky**2)
     b = (7.+d)/4.
     a = (4./7.)*b-1
     h_spetra = kh**7/(kh**2 + a*k0**2)**(2*b)
 
     # vertical spectra
-    v_spectra = ncp.exp(-c*ncp.abs(kz))
+    v_spectra = jnp.exp(-c*jnp.abs(kz))
     return h_spetra * v_spectra
 
 
@@ -125,7 +125,6 @@ class RandomGeostrophicSpectra(nh.State):
                      geostrophic_energy_spectrum)) -> None:
         super().__init__(mset, is_spectral=False)
 
-        ncp = nh.config.ncp
         kx, ky, kz = mset.grid.k_mesh
         shape = kx.shape
 
@@ -133,7 +132,7 @@ class RandomGeostrophicSpectra(nh.State):
         q = mset.grid.vec_q(s=0, use_discrete=True)
 
         # scale the geostrophic eigenvector such that they have energy 1
-        absolute = ncp.absolute
+        absolute = jnp.absolute
         dsqr = self.mset.dsqr
         n2 = self.mset.stratification_n2
         # calculate spectral energy using Parseval's theorem
@@ -142,9 +141,9 @@ class RandomGeostrophicSpectra(nh.State):
                          + absolute(q.w.arr)**2 * dsqr
                          + absolute(q.b.arr)**2 / n2 )
 
-        energy = ncp.where(energy == 0, 1, energy)
+        energy = jnp.where(energy == 0, 1, energy)
 
-        q /= ncp.sqrt(energy)
+        q /= jnp.sqrt(energy)
 
         # construct a random phase
         p1 = nh.utils.random_array(shape, seed)
@@ -155,12 +154,12 @@ class RandomGeostrophicSpectra(nh.State):
         spectra = spectral_energy_density(kx, ky, kz)
 
         # construct the geostrophic state
-        z = q * r * ncp.sqrt(spectra)
+        z = q * r * jnp.sqrt(spectra)
 
         # transform to physical space and normalize the state such that the
         # maximum velocity is 1
         z = z.ifft()
-        scal = 1 / ncp.amax(z.u.arr)
+        scal = 1 / jnp.amax(z.u.arr)
         z *= scal
 
         # set the state

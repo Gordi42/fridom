@@ -5,6 +5,8 @@ from copy import deepcopy
 from functools import partial
 from typing import TYPE_CHECKING, Literal
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
@@ -63,9 +65,9 @@ class ScalarField(fr.FieldBase):
                 spectral=mdata.is_spectral,
                 topo=tuple(mdata.topo))
         else:
-            conf = fr.config
-            dtype = conf.dtype_comp if mdata.is_spectral else conf.dtype_real
-            data = conf.ncp.array(arr, dtype=dtype)
+            dtype = (fr.utils.dtype_comp() if mdata.is_spectral
+                     else fr.utils.dtype_real())
+            data = jnp.array(arr, dtype=dtype)
 
         # ----------------------------------------------------------------
         #  Set attributes
@@ -91,9 +93,8 @@ class ScalarField(fr.FieldBase):
             bc_types=self.bc_types,
             positions=self.position.positions)
 
-        conf = fr.config
-        transformed_arr = conf.ncp.array(
-            transformed_arr, dtype=conf.dtype_comp)
+        transformed_arr = jnp.array(
+            transformed_arr, dtype=fr.utils.dtype_comp())
 
         return ScalarField(self.mset,
                            arr=transformed_arr,
@@ -114,9 +115,8 @@ class ScalarField(fr.FieldBase):
             positions=self.position.positions)
 
         # only keep the real part
-        conf = fr.config
-        transformed_arr = conf.ncp.array(
-            transformed_arr.real, dtype=conf.dtype_real)
+        transformed_arr = jnp.array(
+            transformed_arr.real, dtype=fr.utils.dtype_real())
 
         return ScalarField(self.mset,
                            arr=transformed_arr,
@@ -145,16 +145,14 @@ class ScalarField(fr.FieldBase):
         return self
 
     def has_nan(self) -> bool:  # noqa: D102
-        ncp = fr.config.ncp
-        return ncp.any(ncp.isnan(self.arr))
+        return jnp.any(jnp.isnan(self.arr))
 
     def block_until_ready(self) -> ScalarField:  # noqa: D102
-        if fr.config.backend_is_jax:
-            self.arr.block_until_ready()
+        self.arr.block_until_ready()
         return self
 
     def set_zero(self) -> ScalarField:  # noqa: D102
-        self.arr = fr.config.ncp.zeros_like(self.arr)
+        self.arr = jnp.zeros_like(self.arr)
         return self
 
     def set_random(self, seed: int = 1234) -> ScalarField:  # noqa: D102
@@ -397,8 +395,6 @@ class ScalarField(fr.FieldBase):
                     mset: fr.ModelSettingsBase,
                     ds: xr.DataArray,
                     ) -> ScalarField:
-
-        conf = fr.config
         # read in the slice key
         # in general, eval poses a security risk, we eliminate this risk by
         # setting the __builtins__ to None and only allowing the slice function
@@ -434,13 +430,14 @@ class ScalarField(fr.FieldBase):
         except IndexError:
             separate = False
         if separate:
-            arr_real = conf.ncp.array(arr["r"])
-            arr_imag = conf.ncp.array(arr["i"])
-            arr = conf.ncp.array(
-                arr_real + 1j * arr_imag, dtype=conf.dtype_comp)
+            arr_real = jnp.array(arr["r"])
+            arr_imag = jnp.array(arr["i"])
+            arr = jnp.array(
+                arr_real + 1j * arr_imag, dtype=fr.utils.dtype_comp())
         else:
-            dtype = conf.dtype_comp if mdata.is_spectral else conf.dtype_real
-            arr = conf.ncp.array(arr, dtype=dtype)
+            dtype = (fr.utils.dtype_comp() if mdata.is_spectral
+                     else fr.utils.dtype_real())
+            arr = jnp.array(arr, dtype=dtype)
 
         if not mdata.is_spectral:
             # pad the array
@@ -664,7 +661,7 @@ class ScalarField(fr.FieldBase):
         result = domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
         # result must be a n-dimensional array
         shape = tuple([1] * self.grid.n_dims)
-        result = fr.config.ncp.full(shape, result)
+        result = jnp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
     def max(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
@@ -677,7 +674,7 @@ class ScalarField(fr.FieldBase):
         result = domain.max(self.arr, axes=axes, spectral=self.is_spectral)
         # result must be a n-dimensional array
         shape = tuple([1] * self.grid.n_dims)
-        result = fr.config.ncp.full(shape, result)
+        result = jnp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
     def min(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
@@ -690,7 +687,7 @@ class ScalarField(fr.FieldBase):
         result = domain.min(self.arr, axes=axes, spectral=self.is_spectral)
         # result must be a n-dimensional array
         shape = tuple([1] * self.grid.n_dims)
-        result = fr.config.ncp.full(shape, result)
+        result = jnp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
     def integrate(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
@@ -709,7 +706,7 @@ class ScalarField(fr.FieldBase):
     # ================================================================
 
     def abs(self) -> ScalarField:  # noqa: D102
-        arr = fr.config.ncp.abs(self.arr)
+        arr = jnp.abs(self.arr)
         return ScalarField(mset=self.mset, mdata=deepcopy(self.mdata), arr=arr)
 
     def dot(self,  # noqa: D102
@@ -745,7 +742,7 @@ class ScalarField(fr.FieldBase):
                                 float,
                                 complex,
                                 np.number,
-                                fr.config.ncp.ndarray)) or other is None:
+                                jax.Array)) or other is None:
             result = op(field.arr, other)
         else:
             return NotImplemented

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
 import numpy as np
 from scipy.special import comb
 
@@ -527,7 +528,6 @@ class NNMD(fr.projection.Projection):
                  enable_dealiasing: bool = True) -> None:
         super().__init__(mset)
 
-        ncp = fr.config.ncp
 
         # compute the eigenvectors
         modes = [0, 1, -1]
@@ -540,7 +540,7 @@ class NNMD(fr.projection.Projection):
         omega = mset.grid.omega(
             k=self.mset.grid.get_mesh(spectral=True),
             use_discrete=use_discrete)
-        self.one_over_omega = ncp.where(omega == 0, 0, 1 / omega)
+        self.one_over_omega = jnp.where(omega == 0, 0, 1 / omega)
 
         # set the advection module
         self.advection = advection or self._advect_tendency_difference
@@ -657,12 +657,11 @@ class NNMD(fr.projection.Projection):
             The interaction term (spectral space).
         """
         # TODO(Silvano): add dealiasing
-        ncp = fr.config.ncp
 
         # if z1 is z2, we can simplify the calculation
         same_state = True
         for f in z1.fields:
-            if not ncp.allclose(z1.fields[f].arr, z2.fields[f].arr):
+            if not jnp.allclose(z1.fields[f].arr, z2.fields[f].arr):
                 same_state = False
                 break
 

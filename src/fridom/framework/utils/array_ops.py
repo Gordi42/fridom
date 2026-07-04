@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Generic, TypeVar
 
+import jax
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 if TYPE_CHECKING:
@@ -61,17 +64,14 @@ def modify_array(
 
     Examples
     --------
+    >>> import jax.numpy as jnp
     >>> import fridom.framework as fr
-    >>> x = fr.config.ncp.arange(10)  # create some array
+    >>> x = jnp.arange(10)  # create some array
     >>> # instead of x[2:5] = 0, we use the modify_array function
     >>> x = fr.utils.modify_array(x, slice(2,5), 0)
 
     """
-    if fr.config.backend_is_jax:
-        return arr.at[where].set(value)
-    res = arr.copy()
-    res[where] = value
-    return res
+    return arr.at[where].set(value)
 
 def random_array(
     shape: tuple[int], seed: int = 12345, **kwargs: bool,
@@ -84,14 +84,8 @@ def random_array(
         fr.log.warning(
             "Please use the create array method from the grid object "
             "instead")
-    if fr.config.backend_is_jax:
-        # we need to import jax here since it is an optional dependency
-        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
-        key = jax.random.key(seed)
-        return jax.random.normal(key, shape)
-    ncp = fr.config.ncp
-    default_rng = ncp.random.default_rng
-    return default_rng(seed).standard_normal(shape)
+    key = jax.random.key(seed)
+    return jax.random.normal(key, shape)
 
 def array_is_constant(arr: np.ndarray) -> bool:
     """
@@ -113,14 +107,14 @@ def array_is_constant(arr: np.ndarray) -> bool:
 
     Examples
     --------
+    >>> import jax.numpy as jnp
     >>> import fridom.framework as fr
-    >>> x = fr.config.ncp.ones(10)
+    >>> x = jnp.ones(10)
     >>> fr.utils.array_is_constant(x)
     True
-    >>> x[5] = 0
+    >>> x = x.at[5].set(0)
     >>> fr.utils.array_is_constant(x)
     False
 
     """
-    ncp = fr.config.ncp
-    return ncp.allclose(arr, ncp.mean(arr))
+    return jnp.allclose(arr, jnp.mean(arr))

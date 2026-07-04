@@ -1,6 +1,7 @@
 """Initial conditions for equatorial waves on the beta-plane."""
 from __future__ import annotations
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.shallowwater as sw
@@ -89,9 +90,8 @@ class EquatorialWave(sw.State):
         super().__init__(mset, is_spectral=False)
 
         # Shortcuts
-        ncp = sw.config.ncp
         grid = mset.grid
-        pi = ncp.pi
+        pi = jnp.pi
 
         # Compute physical parameters
         csqr = mset.csqr
@@ -133,7 +133,7 @@ class EquatorialWave(sw.State):
         x, y = v.get_mesh()
         y_star = (y - y0) / rossby_radius
         v_structure = hermite_gaussian(equatorial_mode, y_star)
-        v.arr = ( v_structure * ncp.exp(1j * (kx * x + phase)) ).real
+        v.arr = ( v_structure * jnp.exp(1j * (kx * x + phase)) ).real
 
         # u
         x, y = u.get_mesh()
@@ -144,7 +144,7 @@ class EquatorialWave(sw.State):
             psi_np1 / (omega - kx * phase_velocity)
             + 2 * equatorial_mode * psi_nm1
             / (omega + kx * phase_velocity))
-        u.arr = ( u_structure * ncp.exp(1j * (kx * x + phase)) ).real
+        u.arr = ( u_structure * jnp.exp(1j * (kx * x + phase)) ).real
 
         # p
         x, y = p.get_mesh()
@@ -154,7 +154,7 @@ class EquatorialWave(sw.State):
         p_structure = 1j * csqr / (2 * rossby_radius) * (
             psi_np1 / (omega - kx * phase_velocity)
             - 2 * equatorial_mode * psi_nm1 / (omega + kx * phase_velocity))
-        p.arr = ( p_structure * ncp.exp(1j * (kx * x + phase)) ).real
+        p.arr = ( p_structure * jnp.exp(1j * (kx * x + phase)) ).real
 
         # Normalize the state
         u_amp = (u**2 + v**2).max() ** 0.5

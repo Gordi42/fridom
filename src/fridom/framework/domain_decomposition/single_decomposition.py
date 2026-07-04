@@ -3,12 +3,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 if TYPE_CHECKING:
     from numpy import ndarray
 
-ncp = fr.config.ncp
+
 @fr.utils.jaxify
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
 
@@ -119,10 +121,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
 
         flat_axes = flat_axes or []
 
-        # synchronize cpu and gpu on cupy backend
-        if fr.config.backend == "cupy":
-            fr.config.ncp.cuda.Stream.null.synchronize()
-
         # synchronize one dimension at a time
         for axis in range(self.n_dims):
             if axis in flat_axes:
@@ -135,17 +133,17 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     def _sync_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
         halo = self.halo
-        x = ncp.swapaxes(x, 0, axis)
-        x = ncp.concatenate(
+        x = jnp.swapaxes(x, 0, axis)
+        x = jnp.concatenate(
             [ x[-2*halo:-halo], x[halo:-halo], x[halo:2*halo] ], axis=0)
-        return ncp.swapaxes(x, 0, axis)
+        return jnp.swapaxes(x, 0, axis)
 
     def _sync_non_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
         halo = self.halo
-        x = ncp.swapaxes(x, 0, axis)
-        halo_region = ncp.zeros_like(x[:halo])
-        x = ncp.concatenate([halo_region, x[halo:-halo], halo_region], axis=0)
-        return ncp.swapaxes(x, 0, axis)
+        x = jnp.swapaxes(x, 0, axis)
+        halo_region = jnp.zeros_like(x[:halo])
+        x = jnp.concatenate([halo_region, x[halo:-halo], halo_region], axis=0)
+        return jnp.swapaxes(x, 0, axis)
 
     # ================================================================
     #  Padding
@@ -157,7 +155,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         """Add halo padding to an array."""
         if self.halo == 0:
             return arr
-        ncp = fr.config.ncp
         # update the paddings for flat axes
         pw_periodic = list(self._pw_periodic)
         pw_nonperiodic = list(self._pw_nonperiodic)
@@ -165,8 +162,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             pw_periodic[axis] = (0, 0)
             pw_nonperiodic[axis] = (0, 0)
         # pad the array
-        arr = ncp.pad(arr, tuple(pw_periodic), mode="wrap")
-        return ncp.pad(arr, tuple(pw_nonperiodic), mode="constant")
+        arr = jnp.pad(arr, tuple(pw_periodic), mode="wrap")
+        return jnp.pad(arr, tuple(pw_nonperiodic), mode="constant")
 
     def unpad(
         self, arr: ndarray, flat_axes: tuple[int] | None = None,
@@ -188,24 +185,22 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                          arr: ndarray,
                          axis: int,
                          ) -> ndarray:
-        ncp = fr.config.ncp
         if self.periods[axis]:
             first_part = arr[self._extend_first_halfs[axis]]
             second_part = arr[self._extend_second_halfs[axis]]
-            first_part = ncp.pad(
+            first_part = jnp.pad(
                 first_part, self._extend_pad[axis], mode="constant")
-            arr = ncp.concatenate((first_part, second_part), axis=axis)
+            arr = jnp.concatenate((first_part, second_part), axis=axis)
         else:
-            arr = ncp.pad(arr, self._extend_pad[axis], mode="constant")
+            arr = jnp.pad(arr, self._extend_pad[axis], mode="constant")
         return arr
 
     def _unpad_extend_axis(self,
                            arr: ndarray,
                            axis: int,
                            ) -> ndarray:
-        ncp = fr.config.ncp
         if self.periods[axis]:
-            arr = ncp.concatenate(
+            arr = jnp.concatenate(
                 (arr[self._extend_first_halfs[axis]],
                  arr[self._extend_second_halfs[axis]]), axis=axis)
         else:
@@ -287,10 +282,10 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                      topo: tuple[bool] | None = None
                      ) -> ndarray:
         """Create an array filled with zeros."""
-        dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
+        dtype = fr.utils.dtype_comp() if spectral else fr.utils.dtype_real()
         shape, flat_axes = self._get_array_attrs(topo)
         # create the array
-        arr = fr.config.ncp.zeros(shape, dtype=dtype)
+        arr = jnp.zeros(shape, dtype=dtype)
         # pad the array
         if pad and not spectral:
             arr = self.pad(arr, flat_axes)
@@ -303,7 +298,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                             topo: tuple[bool] | None = None
                             ) -> ndarray:
         """Create an array filled with random numbers."""
-        dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
+        dtype = fr.utils.dtype_comp() if spectral else fr.utils.dtype_real()
         shape, flat_axes = self._get_array_attrs(topo)
         # create the array
         arr = fr.utils.random_array(
@@ -323,7 +318,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:  # noqa: ARG002 (interface conformity)
         """Create a meshgrid of arrays."""
-        mesh = fr.config.ncp.meshgrid(*args, indexing="ij")
+        mesh = jnp.meshgrid(*args, indexing="ij")
         if pad:
             mesh = tuple(self.pad(x) for x in mesh)
         return mesh
@@ -338,7 +333,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """Sum an array across specified axes."""
         arr = self.unpad(arr)
-        return fr.config.ncp.sum(arr, axis=axes, keepdims=True)
+        return jnp.sum(arr, axis=axes, keepdims=True)
 
     def max(self,
             arr: ndarray,
@@ -346,7 +341,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """Find the maximum of an array across specified axes."""
         arr = self.unpad(arr)
-        return fr.config.ncp.max(arr, axis=axes, keepdims=True)
+        return jnp.max(arr, axis=axes, keepdims=True)
 
     def min(self,
             arr: ndarray,
@@ -354,14 +349,14 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """Find the minimum of an array across specified axes."""
         arr = self.unpad(arr)
-        return fr.config.ncp.min(arr, axis=axes, keepdims=True)
+        return jnp.min(arr, axis=axes, keepdims=True)
 
     def cumsum(self,  # noqa: D102
                arr: ndarray,
                axis: int,
                ) -> ndarray:
         arr = self.unpad(arr)
-        cumsum = fr.config.ncp.cumsum(arr, axis=axis)
+        cumsum = jnp.cumsum(arr, axis=axis)
         return self.pad(cumsum)
 
     def inv_cumsum(self,  # noqa: D102
@@ -370,15 +365,15 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                    ) -> ndarray:
         arr = self.unpad(arr)
         # reverse the array in the given axis
-        arr = fr.config.ncp.flip(arr, axis=axis)
+        arr = jnp.flip(arr, axis=axis)
         # calculate the cumsum
-        cumsum = fr.config.ncp.cumsum(arr, axis=axis)
+        cumsum = jnp.cumsum(arr, axis=axis)
         # reverse the array back
-        cumsum = fr.config.ncp.flip(cumsum, axis=axis)
+        cumsum = jnp.flip(cumsum, axis=axis)
         return self.pad(cumsum)
 
     def roll(self,  # noqa: D102
              arr: ndarray,
              shift: int | tuple[int],
              axis: int | tuple[int]) -> ndarray:
-        return fr.config.ncp.roll(arr, shift, axis)
+        return jnp.roll(arr, shift, axis)

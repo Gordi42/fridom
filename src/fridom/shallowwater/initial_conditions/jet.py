@@ -1,6 +1,8 @@
 """Unstable jet initial condition for the shallow water model."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.shallowwater as sw
 
 
@@ -56,13 +58,12 @@ class Jet(sw.State):
                  geo_proj: bool = True) -> None:
         super().__init__(mset)
         # Shortcuts
-        ncp = sw.config.ncp
         _x, y = self.grid.x_mesh
         _lx, ly = self.grid.domain_size
 
         # Construct the zonal jets
         z_jet = sw.State(mset)
-        z_jet.u.arr = ncp.exp(- ((y - pos * ly)/(width * ly))**2)
+        z_jet.u.arr = jnp.exp(- ((y - pos * ly)/(width * ly))**2)
 
         # Project to geostrophic subspace
         if geo_proj:

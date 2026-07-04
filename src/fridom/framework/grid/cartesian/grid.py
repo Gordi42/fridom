@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Literal
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
@@ -132,8 +133,7 @@ class Grid(fr.grid.GridBase):
               fft_module: fr.grid.cartesian.FFT | None = None,
               ) -> None:
         """Set up the grid (see :py:meth:`fr.grid.GridBase.setup`)."""
-        ncp = fr.config.ncp
-        dtype = fr.config.dtype_real
+        dtype = fr.utils.dtype_real()
 
         # --------------------------------------------------------------
         #  Initialize the domain decomposition
@@ -165,7 +165,7 @@ class Grid(fr.grid.GridBase):
         #  Initialize the meshgrids
         # --------------------------------------------------------------
         x = tuple(
-            ncp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
+            jnp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
             for li, ni, dxi in zip(
                 self._domain_size, self._shape, self._dx, strict=False))
         x_mesh = domain_decomp.create_meshgrid(*x, pad=True, spectral=False)

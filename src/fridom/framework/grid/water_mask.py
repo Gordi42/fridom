@@ -5,6 +5,8 @@ import itertools
 from functools import partial
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -145,7 +147,7 @@ class WaterMask:
                 @self._domain_decomposition.shard_map
                 def roll(arr: ndarray) -> ndarray:
                     left_side = arr
-                    right_side = fr.config.ncp.roll(arr, -1, axis)
+                    right_side = jnp.roll(arr, -1, axis)
                     # both sides must be water (True) for the new mask
                     # to be water
                     return right_side * left_side

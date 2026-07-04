@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
@@ -157,18 +158,17 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         self.dt = dt
 
     def _on_setup(self) -> None:
-        ncp = fr.config.ncp
-        dtype = fr.config.dtype_real
+        dtype = fr.utils.dtype_real()
 
         # Adam Bashforth coefficients including time step size
         self.coeffs = [
-            ncp.asarray(self.AB1, dtype=dtype) * self.dt,
-            ncp.asarray(self.AB2, dtype=dtype) * self.dt,
-            ncp.asarray(self.AB3, dtype=dtype) * self.dt,
-            ncp.asarray(self.AB4, dtype=dtype) * self.dt,
+            jnp.asarray(self.AB1, dtype=dtype) * self.dt,
+            jnp.asarray(self.AB2, dtype=dtype) * self.dt,
+            jnp.asarray(self.AB3, dtype=dtype) * self.dt,
+            jnp.asarray(self.AB4, dtype=dtype) * self.dt,
         ]
 
-        self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
+        self.coeff_AB = jnp.zeros(self.order, dtype=dtype)
 
         # tendencies
         self.dz_list = [
@@ -213,25 +213,24 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
 
     def time_discretization_effect(self, omega: np.ndarray) -> np.ndarray:  # noqa: D102
         # shorthand notation
-        ncp = fr.config.ncp
 
         # cast omega to ndarray
-        omega = ncp.array(omega)
+        omega = jnp.array(omega)
 
         # get adam-bashforth coefficients
         ab_coefficients = [self.AB1, self.AB2, self.AB3, self.AB4]
 
         # get the coefficients for the current time level
-        coeff = ncp.array(ab_coefficients[self.order-1])
+        coeff = jnp.array(ab_coefficients[self.order-1])
 
         # construct polynomial coefficients for each grid point
         # tile the array such that coeff and omega have the same shape
         new_shape = (*tuple(omega.shape), 1)
-        coeff = ncp.tile(coeff, new_shape)
-        omega = omega[..., ncp.newaxis]
+        coeff = jnp.tile(coeff, new_shape)
+        omega = omega[..., jnp.newaxis]
 
         # calculate the polynomial coefficients
-        coeff = ncp.multiply(omega, coeff) * 1j * self.dt
+        coeff = jnp.multiply(omega, coeff) * 1j * self.dt
 
         # subtract 1 from the last coefficient
         last_col = (..., 0)
@@ -240,7 +239,7 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         # leading coefficient is 1
         paddings = [(0,0)] * len(coeff.shape)
         paddings[-1] = (1,0)
-        coeff = ncp.pad(coeff, paddings, "constant", constant_values=(1,0))
+        coeff = jnp.pad(coeff, paddings, "constant", constant_values=(1,0))
 
         # reverse the order of the coefficients
         coeff = coeff[..., ::-1]
@@ -265,9 +264,9 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         # find the roots of the polynomial
         # root finding only works on the CPU
         coeff = fr.utils.to_numpy(coeff)
-        roots = ncp.array(np.apply_along_axis(find_roots, -1, coeff))
+        roots = jnp.array(np.apply_along_axis(find_roots, -1, coeff))
 
-        return -1j * ncp.log(roots) / self.dt
+        return -1j * jnp.log(roots) / self.dt
 
     # ================================================================
     #  Properties

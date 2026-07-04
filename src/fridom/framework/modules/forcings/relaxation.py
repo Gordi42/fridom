@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 
@@ -74,10 +76,9 @@ class Relaxation(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        ncp = fr.config.ncp
         z = mz.z
 
         delta = (self.target - z[self.field_name].arr) / self.tau
-        mz.dz[self.field_name].arr += ncp.where(self.domain, delta, 0)
+        mz.dz[self.field_name].arr += jnp.where(self.domain, delta, 0)
 
         return mz

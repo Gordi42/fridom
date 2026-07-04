@@ -5,11 +5,11 @@ from __future__ import annotations
 from enum import Enum, auto
 from functools import partial
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
 
-ncp = fr.config.ncp
 
 class TimingFormat(Enum):
 
@@ -49,15 +49,15 @@ class Clock:
         )
 
         self._timing_format = TimingFormat.SECONDS
-        self.start_time = start_time or ncp.float64(0)
+        self.start_time = start_time or jnp.float64(0)
         self.start_date = start_date
-        self._passed_time = ncp.float64(0)
-        self._it = ncp.int64(0)
+        self._passed_time = jnp.float64(0)
+        self._it = jnp.int64(0)
 
     def reset(self) -> None:
         """Reset the passed time to zero."""
-        self._passed_time = ncp.float64(0)
-        self._it = ncp.int64(0)
+        self._passed_time = jnp.float64(0)
+        self._it = jnp.int64(0)
 
     def tick(self, time_step: float | np.timedelta64) -> None:
         """
@@ -133,7 +133,7 @@ class Clock:
 
     @start_time.setter
     def start_time(self, value: float) -> None:
-        self._start_time = ncp.float64(value)
+        self._start_time = jnp.float64(value)
         self._timing_format = TimingFormat.SECONDS
 
     @property
@@ -146,7 +146,7 @@ class Clock:
         self._start_date = value
         if value is None:
             return
-        self._start_time = ncp.float64(fr.utils.to_seconds(value))
+        self._start_time = jnp.float64(fr.utils.to_seconds(value))
         self._timing_format = TimingFormat.DATETIME
 
     @property
@@ -161,7 +161,7 @@ class Clock:
 
     @time.setter
     def time(self, value: float) -> None:
-        self._passed_time = ncp.float64(value - self.start_time)
+        self._passed_time = jnp.float64(value - self.start_time)
 
     @property
     def it(self) -> int:
@@ -170,4 +170,4 @@ class Clock:
 
     @it.setter
     def it(self, value: int) -> None:
-        self._it = ncp.int64(value)
+        self._it = jnp.int64(value)

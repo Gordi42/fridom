@@ -1,6 +1,8 @@
 """Wave package initial condition."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
 
@@ -75,7 +77,6 @@ class WavePackage(nh.State):
         super().__init__(mset)
 
         # Shortcuts
-        ncp = nh.config.ncp
         grid = mset.grid
 
         # Construct single wave
@@ -86,11 +87,11 @@ class WavePackage(nh.State):
             self.period = z.period
 
         # Construct mask
-        mask = ncp.ones_like(grid.x_mesh[0])
+        mask = jnp.ones_like(grid.x_mesh[0])
         for x, pos, width in zip(
                 grid.x_mesh, mask_pos, mask_width, strict=False):
             if pos is not None and width is not None:
-                mask *= ncp.exp(-(x - pos)**2 / width**2)
+                mask *= jnp.exp(-(x - pos)**2 / width**2)
 
         # Apply mask
         z *= mask

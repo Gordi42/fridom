@@ -1,6 +1,8 @@
 """A polarized wave maker module for the non-hydrostatic model."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
@@ -59,8 +61,7 @@ class PolarizedWaveMaker(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
-        ncp = fr.config.ncp
-        mz.dz += self.source * ncp.sin(self.frequency * mz.clock.time)
+        mz.dz += self.source * jnp.sin(self.frequency * mz.clock.time)
         return mz
 
     @property

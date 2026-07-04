@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.hydrostatic as hs
 
@@ -104,7 +106,7 @@ class ModelSettings(fr.ModelSettingsBase):
         # we update it
         if ( hasattr(self, "_coriolis_parameter") and
              isinstance(self._coriolis_parameter, fr.ScalarField) ):
-            self._coriolis_parameter.arr = fr.config.ncp.full_like(
+            self._coriolis_parameter.arr = jnp.full_like(
                 self._coriolis_parameter.arr, value)
             return
         # Else we have to create a new scalar field
@@ -170,7 +172,7 @@ class ModelSettings(fr.ModelSettingsBase):
         # we update it
         if ( hasattr(self, "_background_stratification") and
              isinstance(self._background_stratification, fr.ScalarField) ):
-            self._background_stratification.arr = fr.config.ncp.full_like(
+            self._background_stratification.arr = jnp.full_like(
                 self._background_stratification.arr, value)
             return
         # Else we have to create a new scalar field

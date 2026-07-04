@@ -1,6 +1,8 @@
 """Single wave initial condition."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
 
@@ -66,31 +68,30 @@ class SingleWave(nh.State):
         super().__init__(mset, is_spectral=False)
 
         # Shortcuts
-        ncp = nh.config.ncp
         grid = mset.grid
         kx, ky, kz = grid.k_mesh
         kx, ky, kz = k
         lx, ly, lz = grid.domain_size
-        pi = ncp.pi
+        pi = jnp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)
         kx = 2*pi*kx/lx
         ky = 2*pi*ky/ly
         kz = 2*pi*kz/lz
-        is_kx = ncp.isclose(kx, kx)
-        is_ky = ncp.isclose(ky, ky)
-        is_kz = ncp.isclose(kz, kz)
+        is_kx = jnp.isclose(kx, kx)
+        is_ky = jnp.isclose(ky, ky)
+        is_kz = jnp.isclose(kz, kz)
         k_loc = is_kx & is_ky & is_kz
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
-        mask = ncp.where(k_loc, 1, 0)
+        mask = jnp.where(k_loc, 1, 0)
 
         # Construct the eigenvector of the corresponding mode
         q = mset.grid.vec_q(s, use_discrete=use_discrete)
 
         # Construct the state
-        z = (q * mask * ncp.exp(1j*phase)).ifft()
+        z = (q * mask * jnp.exp(1j*phase)).ifft()
 
         # Normalize the state
         z /= z.norm_l2()

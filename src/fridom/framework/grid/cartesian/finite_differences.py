@@ -4,9 +4,10 @@ from __future__ import annotations
 from copy import deepcopy
 from functools import partial
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
-ncp = fr.config.ncp
 
 @partial(fr.utils.jaxify, dynamic=("_dx1", ))
 class FiniteDifferences(fr.grid.DiffModule):
@@ -38,8 +39,8 @@ class FiniteDifferences(fr.grid.DiffModule):
             msg = "Finite differences only work with Cartesian grids."
             raise TypeError(msg)
 
-        self._dx1 = 1 / ncp.array(
-            self.mset.grid.dx, dtype=fr.config.dtype_real)
+        self._dx1 = 1 / jnp.array(
+            self.mset.grid.dx, dtype=fr.utils.dtype_real())
 
     def diff(self,  # noqa: D102
              f: fr.ScalarField,

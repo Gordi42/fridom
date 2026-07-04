@@ -8,7 +8,8 @@ import fridom.framework as fr
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-ncp = fr.config.ncp
+    import jax.numpy as jnp
+
 
 class Stencil:
 
@@ -65,7 +66,7 @@ class Stencil:
         start = 0 if destination == fr.grid.AxisPosition.FACE else 1
         self.shifts = [start + offset - i for i in range(size)]
 
-    def view(self, arr: ncp.ndarray, axis: int) -> fr.grid.StencilView:
+    def view(self, arr: jnp.ndarray, axis: int) -> fr.grid.StencilView:
         """Return a view of the stencil on the given array and axis."""
         return fr.grid.StencilView(self, arr, axis)
 

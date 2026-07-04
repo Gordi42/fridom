@@ -25,7 +25,7 @@ def module_method(method: T) -> T:
             # if the log level is set, change the log level for the module
             if self.log_level is not None:
                 old_log_level = fr.log.level
-                fr.config.set_log_level(self.log_level.value)
+                fr.log.setLevel(self.log_level.value)
 
             fr.log.debug(
                 f"Calling '{method.__name__}' of: {self.name}")
@@ -39,7 +39,7 @@ def module_method(method: T) -> T:
 
             # if the log level was set, change it back to the old log level
             if self.log_level is not None:
-                fr.config.set_log_level(old_log_level)
+                fr.log.setLevel(old_log_level)
             return result
         # if the module is disabled and the method is the update method, return
         # the model state

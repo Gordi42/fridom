@@ -68,10 +68,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import fridom.framework as fr
+import jax.numpy as jnp
 
 if TYPE_CHECKING:  # pragma: no cover
     from numpy import ndarray
+
+    import fridom.framework as fr
 
 
 # ================================================================
@@ -111,7 +113,7 @@ def one_hat(kx: ndarray,
         The spectral operator.
     """
     if use_discrete:
-        return (1 + fr.config.ncp.exp(sign * 1j * kx * dx)) / 2
+        return (1 + jnp.exp(sign * 1j * kx * dx)) / 2
     return 1
 
 def one_hat_squared(kx: ndarray,
@@ -145,7 +147,7 @@ def one_hat_squared(kx: ndarray,
         The spectral operator.
     """
     if use_discrete:
-        return (1 + fr.config.ncp.cos(kx*dx)) / 2
+        return (1 + jnp.cos(kx*dx)) / 2
     return 1
 
 def k_hat(kx: ndarray,
@@ -181,7 +183,7 @@ def k_hat(kx: ndarray,
         The spectral operator.
     """
     if use_discrete:
-        return sign * 1j * (1 - fr.config.ncp.exp(sign * 1j * kx * dx)) / dx
+        return sign * 1j * (1 - jnp.exp(sign * 1j * kx * dx)) / dx
     return kx
 
 def k_hat_squared(kx: ndarray,
@@ -215,7 +217,7 @@ def k_hat_squared(kx: ndarray,
         The spectral operator.
     """
     if use_discrete:
-        return 2 * (1 - fr.config.ncp.cos(kx*dx)) / dx**2
+        return 2 * (1 - jnp.cos(kx*dx)) / dx**2
     return kx**2
 
 # ================================================================
@@ -236,7 +238,6 @@ def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
     `State`
         The state with the nyquist frequency set to zero.
     """
-    ncp = fr.config.ncp
     grid = z.grid
     # Set nyquist frequency to zero
     for axis in range(grid.n_dims):
@@ -254,5 +255,5 @@ def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
         nyquist = (grid.k_mesh[axis] == k_nyquist)
         # Set the nyquist frequency to zero
         for field in z.fields.values():
-            field.arr = ncp.where(nyquist, 0, field.arr)
+            field.arr = jnp.where(nyquist, 0, field.arr)
     return z

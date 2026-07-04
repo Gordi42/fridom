@@ -4,6 +4,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -59,7 +61,7 @@ class Upwind(fr.modules.flux_functions.FluxFunctionBase):
         def _flux(right_flux: np.ndarray,
                   left_flux: np.ndarray,
                   u: np.ndarray) -> np.ndarray:
-            return fr.config.ncp.where(u>=0, left_flux, right_flux)
+            return jnp.where(u>=0, left_flux, right_flux)
 
         flux.arr = _flux(flux_right.arr, flux_left.arr, u.arr)
         return flux

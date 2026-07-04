@@ -4,6 +4,7 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING, TypeVar
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.shallowwater as sw
@@ -54,10 +55,8 @@ def geostrophic_energy_spectrum(kx: T, ky: T,
         The spectral energy density.
 
     """
-    ncp = sw.config.ncp
-
     # horizontal spectra
-    kh = ncp.sqrt(kx**2 + ky**2)
+    kh = jnp.sqrt(kx**2 + ky**2)
     b = (7.+d)/4.
     a = (4./7.)*b-1
     return kh**7/(kh**2 + a*k0**2)**(2*b)
@@ -104,12 +103,10 @@ def gm_energy_spectrum(kx: T,
         The spectral energy density.
 
     """
-    ncp = sw.config.ncp
-
     # horizontal spectra
-    kh = ncp.sqrt(kx**2 + ky**2)
+    kh = jnp.sqrt(kx**2 + ky**2)
 
-    omega = ncp.sqrt(f0**2 + csqr*kh**2)
+    omega = jnp.sqrt(f0**2 + csqr*kh**2)
     return omega**wave_power_law
 
 class PrescribedSpectraRandomPhase(sw.State):
@@ -140,7 +137,6 @@ class PrescribedSpectraRandomPhase(sw.State):
                  ) -> None:
         super().__init__(mset, is_spectral=False)
 
-        ncp = sw.config.ncp
         grid = mset.grid
         kx, ky = grid.get_mesh(spectral=True)
 
@@ -158,11 +154,11 @@ class PrescribedSpectraRandomPhase(sw.State):
         # spectral energy density is given by $S(k) = 2 \pi k E(k, 0)$.
 
         # scale the eigenvector such that they have energy 1
-        energy_arr = q.spectral_ekin.arr * 2 * ncp.pi * ncp.sqrt(kx**2 + ky**2)
-        energy_arr = ncp.where(energy_arr == 0, 1, energy_arr)
+        energy_arr = q.spectral_ekin.arr * 2 * jnp.pi * jnp.sqrt(kx**2 + ky**2)
+        energy_arr = jnp.where(energy_arr == 0, 1, energy_arr)
 
         # we further have to integrate over rings with konstant wave number
-        q /= ncp.sqrt(energy_arr)
+        q /= jnp.sqrt(energy_arr)
 
         # construct a random phase
         r = grid.create_random_array(seed=seed, spectral=True)
@@ -171,7 +167,7 @@ class PrescribedSpectraRandomPhase(sw.State):
         spectra = spectral_energy_density(kx, ky)
 
         # construct the geostrophic state
-        z = q * r * ncp.sqrt(spectra)
+        z = q * r * jnp.sqrt(spectra)
 
         # transform to physical space and normalize the state such that the
         # maximum velocity is 1

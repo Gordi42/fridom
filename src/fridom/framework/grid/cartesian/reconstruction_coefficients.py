@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from typing import Literal
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
 
-ncp = fr.config.ncp
 
 def compute_polynomial_coefficients_cell_average(
-            stencil_size: int) -> ncp.ndarray:
+            stencil_size: int) -> jnp.ndarray:
     r"""
     Polynomial coefficients for cell averages.
 
@@ -146,7 +146,7 @@ def compute_polynomial_coefficients_cell_average(
         for k in range(stencil_size+1):
             coeffs[k, i] = compute_coeff(k, i, stencil_size)
 
-    return fr.config.ncp.asarray(coeffs, dtype=fr.config.dtype_real)
+    return jnp.asarray(coeffs, dtype=fr.utils.dtype_real())
 
 
 def compute_polynomial_coefficients_pointwise(stencil_size: int) -> np.ndarray:
@@ -223,13 +223,13 @@ def compute_polynomial_coefficients_pointwise(stencil_size: int) -> np.ndarray:
         for k in range(stencil_size+1):
             coeffs[k, i] = compute_coeff(k, i, stencil_size)
 
-    return fr.config.ncp.asarray(coeffs, dtype=fr.config.dtype_real)
+    return jnp.asarray(coeffs, dtype=fr.utils.dtype_real())
 
 
 def compute_polynomial_coefficients(
         stencil_size: int,
         method: Literal["pointwise", "cell_average"] = "cell_average",
-        ) -> ncp.ndarray:
+        ) -> jnp.ndarray:
     """
     Compute the polynomial coefficients.
 

@@ -524,25 +524,17 @@ class DomainDecomposition:
 
 def get_default_domain_decomposition() -> DomainDecomposition:
     """
-    Get the domain decomposition class for the specified backend.
+    Get the default domain decomposition class.
 
-    Parameters
-    ----------
-    backend : str
-        The backend to use. Options are 'single' and 'jax'.
+    Description
+    -----------
+    If more than one device is available, the domain is decomposed across
+    the devices using the JaxDecomposition. Otherwise, the
+    SingleDecomposition is used.
     """
-    fall_back = fr.domain_decomposition.SingleDecomposition
-    # if the parallel flag is not set, use the fall back
-    if not fr.config.enable_parallel:
-        return fall_back
-    # if the backend is jax, use the jax decomposition
-    if fr.config.backend_is_jax:
-        # count the number of devices
-        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
-        n_devices = jax.device_count()
-        # if we only have one available device, we use single decomposition
-        if n_devices == 1:
-            return fall_back
-        # otherwise, we use the jax decomposition
-        return fr.domain_decomposition.JaxDecomposition
-    return None
+    import jax  # noqa: PLC0415 (avoid initializing the backend on import)
+    # if we only have one available device, we use single decomposition
+    if jax.device_count() == 1:
+        return fr.domain_decomposition.SingleDecomposition
+    # otherwise, we use the jax decomposition
+    return fr.domain_decomposition.JaxDecomposition

@@ -1,6 +1,8 @@
 """Barotropic instable jet initial condition."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
 
@@ -56,19 +58,18 @@ class BarotropicJet(nh.State):
                  geo_proj: bool = True) -> None:
         super().__init__(mset)
         # Shortcuts
-        ncp = nh.config.ncp
-        pi = ncp.pi
+        pi = jnp.pi
         x, y, _z = mset.grid.x_mesh
         lx, ly, _lz = mset.grid.domain_size
         width = jet_width * ly * pi
 
         # Construct the zonal jets
-        self.u.arr  = 2.5*( ncp.exp(-((y - 0.75*ly)/(width))**2) -
-                            ncp.exp(-((y - 0.25*ly)/(width))**2) )
+        self.u.arr  = 2.5*( jnp.exp(-((y - 0.75*ly)/(width))**2) -
+                            jnp.exp(-((y - 0.25*ly)/(width))**2) )
 
         # Construct the perturbation
         kx_p = 2*pi/lx * wavenum
-        self.v.arr  = waveamp * ncp.sin(kx_p*x)
+        self.v.arr  = waveamp * jnp.sin(kx_p*x)
 
         if geo_proj:
             proj_geo = nh.projection.GeostrophicSpectral(mset)

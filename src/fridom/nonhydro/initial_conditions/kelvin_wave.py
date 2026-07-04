@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
 if TYPE_CHECKING:
@@ -88,19 +90,18 @@ class KelvinWave(nh.State):
                  k_parallel: int,
                  phase: float = 0) -> None:
         super().__init__(mset, is_spectral=False)
-        ncp = nh.config.ncp
 
         # convert the wavenumbers
         lx, ly, lz = mset.grid.domain_size
-        kz = 2 * ncp.pi * kz / lz
+        kz = 2 * jnp.pi * kz / lz
         if side in {"N", "S"}:
             l_parallel = lx
         if side in {"E", "W"}:
             l_parallel = ly
-        k_parallel = 2 * ncp.pi * k_parallel / l_parallel
+        k_parallel = 2 * jnp.pi * k_parallel / l_parallel
 
         # calculate the frequency
-        om = ncp.sqrt((k_parallel**2 * mset.stratification_n2) /
+        om = jnp.sqrt((k_parallel**2 * mset.stratification_n2) /
                       (kz**2 + mset.dsqr * k_parallel**2))
 
         # calculate the polarizations
@@ -112,8 +113,8 @@ class KelvinWave(nh.State):
         def wave(x_parallel: ndarray,
                  x_normal: ndarray,
                  z: ndarray) -> ndarray:
-            wave = ncp.exp(1j * (k_parallel * x_parallel + kz * z + phase))
-            wave *= ncp.exp(- mset.f0 * k_parallel / om * x_normal)
+            wave = jnp.exp(1j * (k_parallel * x_parallel + kz * z + phase))
+            wave *= jnp.exp(- mset.f0 * k_parallel / om * x_normal)
             return wave
 
         if side == "N":

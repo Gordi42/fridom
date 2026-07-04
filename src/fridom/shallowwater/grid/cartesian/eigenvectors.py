@@ -162,6 +162,7 @@ but by using the discrete eigenvectors.
 """
 from __future__ import annotations
 
+import jax.numpy as jnp
 import numpy as np
 from numpy import ndarray
 
@@ -210,7 +211,6 @@ def omega(mset: sw.ModelSettings,
         The eigenvalues of the System matrix.
     """
     # shorthand notation
-    ncp = fr.config.ncp
     csqr = mset.csqr
     f2 = mset.f0**2
     kx, ky = k
@@ -219,22 +219,22 @@ def omega(mset: sw.ModelSettings,
     #  The geostrophic mode
     # ----------------------------------------------------------------
     if s == 0:
-        return ncp.zeros_like(kx)
+        return jnp.zeros_like(kx)
 
     # ----------------------------------------------------------------
     #  The wave modes
     # ----------------------------------------------------------------
 
     # cast k to ndarray
-    kx = ncp.asarray(kx)
-    ky = ncp.asarray(ky)
+    kx = jnp.asarray(kx)
+    ky = jnp.asarray(ky)
     dx, dy = mset.grid.dx
 
     # print a warning if the coriolis frequency or c² is varying
-    if not ncp.allclose(f2, mset.f_coriolis.arr**2):
+    if not jnp.allclose(f2, mset.f_coriolis.arr**2):
         fr.log.warning("The corioliis frequency is varying.")
         fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
-    if not ncp.allclose(csqr, mset.csqr_field.arr):
+    if not jnp.allclose(csqr, mset.csqr_field.arr):
         fr.log.warning("c² is varying.")
         fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
 
@@ -249,7 +249,7 @@ def omega(mset: sw.ModelSettings,
     gravity_part = csqr * kh2
 
     # return the eigenvalue
-    return s * ncp.sqrt(coriolis_part + gravity_part)
+    return s * jnp.sqrt(coriolis_part + gravity_part)
 
 
 # ================================================================
@@ -285,7 +285,6 @@ def vec_q(mset: sw.ModelSettings,
     """
     # Shortcuts
     grid = mset.grid
-    ncp = fr.config.ncp
     kx, ky = grid.k_mesh
     dx, dy = grid.dx
     f0 = mset.f0
@@ -316,9 +315,9 @@ def vec_q(mset: sw.ModelSettings,
     k_nonzero = (kx**2 + ky**2 != 0)
 
     z = sw.State(mset, is_spectral=True)
-    z.u.arr = ncp.where(k_nonzero, u, u_in)
-    z.v.arr = ncp.where(k_nonzero, v, v_in)
-    z.p.arr = ncp.where(k_nonzero, p, p_in)
+    z.u.arr = jnp.where(k_nonzero, u, u_in)
+    z.v.arr = jnp.where(k_nonzero, v, v_in)
+    z.p.arr = jnp.where(k_nonzero, p, p_in)
 
     # Set the nyquist frequency to zero
     return dso.set_nyquist_to_zero(z)
@@ -351,7 +350,6 @@ def vec_p(mset: sw.ModelSettings,
         The projection vectors of the system matrix.
     """
     # Shortcuts
-    ncp = fr.config.ncp
     kx, ky = mset.grid.k_mesh
     csqr = mset.csqr
 
@@ -360,17 +358,17 @@ def vec_p(mset: sw.ModelSettings,
 
     # Divide the pressure by c² for k != 0
     k_nonzero = (kx**2 + ky**2 != 0)
-    z.p.arr = ncp.where(k_nonzero, z.p.arr/csqr, z.p.arr)
+    z.p.arr = jnp.where(k_nonzero, z.p.arr/csqr, z.p.arr)
 
     # normalize the vector
     q = vec_q(mset, s, use_discrete=use_discrete)
-    norm = ncp.abs((q.dot(z)).arr)
+    norm = jnp.abs((q.dot(z)).arr)
     # avoid division by zero
     mask = (norm > _NORM_THRESHOLD)
     with np.errstate(divide="ignore", invalid="ignore"):
-        z.u.arr = ncp.where(mask, z.u.arr/norm, 0)
-        z.v.arr = ncp.where(mask, z.v.arr/norm, 0)
-        z.p.arr = ncp.where(mask, z.p.arr/norm, 0)
+        z.u.arr = jnp.where(mask, z.u.arr/norm, 0)
+        z.v.arr = jnp.where(mask, z.v.arr/norm, 0)
+        z.p.arr = jnp.where(mask, z.p.arr/norm, 0)
 
     # Set the nyquist frequency to zero
     return dso.set_nyquist_to_zero(z)

@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from copy import deepcopy
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
 
-ncp = fr.config.ncp
+if TYPE_CHECKING:  # pragma: no cover
+    import jax.numpy as jnp
+
 
 @fr.utils.jaxify
 class InterpolationModule(fr.modules.Module):
@@ -26,9 +29,9 @@ class InterpolationModule(fr.modules.Module):
 
     @abstractmethod
     def _interpolate_axis(self,
-                          x: ncp.ndarray,
+                          x: jnp.ndarray,
                           axis: int,
-                          destination: fr.grid.AxisPosition) -> ncp.ndarray:
+                          destination: fr.grid.AxisPosition) -> jnp.ndarray:
         """Interpolate the field along a single axis."""
         raise NotImplementedError
 

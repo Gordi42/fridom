@@ -1,9 +1,13 @@
 """Linear interpolation for cartesian grids."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import fridom.framework as fr
 
-ncp = fr.config.ncp
+if TYPE_CHECKING:  # pragma: no cover
+    import jax.numpy as jnp
+
 
 @fr.utils.jaxify
 class LinearInterpolation(fr.grid.InterpolationModule):
@@ -19,9 +23,9 @@ class LinearInterpolation(fr.grid.InterpolationModule):
     required_halo = 1
 
     def _interpolate_axis(self,
-                          x: ncp.ndarray,
+                          x: jnp.ndarray,
                           axis: int,
-                          destination: fr.grid.AxisPosition) -> ncp.ndarray:
+                          destination: fr.grid.AxisPosition) -> jnp.ndarray:
 
         stencil = fr.grid.Stencil(
             grid=self.grid, size=2, offset=0, destination=destination)

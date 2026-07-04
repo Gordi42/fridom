@@ -26,6 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
         random_array,
     )
     from .decorators import cache_figure, skip_on_doc_build
+    from .dtypes import dtype_comp, dtype_real
     from .filesystem import chdir_to_submit_dir, stdout_is_file
     from .formatting import humanize_length, humanize_number, humanize_time
     from .jax_utils import free_memory, inspect_jitted_function, jaxify, jaxjit
@@ -65,6 +66,7 @@ all_imports_by_origin = {
         "jaxjit", "jaxify", "inspect_jitted_function", "free_memory",
         ],
     f"{BASE}.decorators": ["skip_on_doc_build", "cache_figure"],
+    f"{BASE}.dtypes": ["dtype_real", "dtype_comp"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

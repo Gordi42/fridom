@@ -77,7 +77,7 @@ class TimeStepper(fr.modules.Module):
         if isinstance(value, float | int):
             self._dt = value
         else:
-            self._dt = fr.config.dtype_real(value / np.timedelta64(1, "s"))
+            self._dt = fr.utils.dtype_real()(value / np.timedelta64(1, "s"))
         self._on_time_step_change()
 
     @abstractmethod

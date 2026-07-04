@@ -1,6 +1,8 @@
 """A gaussian wave maker module."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
@@ -63,21 +65,19 @@ class GaussianWaveMaker(fr.modules.Module):
         self.variable = variable
 
     def _on_setup(self) -> None:
-        ncp = fr.config.ncp
         # Construct mask
-        mask = ncp.ones_like(self.grid.x_mesh[0])
+        mask = jnp.ones_like(self.grid.x_mesh[0])
         for x, pos, width in zip(self.grid.x_mesh, self.position,
                                  self.width, strict=False):
             if pos is not None and width is not None:
-                mask *= ncp.exp(-(x - pos)**2 / width**2)
+                mask *= jnp.exp(-(x - pos)**2 / width**2)
         mask *= self.amplitude
         self.mask = mask
 
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
-        ncp = fr.config.ncp
-        tendency = self.mask * ncp.sin(
-            2 * ncp.pi * self.frequency * mz.clock.time)
+        tendency = self.mask * jnp.sin(
+            2 * jnp.pi * self.frequency * mz.clock.time)
         mz.dz.fields[self.variable] += tendency
         return mz
 

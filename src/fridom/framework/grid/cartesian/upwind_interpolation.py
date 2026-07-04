@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from typing import Literal
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
-ncp = fr.config.ncp
 
 @fr.utils.jaxify
 class UpwindInterpolation(fr.grid.BiasedInterpolationModule):
@@ -38,10 +39,10 @@ class UpwindInterpolation(fr.grid.BiasedInterpolationModule):
         self.right_coeffs = coeffs[order//2]
 
     def _interpolate_axis(self,
-                          x: ncp.ndarray,
-                          bias: ncp.ndarray,
+                          x: jnp.ndarray,
+                          bias: jnp.ndarray,
                           axis: int,
-                          destination: fr.grid.AxisPosition) -> ncp.ndarray:
+                          destination: fr.grid.AxisPosition) -> jnp.ndarray:
 
         size = self.stencil_size
         start = self.order // 2
@@ -58,4 +59,4 @@ class UpwindInterpolation(fr.grid.BiasedInterpolationModule):
                    in zip(self.left_coeffs, left_view, strict=False))
         right = sum(c * v for c, v
                     in zip(self.right_coeffs, right_view, strict=False))
-        return ncp.where(bias > 0, left, right)
+        return jnp.where(bias > 0, left, right)

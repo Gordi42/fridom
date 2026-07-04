@@ -4,6 +4,8 @@ from __future__ import annotations
 from functools import partial
 from typing import Literal
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 
@@ -53,7 +55,6 @@ class BiharmonicClosure(fr.modules.Module):
                 raise ValueError(msg)
 
     def _on_setup(self) -> None:
-        ncp = fr.config.ncp
         rossby_number = self.mset.rossby_number
         velocity_scale = self.velocity_scale
 
@@ -62,10 +63,10 @@ class BiharmonicClosure(fr.modules.Module):
 
         aspect_ratio = lz / lx * (self.mset.dsqr ** 0.5)
 
-        kh_max = ncp.pi / dx
+        kh_max = jnp.pi / dx
         hor_diff_coeff = velocity_scale * rossby_number / kh_max**3
 
-        kv_max = ncp.pi / dz
+        kv_max = jnp.pi / dz
         ver_diff_coeff = (aspect_ratio * velocity_scale * rossby_number
                           / kv_max**3)
 

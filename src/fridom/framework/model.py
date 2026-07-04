@@ -210,9 +210,8 @@ class Model:
     def _execute_first_time_step(self) -> None:
         """Print the timing of the first time step."""
         # compile the modules
-        if fr.config.backend_is_jax:
-            fr.log.notice("Compiling modules at first time step")
-            start_time = time()
+        fr.log.notice("Compiling modules at first time step")
+        start_time = time()
 
         # Execute modules that should run at the start
         for module in self.diagnostics.module_list:
@@ -230,9 +229,8 @@ class Model:
             self.progress_bar.enable()
 
         # Print the compilation time
-        if fr.config.backend_is_jax:
-            fr.log.notice(
-                f"Compilation finished in {time()-start_time:.2f} seconds")
+        fr.log.notice(
+            f"Compilation finished in {time()-start_time:.2f} seconds")
 
     def _safe_step(self) -> None:
         """Run a single time step and catch any exceptions."""

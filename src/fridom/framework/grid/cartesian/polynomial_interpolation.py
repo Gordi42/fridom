@@ -1,11 +1,13 @@
 """Centered polynomial interpolation for cartesian grids."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import fridom.framework as fr
 
-ncp = fr.config.ncp
+if TYPE_CHECKING:  # pragma: no cover
+    import jax.numpy as jnp
+
 
 @fr.utils.jaxify
 class PolynomialInterpolation(fr.grid.InterpolationModule):
@@ -37,9 +39,9 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
         self._coeffs = coeffs[(self.order + 1) // 2]
 
     def _interpolate_axis(self,
-                          x: ncp.ndarray,
+                          x: jnp.ndarray,
                           axis: int,
-                          destination: fr.grid.AxisPosition) -> ncp.ndarray:
+                          destination: fr.grid.AxisPosition) -> jnp.ndarray:
 
         stencil_size = self.order + 1
         offset = self.order // 2

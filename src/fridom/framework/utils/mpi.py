@@ -1,7 +1,8 @@
 """MPI utilities for Fridom framework."""
 from __future__ import annotations
 
-import fridom.framework as fr
+import jax
+from jax.experimental import multihost_utils
 
 try:
     from mpi4py import MPI
@@ -23,12 +24,7 @@ def am_i_main_rank() -> bool:
     """
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_rank() == 0
-    if fr.config.backend_is_jax:
-        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
-        return jax.process_index() == 0
-
-    # if no MPI is available, assume that the current rank is the main rank
-    return True
+    return jax.process_index() == 0
 
 I_AM_MAIN_RANK = am_i_main_rank()
 
@@ -36,11 +32,7 @@ def mpi_barrier() -> None:
     """Barrier synchronization for MPI."""
     if MPI_AVAILABLE:
         MPI.COMM_WORLD.Barrier()
-    if fr.config.backend_is_jax:
-        from jax.experimental import (  # noqa: PLC0415 (deferred import of optional/heavy dependency)
-            multihost_utils,
-        )
-        multihost_utils.sync_global_devices("mpi_barrier")
+    multihost_utils.sync_global_devices("mpi_barrier")
 
 def get_mpi_size() -> int:
     """
@@ -53,10 +45,7 @@ def get_mpi_size() -> int:
     """
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_size()
-    if fr.config.backend_is_jax:
-        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
-        return jax.process_count()
-    return 1
+    return jax.process_count()
 
 def get_my_rank() -> int:
     """
@@ -70,7 +59,4 @@ def get_my_rank() -> int:
     """
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_rank()
-    if fr.config.backend_is_jax:
-        import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
-        return jax.process_index()
-    return 0
+    return jax.process_index()
