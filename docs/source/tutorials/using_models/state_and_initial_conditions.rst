@@ -396,27 +396,28 @@ The following example demonstrates how to calculate the potential vorticity of t
 Adding Custom Scalar Fields to the State Vector
 -----------------------------------------------
 
-.. warning::
-    FIXME: The functionality has changed, code snippet will no longer work
-
 In most cases, there's no need to add custom scalar fields to the state vector. However, there are instances where this might be desired.
 For example, if you want to add tracer scalar fields or additional prognostic variables for turbulence models.
-These variables are added through the model settings. In the following example, we add the CO₂ concentration as a scalar field:
+These variables are added through the model settings by appending a ``FieldMetadata`` object to the ``custom_state_fields`` list.
+In the following example, we add the CO₂ concentration as a scalar field:
 
 .. code-block:: python
     :caption: Adding custom scalar fields
 
+    import fridom.framework as fr
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
     grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
-    mset.setup()
 
     # Add the CO2 scalar field to the model settings
-    mset.add_field_to_state({'name': "co2",
-                             'long_name': "CO₂ concentration",
-                             'units': "ppm"})
+    mset.custom_state_fields.append(
+        fr.FieldMetadata(name="co2",
+                         long_name="CO₂ concentration",
+                         units="ppm"))
+
+    mset.setup()
 
     # Create the state vector
     z = sw.State(mset)
@@ -428,26 +429,29 @@ These variables are added through the model settings. In the following example, 
 
     ::
 
-        State with fields:
-        u: u - velocity  [m/s]
-        v: v - velocity  [m/s]
-        p: pressure  [m²/s²]
-        co2: CO₂ concentration  [ppm]
-
-        ScalarField
-        - name: co2
-        - long_name: CO² concentration
-        - units: ppm
-        - is_spectral: False
-        - position: Position: (<AxisPosition.CENTER: 1>, <AxisPosition.CENTER: 1>)
-        - topo: [True, True]
-        - bc_types: (<BCType.NEUMANN: 2>, <BCType.NEUMANN: 2>)
-        - enabled_flags: []
+        State(
+          u=u - velocity  [m/s], 
+          v=v - velocity  [m/s], 
+          p=pressure  [m²/s²], 
+          co2=CO₂ concentration  [ppm], 
+        )
+        ScalarField(
+          name=co2, 
+          long_name=CO₂ concentration, 
+          units=ppm, 
+          is_spectral=False, 
+          position=Position: (<AxisPosition.CENTER: 'center'>, <AxisPosition.CENTER: 'center'>), 
+          topo=(True, True), 
+          bc_types=(<BCType.NEUMANN: 'neumann'>, <BCType.NEUMANN: 'neumann'>), 
+          enabled_flags=[], 
+        )
 
 .. note::
 
-    The dictionary passed to the ``add_field_to_state`` method contains the keyword arguments needed for creating a new scalar field.
-    Scalar fields receive this dictionary as kwargs in their constructor.
+    The ``FieldMetadata`` object collects all metadata needed to create the new scalar field.
+    Besides the ``name``, ``long_name``, and ``units`` shown above, it also accepts, for example, the ``position`` of the field on the staggered grid and the boundary condition types (``bc_types``).
+    Unset options fall back to sensible defaults (cell center position and Neumann boundary conditions).
+    Make sure to add custom fields before calling ``mset.setup()``, so that the model and its modules are set up with the extended state vector.
 
 
 Saving and Loading State Vectors
