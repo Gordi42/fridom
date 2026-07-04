@@ -21,16 +21,29 @@ which the modern code (e.g. `framework/modules/module.py`,
 ## Commands
 
 ```bash
-pip install -e '.[dev]'                 # install with dev extras
-./run_tests.sh                          # run tests across all backends
-FRIDOM_BACKEND=numpy pytest tests/      # run tests on a single backend
-ruff check src tests                    # lint (must stay at zero errors)
-pre-commit install                      # install the ruff pre-commit hook
+uv sync --extra dev                        # create/refresh .venv with dev deps
+uv run ./run_tests.sh                      # run tests across all backends
+uv run ./run_tests.sh -b numpy             # restrict to one (or more) backends
+uv run ./run_tests.sh -b "numpy jax_cpu" -t tests/framework  # subset + target
+FRIDOM_BACKEND=numpy uv run pytest tests/  # run a single backend directly
+uv run ruff check src tests                # lint (must stay at zero errors)
+uv run pre-commit install                  # install the ruff pre-commit hook
 ```
 
+- The repo ships a uv-managed environment (`.venv` + `uv.lock`); run everything
+  through `uv run` (or activate `.venv`) so the correct interpreter and pinned
+  dependencies are used. `uv sync --extra dev` provisions the dev toolchain
+  (pytest, coverage, ruff, jax, cupy, ...).
 - Tests select the array backend via the `FRIDOM_BACKEND` env var
   (`numpy`, `cupy`, `jax_cpu`, `jax_gpu`). `run_tests.sh` loops over all of
-  them with aggregated coverage.
+  them with aggregated coverage; note it invokes `pytest`/`coverage` directly,
+  so run it via `uv run ./run_tests.sh`.
+- On a machine without a CUDA GPU, restrict to CPU backends, e.g.
+  `uv run ./run_tests.sh -b "numpy jax_cpu"` — `cupy` and `jax_gpu` require a
+  GPU.
+- Use `-t <path>` to target a subset (e.g. `-t tests/framework`) and
+  `-b "<backends>"` to choose backends; the same target can be passed directly
+  to `pytest`.
 
 ## Conventions
 
