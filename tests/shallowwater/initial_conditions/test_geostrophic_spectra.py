@@ -125,3 +125,39 @@ def test_nonlinear_model(mset, z_ini):
     accepted_tolerance = 1e-4
 
     assert compute_energy_diff(z_ini, model.z) < accepted_tolerance
+
+
+# ================================================================
+#  Tests for the wave spectra
+# ================================================================
+
+def test_gm_energy_spectrum():
+    kh = jnp.linspace(0, 10, 50)
+    spectrum = sw.initial_conditions.gm_energy_spectrum(
+        kh, 0*kh, wave_power_law=-2, f0=1, csqr=1)
+
+    # at k = 0, the spectrum is f0 ** wave_power_law = 1
+    assert spectrum[0] == pytest.approx(1.0)
+    # for a negative power law, the spectrum decays monotonically
+    assert (jnp.diff(spectrum) < 0).all()
+
+
+def test_random_wave_spectra_contains_no_geostrophic_energy(mset):
+    z = sw.initial_conditions.RandomWaveSpectra(mset, seed=3)
+
+    assert z.norm_l2() > 0
+
+    # the state is orthogonal to the geostrophic subspace
+    proj_geo = sw.projection.GeostrophicSpectral(mset)
+    assert proj_geo(z).norm_l2() / z.norm_l2() < 1e-10
+
+
+def test_shallow_water_random(mset):
+    z1 = sw.initial_conditions.ShallowWaterRandom(mset, seed=3)
+    z2 = sw.initial_conditions.ShallowWaterRandom(mset, seed=3)
+    z3 = sw.initial_conditions.ShallowWaterRandom(mset, seed=4)
+
+    assert z1.norm_l2() > 0
+    # same seed => same state, different seed => different state
+    assert (z1 - z2).norm_l2() == 0
+    assert (z1 - z3).norm_l2() > 1e-3

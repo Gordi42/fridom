@@ -11,7 +11,10 @@ if TYPE_CHECKING:  # pragma: no cover
     from .equatorial_wave import EquatorialWave
     from .geostrophic_spectra import (
         RandomGeostrophicSpectra,
+        RandomWaveSpectra,
+        ShallowWaterRandom,
         geostrophic_energy_spectrum,
+        gm_energy_spectrum,
     )
     from .jet import Jet
     from .single_wave import SingleWave
@@ -28,7 +31,10 @@ all_imports_by_origin = {
     f"{base_path}.equatorial_wave": ["EquatorialWave"],
     f"{base_path}.geostrophic_spectra": [
         "RandomGeostrophicSpectra",
+        "RandomWaveSpectra",
+        "ShallowWaterRandom",
         "geostrophic_energy_spectrum",
+        "gm_energy_spectrum",
     ],
     f"{base_path}.jet": ["Jet"],
     f"{base_path}.single_wave": ["SingleWave"],
