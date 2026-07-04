@@ -168,6 +168,8 @@ ignore = [
 ]
 "__init__.py" = ["F401"]
 "examples/**/*.py" = ["D205", "INP001"]
+# benchmark suite scripts are standalone files, like examples
+"benchmarks/**/*.py" = ["ANN", "INP001"]
 # the benchmarking CLI communicates through stdout by design
 "src/fridom/benchmarking/cli.py" = ["T201"]
 

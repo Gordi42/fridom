@@ -105,16 +105,41 @@ def test_instance_run_with_overrides():
     assert len(result.wall_times) == 1
 
 
+def test_instance_run_with_args():
+    @benchmark_case(reps=1, warmup=0)
+    def bench_with_args():
+        x = jnp.ones(4)
+
+        def run(x):
+            return x * 2
+
+        return run, (x,)
+
+    result = bench_with_args.instances()[0].run()
+    assert len(result.wall_times) == 1
+    # the argument was traced, not embedded as a constant
+    assert result.argument_bytes > 0
+
+
 def test_instance_run_with_extras():
     @benchmark_case(reps=1, warmup=0)
     def bench_with_extras():
         def run():
             return None
 
-        return run, {"points": 42.0}
+        return run, (), {"points": 42.0}
 
     result = bench_with_extras.instances()[0].run()
     assert result.extras == {"points": 42.0}
+
+
+def test_instance_run_invalid_tuple():
+    @benchmark_case(reps=1, warmup=0)
+    def bench_invalid():
+        return (lambda: None), (), {}, "extra"
+
+    with pytest.raises(ValueError, match="tuple of length 4"):
+        bench_invalid.instances()[0].run()
 
 
 # ================================================================

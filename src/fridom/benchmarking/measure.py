@@ -119,7 +119,9 @@ def benchmark(
     Measures the wall time of `fn(*args)` over a number of timed
     repetitions. Since jax dispatches asynchronously, every timed call
     blocks on its result (`jax.block_until_ready`) before the timer is
-    stopped.
+    stopped. The function must therefore return the arrays (or pytrees
+    of arrays, e.g. fields) produced by the computation; a function
+    that returns nothing is only timed for its dispatch.
 
     If `measure_compile` is True (the default), the function is
     jit-compiled ahead of time: the trace time, compile time, static

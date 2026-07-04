@@ -32,8 +32,19 @@ class BenchmarkCase:
     settings and a parameter grid. The setup function receives one
     value per parameter and returns the callable to be measured (the
     setup itself is not timed). It may alternatively return a tuple
-    `(run, extras)` where extras is a dictionary of additional metrics
-    (e.g. the number of grid points) that is attached to the result.
+    `(run, args)` or `(run, args, extras)`:
+
+    - `args` is a tuple of arguments the callable is measured with.
+      When the case is jit-compiled (`measure_compile=True`), the
+      arguments are traced. Pass arrays through `args` instead of
+      closing over them, otherwise the compiler embeds them as
+      constants and may fold the computation away.
+    - `extras` is a dictionary of additional metrics (e.g. the number
+      of grid points) that is attached to the result.
+
+    The measured callable should return the arrays (or pytrees of
+    arrays, e.g. fields) produced by the computation: jax dispatches
+    asynchronously, and the measurement blocks on the return value.
 
     Benchmark cases are usually created with the
     :func:`benchmark_case` decorator.
@@ -41,8 +52,8 @@ class BenchmarkCase:
     Parameters
     ----------
     setup : Callable
-        The setup function; returns the callable to be measured or a
-        tuple `(run, extras)`.
+        The setup function; returns the callable to be measured, or a
+        tuple `(run, args)` or `(run, args, extras)`.
     name : str
         The name of the case.
     params : dict[str, list[Any]], optional
@@ -140,11 +151,22 @@ class CaseInstance:
             The measurements, with the parameter values attached.
         """
         target = self.case.setup(**self.params)
+        args: tuple[Any, ...] = ()
         extras: dict[str, float] = {}
         if isinstance(target, tuple):
-            target, extras = target
+            if len(target) == 2:  # noqa: PLR2004
+                target, args = target
+            elif len(target) == 3:  # noqa: PLR2004
+                target, args, extras = target
+            else:
+                raise ValueError(
+                    "the setup function must return the callable to "
+                    "be measured, or a tuple (run, args) or "
+                    f"(run, args, extras); got a tuple of length "
+                    f"{len(target)}")
         result = benchmark(
             target,
+            *args,
             reps=self.case.reps if reps is None else reps,
             warmup=self.case.warmup if warmup is None else warmup,
             measure_compile=self.case.measure_compile,
@@ -174,7 +196,8 @@ def benchmark_case(
     Decorator for setup functions in benchmark suite files
     (`bench_*.py`). The decorated function receives one value per
     parameter and returns the callable to be measured (or a tuple
-    `(run, extras)`, see :class:`BenchmarkCase`).
+    `(run, args)` or `(run, args, extras)`, see
+    :class:`BenchmarkCase`).
 
     Parameters
     ----------
@@ -208,10 +231,10 @@ def benchmark_case(
         def bench_square_sum(n):
             x = jnp.ones((n, n))
 
-            def run():
+            def run(x):
                 return (x * x).sum()
 
-            return run, {"points": float(n * n)}
+            return run, (x,), {"points": float(n * n)}
     """
     def decorator(fn: Callable[..., Any]) -> BenchmarkCase:
         return BenchmarkCase(

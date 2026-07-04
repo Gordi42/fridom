@@ -1,7 +1,7 @@
 .vscode/
 testing/
 gdrive/
-benchmark/log/
+benchmarks/results/
 
 # Clean up the example folder
 examples/**/*.nc
