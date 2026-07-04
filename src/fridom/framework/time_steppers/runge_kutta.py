@@ -172,19 +172,19 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         """
         method = self.method
         order = method.order
-        # clone the clock
+        # clone the clock so that the stage evaluations do not modify
+        # the model clock
         clock = deepcopy(mz.clock)
         mod_state = fr.ModelState(self.mset, clock=clock)
+        # time at the start of the step; rejected steps retry from here
+        start_time = mz.clock.time
         error = 1
         while error > self.tol:
             k = []
             dt = self.dt
             for i in range(order):
-                # FIXME(Silvano): in each error estimation step, we currently
-                # advance the clock.
-                # This is likely a problem for tendencies that depend on
-                # the cock
-                mod_state.clock.tick(method.c[i] * dt)
+                # evaluate stage i at the absolute stage time
+                mod_state.clock.time = start_time + method.c[i] * dt
                 mod_state.z = mz.z + sum_product(method.a[i], dt, k)
                 mod_state.dz = self.dz_list[i]
                 mod_state = _compute_tendency(self.mset.tendencies, mod_state)

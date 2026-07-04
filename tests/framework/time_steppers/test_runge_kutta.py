@@ -31,7 +31,26 @@ class Decay(fr.modules.Module):
         return mz
 
 
-def make_mset(method, dt, tol=1e-6, max_dt=None):
+class TimeForcing(fr.modules.Module):
+
+    """Non-autonomous tendency dz = f(t) read from the model clock."""
+
+    name = "TimeForcing"
+
+    def __init__(self, forcing):
+        super().__init__()
+        self.forcing = forcing
+
+    def _on_setup(self) -> None:
+        pass
+
+    @fr.modules.module_method
+    def update(self, mz: fr.ModelState) -> fr.ModelState:
+        mz.dz = mz.z * 0.0 + self.forcing(mz.clock.time)
+        return mz
+
+
+def make_mset(method, dt, tol=1e-6, max_dt=None, tendency=None):
     grid = fr.grid.cartesian.Grid(shape=(4,), domain_size=(1.0,))
     mset = fr.ModelSettingsBase(grid=grid)
 
@@ -40,7 +59,7 @@ def make_mset(method, dt, tol=1e-6, max_dt=None):
         return fr.VectorField(mset, field_list=[var])
 
     mset.state_constructor = _state_constructor
-    mset.tendencies.add_module(Decay())
+    mset.tendencies.add_module(tendency or Decay())
     mset.time_stepper = fr.time_steppers.RungeKutta(
         dt=dt, method=method, tol=tol, max_dt=max_dt)
     mset.setup()
@@ -102,6 +121,52 @@ def test_adaptive_methods_control_the_error(method):
     assert time_stepper.dt < 0.5
     value = float(mz.z["var"].arr[2])
     assert abs(value - np.exp(-LAMBDA * mz.clock.time)) < 1e-6
+
+
+@pytest.mark.parametrize("method", [
+    pytest.param(RK.RK2, id="rk2"),
+    pytest.param(RK.RK3, id="rk3"),
+    pytest.param(RK.RK4, id="rk4"),
+    pytest.param(RK.RK4_38, id="rk4-38"),
+])
+def test_non_autonomous_stage_times(method):
+    # dz = t has the exact solution z(t) = t^2 / 2. Every RK method of
+    # order >= 2 integrates it exactly, but only if each stage i is
+    # evaluated at t0 + c[i] * dt.
+    dt = 0.1
+    mset = make_mset(method, dt=dt, tendency=TimeForcing(lambda t: t))
+    time_stepper = mset.time_stepper
+    mz = fr.ModelState(mset)
+
+    for _ in range(10):
+        mz = time_stepper.update(mz=mz)
+
+    assert mz.clock.time == pytest.approx(1.0)
+    value = float(mz.z["var"].arr[2])
+    assert value == pytest.approx(0.5, abs=1e-12)
+
+
+@pytest.mark.parametrize("method", [
+    pytest.param(RK.HEUN_EULER, id="heun-euler"),
+    pytest.param(RK.BOGACKI_SHAMPINE, id="bogacki-shampine"),
+    pytest.param(RK.RKF45, id="rkf45"),
+])
+def test_non_autonomous_adaptive_retry(method):
+    # dz = cos(t) has the exact solution z(t) = sin(t). The initial
+    # time step is too large, so rejected attempts must retry from the
+    # start time of the step.
+    tol = 1e-8
+    mset = make_mset(
+        method, dt=0.5, tol=tol, tendency=TimeForcing(jnp.cos))
+    time_stepper = mset.time_stepper
+    mz = fr.ModelState(mset)
+
+    for _ in range(5):
+        mz = time_stepper.update(mz=mz)
+
+    assert time_stepper.dt < 0.5
+    value = float(mz.z["var"].arr[2])
+    assert value == pytest.approx(np.sin(mz.clock.time), abs=1e-6)
 
 
 def test_max_dt_caps_the_time_step():
