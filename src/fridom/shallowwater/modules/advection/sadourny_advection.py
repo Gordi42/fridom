@@ -107,7 +107,8 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
         # start with momentum advection by the background flow
         if self.background is not None:
-            u_b = self.background.u; v_b = self.background.v
+            u_b = self.background.u
+            v_b = self.background.v
             # u-component
             fx = interp(u_b, center) * interp(z.u, center)
             fy = interp(v_b, northeast) * interp(z.u, northeast)

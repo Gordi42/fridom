@@ -114,14 +114,14 @@ class RandomGeostrophicSpectra(nh.State):
         q = mset.grid.vec_q(s=0, use_discrete=True)
 
         # scale the geostrophic eigenvector such that they have energy 1
-        abs = ncp.absolute
+        absolute = ncp.absolute
         dsqr = self.mset.dsqr
         n2 = self.mset.stratification_n2
         # calculate spectral energy using Parseval's theorem
-        energy = 0.5 * (   abs(q.u.arr)**2
-                         + abs(q.v.arr)**2
-                         + abs(q.w.arr)**2 * dsqr
-                         + abs(q.b.arr)**2 / n2 )
+        energy = 0.5 * (   absolute(q.u.arr)**2
+                         + absolute(q.v.arr)**2
+                         + absolute(q.w.arr)**2 * dsqr
+                         + absolute(q.b.arr)**2 / n2 )
 
         energy = ncp.where(energy == 0, 1, energy)
 

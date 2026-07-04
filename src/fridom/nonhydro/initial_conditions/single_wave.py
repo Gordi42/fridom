@@ -1,6 +1,5 @@
 import fridom.nonhydro as nh
 
-nh.grid.cartesian
 
 class SingleWave(nh.State):
 
@@ -71,7 +70,9 @@ class SingleWave(nh.State):
         pi = ncp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)
-        kx = 2*pi*kx/lx; ky = 2*pi*ky/ly; kz = 2*pi*kz/lz
+        kx = 2*pi*kx/lx
+        ky = 2*pi*ky/ly
+        kz = 2*pi*kz/lz
         is_kx = ncp.isclose(kx, kx)
         is_ky = ncp.isclose(ky, ky)
         is_kz = ncp.isclose(kz, kz)

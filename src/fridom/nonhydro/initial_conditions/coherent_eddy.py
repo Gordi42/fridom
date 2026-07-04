@@ -94,10 +94,12 @@ class CoherentEddy(nh.State):
         grid = self.grid
         lx, ly, _lz = grid.domain_size
 
-        center = nh.grid.AxisPosition.CENTER; face = nh.grid.AxisPosition.FACE
+        center = nh.grid.AxisPosition.CENTER
+        face = nh.grid.AxisPosition.FACE
         position = nh.grid.Position((face, face, center))
 
-        dirichlet = nh.grid.BCType.DIRICHLET; neumann = nh.grid.BCType.NEUMANN
+        dirichlet = nh.grid.BCType.DIRICHLET
+        neumann = nh.grid.BCType.NEUMANN
         bc_types = (dirichlet, dirichlet, neumann)
 
         field = nh.ScalarField(

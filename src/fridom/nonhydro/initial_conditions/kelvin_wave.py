@@ -71,7 +71,7 @@ class KelvinWave(nh.State):
         z += nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=-2, phase=np.pi)
     """
 
-    def __init__(self,
+    def __init__(self,  # noqa: C901
                  mset: nh.ModelSettings,
                  side: str,
                  kz: int,

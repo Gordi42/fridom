@@ -70,7 +70,8 @@ class SingleWave(sw.State):
         pi = ncp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)
-        kx = 2*pi*kx/lx; ky = 2*pi*ky/ly
+        kx = 2*pi*kx/lx
+        ky = 2*pi*ky/ly
         is_kx = ncp.isclose(kx, kx)
         is_ky = ncp.isclose(ky, ky)
         k_loc = is_kx & is_ky

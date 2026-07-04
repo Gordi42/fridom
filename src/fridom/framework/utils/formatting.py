@@ -1,5 +1,11 @@
 """formatting.py - Utilities for formatting data."""
+from __future__ import annotations
+
 import datetime
+
+# thresholds for the human readable length formatting
+_ONE_CENTIMETER = 1e-2  # meters
+_ONE_KILOMETER = 1e3    # meters
 
 
 def humanize_length(value: float) -> str:
@@ -16,11 +22,11 @@ def humanize_length(value: float) -> str:
     `str`
         The formatted length.
     """
-    if value < 1e-2:
+    if value < _ONE_CENTIMETER:
         return f"{value*1e3:.2f} mm"
     if value < 1:
         return f"{value*1e2:.2f} cm"
-    if value < 1e3:
+    if value < _ONE_KILOMETER:
         return f"{value:.2f} m"
     return f"{value/1e3:.2f} km"
 

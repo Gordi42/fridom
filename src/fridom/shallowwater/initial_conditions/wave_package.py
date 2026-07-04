@@ -71,7 +71,9 @@ class WavePackage(State):
             z *= 2
 
         # save the state
-        self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        self.u[:] = z.u
+        self.v[:] = z.v
+        self.h[:] = z.h
 
 
 

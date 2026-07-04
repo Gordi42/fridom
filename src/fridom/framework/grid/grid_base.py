@@ -561,7 +561,9 @@ class GridBase:
     @diff_module.setter
     def diff_module(self, value: fr.grid.DiffModule) -> None:
         if not isinstance(value, fr.grid.DiffModule):
-            raise ValueError("The differential operator module must be a DiffBase object")
+            raise TypeError(
+                "The differential operator module must be a DiffBase "
+                "object")
         self._diff_module = value
 
     @property
@@ -572,7 +574,9 @@ class GridBase:
     @interp_module.setter
     def interp_module(self, value: fr.grid.InterpolationModule) -> None:
         if not isinstance(value, fr.grid.InterpolationModule):
-            raise ValueError("The interpolation operator module must be an InterpolationBase object")
+            raise TypeError(
+                "The interpolation operator module must be an "
+                "InterpolationBase object")
         self._interp_module = value
 
     @property

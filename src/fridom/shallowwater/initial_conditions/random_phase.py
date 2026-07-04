@@ -37,7 +37,8 @@ class RandomPhase(State):
         k_hor = cp.sqrt(kx**2 + ky**2)
 
         # Define Function for random phase
-        kx_flat = kx.flatten(); ky_flat = ky.flatten()
+        kx_flat = kx.flatten()
+        ky_flat = ky.flatten()
         k_order = cp.max(cp.abs(cp.array([kx_flat, ky_flat])), axis=0)
         angle = cp.angle(kx_flat + 1j*ky_flat)
         if mset.gpu:
@@ -78,7 +79,9 @@ class RandomPhase(State):
         scal = amplitude/cp.amax(z.h)
         z *= scal
 
-        self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        self.u[:] = z.u
+        self.v[:] = z.v
+        self.h[:] = z.h
 
 
 # remove symbols from namespace

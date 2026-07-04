@@ -1,7 +1,7 @@
 """Create a mp4 video from the model."""
 from __future__ import annotations
 
-import os
+import queue
 import warnings
 from pathlib import Path
 
@@ -64,7 +64,7 @@ class VideoWriter(fr.modules.Module):
 
         self.model_plotter = model_plotter
         self.write_interval = write_interval
-        self.filename = os.path.join("videos", filename)
+        self.filename = str(Path("videos") / filename)
         self.fps = fps
         self.max_jobs = max_jobs
         # set the flag for MPI availability
@@ -77,14 +77,14 @@ class VideoWriter(fr.modules.Module):
 
     def _on_setup(self) -> None:
         # create video folder if it does not exist
-        if not os.path.exists("videos"):
+        if not Path("videos").exists():
             fr.log.info("Creating videos folder")
-            os.makedirs("videos")
+            Path("videos").mkdir(parents=True)
 
         # delete the file if it already exists
-        if os.path.exists(self.filename):
+        if Path(self.filename).exists():
             fr.log.notice(f"Deleting existing video file {self.filename}")
-            os.remove(self.filename)
+            Path(self.filename).unlink()
 
         # use maximum of 40% the available threads
         if self.parallel:
@@ -193,9 +193,9 @@ class VideoWriter(fr.modules.Module):
 
     def collect_figures(self) -> None:
         while len(self.running_jobs) > 0:
-            try :
+            try:
                 img = self.open_queues[0].get(timeout=0.05)
-            except:
+            except queue.Empty:
                 break
 
             # add the figure to the video

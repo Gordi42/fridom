@@ -93,8 +93,10 @@ ignore = [
   "EM102",   # f-string messages in exceptions are fine
   # ---- annotation pragmatism ----
   "ANN401",  # `Any` is sometimes the honest type (backend arrays, kwargs)
-  # ---- task-marker policy: TODOs with author tag, no issue links ----
+  # ---- task-marker policy: TODO/FIXME with author tag, no issue links ----
+  "TD001",   # FIXME(author) markers are part of the house style
   "TD003",   # no issue link required for TODOs
+  "FIX001",  # FIXME markers are allowed in the codebase
   "FIX002",  # TODO markers are allowed in the codebase
   # ---- misc ----
   "COM812",  # conflicts with the ruff formatter / house comma style

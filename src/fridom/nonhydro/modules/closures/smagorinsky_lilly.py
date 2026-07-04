@@ -124,8 +124,11 @@ class SmagorinskyLilly(fr.modules.Module):
 
         # Compute the strain rate tensor
         # TODO(Silvano): Make use of the tensor module
-        s_11 = du[0]; s_12 = 0.5 * (du[1] + dv[0]); s_13 = 0.5 * (du[2] + dw[0])
-        s_22 = dv[1]                ; s_23 = 0.5 * (dv[2] + dw[1])
+        s_11 = du[0]
+        s_12 = 0.5 * (du[1] + dv[0])
+        s_13 = 0.5 * (du[2] + dw[0])
+        s_22 = dv[1]
+        s_23 = 0.5 * (dv[2] + dw[1])
         s_33 = dw[2]
 
         # Compute the squared magnitude of the strain rate tensor
@@ -159,9 +162,15 @@ class SmagorinskyLilly(fr.modules.Module):
                                   + self.background_diffusivity )
 
         # Compute the stress tensor
-        tau_11 = s_11 * nu_t; tau_12 = s_12 * nu_t; tau_13 = s_13 * nu_t
-        tau_21 = tau_12     ; tau_22 = s_22 * nu_t; tau_23 = s_23 * nu_t
-        tau_31 = tau_13     ; tau_32 = tau_23     ; tau_33 = s_33 * nu_t
+        tau_11 = s_11 * nu_t
+        tau_12 = s_12 * nu_t
+        tau_13 = s_13 * nu_t
+        tau_21 = tau_12
+        tau_22 = s_22 * nu_t
+        tau_23 = s_23 * nu_t
+        tau_31 = tau_13
+        tau_32 = tau_23
+        tau_33 = s_33 * nu_t
 
         # Compute the friction terms
         mz.dz.u += diff_mod.div((tau_11, tau_12, tau_13))

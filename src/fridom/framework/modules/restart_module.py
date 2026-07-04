@@ -114,7 +114,7 @@ class RestartModule(fr.modules.Module):
         restart file with the highest iteration number.
         """
         fr.log.verbose("Checking if restart files exist.")
-        files = os.listdir(self.file_path.parent)
+        files = [f.name for f in self.file_path.parent.iterdir()]
         files = [f for f in files if f.startswith(self.file_path.stem)]
         if len(files) > 0:
             fr.log.info("Found restart files. Model will reload.")

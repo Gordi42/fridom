@@ -34,7 +34,9 @@ class CGPressureSolver(Module):
 
         # shorthand notation
         mset = self.mset
-        nx  = mset.shape[0]; ny  = mset.shape[1]; nz  = mset.shape[2]
+        nx  = mset.shape[0]
+        ny  = mset.shape[1]
+        nz  = mset.shape[2]
         dx2 = mset.dtype(1.0) / mset.dx**2
         dy2 = mset.dtype(1.0) / mset.dy**2
         dz2 = mset.dtype(1.0) / mset.dz**2
@@ -47,10 +49,18 @@ class CGPressureSolver(Module):
             p = p.reshape(nx,ny,nz)
             p_pad = cp.pad(p, ((1,1),(1,1),(1,1)), "wrap")
 
-            f = slice(2,None); b = slice(None,-2); c = slice(1,-1)
-            xb = (b,c,c); xf = (f,c,c); xc = (c,c,c)
-            yb = (c,b,c); yf = (c,f,c); yc = (c,c,c)
-            zb = (c,c,b); zf = (c,c,f); zc = (c,c,c)
+            f = slice(2,None)
+            b = slice(None,-2)
+            c = slice(1,-1)
+            xb = (b,c,c)
+            xf = (f,c,c)
+            xc = (c,c,c)
+            yb = (c,b,c)
+            yf = (c,f,c)
+            yc = (c,c,c)
+            zb = (c,c,b)
+            zf = (c,c,f)
+            zc = (c,c,c)
 
             p_laplace = ((p_pad[xf] -2*p_pad[xc] + p_pad[xb]) * dx2 +
                         (p_pad[yf] -2*p_pad[yc] + p_pad[yb]) * dy2 +

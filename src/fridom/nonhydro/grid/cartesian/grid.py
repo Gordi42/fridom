@@ -31,12 +31,12 @@ class Grid(fr.grid.cartesian.Grid):
             s = 1, f0=self.mset.f0, stratification_n2=self.mset.stratification_n2, dsqr=self.mset.dsqr,
             k=k, dx=self.dx, use_discrete=use_discrete)
 
-    @cache
+    @cache  # noqa: B019 (cache bound to grid lifetime)
     def vec_q(self, s: int, use_discrete=True) -> nh.State:
         return nh.grid.cartesian.eigenvectors.vec_q(
             mset=self.mset, s=s, use_discrete=use_discrete)
 
-    @cache
+    @cache  # noqa: B019 (cache bound to grid lifetime)
     def vec_p(self, s: int, use_discrete=True) -> nh.State:
         return nh.grid.cartesian.eigenvectors.vec_p(
             mset=self.mset, s=s, use_discrete=use_discrete)

@@ -29,9 +29,9 @@ class ModelState:
 
     def __init__(self,
                  mset: "fr.ModelSettingsBase",
-                 z: "fr.VectorField" | None = None,
-                 z_diag: "fr.VectorField" | None = None,
-                 dz: "fr.VectorField" | None = None,
+                 z: fr.VectorField | None = None,
+                 z_diag: fr.VectorField | None = None,
+                 dz: fr.VectorField | None = None,
                  clock: fr.Clock | None = None,
                  ) -> None:
         self.mset = mset

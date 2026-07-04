@@ -26,7 +26,8 @@ class SpectralDiff(fr.grid.DiffModule):
         # check if the grid is either a cartesian grid or a spectral grid
         if not isinstance(self.mset.grid,
                           (fr.grid.spectral.Grid, fr.grid.cartesian.Grid)):
-            raise ValueError("SpectralDiff requires a spectral or cartesian grid")
+            raise TypeError(
+                "SpectralDiff requires a spectral or cartesian grid")
 
     def diff(self,
              f: fr.ScalarField,

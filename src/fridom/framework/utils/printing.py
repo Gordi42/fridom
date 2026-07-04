@@ -20,8 +20,8 @@ def print_job_init_info() -> None:
     """Print the job starting time and the number of MPI processes."""
     print_bar("#")
     fr.log.info("FRIDOM: Framework for Idealized Ocean Models")
-    # Get the current system time
-    current_time = datetime.datetime.now()
+    # Get the current system time (in the local timezone)
+    current_time = datetime.datetime.now(tz=datetime.UTC).astimezone()
 
     # Format the time according to the given format
     formatted_time = current_time.strftime(" > Job starting on %Y.%m.%d at %I:%M:%S %p")

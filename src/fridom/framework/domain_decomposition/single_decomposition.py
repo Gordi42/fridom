@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 ncp = fr.config.ncp
 @fr.utils.jaxify
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
-    def __init__(self, shape: tuple[int],
+    def __init__(self, shape: tuple[int],  # noqa: PLR0915
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
                  shared_axes: tuple[int] | None = None,

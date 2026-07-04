@@ -18,7 +18,7 @@ def _handle_to_numpy(obj: object, memo: dict) -> object:
 
 def _handle_cpu(obj: object) -> object:
     """Handle objects with a _cpu attribute."""
-    return obj._cpu  # pylint: disable=protected-access
+    return obj._cpu  # noqa: SLF001  # pylint: disable=protected-access
 
 def _handle_ndarray(obj: np.ndarray) -> np.ndarray:
     """Handle ndarrays based on the backend."""
@@ -57,7 +57,7 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
     if hasattr(obj, "__to_numpy__"):
         result = _handle_to_numpy(obj, memo)
 
-    elif hasattr(obj, "_cpu") and obj._cpu is not None:  # pylint: disable=protected-access
+    elif hasattr(obj, "_cpu") and obj._cpu is not None:  # noqa: SLF001
         result = _handle_cpu(obj)
 
     elif isinstance(obj, fr.config.ncp.ndarray):
@@ -133,7 +133,7 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list | None = None) ->
     memo[d] = _create_numpy_copy(obj, memo)
 
     if hasattr(obj, "_cpu"):
-        obj._cpu = memo[d]  # pylint: disable=protected-access
+        obj._cpu = memo[d]  # noqa: SLF001  # pylint: disable=protected-access
 
     return memo[d]
 

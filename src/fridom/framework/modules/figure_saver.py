@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 
 import fridom.framework as fr
 
@@ -45,7 +45,7 @@ class FigureSaver(fr.modules.Module):
             return mz
         if self._created:
             return mz
-        os.makedirs("figures", exist_ok=True)
+        Path("figures").mkdir(parents=True, exist_ok=True)
         self.plotter(mz).savefig(self.filename, dpi=self.dpi)
         self._created = True
         return mz

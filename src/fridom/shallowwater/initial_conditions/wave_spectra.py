@@ -33,7 +33,9 @@ class WaveSpectra(State):
         max_amp = cp.amax(cp.abs(z.h))
         z /= max_amp
 
-        self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        self.u[:] = z.u
+        self.v[:] = z.v
+        self.h[:] = z.h
 
 
 # remove symbols from namespace

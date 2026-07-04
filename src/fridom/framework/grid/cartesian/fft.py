@@ -218,7 +218,8 @@ class FFT:
             The transformed array in spectral space. If all dimensions are
             periodic, the obtained array is real, else it is complex.
         """
-        ncp = config.ncp; scp = config.scp
+        ncp = config.ncp
+        scp = config.scp
         # Get the axes to apply fft, dct
         if axes is None:
             fft_axes = self._fft_axes
@@ -273,7 +274,8 @@ class FFT:
         `np.ndarray`
             The transformed array in physical space.
         """
-        ncp = config.ncp; scp = config.scp
+        ncp = config.ncp
+        scp = config.scp
         if axes is None:
             fft_axes = self._fft_axes
             dct_axes = self._dct_axes

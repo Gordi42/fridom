@@ -61,10 +61,10 @@ class WaterMask:
 
     def get_mask(self, position: fr.grid.Position) -> ndarray:
         """Get the water mask at the given position."""
-        id = hash(position)
-        if id not in self._cache:
-            self._cache[id] = self.create_mask_at_position(position)
-        return self._cache[id]
+        key = hash(position)
+        if key not in self._cache:
+            self._cache[key] = self.create_mask_at_position(position)
+        return self._cache[key]
 
     def apply_mask(self, f: fr.ScalarField) -> fr.ScalarField:
         mask = self.get_mask(f.position)
@@ -164,6 +164,7 @@ class WaterMask:
         self._cache = {}
         # construct all possible masks
         ndim = mask.ndim
-        center = fr.grid.AxisPosition.CENTER; face = fr.grid.AxisPosition.FACE
+        center = fr.grid.AxisPosition.CENTER
+        face = fr.grid.AxisPosition.FACE
         for position in itertools.product([center, face], repeat=ndim):
             self.get_mask(fr.grid.Position(position))

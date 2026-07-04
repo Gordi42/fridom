@@ -179,38 +179,38 @@ class NNMD(fr.projection.Projection):
 
     .. math::
         \begin{eqnarray}
-	        N_j(\boldsymbol z_1 + \boldsymbol z_2) &=&
-	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_1) +
-	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
-	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1) +
-	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_2)
-	        \\
-	        &=&
-	        N_j(\boldsymbol z_1) + N_j(\boldsymbol z_2)
-	        +
-	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
-	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1)
-	        \\
-	        &\equiv&
-	        N_j(\boldsymbol z_1) + N_j(\boldsymbol z_2) +
-	        2 S_j (z_1, z_2)
+        N_j(\boldsymbol z_1 + \boldsymbol z_2) &=&
+        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_1) +
+        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
+        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1) +
+        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_2)
+        \\
+        &=&
+        N_j(\boldsymbol z_1) + N_j(\boldsymbol z_2)
+        +
+        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
+        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1)
+        \\
+        &\equiv&
+        N_j(\boldsymbol z_1) + N_j(\boldsymbol z_2) +
+        2 S_j (z_1, z_2)
         \end{eqnarray}
 
     with the symmetrical bilinear form :math:`S_j`:
 
     .. math::
         \begin{eqnarray}
-	        S_j (z_1, z_2) &=&
-	        \frac{1}{2} \left [
-	        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
-	        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1)
-	        \right]
-	        \\
-	        &=&
-	        \frac{1}{2} \left [
-	        N_j(\boldsymbol z_1 + \boldsymbol z_2) -
-	        N_j(\boldsymbol z_1) - N_j(\boldsymbol z_2)
-	        \right]
+        S_j (z_1, z_2) &=&
+        \frac{1}{2} \left [
+        \boldsymbol z_1 * (\mathbf G_j \cdot \boldsymbol z_2) +
+        \boldsymbol z_2 * (\mathbf G_j \cdot \boldsymbol z_1)
+        \right]
+        \\
+        &=&
+        \frac{1}{2} \left [
+        N_j(\boldsymbol z_1 + \boldsymbol z_2) -
+        N_j(\boldsymbol z_1) - N_j(\boldsymbol z_2)
+        \right]
         \end{eqnarray}
 
     The first line shows that :math:`S_j` is symmetric and linear in both arguments. The second line shows how to compute :math:`S_j` from :math:`N_j`. Note that the nonlinear term :math:`\boldsymbol N` can be expressed with the symmetrical bilinear form:
@@ -222,20 +222,20 @@ class NNMD(fr.projection.Projection):
 
     .. math::
         \begin{eqnarray}
-	        \boldsymbol S(\boldsymbol z_b, \boldsymbol z_b) &=&
-	        \boldsymbol S \left( \boldsymbol z_0 + \sum_{n=0}^\infty \epsilon^n \boldsymbol z_{f,n} ~,~
-	        \boldsymbol z_0 + \sum_{i=0}^\infty \epsilon^i \boldsymbol z_{f,i}
-	        \right)
-	        \\ &=&
-	        \mathcal S(\boldsymbol z_0, \boldsymbol z_0)
-	        + \sum_i \epsilon^i \boldsymbol S(\boldsymbol z_0, \boldsymbol z_{f,i})
-	        + \sum_n \epsilon^n \boldsymbol S(\boldsymbol z_{f,n}, \boldsymbol z_0)
-	        + \sum_{n,i} \epsilon^{n+i} \boldsymbol S(\boldsymbol z_{f,n}, \boldsymbol z_{f,i})
-	        \\ &=&
-	        \mathcal S(\boldsymbol z_0, \boldsymbol z_0)
-	        + \sum_{n=0}^\infty \epsilon^n \left( 2 \boldsymbol S(\boldsymbol z_0 , \boldsymbol z_{f,n}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i}, \boldsymbol z_{f,n-i}) \right)
-	        \\ &\equiv&
-	        \sum_{n=0}^\infty \epsilon^n \boldsymbol I_n
+        \boldsymbol S(\boldsymbol z_b, \boldsymbol z_b) &=&
+        \boldsymbol S \left( \boldsymbol z_0 + \sum_{n=0}^\infty \epsilon^n \boldsymbol z_{f,n} ~,~
+        \boldsymbol z_0 + \sum_{i=0}^\infty \epsilon^i \boldsymbol z_{f,i}
+        \right)
+        \\ &=&
+        \mathcal S(\boldsymbol z_0, \boldsymbol z_0)
+        + \sum_i \epsilon^i \boldsymbol S(\boldsymbol z_0, \boldsymbol z_{f,i})
+        + \sum_n \epsilon^n \boldsymbol S(\boldsymbol z_{f,n}, \boldsymbol z_0)
+        + \sum_{n,i} \epsilon^{n+i} \boldsymbol S(\boldsymbol z_{f,n}, \boldsymbol z_{f,i})
+        \\ &=&
+        \mathcal S(\boldsymbol z_0, \boldsymbol z_0)
+        + \sum_{n=0}^\infty \epsilon^n \left( 2 \boldsymbol S(\boldsymbol z_0 , \boldsymbol z_{f,n}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i}, \boldsymbol z_{f,n-i}) \right)
+        \\ &\equiv&
+        \sum_{n=0}^\infty \epsilon^n \boldsymbol I_n
         \end{eqnarray}
 
     with
@@ -249,10 +249,10 @@ class NNMD(fr.projection.Projection):
 
     .. math::
         \begin{eqnarray}
-	        \boldsymbol I_0 &=& \boldsymbol S(\boldsymbol z_0 + \boldsymbol z_{f,0} ~,~ \boldsymbol z_0 + \boldsymbol z_{f,0})
-	        \\
-	        \boldsymbol I_n &=& 2 \boldsymbol S(\boldsymbol z_0 , \boldsymbol z_{f,n}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i}, \boldsymbol z_{f,n-i})
-	        \quad \quad \text{for} \quad n>0
+        \boldsymbol I_0 &=& \boldsymbol S(\boldsymbol z_0 + \boldsymbol z_{f,0} ~,~ \boldsymbol z_0 + \boldsymbol z_{f,0})
+        \\
+        \boldsymbol I_n &=& 2 \boldsymbol S(\boldsymbol z_0 , \boldsymbol z_{f,n}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i}, \boldsymbol z_{f,n-i})
+        \quad \quad \text{for} \quad n>0
         \end{eqnarray}
 
     Balance in Every Order
@@ -261,21 +261,21 @@ class NNMD(fr.projection.Projection):
 
     .. math::
         \begin{eqnarray}
-	        0 &=& \epsilon ~ \partial_T z_j + i\lambda_j z_j - \epsilon ~ \boldsymbol p_j \cdot \boldsymbol S(\boldsymbol z_b, \boldsymbol z_b)
-	        \\ &=&
-	        \sum_{n=0}^\infty \epsilon^{n+1} \partial_T z_{j,n} + i \epsilon^n \lambda_j z_{j,n} - \epsilon^{n+1} \boldsymbol p_j \cdot \boldsymbol I_n
-	        \\ &=&
-	        i\lambda_j z_{j,0} +
-	        \sum_{n=1}^\infty \epsilon^{n} \left( \partial_T z_{j,n-1} + i \lambda_j z_{j,n} - \boldsymbol p_j \cdot \boldsymbol I_{n-1} \right)
+        0 &=& \epsilon ~ \partial_T z_j + i\lambda_j z_j - \epsilon ~ \boldsymbol p_j \cdot \boldsymbol S(\boldsymbol z_b, \boldsymbol z_b)
+        \\ &=&
+        \sum_{n=0}^\infty \epsilon^{n+1} \partial_T z_{j,n} + i \epsilon^n \lambda_j z_{j,n} - \epsilon^{n+1} \boldsymbol p_j \cdot \boldsymbol I_n
+        \\ &=&
+        i\lambda_j z_{j,0} +
+        \sum_{n=1}^\infty \epsilon^{n} \left( \partial_T z_{j,n-1} + i \lambda_j z_{j,n} - \boldsymbol p_j \cdot \boldsymbol I_{n-1} \right)
         \end{eqnarray}
 
     balancing this in every order yields
 
     .. math::
         \begin{eqnarray}
-	        z_{j,0} &=& 0 \\
-	        z_{j,n} &=& \frac{i}{\lambda_j} \left( \partial_T z_{j,n-1} - \boldsymbol p_j \cdot \boldsymbol I_{n-1} \right)
-	        \quad \quad \text{for} \quad n>0
+        z_{j,0} &=& 0 \\
+        z_{j,n} &=& \frac{i}{\lambda_j} \left( \partial_T z_{j,n-1} - \boldsymbol p_j \cdot \boldsymbol I_{n-1} \right)
+        \quad \quad \text{for} \quad n>0
         \end{eqnarray}
 
     The slow time derivative
@@ -284,34 +284,34 @@ class NNMD(fr.projection.Projection):
 
     .. math::
         \begin{eqnarray}
-	        \partial_T^k z_{j,n} &=& \frac{i}{\lambda_j}(\partial_T^{k+1} z_{j,n-1} - \boldsymbol p_j \cdot \partial_T^k \boldsymbol I_{n-1})
-	        \\
-	        \Leftrightarrow
-	        z_{j,n,k} &=& \frac{i}{\lambda_j}(z_{j,n-1,k+1} - \boldsymbol p_j \cdot \boldsymbol I_{n-1}^{(k)})
+        \partial_T^k z_{j,n} &=& \frac{i}{\lambda_j}(\partial_T^{k+1} z_{j,n-1} - \boldsymbol p_j \cdot \partial_T^k \boldsymbol I_{n-1})
+        \\
+        \Leftrightarrow
+        z_{j,n,k} &=& \frac{i}{\lambda_j}(z_{j,n-1,k+1} - \boldsymbol p_j \cdot \boldsymbol I_{n-1}^{(k)})
         \end{eqnarray}
 
     where the third index denotes the order of the derivative. To calculate the :math:`k`-th derivative of the interaction term :math:`\boldsymbol I_n`, we need to take the derivative of the symmetrical bilinear form:
 
     .. math::
         \begin{eqnarray}
-	        \partial_T S_j (\boldsymbol z',\boldsymbol z'') &=& \frac{1}{2}\partial_T \left( \boldsymbol z' * (\mathbf G_j \cdot \boldsymbol z'') + \boldsymbol z'' * (\mathbf G_j \cdot \boldsymbol z') \right) \\
-	        &=&
-	        \frac{1}{2}\left(
-	        (\partial_T \boldsymbol z') * (\mathbf G_j \cdot \boldsymbol z'')
-	        + \boldsymbol z' * (\mathbf G_j \cdot \partial_T \boldsymbol z'')
-	        + (\partial_T \boldsymbol z'') * (\mathbf G_j \cdot \boldsymbol z')
-	        + \boldsymbol z'' * (\mathbf G_j \cdot \partial_T \boldsymbol z') \right)
-	        \\ &=&
-	        S_j(\partial_T \boldsymbol z', \boldsymbol z'') + S_j(\boldsymbol z', \partial_T \boldsymbol z'')
+        \partial_T S_j (\boldsymbol z',\boldsymbol z'') &=& \frac{1}{2}\partial_T \left( \boldsymbol z' * (\mathbf G_j \cdot \boldsymbol z'') + \boldsymbol z'' * (\mathbf G_j \cdot \boldsymbol z') \right) \\
+        &=&
+        \frac{1}{2}\left(
+        (\partial_T \boldsymbol z') * (\mathbf G_j \cdot \boldsymbol z'')
+        + \boldsymbol z' * (\mathbf G_j \cdot \partial_T \boldsymbol z'')
+        + (\partial_T \boldsymbol z'') * (\mathbf G_j \cdot \boldsymbol z')
+        + \boldsymbol z'' * (\mathbf G_j \cdot \partial_T \boldsymbol z') \right)
+        \\ &=&
+        S_j(\partial_T \boldsymbol z', \boldsymbol z'') + S_j(\boldsymbol z', \partial_T \boldsymbol z'')
         \end{eqnarray}
 
     We search for a formula for the derivative of order :math:`k`. For this we take a look at the second order derivative:
 
     .. math::
         \begin{eqnarray}
-	        \partial_T^2 \boldsymbol S(\boldsymbol z', \boldsymbol z'') &=& \partial_T \left[ \boldsymbol S(\partial_T \boldsymbol z', \boldsymbol z'') + \boldsymbol S(\boldsymbol z', \partial_T \boldsymbol z'') \right]
-	        \\ &=&
-	        \boldsymbol S(\partial_T^2 \boldsymbol z', \boldsymbol z'') + 2\boldsymbol S(\partial_T \boldsymbol z' , \partial_T \boldsymbol z'') + \boldsymbol S(\boldsymbol z', \partial_T^2 \boldsymbol z'')
+        \partial_T^2 \boldsymbol S(\boldsymbol z', \boldsymbol z'') &=& \partial_T \left[ \boldsymbol S(\partial_T \boldsymbol z', \boldsymbol z'') + \boldsymbol S(\boldsymbol z', \partial_T \boldsymbol z'') \right]
+        \\ &=&
+        \boldsymbol S(\partial_T^2 \boldsymbol z', \boldsymbol z'') + 2\boldsymbol S(\partial_T \boldsymbol z' , \partial_T \boldsymbol z'') + \boldsymbol S(\boldsymbol z', \partial_T^2 \boldsymbol z'')
         \end{eqnarray}
 
     This is the third row of pascal's triangle. For the :math:`k`-th. derivative, we find:
@@ -324,15 +324,15 @@ class NNMD(fr.projection.Projection):
 
     .. math::
         \begin{eqnarray}
-	        \boldsymbol I_0^{(k)} &=&
-	        \sum_{m=0}^k \binom{k}{m}
-	        \boldsymbol S(\boldsymbol z_{0,0,k-m} , \boldsymbol z_{0,0,m})
-	        \\
-	        \boldsymbol I_n^{(k)} &=&
-	        \sum_{m=0}^k \binom{k}{m} \left[
-	        2 \boldsymbol S(\boldsymbol z_{0,0,k-m} , \boldsymbol z_{f,n,m}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i,k-m}, \boldsymbol z_{f,n-i,m})
-	        \right]
-	        \quad \quad \text{for} \quad n>0
+        \boldsymbol I_0^{(k)} &=&
+        \sum_{m=0}^k \binom{k}{m}
+        \boldsymbol S(\boldsymbol z_{0,0,k-m} , \boldsymbol z_{0,0,m})
+        \\
+        \boldsymbol I_n^{(k)} &=&
+        \sum_{m=0}^k \binom{k}{m} \left[
+        2 \boldsymbol S(\boldsymbol z_{0,0,k-m} , \boldsymbol z_{f,n,m}) + \sum_{i=0}^n \boldsymbol S(\boldsymbol z_{f,i,k-m}, \boldsymbol z_{f,n-i,m})
+        \right]
+        \quad \quad \text{for} \quad n>0
         \end{eqnarray}
 
     with :math:`\boldsymbol z_{0,0,k} = \partial_T^k \boldsymbol z_0`, which we can find an analytical expression for, by evaluating the leading order term of the slow time tendency equation for the slow mode :math:`z_0`:
@@ -483,7 +483,7 @@ class NNMD(fr.projection.Projection):
         `S` : `State`
             The interaction term (spectral space).
         """
-        # TODO: add dealiasing
+        # TODO(Silvano): add dealiasing
         ncp = fr.config.ncp
 
         # if z1 is z2, we can simplify the calculation
@@ -547,7 +547,8 @@ class NNMD(fr.projection.Projection):
     def __getitem__(self, key):
         # transform the key to mode, order_series, order_derivative
         if not isinstance(key, tuple):
-            raise ValueError("Key must be a tuple. Use (mode, order, derivative).")
+            raise TypeError(
+                "Key must be a tuple. Use (mode, order, derivative).")
         mode, order_series, order_derivative = key
 
         # check if the mode is valid
@@ -570,10 +571,9 @@ class NNMD(fr.projection.Projection):
             return self.fields[f_ind]
 
         # compute the first derivative with the model
-        if self.use_model:
-            if order_derivative == 1 and order_series > 1:
-                self._derivative_with_model(order_series)
-                return self.fields[f_ind]
+        if self.use_model and order_derivative == 1 and order_series > 1:
+            self._derivative_with_model(order_series)
+            return self.fields[f_ind]
 
 
         interaction = self.interaction(order_series=order_series-1, order_derivative=order_derivative)
@@ -598,8 +598,6 @@ class NNMD(fr.projection.Projection):
         # balance the next state
         nnmd = self.subnnmd
         nnmd(z_next)
-        # nnmd.reset_fields()
-        # nnmd.fields[0,0,0] = z_next.fft() @ self.p[0]
         for j in [1, 2]:
             df = self.fields[j, order_series, 0] - nnmd.fields[j, order_series, 0]
             df *= 1 / time_step

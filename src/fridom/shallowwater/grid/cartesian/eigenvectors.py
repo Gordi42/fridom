@@ -161,6 +161,9 @@ from numpy import ndarray
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
+# threshold below which a norm is considered zero (avoid division by zero)
+_NORM_THRESHOLD = 1e-10
+
 
 # ================================================================
 #  The eigenvalues
@@ -213,7 +216,8 @@ def omega(mset: sw.ModelSettings,
     # ----------------------------------------------------------------
 
     # cast k to ndarray
-    kx = ncp.asarray(kx); ky = ncp.asarray(ky)
+    kx = ncp.asarray(kx)
+    ky = ncp.asarray(ky)
     dx, dy = mset.grid.dx
 
     # print a warning if the coriolis frequency or c² is varying
@@ -360,7 +364,7 @@ def vec_p(mset: sw.ModelSettings,
     q = vec_q(mset, s, use_discrete=use_discrete)
     norm = ncp.abs((q.dot(z)).arr)
     # avoid division by zero
-    mask = (norm > 1e-10)
+    mask = (norm > _NORM_THRESHOLD)
     with np.errstate(divide="ignore", invalid="ignore"):
         z.u.arr = ncp.where(mask, z.u.arr/norm, 0)
         z.v.arr = ncp.where(mask, z.v.arr/norm, 0)

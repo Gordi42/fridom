@@ -26,7 +26,9 @@ class Random(State):
 
         # combine the two fields
         z = z_geo * amplitude_geostrophy + z_wav * amplitude_wave
-        self.u[:] = z.u; self.v[:] = z.v; self.h[:] = z.h
+        self.u[:] = z.u
+        self.v[:] = z.v
+        self.h[:] = z.h
 
 
 # remove symbols from namespace

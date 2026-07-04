@@ -1,6 +1,5 @@
 """Test of framework/modules/restart_module.py."""
 import logging
-import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -126,7 +125,7 @@ def run_model(mset):
 
 def test_restart_with_clock(capture_logs, mset, file_path):
     # Check that the restart directory is empty
-    assert not os.listdir(file_path.parent)
+    assert not list(file_path.parent.iterdir())
 
     # Create a restart module with a clock trigger
     restart_module = fr.modules.RestartModule(
@@ -138,7 +137,8 @@ def test_restart_with_clock(capture_logs, mset, file_path):
     run_model(mset)
     # Check that restart files were created
     restart_files = ["restart_31_0.dill", "restart_61_0.dill", "restart_91_0.dill"]
-    assert set(restart_files) == set(os.listdir(file_path.parent))
+    assert set(restart_files) == {
+        f.name for f in file_path.parent.iterdir()}
     # Check that the counter is printed
     logs = capture_logs.getvalue()
     assert "Counter: 100" in logs

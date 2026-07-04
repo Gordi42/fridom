@@ -28,8 +28,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                  device_ids: list[int] | None = None) -> None:
         super().__init__(shape, halo, periods, shared_axes, device_ids)
 
-        # initialize jax distributed
-        # jax.distributed.initialize()
         self._rank = jax.process_index()
         self.n_ranks = jax.process_count()
         self.n_devices = jax.device_count() if self.n_ranks == 1 else self.n_ranks

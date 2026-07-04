@@ -1,6 +1,9 @@
 """decorators.py: Utilities for decorators."""
+from __future__ import annotations
+
 import os
 from collections.abc import Callable
+from pathlib import Path
 
 from PIL import Image
 
@@ -74,9 +77,9 @@ def cache_figure(
         # Find out the main file name
         filename = f"figures/{name.split('.', maxsplit=1)[0]}.png"
         # Create the cache directory if it does not exist
-        os.makedirs("figures", exist_ok=True)
+        Path("figures").mkdir(parents=True, exist_ok=True)
         # Check if we need to compute the figure
-        if force_recompute or not os.path.exists(filename):
+        if force_recompute or not Path(filename).exists():
             fig = func()
             fig.savefig(filename, dpi=dpi)
 

@@ -248,10 +248,9 @@ class OptimalBalance(fr.projection.Projection):
                 break
 
             # recalculate the base coordinate if needed
-            if self.update_base_point:
-                # check if it is not the last iteration
-                if it < self.max_it - 1:
-                    self.calc_base_coord(z_res)
+            # (but not in the last iteration)
+            if self.update_base_point and it < self.max_it - 1:
+                self.calc_base_coord(z_res)
 
         if self.return_details:
             return z_res, (iterations, errors)
