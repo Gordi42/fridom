@@ -103,6 +103,3 @@ more than a threshold (5% by default, ``--threshold``). Use
 ``--markdown`` to render a markdown table that can be pasted into a
 pull request, and ``--fail-on-regression`` to get a non-zero exit code
 if any case got slower or errored (useful in scripts).
-
-On the levante HPC system, ``benchmarks/start_job.sh`` submits the
-suite as a GPU job.
