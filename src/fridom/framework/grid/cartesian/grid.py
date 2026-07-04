@@ -378,9 +378,9 @@ class Grid(fr.grid.GridBase):
         # multiply by the cell area
         field *= self.dx[axis]
 
-        # update the position
+        # update the position and mask the boundary points
         field.position = field.position.shift(axis)
-        return field.sync()
+        return field.sync().apply_water_mask()
 
     # ================================================================
     #  Properties
