@@ -1,4 +1,4 @@
-"""StencilView class representing a view of a stencil on a given array and axis."""
+"""StencilView class: a view of a stencil on a given array and axis."""
 from __future__ import annotations
 
 from functools import cache
@@ -15,7 +15,10 @@ class StencilView:
 
     """A view of a stencil on a given array and axis."""
 
-    def __init__(self, stencil: fr.grid.Stencil, arr: ncp.ndarray, axis: int) -> None:
+    def __init__(self,
+                 stencil: fr.grid.Stencil,
+                 arr: ncp.ndarray,
+                 axis: int) -> None:
         self.stencil = stencil
         self.arr = arr
         self.axis = axis

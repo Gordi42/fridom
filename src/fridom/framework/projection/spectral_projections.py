@@ -1,3 +1,4 @@
+"""Projections based on spectral eigenvectors of the linear operator."""
 import fridom.framework as fr
 
 
@@ -23,12 +24,13 @@ class GeostrophicSpectral(fr.projection.Projection):
         self.p = mset.grid.vec_p(s=0, use_discrete=use_discrete)
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
+        """Project a state to the geostrophic subspace."""
         return z.project(self.p, self.q)
 
 class WaveSpectral(fr.projection.Projection):
 
     """
-    Projection onto the inertia-gravity wave subspace using spectral eigenvectors.
+    Projection onto the wave subspace using spectral eigenvectors.
 
     Parameters
     ----------
@@ -54,6 +56,7 @@ class WaveSpectral(fr.projection.Projection):
         self.pm = mset.grid.vec_p(-1, use_discrete=use_discrete)
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
+        """Project a state to the inertia-gravity wave subspace."""
         return z.project(self.pp, self.qp) + z.project(self.pm, self.qm)
 
 
@@ -78,4 +81,5 @@ class DivergenceSpectral(fr.projection.Projection):
         self.p = mset.grid.vec_p(s="d", use_discrete=use_discrete)
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
+        """Project a state to the divergence subspace."""
         return z.project(self.p, self.q)

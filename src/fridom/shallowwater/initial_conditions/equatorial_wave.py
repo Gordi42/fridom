@@ -16,7 +16,8 @@ class EquatorialWave(sw.State):
     mset : ModelSettings
         Model settings.
     longitudinal_mode : int
-        Longitudinal mode of the wave (how many wavelengths in the x-direction).
+        Longitudinal mode of the wave (how many wavelengths in the
+        x-direction).
     equatorial_mode : int
         Equatorial mode of the wave (Hermite polynomial order).
     wave_mode : int
@@ -31,8 +32,8 @@ class EquatorialWave(sw.State):
     -----------
     The equatorial wave solutions follow from solving the eigenvalue problem of
     the linearized shallow water equations on the equatorial beta-plane
-    :math:`f = \beta y`. The frequencies of the m-th eigenmode can be obtained by
-    solving
+    :math:`f = \beta y`. The frequencies of the m-th eigenmode can be
+    obtained by solving
 
     .. math::
 
@@ -58,14 +59,17 @@ class EquatorialWave(sw.State):
     .. math::
 
         \begin{align}
-            u_m &= \frac{i c}{2 R_e} \left( \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
+            u_m &= \frac{i c}{2 R_e} \left(
+                \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
                 + \frac{2 m H_{m-1}(\tilde{y})}{\omega_m + c k} \right) \\
             v_m &= H_m(\tilde{y})  \\
-            p_m &= \frac{i c^2}{2 R_e} \left( \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
+            p_m &= \frac{i c^2}{2 R_e} \left(
+                \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
                 - \frac{2 m H_{m-1}(\tilde{y})}{\omega_m + c k} \right)
         \end{align}
 
-    where :math:`H_m` is the m-th Hermite polynomial, given by the recursive relation
+    where :math:`H_m` is the m-th Hermite polynomial, given by the
+    recursive relation
 
     .. math::
 
@@ -113,8 +117,9 @@ class EquatorialWave(sw.State):
                 memory = {-1: x * 0, 0: x * 0 + 1}
             if order in memory:
                 return memory[order]
-            memory[order] = ( 2 * x * hermite_polynomial(order-1, x, memory)
-                            - 2 * (order-1) * hermite_polynomial(order-2, x, memory) )
+            memory[order] = (
+                2 * x * hermite_polynomial(order-1, x, memory)
+                - 2 * (order-1) * hermite_polynomial(order-2, x, memory) )
             return memory[order]
 
         def hermite_gaussian(order: int, x: float) -> float:
@@ -136,8 +141,9 @@ class EquatorialWave(sw.State):
         psi_np1 = hermite_gaussian(equatorial_mode + 1, y_star)
         psi_nm1 = hermite_gaussian(equatorial_mode - 1, y_star)
         u_structure = 1j * phase_velocity / (2 * rossby_radius) * (
-                        psi_np1 / (omega - kx * phase_velocity)
-                        + 2 * equatorial_mode * psi_nm1 / (omega + kx * phase_velocity))
+            psi_np1 / (omega - kx * phase_velocity)
+            + 2 * equatorial_mode * psi_nm1
+            / (omega + kx * phase_velocity))
         u.arr = ( u_structure * ncp.exp(1j * (kx * x + phase)) ).real
 
         # p

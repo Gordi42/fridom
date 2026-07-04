@@ -1,3 +1,4 @@
+"""Water mask for the grid cells (for boundary conditions)."""
 import itertools
 from functools import partial
 
@@ -49,15 +50,18 @@ class WaterMask:
         self.name = "Water Mask"
         self._water_mask = None
         self._cache = {}
-        self._domain_decomposition: fr.domain_decomposition.DomainDecomposition = None
+        self._domain_decomposition: (
+            fr.domain_decomposition.DomainDecomposition) = None
         self._periodic_bounds = None
 
     def setup(self, mset: fr.ModelSettingsBase) -> None:
+        """Set up the water mask from the model settings."""
         # we can't set mset or grid as attributes due to recursion issues
         # with jaxjit, so we only set the attributes we need
         self._domain_decomposition = mset.grid.domain_decomp
         self._periodic_bounds = mset.grid.periodic_bounds
-        self.water_mask = (mset.grid.domain_decomp.create_array(pad=True)+1).astype(bool)
+        self.water_mask = (
+            mset.grid.domain_decomp.create_array(pad=True)+1).astype(bool)
 
     def get_mask(self, position: fr.grid.Position) -> ndarray:
         """Get the water mask at the given position."""
@@ -67,6 +71,7 @@ class WaterMask:
         return self._cache[key]
 
     def apply_mask(self, f: fr.ScalarField) -> fr.ScalarField:
+        """Apply the water mask to a field."""
         mask = self.get_mask(f.position)
         f.arr *= mask
         return f
@@ -134,10 +139,11 @@ class WaterMask:
                 # find out left and right side of the mask
 
                 @self._domain_decomposition.shard_map
-                def roll(arr):
+                def roll(arr: ndarray) -> ndarray:
                     left_side = arr
                     right_side = fr.config.ncp.roll(arr, -1, axis)
-                    # both sides must be water (True) for the new mask to be water
+                    # both sides must be water (True) for the new mask
+                    # to be water
                     return right_side * left_side
 
                 new_mask = roll(mask)

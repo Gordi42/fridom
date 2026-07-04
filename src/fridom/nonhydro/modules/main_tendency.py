@@ -110,7 +110,8 @@ class MainTendency(fr.modules.ModuleContainer):
             value.setup(mset=self.mset)
 
     @property
-    def pressure_gradient_tendency(self) -> nh.modules.PressureGradientTendency:
+    def pressure_gradient_tendency(
+            self) -> nh.modules.PressureGradientTendency:
         """The pressure gradient tendency module."""
         return self._pressure_gradient_tendency
 

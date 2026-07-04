@@ -1,13 +1,23 @@
-from fridom.framework.model_state import ModelState
+"""Diagnostics module for the nonhydrostatic model."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from fridom.framework.modules.module import Module, module_method
+
+if TYPE_CHECKING:
+    from fridom.framework.model_state import ModelState
 
 
 class Diagnostics(Module):
+
+    """Print diagnostic information about the model state."""
+
     name = "Diagnostics"
     def __init__(self,
-                 interval = 50,
-                 energy_info = True,
-                 cfl_info = True,
+                 interval: int = 50,
+                 energy_info: bool = True,
+                 cfl_info: bool = True,
                  ) -> None:
         super().__init__()
         self.interval = interval

@@ -26,7 +26,8 @@ class Upwind(fr.modules.flux_functions.FluxFunctionBase):
         \text{where } F = u q
 
     with the advection velocity :math:`u` and the advected quantity :math:`q`.
-    Let's assume we have two estimations of the flux :math:`F_L` and :math:`F_R`
+    Let's assume we have two estimations of the flux :math:`F_L` and
+    :math:`F_R`
     where :math:`F_L` is a flux which is biased to the left (e.g. for its
     computation was more influenced by values on the left side of the cell) and
     :math:`F_R` is a flux which is biased to the right.
@@ -51,7 +52,8 @@ class Upwind(fr.modules.flux_functions.FluxFunctionBase):
         # interpolate velocity to the flux position
         u = self.interp_module.interpolate(velocity, flux_left.position)
 
-        flux = fr.ScalarField(mset=flux_left.mset, mdata=deepcopy(flux_left.mdata))
+        flux = fr.ScalarField(
+            mset=flux_left.mset, mdata=deepcopy(flux_left.mdata))
 
         @self.grid.domain_decomp.shard_map
         def _flux(right_flux: np.ndarray,

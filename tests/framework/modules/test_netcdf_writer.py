@@ -114,11 +114,14 @@ def test_update_writes_data(netcdf_module, mset):
          ["test_0s.cdf"]),
         (fr.ClockTrigger(time_interval=np.timedelta64(30, "m")),
          ["test_0s.cdf", "test_30:00s.cdf", "test_01:00:00s.cdf"]),
-        (fr.ClockTrigger(start_date=10*60, stop_date=25*60, time_interval=5*60),
-         ["test_0s.cdf", "test_10:00s.cdf", "test_15:00s.cdf", "test_20:00s.cdf"]),
+        (fr.ClockTrigger(start_date=10*60, stop_date=25*60,
+                         time_interval=5*60),
+         ["test_0s.cdf", "test_10:00s.cdf", "test_15:00s.cdf",
+          "test_20:00s.cdf"]),
     ],
 ))
-def test_restart_trigger(restart_trigger, expected_files, directory_name, mset):
+def test_restart_trigger(restart_trigger, expected_files, directory_name,
+                         mset):
     netcdf_module = fr.modules.NetCDFWriter(
         filename="test.cdf",
         write_trigger = fr.ClockTrigger(time_interval=np.timedelta64(1, "m")),

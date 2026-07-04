@@ -1,4 +1,4 @@
-"""timing_module.py - Keep track of the time spent in different model components."""
+"""timing_module.py - Track the time spent in different model components."""
 from collections.abc import Generator
 from contextlib import contextmanager
 from time import time

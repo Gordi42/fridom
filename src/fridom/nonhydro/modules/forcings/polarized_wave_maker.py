@@ -17,9 +17,11 @@ class PolarizedWaveMaker(fr.modules.Module):
     :py:class:`fridom.nonhydro.initial_conditions.WavePackage`):
 
     .. math::
-        S(\boldsymbol{x}, t) = A \sin(\omega t) \boldsymbol{z}_W(\boldsymbol{x})
+        S(\boldsymbol{x}, t) =
+            A \sin(\omega t) \boldsymbol{z}_W(\boldsymbol{x})
 
-    where :math:`A` is the amplitude, :math:`\omega` is the frequency of the wave,
+    where :math:`A` is the amplitude, :math:`\omega` is the frequency of
+    the wave,
     that is computed from the dispersion relation (including
     discretization errors due to spatial and temporal discretization), and
     :math:`\boldsymbol{z}_W` is the WavePackage initial condition. The source

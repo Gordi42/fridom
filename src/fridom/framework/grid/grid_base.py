@@ -1,3 +1,4 @@
+"""Base class for all grids in the framework."""
 from __future__ import annotations
 
 from abc import abstractmethod
@@ -10,7 +11,8 @@ if TYPE_CHECKING:
     from numpy import ndarray
 
 
-@partial(fr.utils.jaxify, dynamic=("_x_mesh", "_x_global", "_k_mesh", "_k_global"))
+@partial(fr.utils.jaxify,
+         dynamic=("_x_mesh", "_x_global", "_k_mesh", "_k_global"))
 class GridBase:
 
     """
@@ -121,7 +123,7 @@ class GridBase:
     @abstractmethod
     def fft(self,
              arr: ndarray,
-             padding = fr.grid.FFTPadding.NOPADDING,
+             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
@@ -152,7 +154,7 @@ class GridBase:
     @abstractmethod
     def ifft(self,
              arr: ndarray,
-             padding = fr.grid.FFTPadding.NOPADDING,
+             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
@@ -209,7 +211,7 @@ class GridBase:
     @abstractmethod
     def vec_q(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
-        Computes the eigenvector of the linear operator of the mode `s`.
+        Compute the eigenvector of the linear operator of the mode `s`.
 
         Parameters
         ----------
@@ -228,7 +230,7 @@ class GridBase:
     @abstractmethod
     def vec_p(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
-        Computes the projection vector of the linear operator of the mode `s`.
+        Compute the projection vector of the linear operator of the mode `s`.
 
         Parameters
         ----------
@@ -249,21 +251,24 @@ class GridBase:
     def omega_analytical(self) -> ndarray:
         """Analytical dispersion relation."""
         if self._omega_analytical is None:
-            self._omega_analytical = self.omega(self.k_mesh, use_discrete=False)
+            self._omega_analytical = self.omega(
+                self.k_mesh, use_discrete=False)
         return self._omega_analytical
 
     @property
     def omega_space_discrete(self) -> ndarray:
         """Dispersion relation with space-discretization effects."""
         if self._omega_space_discrete is None:
-            self._omega_space_discrete = self.omega(self.k_mesh, use_discrete=True)
+            self._omega_space_discrete = self.omega(
+                self.k_mesh, use_discrete=True)
 
         return self._omega_space_discrete
 
     @property
-    def omega_time_discrete(self):
+    def omega_time_discrete(self) -> ndarray:
         """
         Dispersion relation with space-time-discretization effects.
+
         Warning: The computation may be very slow.
         """
         if self._omega_time_discrete is None:
@@ -281,7 +286,7 @@ class GridBase:
              arr: ndarray,
              flat_axes: list[int] | None = None) -> ndarray:
         """
-        Synchronize the halo (boundary) points of an array across all MPI ranks.
+        Synchronize the halo (boundary) points of an array across ranks.
 
         Parameters
         ----------
@@ -297,7 +302,7 @@ class GridBase:
 
     def sync_multi(self, arrs: tuple[ndarray]) -> tuple[ndarray]:
         """
-        Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
+        Synchronize the halo points of multiple arrays across ranks.
 
         Parameters
         ----------
@@ -357,7 +362,8 @@ class GridBase:
         `spectral` : bool
             Whether the array is in spectral space.
         `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
+            The topology of the array. Axes with false are flat
+            (only one grid point)
         """
         return self.domain_decomp.create_array(
             pad=pad, spectral=spectral, topo=topo)
@@ -380,7 +386,8 @@ class GridBase:
         `spectral` : bool
             Whether the array is in spectral space.
         `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
+            The topology of the array. Axes with false are flat
+            (only one grid point)
         """
         return self.domain_decomp.create_random_array(
             seed=seed, pad=pad, spectral=spectral, topo=topo)
@@ -481,7 +488,8 @@ class GridBase:
     def cumulative_integral(self,
                             field: fr.ScalarField,
                             axis: int,
-                            direction: Literal["forward", "backward"] = "forward",
+                            direction: Literal[
+                                "forward", "backward"] = "forward",
                             ) -> fr.ScalarField:
         r"""
         Compute the cumulative integral of a field along a given axis.
@@ -543,7 +551,7 @@ class GridBase:
         return {}
 
     def __repr__(self) -> str:
-        """String representation of the grid."""
+        """Return a string representation of the grid."""
         res = self.name
         for key, value in self.info.items():
             res += f"\n  - {key}: {value}"
@@ -634,9 +642,7 @@ class GridBase:
 
     @property
     def periodic_bounds(self) -> list[bool]:
-        """A tuple of booleans indicating whether the grid is periodic
-        in each dimension.
-        """
+        """Tuple of booleans indicating periodicity in each dimension."""
         return self._periodic_bounds
 
     @property
@@ -677,7 +683,7 @@ class GridBase:
     @property
     def characteristic_function(self) -> fr.ScalarField:
         """
-        The characteristic function of the grid (1 inside the domain, 0 outside).
+        The characteristic function of the grid (1 inside, 0 outside).
 
         Description
         -----------

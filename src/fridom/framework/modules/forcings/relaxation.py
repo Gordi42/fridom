@@ -22,7 +22,8 @@ class Relaxation(fr.modules.Module):
 
     where :math:`\phi^*` is the target value of the field, :math:`\tau` is the
     relaxation time scale, and :math:`\delta_\Omega` is one on the domain
-    :math:`\Omega` and zero elsewhere. At each time step, :math:`\mathcal{R}(\phi)`
+    :math:`\Omega` and zero elsewhere. At each time step,
+    :math:`\mathcal{R}(\phi)`
     is added to the tendency of the field :math:`\phi`. The analytical solution
     of the relaxation operator with no other forcing terms is:
 

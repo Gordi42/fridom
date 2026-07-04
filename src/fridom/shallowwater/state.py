@@ -28,7 +28,8 @@ class State(fr.VectorField):
 
     def __init__(self, mset: sw.ModelSettings, **kwargs: any) -> None:
         super().__init__(mset, **kwargs)
-        # we set the class to State, so that child classes will always be of type State
+        # we set the class to State, so that child classes will always be
+        # of type State
         self.__class__ = State
 
     @staticmethod

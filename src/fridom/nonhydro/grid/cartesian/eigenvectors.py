@@ -41,8 +41,10 @@ with
     \quad, \quad
     \mathbf{A} = \frac{-1}{\delta^2 k^2}
     \begin{pmatrix}
-     -if\delta^2k_x k_y & -if\left( \delta^2k_y^2 + k_z^2 \right) & 0 & i k_x k_z \\
-     if \left( \delta^2 k_x^2 + k_z^2 \right) & if\delta^2k_x k_y & 0 & i k_y k_z \\
+     -if\delta^2k_x k_y & -if\left( \delta^2k_y^2 + k_z^2 \right)
+        & 0 & i k_x k_z \\
+     if \left( \delta^2 k_x^2 + k_z^2 \right) & if\delta^2k_x k_y
+        & 0 & i k_y k_z \\
      -i f k_y k_z & i f k_x k_z & 0 & -i k_h^2 \\
      0 & 0 & iN^2\delta^2 k^2 & 0
     \end{pmatrix}
@@ -70,8 +72,9 @@ The other two eigenvalues correspond to the inertial-gravity wave modes:
 
 Eigenvectors
 ------------
-For the eigenvectors we have to separately consider the case of purely vertical,
-e.g. :math:`k_x = k_y = 0`, and the general case of nonzero horizontal wavenumbers.
+For the eigenvectors we have to separately consider the case of purely
+vertical, e.g. :math:`k_x = k_y = 0`, and the general case of nonzero
+horizontal wavenumbers.
 For the purely vertical case, the eigenvectors are:
 
 .. math::
@@ -102,7 +105,8 @@ Projection vectors should satisfy
 where the star denotes the hermitian transposed. Add divergent vector
 :math:`\boldsymbol{q^d} = \begin{pmatrix} k_x & k_y & k_z & 0 \end{pmatrix}`
 such that
-:math:`(\boldsymbol{q^0}, \boldsymbol{q^+}, \boldsymbol{q^-}, \boldsymbol{q^d})`
+:math:`(\boldsymbol{q^0}, \boldsymbol{q^+}, \boldsymbol{q^-},
+\boldsymbol{q^d})`
 form a basis.
 
 For the purely vertical case, the projection vectors are identical to the
@@ -110,7 +114,8 @@ eigenvectors: :math:`\boldsymbol{p^s} = \boldsymbol{q^s}`. For the general case
 of nonzero horizontal wavenumbers, the projection vectors are:
 
 .. math::
-    \boldsymbol{p^0} = \begin{pmatrix} -N^2 k_y \\ N^2 k_x \\ 0 \\ f k_z \end{pmatrix}
+    \boldsymbol{p^0} =
+    \begin{pmatrix} -N^2 k_y \\ N^2 k_x \\ 0 \\ f k_z \end{pmatrix}
     \quad, \quad
     \boldsymbol{p^\pm} = \begin{pmatrix}
         k_z (-i \omega^\pm k_x + f \gamma k_y) \\
@@ -147,7 +152,8 @@ A fourier transform yields the discrete spectral operators:
     \delta_x^- u \rightarrow \frac{1 - e^{-ik_x \Delta x}}{\Delta x} =
         i \hat{k}_x^- u
 
-Similarly, we define the forward and backward linear interpolation operators as:
+Similarly, we define the forward and backward linear interpolation
+operators as:
 
 .. math::
     \overline{u}^{x+} = \frac{u(x + \Delta x) + u(x)}{2}
@@ -195,7 +201,8 @@ system matrix:
             \left( \delta^2 \hat{k}_y^2 + \hat{k}_z^2 \right ) &
         0 &
         i \hat{1}_z^+ \hat{k}_x^+ \hat{k}_z^- \\
-        i f \hat{1}_x^- \hat{1}_y^+ \left( \delta^2 \hat{k}_x^2 + \hat{k}_z^2 \right) &
+        i f \hat{1}_x^- \hat{1}_y^+
+            \left( \delta^2 \hat{k}_x^2 + \hat{k}_z^2 \right) &
         i \delta^2 \hat{1}_x^+ \hat{1}_y^- \hat{k}_x^- \hat{k}_y^+ f &
         0 &
         i \hat{1}_z^+ \hat{k}_y^+ \hat{k}_z^- \\
@@ -235,8 +242,8 @@ with
 Eigenvectors
 ------------
 For the purely vertical case, the discrete eigenvectors are identical to the
-continuous eigenvectors. For the general case of nonzero horizontal wavenumbers,
-the discrete eigenvectors are:
+continuous eigenvectors. For the general case of nonzero horizontal
+wavenumbers, the discrete eigenvectors are:
 
 .. math::
     \boldsymbol{q^0} = \begin{pmatrix}
@@ -359,8 +366,8 @@ def _check_use_discrete_argument(
     dx : tuple[float] | None
         The grid spacing. Required if `use_discrete` is True.
     use_discrete : bool
-        If True, the discrete eigenvalues are returned. Otherwise, the continuous
-        eigenvalues are returned.
+        If True, the discrete eigenvalues are returned. Otherwise, the
+        continuous eigenvalues are returned.
 
     Raises
     ------
@@ -401,8 +408,8 @@ def omega(s: int,
     dx : tuple[float], optional
         The grid spacing. Required if `use_discrete` is True.
     use_discrete : bool (default: False)
-        If True, the discrete eigenvalues are returned. Otherwise, the continuous
-        eigenvalues are returned.
+        If True, the discrete eigenvalues are returned. Otherwise, the
+        continuous eigenvalues are returned.
 
     """
     _check_use_discrete_argument(dx, use_discrete)
@@ -622,8 +629,8 @@ def vec_q(mset: nh.ModelSettings,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
     use_discrete : bool (default: True)
-        If True, the discrete eigenvectors are returned. Otherwise, the continuous
-        eigenvectors are returned.
+        If True, the discrete eigenvectors are returned. Otherwise, the
+        continuous eigenvectors are returned.
 
     Returns
     -------
@@ -641,10 +648,12 @@ def vec_q(mset: nh.ModelSettings,
         \quad, \quad
         \boldsymbol{q^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
 
-    For the general case of nonzero horizontal wavenumbers, the eigenvectors are:
+    For the general case of nonzero horizontal wavenumbers, the
+    eigenvectors are:
 
     .. math::
-        \boldsymbol{q^0} = \begin{pmatrix} -k_y \\ k_x \\ 0 \\ fk_z \end{pmatrix}
+        \boldsymbol{q^0} =
+        \begin{pmatrix} -k_y \\ k_x \\ 0 \\ fk_z \end{pmatrix}
         \quad, \quad
         \boldsymbol{q^\pm} = \begin{pmatrix}
             k_z ( -i \omega^\pm k_x + f k_y) \\
@@ -655,7 +664,8 @@ def vec_q(mset: nh.ModelSettings,
         \quad, \quad
         \boldsymbol{q^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
 
-    The discrete projection vector is given in the docstring of the eigenvectors.
+    The discrete projection vector is given in the docstring of the
+    eigenvectors.
 
     """
     # We first check if the spectral analysis is possible
@@ -701,7 +711,8 @@ def _normalize_p_vec(
     mask = ncp.where(f0 == 0, horizontal_mask, mask)
     # if both f0 and N2 are zero => This case should never happen
 
-    norm = ncp.abs(sum(p_i * q_i.conj() for p_i, q_i in zip(p, q, strict=False)))
+    norm = ncp.abs(
+        sum(p_i * q_i.conj() for p_i, q_i in zip(p, q, strict=False)))
 
     return tuple(ncp.where(mask, p_i/norm, 0) for p_i in p)
 
@@ -741,7 +752,8 @@ def _vec_p_geostrophic(
     w = 0
     b = ohpm(kx,dx) * ohpm(ky,dy) * f0 * khp(kz,dz)
 
-    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q, strict=False))
+    p = tuple(ncp.where(nonzero_horizontal, arr, q_i)
+              for arr, q_i in zip((u, v, w, b), q, strict=False))
 
     return _normalize_p_vec(p, q, f0, n_squared, k)
 
@@ -818,7 +830,8 @@ def _vec_p_igw(
     w = 1j * om * kh2
     b = ohm(kz,dz) * gamma * kh2
 
-    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q, strict=False))
+    p = tuple(ncp.where(nonzero_horizontal, arr, q_i)
+              for arr, q_i in zip((u, v, w, b), q, strict=False))
 
     # normalize the vector
     return _normalize_p_vec(p, q, f0, n_squared, k)
@@ -860,12 +873,13 @@ def vec_p(mset: nh.ModelSettings,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
     use_discrete : bool (default: True)
-        If True, the discrete eigenvectors are returned. Otherwise, the continuous
-        eigenvectors are returned.
+        If True, the discrete eigenvectors are returned. Otherwise, the
+        continuous eigenvectors are returned.
 
     Description
     -----------
-    For the continuous case, and :math:`k_x = k_y = 0`, the projection vectors are:
+    For the continuous case, and :math:`k_x = k_y = 0`, the projection
+    vectors are:
 
     .. math::
         \boldsymbol{p^0} = \begin{pmatrix} 0 \\ 0 \\ 0 \\ 1 \end{pmatrix}
@@ -874,7 +888,8 @@ def vec_p(mset: nh.ModelSettings,
         \quad, \quad
         \boldsymbol{p^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
 
-    For the general case of nonzero horizontal wavenumbers, the projection vectors are:
+    For the general case of nonzero horizontal wavenumbers, the
+    projection vectors are:
 
     .. math::
         \boldsymbol{p^0} = \begin{pmatrix}
@@ -890,7 +905,8 @@ def vec_p(mset: nh.ModelSettings,
         \quad, \quad
         \boldsymbol{p^d} = \begin{pmatrix} k_x \\ k_y \\ k_z \\ 0 \end{pmatrix}
 
-    The discrete projection vector is given in the docstring of the eigenvectors.
+    The discrete projection vector is given in the docstring of the
+    eigenvectors.
 
     """
     _check_if_spectral_analysis_is_possible(mset)

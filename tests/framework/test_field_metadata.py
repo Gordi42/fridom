@@ -15,7 +15,8 @@ def n_dims(request):
 
 @pytest.fixture
 def mset(n_dims):
-    grid = fr.grid.cartesian.Grid(shape=(3,) * n_dims, domain_size=(1,) * n_dims)
+    grid = fr.grid.cartesian.Grid(shape=(3,) * n_dims,
+                                  domain_size=(1,) * n_dims)
     return fr.ModelSettingsBase(grid=grid).setup()
 
 # ================================================================

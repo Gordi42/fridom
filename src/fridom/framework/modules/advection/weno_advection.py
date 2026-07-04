@@ -12,9 +12,10 @@ class WENO(fr.modules.advection.UpwindAdvection):
 
     References
     ----------
-    .. [1] S. Mishra, C. Pares-Pulido, and K. G. Pressel, "Arbitrarily high-order
-    (weighted) essentially non-oscillatory finite difference schemes for anelastic
-    flows on staggered meshes" *Communications in Computational Physics*, 2021.
+    .. [1] S. Mishra, C. Pares-Pulido, and K. G. Pressel, "Arbitrarily
+    high-order (weighted) essentially non-oscillatory finite difference
+    schemes for anelastic flows on staggered meshes" *Communications in
+    Computational Physics*, 2021.
 
     """
 

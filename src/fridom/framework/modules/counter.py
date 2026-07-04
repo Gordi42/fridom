@@ -18,9 +18,9 @@ class Counter(fr.modules.Module):
     Parameters
     ----------
     clock_trigger : fr.ClockTrigger, optional
-        A clock trigger to only increment the counter for specific clock events.
-        If not set, the counter is incremented every time the update method is
-        called.
+        A clock trigger to only increment the counter for specific clock
+        events. If not set, the counter is incremented every time the
+        update method is called.
 
     """
 

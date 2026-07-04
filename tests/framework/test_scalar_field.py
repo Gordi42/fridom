@@ -34,7 +34,8 @@ def grid():
 # for some tests we test different grid shapes
 @pytest.fixture
 def grid_all(shape):
-    return fr.grid.cartesian.Grid(shape=shape, domain_size=(1, 2, 3)[:len(shape)])
+    return fr.grid.cartesian.Grid(shape=shape,
+                                  domain_size=(1, 2, 3)[:len(shape)])
 
 # default model settings
 @pytest.fixture
@@ -168,7 +169,8 @@ def test_topo_shape(mset, topo):
         ("grid", fr.grid.cartesian.Grid, None),  # grid is set in the fixture
         ("is_spectral", bool, False),
         ("arr", fr.config.ncp.ndarray, None),
-        ("mdata", fr.FieldMetadata, None),  # too lazy to set the expected value
+        # too lazy to set the expected value
+        ("mdata", fr.FieldMetadata, None),
         ("name", str, "unnamed"),
         ("long_name", str, "Unnamed"),
         ("units", str, "n/a"),
@@ -463,7 +465,8 @@ def test_cumulative_integral(field,
         with pytest.raises(fr.exceptions.PartialDomainError):
             field.cumulative_integral(axis)
         return
-    # TODO(Silvano): do tests once the cumulative_integral method is implemented
+    # TODO(Silvano): do tests once the cumulative_integral method is
+    # implemented
     x, y = field.get_mesh()
     field.arr = base_func(x, y)
     cum_int = field.cumulative_integral(axis)
@@ -474,12 +477,14 @@ def test_cumulative_integral(field,
 
 @pytest.mark.parametrize("position", [
     pytest.param(fr.grid.AxisPosition.CENTER, id="center"),
-    pytest.param(fr.grid.AxisPosition.FACE, id="face", marks=pytest.mark.xfail),
+    pytest.param(fr.grid.AxisPosition.FACE, id="face",
+                 marks=pytest.mark.xfail),
 ])
 @pytest.mark.parametrize("periodic", [True, False])
 def test_1d_forward_cumulative_integral(position, periodic):
     # setup grid and model settings
-    grid = fr.grid.cartesian.Grid(shape=(10,), domain_size=(3,), periodic_bounds=(periodic,))
+    grid = fr.grid.cartesian.Grid(shape=(10,), domain_size=(3,),
+                                  periodic_bounds=(periodic,))
     mset = fr.ModelSettingsBase(grid)
     mset.halo = 1
     mset.setup()
@@ -504,14 +509,16 @@ def test_1d_forward_cumulative_integral(position, periodic):
     assert fr.config.ncp.allclose(cum_int.arr, expected_field.arr)
 
 @pytest.mark.parametrize("position", [
-    pytest.param(fr.grid.AxisPosition.CENTER, id="center", marks=pytest.mark.xfail),
+    pytest.param(fr.grid.AxisPosition.CENTER, id="center",
+                 marks=pytest.mark.xfail),
     pytest.param(fr.grid.AxisPosition.FACE, id="face"),
 ])
 @pytest.mark.parametrize("periodic", [True, False])
 def test_1d_backward_cumulative_integral(position, periodic):
     lx = 3
     # setup grid and model settings
-    grid = fr.grid.cartesian.Grid(shape=(10,), domain_size=(lx,), periodic_bounds=(periodic,))
+    grid = fr.grid.cartesian.Grid(shape=(10,), domain_size=(lx,),
+                                  periodic_bounds=(periodic,))
     mset = fr.ModelSettingsBase(grid)
     mset.halo = 1
     mset.setup()
@@ -596,7 +603,8 @@ def test_from_xr(mset, topo, field, key, possible):
     assert new_field.mdata == field.mdata
 
 def test_netcdf_save_load(mset, is_spectral, tmp_dir):
-    field = fr.ScalarField(mset, is_spectral=is_spectral).set_random(seed=12345)
+    field = fr.ScalarField(
+        mset, is_spectral=is_spectral).set_random(seed=12345)
     # save the field
     field.to_netcdf(tmp_dir + "/field.nc")
     # load the field
@@ -867,7 +875,8 @@ def test_dot_with_scalar_field(field, mset, is_spectral, dot_op):
     msg = "Cannot take dot product of spectral and real fields"
     with pytest.raises(ValueError, match=msg):
         dot_op(field, other)
-    other = fr.ScalarField(mset, is_spectral=is_spectral).set_random(seed=51234)
+    other = fr.ScalarField(
+        mset, is_spectral=is_spectral).set_random(seed=51234)
     result = dot_op(field, other)
     # check if the result is a scalar field
     assert isinstance(result, fr.ScalarField)

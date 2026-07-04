@@ -58,12 +58,14 @@ class Model:
 
         Description
         -----------
-        This method runs the model backward in time for a given number of steps.
+        This method runs the model backward in time for a given number
+        of steps.
         """
         # Prepare the model for running
         if self.restart_module.should_reload():
             self.load(self.restart_module.file)
-        self.time_stepper.dt = -abs(self.time_stepper.dt)  # ensure dt is negative
+        # ensure dt is negative
+        self.time_stepper.dt = -abs(self.time_stepper.dt)
         start_value = self.model_state.clock.it
         # step count always increases even when running backward
         final_value = start_value + steps
@@ -360,7 +362,7 @@ class Model:
 
     @property
     def pre_step_diagnostics(self) -> fr.modules.ModuleContainer:
-        """The module container for all diagnostics that should run before the time step."""
+        """Container for diagnostics that should run before the time step."""
         return self.mset.pre_step_diagnostics
 
     @property
@@ -408,7 +410,6 @@ class Model:
             The filename to save the model to
 
         """
-
         with Path(file).open("wb") as f:
             fr.log.verbose(f"Saving model to {file}")
             grid = self.mset.grid

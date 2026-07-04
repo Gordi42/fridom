@@ -62,13 +62,14 @@ class Module:
 
     Required methods:
     1. `__init__(self, ...) -> None`: The constructor only takes keyword
-    argument which are stored as attributes. Always call the parent constructor
-    with `super().__init__(name, **kwargs)`. The name of the module is stored in
-    the timing module and should not be too long.
+    argument which are stored as attributes. Always call the parent
+    constructor with `super().__init__(name, **kwargs)`. The name of the
+    module is stored in the timing module and should not be too long.
     2. `update(self, mz: ModelState) -> None`: This method is
     called by the model at each time step. It can for example update the
-    tendency state `mz.dz` based on the model state `mz`. Or write the model state
-    to a file. Make sure to wrap the method with the `@update_module` decorator.
+    tendency state `mz.dz` based on the model state `mz`. Or write the
+    model state to a file. Make sure to wrap the method with the
+    `@update_module` decorator.
 
     Optional methods:
     1. `start(self, mset: ModelSettingsBase) -> None`:
@@ -127,7 +128,8 @@ class Module:
         self.log_level: str | int | None = None
 
         # Set the flags
-        self._required_halo = None  # The number of halo points required by the module
+        # The number of halo points required by the module
+        self._required_halo = None
         self.mpi_available = True  # Whether the module can be run in parallel
         self.execute_at_start = False
 
@@ -159,9 +161,9 @@ class Module:
         mset : fr.ModelSettingsBase
             The model settings object.
         setup_mode : Literal["default", "forced"]
-            The setup mode. If the setup mode is "default" and the module is
-            already setup, the method will return. If the setup mode is "forced",
-            the module will be setup again.
+            The setup mode. If the setup mode is "default" and the module
+            is already setup, the method will return. If the setup mode is
+            "forced", the module will be setup again.
 
         """
         if self.is_setup and setup_mode == "default":
@@ -232,8 +234,8 @@ class Module:
         Description
         -----------
         This method is called by the model at each time step. Child classes
-        should overwrite this method to update the module. Make sure to decorate
-        the method with the `@module_method` decorator.
+        should overwrite this method to update the module. Make sure to
+        decorate the method with the `@module_method` decorator.
 
         Parameters
         ----------

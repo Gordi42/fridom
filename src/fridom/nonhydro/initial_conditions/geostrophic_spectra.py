@@ -1,7 +1,22 @@
+"""Random geostrophic initial condition with a given energy spectrum."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import fridom.nonhydro as nh
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-def geostrophic_energy_spectrum(kx, ky, kz, d=7, k0=6, c=2):
+    from numpy import ndarray
+
+
+def geostrophic_energy_spectrum(kx: ndarray,
+                                ky: ndarray,
+                                kz: ndarray,
+                                d: float = 7,
+                                k0: float = 6,
+                                c: float = 2) -> ndarray:
     r"""
     Geostrophic energy spectrum.
 
@@ -14,8 +29,8 @@ def geostrophic_energy_spectrum(kx, ky, kz, d=7, k0=6, c=2):
     .. math::
         S_h = \\frac{k^7}{\\left(k^2 + a k_0^2\\right)^{2b}}
 
-    where :math:`k = \\sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber, :math:`a`
-    and :math:`b` are constants:
+    where :math:`k = \\sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber,
+    :math:`a` and :math:`b` are constants:
 
     .. math::
         a = \\frac{4}{7}b - 1, \\quad b = \\frac{7+d}{4}
@@ -85,14 +100,17 @@ class RandomGeostrophicSpectra(nh.State):
         grid = nh.grid.cartesian.Grid(
             shape=(128, 128, 32), domain_size=(10, 10, 1),
             periodic_bounds=(False, True, False))
-        mset = nh.ModelSettings(grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2)
+        mset = nh.ModelSettings(
+            grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2)
         mset.time_stepper.dt = 0.1
         mset.setup()
         # Create the initial conditions
         ic = nh.initial_conditions
         def spectra(kx, ky, kz):
-            return ic.geostrophic_energy_spectrum(kx, ky, kz, c=0.2, k0=1.4, d=7)
-        z = ic.RandomGeostrophicSpectra(mset, spectral_energy_density=spectra) * 0.1
+            return ic.geostrophic_energy_spectrum(
+                kx, ky, kz, c=0.2, k0=1.4, d=7)
+        z = ic.RandomGeostrophicSpectra(
+            mset, spectral_energy_density=spectra) * 0.1
         # Create and run the model
         model = nh.Model(mset)
         model.z = z
@@ -102,8 +120,9 @@ class RandomGeostrophicSpectra(nh.State):
 
     def __init__(self,
                  mset: nh.ModelSettings,
-                 seed=12345,
-                 spectral_energy_density=geostrophic_energy_spectrum) -> None:
+                 seed: int = 12345,
+                 spectral_energy_density: Callable = (
+                     geostrophic_energy_spectrum)) -> None:
         super().__init__(mset, is_spectral=False)
 
         ncp = nh.config.ncp

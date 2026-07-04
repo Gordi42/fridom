@@ -75,9 +75,9 @@ class DiffModule(fr.modules.Module):
         Returns
         -------
         tuple[fr.ScalarField | None]
-            The gradient of the field along the specified axes. The list contains
-            the gradient components along each axis. Axis which are not included
-            in `axes` will have a value of `None`.
+            The gradient of the field along the specified axes. The list
+            contains the gradient components along each axis. Axis which
+            are not included in `axes` will have a value of `None`.
             E.g. for a 3D grid, `diff.grad(f, axes=[0, 2])` will return
             `[df/dx, None, df/dz]`.
 

@@ -18,7 +18,9 @@ class SpectralAdvection(fr.modules.advection.AdvectionBase):
 
     name = "Spectral Advection"
 
-    def __init__(self, padding: fr.grid.FFTPadding = fr.grid.FFTPadding.TRIM) -> None:
+    def __init__(self,
+                 padding: fr.grid.FFTPadding = fr.grid.FFTPadding.TRIM,
+                 ) -> None:
         super().__init__()
         self.padding = padding
 

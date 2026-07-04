@@ -17,23 +17,28 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
     .. math::
         \partial_t \boldsymbol{u}
-                     = - (\boldsymbol{u} + \boldsymbol{u}_b) \cdot \nabla \boldsymbol{u}
+                     = - (\boldsymbol{u} + \boldsymbol{u}_b)
+                         \cdot \nabla \boldsymbol{u}
                      = - \underset{\neg}{\boldsymbol{u}} \zeta
                        - \frac{1}{2} \nabla \boldsymbol{u}^2
-                       - \nabla \left( \boldsymbol{u_b} \cdot \boldsymbol{u} \right)
+                       - \nabla \left(
+                           \boldsymbol{u_b} \cdot \boldsymbol{u} \right)
 
-        \partial_t p = - \nabla \left\[ (\boldsymbol{u} + \boldsymbol{u}_b) p \right\]
+        \partial_t p = - \nabla \left\[
+            (\boldsymbol{u} + \boldsymbol{u}_b) p \right\]
 
         \partial_t C = - (\boldsymbol{u} + \boldsymbol{u}_b) \cdot \nabla C
 
-    where :math:`\boldsymbol{u_b}` is a divergence free background flow that can
-    be set with the `background` attribute of this module, :math:`\zeta` is the
-    relative vorticity, and :math:`C` is a passive tracer.
+    where :math:`\boldsymbol{u_b}` is a divergence free background flow
+    that can be set with the `background` attribute of this module,
+    :math:`\zeta` is the relative vorticity, and :math:`C` is a passive
+    tracer.
     We express the rotational part of the momentum advection with the potential
     vorticity :math:`q`:
 
     .. math::
-        \underset{\neg}{\boldsymbol{u}} \zeta = \underset{\neg}{\boldsymbol{f_u}} q
+        \underset{\neg}{\boldsymbol{u}} \zeta
+            = \underset{\neg}{\boldsymbol{f_u}} q
 
     with
 
@@ -124,14 +129,16 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
         # compute the potential vorticity
         zeta = z.rel_vort
-        h_full = self.csqr + scale * z.p  # check if we should use scale or Ro here
+        # check if we should use scale or Ro here
+        h_full = self.csqr + scale * z.p
         q = zeta / interp(h_full, northeast)
 
         # interp set h_full to zero on boundaries, as a result values of q on
         # boundaries are nan. We set them to zero here.
         q.arr = fr.config.ncp.nan_to_num(q.arr, 0.0)
 
-        # compute the fluxes fu and fv at the northeast position (to match the vorticity)
+        # compute the fluxes fu and fv at the northeast position
+        # (to match the vorticity)
         fu = interp(z.u * interp(h_full, east), northeast)
         fv = interp(z.v * interp(h_full, north), northeast)
 

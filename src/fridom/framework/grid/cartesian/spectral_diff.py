@@ -1,3 +1,4 @@
+"""Differentiation module in spectral space."""
 from copy import deepcopy
 
 import fridom.framework as fr
@@ -11,7 +12,8 @@ class SpectralDiff(fr.grid.DiffModule):
 
     Description
     -----------
-    In spectral space, the differentiation of a field is equivalent to a multiplication by the wavenumber and the imaginary unit:
+    In spectral space, the differentiation of a field is equivalent to a
+    multiplication by the wavenumber and the imaginary unit:
 
     .. math::
         u = U e^{ikx} \Rightarrow \partial_x u = ik u
@@ -22,6 +24,7 @@ class SpectralDiff(fr.grid.DiffModule):
 
     @fr.modules.module_method
     def setup(self, mset: "fr.ModelSettingsBase") -> None:
+        """Set up the module and check the grid type."""
         super().setup(mset)
         # check if the grid is either a cartesian grid or a spectral grid
         if not isinstance(self.mset.grid,
@@ -33,14 +36,16 @@ class SpectralDiff(fr.grid.DiffModule):
              f: fr.ScalarField,
              axis: int,
              ) -> fr.ScalarField:
-
+        """Differentiate a field along an axis in spectral space."""
         # ----------------------------------------------------------------
         #  Transform to spectral space if necessary
         # ----------------------------------------------------------------
         transformed = False
         if not f.is_spectral:
             fr.log.warning("Called diff on a non-spectral field.")
-            fr.log.warning("Fourier transforming the field to spectral space, differentiating, and transforming back.")
+            fr.log.warning(
+                "Fourier transforming the field to spectral space, "
+                "differentiating, and transforming back.")
             f = f.fft()
             transformed = True
 

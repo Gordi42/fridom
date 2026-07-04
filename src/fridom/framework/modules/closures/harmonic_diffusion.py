@@ -48,7 +48,8 @@ class HarmonicDiffusion(fr.modules.Module):
     name = "Harmonic Diffusion"
     def __init__(self,
                  field_flags: list[str],
-                 diffusion_coefficients: list[float | fr.ScalarField]) -> None:
+                 diffusion_coefficients: list[float | fr.ScalarField],
+                 ) -> None:
         super().__init__()
         self.field_flags = field_flags
         self.diffusion_coefficients = diffusion_coefficients
@@ -59,13 +60,14 @@ class HarmonicDiffusion(fr.modules.Module):
         self._water_mask = self.mset.grid.water_mask
 
     def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
-        r"""Apply the harmonic diffusion operator on a scalar field :math:`u`."""
+        r"""Apply the harmonic diffusion operator on a field :math:`u`."""
         # compute the gradient of the field
         grad_u = list(self.diff_module.grad(u))
         # multiply the gradient with the diffusion coefficients
         for i, coeff in enumerate(self.diffusion_coefficients):
             if isinstance(coeff, fr.ScalarField):
-                # interpolate the diffusion coefficient to the position of the field
+                # interpolate the diffusion coefficient to the position
+                # of the field
                 c = self.interp_module.interpolate(coeff, grad_u[i].position)
             else:
                 c = coeff
@@ -94,7 +96,7 @@ class HarmonicDiffusion(fr.modules.Module):
 
     @property
     def field_flags(self) -> list[str]:
-        """A list of field flags that indicate which fields should be diffused."""
+        """A list of flags that indicate which fields should be diffused."""
         return self._field_flags
 
     @field_flags.setter
@@ -107,5 +109,6 @@ class HarmonicDiffusion(fr.modules.Module):
         return self._diffusion_coefficients
 
     @diffusion_coefficients.setter
-    def diffusion_coefficients(self, value: list[float | fr.ScalarField]) -> None:
+    def diffusion_coefficients(
+            self, value: list[float | fr.ScalarField]) -> None:
         self._diffusion_coefficients = value

@@ -22,8 +22,9 @@ class NetCDFWriter(fr.modules.Module):
     Parameters
     ----------
     write_trigger : fr.ClockTrigger, optional
-        The trigger that determines when the data should be written to the file.
-        Default is None which means that the data will be written at every time step.
+        The trigger that determines when the data should be written to the
+        file. Default is None which means that the data will be written at
+        every time step.
     restart_trigger : fr.ClockTrigger, optional
         The trigger that determines when a new file should be created.
         Default is None which means that only one file will be created.
@@ -109,7 +110,8 @@ class NetCDFWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         #  Check if the file should be restarted
         # ----------------------------------------------------------------
-        if self.restart_trigger is not None and self.restart_trigger.check(mz.clock):
+        if (self.restart_trigger is not None
+                and self.restart_trigger.check(mz.clock)):
             self._close_file()
 
         # ----------------------------------------------------------------
@@ -139,7 +141,8 @@ class NetCDFWriter(fr.modules.Module):
             The formatted filename.
 
         """
-        # we first remove the suffix from the filename, if the suffix is .nc or .cdf
+        # we first remove the suffix from the filename, if the suffix is
+        # .nc or .cdf
         suffix = self.filename.suffix.lower()
         if suffix in [".nc", ".cdf"]:
             base_name = self.filename.parent / self.filename.stem
@@ -216,7 +219,8 @@ class NetCDFWriter(fr.modules.Module):
 
         # store the coordinates
         for i in range(n_dims):
-            x[i][:] = fr.utils.to_numpy(self.grid.x_global[i][self.snap_slice[i]])
+            x[i][:] = fr.utils.to_numpy(
+                self.grid.x_global[i][self.snap_slice[i]])
 
         # create the output variables
         for var in self.get_variables(mz):

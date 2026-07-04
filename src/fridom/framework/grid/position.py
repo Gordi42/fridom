@@ -1,3 +1,4 @@
+"""Positions of fields on the staggered grid."""
 from enum import StrEnum
 
 import fridom.framework as fr
@@ -94,7 +95,8 @@ class Position:
         if not isinstance(value, Position):
             return False
 
-        for my_pos, other_pos in zip(self.positions, value.positions, strict=False):
+        for my_pos, other_pos in zip(
+                self.positions, value.positions, strict=False):
             if my_pos != other_pos:
                 return False
         return True

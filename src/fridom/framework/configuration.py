@@ -10,8 +10,9 @@ import scipy
 from fridom.framework.logger import log
 
 
-# We want to import the modules in the respective functions to avoid unnecessary
-# imports. This will speed up the import time of the fridom framework.
+# We want to import the modules in the respective functions to avoid
+# unnecessary imports. This will speed up the import time of the fridom
+# framework.
 class Config:
 
     """Configuration class for the fridom framework."""
@@ -35,13 +36,15 @@ class Config:
                 self._set_backend_unsafe(backend)
             except (ImportError, RuntimeError):
                 log.warning(
-                    "Backend %s is not available. Falling back to default backend.",
+                    "Backend %s is not available. "
+                    "Falling back to default backend.",
                     backend,
                 )
                 return
             else:
                 return
-        # If no backend is set, we try to set the backend in the following order
+        # If no backend is set, we try to set the backend in the
+        # following order
         backend_try_order = ["jax_gpu", "jax_cpu", "cupy", "numpy"]
         # we try to set the backend in the order of the backend_try_order list
         for backend in backend_try_order:
@@ -117,7 +120,9 @@ class Config:
         import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         import jax.numpy as jnp  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         import jax.scipy as jsp  # noqa: PLC0415 (deferred import of optional/heavy dependency)
-        from jax import extend  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        from jax import (  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+            extend,
+        )
 
         jax.config.update("jax_platform_name", "gpu")
         jax.config.update("jax_enable_x64", val=True)

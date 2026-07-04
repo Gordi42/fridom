@@ -19,8 +19,9 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
     .. math::
         \mathcal{B}(u) = - \mathcal{H} \left( \mathcal{H}(u) \right)
 
-    where we use the biharmonic diffusion coefficient :math:`\sqrt{|\kappa_i|}`.
-    The index :math:`i` refers to the direction of the diffusion.
+    where we use the biharmonic diffusion coefficient
+    :math:`\sqrt{|\kappa_i|}`. The index :math:`i` refers to the direction
+    of the diffusion.
 
     Parameters
     ----------
@@ -37,7 +38,7 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
 
     name = "Biharmonic Diffusion"
     def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
-        """Apply the biharmonic diffusion operator on a scalar field :math:`u`."""
+        r"""Apply the biharmonic diffusion operator on a field :math:`u`."""
         # apply the first harmonic diffusion operator
         div1 = super().diffusion_operator(u)
         # apply the second harmonic diffusion operator
@@ -53,7 +54,8 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
         return self._diffusion_coefficients
 
     @diffusion_coefficients.setter
-    def diffusion_coefficients(self, value: tuple[float | fr.ScalarField]) -> None:
+    def diffusion_coefficients(
+            self, value: tuple[float | fr.ScalarField]) -> None:
         # we need to take the square root of the diffusion coefficients
         ncp = fr.config.ncp
         coeffs = []

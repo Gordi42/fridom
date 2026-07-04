@@ -1,3 +1,6 @@
+"""Barotropic instable jet initial condition."""
+from __future__ import annotations
+
 import fridom.nonhydro as nh
 
 
@@ -12,9 +15,12 @@ class BarotropicJet(nh.State):
     on top of it. The jet is given by:
 
     .. math::
-        u = 2.5 \left( \exp\left(-\left(\frac{y - 0.75 L_y}{\sigma L_y \pi}\right)^2\right) -
-                        \exp\left(-\left(\frac{y - 0.25 L_y}{\sigma L_y \pi}\right)^2\right)
-                \right)
+        u = 2.5 \left(
+            \exp\left(
+                -\left(\frac{y - 0.75 L_y}{\sigma L_y \pi}\right)^2\right) -
+            \exp\left(
+                -\left(\frac{y - 0.25 L_y}{\sigma L_y \pi}\right)^2\right)
+        \right)
 
     where :math:`L_y` is the domain length in the y-direction,
     and :math:`\sigma` is the width of the jet. The perturbation
@@ -44,10 +50,10 @@ class BarotropicJet(nh.State):
 
     def __init__(self,
                  mset: nh.ModelSettings,
-                 wavenum=5,
-                 waveamp=0.1,
-                 jet_width=0.04,
-                 geo_proj=True) -> None:
+                 wavenum: int = 5,
+                 waveamp: float = 0.1,
+                 jet_width: float = 0.04,
+                 geo_proj: bool = True) -> None:
         super().__init__(mset)
         # Shortcuts
         ncp = nh.config.ncp

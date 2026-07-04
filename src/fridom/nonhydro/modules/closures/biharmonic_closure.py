@@ -8,7 +8,8 @@ import fridom.framework as fr
 
 
 @partial(fr.utils.jaxify,
-         dynamic=("_kh", "_kv", "_hor_diff_coeff", "_ver_diff_coeff", "_water_mask"))
+         dynamic=("_kh", "_kv", "_hor_diff_coeff", "_ver_diff_coeff",
+                  "_water_mask"))
 class BiharmonicClosure(fr.modules.Module):
 
     r"""
@@ -29,7 +30,7 @@ class BiharmonicClosure(fr.modules.Module):
                  kv: float,
                  velocity_scale: float = 1.0,
                  # free-slip and no-slip modes
-                 mode: Literal["free-slip", "no-slip"] = "free-slip"
+                 mode: Literal["free-slip", "no-slip"] = "free-slip",
                  ) -> None:
         super().__init__()
         self._kh = kh
@@ -47,7 +48,8 @@ class BiharmonicClosure(fr.modules.Module):
             case "no-slip":
                 self._second_derivative = self._second_derivative_no_slip
             case _:
-                msg = f"Invalid mode '{mode}'. Must be 'free-slip' or 'no-slip'."
+                msg = (f"Invalid mode '{mode}'."
+                       " Must be 'free-slip' or 'no-slip'.")
                 raise ValueError(msg)
 
     def _on_setup(self) -> None:
@@ -64,7 +66,8 @@ class BiharmonicClosure(fr.modules.Module):
         hor_diff_coeff = velocity_scale * rossby_number / kh_max**3
 
         kv_max = ncp.pi / dz
-        ver_diff_coeff = aspect_ratio * velocity_scale * rossby_number / kv_max**3
+        ver_diff_coeff = (aspect_ratio * velocity_scale * rossby_number
+                          / kv_max**3)
 
         self._hor_grid_coeff = hor_diff_coeff
         self._ver_grid_coeff = ver_diff_coeff
@@ -74,15 +77,20 @@ class BiharmonicClosure(fr.modules.Module):
 
         self._water_mask = self.mset.grid.water_mask
 
-    def _second_derivative_no_slip(self, f: fr.ScalarField, axis: int) -> fr.ScalarField:
-        # when not applying the water mask, results look like a no-slip condition
-        # I am not entirely sure why, maybe because gradients at the boundary
-        # can be non-zero when not applying the water mask, which leads to stronger
-        # diffusion at the boundary leading to a no-slip like condition
+    def _second_derivative_no_slip(self,
+                                   f: fr.ScalarField,
+                                   axis: int) -> fr.ScalarField:
+        # when not applying the water mask, results look like a no-slip
+        # condition. I am not entirely sure why, maybe because gradients
+        # at the boundary can be non-zero when not applying the water
+        # mask, which leads to stronger diffusion at the boundary leading
+        # to a no-slip like condition
         first_derivative = self.diff_module.diff(f, axis)
         return self.diff_module.diff(first_derivative, axis)
 
-    def _second_derivative_free_slip(self, f: fr.ScalarField, axis: int) -> fr.ScalarField:
+    def _second_derivative_free_slip(self,
+                                     f: fr.ScalarField,
+                                     axis: int) -> fr.ScalarField:
         first_derivative = self.diff_module.diff(f, axis)
         first_derivative = self._water_mask.apply_mask(first_derivative)
         second_derivative = self.diff_module.diff(first_derivative, axis)
@@ -92,7 +100,8 @@ class BiharmonicClosure(fr.modules.Module):
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         for f in mz.z:
             # first two derivatives
-            f_hor = self._second_derivative(f, 0) + self._second_derivative(f, 1)
+            f_hor = (self._second_derivative(f, 0)
+                     + self._second_derivative(f, 1))
             f_ver = self._second_derivative(f, 2)
 
             # multiply diffusion coefficients
@@ -108,6 +117,7 @@ class BiharmonicClosure(fr.modules.Module):
 
     @property
     def kh(self) -> float:
+        """The horizontal diffusion coefficient."""
         return self._kh
 
     @kh.setter
@@ -117,6 +127,7 @@ class BiharmonicClosure(fr.modules.Module):
 
     @property
     def kv(self) -> float:
+        """The vertical diffusion coefficient."""
         return self._kv
 
     @kv.setter

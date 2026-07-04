@@ -1,3 +1,4 @@
+"""Base class for projections onto flow subspaces."""
 # Import external modules
 from abc import abstractmethod
 from typing import TYPE_CHECKING

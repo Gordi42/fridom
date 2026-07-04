@@ -34,9 +34,9 @@ class RestartModule(fr.modules.Module):
         If the command is a string:
             The model will restart by running the command in a subprocess.
         If the command is a callable:
-            The model will restart by calling the function. This function should
-            simply restart the job. It should have no arguments, and should
-            return nothing.
+            The model will restart by calling the function. This function
+            should simply restart the job. It should have no arguments,
+            and should return nothing.
         If the command is None:
             The model will try to find the command from the environment.
             If the command is not found, the model will not be able to restart.
@@ -86,7 +86,8 @@ class RestartModule(fr.modules.Module):
         # ----------------------------------------------------------------
         #  Realtime interval
         # ----------------------------------------------------------------
-        elapsed_time = np.timedelta64(int(time.time() - fr.config.load_time), "s")
+        elapsed_time = np.timedelta64(
+            int(time.time() - fr.config.load_time), "s")
         interval = self.realtime_interval
         if interval is not None and elapsed_time >= interval:
             fr.log.info(
@@ -96,7 +97,8 @@ class RestartModule(fr.modules.Module):
         # ----------------------------------------------------------------
         #  Modelclock trigger
         # ----------------------------------------------------------------
-        if self.clock_trigger is not None and self.clock_trigger.check(mz.clock):
+        if (self.clock_trigger is not None
+                and self.clock_trigger.check(mz.clock)):
             fr.log.info("Modeltime trigger reached. Model will restart.")
             self.set_full_filename(mz.clock.it)
             return True
@@ -209,7 +211,8 @@ class RestartModule(fr.modules.Module):
         return self._realtime_interval
 
     @realtime_interval.setter
-    def realtime_interval(self, realtime_interval: np.timedelta64 | None) -> None:
+    def realtime_interval(
+            self, realtime_interval: np.timedelta64 | None) -> None:
         if realtime_interval is None:
             self._realtime_interval = None
             return
@@ -232,7 +235,8 @@ class RestartModule(fr.modules.Module):
         .. code-block:: python
 
             import fridom.framework as fr
-            restart_module = fr.modules.RestartModule(clock_trigger=fr.ClockTrigger())
+            restart_module = fr.modules.RestartModule(
+                clock_trigger=fr.ClockTrigger())
             restart_module.clock_trigger.trigger_on_first_step = True
 
         """
@@ -287,7 +291,8 @@ class RestartModule(fr.modules.Module):
             return
 
         if not job_id.isdigit():
-            fr.log.warning("Invalid job id. The model will not be able to restart.")
+            fr.log.warning(
+                "Invalid job id. The model will not be able to restart.")
             return
 
         job_info = subprocess.run(  # noqa: S603
@@ -303,5 +308,6 @@ class RestartModule(fr.modules.Module):
                 command = line.split("=", 1)[1].strip()
         if command is None:
             fr.log.warning(
-                "No restart command is set. The model will not be able to restart.")
+                "No restart command is set."
+                " The model will not be able to restart.")
         self._restart_command = f"sbatch {command}"

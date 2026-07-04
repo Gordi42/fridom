@@ -7,7 +7,9 @@ import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
-@partial(fr.utils.jaxify, dynamic=("f_coriolis", "stratification_n2", "dsqr", "rossby_number"))
+@partial(fr.utils.jaxify,
+         dynamic=("f_coriolis", "stratification_n2", "dsqr",
+                  "rossby_number"))
 class ModelSettings(fr.ModelSettingsBase):
 
     """
@@ -47,7 +49,8 @@ class ModelSettings(fr.ModelSettingsBase):
             long_name="Coriolis parameter",
             units="1/s",
             position=self.grid.cell_center,
-            topo=(True, True, True),  # TODO(Silvano): don't need topo in x and z
+            # TODO(Silvano): don't need topo in x and z
+            topo=(True, True, True),
         )
         self._f_coriolis = f_coriolis
         self._update_coriolis()
@@ -57,7 +60,8 @@ class ModelSettings(fr.ModelSettingsBase):
             long_name="Stratification",
             units="1/s^2",
             position=self.grid.cell_center,
-            topo=(True, True, True),  # TODO(Silvano): don't need topo in x and y
+            # TODO(Silvano): don't need topo in x and y
+            topo=(True, True, True),
         )
         self._stratification_n2_field = stratification
         self.stratification_n2 = self.stratification_n2

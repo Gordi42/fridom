@@ -26,8 +26,9 @@ class ZarrWriter(fr.modules.Module):
     Parameters
     ----------
     write_trigger : fr.ClockTrigger, optional
-        The trigger that determines when the data should be written to the file.
-        Default is None which means that the data will be written at every time step.
+        The trigger that determines when the data should be written to the
+        file. Default is None which means that the data will be written at
+        every time step.
     restart_trigger : fr.ClockTrigger, optional
         The trigger that determines when a new file should be created.
         Default is None which means that only one file will be created.
@@ -110,7 +111,8 @@ class ZarrWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         #  Check if the file should be restarted
         # ----------------------------------------------------------------
-        if self.restart_trigger is not None and self.restart_trigger.check(mz.clock):
+        if (self.restart_trigger is not None
+                and self.restart_trigger.check(mz.clock)):
             self._close_file()
 
         # ----------------------------------------------------------------
@@ -140,7 +142,8 @@ class ZarrWriter(fr.modules.Module):
             The formatted filename.
 
         """
-        # we first remove the suffix from the filename, if the suffix is .nc or .cdf
+        # we first remove the suffix from the filename, if the suffix is
+        # .nc or .cdf
         suffix = self.filename.suffix.lower()
         if suffix == ".zarr":
             base_name = self.filename.parent / self.filename.stem
@@ -178,7 +181,8 @@ class ZarrWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         store.attrs["Conventions"] = "CF-1.10"
         store.attrs["description"] = f"fridom: {self.mset.model_name}"
-        store.attrs["history"] = f"Created on {system_time.ctime(system_time.time())}"
+        store.attrs["history"] = (
+            f"Created on {system_time.ctime(system_time.time())}")
 
         # ----------------------------------------------------------------
         #  Create the dimensions

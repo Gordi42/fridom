@@ -15,7 +15,8 @@ class LinearTendency(fr.modules.Module):
     The linear tendency is given by:
 
     .. math::
-        \partial_t \boldsymbol{u} = f \underset{\neg}{\boldsymbol{v}} - \nabla p
+        \partial_t \boldsymbol{u} =
+            f \underset{\neg}{\boldsymbol{v}} - \nabla p
         ~, \quad
         \partial_t p = -c^2 \nabla \cdot \boldsymbol{u}
 

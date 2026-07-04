@@ -33,11 +33,15 @@ class RFFTPressureSolver(fr.modules.Module):
 
     def _set_dct_axes(self) -> None:
         periodic_axes = self.grid.periodic_bounds
-        self.fft_axes = {i for i, periodic in enumerate(periodic_axes) if periodic}
-        self.dct_axes = {i for i, periodic in enumerate(periodic_axes) if not periodic}
+        self.fft_axes = {i for i, periodic in enumerate(periodic_axes)
+                         if periodic}
+        self.dct_axes = {i for i, periodic in enumerate(periodic_axes)
+                         if not periodic}
 
-        # we don't need to perform any transform in axis with only one grid point
-        single_point_axes = {i for i, N in enumerate(self.grid.shape) if N == 1}
+        # we don't need to perform any transform in axis with only one
+        # grid point
+        single_point_axes = {i for i, N in enumerate(self.grid.shape)
+                             if N == 1}
         self.fft_axes -= single_point_axes
         self.dct_axes -= single_point_axes
 
@@ -76,7 +80,8 @@ class RFFTPressureSolver(fr.modules.Module):
             dso = fr.grid.cartesian.discrete_spectral_operators
             k = [dso.k_hat_squared(kx, dx, use_discrete=True)
                     for (kx,dx) in zip(k, grid.dx, strict=False)]
-            k = grid.domain_decomp.create_meshgrid(*k, pad=False, spectral=True)
+            k = grid.domain_decomp.create_meshgrid(
+                *k, pad=False, spectral=True)
             k_squared = k[0] + k[1] + k[2] / self.mset.dsqr
             with np.errstate(divide="ignore", invalid="ignore"):
                 k_squared_inv = 1 / k_squared
@@ -119,8 +124,10 @@ class RFFTPressureSolver(fr.modules.Module):
             return x
 
         dd = self.mset.grid.domain_decomp
-        self.forward_transform = dd.parallel_forward_transform(forward_transform)
-        self.backward_transform = dd.parallel_backward_transform(backward_transform)
+        self.forward_transform = dd.parallel_forward_transform(
+            forward_transform)
+        self.backward_transform = dd.parallel_backward_transform(
+            backward_transform)
 
     def _setup_transform_functions_single_gpu(self) -> None:
         dd = self.mset.grid.domain_decomp
@@ -173,13 +180,16 @@ class RFFTPressureSolver(fr.modules.Module):
             return x
 
         dd = self.mset.grid.domain_decomp
-        self.forward_transform = dd.parallel_forward_transform(forward_transform)
-        self.backward_transform = dd.parallel_backward_transform(backward_transform)
+        self.forward_transform = dd.parallel_forward_transform(
+            forward_transform)
+        self.backward_transform = dd.parallel_backward_transform(
+            backward_transform)
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         div_hat = self.forward_transform(mz.z_diag.div.arr)
-        mz.z_diag.p.arr = self.backward_transform(div_hat * self.k_squared_inv).real
+        mz.z_diag.p.arr = self.backward_transform(
+            div_hat * self.k_squared_inv).real
         return mz
 
     @property

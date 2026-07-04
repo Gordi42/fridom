@@ -6,8 +6,9 @@ Continuous Case
 
 The System Matrix
 -----------------
-Linearizing the shallow water equations (i.e. taking the limit :math:`Ro \rightarrow 0`)
-and performing a spatial Fourier transform, we obtain the following system:
+Linearizing the shallow water equations (i.e. taking the limit
+:math:`Ro \rightarrow 0`) and performing a spatial Fourier transform, we
+obtain the following system:
 
 .. math::
     \partial_t \boldsymbol{z} = -i \mathbf{A} \cdot \boldsymbol{z}
@@ -52,7 +53,8 @@ mode :math:`s=0,+,-` are given by:
                             f^2 - (\omega^s)^2
                         \end{pmatrix}
 
-For :math:`|\boldsymbol{k}| = 0` we obtain the eigenvectors for the inertial modes:
+For :math:`|\boldsymbol{k}| = 0` we obtain the eigenvectors for the
+inertial modes:
 
 .. math::
     \boldsymbol{q^s} = \begin{pmatrix} -is \\ s^2 \\ 1 - s^2 \end{pmatrix}
@@ -68,13 +70,15 @@ where the star denotes the hermitian transposed. Solving this equation for
 :math:`|\boldsymbol{k}| > 0` yields:
 
 .. math::
-    \boldsymbol{p^s} = \begin{pmatrix} q^s_x \\ q^s_y \\ c^{-2} q^s_z \end{pmatrix}
+    \boldsymbol{p^s} =
+        \begin{pmatrix} q^s_x \\ q^s_y \\ c^{-2} q^s_z \end{pmatrix}
 
 where :math:`q^s_i` denotes the :math:`i`-th component of the
 eigenvector :math:`\boldsymbol{q^s}`.
 
-For the inertial modes (i.e. :math:`|\boldsymbol{k}| = 0`), the projection vectors
-are equal to the eigenvectors. All projection vectors are normalized such that
+For the inertial modes (i.e. :math:`|\boldsymbol{k}| = 0`), the projection
+vectors are equal to the eigenvectors. All projection vectors are
+normalized such that
 :math:`{\boldsymbol{p^s}}^* \cdot \boldsymbol{p^s} = 1` holds.
 
 
@@ -97,7 +101,8 @@ A fourier transform yields the discrete spectral operators:
     \delta_x^- u \rightarrow \frac{1 - e^{-ik_x \Delta x}}{\Delta x} =
         i \hat{k}_x^- u
 
-Similarly, we define the forward and backward linear interpolation operators as:
+Similarly, we define the forward and backward linear interpolation
+operators as:
 
 .. math::
     \overline{u}^{x+} = \frac{u(x + \Delta x) + u(x)}{2}
@@ -155,6 +160,8 @@ For :math:`|\boldsymbol{k}| = 0` the eigenvectors are identical to the
 continuous case. The projection vectors are the same as in the continuous case,
 but by using the discrete eigenvectors.
 """
+from __future__ import annotations
+
 import numpy as np
 from numpy import ndarray
 
@@ -177,7 +184,7 @@ def omega(mset: sw.ModelSettings,
           use_discrete: bool = False
           ) -> ndarray:
     r"""
-    The eigenvalues of the System matrix.
+    Compute the eigenvalues of the system matrix.
 
     Computes the continuous or discrete eigenvalues as described in
     :py:mod:`eigenvectors <fridom.shallowwater.grid.cartesian.eigenvectors>`.
@@ -194,8 +201,8 @@ def omega(mset: sw.ModelSettings,
     `k` : `tuple[float] | tuple[ndarray]`
         The wavenumber tuple :math:`(k_x, k_y)`.
     `use_discrete` : `bool` (default: True)
-        If True, the discrete eigenvectors are returned. Otherwise, the continuous
-        eigenvectors are returned.
+        If True, the discrete eigenvectors are returned. Otherwise, the
+        continuous eigenvectors are returned.
 
     Returns
     -------
@@ -231,9 +238,9 @@ def omega(mset: sw.ModelSettings,
         fr.log.warning("c² is varying.")
         fr.log.warning("The eigenvalues and eigenvectors may be wrong.")
 
-    def ohpm(k, d):
+    def ohpm(k: ndarray, d: float) -> ndarray:
         return dso.one_hat_squared(k, d, use_discrete)
-    def khpm(k, d):
+    def khpm(k: ndarray, d: float) -> ndarray:
         return dso.k_hat_squared(k, d, use_discrete)
 
     # compute each part of the eigenvalue
@@ -251,9 +258,9 @@ def omega(mset: sw.ModelSettings,
 
 def vec_q(mset: sw.ModelSettings,
           s: int,
-          use_discrete=True) -> sw.State:
+          use_discrete: bool = True) -> sw.State:
     r"""
-    The eigenvectors of the system matrix.
+    Compute the eigenvectors of the system matrix.
 
     Computes the continuous or discrete eigenvectors as described in
     :py:mod:`eigenvectors <fridom.shallowwater.grid.cartesian.eigenvectors>`.
@@ -268,8 +275,8 @@ def vec_q(mset: sw.ModelSettings,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
     `use_discrete` : `bool` (default: True)
-        If True, the discrete eigenvectors are returned. Otherwise, the continuous
-        eigenvectors are returned.
+        If True, the discrete eigenvectors are returned. Otherwise, the
+        continuous eigenvectors are returned.
 
     Returns
     -------
@@ -283,13 +290,13 @@ def vec_q(mset: sw.ModelSettings,
     dx, dy = grid.dx
     f0 = mset.f0
 
-    def ohp(k, d):
+    def ohp(k: ndarray, d: float) -> ndarray:
         return dso.one_hat(k, d, +1, use_discrete)
-    def ohm(k, d):
+    def ohm(k: ndarray, d: float) -> ndarray:
         return dso.one_hat(k, d, -1, use_discrete)
-    def khp(k, d):
+    def khp(k: ndarray, d: float) -> ndarray:
         return dso.k_hat(k, d, +1, use_discrete)
-    def ohpm(k, d):
+    def ohpm(k: ndarray, d: float) -> ndarray:
         return dso.one_hat_squared(k, d, use_discrete)
 
     # compute the eigenvalue
@@ -320,7 +327,7 @@ def vec_p(mset: sw.ModelSettings,
           s: int,
           use_discrete: bool = True) -> sw.State:
     r"""
-    The projection vectors of the system matrix.
+    Compute the projection vectors of the system matrix.
 
     Computes the continuous or discrete projection vectors as described in
     :py:mod:`eigenvectors <fridom.shallowwater.grid.cartesian.eigenvectors>`.
@@ -335,8 +342,8 @@ def vec_p(mset: sw.ModelSettings,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
     `use_discrete` : `bool` (default: True)
-        If True, the discrete eigenvectors are returned. Otherwise, the continuous
-        eigenvectors are returned.
+        If True, the discrete eigenvectors are returned. Otherwise, the
+        continuous eigenvectors are returned.
 
     Returns
     -------

@@ -150,7 +150,7 @@ class FieldBase:
     @abstractmethod
     def sync(self: T) -> T:
         r"""
-        Synchronize the field across all MPI ranks and apply boundary conditions.
+        Synchronize the field across MPI ranks and apply boundary conditions.
 
         Description
         -----------
@@ -220,8 +220,8 @@ class FieldBase:
 
         Description
         -----------
-        This method sets the field to random values. If the field is in spectral
-        space, the random values are complex.
+        This method sets the field to random values. If the field is in
+        spectral space, the random values are complex.
 
         Parameters
         ----------
@@ -325,9 +325,9 @@ class FieldBase:
         Returns
         -------
         fr.VectorField | fr.TensorField
-            The gradient of the field along the specified axes. The list contains
-            the gradient components along each axis. Axis which are not included
-            in `axes` will have a value of `None`.
+            The gradient of the field along the specified axes. The list
+            contains the gradient components along each axis. Axis which
+            are not included in `axes` will have a value of `None`.
             E.g. for a 3D grid, `diff.grad(f, axes=[0, 2])` will return
             `[df/dx, None, df/dz]`.
 
@@ -372,10 +372,11 @@ class FieldBase:
         """
 
     @abstractmethod
-    def cumulative_integral(self: T,
-                            axis: int,
-                            direction: Literal["forward", "backward"] = "forward",
-                            ) -> T:
+    def cumulative_integral(
+        self: T,
+        axis: int,
+        direction: Literal["forward", "backward"] = "forward",
+    ) -> T:
         r"""
         Compute the cumulative integral along an axis.
 
@@ -593,9 +594,10 @@ class FieldBase:
         the sum is computed over all axes.
 
         .. note::
-            We recommend using the `f.integrate()` method to integrate the field
-            in certain directions. The `integrate()` method takes the grid spacing
-            into account while the `sum()` method does not.
+            We recommend using the `f.integrate()` method to integrate
+            the field in certain directions. The `integrate()` method
+            takes the grid spacing into account while the `sum()` method
+            does not.
 
         Parameters
         ----------
@@ -779,7 +781,8 @@ class FieldBase:
         Returns
         -------
         FieldBase
-            The complex conjugate. If the field is real, the field itself is returned.
+            The complex conjugate. If the field is real, the field itself
+            is returned.
 
         """
 

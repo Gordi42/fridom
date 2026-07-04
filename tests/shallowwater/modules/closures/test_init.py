@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/shallowwater/modules/closures/__init__.py file."""
+"""Test the imports in fridom/shallowwater/modules/closures/__init__.py."""
 import pytest
 
 import fridom.shallowwater.modules.closures as test_module

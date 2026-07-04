@@ -6,7 +6,8 @@ System of equations
 
 .. math::
 
-    \partial_t \boldsymbol{u} + Ro~\, \boldsymbol{u} \cdot \nabla \boldsymbol{u}
+    \partial_t \boldsymbol{u}
+        + Ro~\, \boldsymbol{u} \cdot \nabla \boldsymbol{u}
         = - f \underset{\neg}{\boldsymbol u}
           - \nabla p + \boldsymbol{F}_\boldsymbol{u}
 
@@ -46,9 +47,9 @@ neglect the source terms:
 
 where :math:`D_t = \partial_t + \boldsymbol{u} \cdot \nabla` is the material
 derivative and :math:`p'` is the pressure.
-Let the free surface displacement be given by :math:`\eta(x,y,t)`. By integrating
-the hydrostatic equation from some depth level :math:`z` to the surface, we
-obtain the pressure:
+Let the free surface displacement be given by :math:`\eta(x,y,t)`. By
+integrating the hydrostatic equation from some depth level :math:`z` to the
+surface, we obtain the pressure:
 
 .. math::
 
@@ -106,7 +107,8 @@ multiply with the gravitational acceleration :math:`g` yields
 
     D_t p + (p + c^2) \nabla \cdot \boldsymbol{u} = 0
     \quad \Longleftrightarrow \quad
-    \partial_t p + \nabla \cdot (p \boldsymbol{u}) = - c^2 \nabla \cdot \boldsymbol{u}
+    \partial_t p + \nabla \cdot (p \boldsymbol{u}) =
+        - c^2 \nabla \cdot \boldsymbol{u}
 
 with :math:`p = g \eta` and :math:`c^2 = g H`.
 
@@ -137,8 +139,8 @@ and introduce the following scaling:
     p = P p'
 
 where the variables with a prime are the nondimensional variables.
-we further introduce the Rossby number :math:`Ro`, the Froude number :math:`Fr`,
-and assume geostrophic balance on first order:
+we further introduce the Rossby number :math:`Ro`, the Froude number
+:math:`Fr`, and assume geostrophic balance on first order:
 
 .. math::
 
@@ -152,7 +154,8 @@ Inserting the nondimensional variables into the shallow water equations yields:
 
 .. math::
 
-    \partial_{t'} \boldsymbol{u}' + Ro~\, \boldsymbol{u}' \cdot \nabla' \boldsymbol{u}'
+    \partial_{t'} \boldsymbol{u}'
+        + Ro~\, \boldsymbol{u}' \cdot \nabla' \boldsymbol{u}'
         = - f' \underset{\neg}{\boldsymbol u}' - \nabla' p'
     ~, \quad
     \partial_{t'} p' + Ro~\, \nabla' \cdot \left( p' \boldsymbol{u}' \right)

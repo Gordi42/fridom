@@ -1,3 +1,4 @@
+"""Domain decomposition for single-device (serial) execution."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -10,6 +11,9 @@ if TYPE_CHECKING:
 ncp = fr.config.ncp
 @fr.utils.jaxify
 class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
+
+    """Domain decomposition where a single process holds the full domain."""
+
     def __init__(self, shape: tuple[int],  # noqa: PLR0915
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
@@ -22,7 +26,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         #  Halo exchange slices and paddings
         # ----------------------------------------------------------------
 
-        def _make_slice_tuple(slc):
+        def _make_slice_tuple(slc: slice) -> tuple[tuple[slice, ...], ...]:
             slice_list = []
             for i in range(self.n_dims):
                 full_slice = [slice(None)]*self.n_dims
@@ -92,17 +96,23 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             extend_unpad_slices.append(tuple(sl))
 
         self._pad_trim_zero_slice: tuple[slice] = tuple(trim_zero_slice)
-        self._extend_first_halfs: tuple[tuple[slice]] = tuple(extend_first_halfs)
-        self._extend_second_halfs: tuple[tuple[slice]] = tuple(extend_second_halfs)
+        self._extend_first_halfs: tuple[tuple[slice]] = tuple(
+            extend_first_halfs)
+        self._extend_second_halfs: tuple[tuple[slice]] = tuple(
+            extend_second_halfs)
         self._extend_pad: tuple[tuple[int]] = tuple(extend_paddings)
-        self._extend_unpad_slices: tuple[tuple[slice]] = tuple(extend_unpad_slices)
+        self._extend_unpad_slices: tuple[tuple[slice]] = tuple(
+            extend_unpad_slices)
         self._extend_factor = extend_factor
 
     # ================================================================
     #  Halo exchange
     # ================================================================
 
-    def sync(self, arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
+    def sync(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
+        """Synchronize the halo regions of an array."""
         # nothing to do if there are no halo regions
         if self.halo == 0:
             return arr
@@ -126,7 +136,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def _sync_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
         halo = self.halo
         x = ncp.swapaxes(x, 0, axis)
-        x = ncp.concatenate([ x[-2*halo:-halo], x[halo:-halo], x[halo:2*halo] ], axis=0)
+        x = ncp.concatenate(
+            [ x[-2*halo:-halo], x[halo:-halo], x[halo:2*halo] ], axis=0)
         return ncp.swapaxes(x, 0, axis)
 
     def _sync_non_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
@@ -140,7 +151,10 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Padding
     # ================================================================
 
-    def pad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
+    def pad(
+        self, arr: ndarray, flat_axes: tuple[int] | None = None,
+    ) -> ndarray:
+        """Add halo padding to an array."""
         if self.halo == 0:
             return arr
         ncp = fr.config.ncp
@@ -154,7 +168,10 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         arr = ncp.pad(arr, tuple(pw_periodic), mode="wrap")
         return ncp.pad(arr, tuple(pw_nonperiodic), mode="constant")
 
-    def unpad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
+    def unpad(
+        self, arr: ndarray, flat_axes: tuple[int] | None = None,
+    ) -> ndarray:
+        """Remove halo padding from an array."""
         if self.halo == 0:
             return arr
         # remove the paddings for flat axes
@@ -175,7 +192,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         if self.periods[axis]:
             first_part = arr[self._extend_first_halfs[axis]]
             second_part = arr[self._extend_second_halfs[axis]]
-            first_part = ncp.pad(first_part, self._extend_pad[axis], mode="constant")
+            first_part = ncp.pad(
+                first_part, self._extend_pad[axis], mode="constant")
             arr = ncp.concatenate((first_part, second_part), axis=axis)
         else:
             arr = ncp.pad(arr, self._extend_pad[axis], mode="constant")
@@ -195,18 +213,22 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         return arr
 
     def pad_extend(self, arr: ndarray) -> ndarray:
+        """Extend the array with zeros (for spectral padding)."""
         for axis in range(self.n_dims):
             arr = self._pad_extend_axis(arr, axis)
         return arr * self._extend_factor
 
     def unpad_extend(self, arr: ndarray) -> ndarray:
+        """Remove the extension of the array (for spectral padding)."""
         for axis in range(self.n_dims):
             arr = self._unpad_extend_axis(arr, axis)
         return arr / self._extend_factor
 
     def pad_trim(self, arr: ndarray) -> ndarray:
+        """Set the padded region to zero (for spectral padding)."""
         for axis in range(self.n_dims):
-            arr = fr.utils.modify_array(arr, self._pad_trim_zero_slice[axis], 0)
+            arr = fr.utils.modify_array(
+                arr, self._pad_trim_zero_slice[axis], 0)
         return arr
 
 
@@ -219,6 +241,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                slc: tuple[slice] | None = None,
                dest_rank: int | None = None,  # noqa: ARG002 (interface conformity)
                spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
+        """Gather an array to a single process."""
         if arr.shape == self.shape:
             return arr[slc]
         return arr[self._inner_slice][slc]
@@ -231,7 +254,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                          topo: tuple[bool] | None
                          ) -> tuple[tuple[int], tuple[int]]:
         """
-        Returns the shape and the flat axes for the given topology.
+        Return the shape and the flat axes for the given topology.
 
         Parameters
         ----------
@@ -246,7 +269,9 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             The flat axes of the array
         """
         shape = self.shape
-        flat_axes = [i for i, is_extended in enumerate(topo or []) if not is_extended]
+        flat_axes = [
+            i for i, is_extended in enumerate(topo or [])
+            if not is_extended]
         # we have to adjust the shape for the topology
         if topo is not None:
             shape = list(self.shape)
@@ -261,6 +286,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                      spectral: bool = False,
                      topo: tuple[bool] | None = None
                      ) -> ndarray:
+        """Create an array filled with zeros."""
         dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
         shape, flat_axes = self._get_array_attrs(topo)
         # create the array
@@ -276,13 +302,16 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                             spectral: bool = False,
                             topo: tuple[bool] | None = None
                             ) -> ndarray:
+        """Create an array filled with random numbers."""
         dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
         shape, flat_axes = self._get_array_attrs(topo)
         # create the array
-        arr = fr.utils.random_array(shape, seed, ignore_warning=True).astype(dtype)
+        arr = fr.utils.random_array(
+            shape, seed, ignore_warning=True).astype(dtype)
         # add imaginary part if the array is complex
         if spectral:
-            imag = fr.utils.random_array(shape, 2*seed+3, ignore_warning=True).astype(dtype)
+            imag = fr.utils.random_array(
+                shape, 2*seed+3, ignore_warning=True).astype(dtype)
             arr = arr + 1j*imag
         # pad the array
         if pad and not spectral:
@@ -293,6 +322,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                         *args: ndarray,
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:  # noqa: ARG002 (interface conformity)
+        """Create a meshgrid of arrays."""
         mesh = fr.config.ncp.meshgrid(*args, indexing="ij")
         if pad:
             mesh = tuple(self.pad(x) for x in mesh)
@@ -306,6 +336,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
+        """Sum an array across specified axes."""
         arr = self.unpad(arr)
         return fr.config.ncp.sum(arr, axis=axes, keepdims=True)
 
@@ -313,6 +344,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
+        """Find the maximum of an array across specified axes."""
         arr = self.unpad(arr)
         return fr.config.ncp.max(arr, axis=axes, keepdims=True)
 
@@ -320,6 +352,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
+        """Find the minimum of an array across specified axes."""
         arr = self.unpad(arr)
         return fr.config.ncp.min(arr, axis=axes, keepdims=True)
 

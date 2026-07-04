@@ -1,6 +1,8 @@
 """jax_utils.py - Utilities for JAX operations."""
+from __future__ import annotations
+
 import contextlib
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 with contextlib.suppress(ImportError):
     import jax
@@ -9,9 +11,9 @@ import fridom.framework as fr
 
 T = TypeVar("T")
 
-def jaxjit(fun: callable, *args, **kwargs) -> callable:
+def jaxjit(fun: callable, *args: Any, **kwargs: Any) -> callable:
     """
-    Decorator for JAX JIT compilation.
+    Decorate a function for JAX JIT compilation.
 
     Description
     -----------
@@ -45,7 +47,7 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
 
 def free_memory() -> None:
     """
-    This function deletes all live buffers in the JAX backend.
+    Delete all live buffers in the JAX backend.
 
     Description
     -----------
@@ -75,15 +77,17 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     be marked specified with the `dynamic` argument.
 
     .. note::
-        The `dynamic` argument must be a tuple of attribute names. If you only
-        have one dynamic attribute, use dynamic=('attr',) instead of dynamic=('attr').
+        The `dynamic` argument must be a tuple of attribute names. If
+        you only have one dynamic attribute, use dynamic=('attr',)
+        instead of dynamic=('attr').
 
     .. note::
-        If a static attribute is changed, all jit compiled functions of the class
-        must be recompiled. Hence, such attributes should be marked as dynamic.
-        However, marking an attribute as dynamic will increase the computational
-        cost. So, it is advisable to only mark attributes as dynamic that are
-        actually changing during the simulation.
+        If a static attribute is changed, all jit compiled functions of
+        the class must be recompiled. Hence, such attributes should be
+        marked as dynamic. However, marking an attribute as dynamic will
+        increase the computational cost. So, it is advisable to only
+        mark attributes as dynamic that are actually changing during the
+        simulation.
 
     .. warning::
         Methods that are jit compiled with fr.utils.jaxjit will not modify the
@@ -158,9 +162,10 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     cls.dynamic_jax_attrs = dynamic
 
     # define a function to flatten the class
-    def _tree_flatten(self):
+    def _tree_flatten(self: T) -> tuple[tuple, dict]:
         # Store all attributes that are marked as dynamic
-        children = tuple(getattr(self, attr) for attr in self.dynamic_jax_attrs)
+        children = tuple(
+            getattr(self, attr) for attr in self.dynamic_jax_attrs)
 
         # Store all other attributes as aux_data
         aux_data = {key: att for key, att in self.__dict__.items()
@@ -170,12 +175,15 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
 
     # define a function to unflatten the class
     @classmethod
-    def _tree_unflatten(cls, aux_data, children):
+    def _tree_unflatten(cls: type[T], aux_data: dict, children: tuple) -> T:
         obj = object.__new__(cls)
-        # be paranoid and check that the class has the dynamic_jax_attrs attribute
+        # be paranoid and check that the class has the
+        # dynamic_jax_attrs attribute
         if not hasattr(cls, "dynamic_jax_attrs"):
             # this should never happen
-            fr.log.error("The class %s does not have the dynamic_jax_attrs attribute.", cls)
+            fr.log.error(
+                "The class %s does not have the dynamic_jax_attrs "
+                "attribute.", cls)
             cls.dynamic_jax_attrs = set()
         # set static attributes
         for key, value in aux_data.items():

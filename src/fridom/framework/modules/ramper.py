@@ -23,8 +23,9 @@ class Ramper(fr.modules.Module):
     ramp_period : float
         The period over which the ramping should occur.
     update_parameters : Callable[[fr.ModelState, float], None], optional
-        A method that updates the model parameters based on the ramped value.
-        It should take the model state and the ramped value which is between 0 and 1.
+        A method that updates the model parameters based on the ramped
+        value. It should take the model state and the ramped value which
+        is between 0 and 1.
     ramp_function : str or Callable[[float], float], optional
         The ramp function. It can be one of the following strings:
         "exponential", "power_3", "cosine", "linear" or a custom callable.
@@ -32,9 +33,10 @@ class Ramper(fr.modules.Module):
 
     Description
     -----------
-    This module contains a list of ramp functions that can be used to ramp up and down
-    parameters during a simulation. This can be useful for adiabatic processes or
-    for slowly changing parameters. For example to ramp up the nonlinear term.
+    This module contains a list of ramp functions that can be used to ramp
+    up and down parameters during a simulation. This can be useful for
+    adiabatic processes or for slowly changing parameters. For example to
+    ramp up the nonlinear term.
 
     """
 
@@ -160,11 +162,13 @@ class Ramper(fr.modules.Module):
         return self._ramp_func
 
     @ramp_function.setter
-    def ramp_function(self, value: Literal["exponential",
-                                           "power_3",
-                                           "cosine",
-                                           "linear"] | Callable[[float], float],
-                      ) -> None:
+    def ramp_function(
+            self,
+            value: Literal["exponential",
+                           "power_3",
+                           "cosine",
+                           "linear"] | Callable[[float], float],
+    ) -> None:
         # If the value is a callable, set the ramp function to that callable
         if callable(value):
             self._ramp_name = value.__name__

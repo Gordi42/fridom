@@ -1,3 +1,6 @@
+"""Wave package initial condition."""
+from __future__ import annotations
+
 import fridom.nonhydro as nh
 
 
@@ -8,20 +11,24 @@ class WavePackage(nh.State):
 
     Description
     -----------
-    Creates a polarized single wave (:py:class:`nh.initial_conditions.SingleWave`)
+    Creates a polarized single wave
+    (:py:class:`nh.initial_conditions.SingleWave`)
     and applies a mask to it. The mask is a Gaussian function centered at
     `mask_pos` with a width of `mask_width`:
 
     .. math::
-        M(\boldsymbol x) = \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
+        M(\boldsymbol x) =
+            \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
 
     where :math:`p_i` is the position and :math:`w_i` is the width of the mask
     in the :math:`i`-th direction. The final wave package is given by:
 
     .. math::
-        z = \mathbf{P}_s \cdot \left( S(\boldsymbol{x}) M(\boldsymbol{x}) \right)
+        z = \mathbf{P}_s \cdot
+            \left( S(\boldsymbol{x}) M(\boldsymbol{x}) \right)
 
-    where :math:`S(\boldsymbol{x})` is the single wave and :math:`\\mathbf{P}_s`
+    where :math:`S(\boldsymbol{x})` is the single wave and
+    :math:`\\mathbf{P}_s`
     is the projection operator onto the mode `s`.
 
     Parameters
@@ -80,7 +87,8 @@ class WavePackage(nh.State):
 
         # Construct mask
         mask = ncp.ones_like(grid.x_mesh[0])
-        for x, pos, width in zip(grid.x_mesh, mask_pos, mask_width, strict=False):
+        for x, pos, width in zip(
+                grid.x_mesh, mask_pos, mask_width, strict=False):
             if pos is not None and width is not None:
                 mask *= ncp.exp(-(x - pos)**2 / width**2)
 

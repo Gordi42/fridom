@@ -22,7 +22,8 @@ the momentum equations:
 The buoyancy equation:
 
 .. math::
-    \partial_t b + Ro~, \boldsymbol{u} \cdot \nabla b = -w N^2 + \boldsymbol{F}_b
+    \partial_t b + Ro~, \boldsymbol{u} \cdot \nabla b =
+        -w N^2 + \boldsymbol{F}_b
 
 The vertical velocity is given by the continuity equation:
 
@@ -54,8 +55,9 @@ vertical momentum equation. Which is originally given by:
     \partial_t w + Ro~\, \boldsymbol{u} \cdot \nabla w =
         \delta^{-2} b - \delta^{-2} \partial_z p + \boldsymbol{F}_w
 
-by assuming a small aspect ratio (e.g. :math:`\delta = H/L \ll 1`). The vertical
-momentum equation is then replaced by the hydrostatic balance equation:
+by assuming a small aspect ratio (e.g. :math:`\delta = H/L \ll 1`). The
+vertical momentum equation is then replaced by the hydrostatic balance
+equation:
 
 .. math::
     \partial_z p = b

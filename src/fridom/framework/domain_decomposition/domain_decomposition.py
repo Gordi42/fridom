@@ -13,7 +13,7 @@ import fridom.framework as fr
 class DomainDecomposition:
 
     """
-    Construct a grid of processors and decompose a global domain into subdomains.
+    Construct a processor grid and decompose a domain into subdomains.
 
     Description
     -----------
@@ -52,8 +52,8 @@ class DomainDecomposition:
         The number of halo cells (ghost cells) around the local domain
         for the exchange of boundary values.
     `periods` : `tuple[bool]`, optional (default=None)
-        A list of booleans indicating whether the domain is periodic in each dimension.
-        If None, all dimensions are periodic.
+        A list of booleans indicating whether the domain is periodic in
+        each dimension. If None, all dimensions are periodic.
     `shared_axes` : `list[int]`, optional (default=None)
         A list of axes that are shared between processors.
     `device_ids` : `list[int]`, optional (default=None)
@@ -81,7 +81,9 @@ class DomainDecomposition:
     # ================================================================
 
     @abstractmethod
-    def sync(self, arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
+    def sync(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
         """
         Synchronize the halo regions of an array across all processes.
 
@@ -259,7 +261,8 @@ class DomainDecomposition:
         `spectral` : bool
             Whether the array is in spectral space.
         `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
+            The topology of the array. Axes with false are flat
+            (only one grid point)
         """
 
     @abstractmethod
@@ -281,7 +284,8 @@ class DomainDecomposition:
         `spectral` : bool
             Whether the array is in spectral space.
         `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
+            The topology of the array. Axes with false are flat
+            (only one grid point)
 
         """
 
@@ -409,9 +413,10 @@ class DomainDecomposition:
         arr : ndarray
             The array to roll.
         shift : int | tuple[int]
-            The number of places by which elements are shifted. Rolling the array
-            [1,2,3,4,5] with shift=1 results in [5,1,2,3,4]. If a tuple is given,
-            the axis must also be a tuple of the same length.
+            The number of places by which elements are shifted. Rolling
+            the array [1,2,3,4,5] with shift=1 results in [5,1,2,3,4].
+            If a tuple is given, the axis must also be a tuple of the
+            same length.
         axis : int | tuple[int]
             The axis or axes to roll along. If a tuple is given, the shift must
             also be a tuple of the same length.
@@ -424,7 +429,7 @@ class DomainDecomposition:
     # ================================================================
     def shard_map(self, func: callable) -> callable:
         """
-        Decorator to apply a function to the active processes only.
+        Decorate a function to apply it to the active processes only.
 
         Parameters
         ----------

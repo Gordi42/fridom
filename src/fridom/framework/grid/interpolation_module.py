@@ -16,8 +16,9 @@ class InterpolationModule(fr.modules.Module):
 
     Description
     -----------
-    An interpolation module is a class that interpolates a field from one position
-    to another. For example, from the cell face to the cell center.
+    An interpolation module is a class that interpolates a field from one
+    position to another. For example, from the cell face to the cell
+    center.
     """
 
     name = "Interpolation Module"
@@ -60,7 +61,8 @@ class InterpolationModule(fr.modules.Module):
                 # no interpolation when the field has no extend along the axis
                 continue
 
-            arr = self._interpolate_axis(arr, axis, destination.positions[axis])
+            arr = self._interpolate_axis(
+                arr, axis, destination.positions[axis])
 
         mdata = deepcopy(f.mdata)
         mdata.position = destination

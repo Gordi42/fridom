@@ -28,7 +28,8 @@ COEFFS_BETA2 = {
     3: [13.0/12.0, 1.0/4.0],
 }
 
-MAX_STENCIL_SIZE = max(*COEFFS_D.keys(), *COEFFS_BETA1.keys(), *COEFFS_BETA2.keys())
+MAX_STENCIL_SIZE = max(
+    *COEFFS_D.keys(), *COEFFS_BETA1.keys(), *COEFFS_BETA2.keys())
 
 
 @fr.utils.jaxify
@@ -59,7 +60,8 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
 
         # check if the order is valid (only odd orders are allowed)
         if order % 2 == 0:
-            msg = f"Order {order} is not odd. Please use an odd order for WENO."
+            msg = (f"Order {order} is not odd. "
+                   "Please use an odd order for WENO.")
             raise ValueError(msg)
 
         self.order = order
@@ -87,18 +89,22 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
         size = self.stencil_size
 
         all_stencils = [fr.grid.Stencil(
-            grid=self.grid, size=size, offset=size - n - 1, destination=destination,
+            grid=self.grid, size=size, offset=size - n - 1,
+            destination=destination,
             ).view(x, axis=axis) for n in range(size + 1)]
 
         left_weights = self._compute_weights(all_stencils[:-1], mode="left")
         right_weights = self._compute_weights(all_stencils[1:], mode="right")
 
         # compute the interpolations candidates for all stencils
-        candidates = [sum(v*c for c, v in zip(self.pol_coeffs[size - n], stencil, strict=False))
-                        for n, stencil in enumerate(all_stencils)]
+        candidates = [sum(v*c for c, v in zip(
+                          self.pol_coeffs[size - n], stencil, strict=False))
+                      for n, stencil in enumerate(all_stencils)]
 
-        left = sum(w*c for w, c in zip(left_weights, candidates[:-1], strict=False))
-        right = sum(w*c for w, c in zip(right_weights, candidates[1:], strict=False))
+        left = sum(w*c for w, c
+                   in zip(left_weights, candidates[:-1], strict=False))
+        right = sum(w*c for w, c
+                    in zip(right_weights, candidates[1:], strict=False))
 
         return ncp.where(bias > 0, left, right)
 
@@ -119,15 +125,17 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
         # compute the smoothness indicators for each stencil
         smoothness_indicators = [
             sum(beta2[derivative_order] * (
-                sum(beta1[stencil_number, derivative_order, stencil_index] * value
+                sum(beta1[stencil_number, derivative_order, stencil_index]
+                        * value
                         for stencil_index, value in enumerate(sort(stencil))
                     ) ** 2
                 ) for derivative_order in range(derivative_orders)
             ) for stencil_number, stencil in enumerate(sort(stencils))]
 
         # compute the weights for each stencil
-        weights = [self.coeff_d[stencil_number] / ( (beta + self.eps) ** 2 )
-                   for stencil_number, beta in enumerate(smoothness_indicators)]
+        weights = [
+            self.coeff_d[stencil_number] / ( (beta + self.eps) ** 2 )
+            for stencil_number, beta in enumerate(smoothness_indicators)]
 
         # normalize the weights
         weights_sum = sum(weights)

@@ -1,3 +1,6 @@
+"""Save a figure created by a Plotter module to a file."""
+from __future__ import annotations
+
 from pathlib import Path
 
 import fridom.framework as fr
@@ -41,6 +44,7 @@ class FigureSaver(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
+        """Save the figure if the model time has been reached."""
         if mz.clock.time < self.model_time:
             return mz
         if self._created:

@@ -1,4 +1,4 @@
-
+"""Spectral grid based on the cartesian grid."""
 import numpy as np
 
 import fridom.framework as fr
@@ -6,6 +6,9 @@ import fridom.framework as fr
 
 @fr.utils.jaxify
 class Grid(fr.grid.cartesian.Grid):
+
+    """Spectral grid with spectral differentiation operators."""
+
     def __init__(self,
                  shape: list[int],
                  domain_size: list[float],
@@ -21,19 +24,22 @@ class Grid(fr.grid.cartesian.Grid):
         self.spectral_grid = True
 
     def setup(self, mset: "fr.ModelSettingsBase") -> None:
+        """Set up the grid (see :py:meth:`fr.grid.GridBase.setup`)."""
         super().setup(mset, req_halo=0)
 
     def get_mesh(self,
                  position: fr.grid.Position | None = None,  # noqa: ARG002 (interface conformity)
                  spectral: bool = False ) -> tuple[np.ndarray]:
+        """Return the meshgrid at the cell center."""
         return super().get_mesh(position=self.cell_center, spectral=spectral)
 
     def fft(self,
             arr: np.ndarray,
-            padding = fr.grid.FFTPadding.NOPADDING,
+            padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
             bc_types: tuple[fr.grid.BCType] | None = None,
             positions: tuple[fr.grid.AxisPosition] | None = None,  # noqa: ARG002 (interface conformity)
             ) -> np.ndarray:
+        """Transform an array from physical to spectral space."""
         return super().fft(arr=arr,
                            padding=padding,
                            bc_types=bc_types,
@@ -41,10 +47,11 @@ class Grid(fr.grid.cartesian.Grid):
 
     def ifft(self,
              arr: np.ndarray,
-             padding = fr.grid.FFTPadding.NOPADDING,
+             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,  # noqa: ARG002 (interface conformity)
              ) -> np.ndarray:
+        """Transform an array from spectral to physical space."""
         return super().ifft(arr=arr,
                             padding=padding,
                             bc_types=bc_types,

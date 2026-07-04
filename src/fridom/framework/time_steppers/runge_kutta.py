@@ -106,19 +106,25 @@ class RKMethods(Enum):
     )
 
     RKF45 = ButcherTableau(
-        a = np.array([[        0,          0,          0,         0,      0, 0],
-                      [      1/4,          0,          0,         0,      0, 0],
-                      [     3/32,       9/32,          0,         0,      0, 0],
-                      [1932/2197, -7200/2197,  7296/2197,         0,      0, 0],
-                      [  439/216,         -8,   3680/513, -845/4104,      0, 0],
-                      [    -8/27,          2, -3544/2565, 1859/4104, -11/40, 0]]),
+        a = np.array([
+            [        0,          0,          0,         0,      0, 0],
+            [      1/4,          0,          0,         0,      0, 0],
+            [     3/32,       9/32,          0,         0,      0, 0],
+            [1932/2197, -7200/2197,  7296/2197,         0,      0, 0],
+            [  439/216,         -8,   3680/513, -845/4104,      0, 0],
+            [    -8/27,          2, -3544/2565, 1859/4104, -11/40, 0]]),
         b = np.array([16/135,   0, 6656/12825, 28561/56430, -9/50, 2/55]),
         c = np.array([     0, 1/4,        3/8,       12/13,     1,  1/2]),
         b_error = np.array([-1/360, 0, 128/4275,  2197/75240, -1/50, -2/55]),
     )
 
 @fr.utils.jaxjit
-def sum_product(coeefs, dt, k):
+def sum_product(
+    coeefs: np.ndarray,
+    dt: float,
+    k: list[fr.VectorField],
+) -> fr.VectorField | float:
+    """Compute the weighted sum of the scaled tendencies."""
     return sum(coeefs[i] * dt * k[i] for i in range(len(k)))
 
 @fr.utils.jaxjit
@@ -130,6 +136,8 @@ def _compute_tendency(
 
 #TODO(Silvano): Jaxify this class
 class RungeKutta(fr.time_steppers.TimeStepper):
+
+    """Runge-Kutta time stepping schemes based on Butcher tableaus."""
 
     #TODO(Silvano): Add documentation
 
@@ -147,7 +155,9 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         self.tol = tol
 
     def _on_setup(self) -> None:
-        self.dz_list = [self.mset.state_constructor() for _ in range(self.method.order)]
+        self.dz_list = [
+            self.mset.state_constructor()
+            for _ in range(self.method.order)]
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
@@ -172,7 +182,8 @@ class RungeKutta(fr.time_steppers.TimeStepper):
             for i in range(order):
                 # FIXME(Silvano): in each error estimation step, we currently
                 # advance the clock.
-                # This is likely a problem for tendencies that depend on the cock
+                # This is likely a problem for tendencies that depend on
+                # the cock
                 mod_state.clock.tick(method.c[i] * dt)
                 mod_state.z = mz.z + sum_product(method.a[i], dt, k)
                 mod_state.dz = self.dz_list[i]
@@ -182,11 +193,11 @@ class RungeKutta(fr.time_steppers.TimeStepper):
             if method.b_error is not None:
                 te = sum_product(method.b_error, dt, k)
                 error = sum(f.norm_l2() for f in te.field_list)
+                new_dt = float(0.9 * dt * (self.tol / error) ** (1 / order))
                 if self.max_dt is not None:
-                    self.dt = min(float(0.9 * dt * (self.tol / error) ** (1 / order)),
-                                  self.max_dt)
+                    self.dt = min(new_dt, self.max_dt)
                 else:
-                    self.dt = float(0.9 * dt * (self.tol / error) ** (1 / order))
+                    self.dt = new_dt
             else:
                 error = 0
 

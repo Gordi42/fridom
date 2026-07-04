@@ -1,8 +1,8 @@
 """Test of framework/modules/restart_module.py."""
 import logging
-from io import StringIO
 import shutil
 import tempfile
+from io import StringIO
 from pathlib import Path
 
 import numpy as np
@@ -27,7 +27,6 @@ def file_path(directory):
 @pytest.fixture
 def capture_logs():
     """Fixture to capture log output."""
-
     stream = StringIO()
     handler = logging.StreamHandler(stream)
     handler.setFormatter(logging.Formatter("%(asctime)s: %(message)s"))
@@ -46,8 +45,10 @@ def mset():
 
 @pytest.mark.parametrize("kwargs", [
     pytest.param({}, id="default"),
-    pytest.param({"realtime_interval": np.timedelta64(1, "h")}, id="realtime_interval"),
-    pytest.param({"clock_trigger": fr.ClockTrigger(step_size=100)}, id="clock_trigger"),
+    pytest.param({"realtime_interval": np.timedelta64(1, "h")},
+                 id="realtime_interval"),
+    pytest.param({"clock_trigger": fr.ClockTrigger(step_size=100)},
+                 id="clock_trigger"),
     pytest.param({"restart_command": "python model.py"}, id="restart_command"),
 ])
 def test_init(mset, kwargs, file_path):
@@ -74,7 +75,8 @@ def test_init(mset, kwargs, file_path):
 def test_enabled_disabled(mset, kwargs, file_path, should_be_enabled):
     """Test if the module is disabled."""
     assert not mset.restart_module.is_enabled()
-    mset.restart_module = fr.modules.RestartModule(**kwargs, file_path=file_path)
+    mset.restart_module = fr.modules.RestartModule(**kwargs,
+                                                   file_path=file_path)
     mset.setup()
     assert mset.restart_module.is_enabled() == should_be_enabled
 
@@ -98,7 +100,8 @@ def test_wrong_realtime_interval(realtime_interval, file_path, should_raise):
 def test_restart_command(file_path):
     """Test the restart command."""
     command = "python model.py"
-    mod = fr.modules.RestartModule(restart_command=command, file_path=file_path)
+    mod = fr.modules.RestartModule(restart_command=command,
+                                   file_path=file_path)
     assert mod.restart_command == command
 
 def run_model(mset):
@@ -121,7 +124,8 @@ def run_model(mset):
     model.run(steps=100)
     # print the counter at the end of the run
     if not model.model_state.panicked:
-        fr.log.notice("Counter: %s", model.diagnostics.get("Counter")[0].counter)
+        fr.log.notice("Counter: %s",
+                      model.diagnostics.get("Counter")[0].counter)
 
 def test_restart_with_clock(capture_logs, mset, file_path):
     # Check that the restart directory is empty
@@ -136,7 +140,8 @@ def test_restart_with_clock(capture_logs, mset, file_path):
     # Run the model
     run_model(mset)
     # Check that restart files were created
-    restart_files = ["restart_31_0.dill", "restart_61_0.dill", "restart_91_0.dill"]
+    restart_files = ["restart_31_0.dill", "restart_61_0.dill",
+                     "restart_91_0.dill"]
     assert set(restart_files) == {
         f.name for f in file_path.parent.iterdir()}
     # Check that the counter is printed

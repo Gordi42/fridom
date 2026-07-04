@@ -64,7 +64,8 @@ def test_run_steps(mset, start_step):
     # check that the clock is correct
     clock = model.model_state.clock
     assert clock.it == start_step + number_of_steps
-    assert np.isclose(clock._passed_time, number_of_steps * mset.time_stepper.dt)
+    assert np.isclose(clock._passed_time,
+                      number_of_steps * mset.time_stepper.dt)
 
     # check that the model has not panicked
     assert not model.model_state.panicked

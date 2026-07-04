@@ -64,13 +64,15 @@ def test_padding(halo, shape):
         left_halo[axis] = slice(0, halo)
         right_inside = [slice(None) for _ in shape]
         right_inside[axis] = slice(-2*halo, -halo)
-        assert (u_padded[tuple(left_halo)] == u_padded[tuple(right_inside)]).all()
+        assert (u_padded[tuple(left_halo)]
+                == u_padded[tuple(right_inside)]).all()
         # right halos
         right_halo = [slice(None) for _ in shape]
         right_halo[axis] = slice(-halo, None)
         left_inside = [slice(None) for _ in shape]
         left_inside[axis] = slice(halo, 2*halo)
-        assert (u_padded[tuple(right_halo)] == u_padded[tuple(left_inside)]).all()
+        assert (u_padded[tuple(right_halo)]
+                == u_padded[tuple(left_inside)]).all()
 
 def test_unpad(halo, shape):
     domain = fr.domain_decomposition.SingleDecomposition(
@@ -153,13 +155,15 @@ def test_halo_exchange(halo, shape):
         left_halo[axis] = slice(0, halo)
         right_inside = [slice(None) for _ in shape]
         right_inside[axis] = slice(-2*halo, -halo)
-        assert (u_padded[tuple(left_halo)] == u_padded[tuple(right_inside)]).all()
+        assert (u_padded[tuple(left_halo)]
+                == u_padded[tuple(right_inside)]).all()
         # right halos
         right_halo = [slice(None) for _ in shape]
         right_halo[axis] = slice(-halo, None)
         left_inside = [slice(None) for _ in shape]
         left_inside[axis] = slice(halo, 2*halo)
-        assert (u_padded[tuple(right_halo)] == u_padded[tuple(left_inside)]).all()
+        assert (u_padded[tuple(right_halo)]
+                == u_padded[tuple(left_inside)]).all()
 
 # ================================================================
 #  Test fft

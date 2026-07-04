@@ -43,7 +43,8 @@ where :math:`\pm` denotes the forward (+) or backward (-) finite difference.
 A fourier transform yields the discrete spectral operator:
 
 .. math::
-    \delta_x^\pm u \rightarrow \pm \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}u =
+    \delta_x^\pm u \rightarrow
+        \pm \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}u =
         i \hat{k}_x^\pm u
 
 Hence, the discrete spectral operator `k_hat` is given by:
@@ -71,7 +72,10 @@ import fridom.framework as fr
 # ================================================================
 #  Discrete spectral operators (one-hat-plus etc.)
 # ================================================================
-def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
+def one_hat(kx: ndarray,
+            dx: float,
+            sign: int,
+            use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator for the forward linear interpolation.
 
@@ -104,7 +108,9 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
         return (1 + fr.config.ncp.exp(sign * 1j * kx * dx)) / 2
     return 1
 
-def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
+def one_hat_squared(kx: ndarray,
+                    dx: float,
+                    use_discrete: bool = True) -> ndarray:
     r"""
     Discrete spectral operator of forward - backward linear interpolation.
 
@@ -136,7 +142,10 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
         return (1 + fr.config.ncp.cos(kx*dx)) / 2
     return 1
 
-def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
+def k_hat(kx: ndarray,
+          dx: float,
+          sign: int,
+          use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator for the forward finite difference.
 
@@ -169,7 +178,9 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
         return sign * 1j * (1 - fr.config.ncp.exp(sign * 1j * kx * dx)) / dx
     return kx
 
-def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
+def k_hat_squared(kx: ndarray,
+                  dx: float,
+                  use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator of forward - backward finite difference.
 

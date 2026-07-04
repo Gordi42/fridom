@@ -50,7 +50,8 @@ class FluxDivergenceBase(fr.modules.advection.AdvectionBase):
             Momentum flux tensor (vel*u, vel*v, vel*w).
 
         """
-        msg = "Subclasses must implement the compute_momentum_flux_tensor method."
+        msg = ("Subclasses must implement the"
+               " compute_momentum_flux_tensor method.")
         raise NotImplementedError(msg)
 
     @abstractmethod

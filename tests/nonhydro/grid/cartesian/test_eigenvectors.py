@@ -36,7 +36,8 @@ def mset(request):
     grid = nh.grid.cartesian.Grid(shape=grid_shape,
                                   domain_size=domain_extent,
                                   periodic_bounds=(True, True, True))
-    return nh.ModelSettings(grid, f0=f0, stratification_n2=n_squared, dsqr=aspect_ratio**2).setup()
+    return nh.ModelSettings(grid, f0=f0, stratification_n2=n_squared,
+                            dsqr=aspect_ratio**2).setup()
 
 @pytest.fixture(
     params=[
@@ -51,7 +52,8 @@ def mset_2d(request):
     grid = nh.grid.cartesian.Grid(shape=(128, 1, 128),
                                   domain_size=domain_extent,
                                   periodic_bounds=(True, True, True))
-    return nh.ModelSettings(grid, f0=f0, stratification_n2=n_squared, dsqr=aspect_ratio**2).setup()
+    return nh.ModelSettings(grid, f0=f0, stratification_n2=n_squared,
+                            dsqr=aspect_ratio**2).setup()
 
 # ================================================================
 #  Tests
@@ -82,7 +84,8 @@ def test_pq_is_kronecker_product(
 ))
 def test_invalid_model_settings(f0, beta, n_squared, mode1, vector):
     grid = nh.grid.cartesian.Grid(shape=(3, 3, 3), domain_size=(1, 1, 1))
-    nh.ModelSettings(grid, f0=f0, beta=beta, stratification_n2=n_squared).setup()
+    nh.ModelSettings(grid, f0=f0, beta=beta,
+                     stratification_n2=n_squared).setup()
 
     vec_constructor = getattr(grid, vector)
 

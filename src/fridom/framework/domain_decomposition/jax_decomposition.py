@@ -1,3 +1,4 @@
+"""Domain decomposition based on JAX sharding."""
 from __future__ import annotations
 
 from functools import cached_property, partial
@@ -19,6 +20,9 @@ ncp = fr.config.ncp
 
 @fr.utils.jaxify
 class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
+
+    """Domain decomposition that distributes arrays with JAX sharding."""
+
     def __init__(self,
                  shape: tuple[int],
                  halo: int = 0,
@@ -30,7 +34,8 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
         self._rank = jax.process_index()
         self.n_ranks = jax.process_count()
-        self.n_devices = jax.device_count() if self.n_ranks == 1 else self.n_ranks
+        self.n_devices = (
+            jax.device_count() if self.n_ranks == 1 else self.n_ranks)
 
         if len(shape) < MINIMUM_NUMBER_OF_DIMS:
             msg = f"Must have at least {MINIMUM_NUMBER_OF_DIMS} dimensions."
@@ -53,7 +58,9 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
         for dim in range(len(local_shape)):
             if local_shape[dim] < self.halo:
-                msg = f"Local shape {local_shape} is smaller than halo {self.halo} in dimension {dim}"
+                msg = (
+                    f"Local shape {local_shape} is smaller than halo "
+                    f"{self.halo} in dimension {dim}")
                 raise ValueError(msg)
 
 
@@ -63,7 +70,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         inner = slice(self.halo, -self.halo) if self.halo > 0 else slice(None)
         self._inner_slice = tuple([inner]*self.n_dims)
 
-    def _permute_spec(self, dim1, dim2):
+    def _permute_spec(self, dim1: int, dim2: int) -> P:
         spec_list = list(self._spec_main)
         spec_list[dim1], spec_list[dim2] = spec_list[dim2], spec_list[dim1]
         return P(*spec_list)
@@ -72,17 +79,22 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Halo exchange
     # ================================================================
 
-    def sync(self, arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
+    def sync(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
+        """Synchronize the halo regions of an array across all processes."""
         halo = self.halo
         n_devices = self.n_devices
 
         @self.main_shard_map
-        def halo_exchange_across_x(x):
+        def halo_exchange_across_x(x: ndarray) -> ndarray:
             left_halo = x[halo : 2 * halo]
             right_halo = x[-(2 * halo) : -halo]
 
-            permutations_forward = [(i, (i + 1) % n_devices) for i in range(n_devices)]
-            permutations_backward = [(i, (i - 1) % n_devices) for i in range(n_devices)]
+            permutations_forward = [
+                (i, (i + 1) % n_devices) for i in range(n_devices)]
+            permutations_backward = [
+                (i, (i - 1) % n_devices) for i in range(n_devices)]
 
             if not self.periods[0]:
                 # last device has no right neighbor
@@ -102,19 +114,22 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             )
 
             return jax.numpy.concatenate(
-                [received_left_halo, x[halo:-halo], received_right_halo], axis=0)
+                [received_left_halo, x[halo:-halo], received_right_halo],
+                axis=0)
 
-        def halo_exchange_axis(x, dim):
+        def halo_exchange_axis(x: ndarray, dim: int) -> ndarray:
             x = ncp.swapaxes(x, 0, dim)
             spec = self._permute_spec(0, dim)
-            def halo_exchange(x):
+            def halo_exchange(x: ndarray) -> ndarray:
                 if not self.periods[dim]:
                     left = right = ncp.zeros_like(x[:halo])
                 else:
                     left = x[halo : 2 * halo]
                     right = x[-(2 * halo) : -halo]
                 return ncp.concatenate([right, x[halo:-halo], left], axis=0)
-            x = shard_map(halo_exchange, mesh=self.mesh, in_specs=spec, out_specs=spec)(x)
+            x = shard_map(
+                halo_exchange, mesh=self.mesh,
+                in_specs=spec, out_specs=spec)(x)
             return ncp.swapaxes(x, 0, dim)
 
         x = halo_exchange_across_x(arr)
@@ -130,8 +145,11 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     # ================================================================
 
     def parallel_forward_transform(self, func: callable) -> callable:
+        """Wrap a forward transform to work on distributed arrays."""
 
-        def _my_forward_transform(arr: ndarray, axes: list[int] | None = None) -> ndarray:
+        def _my_forward_transform(
+            arr: ndarray, axes: list[int] | None = None,
+        ) -> ndarray:
             axes = set(axes or list(range(self.n_dims)))
             # unpad the array
             arr = self.unpad(arr)
@@ -140,7 +158,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             matching_axes = possible_axes & axes
             if matching_axes:
                 @self.main_shard_map
-                def apply_func(arr):
+                def apply_func(arr: ndarray) -> ndarray:
                     return func(arr, axes=tuple(matching_axes))
                 arr = apply_func(arr)
             # switch to alternative sharding
@@ -148,7 +166,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             # apply the forward transform in the x-axis
             if 0 in axes:
                 @self.alt_shard_map
-                def apply_func(arr):
+                def apply_func(arr: ndarray) -> ndarray:
                     return func(arr, axes=(0,))
                 arr = apply_func(arr)
             return arr
@@ -156,13 +174,16 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         return _my_forward_transform
 
     def parallel_backward_transform(self, func: callable) -> callable:
+        """Wrap a backward transform to work on distributed arrays."""
 
-        def _my_backward_transform(arr, axes: list[int] | None = None):
+        def _my_backward_transform(
+            arr: ndarray, axes: list[int] | None = None,
+        ) -> ndarray:
             axes = set(axes or list(range(self.n_dims)))
             # apply the backward transform in the x-axis
             if 0 in axes:
                 @self.alt_shard_map
-                def apply_func(arr):
+                def apply_func(arr: ndarray) -> ndarray:
                     return func(arr, axes=(0,))
                 arr = apply_func(arr)
 
@@ -174,7 +195,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             matching_axes = possible_axes & axes
             if matching_axes:
                 @self.main_shard_map
-                def apply_func(arr):
+                def apply_func(arr: ndarray) -> ndarray:
                     return func(arr, axes=tuple(matching_axes))
                 arr = apply_func(arr)
             arr = self.pad(arr)
@@ -188,6 +209,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     @cached_property
     def pad(self) -> callable:
+        """Return a function that adds halo padding to an array."""
         def pad(arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
             if self.halo == 0:
                 return arr
@@ -207,7 +229,10 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     @cached_property
     def unpad(self) -> callable:
-        def unpad(arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
+        """Return a function that removes halo padding from an array."""
+        def unpad(
+            arr: ndarray, flat_axes: list[int] | None = None,
+        ) -> ndarray:
             if self.halo == 0:
                 return arr
 
@@ -228,14 +253,17 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     # ----------------------------------------------------------------
 
     def pad_extend(self, arr: ndarray) -> ndarray:
+        """Extend the array with zeros (not supported)."""
         msg = "Spectral padding not supported in JaxDecomposition."
         raise NotImplementedError(msg)
 
     def unpad_extend(self, arr: ndarray) -> ndarray:
+        """Remove the extension of the array (not supported)."""
         msg = "Spectral padding not supported in JaxDecomposition."
         raise NotImplementedError(msg)
 
     def pad_trim(self, arr: ndarray) -> ndarray:
+        """Set the padded region to zero (not supported)."""
         msg = "Spectral padding not supported in JaxDecomposition."
         raise NotImplementedError(msg)
 
@@ -248,6 +276,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                slc: tuple[slice] | None = None,
                dest_rank: int | None = None,  # noqa: ARG002 (interface conformity)
                spectral: bool = False) -> ndarray:
+        """Gather a distributed array on all processes."""
         if slc is None:
             slc = (slice(None), )*self.n_dims
         if not spectral:
@@ -261,7 +290,9 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                          topo: tuple[bool] | None
                          ) -> tuple[tuple[int], tuple[int]]:
         shape = self.shape
-        flat_axes = [i for i, is_extended in enumerate(topo or []) if not is_extended]
+        flat_axes = [
+            i for i, is_extended in enumerate(topo or [])
+            if not is_extended]
         # we have to adjust the shape for the topology
         if topo is not None:
             shape = list(self.shape)
@@ -276,12 +307,13 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                      spectral: bool = False,
                      topo: tuple[bool] | None = None,
                      ) -> ndarray:
+        """Create a sharded array filled with zeros."""
         dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
         sharding = self._get_sharding(spectral, topo)
         shape, flat_axes = self._get_array_attrs(topo)
 
         @partial(jax.jit, out_shardings=sharding)
-        def create_zeros():
+        def create_zeros() -> ndarray:
             return jax.numpy.zeros(shape, dtype=dtype)
         arr = create_zeros()
         arr = jax.reshard(arr, sharding)
@@ -297,12 +329,13 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                             spectral: bool = False,
                             topo: tuple[bool] | None = None,
                             ) -> ndarray:
+        """Create a sharded array filled with random numbers."""
         dtype = fr.config.dtype_comp if spectral else fr.config.dtype_real
         sharding = self._get_sharding(spectral, topo)
         shape, flat_axes = self._get_array_attrs(topo)
 
         @partial(jax.jit, out_shardings=sharding)
-        def create_random_array():
+        def create_random_array() -> ndarray:
             real = jax.random.normal(jax.random.PRNGKey(seed), shape)
             if not spectral:
                 return real.astype(dtype)
@@ -321,10 +354,11 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                         *args: ndarray,
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:
+        """Create a sharded meshgrid of arrays."""
         sharding = self._get_sharding(spectral, None)
         shardings = [sharding]*len(args)
         @partial(jax.jit, out_shardings=shardings)
-        def create_meshgrid():
+        def create_meshgrid() -> list[ndarray]:
             return jax.numpy.meshgrid(*args, indexing="ij")
         arrs = create_meshgrid()
         arrs = [jax.reshard(arr, sharding) for arr in arrs]
@@ -342,25 +376,32 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
+        """Sum an array across specified axes."""
         return jax.numpy.sum(arr, axis=axes)
 
     def max(self,
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
+        """Find the maximum of an array across specified axes."""
         return jax.numpy.max(arr, axis=axes)
 
     def min(self,
             arr: ndarray,
             axes: list[int] | None = None,
             spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
+        """Find the minimum of an array across specified axes."""
         return jax.numpy.min(arr, axis=axes)
 
 
     # ================================================================
     #  Helper functions
     # ================================================================
-    def _get_sharding(self, spectral: bool = False, topo: tuple[bool] | None = None) -> NamedSharding:
+    def _get_sharding(
+        self,
+        spectral: bool = False,
+        topo: tuple[bool] | None = None,
+    ) -> NamedSharding:
         shard = self._shard_alt if spectral else self._shard_main
         if topo is not None:
             new_specs = []
@@ -373,22 +414,27 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         return shard
 
     def main_shard_map(self, func: callable) -> callable:
+        """Apply a shard map with the main sharding to a function."""
         return shard_map(func,
                          mesh=self.mesh,
                          in_specs=self._spec_main,
                          out_specs=self._spec_main)
 
     def alt_shard_map(self, func: callable) -> callable:
+        """Apply a shard map with the alternative sharding to a function."""
         return shard_map(func,
                          mesh=self.mesh,
                          in_specs=self._spec_alt,
                          out_specs=self._spec_alt)
 
     def shard_map(self, func: callable) -> callable:
+        """Decorate a function to apply it to the active processes only."""
         return self.main_shard_map(func)
 
     def to_alterative_sharding(self, arr: ndarray) -> ndarray:
+        """Convert an array to the alternative sharding."""
         return jax.device_put(arr, self._shard_alt)
 
     def to_main_sharding(self, arr: ndarray) -> ndarray:
+        """Convert an array to the main sharding."""
         return jax.device_put(arr, self._shard_main)

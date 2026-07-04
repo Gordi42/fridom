@@ -1,18 +1,26 @@
 """Conjugate Gradient Pressure Solver."""
-#TODO(Silvano): This is very old code and needs to be updated to the new framework.
+# TODO(Silvano): This is very old code and needs to be updated to the new
+# framework.
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from fridom.framework.model_state import ModelState
 from fridom.framework.modules.module import Module, start_module, update_module
 from fridom.nonhydro.state import State
 
+if TYPE_CHECKING:
+    from numpy import ndarray
+
 
 class CGPressureSolver(Module):
 
-    """This class solves the pressure field with a conjugate gradient solver."""
+    """Solve the pressure field with a conjugate gradient solver."""
 
     def __init__(self, max_iter: int = 1000, tol: float = 1e-10) -> None:
         """
-        # Conjugate Gradient Pressure Solver
+        Conjugate Gradient Pressure Solver.
+
         ## Arguments:
         - `max_iter` (int) : Maximum number of iterations.
         - `tol` (float)    : Tolerance.
@@ -21,14 +29,21 @@ class CGPressureSolver(Module):
 
     @start_module
     def start(self) -> None:
+        """Start the pressure solver."""
         # cast the parameters to the correct data type
         self.tol = self.mset.dtype(self.tol)
 
         # Create a function to solve for pressure
         if self.mset.gpu:
-            from cupyx.scipy.sparse.linalg import LinearOperator, cg  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+            from cupyx.scipy.sparse.linalg import (  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+                LinearOperator,
+                cg,
+            )
         else:
-            from scipy.sparse.linalg import LinearOperator, cg  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+            from scipy.sparse.linalg import (  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+                LinearOperator,
+                cg,
+            )
 
         self.cg = cg
 
@@ -45,7 +60,7 @@ class CGPressureSolver(Module):
         cp     = self.grid.cp
 
         # define linear operator
-        def laplace(p):
+        def laplace(p: ndarray) -> ndarray:
             p = p.reshape(nx,ny,nz)
             p_pad = cp.pad(p, ((1,1),(1,1),(1,1)), "wrap")
 
@@ -70,15 +85,16 @@ class CGPressureSolver(Module):
         self.A = LinearOperator((nxnynz, nxnynz), matvec=laplace)
 
     @update_module
-    def update(self, mz: ModelState) -> None:
+    def update(self, mz: ModelState) -> None:  # noqa: F821 (ModelState is deleted from the namespace at module end; the lazy annotation is never evaluated)
         """
         Solve for the pressure field.
 
         Args:
             mz (ModelState) : Model state.
         """
-        p_flat, _info = self.cg(self.A, mz.z_diag.div.reshape(-1), x0=mz.p.reshape(-1),
-                             tol=self.tol, maxiter=self.max_iter)
+        p_flat, _info = self.cg(self.A, mz.z_diag.div.reshape(-1),
+                                x0=mz.p.reshape(-1),
+                                tol=self.tol, maxiter=self.max_iter)
         mz.z_diag.p[:] = p_flat.reshape(self.mset.shape)
 
     def __repr__(self) -> str:

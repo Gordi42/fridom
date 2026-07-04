@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/nonhydro/modules/closures/__init__.py file."""
+"""Test the imports in fridom/nonhydro/modules/closures/__init__.py."""
 import pytest
 
 import fridom.nonhydro.modules.closures as test_module

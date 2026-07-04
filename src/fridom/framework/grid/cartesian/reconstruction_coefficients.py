@@ -23,9 +23,9 @@ def compute_polynomial_coefficients_cell_average(
     -------
     np.ndarray
         The polynomial coefficients for the interpolation.
-        The first dimension corresponds to the position where we want to reconstruct
-        the field, and the second dimension corresponds to the position of the
-        cell average in the stencil.
+        The first dimension corresponds to the position where we want to
+        reconstruct the field, and the second dimension corresponds to the
+        position of the cell average in the stencil.
 
     Description
     -----------
@@ -36,15 +36,15 @@ def compute_polynomial_coefficients_cell_average(
         x_0             x_1             x_2             x_3
              f_{1/2}        f_{1+1/2}       f_{2+1/2}
 
-    function values are given at the grid points :math:`x_{i+1/2}`. The reconstruction
-    at the positions :math:`x_{k}` are then given by
+    function values are given at the grid points :math:`x_{i+1/2}`. The
+    reconstruction at the positions :math:`x_{k}` are then given by
 
     .. math::
         p(x_k) = \sum_{i=0}^{n-1} c_{ki} f_{i+1/2}
 
 
-    We follow Shu (1998) to compute reconstruction coefficients. The function values
-    correspond to cell, given by
+    We follow Shu (1998) to compute reconstruction coefficients. The
+    function values correspond to cell, given by
 
     .. math::
         f_{i+1/2} = \frac{1}{x_{i+1} - x_i} \int_{x_i}^{x_{i+1}} f(x) dx
@@ -252,8 +252,9 @@ def compute_polynomial_coefficients(
         coeffs = compute_polynomial_coefficients_pointwise(
             stencil_size=stencil_size)
     elif method == "cell_average":
-        coeffs = fr.grid.cartesian.compute_polynomial_coefficients_cell_average(
-            stencil_size=stencil_size)
+        cell_average = (
+            fr.grid.cartesian.compute_polynomial_coefficients_cell_average)
+        coeffs = cell_average(stencil_size=stencil_size)
     else:
         msg = (f"Invalid method {method}",
                 "Only 'pointwise' and 'cell_average' are supported.")

@@ -50,7 +50,8 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
     -----------
     Applies the harmonic diffusion operator :math:`\mathcal{H}`
     (see :py:class:`fridom.framework.modules.closures.HarmonicDiffusion`)
-    to all fields with the flag "ENABLE_FRICTION" (typically the velocity field).
+    to all fields with the flag "ENABLE_FRICTION" (typically the velocity
+    field).
 
     Parameters
     ----------
@@ -122,7 +123,8 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
     -----------
     Applies the harmonic diffusion operator :math:`\mathcal{B}`
     (see :py:class:`fridom.framework.modules.closures.BiharmonicDiffusion`)
-    to all fields with the flag "ENABLE_FRICTION" (typically the velocity field).
+    to all fields with the flag "ENABLE_FRICTION" (typically the velocity
+    field).
 
     Parameters
     ----------

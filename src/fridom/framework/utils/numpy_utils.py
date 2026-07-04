@@ -66,7 +66,8 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
     elif isinstance(obj, (np.ndarray, np.generic)):
         result = deepcopy(obj)
 
-    elif inspect.ismodule(obj) or inspect.isfunction(obj) or inspect.ismethod(obj):
+    elif (inspect.ismodule(obj) or inspect.isfunction(obj)
+            or inspect.ismethod(obj)):
         result = obj
 
     elif isinstance(obj, (dict, list, tuple, set)):
@@ -86,9 +87,11 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
 
     return result
 
-def to_numpy(obj: object, memo: dict | None = None, _nil: list | None = None) -> object:
+def to_numpy(
+    obj: object, memo: dict | None = None, _nil: list | None = None,
+) -> object:
     """
-    Creates a deep copy of an object with all arrays converted to numpy.
+    Create a deep copy of an object with all arrays converted to numpy.
 
     Description
     -----------

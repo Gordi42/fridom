@@ -125,8 +125,9 @@ def test_init_from_field_list(mset, is_spectral, field_names, double_names):
 
 def test_init_from_field_dict(mset, is_spectral):
     field_names = ["a", "b", "c"]
-    fields = OrderedDict((name, fr.ScalarField(mset, is_spectral=is_spectral, name=name))
-                         for name in field_names)
+    fields = OrderedDict(
+        (name, fr.ScalarField(mset, is_spectral=is_spectral, name=name))
+        for name in field_names)
     vec = fr.VectorField(mset, field_list=fields)
     for f, name in zip(vec, field_names, strict=False):
         assert f.name == name
@@ -137,7 +138,8 @@ def test_init_from_field_dict(mset, is_spectral):
         fr.VectorField(mset, field_list=fields)
 
 def test_init_topo(mset, is_spectral, topo):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     for f in vec:
         assert f.topo == topo
         if not topo[0]:
@@ -155,7 +157,8 @@ def test_init_list_and_kwargs(mset, kwargs):
 
 @pytest.mark.parametrize("n_dims", [1, 2, 3])
 def test_init_different_dims(n_dims):
-    grid = fr.grid.cartesian.Grid(shape=(3,) * n_dims, domain_size=(1,) * n_dims)
+    grid = fr.grid.cartesian.Grid(shape=(3,) * n_dims,
+                                  domain_size=(1,) * n_dims)
     mset = fr.ModelSettingsBase(grid).setup()
     vec = fr.VectorField(mset, vector_dim=2)
     assert isinstance(vec, fr.VectorField)
@@ -192,7 +195,8 @@ def test_set_attr(): ...
 def test_repr(): ...
 
 def test_is_constant(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, topo=topo, is_spectral=is_spectral, vector_dim=2)
+    vec = fr.VectorField(
+        mset, topo=topo, is_spectral=is_spectral, vector_dim=2)
     expected = not any(topo)
     assert vec.is_constant == expected
 
@@ -218,7 +222,8 @@ def test_fft_ifft(mset):
         assert fr.config.ncp.allclose(f.arr, f_inv.arr)
 
 def test_fft_ifft_topo(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, topo=topo, is_spectral=is_spectral, vector_dim=2)
+    vec = fr.VectorField(
+        mset, topo=topo, is_spectral=is_spectral, vector_dim=2)
     if all(topo):
         # fft should work on full domain fields
         vec.ifft() if is_spectral else vec.fft()
@@ -242,7 +247,8 @@ def test_sync(vector):
 
 def test_apply_watermask(mset, topo, is_spectral):
     # TODO(Silvano): should test a custom watermask array
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     # if the field is not fully extended, apply_watermask should raise an error
     if not all(topo):
         with pytest.raises(fr.exceptions.PartialDomainError):
@@ -278,7 +284,8 @@ def test_copy(vector):
         assert fr.config.ncp.allclose(f.arr, f_copy.arr)
 
 def test_set_random(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(vec.set_random)
         return
@@ -293,7 +300,8 @@ def test_set_random(mset, topo, is_spectral):
     f1, f2 = vec
     assert not fr.config.ncp.allclose(f1.arr, f2.arr)
     # check that the field is reproducible
-    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     vec2.set_random(seed=12345)
     for f1, f2 in zip(vec, vec2, strict=False):
         assert fr.config.ncp.allclose(f1.arr, f2.arr)
@@ -303,7 +311,8 @@ def test_set_random(mset, topo, is_spectral):
 # ----------------------------------------------------------------
 
 def test_diff(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(
             lambda: vec.diff(axis=0))
@@ -318,13 +327,15 @@ def test_diff(mset, topo, is_spectral):
         assert fr.config.ncp.allclose(f_diff.arr, f.diff(axis=0).arr)
 
 def test_grad(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     msg = "grad not implemented yet"
     with pytest.raises(NotImplementedError, match=msg):
         vec.grad()
 
 def test_laplacian(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(vec.laplacian)
         return
@@ -337,7 +348,8 @@ def test_laplacian(mset, topo, is_spectral):
         assert fr.config.ncp.allclose(f_lap.arr, f.laplacian().arr)
 
 def test_div(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     msg = "div not implemented yet"
     with pytest.raises(NotImplementedError, match=msg):
         vec.div()
@@ -375,7 +387,8 @@ def test_cumulative_integral(mset, topo, is_spectral, direction):
 # ----------------------------------------------------------------
 
 def test_xr(mset, is_spectral, topo):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: vec.xr)
         return
@@ -414,7 +427,8 @@ def test_xrs(mset, is_spectral, key, expected_shape, dim_names):
     ],
 ))
 def test_from_xr(mset, topo, is_spectral, key, possible):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: vec.xrs[key])
         return
@@ -432,7 +446,8 @@ def test_from_xr(mset, topo, is_spectral, key, possible):
         assert fr.config.ncp.allclose(f.arr, f_new.arr)
 
 def test_netcdf_save_load(mset, is_spectral, tmp_dir):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, vector_dim=2).set_random()
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, vector_dim=2).set_random()
     # save the field to a netcdf file
     vec.to_netcdf(tmp_dir + "/vec.nc")
     # load the field from the netcdf file
@@ -446,21 +461,24 @@ def test_netcdf_save_load(mset, is_spectral, tmp_dir):
 # ----------------------------------------------------------------
 
 def test_getitem_int(mset, is_spectral):
-    vec = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    vec = fr.VectorField(
+        mset, vector_dim=3, is_spectral=is_spectral).set_random()
     # test with index
     f = vec[0]
     assert isinstance(f, fr.ScalarField)
     assert f.name == "f0"
 
 def test_getitem_str(mset, is_spectral):
-    vec = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    vec = fr.VectorField(
+        mset, vector_dim=3, is_spectral=is_spectral).set_random()
     # test with string
     f = vec["f1"]
     assert isinstance(f, fr.ScalarField)
     assert f.name == "f1"
 
 def test_getitem_slice(mset, is_spectral):
-    vec = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    vec = fr.VectorField(
+        mset, vector_dim=3, is_spectral=is_spectral).set_random()
     # test with slice
     vec_slice = vec[:2]
     assert isinstance(vec_slice, fr.VectorField)
@@ -476,7 +494,8 @@ def test_getitem_slice(mset, is_spectral):
 
 def test_setitem_int(mset, is_spectral):
     field = fr.ScalarField(mset, is_spectral=is_spectral, name="f0")
-    vec2 = fr.VectorField(mset, vector_dim=2, is_spectral=is_spectral).set_random()
+    vec2 = fr.VectorField(
+        mset, vector_dim=2, is_spectral=is_spectral).set_random()
     # it should be possible to set the field with the same name
     vec2[0] = field
     assert vec2[0] is field
@@ -487,7 +506,8 @@ def test_setitem_int(mset, is_spectral):
 
 def test_setitem_str(mset, is_spectral):
     field = fr.ScalarField(mset, is_spectral=is_spectral, name="f0")
-    vec2 = fr.VectorField(mset, vector_dim=2, is_spectral=is_spectral).set_random()
+    vec2 = fr.VectorField(
+        mset, vector_dim=2, is_spectral=is_spectral).set_random()
     # it should be possible to set the field via the name
     vec2["f0"] = field
     assert vec2[0] is field
@@ -498,8 +518,10 @@ def test_setitem_str(mset, is_spectral):
 
 def test_setitem_slice(mset, is_spectral):
     # test with slice access
-    vec2 = fr.VectorField(mset, vector_dim=2, is_spectral=is_spectral).set_random()
-    vec3 = fr.VectorField(mset, vector_dim=3, is_spectral=is_spectral).set_random()
+    vec2 = fr.VectorField(
+        mset, vector_dim=2, is_spectral=is_spectral).set_random()
+    vec3 = fr.VectorField(
+        mset, vector_dim=3, is_spectral=is_spectral).set_random()
     # it should be possible to set the field with the correct names
     vec3[:2] = vec2
     assert vec3[0] is vec2[0]
@@ -514,7 +536,8 @@ def test_setitem_slice(mset, is_spectral):
 # ----------------------------------------------------------------
 
 def test_dill(mset, is_spectral, topo, tmp_dir):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     path = Path(tmp_dir + "/vec.pkl")
     # check that the file does not exist
     assert not path.exists()
@@ -536,14 +559,16 @@ def test_dill(mset, is_spectral, topo, tmp_dir):
 
 def test_extend(mset, is_spectral):
     topo = (False, True)
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     for new_topo in [(False, False), (True, False)]:
         msg = "Cannot shrink the field in any direction"
         with pytest.raises(ValueError, match=msg):
             vec.extend(new_topo)
 
 def test_sum(mset, is_spectral, topo, axes):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: vec.sum(axes))
         return
@@ -557,7 +582,8 @@ def test_sum(mset, is_spectral, topo, axes):
         assert f.arr.shape == (1, 1)
 
 def test_max(mset, is_spectral, topo, axes):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: vec.max(axes))
         return
@@ -571,7 +597,8 @@ def test_max(mset, is_spectral, topo, axes):
         assert f.arr.shape == (1, 1)
 
 def test_min(mset, is_spectral, topo, axes):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if not all(topo):
         not_implemented_for_non_full_domain_fields(lambda: vec.min(axes))
         return
@@ -585,7 +612,8 @@ def test_min(mset, is_spectral, topo, axes):
         assert f.arr.shape == (1, 1)
 
 def test_integrate(mset, is_spectral, topo, axes):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if is_spectral:
         with pytest.raises(fr.exceptions.FieldSpaceError):
             vec.integrate(axes)
@@ -602,7 +630,8 @@ def test_integrate(mset, is_spectral, topo, axes):
             assert f.arr.shape[axis] == 1
 
 def test_mean(mset, is_spectral, topo, axes):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if is_spectral:
         with pytest.raises(fr.exceptions.FieldSpaceError):
             vec.mean(axes)
@@ -638,7 +667,8 @@ def test_mean(mset, is_spectral, topo, axes):
     ],
 ))
 def test_apply_operator_with_scalar_field(mset, topo, is_spectral, op):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     scalar = fr.ScalarField(mset, is_spectral=is_spectral)
     # TODO(Silvano): set random also for non full domain fields
     if all(topo):
@@ -667,8 +697,10 @@ def test_apply_operator_with_scalar_field(mset, topo, is_spectral, op):
     ],
 ))
 def test_apply_operator_with_vector_field(mset, topo, is_spectral, op):
-    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
-    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec1 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     # TODO(Silvano): set random also for non full domain fields
     if all(topo):
         vec1.set_random(seed=12345)
@@ -707,7 +739,8 @@ def test_apply_operator_with_invalid_vector_field(mset):
     ],
 ))
 def test_apply_operator_with_scalar(mset, topo, is_spectral, op):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     vec += 20
     scalar = 2
     # test if the operation works
@@ -734,7 +767,8 @@ def test_apply_operator_with_wrong_type(mset, other):
         field + other
 
 def test_dot_with_scalar_field(mset, topo, is_spectral, dot_op):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     # if the spectral flag is different, the dot product should raise an error
     scalar = fr.ScalarField(mset, is_spectral=not is_spectral)
     msg = "Cannot take dot product of spectral and real fields"
@@ -753,12 +787,15 @@ def test_dot_with_scalar_field(mset, topo, is_spectral, dot_op):
         assert fr.config.ncp.allclose(f.arr * scalar.arr.conj(), f_new.arr)
 
 def test_dot_with_vector_field(mset, topo, is_spectral, dot_op):
-    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
-    vec2 = fr.VectorField(mset, is_spectral=not is_spectral, topo=topo, vector_dim=2)
+    vec1 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(
+        mset, is_spectral=not is_spectral, topo=topo, vector_dim=2)
     msg = "Cannot take dot product of spectral and real fields"
     with pytest.raises(ValueError, match=msg):
         dot_op(vec1, vec2)
-    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if all(topo):
         vec1.set_random(seed=12345)
         vec2.set_random(seed=54321)
@@ -781,7 +818,8 @@ def test_dot_with_invalid_vector_field(mset, dot_op):
 def test_dot_with_tensor_field(): ...
 
 def test_abs(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if all(topo):
         vec.set_random()
     vec_abs = abs(vec)
@@ -789,7 +827,8 @@ def test_abs(mset, topo, is_spectral):
         assert fr.config.ncp.allclose(abs(f.arr), f_abs.arr)
 
 def test_conj(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if all(topo):
         vec.set_random()
     vec_conj = vec.conj()
@@ -797,7 +836,8 @@ def test_conj(mset, topo, is_spectral):
         assert fr.config.ncp.allclose(f.arr.conj(), f_conj.arr)
 
 def test_neg(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if all(topo):
         vec.set_random()
     vec_neg = -vec
@@ -805,7 +845,8 @@ def test_neg(mset, topo, is_spectral):
         assert fr.config.ncp.allclose(-f.arr, f_neg.arr)
 
 def test_norm_l2(mset, topo, is_spectral):
-    vec = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if is_spectral:
         with pytest.raises(fr.exceptions.FieldSpaceError):
             vec.norm_l2()
@@ -818,8 +859,10 @@ def test_norm_l2(mset, topo, is_spectral):
     assert isinstance(norm, float)
 
 def test_norm_of_diff(mset, topo, is_spectral):
-    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2) + 1
-    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec1 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2) + 1
+    vec2 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     if is_spectral:
         with pytest.raises(fr.exceptions.FieldSpaceError):
             vec1.norm_of_diff(vec2)
@@ -832,8 +875,10 @@ def test_norm_of_diff(mset, topo, is_spectral):
     assert isinstance(norm_of_diff, float)
 
 def test_norm_of_diff_invalid(mset, topo, is_spectral):
-    vec1 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
-    vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=3)
+    vec1 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
+    vec2 = fr.VectorField(
+        mset, is_spectral=is_spectral, topo=topo, vector_dim=3)
     msg = "Vector dimensions do not match"
     with pytest.raises(ValueError, match=msg):
         vec1.norm_of_diff(vec2)

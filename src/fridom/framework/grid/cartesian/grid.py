@@ -1,3 +1,4 @@
+"""Cartesian grid with support for fourier transforms."""
 from __future__ import annotations
 
 from copy import deepcopy
@@ -67,7 +68,9 @@ class Grid(fr.grid.GridBase):
                  shape: list[int],
                  domain_size: list[float],
                  periodic_bounds: list[bool] | None = None,
-                 domain_decomp: fr.domain_decomposition.DomainDecomposition | None = None,
+                 domain_decomp: (
+                     fr.domain_decomposition.DomainDecomposition | None
+                 ) = None,
                  diff_mod: fr.grid.DiffModule | None = None,
                  interp_mod: fr.grid.InterpolationModule | None = None
                  ) -> None:
@@ -85,7 +88,8 @@ class Grid(fr.grid.GridBase):
         n_dims = len(shape)
 
         # check that periodic_bounds is the right length
-        periodic_bounds = tuple(periodic_bounds or [True] * n_dims)  # default is periodic
+        # the default is periodic in all directions
+        periodic_bounds = tuple(periodic_bounds or [True] * n_dims)
         if len(periodic_bounds) != n_dims:
             raise ValueError(
                 "periodic_bounds must have the same number of dimensions "
@@ -118,13 +122,15 @@ class Grid(fr.grid.GridBase):
         self._domain_decomp = domain_decomp
         self._fft: fr.grid.cartesian.FFT | None = None
         self._diff_module = diff_mod or fr.grid.cartesian.FiniteDifferences()
-        self._interp_module = interp_mod or fr.grid.cartesian.LinearInterpolation()
+        self._interp_module = (
+            interp_mod or fr.grid.cartesian.LinearInterpolation())
 
     def setup(self,
               mset: fr.ModelSettingsBase,
               req_halo: int | None = None,
               fft_module: fr.grid.cartesian.FFT | None = None,
               ) -> None:
+        """Set up the grid (see :py:meth:`fr.grid.GridBase.setup`)."""
         ncp = fr.config.ncp
         dtype = fr.config.dtype_real
 
@@ -157,8 +163,10 @@ class Grid(fr.grid.GridBase):
         # --------------------------------------------------------------
         #  Initialize the meshgrids
         # --------------------------------------------------------------
-        x = tuple(ncp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
-                  for li, ni, dxi in zip(self._domain_size, self._shape, self._dx, strict=False))
+        x = tuple(
+            ncp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
+            for li, ni, dxi in zip(
+                self._domain_size, self._shape, self._dx, strict=False))
         x_mesh = domain_decomp.create_meshgrid(*x, pad=True, spectral=False)
 
         if self.fourier_transform_available:
@@ -192,21 +200,25 @@ class Grid(fr.grid.GridBase):
                  position: fr.grid.Position | None = None,
                  spectral: bool = False,
     ) -> tuple[np.ndarray]:
+        """Return the meshgrid for the given position."""
         if spectral:
             return self.k_mesh
         # compute the offsets based on the position
         position = position or self.cell_center
-        offsets = [0.5 * dx if pos == fr.grid.AxisPosition.FACE else 0
-                   for dx, pos in zip(self.dx, position.positions, strict=False)]
+        offsets = [
+            0.5 * dx if pos == fr.grid.AxisPosition.FACE else 0
+            for dx, pos in zip(self.dx, position.positions, strict=False)]
         # apply the offsets
-        return tuple(x + offset for x, offset in zip(self.x_mesh, offsets, strict=False))
+        return tuple(x + offset for x, offset
+                     in zip(self.x_mesh, offsets, strict=False))
 
     def _construct_domain_decomp(self, halo: int) -> None:
         DomainDecomposition = (  # noqa: N806 (holds a class)
             fr.domain_decomposition.get_default_domain_decomposition())
 
         # construct the domain decomposition
-        domain_decomp: fr.domain_decomposition.DomainDecomposition = DomainDecomposition(
+        domain_decomp: fr.domain_decomposition.DomainDecomposition
+        domain_decomp = DomainDecomposition(
             shape=tuple(self._shape),
             halo=halo,
             periods=self._periodic_bounds,
@@ -218,13 +230,14 @@ class Grid(fr.grid.GridBase):
     # ================================================================
     def fft(self,
             arr: np.ndarray,
-            padding = fr.grid.FFTPadding.NOPADDING,
+            padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
             bc_types: tuple[fr.grid.BCType] | None = None,
             positions: tuple[fr.grid.AxisPosition] | None = None,
             axes: tuple[int] | None = None,
             ) -> np.ndarray:
+        """Transform an array from physical to spectral space."""
         # Forward transform the array
-        def f(x, axes):
+        def f(x: np.ndarray, axes: tuple[int] | None) -> np.ndarray:
             return self._fft.forward(x, axes, bc_types, positions)
         forward = self._domain_decomp.parallel_forward_transform(f)
         u_hat = forward(arr, axes)
@@ -236,11 +249,12 @@ class Grid(fr.grid.GridBase):
 
     def ifft(self,
              arr: np.ndarray,
-             padding = fr.grid.FFTPadding.NOPADDING,
+             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
              ) -> np.ndarray:
+        """Transform an array from spectral to physical space."""
         # Apply padding if necessary
         match padding:
             case fr.grid.FFTPadding.NOPADDING:
@@ -250,7 +264,7 @@ class Grid(fr.grid.GridBase):
             case fr.grid.FFTPadding.EXTEND:
                 u = self.domain_decomp.pad_extend(arr)
 
-        def f(x, axes):
+        def f(x: np.ndarray, axes: tuple[int] | None) -> np.ndarray:
             return self._fft.backward(x, axes, bc_types, positions)
         backward = self._domain_decomp.parallel_backward_transform(f)
         return backward(u, axes)
@@ -324,11 +338,13 @@ class Grid(fr.grid.GridBase):
     def cumulative_integral(self,  # noqa: D102
                             field: fr.ScalarField,
                             axis: int,
-                            direction: Literal["forward", "backward"] = "forward",
+                            direction: Literal[
+                                "forward", "backward"] = "forward",
                             ) -> fr.ScalarField:
         # 1. CHECK THE INPUT
 
-        # At the moment, we only support cumulative integrals on physical fields
+        # At the moment, we only support cumulative integrals on
+        # physical fields
         fr.exceptions.FieldSpaceError.check_if_physical(field)
 
         # At the moment, we only support cumulative integrals on fields that
@@ -370,6 +386,7 @@ class Grid(fr.grid.GridBase):
     # ================================================================
     @property
     def info(self) -> dict:
+        """Return a dictionary with information about the grid."""
         res = super().info
         res["shape"] = f"{self.shape[0]}"
         res["domain size"] = fr.utils.humanize_number(
@@ -379,7 +396,8 @@ class Grid(fr.grid.GridBase):
         for i in range(1, self.n_dims):
             res["shape"] += f" x {self.shape[i]}"
             res["domain size"] += (
-                f" x {fr.utils.humanize_number(self.domain_size[i], 'meters')}")
+                " x "
+                f"{fr.utils.humanize_number(self.domain_size[i], 'meters')}")
             res["dx"] += f" x {fr.utils.humanize_number(self.dx[i], 'meters')}"
             res["Periodic"] += f" x {self.periodic_bounds[i]}"
         return res

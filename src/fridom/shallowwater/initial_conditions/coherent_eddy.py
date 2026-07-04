@@ -1,3 +1,6 @@
+"""Coherent eddy initial condition for the shallow water model."""
+from __future__ import annotations
+
 import fridom.shallowwater as sw
 
 

@@ -1,11 +1,13 @@
+"""Single wave initial condition for the shallow water model."""
+from __future__ import annotations
+
 import fridom.shallowwater as sw
 
 
 class SingleWave(sw.State):
 
     r"""
-    An initial condition that consist of a single wave with a
-    given wavenumber and a given mode.
+    A single polarized wave with a given wavenumber and a given mode.
 
     Description
     -----------
@@ -23,7 +25,8 @@ class SingleWave(sw.State):
 
     .. math::
         \delta_{\boldsymbol{k}, \boldsymbol{k}_0} = \begin{cases}
-            1 & \text{if } \boldsymbol{k} = 2\pi\boldsymbol{k}_0/\boldsymbol{L} \\
+            1 & \text{if } \boldsymbol{k}
+                = 2\pi\boldsymbol{k}_0/\boldsymbol{L} \\
             0 & \text{otherwise}
         \end{cases}
 

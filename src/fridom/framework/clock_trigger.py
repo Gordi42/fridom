@@ -20,9 +20,9 @@ class ClockTrigger:
     Description
     -----------
     Some modules should not be active all the time. For example you may want
-    a module that is only active every 10 time steps. This class provides some
-    basic functionality to check if a start condition is met, if a stop condition
-    is met, and if the module should advance.
+    a module that is only active every 10 time steps. This class provides
+    some basic functionality to check if a start condition is met, if a
+    stop condition is met, and if the module should advance.
 
     Parameters
     ----------
@@ -71,7 +71,8 @@ class ClockTrigger:
         self._started = False
         self._stopped = False
         # convert the time interval to seconds
-        if time_interval is not None and isinstance(time_interval, np.timedelta64):
+        if (time_interval is not None
+                and isinstance(time_interval, np.timedelta64)):
             time_interval = fr.utils.to_seconds(time_interval)
 
         self._trigger_on_first_step = True
@@ -145,9 +146,9 @@ class ClockTrigger:
 
         Description
         -----------
-        This method checks if a start requirement is met. And returns `True` if
-        this requirement is met and the start condition has not been met before.
-        Hence, this method will only return `True` once.
+        This method checks if a start requirement is met. And returns
+        `True` if this requirement is met and the start condition has not
+        been met before. Hence, this method will only return `True` once.
 
         Parameters
         ----------
@@ -229,7 +230,8 @@ class ClockTrigger:
         if should_advance:
             self._number_of_advanced_steps += 1
 
-            if not self.trigger_on_first_step and self._number_of_advanced_steps == 1:
+            if (not self.trigger_on_first_step
+                    and self._number_of_advanced_steps == 1):
                 should_advance = False
 
         return should_advance

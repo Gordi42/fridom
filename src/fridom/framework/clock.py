@@ -61,7 +61,7 @@ class Clock:
 
     def tick(self, time_step: float | np.timedelta64) -> None:
         """
-        Increase the passed time by the time step + increase the iteration step.
+        Increase the passed time and the iteration step.
 
         Parameters
         ----------
@@ -72,15 +72,17 @@ class Clock:
         self._passed_time += time_step
         self._it += 1
 
-    def get_total_time(self, passed_time: float | None = None) -> np.datetime64 | float:
+    def get_total_time(
+        self, passed_time: float | None = None,
+    ) -> np.datetime64 | float:
         """
         Get the total time of the model run.
 
         Parameters
         ----------
         passed_time : float | None (optional)
-            The passed time in seconds. If not provided, the current passed time
-            of the model will be used
+            The passed time in seconds. If not provided, the current
+            passed time of the model will be used
 
         Returns
         -------

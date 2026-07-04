@@ -22,7 +22,8 @@ def test_linear_model(runlen):
     _Lx, Ly, Lz = grid.domain_size
 
     z = nh.State(mset)
-    z.u.arr = ncp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2) * ncp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2)
+    z.u.arr = (ncp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2)
+               * ncp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2))
     z.sync()
 
     initial_total_energy = z.etot.integrate().value
@@ -50,7 +51,8 @@ def test_boundary_conditions(periodic_bounds):
     N = tuple([16] * 3)
     L = (10_000, 10_000, 100)
 
-    grid = nh.grid.cartesian.Grid(shape=N, domain_size=L, periodic_bounds=periodic_bounds)
+    grid = nh.grid.cartesian.Grid(shape=N, domain_size=L,
+                                  periodic_bounds=periodic_bounds)
     mset = nh.ModelSettings(grid, f0=f0, stratification_n2=N2)
     mset.time_stepper.dt = np.timedelta64(20, "s")
     mset.tendencies.advection.disable()

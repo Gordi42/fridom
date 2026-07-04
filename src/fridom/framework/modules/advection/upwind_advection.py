@@ -22,9 +22,10 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
             - \nabla \cdot (\boldsymbol{v} q)
 
     where :math:`q` is the quantity to be advected and :math:`\boldsymbol{v}`
-    is the velocity field. The flux divergence :math:`\nabla \cdot (\boldsymbol{v} q)`
-    is calculated using forward or backward differences. For that the flux is
-    interpolated to the cell faces of the quantity :math:`q`:
+    is the velocity field. The flux divergence
+    :math:`\nabla \cdot (\boldsymbol{v} q)` is calculated using forward or
+    backward differences. For that the flux is interpolated to the cell
+    faces of the quantity :math:`q`:
 
     ::
 
@@ -34,9 +35,9 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
                         ↑
             Position of the flux Fx
 
-    The quantities at the cell faces are interpolated using an upwind interpolation
-    scheme. The velocity field is interpolated to the cell faces of q
-    using a centered interpolation scheme.
+    The quantities at the cell faces are interpolated using an upwind
+    interpolation scheme. The velocity field is interpolated to the cell
+    faces of q using a centered interpolation scheme.
 
     """
 
@@ -55,7 +56,8 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
         self.order = order
         self.interp_module = symmetric_inter or cart.PolynomialInterpolation(
             order=order - 2)
-        self.biased_inter = biased_inter or cart.UpwindInterpolation(order=order-1)
+        self.biased_inter = biased_inter or cart.UpwindInterpolation(
+            order=order-1)
 
     def _on_setup(self) -> None:
         self.biased_inter.setup(self.mset)
@@ -69,7 +71,8 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
         biased_interpolate = self.biased_inter.interpolate
         diff = self.diff_module.diff
 
-        res = fr.ScalarField(mset=quantity.mset, mdata=deepcopy(quantity.mdata))
+        res = fr.ScalarField(
+            mset=quantity.mset, mdata=deepcopy(quantity.mdata))
 
         for axis, v in enumerate(velocity):
             # the flux position should be shifted from the quantity position
@@ -91,4 +94,5 @@ class UpwindAdvection(fr.modules.advection.AdvectionBase):
     @property
     def required_halo(self) -> int:
         """The required halo size based on the interpolation modules."""
-        return max(self.interp_module.required_halo, self.biased_inter.required_halo)
+        return max(self.interp_module.required_halo,
+                   self.biased_inter.required_halo)

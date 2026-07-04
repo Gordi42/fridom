@@ -1,3 +1,4 @@
+"""Nonlinear balancing using the optimal balance method."""
 from __future__ import annotations
 
 from copy import copy, deepcopy
@@ -26,18 +27,20 @@ class OptimalBalance(fr.projection.Projection):
         The ramping period.
     update_parameters : Callable[[ModelSettings, float, str], None], optional
         A method that updates the model parameters based on the ramped value.
-        It should take the model settings and the ramped value which is between 0 and 1.
+        It should take the model settings and the ramped value which is
+        between 0 and 1.
     `mset_backwards` : `ModelSettings`
-        The model settings for the backward ramping. If None, the forward model
-        settings are used. This option is useful when the backwards ramping should
-        be done with a different setup (e.g. negative viscosity).
+        The model settings for the backward ramping. If None, the forward
+        model settings are used. This option is useful when the backwards
+        ramping should be done with a different setup (e.g. negative
+        viscosity).
     `ramp_type` : `str`
         The ramping type. Choose from "exp", "pow", "cos", "lin".
     `disable_diagnostic` : `bool`
         Whether to disable the diagnostic tendencies during the iterations.
     `update_base_point` : `bool`
-        Whether to update the base point after each iteration. This has no effect
-        on OB. But it matters for OBTA. Should be True for OBTA.
+        Whether to update the base point after each iteration. This has no
+        effect on OB. But it matters for OBTA. Should be True for OBTA.
     `max_it` : `int`
         Maximum number of iterations.
     `stop_criterion` : `float`
@@ -47,7 +50,8 @@ class OptimalBalance(fr.projection.Projection):
     def __init__(self, mset: fr.ModelSettingsBase,
                  base_proj: fr.projection.Projection,
                  ramp_period: np.timedelta64 | float | None,
-                 update_parameters: Callable[[fr.ModelSettings, float, str], None] | None = None,
+                 update_parameters: Callable[
+                     [fr.ModelSettings, float, str], None] | None = None,
                  mset_backwards: fr.ModelSettingsBase = None,
                  ramp_type: str = "exp",
                  update_base_point: bool = True,
@@ -87,12 +91,14 @@ class OptimalBalance(fr.projection.Projection):
         self.z_base = None
 
     def calc_base_coord(self, z: fr.VectorField) -> None:
+        """Compute and store the base point coordinate of the state."""
         self.z_base = self.base_proj(z)
 
     def update_parameters(self,
                           mset: fr.ModelSettings,
                           ramped_value: float,
                           mode: Literal["forward", "backward"]) -> None:  # noqa: ARG002 (interface conformity)
+        """Update the model parameters based on the ramped value."""
         mset.tendencies.advection.scaling = ramped_value * self.default_scaling
 
 
@@ -111,7 +117,8 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "forward")
+            self.update_parameters(
+                mset, self.ramp_func(n / self.ramp_steps), "forward")
             model.step()
         return model.z
 
@@ -129,7 +136,8 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "backward")
+            self.update_parameters(
+                mset, self.ramp_func(1 - n / self.ramp_steps), "backward")
             model.step()
         return model.z
 
@@ -147,7 +155,8 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "forward")
+            self.update_parameters(
+                mset, self.ramp_func(1 - n / self.ramp_steps), "forward")
             model.step()
         return model.z
 
@@ -165,25 +174,27 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "backward")
+            self.update_parameters(
+                mset, self.ramp_func(n / self.ramp_steps), "backward")
             model.step()
 
         return model.z
 
-    def get_ramp_func(self):
+    def get_ramp_func(self) -> Callable[[float], float]:
+        """Return the ramp function for the given ramp type."""
         if self == "exp":
-            def ramp_func(theta):
+            def ramp_func(theta: float) -> float:
                 t1 = 1./np.maximum(1e-32,theta )
                 t2 = 1./np.maximum(1e-32,1.-theta )
                 return np.exp(-t1)/(np.exp(-t1)+np.exp(-t2))
         elif self == "pow":
-            def ramp_func(theta):
+            def ramp_func(theta: float) -> float:
                 return theta**3/(theta**3+(1.-theta)**3)
         elif self == "cos":
-            def ramp_func(theta):
+            def ramp_func(theta: float) -> float:
                 return 0.5*(1.-np.cos(np.pi*theta))
         elif self == "lin":
-            def ramp_func(theta):
+            def ramp_func(theta: float) -> float:
                 return theta
         else:
             raise ValueError(

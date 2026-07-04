@@ -1,35 +1,45 @@
-from collections.abc import Callable
-from functools import partial
+"""Fourier transforms (FFT, DCT, DST) for cartesian grids."""
+from __future__ import annotations
 
-# Import external modules
-import numpy as np
+from functools import partial
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
 
 # Import internal modules
 from fridom.framework import config, utils
 
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
 
-def _create_kn_mesh(n_points: int):
+    # Import external modules
+    import numpy as np
+
+
+def _create_kn_mesh(n_points: int) -> tuple[np.ndarray, np.ndarray]:
     ncp = config.ncp
     n = ncp.arange(0, n_points)
     n, k = ncp.meshgrid(n, n, indexing="ij")
     return n, k
 
-def _apply_weights(x, weights, axis):
+def _apply_weights(x: np.ndarray,
+                   weights: np.ndarray,
+                   axis: int) -> np.ndarray:
     ncp = config.ncp
     y = ncp.tensordot(x, weights, axes=([axis], [0]))
     return ncp.moveaxis(y, -1, axis)
 
 @partial(utils.jaxjit, static_argnames=["axis", "n_points"])
-def dct_type2(x, axis, n_points):
+def dct_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the type-2 discrete cosine transform along an axis."""
     ncp = config.ncp
     n, k = _create_kn_mesh(n_points)
     weights = 2 * ncp.cos((ncp.pi / n_points) * k * (n + 0.5))
     return _apply_weights(x, weights, axis)
 
 @partial(utils.jaxjit, static_argnames=["axis", "n_points"])
-def idct_type2(x, axis, n_points):
+def idct_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the inverse type-2 discrete cosine transform."""
     ncp = config.ncp
     k, n = _create_kn_mesh(n_points)
     weights = 2 * ncp.cos((ncp.pi / n_points) * k * (n + 0.5))
@@ -37,7 +47,8 @@ def idct_type2(x, axis, n_points):
     return _apply_weights(x, weights, axis) / (2 * n_points)
 
 @partial(utils.jaxjit, static_argnames=["axis", "n_points"])
-def dst_type1(x, axis, n_points):
+def dst_type1(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the type-1 discrete sine transform along an axis."""
     # we assume that the position of the variable is at the cell edges
     # |-----x-----|-----x-----|-----x-----|-----x-----|
     #             ^           ^           ^           ^
@@ -48,8 +59,9 @@ def dst_type1(x, axis, n_points):
     # we only consider positive frequencies in the sine transform
     # f(xi) = -i/2 * exp(i*k*(xi+dx/2))
     #       = -i/2 * exp(i*k*dx/2) * exp(i*k*xi)
-    # the factor 1/2 does not matter, but we need the rotation by -i*exp(i*k*dx/2)
-    # so that the sine transform is consistent with fourier transforms
+    # the factor 1/2 does not matter, but we need the rotation by
+    # -i*exp(i*k*dx/2) so that the sine transform is consistent with
+    # fourier transforms
     # Note that dx is given by pi/n_points
     ncp = config.ncp
     n, k = _create_kn_mesh(n_points)
@@ -59,7 +71,8 @@ def dst_type1(x, axis, n_points):
     return _apply_weights(x, weights, axis)
 
 @partial(utils.jaxjit, static_argnames=["axis", "n_points"])
-def idst_type1(x, axis, n_points):
+def idst_type1(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the inverse type-1 discrete sine transform."""
     ncp = config.ncp
     k, n = _create_kn_mesh(n_points)
     weights = 2 * ncp.sin(ncp.pi * k * (n+1) / n_points)
@@ -68,23 +81,27 @@ def idst_type1(x, axis, n_points):
     return _apply_weights(x, weights, axis) / (2 * n_points)
 
 @partial(utils.jaxjit, static_argnames=["axis", "n_points"])
-def dst_type2(x, axis, n_points):
+def dst_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the type-2 discrete sine transform along an axis."""
     ncp = config.ncp
     n, k = _create_kn_mesh(n_points)
     weights = -2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*n_points))
     return _apply_weights(x, weights, axis)
 
 @partial(utils.jaxjit, static_argnames=["axis", "n_points"])
-def idst_type2(x, axis, n_points):
+def idst_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the inverse type-2 discrete sine transform."""
     ncp = config.ncp
     k, n = _create_kn_mesh(n_points)
     weights = 2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*n_points))
     return _apply_weights(x, weights, axis) / (2 * n_points)
 
 def r2r(transform: Callable) -> Callable:
-    """Apply the given transform to both the real and imaginary parts of the input."""
+    """Apply the transform to the real and imaginary parts of the input."""
     ncp = config.ncp
-    def _r2r(x, *args, **kwargs):
+    def _r2r(x: np.ndarray,
+             *args: tuple,
+             **kwargs: dict) -> np.ndarray:
         if ncp.iscomplexobj(x):
             return ( transform(x.real, *args, **kwargs)
                     + 1j * transform(x.imag, *args, **kwargs) )
@@ -189,7 +206,8 @@ class FFT:
             if self._periodic[i]:
                 k.append(ncp.fft.fftfreq(shape[i], dx[i]/(2*ncp.pi)))
             else:
-                k.append(ncp.linspace(0, ncp.pi/dx[i], shape[i], endpoint=False))
+                k.append(ncp.linspace(
+                    0, ncp.pi/dx[i], shape[i], endpoint=False))
         return tuple(k)
 
     def forward(self,
@@ -233,7 +251,8 @@ class FFT:
             bc_types = tuple(fr.grid.BCType.NEUMANN for _ in range(u.ndim))
 
         if positions is None:
-            positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
+            positions = tuple(
+                fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
 
         # discrete cosine transform
         for axis in dct_axes:
@@ -290,7 +309,8 @@ class FFT:
             bc_types = tuple(fr.grid.BCType.NEUMANN for _ in range(u.ndim))
 
         if positions is None:
-            positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
+            positions = tuple(
+                fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
 
         # discrete cosine transform
         for axis in dct_axes:

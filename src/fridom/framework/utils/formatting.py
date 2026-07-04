@@ -30,7 +30,7 @@ def humanize_length(value: float) -> str:
         return f"{value:.2f} m"
     return f"{value/1e3:.2f} km"
 
-def humanize_time(value: float):
+def humanize_time(value: float) -> str:
     """
     Format a time in human readable format.
 
@@ -75,7 +75,7 @@ def humanize_time(value: float):
         formatted_time += "ms"
     return formatted_time.strip()
 
-def humanize_number(value: float, unit: str):
+def humanize_number(value: float, unit: str) -> str:
     """
     Format a number in human readable format.
 

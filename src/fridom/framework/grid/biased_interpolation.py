@@ -46,19 +46,20 @@ class BiasedInterpolationModule(fr.modules.Module):
             The interpolated field.
 
         """
-        # check that the destination is only one axis different from the field position
+        # check that the destination is only one axis different from the
+        # field position
         diff_axes = [i for i in range(f.arr.ndim)
                      if f.position[i] != destination.positions[i]]
 
         if len(diff_axes) != 1:
-            msg = ("Upwind interpolation can only be used to interpolate between "
-                   "positions that differ along exactly one axis.")
+            msg = ("Upwind interpolation can only be used to interpolate "
+                   "between positions that differ along exactly one axis.")
             raise ValueError(msg)
 
         # check that the bias field has the same position as the destination
         if isinstance(bias, fr.ScalarField) and bias.position != destination:
-            msg = ("The bias field must have the same position as the destination "
-                   "position.")
+            msg = ("The bias field must have the same position as the "
+                   "destination position.")
             raise ValueError(msg)
 
         # only pass the array of the bias field to the interpolation function

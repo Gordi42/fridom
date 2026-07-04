@@ -4,7 +4,7 @@ import datetime
 import fridom.framework as fr
 
 
-def print_bar(char="=") -> None:
+def print_bar(char: str = "=") -> None:
     """
     Print a bar to the log file.
 
@@ -24,7 +24,8 @@ def print_job_init_info() -> None:
     current_time = datetime.datetime.now(tz=datetime.UTC).astimezone()
 
     # Format the time according to the given format
-    formatted_time = current_time.strftime(" > Job starting on %Y.%m.%d at %I:%M:%S %p")
+    formatted_time = current_time.strftime(
+        " > Job starting on %Y.%m.%d at %I:%M:%S %p")
 
     fr.log.info(formatted_time)
 

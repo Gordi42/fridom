@@ -34,9 +34,9 @@ class PartialDomainError(NotImplementedError):
     Description
     -----------
     Fields in the computational framework are marked with a `topo` attribute,
-    which is a tuple of booleans indicating whether the field is extended in
-    each spatial direction. For example, a field with `topo=(True, True, False)`
-    depends on `x` and `y`, but not on `z`.
+    which is a tuple of booleans indicating whether the field is extended
+    in each spatial direction. For example, a field with
+    `topo=(True, True, False)` depends on `x` and `y`, but not on `z`.
 
     Certain operations require the field to be fully extended in all directions
     (i.e., `topo=(True, True, True)`). If an unsupported operation is attempted
@@ -71,7 +71,7 @@ class PartialDomainError(NotImplementedError):
 class FieldSpaceError(NotImplementedError):
 
     """
-    Raise when attempting to perform an operation on a field in the wrong space.
+    Raise when an operation is attempted on a field in the wrong space.
 
     Description
     -----------

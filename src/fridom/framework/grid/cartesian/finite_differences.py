@@ -18,8 +18,9 @@ class FiniteDifferences(fr.grid.DiffModule):
     -----------
     If a field is defined at the cell center, the field is differentiated using
     a forward difference, and the resulting field is defined at the cell face.
-    If a field is defined at the cell face, the field is differentiated using
-    a backward difference, and the resulting field is defined at the cell center.
+    If a field is defined at the cell face, the field is differentiated
+    using a backward difference, and the resulting field is defined at the
+    cell center.
 
     """
 
@@ -37,7 +38,8 @@ class FiniteDifferences(fr.grid.DiffModule):
             msg = "Finite differences only work with Cartesian grids."
             raise TypeError(msg)
 
-        self._dx1 = 1 / ncp.array(self.mset.grid.dx, dtype=fr.config.dtype_real)
+        self._dx1 = 1 / ncp.array(
+            self.mset.grid.dx, dtype=fr.config.dtype_real)
 
     def diff(self,  # noqa: D102
              f: fr.ScalarField,

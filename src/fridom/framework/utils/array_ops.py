@@ -24,13 +24,17 @@ class SliceableAttribute(Generic[T]):
 
     """
 
-    def __init__(self, slicer: Callable[[int | slice | tuple[int, slice]], T]) -> None:
+    def __init__(
+        self, slicer: Callable[[int | slice | tuple[int, slice]], T],
+    ) -> None:
         self.slicer = slicer
 
     def __getitem__(self, key: int | slice | tuple[int, slice]) -> T:
         return self.slicer(key)
 
-def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray:
+def modify_array(
+    arr: np.ndarray, where: slice, value: np.ndarray,
+) -> np.ndarray:
     """
     Return a new array with the modifications.
 
@@ -69,11 +73,17 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
     res[where] = value
     return res
 
-def random_array(shape: tuple[int], seed=12345, **kwargs) -> np.ndarray:
+def random_array(
+    shape: tuple[int], seed: int = 12345, **kwargs: bool,
+) -> np.ndarray:
     """Create a random array."""
     if "ignore_warning" not in kwargs:
-        fr.log.warning("The random_array function is deprecated and will be removed in the future.")
-        fr.log.warning("Please use the create array method from the grid object instead")
+        fr.log.warning(
+            "The random_array function is deprecated and will be "
+            "removed in the future.")
+        fr.log.warning(
+            "Please use the create array method from the grid object "
+            "instead")
     if fr.config.backend_is_jax:
         # we need to import jax here since it is an optional dependency
         import jax  # noqa: PLC0415 (deferred import of optional/heavy dependency)

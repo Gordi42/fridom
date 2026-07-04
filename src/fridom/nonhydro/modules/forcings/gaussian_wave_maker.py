@@ -16,7 +16,8 @@ class GaussianWaveMaker(fr.modules.Module):
     Creates a gaussian source term of the form:
 
     .. math::
-        M(\boldsymbol{x}) = \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
+        M(\boldsymbol{x}) =
+            \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
 
     .. math::
         S(\boldsymbol{x}, t) = A \sin(2\pi f t) M(\boldsymbol{x})
@@ -65,7 +66,8 @@ class GaussianWaveMaker(fr.modules.Module):
         ncp = fr.config.ncp
         # Construct mask
         mask = ncp.ones_like(self.grid.x_mesh[0])
-        for x, pos, width in zip(self.grid.x_mesh, self.position, self.width, strict=False):
+        for x, pos, width in zip(self.grid.x_mesh, self.position,
+                                 self.width, strict=False):
             if pos is not None and width is not None:
                 mask *= ncp.exp(-(x - pos)**2 / width**2)
         mask *= self.amplitude
@@ -74,7 +76,8 @@ class GaussianWaveMaker(fr.modules.Module):
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
         ncp = fr.config.ncp
-        tendency = self.mask * ncp.sin(2 * ncp.pi * self.frequency * mz.clock.time)
+        tendency = self.mask * ncp.sin(
+            2 * ncp.pi * self.frequency * mz.clock.time)
         mz.dz.fields[self.variable] += tendency
         return mz
 

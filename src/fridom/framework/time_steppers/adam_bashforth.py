@@ -47,8 +47,8 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
 
     Description
     -----------
-    The Adam Bashforth time stepping scheme is a multi-step explicit time stepping
-    scheme. It solves a given PDE
+    The Adam Bashforth time stepping scheme is a multi-step explicit
+    time stepping scheme. It solves a given PDE
 
     .. math::
         \partial_t \boldsymbol{z} = \boldsymbol{F}(\boldsymbol{z}, t)
@@ -60,22 +60,39 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
             + \Delta t \sum_{j=0}^{n-1} \alpha_j
                 \boldsymbol{F}(\boldsymbol{z}^{n-j}, t^{n-j})
 
-    where :math:`\alpha_i` are the Adam Bashforth coefficients, :math:`\Delta t`
-    is the time step size, :math:`\boldsymbol{z}^j` is the state at time
-    :math:`t^j = t_0 + j \Delta t`. The coefficients for orders 1 to 4 are
-    given in the table below.
+    where :math:`\alpha_i` are the Adam Bashforth coefficients,
+    :math:`\Delta t` is the time step size, :math:`\boldsymbol{z}^j` is
+    the state at time :math:`t^j = t_0 + j \Delta t`. The coefficients
+    for orders 1 to 4 are given in the table below.
 
-    +-------+-------------------+-------------------+-------------------+-------------------+
-    | Order | :math:`\alpha_1`  | :math:`\alpha_2`  | :math:`\alpha_3`  | :math:`\alpha_4`  |
-    +=======+===================+===================+===================+===================+
-    | 1     | 1                 |                   |                   |                   |
-    +-------+-------------------+-------------------+-------------------+-------------------+
-    | 2     | 3/2 + \epsilon    | -1/2 - \epsilon   |                   |                   |
-    +-------+-------------------+-------------------+-------------------+-------------------+
-    | 3     | 23/12             | -4/3              | 5/12              |                   |
-    +-------+-------------------+-------------------+-------------------+-------------------+
-    | 4     | 55/24             | -59/24            | 37/24             | -3/8              |
-    +-------+-------------------+-------------------+-------------------+-------------------+
+    .. list-table::
+        :header-rows: 1
+
+        * - Order
+          - :math:`\alpha_1`
+          - :math:`\alpha_2`
+          - :math:`\alpha_3`
+          - :math:`\alpha_4`
+        * - 1
+          - 1
+          -
+          -
+          -
+        * - 2
+          - 3/2 + \epsilon
+          - -1/2 - \epsilon
+          -
+          -
+        * - 3
+          - 23/12
+          - -4/3
+          - 5/12
+          -
+        * - 4
+          - 55/24
+          - -59/24
+          - 37/24
+          - -3/8
 
     Stability Analysis
     ******************
@@ -154,7 +171,8 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
         self.coeff_AB = ncp.zeros(self.order, dtype=dtype)
 
         # tendencies
-        self.dz_list = [self.mset.state_constructor() for _ in range(self.order)]
+        self.dz_list = [
+            self.mset.state_constructor() for _ in range(self.order)]
         self.it_count = 0
 
     def _on_reset(self) -> None:
@@ -190,7 +208,8 @@ class AdamBashforth(fr.time_steppers.TimeStepper):
 
         # choose Adam-Bashforth coefficients of current time level
         self.coeff_AB = fr.utils.modify_array(self.coeff_AB, slice(None), 0)
-        self.coeff_AB = fr.utils.modify_array(self.coeff_AB, slice(ctl+1), coeffs[ctl])
+        self.coeff_AB = fr.utils.modify_array(
+            self.coeff_AB, slice(ctl+1), coeffs[ctl])
 
     def time_discretization_effect(self, omega: np.ndarray) -> np.ndarray:  # noqa: D102
         # shorthand notation

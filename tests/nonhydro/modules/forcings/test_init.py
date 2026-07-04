@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/nonhydro/modules/forcings/__init__.py file."""
+"""Test the imports in fridom/nonhydro/modules/forcings/__init__.py."""
 import pytest
 
 import fridom.nonhydro.modules.forcings as test_module

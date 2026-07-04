@@ -19,8 +19,8 @@ class Stencil:
     -----------
     A stencil defines the local neighborhood of points used for mapping
     a function from one function space to another. The size of the stencil
-    determines how many neighboring points are used, while the offset determines
-    the bias.
+    determines how many neighboring points are used, while the offset
+    determines the bias.
 
     We consider two cases, CENTER -> FACE mapping and FACE -> CENTER mapping.
 

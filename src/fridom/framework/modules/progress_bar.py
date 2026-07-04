@@ -59,15 +59,12 @@ class ProgressBar(fr.modules.Module):
         #  Check if the stdout is a file
         # ----------------------------------------------------------------
         file_output = fr.utils.stdout_is_file()
-        if file_output:
-            # if the stdout is a file, tqdm would print to the stderr by default
-            # we could instead print to the stdout, but this would mess up
-            # the look of the progress bar due to "\r" characters
-            # so we create a StringIO object to capture the output
-            # and adjust the progress bar accordingly
-            output = io.StringIO()
-        else:
-            output = sys.stdout
+        # if the stdout is a file, tqdm would print to the stderr by
+        # default. we could instead print to the stdout, but this would
+        # mess up the look of the progress bar due to "\r" characters
+        # so we create a StringIO object to capture the output
+        # and adjust the progress bar accordingly
+        output = io.StringIO() if file_output else sys.stdout
 
         # ----------------------------------------------------------------
         #  Create the progress bar
@@ -113,12 +110,14 @@ class ProgressBar(fr.modules.Module):
                     datetime_formatting: bool,
                     start_value: float,
                     final_value: float) -> None:
+        """Set the display options of the progress bar."""
         self._main_loop_type = main_loop_type
         self._datetime_formatting = datetime_formatting
         self._start_value = start_value
         self._final_value = final_value
 
     def print_progress_bar(self, mz: fr.ModelState) -> None:
+        """Update and print the progress bar for the given model state."""
         if not self.is_enabled():
             return None
 
@@ -153,7 +152,8 @@ class ProgressBar(fr.modules.Module):
         if self._datetime_formatting:
             time_str = np.datetime64(int(mz.clock.time), "s")
         else:
-            time_str = fr.utils.humanize_number(float(mz.clock.time), unit="seconds")
+            time_str = fr.utils.humanize_number(
+                float(mz.clock.time), unit="seconds")
 
         postfix = f"It: {it} - Time: {time_str}"
 

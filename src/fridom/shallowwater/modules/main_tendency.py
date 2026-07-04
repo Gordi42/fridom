@@ -15,11 +15,14 @@ class MainTendency(fr.modules.ModuleContainer):
     in the following order:
 
     .. math::
-        \partial_t \boldsymbol{u} = \text{Linear} + \text{Advection} + \text{Additional}
+        \partial_t \boldsymbol{u} =
+            \text{Linear} + \text{Advection} + \text{Additional}
 
     with the default modules being:
-    - `linear_tendency`: :py:class:`LinearTendency <fridom.shallowwater.modules.LinearTendency>`
-    - `advection`: :py:class:`SadournyAdvection <fridom.shallowwater.modules.advection.SadournyAdvection>`
+    - `linear_tendency`: :py:class:`LinearTendency
+      <fridom.shallowwater.modules.LinearTendency>`
+    - `advection`: :py:class:`SadournyAdvection
+      <fridom.shallowwater.modules.advection.SadournyAdvection>`
     """
 
     name = "Main Tendencies: Shallow Water Model"

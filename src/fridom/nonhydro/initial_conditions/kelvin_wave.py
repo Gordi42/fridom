@@ -1,4 +1,12 @@
+"""Kelvin wave initial condition."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import fridom.nonhydro as nh
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 
 class KelvinWave(nh.State):
@@ -52,7 +60,8 @@ class KelvinWave(nh.State):
         import fridom.nonhydro as nh
         import numpy as np
         grid = nh.grid.cartesian.Grid(
-            shape=[128]*3, domain_size=[1]*3, periodic_bounds=(True, False, True))
+            shape=[128]*3, domain_size=[1]*3,
+            periodic_bounds=(True, False, True))
         mset = nh.ModelSettings(grid=grid)
         mset.time_stepper.dt = np.timedelta64(10, 'ms')
         mset.tendencies.advection.disable()
@@ -68,7 +77,8 @@ class KelvinWave(nh.State):
     .. code-block:: python
 
         z  = nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=2)
-        z += nh.initial_conditions.kelvin_wave(mset, 'N', kh=1, kz=-2, phase=np.pi)
+        z += nh.initial_conditions.kelvin_wave(
+            mset, 'N', kh=1, kz=-2, phase=np.pi)
     """
 
     def __init__(self,  # noqa: C901
@@ -99,34 +109,36 @@ class KelvinWave(nh.State):
         pol_b = - 1j * mset.stratification_n2 * k_parallel / om
 
         # define function to get the exponential decay and the wave pattern
-        def wave(x_parallel, x_normal, z):
+        def wave(x_parallel: ndarray,
+                 x_normal: ndarray,
+                 z: ndarray) -> ndarray:
             wave = ncp.exp(1j * (k_parallel * x_parallel + kz * z + phase))
             wave *= ncp.exp(- mset.f0 * k_parallel / om * x_normal)
             return wave
 
         if side == "N":
-            def get_wave(f: nh.ScalarField):
+            def get_wave(f: nh.ScalarField) -> ndarray:
                 x, y, z = f.get_mesh()
                 x_normal = ly - y
                 x_parallel = lx - x
                 return wave(x_parallel, x_normal, z)
             self.u.arr = (- pol_u_normal * get_wave(self.u)).imag
         elif side == "S":
-            def get_wave(f: nh.ScalarField):
+            def get_wave(f: nh.ScalarField) -> ndarray:
                 x, y, z = f.get_mesh()
                 x_normal = y
                 x_parallel = x
                 return wave(x_parallel, x_normal, z)
             self.u.arr = (pol_u_normal * get_wave(self.u)).imag
         elif side == "E":
-            def get_wave(f: nh.ScalarField):
+            def get_wave(f: nh.ScalarField) -> ndarray:
                 x, y, z = f.get_mesh()
                 x_normal = lx - x
                 x_parallel = y
                 return wave(x_parallel, x_normal, z)
             self.v.arr = (pol_u_normal * get_wave(self.v)).imag
         elif side == "W":
-            def get_wave(f: nh.ScalarField):
+            def get_wave(f: nh.ScalarField) -> ndarray:
                 x, y, z = f.get_mesh()
                 x_normal = x
                 x_parallel = ly - y

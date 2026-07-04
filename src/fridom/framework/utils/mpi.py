@@ -10,7 +10,7 @@ except ImportError:
 MPI_AVAILABLE = MPI is not None
 
 # Check if the current rank is the main rank
-def am_i_main_rank():
+def am_i_main_rank() -> bool:
     """
     Check if the current rank is the main rank.
 
@@ -35,10 +35,12 @@ def mpi_barrier() -> None:
     if MPI_AVAILABLE:
         MPI.COMM_WORLD.Barrier()
     if fr.config.backend_is_jax:
-        from jax.experimental import multihost_utils  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+        from jax.experimental import (  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+            multihost_utils,
+        )
         multihost_utils.sync_global_devices("mpi_barrier")
 
-def get_mpi_size():
+def get_mpi_size() -> int:
     """
     Get the number of MPI processes.
 

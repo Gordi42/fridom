@@ -1,5 +1,7 @@
 """model_plotter.py - A module for creating and updating a figure object."""
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -10,7 +12,7 @@ if TYPE_CHECKING:
 class ModelPlotter:
 
     """
-    A model plotter contains the logic for creating and updating a figure object.
+    A model plotter contains the logic to create and update a figure object.
 
     Description
     -----------
@@ -29,41 +31,36 @@ class ModelPlotter:
         prepare_arguments method
 
     `convert_to_img(fig)`:
-        convert the figure object to a numpy image array. If matplotlib is used,
-        this method does not need to be overwritten. However, if a different
-        plotting library is used, this method must be overwritten.
+        convert the figure object to a numpy image array. If matplotlib is
+        used, this method does not need to be overwritten. However, if a
+        different plotting library is used, this method must be overwritten.
     """
 
-    def __new__(cls, mz: "fr.ModelState"):
+    def __new__(cls, mz: fr.ModelState) -> Any:
+        """Create a figure and update it with the given model state."""
         fig = cls.create_figure()
         cls.update_figure(fig, **cls.prepare_arguments(mz))
         return fig
 
     @staticmethod
-    def create_figure():
-        """
-        This method should create a figure object
-        (e.g. matplotlib figure) and return it.
-        """
+    def create_figure() -> Any:
+        """Create a figure object (e.g. matplotlib figure) and return it."""
         import matplotlib.pyplot as plt  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         return plt.figure()
 
     @staticmethod
-    def prepare_arguments(mz: "fr.ModelState") -> dict:
-        """This method should prepare the arguments for the update_figure method."""
+    def prepare_arguments(mz: fr.ModelState) -> dict:
+        """Prepare the arguments for the update_figure method."""
         raise NotImplementedError
 
     @staticmethod
-    def update_figure(fig, *args, **kwargs) -> None:
-        """
-        This method should update the figure object with the
-        given model state.
-        """
+    def update_figure(fig: Any, *args: Any, **kwargs: Any) -> None:
+        """Update the figure object with the given model state."""
         raise NotImplementedError
 
     @staticmethod
-    def convert_to_img(fig):
-        """This method should convert the figure object to a numpy image array."""
+    def convert_to_img(fig: Any) -> np.ndarray:
+        """Convert the figure object to a numpy image array."""
         # first we draw the figure
         fig.canvas.draw()
         # access the renderer

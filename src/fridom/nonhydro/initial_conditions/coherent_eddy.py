@@ -1,3 +1,6 @@
+"""Coherent barotropic eddy initial condition."""
+from __future__ import annotations
+
 import fridom.nonhydro as nh
 
 
@@ -64,7 +67,8 @@ class CoherentEddy(nh.State):
         import fridom.nonhydro as nh
         import numpy as np
         grid = nh.grid.cartesian.Grid(
-            shape=(128, 128, 1), domain_size=(3, 3, 1), periodic_bounds=(True, False, False))
+            shape=(128, 128, 1), domain_size=(3, 3, 1),
+            periodic_bounds=(True, False, False))
         mset = nh.ModelSettings(grid=grid, f0=1, beta=0.2)
         mset.time_stepper.dt = 0.004
         mset.setup()

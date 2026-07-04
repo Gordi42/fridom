@@ -1,3 +1,4 @@
+"""Geostrophic projection based on time-averaging."""
 from copy import copy, deepcopy
 
 import numpy as np
@@ -15,7 +16,8 @@ class GeostrophicTimeAverage(fr.projection.Projection):
     For a constant coriolis parameter, the linear geostrophic mode is constant
     in time, while the inertia-gravity wave modes are oscillatory. By averaging
     the flow over a time period, the inertia-gravity wave modes are removed.
-    This process can be repeated for more effective removal of the inertia-gravity.
+    This process can be repeated for more effective removal of the
+    inertia-gravity.
 
     Parameters
     ----------
@@ -24,11 +26,11 @@ class GeostrophicTimeAverage(fr.projection.Projection):
     `n_ave` : `int`
         The number of averages to perform.
     `equidistant_chunks` : `bool`
-        Whether to split the averaging periods into equidistant chunks. If False,
-        the averaging periods will be equal to the maximum period.
+        Whether to split the averaging periods into equidistant chunks.
+        If False, the averaging periods will be equal to the maximum period.
     `max_period` : `float`
-        The maximum period of the time averages. If None, the maximum period is set
-        to the inertial period.
+        The maximum period of the time averages. If None, the maximum
+        period is set to the inertial period.
     `backward_forward` : `bool`
         Whether to use backward-forward averaging.
     `disable_diagnostic` : `bool`
@@ -37,7 +39,8 @@ class GeostrophicTimeAverage(fr.projection.Projection):
     Methods
     -------
     `__call__(z: State) -> State`
-        The projection of the state onto the geostrophic subspace using time-averaging.
+        The projection of the state onto the geostrophic subspace using
+        time-averaging.
     """
 
     def __init__(self,
@@ -55,7 +58,8 @@ class GeostrophicTimeAverage(fr.projection.Projection):
 
         # construct the averaging periods
         if equidistant_chunks:
-            self.periods = np.linspace(max_period/2, max_period, n_ave+1)[1:][::-1]
+            self.periods = np.linspace(
+                max_period/2, max_period, n_ave+1)[1:][::-1]
         else:
             self.periods = np.ones(n_ave) * max_period
 
@@ -75,6 +79,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
     def __call__(self, z: "fr.VectorField") -> "fr.VectorField":
         """
         Project a state to the geostrophic subspace using time-averaging.
+
         Warning: This method is computationally expensive.
 
         Parameters
@@ -95,7 +100,8 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         for n_its in self.n_steps:
             # forward averaging
             time_stepper.dt = np.abs(time_stepper.dt)
-            fr.log.verbose(f"Averaging forward for {n_its*time_stepper.dt:.2f} seconds")
+            fr.log.verbose(
+                f"Averaging forward for {n_its*time_stepper.dt:.2f} seconds")
             model.reset()
             model.z = copy(z_ave)
             for _ in range(n_its):
@@ -105,7 +111,9 @@ class GeostrophicTimeAverage(fr.projection.Projection):
 
             # backward averaging
             if self.backward_forward:
-                fr.log.verbose(f"Averaging backwards for {n_its*time_stepper.dt:.2f} seconds")
+                fr.log.verbose(
+                    f"Averaging backwards for "
+                    f"{n_its*time_stepper.dt:.2f} seconds")
                 time_stepper.dt = - np.abs(time_stepper.dt)
                 model.reset()
                 model.z = copy(z_ave)

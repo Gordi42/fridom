@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 
 T = TypeVar("T", float, np.ndarray)
 
-def geostrophic_energy_spectrum(kx: T, ky: T, d: float = 7, k0: float = 4) -> T:
+def geostrophic_energy_spectrum(kx: T, ky: T,
+                                d: float = 7, k0: float = 4) -> T:
     r"""
     Geostrophic energy spectrum.
 
@@ -25,8 +26,8 @@ def geostrophic_energy_spectrum(kx: T, ky: T, d: float = 7, k0: float = 4) -> T:
     .. math::
         S = \frac{k^7}{\left(k^2 + a k_0^2\right)^{2b}}
 
-    where :math:`k = \sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber, :math:`a`
-    and :math:`b` are constants:
+    where :math:`k = \sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber,
+    :math:`a` and :math:`b` are constants:
 
     .. math::
         a = \frac{4}{7}b - 1, \quad b = \frac{7+d}{4}
@@ -79,9 +80,9 @@ def gm_energy_spectrum(kx: T,
     .. math::
         S(k) = \omega(k)^d = \sqrt{f_0^2 + c^2 k^2}^d
 
-    where :math:`k = \sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber, :math:`f_0`
-    is the Coriolis parameter, :math:`c` is the phase speed, and :math:`d` is the
-    power law exponent
+    where :math:`k = \sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber,
+    :math:`f_0` is the Coriolis parameter, :math:`c` is the phase speed,
+    and :math:`d` is the power law exponent
 
     Parameters
     ----------
@@ -114,7 +115,7 @@ def gm_energy_spectrum(kx: T,
 class PrescribedSpectraRandomPhase(sw.State):
 
     """
-    Construct a state with prescribed spectral energy density and random phases.
+    Construct a state with prescribed energy density and random phases.
 
     Parameters
     ----------
@@ -124,7 +125,8 @@ class PrescribedSpectraRandomPhase(sw.State):
         Callable that returns the spectral energy density as a function of the
         wavenumbers `kx` and `ky`.
     mode : str
-        The mode of the eigenvector to construct (0 for geostrophic, 1 for wave).
+        The mode of the eigenvector to construct (0 for geostrophic,
+        1 for wave).
     seed : int
         Seed for the random number generator (for the phase)
 
@@ -149,7 +151,8 @@ class PrescribedSpectraRandomPhase(sw.State):
         # density at wavenumber k is 1. Let the spectral energy $E(kx, ky)$ be
         # given at each wave number pair, we are looking for the total spectral
         # energy at wave number k. Hence, we have to integrate over all wave
-        # numbers with the same wave number k. For our eigenvector q, the spectral
+        # numbers with the same wave number k. For our eigenvector q, the
+        # spectral
         # energy $E(kx(k, \theta), ky(k, \theta))$ does not depend on the angle
         # theta. Hence, we can integrate over the angle theta and obtain the
         # spectral energy density is given by $S(k) = 2 \pi k E(k, 0)$.
@@ -198,7 +201,8 @@ class RandomGeostrophicSpectra(sw.State):
 
     def __init__(self,
                  mset: sw.ModelSettings,
-                 spectral_energy_density: Callable = geostrophic_energy_spectrum,
+                 spectral_energy_density: Callable = (
+                     geostrophic_energy_spectrum),
                  seed: int = 12345,
                  ) -> None:
         super().__init__(mset, is_spectral=False)

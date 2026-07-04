@@ -13,10 +13,12 @@ import fridom.framework as fr
     "start_date, start_time, raises",
     [
         pytest.param(None, None, False, id="No start date or time"),
-        pytest.param(np.datetime64("2023-01-01"), None, False, id="Start date only"),
+        pytest.param(np.datetime64("2023-01-01"), None, False,
+                     id="Start date only"),
         pytest.param(None, 0.0, False, id="Start time only"),
         pytest.param(
-            np.datetime64("2023-01-01"), 0.0, True, id="Both start date and time",
+            np.datetime64("2023-01-01"), 0.0, True,
+            id="Both start date and time",
         ),
     ],
 ))

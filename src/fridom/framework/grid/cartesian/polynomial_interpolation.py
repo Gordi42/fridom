@@ -44,7 +44,9 @@ class PolynomialInterpolation(fr.grid.InterpolationModule):
         stencil_size = self.order + 1
         offset = self.order // 2
         stencil_view = fr.grid.Stencil(
-            grid=self.grid, size=stencil_size, offset=offset, destination=destination,
+            grid=self.grid, size=stencil_size, offset=offset,
+            destination=destination,
             ).view(x, axis=axis)
 
-        return sum(c * v for c, v in zip(self._coeffs, stencil_view, strict=False))
+        return sum(c * v for c, v
+                   in zip(self._coeffs, stencil_view, strict=False))

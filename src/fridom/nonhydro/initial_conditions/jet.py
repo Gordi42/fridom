@@ -1,3 +1,6 @@
+"""A 3D jet initial condition with horizontal and vertical shear."""
+from __future__ import annotations
+
 import fridom.nonhydro as nh
 
 
@@ -38,7 +41,9 @@ class Jet(nh.State):
             shape=(2**fac, 2**fac, 2**(fac-3)),
             domain_size=(4, 4, 1),
             periodic_bounds=(True, True, True))
-        mset = nh.ModelSettings(grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2, rossby_number=0.1)
+        mset = nh.ModelSettings(
+            grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2,
+            rossby_number=0.1)
         mset.time_stepper.dt = 2**(-fac) * 2
         mset.setup()
         # Create the initial conditions
@@ -50,11 +55,11 @@ class Jet(nh.State):
     """
 
     def __init__(self, mset: nh.ModelSettings,
-                 jet_strength=1,
-                 jet_width=0.16,
-                 pert_strength=0.05,
-                 pert_wavenum=5,
-                 geo_proj=True) -> None:
+                 jet_strength: float = 1,
+                 jet_width: float = 0.16,
+                 pert_strength: float = 0.05,
+                 pert_wavenum: int = 5,
+                 geo_proj: bool = True) -> None:
         super().__init__(mset)
         ncp = nh.config.ncp
 

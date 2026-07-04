@@ -6,6 +6,7 @@ import queue
 import warnings
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -102,7 +103,8 @@ class VideoWriter(fr.modules.Module):
         # start the writer
         if self.writer is not None and not self.writer.closed:
             fr.log.warning(
-                "VideoWriter.start() called without closing the previous writer.",
+                "VideoWriter.start() called without closing the previous"
+                " writer.",
                 "Continue with the previous writer.")
         else:
             import imageio  # noqa: PLC0415 (deferred import of optional/heavy dependency)
@@ -153,6 +155,7 @@ class VideoWriter(fr.modules.Module):
         return mz
 
     def parallel_update(self, mz: fr.ModelState) -> None:
+        """Create a new figure in a separate process and queue it."""
         # collect finished figures
         self.collect_figures()
 
@@ -179,6 +182,7 @@ class VideoWriter(fr.modules.Module):
         self.running_jobs.append(job)
 
     def single_update(self, mz: fr.ModelState) -> None:
+        """Create a figure and append it to the video (serial mode)."""
         if self.fig is None:
             self.fig = self.model_plotter.create_figure()
         else:
@@ -192,6 +196,7 @@ class VideoWriter(fr.modules.Module):
             self.writer.append_data(img)
 
     def collect_figures(self) -> None:
+        """Collect finished figures and append them to the video."""
         while len(self.running_jobs) > 0:
             try:
                 img = self.open_queues[0].get(timeout=0.05)
@@ -208,8 +213,11 @@ class VideoWriter(fr.modules.Module):
             self.running_jobs.pop(0)
             self.open_queues.pop(0)
 
-    def show_video(self, width=600):
-        from IPython.display import Video  # noqa: PLC0415 (deferred import of optional/heavy dependency)
+    def show_video(self, width: int = 600) -> Any:
+        """Display the video in a Jupyter notebook."""
+        from IPython.display import (  # noqa: PLC0415 (optional dependency, only needed in notebooks)
+            Video,
+        )
         return Video(self.filename, width=width, embed=True)
 
     @property
@@ -220,10 +228,10 @@ class VideoWriter(fr.modules.Module):
         res["max_jobs"] = self.max_jobs
         return res
 
-    def __to_numpy__(self, memo):
+    def __to_numpy__(self, memo: dict) -> VideoWriter:
         return self.__deepcopy__(memo)
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict) -> VideoWriter:
         dont_copy = ["writer", "fig"]
         # now deepcopy the object
         new = self.__class__.__new__(self.__class__)
@@ -238,10 +246,12 @@ class VideoWriter(fr.modules.Module):
     #  PARALLEL FUNCTIONS
     # =====================================================================
 
-    def p_make_figure(**kwargs) -> None:
+    def p_make_figure(**kwargs: Any) -> None:
         """
-        Parallel function that gets a ModelPlotter object, makes the image
-        of it and puts it in the output queue.
+        Make the image of a ModelPlotter object (parallel function).
+
+        Gets a ModelPlotter object, makes the image of it and puts it in
+        the output queue.
 
         Arguments:
             modelplot (ModelPlotter): model plotter object

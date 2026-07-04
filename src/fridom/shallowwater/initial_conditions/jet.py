@@ -1,3 +1,6 @@
+"""Unstable jet initial condition for the shallow water model."""
+from __future__ import annotations
+
 import fridom.shallowwater as sw
 
 
@@ -12,7 +15,8 @@ class Jet(sw.State):
     on top of it. The jet is given by:
 
     .. math::
-        u = \\exp\\left(-\\left(\\frac{y - p L_y}{\\sigma L_y}\\right)^2\\right)
+        u = \\exp\\left(
+            -\\left(\\frac{y - p L_y}{\\sigma L_y}\\right)^2\\right)
 
     where :math:`L_y` is the domain length in the y-direction,
     :math:`p` is the relative position of the jet

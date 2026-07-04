@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PIL import Image
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
 
 
 def skip_on_doc_build(func: callable) -> callable:
@@ -36,7 +39,7 @@ def skip_on_doc_build(func: callable) -> callable:
     """
     # check if we are building the documentation
     if os.getenv("FRIDOM_DOC_GENERATION") == "True":
-        def do_nothing(*_args, **_kwargs) -> None:
+        def do_nothing(*_args: object, **_kwargs: object) -> None:
             return None
         return do_nothing
     return func
@@ -73,7 +76,7 @@ def cache_figure(
     `Callable`
         The function that returns the image.
     """
-    def wrapper():
+    def wrapper() -> Image.Image:
         # Find out the main file name
         filename = f"figures/{name.split('.', maxsplit=1)[0]}.png"
         # Create the cache directory if it does not exist

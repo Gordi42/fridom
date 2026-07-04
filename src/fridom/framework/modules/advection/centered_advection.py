@@ -22,9 +22,10 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
             - \nabla \cdot (\boldsymbol{v} q)
 
     where :math:`q` is the quantity to be advected and :math:`\boldsymbol{v}`
-    is the velocity field. The flux divergence :math:`\nabla \cdot (\boldsymbol{v} q)`
-    is calculated using forward or backward differences. For that the flux is
-    interpolated to the cell faces of the quantity :math:`q`:
+    is the velocity field. The flux divergence
+    :math:`\nabla \cdot (\boldsymbol{v} q)` is calculated using forward or
+    backward differences. For that the flux is interpolated to the cell
+    faces of the quantity :math:`q`:
 
     ::
 
@@ -41,7 +42,8 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
     def __init__(self, order: int = 2) -> None:
         super().__init__()
         self.order = order
-        self.interp_module = fr.grid.cartesian.PolynomialInterpolation(order=order-1)
+        self.interp_module = fr.grid.cartesian.PolynomialInterpolation(
+            order=order-1)
 
     def advection(self,  # noqa: D102
                   velocity: fr.VectorField,
@@ -51,7 +53,8 @@ class CenteredAdvection(fr.modules.advection.AdvectionBase):
         diff = self.diff_module.diff
         q_pos = quantity.position
 
-        res = fr.ScalarField(mset=quantity.mset, mdata=deepcopy(quantity.mdata))
+        res = fr.ScalarField(
+            mset=quantity.mset, mdata=deepcopy(quantity.mdata))
 
         for axis, v in enumerate(velocity):
             # the flux position should be shifted from the quantity position

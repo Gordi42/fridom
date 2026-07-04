@@ -106,7 +106,8 @@ class SmagorinskyLilly(fr.modules.Module):
         self.background_diffusivity = background_diffusivity
         self.turbulent_prandtl_number = turbulent_prandtl_number
         self.smagorinsky_constant = smagorinsky_constant
-        self.buoyancy_multiplier = buoyancy_multiplier or 1 / turbulent_prandtl_number
+        self.buoyancy_multiplier = (buoyancy_multiplier
+                                    or 1 / turbulent_prandtl_number)
 
     def _on_setup(self) -> None:
         self.filter_width = self.grid.cell_volume**(1/3)

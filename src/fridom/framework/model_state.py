@@ -1,5 +1,8 @@
 """model_state.py - The base class for model states."""
+from __future__ import annotations
+
 from functools import partial
+from typing import Any
 
 import fridom.framework as fr
 
@@ -13,9 +16,9 @@ class ModelState:
 
     Description
     -----------
-    The base class for model states. It contains the state vector, the time step
-    and the model time. Child classes may add more attributes as for example the
-    diagnostic variables needed for the model.
+    The base class for model states. It contains the state vector, the
+    time step and the model time. Child classes may add more attributes
+    as for example the diagnostic variables needed for the model.
     All model state variables should be stored in this class.
 
     Parameters
@@ -28,7 +31,7 @@ class ModelState:
     """
 
     def __init__(self,
-                 mset: "fr.ModelSettingsBase",
+                 mset: fr.ModelSettingsBase,
                  z: fr.VectorField | None = None,
                  z_diag: fr.VectorField | None = None,
                  dz: fr.VectorField | None = None,
@@ -53,12 +56,12 @@ class ModelState:
     #  xarray conversion
     # ================================================================
     @property
-    def xr(self):
+    def xr(self) -> Any:
         """Model State as xarray dataset."""
         return self.xrs[:]
 
     @property
-    def xrs(self):
+    def xrs(self) -> fr.utils.SliceableAttribute:
         """Model State of sliced domain as xarray dataset."""
         # xarray sometimes takes a long time to load, so we only import it here
         # if it is actually needed
@@ -66,9 +69,10 @@ class ModelState:
             import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         except ImportError as e:
             raise ImportError(
-                "xarray is not installed. Please install it to use this feature."
+                "xarray is not installed. "
+                "Please install it to use this feature.",
             ) from e
-        def slicer(key):
+        def slicer(key: Any) -> Any:
             ds_z = self.z.xrs[key]
             ds_zd = self.z_diag.xrs[key]
             return xr.merge([ds_z, ds_zd])
@@ -78,12 +82,12 @@ class ModelState:
     #  Properties
     # ================================================================
     @property
-    def z(self) -> "fr.VectorField":
+    def z(self) -> fr.VectorField:
         """The state vector."""
         return self._z
 
     @z.setter
-    def z(self, value: "fr.VectorField") -> None:
+    def z(self, value: fr.VectorField) -> None:
         # if the vector is empty, just set it
         if value.vector_dim == 0:
             self._z = value
@@ -97,12 +101,12 @@ class ModelState:
         self._z = value
 
     @property
-    def z_diag(self) -> "fr.VectorField":
+    def z_diag(self) -> fr.VectorField:
         """The diagnostic state vector."""
         return self._z_diag
 
     @z_diag.setter
-    def z_diag(self, value: "fr.VectorField") -> None:
+    def z_diag(self, value: fr.VectorField) -> None:
         # if the vector is empty, just set it
         if value.vector_dim == 0:
             self._z_diag = value
@@ -116,12 +120,12 @@ class ModelState:
         self._z_diag = value
 
     @property
-    def dz(self) -> "fr.VectorField":
+    def dz(self) -> fr.VectorField:
         """The tendency vector."""
         return self._dz
 
     @dz.setter
-    def dz(self, value: "fr.VectorField") -> None:
+    def dz(self, value: fr.VectorField) -> None:
         if value is None:
             self._dz = value
             return
@@ -137,7 +141,7 @@ class ModelState:
         self._dz = value
 
     @property
-    def clock(self) -> "fr.Clock":
+    def clock(self) -> fr.Clock:
         """The clock of the model."""
         return self._clock
 
