@@ -61,6 +61,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = [
   "--import-mode=importlib",
+  "--strict-markers",
+]
+markers = [
+  "multi_device: requires more than one jax device",
+  "single_device: requires exactly one jax device",
 ]
 filterwarnings = [
   "error",

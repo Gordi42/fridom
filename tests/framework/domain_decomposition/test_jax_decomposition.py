@@ -3,16 +3,25 @@ Tests for the jax-sharding based domain decomposition.
 
 Description
 -----------
-The tests in this file run on however many devices jax provides. In a
-default test session this is a single device. To also exercise real
-multi-device sharding, `test_multi_device` reruns this file in a
-subprocess with ``XLA_FLAGS=--xla_force_host_platform_device_count=N``
-(the flag must be set before jax initializes, hence the subprocess).
+The tests in this file are device-count-agnostic: they run on however
+many devices jax provides. The single-device suite (the default test
+session) runs them on one device. The multi-device suite reruns them
+on several forced host devices:
+
+.. code-block:: bash
+
+    XLA_FLAGS=--xla_force_host_platform_device_count=4 \
+    FRIDOM_TEST_FORCED_DEVICES=4 \
+    uv run pytest tests/framework/domain_decomposition/
+
+
+The ``XLA_FLAGS`` variable must be set before jax initializes, which
+is why the multi-device suite is a separate pytest invocation. Tests
+that only make sense on one of the two suites are marked with
+``@pytest.mark.single_device`` or ``@pytest.mark.multi_device``.
 """
 
 import os
-import subprocess
-import sys
 
 import jax
 import jax.numpy as jnp
@@ -341,30 +350,27 @@ def test_shard_map(domain, u):
 #  Multi-device runs
 # ================================================================
 def test_forced_device_count():
-    """Inside a multi-device subprocess, check the forced device count."""
+    """Check the forced device count of the multi-device suite.
+
+    This test is deliberately guarded by the environment variable and
+    not by the multi_device marker: if XLA_FLAGS were set too late to
+    take effect, the device count would fall back to one and a
+    marker-based guard would silently skip instead of failing.
+    """
     forced_devices = os.environ.get(FORCED_DEVICES_ENV)
     if forced_devices is None:
-        pytest.skip("only relevant in a multi-device subprocess")
+        pytest.skip("only relevant in the multi-device suite")
 
-    # guards against XLA_FLAGS being set too late to take effect
     assert jax.device_count() == int(forced_devices)
 
 
-@pytest.mark.parametrize("n_devices", [4])
-def test_multi_device(n_devices):
-    """Rerun this test file on multiple (forced host) devices."""
-    if os.environ.get(FORCED_DEVICES_ENV) is not None:
-        pytest.skip("already running in a multi-device subprocess")
+@pytest.mark.multi_device
+def test_arrays_are_distributed_across_all_devices():
+    """The created arrays must actually live on all devices."""
+    domain = fr.domain_decomposition.JaxDecomposition(
+        shape=(32, 32), halo=1)
 
-    env = os.environ.copy()
-    env[FORCED_DEVICES_ENV] = str(n_devices)
-    xla_flags = env.get("XLA_FLAGS", "")
-    env["XLA_FLAGS"] = (
-        f"{xla_flags} --xla_force_host_platform_device_count={n_devices}")
-
-    result = subprocess.run(  # noqa: S603 (runs this very test file)
-        [sys.executable, "-m", "pytest", __file__, "-q",
-         "-p", "no:cacheprovider"],
-        env=env, capture_output=True, text=True, check=False)
-
-    assert result.returncode == 0, result.stdout + result.stderr
+    for arr in (domain.create_array(),
+                domain.create_array(spectral=True),
+                domain.create_random_array(seed=42)):
+        assert len(arr.sharding.device_set) == jax.device_count()

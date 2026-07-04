@@ -24,11 +24,18 @@ jobs:
       run: |
         uv sync --extra dev
 
-    - name: Run the tests
+    - name: Run the tests (single device)
       run: |
         uv run pytest tests/ -n 4 --dist loadfile \
           --cov --cov-report=xml --cov-report=term \
           --junitxml=junit.xml -o junit_family=legacy
+
+    - name: Run the tests (multiple devices)
+      env:
+        XLA_FLAGS: --xla_force_host_platform_device_count=4
+        FRIDOM_TEST_FORCED_DEVICES: "4"
+      run: |
+        uv run pytest tests/framework/domain_decomposition/test_jax_decomposition.py -q
 
     - name: Upload test results
       if: ${{ !cancelled() }}

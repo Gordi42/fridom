@@ -28,6 +28,10 @@ uv run pytest tests/ -n 8 --dist loadfile --cov  # full suite with coverage
 
 uv run ruff check src tests                # lint (must stay at zero errors)
 uv run pre-commit install                  # install the ruff pre-commit hook
+
+# multi-device suite (reruns the decomposition tests on 4 forced host devices)
+XLA_FLAGS=--xla_force_host_platform_device_count=4 FRIDOM_TEST_FORCED_DEVICES=4 \
+  uv run pytest tests/framework/domain_decomposition/test_jax_decomposition.py
 ```
 
 - For full-suite runs use pytest-xdist with `--dist loadfile`: tests in the
@@ -248,6 +252,11 @@ def fft(self, padding: FFTPadding = FFTPadding.NOPADDING) -> fr.FieldBase:
   Files named `test_*.py`, mirroring the `src/fridom` layout.
 - Each package dir has a `test_init.py` that parametrizes over the
   `__init__.py` re-exports to assert every public name imports.
+- Tests requiring a specific jax device count are marked with
+  `@pytest.mark.multi_device` (skipped on one device) or
+  `@pytest.mark.single_device` (skipped on several devices); unmarked
+  tests must pass on any device count (see the multi-device suite
+  command above).
 - Use `@pytest.fixture` (including `params=`/`autouse`) and
   `@pytest.mark.parametrize` with `pytest.param(..., id=...)`.
 - Use plain `assert` and `pytest.raises(..., match=...)`.
