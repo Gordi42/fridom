@@ -271,7 +271,6 @@ def create_animation(longitudinal_mode: int,
             model_time_per_second=z.period/5,
             filename=f"{f_name}.mp4",
             fps=fps,
-            parallel=False,
         ))
 
     # create a thumbnail saver

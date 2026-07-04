@@ -99,14 +99,10 @@ def main():
         mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
             TopPlotter,
             model_time_per_second=np.timedelta64(10, "m"),
-            max_jobs=0.05,
-            parallel=False,
             filename=f"{exp_name}_top", fps=fps))
         mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
             FrontPlotter,
             model_time_per_second=np.timedelta64(10, "m"),
-            max_jobs=0.05,
-            parallel=False,
             filename=f"{exp_name}_front", fps=fps))
 
     # create a NetCDF writer to save the output

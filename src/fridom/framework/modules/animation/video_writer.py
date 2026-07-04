@@ -1,8 +1,6 @@
 """Create a mp4 video from the model."""
 from __future__ import annotations
 
-import multiprocessing as mp
-import queue
 import warnings
 from copy import deepcopy
 from pathlib import Path
@@ -13,7 +11,6 @@ import numpy as np
 import fridom.framework as fr
 
 
-# FIXME(Silvano): The parallel option is not working with jax anymore
 class VideoWriter(fr.modules.Module):
 
     """
@@ -36,12 +33,6 @@ class VideoWriter(fr.modules.Module):
         "output.mp4").
     fps : int, optional
         The frames per second of the video (default: 30).
-    parallel : bool, optional
-        If True, the video writer will use parallelism to create the video
-        (default: True).
-    max_jobs : float, optional
-        The maximum fraction of the available threads that will be used
-        (default: 0.4).
 
     """
 
@@ -51,8 +42,6 @@ class VideoWriter(fr.modules.Module):
                  model_time_per_second: np.timedelta64 | float,
                  filename: str = "output.mp4",
                  fps: int = 30,
-                 parallel: bool = True,
-                 max_jobs: float = 0.2,
                  ) -> None:
         super().__init__()
 
@@ -72,11 +61,9 @@ class VideoWriter(fr.modules.Module):
         self.write_interval = write_interval
         self.filename = str(Path("videos") / filename)
         self.fps = fps
-        self.max_jobs = max_jobs
         # set the flag for MPI availability
         self.mpi_available = False
         self.writer = None
-        self.parallel = parallel
         self.fig = None
         self._last_write_time = None
         self._last_checkpoint_time = None
@@ -92,17 +79,10 @@ class VideoWriter(fr.modules.Module):
             fr.log.notice(f"Deleting existing video file {self.filename}")
             Path(self.filename).unlink()
 
-        # use maximum of 40% the available threads
-        if self.parallel:
-            self.maximum_jobs = int(self.max_jobs*mp.cpu_count())
         self.fig = None
 
     @fr.modules.module_method
     def start(self) -> None:  # noqa: D102
-        # list for the jobs and queues for creating the figures
-        self.running_jobs = []       # Processes
-        self.open_queues  = []       # Queues
-
         # start the writer
         if self.writer is not None and not self.writer.closed:
             fr.log.warning(
@@ -114,10 +94,6 @@ class VideoWriter(fr.modules.Module):
 
     @fr.modules.module_method
     def stop(self) -> None:  # noqa: D102
-        # collect all figures
-        while len(self.running_jobs) > 0:
-            fr.log.info("Collecting remaining figures")
-            self.collect_figures()
         if self.writer is not None:
             fr.log.debug("Closing the video writer")
             self.writer.close()
@@ -150,41 +126,11 @@ class VideoWriter(fr.modules.Module):
             return mz
         self._last_write_time = time
 
-        if self.parallel:
-            self.parallel_update(mz)
-        else:
-            self.single_update(mz)
+        self.single_update(mz)
         return mz
 
-    def parallel_update(self, mz: fr.ModelState) -> None:
-        """Create a new figure in a separate process and queue it."""
-        # collect finished figures
-        self.collect_figures()
-
-        # wait until there is space for a new job
-        while len(self.running_jobs) >= self.maximum_jobs:
-            self.collect_figures()
-
-        # create a new figure
-        q = mp.Queue()
-        diagnostics = self.mset.diagnostics
-        self.mset.diagnostics = None
-
-        kw = {"kwargs": self.model_plotter.prepare_arguments(mz),
-              "output_queue": q,
-              "model_plotter": self.model_plotter}
-        job = mp.Process(target=VideoWriter.p_make_figure, kwargs=kw)
-        self.mset.diagnostics = diagnostics
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=RuntimeWarning)
-            job.start()
-
-        self.open_queues.append(q)
-        self.running_jobs.append(job)
-
     def single_update(self, mz: fr.ModelState) -> None:
-        """Create a figure and append it to the video (serial mode)."""
+        """Create a figure and append it to the video."""
         if self.fig is None:
             self.fig = self.model_plotter.create_figure()
         else:
@@ -196,24 +142,6 @@ class VideoWriter(fr.modules.Module):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=RuntimeWarning)
             self.writer.append_data(img)
-
-    def collect_figures(self) -> None:
-        """Collect finished figures and append them to the video."""
-        while len(self.running_jobs) > 0:
-            try:
-                img = self.open_queues[0].get(timeout=0.05)
-            except queue.Empty:
-                break
-
-            # add the figure to the video
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=RuntimeWarning)
-                self.writer.append_data(img)
-
-            # remove the finished job and queue
-            self.running_jobs[0].join()
-            self.running_jobs.pop(0)
-            self.open_queues.pop(0)
 
     def show_video(self, width: int = 600) -> Any:
         """Display the video in a Jupyter notebook."""
@@ -227,7 +155,6 @@ class VideoWriter(fr.modules.Module):
         res = super().info
         res["filename"] = self.filename
         res["fps"] = self.fps
-        res["max_jobs"] = self.max_jobs
         return res
 
     def __to_numpy__(self, memo: dict) -> VideoWriter:
@@ -243,28 +170,3 @@ class VideoWriter(fr.modules.Module):
             else:
                 setattr(new, key, deepcopy(getattr(self, key), memo))
         return new
-
-    # =====================================================================
-    #  PARALLEL FUNCTIONS
-    # =====================================================================
-
-    def p_make_figure(**kwargs: Any) -> None:
-        """
-        Make the image of a ModelPlotter object (parallel function).
-
-        Gets a ModelPlotter object, makes the image of it and puts it in
-        the output queue.
-
-        Arguments:
-            modelplot (ModelPlotter): model plotter object
-            output_queue (mp.Queue) : output queue
-        """
-        # get output queue
-        output_queue = kwargs["output_queue"]
-        model_plotter = kwargs["model_plotter"]
-        kw = kwargs["kwargs"]
-        fig = model_plotter.create_figure()
-        model_plotter.update_figure(fig=fig, **kw)
-
-        img = model_plotter.convert_to_img(fig)
-        output_queue.put(img)
