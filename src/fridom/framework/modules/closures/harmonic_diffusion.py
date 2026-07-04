@@ -63,8 +63,10 @@ class HarmonicDiffusion(fr.modules.Module):
         r"""Apply the harmonic diffusion operator on a field :math:`u`."""
         # compute the gradient of the field
         grad_u = list(self.diff_module.grad(u))
-        # multiply the gradient with the diffusion coefficients
-        for i, coeff in enumerate(self.diffusion_coefficients):
+        # multiply the gradient with the internal diffusion coefficients
+        # (the biharmonic subclass stores the square roots of the
+        # user-facing coefficients there)
+        for i, coeff in enumerate(self._diffusion_coefficients):
             if isinstance(coeff, fr.ScalarField):
                 # interpolate the diffusion coefficient to the position
                 # of the field
