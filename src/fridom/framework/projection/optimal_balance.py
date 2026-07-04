@@ -92,7 +92,7 @@ class OptimalBalance(fr.projection.Projection):
     def update_parameters(self,
                           mset: fr.ModelSettings,
                           ramped_value: float,
-                          mode: Literal["forward", "backward"]) -> None:
+                          mode: Literal["forward", "backward"]) -> None:  # noqa: ARG002 (interface conformity)
         mset.tendencies.advection.scaling = ramped_value * self.default_scaling
 
 

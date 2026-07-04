@@ -19,7 +19,7 @@ class Increment(fr.modules.Module):
         self.number = 0  # sets the number to 0
 
     @fr.modules.module_method
-    def update(self, mz: fr.ModelSettingsBase) -> None:
+    def update(self, mz: fr.ModelSettingsBase) -> None:  # noqa: ARG002
         self.number += 1  # increments the number by 1
 
     @fr.modules.module_method

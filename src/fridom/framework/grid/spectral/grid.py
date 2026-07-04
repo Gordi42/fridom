@@ -24,7 +24,7 @@ class Grid(fr.grid.cartesian.Grid):
         super().setup(mset, req_halo=0)
 
     def get_mesh(self,
-                 position: fr.grid.Position | None = None,
+                 position: fr.grid.Position | None = None,  # noqa: ARG002 (interface conformity)
                  spectral: bool = False ) -> tuple[np.ndarray]:
         return super().get_mesh(position=self.cell_center, spectral=spectral)
 
@@ -32,7 +32,7 @@ class Grid(fr.grid.cartesian.Grid):
             arr: np.ndarray,
             padding = fr.grid.FFTPadding.NOPADDING,
             bc_types: tuple[fr.grid.BCType] | None = None,
-            positions: tuple[fr.grid.AxisPosition] | None = None,
+            positions: tuple[fr.grid.AxisPosition] | None = None,  # noqa: ARG002 (interface conformity)
             ) -> np.ndarray:
         return super().fft(arr=arr,
                            padding=padding,
@@ -43,7 +43,7 @@ class Grid(fr.grid.cartesian.Grid):
              arr: np.ndarray,
              padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
-             positions: tuple[fr.grid.AxisPosition] | None = None,
+             positions: tuple[fr.grid.AxisPosition] | None = None,  # noqa: ARG002 (interface conformity)
              ) -> np.ndarray:
         return super().ifft(arr=arr,
                             padding=padding,

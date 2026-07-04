@@ -95,7 +95,7 @@ class ModelSettingsBase:
                 raise AttributeError(message)
             setattr(self, key, value)
 
-    def setup_grid(self, setup_mode: Literal["default", "forced"] = "default") -> None:
+    def setup_grid(self, setup_mode: Literal["default", "forced"] = "default") -> None:  # noqa: ARG002 (interface conformity)
         """Set the grid object up."""
         # TODO(Silvano): Pass the setup mode to the grid setup
         self.grid.setup(mset=self)

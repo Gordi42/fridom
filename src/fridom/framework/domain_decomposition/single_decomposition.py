@@ -217,8 +217,8 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def gather(self,
                arr: ndarray,
                slc: tuple[slice] | None = None,
-               dest_rank: int | None = None,
-               spectral: bool = False) -> ndarray:
+               dest_rank: int | None = None,  # noqa: ARG002 (interface conformity)
+               spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         if arr.shape == self.shape:
             return arr[slc]
         return arr[self._inner_slice][slc]
@@ -292,7 +292,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def create_meshgrid(self,
                         *args: ndarray,
                         pad: bool = True,
-                        spectral: bool = False) -> tuple[ndarray]:
+                        spectral: bool = False) -> tuple[ndarray]:  # noqa: ARG002 (interface conformity)
         mesh = fr.config.ncp.meshgrid(*args, indexing="ij")
         if pad:
             mesh = tuple(self.pad(x) for x in mesh)
@@ -305,21 +305,21 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
     def sum(self,
             arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         arr = self.unpad(arr)
         return fr.config.ncp.sum(arr, axis=axes, keepdims=True)
 
     def max(self,
             arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         arr = self.unpad(arr)
         return fr.config.ncp.max(arr, axis=axes, keepdims=True)
 
     def min(self,
             arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         arr = self.unpad(arr)
         return fr.config.ncp.min(arr, axis=axes, keepdims=True)
 

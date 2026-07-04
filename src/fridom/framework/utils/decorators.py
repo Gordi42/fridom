@@ -36,7 +36,7 @@ def skip_on_doc_build(func: callable) -> callable:
     """
     # check if we are building the documentation
     if os.getenv("FRIDOM_DOC_GENERATION") == "True":
-        def do_nothing(*args, **kwargs) -> None:  # pylint: disable=unused-argument
+        def do_nothing(*_args, **_kwargs) -> None:
             return None
         return do_nothing
     return func

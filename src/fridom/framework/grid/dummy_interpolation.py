@@ -10,5 +10,5 @@ class DummyInterpolation(fr.grid.InterpolationModule):
 
     def interpolate(self,
                     f: fr.ScalarField,
-                    destination: fr.grid.Position) -> fr.ScalarField:
+                    destination: fr.grid.Position) -> fr.ScalarField:  # noqa: ARG002 (interface conformity)
         return f

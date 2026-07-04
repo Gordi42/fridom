@@ -31,7 +31,7 @@ def mset(grid):
 #  Tests
 # ================================================================
 
-def test_upwind_random(mset, n_dims):
+def test_upwind_random(mset, n_dims):  # noqa: ARG001 (parametrized fixture)
     # create scalar fields for velocity and flux
     velocity = fr.ScalarField(mset)
     flux_left = fr.ScalarField(mset)

@@ -23,7 +23,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                  shape: tuple[int],
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
-                 p_dims: tuple[int] | None = None,
+                 p_dims: tuple[int] | None = None,  # noqa: ARG002 (interface conformity)
                  shared_axes: tuple[int] | None = None,
                  device_ids: list[int] | None = None) -> None:
         super().__init__(shape, halo, periods, shared_axes, device_ids)
@@ -246,7 +246,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     def gather(self,
                arr: ndarray,
                slc: tuple[slice] | None = None,
-               dest_rank: int | None = None,
+               dest_rank: int | None = None,  # noqa: ARG002 (interface conformity)
                spectral: bool = False) -> ndarray:
         if slc is None:
             slc = (slice(None), )*self.n_dims
@@ -341,19 +341,19 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     def sum(self,
             arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         return jax.numpy.sum(arr, axis=axes)
 
     def max(self,
             arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         return jax.numpy.max(arr, axis=axes)
 
     def min(self,
             arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         return jax.numpy.min(arr, axis=axes)
 
 
