@@ -28,7 +28,7 @@ To install FRIDOM from the source code repository, clone the repository in your 
 ``` bash
 git clone https://github.com/Gordi42/FRIDOM
 cd FRIDOM
-pip install -e '.[jax-cuda]'
+pip install -e '.[cuda]'
 ```
 see [here](https://fridom.readthedocs.io/en/latest/installation.html) for more information on the installation.
 

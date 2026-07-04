@@ -10,7 +10,7 @@ which the modern code (e.g. `framework/modules/module.py`,
 
 - `src/fridom/` — package source (setuptools src-layout).
   - `framework/` — core base classes and shared machinery (grids, modules,
-    fields, time steppers, projections, config/backend).
+    fields, time steppers, projections, jax utilities).
   - `nonhydro/`, `shallowwater/`, `hydrostatic/` — concrete models built on
     `framework`.
 - `tests/` — pytest suite; mirrors the `src/fridom` tree.
@@ -22,10 +22,8 @@ which the modern code (e.g. `framework/modules/module.py`,
 
 ```bash
 uv sync --extra dev                        # create/refresh .venv with dev deps
-uv run ./run_tests.sh                      # run tests across all backends
-uv run ./run_tests.sh -b numpy             # restrict to one (or more) backends
-uv run ./run_tests.sh -b "numpy jax_cpu" -t tests/framework  # subset + target
-FRIDOM_BACKEND=numpy uv run pytest tests/  # run a single backend directly
+uv run pytest tests/                       # run the test suite
+uv run pytest tests/framework              # run a subset
 uv run ruff check src tests                # lint (must stay at zero errors)
 uv run pre-commit install                  # install the ruff pre-commit hook
 ```
@@ -33,17 +31,11 @@ uv run pre-commit install                  # install the ruff pre-commit hook
 - The repo ships a uv-managed environment (`.venv` + `uv.lock`); run everything
   through `uv run` (or activate `.venv`) so the correct interpreter and pinned
   dependencies are used. `uv sync --extra dev` provisions the dev toolchain
-  (pytest, coverage, ruff, jax, cupy, ...).
-- Tests select the array backend via the `FRIDOM_BACKEND` env var
-  (`numpy`, `cupy`, `jax_cpu`, `jax_gpu`). `run_tests.sh` loops over all of
-  them with aggregated coverage; note it invokes `pytest`/`coverage` directly,
-  so run it via `uv run ./run_tests.sh`.
-- On a machine without a CUDA GPU, restrict to CPU backends, e.g.
-  `uv run ./run_tests.sh -b "numpy jax_cpu"` — `cupy` and `jax_gpu` require a
-  GPU.
-- Use `-t <path>` to target a subset (e.g. `-t tests/framework`) and
-  `-b "<backends>"` to choose backends; the same target can be passed directly
-  to `pytest`.
+  (pytest, coverage, ruff, ...).
+- FRIDOM is **jax-only**: jax is a core dependency and all compute arrays are
+  `jax.numpy` arrays. The compute platform (cpu/gpu/tpu) is selected through
+  JAX directly (e.g. the `JAX_PLATFORMS` env var); tests run on whatever
+  platform jax picks.
 
 ## Conventions
 
@@ -59,6 +51,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from functools import partial
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
@@ -114,22 +107,24 @@ all_imports_by_origin = {
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
 ```
 
-### Array backend (numpy / cupy / jax)
+### Arrays (jax)
 
-Never `import numpy` for compute code. The active backend lives in
-`fridom.framework.configuration` and is reached through `fr.config`:
+Compute code uses **jax** directly:
 
-- Arrays: `fr.config.ncp` (the numpy-compatible module).
-- Scipy: `fr.config.scp`.
-- Dtypes: `fr.config.dtype_real`, `fr.config.dtype_comp`.
-
-Preferred idiom is a **function-local alias** in code that uses it heavily:
-
-```python
-def some_method(self) -> ndarray:
-    ncp = fr.config.ncp
-    return ncp.zeros_like(self.arr)
-```
+- Arrays: `import jax.numpy as jnp` (never `import numpy` for compute code;
+  numpy is fine for host-side work like time handling or I/O).
+- Scipy: `import jax.scipy as jsp`.
+- Dtypes: `fr.utils.dtype_real()` / `fr.utils.dtype_comp()` — these follow
+  the jax `jax_enable_x64` flag, which fridom enables at import (float64 by
+  default).
+- In-place-style updates: `fr.utils.modify_array(arr, where, value)`
+  (wraps `arr.at[where].set(value)`).
+- jit: decorate with `@fr.utils.jaxjit`; register classes as pytrees with
+  `@fr.utils.jaxify` (subclasses of jaxified classes are auto-registered;
+  apply the decorator only to mark additional `dynamic=(...)` attributes).
+- Modules in jit-compiled containers (e.g. `mset.tendencies`) must be
+  **pure**: no Python-side state mutation, no branching on traced values.
+  Stateful modules (e.g. `Counter`) belong in `mset.diagnostics`.
 
 ### Docstrings
 
@@ -214,4 +209,3 @@ def fft(self, padding: FFTPadding = FFTPadding.NOPADDING) -> fr.FieldBase:
 - Use `@pytest.fixture` (including `params=`/`autouse`) and
   `@pytest.mark.parametrize` with `pytest.param(..., id=...)`.
 - Use plain `assert` and `pytest.raises(..., match=...)`.
-- Backend-aware tests branch on `fr.config` (e.g. `fr.config.backend_is_jax`).

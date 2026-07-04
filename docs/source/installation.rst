@@ -14,21 +14,19 @@ FRIDOM can be installed using pip:
 
 .. code-block:: bash
 
-   pip install fridom["<backend>"]
+   pip install fridom
 
-The backend can be one of the following:
-
-- ``jax-cuda``: JAX backend for GPU acceleration with CUDA support. (recommended)
-- ``jax``: JAX backend without GPU acceleration.
-- ``cupy``: CuPy backend with GPU acceleration (fridom is not optimized for CuPy).
-
-For example, to install FRIDOM with the JAX backend and CUDA support, run:
+FRIDOM is built on `JAX <https://docs.jax.dev>`_. The default installation
+runs on the CPU. To run FRIDOM on a GPU with CUDA support, install the
+``cuda`` extra:
 
 .. code-block:: bash
 
-   pip install fridom["jax-cuda"]
+   pip install fridom["cuda"]
 
-If no backend is specified, only numpy will be available as a backend.
+The compute device is selected through JAX directly, for example via the
+``JAX_PLATFORMS`` environment variable (see :doc:`the platform tutorial
+<tutorials/more_tutorials/backend>`).
 
 
 Building from source
@@ -40,10 +38,10 @@ your desired directory and install the package using pip:
 
    git clone https://github.com/Gordi42/FRIDOM
    cd FRIDOM
-   pip install -e '.[jax-cuda]'
+   pip install -e '.[cuda]'
 
-This will install FRIDOM with the JAX backend and CUDA support. To install FRIDOM
-with a different backend, replace ``jax-cuda`` with the desired backend (see above).
+This will install FRIDOM with CUDA support. For a CPU-only installation,
+drop the ``[cuda]`` extra.
 
 .. note::
 
@@ -67,7 +65,7 @@ Optional dependencies
 
 - ``xarray``: To convert data to xarray datasets for easier plotting. An installation guide can be found `here <http://xarray.pydata.org/en/stable/installing.html>`_.
 - ``imageio``: To create animations. It can be installed with ``pip install "imageio[ffmpeg]"``.
-- ``mpi4py``: To run simulations in parallel using MPI (currently only with the numpy backend). An installation guide can be found `at this link <https://mpi4py.readthedocs.io/en/stable/install.html>`_.
+- ``mpi4py``: To run simulations in parallel using MPI. An installation guide can be found `at this link <https://mpi4py.readthedocs.io/en/stable/install.html>`_.
 
 
 Installation on special systems

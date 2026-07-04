@@ -48,14 +48,13 @@ Animation
     :loop:
 
 """
+import jax.numpy as jnp
 import fridom.nonhydro as nh
 import os
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 plt.style.use(['dark_background'])
-
-ncp = nh.config.ncp
-PI = ncp.pi
+PI = jnp.pi
 
 # ----------------------------------------------------------------
 #  Experiment settings

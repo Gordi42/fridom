@@ -49,6 +49,7 @@ smagorinsky-lilly
     affect the solution.
 """
 
+import jax.numpy as jnp
 import fridom.nonhydro as nh
 import fridom.framework as fr
 import numpy as np
@@ -107,10 +108,9 @@ def test_closure(closure: fr.modules.Module):
     mset.setup()
 
     # create an initial condition
-    ncp = nh.config.ncp  # the array backend (numpy, cupy, ...)
     X, Y, Z = grid.x_mesh
     z = nh.State(mset)
-    z.b.arr = 1e-3 * ncp.exp(-((X-50)**2 + (Z-50)**2)/(10)**2)
+    z.b.arr = 1e-3 * jnp.exp(-((X-50)**2 + (Z-50)**2)/(10)**2)
 
     # create the model, set initial conditions, and run
     model = nh.Model(mset)

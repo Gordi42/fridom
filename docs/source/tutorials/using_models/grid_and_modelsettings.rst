@@ -221,9 +221,9 @@ If the grid allows for Fourier transformations, you can also access the k-space 
 
             Kx, Ky, Kz = grid.get_mesh(spectral=True)
 
-The meshgrid is represented as an array, which could be a ``numpy``, ``cupy``, or ``jax.numpy`` array, depending on the backend used. For more information about backends and how to change them, see :doc:`here <../more_tutorials/backend>`. We use the ``jax`` backend.
+The meshgrid is represented as a ``jax.numpy`` array. For more information on how to select the compute device (CPU/GPU), see :doc:`here <../more_tutorials/backend>`.
 
-To simplify working with different backends, you can access ``ncp`` from the config module. Depending on the backend, ncp will be either ``numpy``, ``cupy``, or ``jax.numpy``. For example, arrays can be created as follows:
+Arrays are created with ``jax.numpy``. For example:
 
 .. code-block:: python
     :caption: Creating an array
@@ -234,15 +234,14 @@ To simplify working with different backends, you can access ``ncp`` from the con
     mset = sw.ModelSettings(grid=grid, f0=1e-4, csqr=9.81*20)
     mset.setup()
 
-    # Load the "numpy"-like module from the config
-    ncp = sw.config.ncp
+    import jax.numpy as jnp
 
     # Access the meshgrid
     X, Y = grid.get_mesh()
 
     # Create an array with zeros of the same shape as the meshgrid
-    u = ncp.zeros_like(X)
+    u = jnp.zeros_like(X)
 
 Arrays should always be based on the meshgrid to ensure that their dimensions are correct. This is particularly important for ensuring consistency with parallelized cases.
 
-The grid also provides several other functions, which are not covered in detail here. Most of these functions are not directly used but are utilized by the ScalarField class, introduced in the next tutorial. The ScalarField class is essentially a wrapper around ``ncp`` arrays, offering various functions to facilitate working with them.
+The grid also provides several other functions, which are not covered in detail here. Most of these functions are not directly used but are utilized by the ScalarField class, introduced in the next tutorial. The ScalarField class is essentially a wrapper around ``jax.numpy`` arrays, offering various functions to facilitate working with them.

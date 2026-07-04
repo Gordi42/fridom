@@ -149,8 +149,6 @@ import numpy as np
 
 import fridom.shallowwater as sw
 
-ncp = sw.config.ncp
-
 # ----------------------------------------------------------------
 #  Experiment settings
 # ----------------------------------------------------------------

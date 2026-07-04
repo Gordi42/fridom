@@ -191,10 +191,10 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             z = sw.State(mset)
 
             # Create a velocity field
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             X, Y = z.u.get_mesh()
-            z.u.arr = ncp.sin(4 * ncp.pi * X) * ncp.cos(4 * ncp.pi * Y)
-            z.v.arr = -ncp.cos(4 * ncp.pi * X) * ncp.sin(4 * ncp.pi * Y)
+            z.u.arr = jnp.sin(4 * jnp.pi * X) * jnp.cos(4 * jnp.pi * Y)
+            z.v.arr = -jnp.cos(4 * jnp.pi * X) * jnp.sin(4 * jnp.pi * Y)
 
             # Convert the state vector to an xarray dataset and plot the velocity field
             z.xrs[::8, ::8].plot.quiver("x", "y", "u", "v")
@@ -219,10 +219,10 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             z = sw.State(mset)
 
             # Create a velocity field
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             X, Y = z.u.get_mesh()
-            z.u.arr = ncp.sin(4 * ncp.pi * X) * ncp.cos(4 * ncp.pi * Y)
-            z.v.arr = -ncp.cos(4 * ncp.pi * X) * ncp.sin(4 * ncp.pi * Y)
+            z.u.arr = jnp.sin(4 * jnp.pi * X) * jnp.cos(4 * jnp.pi * Y)
+            z.v.arr = -jnp.cos(4 * jnp.pi * X) * jnp.sin(4 * jnp.pi * Y)
 
             # Convert the state vector to an xarray dataset and plot the velocity field
             z.xr.plot.quiver("x", "y", "u", "v")
@@ -339,9 +339,9 @@ The following example shows how to create a custom initial condition that genera
 
             x, y = self.p.get_mesh()
             lx, ly = mset.grid.domain_size
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
 
-            self.p.arr = height * ncp.exp(-((x - lx/2)**2 + (y - ly/2)**2) / (2 * width**2))
+            self.p.arr = height * jnp.exp(-((x - lx/2)**2 + (y - ly/2)**2) / (2 * width**2))
 
     # Create the grid and model settings
     grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))

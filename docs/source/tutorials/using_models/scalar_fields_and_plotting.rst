@@ -7,7 +7,7 @@ Scalar Fields and Plotting
 
 The ``ScalarField`` class is the fundamental class for all scalar fields used in
 FRIDOM. Essentially, a scalar field is a wrapper around multidimensional arrays
-that can be stored in various backends, such as ``numpy``, ``cupy``, or ``jax.numpy``. 
+that are stored as ``jax.numpy`` arrays. 
 
 In addition to the array itself, a scalar field stores a range of metadata,
 including the field's name, units, coordinate information, and dimensions.
@@ -228,14 +228,14 @@ Apply Numpy Functions
     X, Y = u.get_mesh()
 
     # Access the numpy-like module and apply the sin function
-    ncp = sw.config.ncp
-    u.arr = ncp.sin(2 * ncp.pi * X)  # sin(2*pi*x)
+    import jax.numpy as jnp
+    u.arr = jnp.sin(2 * jnp.pi * X)  # sin(2*pi*x)
 
 .. note::
 
-    Recall that the ``numpy``-like module can be accessed via the ``ncp`` attribute of the ``config`` module.
+    Since scalar fields are backed by ``jax.numpy`` arrays, we use ``jax.numpy`` to create the data.
 
-In a similar manner, most ``numpy`` functions can be applied to scalar fields. However, an exception to this is random fields, as different backends handle them differently. Instead, random arrays can be generated from the grid:
+In a similar manner, most ``numpy`` functions can be applied to scalar fields. However, an exception to this is random fields, as ``jax`` handles random numbers differently. Instead, random arrays can be generated from the grid:
 
 .. code-block:: python
     :caption: Random fields
@@ -338,10 +338,10 @@ The easiest way to plot scalar fields is to convert them into an ``xarray`` ``Da
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             u = sw.ScalarField(mset, name="u", long_name="Velocity", units="m/s")
             X, Y = u.get_mesh()
-            u.arr = ncp.sin(2 * ncp.pi * X)
+            u.arr = jnp.sin(2 * jnp.pi * X)
 
             # Convert the entire scalar field to a DataArray and plot it
             u.xr.plot()
@@ -360,10 +360,10 @@ The easiest way to plot scalar fields is to convert them into an ``xarray`` ``Da
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             u = sw.ScalarField(mset, name="u", long_name="Velocity", units="m/s")
             X, Y = u.get_mesh()
-            u.arr = ncp.sin(2 * ncp.pi * X)
+            u.arr = jnp.sin(2 * jnp.pi * X)
 
             # Convert a slice of the scalar field to a DataArray and plot it
             u.xrs[:, 0].plot()
@@ -402,10 +402,10 @@ When modeling partial differential equations, one is often interested in the der
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
-    ncp = sw.config.ncp
+    import jax.numpy as jnp
     u = sw.ScalarField(mset, name="u")
     X, Y = u.get_mesh()
-    u.arr = ncp.sin(2 * ncp.pi * X)
+    u.arr = jnp.sin(2 * jnp.pi * X)
 
     # Calculate the first derivative in the x-direction
     du_dx = u.diff(axis=0)

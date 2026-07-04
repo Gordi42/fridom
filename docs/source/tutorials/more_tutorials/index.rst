@@ -14,11 +14,12 @@ More Tutorials
    :margin: 4 4 0 0
    :gutter: 2
 
-   .. grid-item-card:: Selecting the backend
+   .. grid-item-card:: Platform and precision
       :link: backend
       :link-type: doc
 
-      Everything about the backend.
+      How to select the compute device (CPU/GPU) and floating point
+      precision through JAX.
 
    .. grid-item-card:: Floating point precision
       :link: precision
