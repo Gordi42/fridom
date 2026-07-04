@@ -64,9 +64,9 @@ class SingleWave(sw.State):
         # Shortcuts
         ncp = sw.config.ncp
         grid = mset.grid
-        Kx, Ky = grid.K
+        Kx, Ky = grid.k_mesh
         kx, ky = k
-        Lx, Ly = grid.L
+        Lx, Ly = grid.domain_size
         pi = ncp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)

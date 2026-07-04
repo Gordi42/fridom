@@ -32,7 +32,7 @@ class RandomPhase(State):
         # get the wavenumber
         cp = self.cp
         mset = grid.mset
-        Kx, Ky = tuple(grid.K)
+        Kx, Ky = tuple(grid.k_mesh)
         K = cp.sqrt(Kx**2 + Ky**2)
         k_hor = cp.sqrt(Kx**2 + Ky**2)
 

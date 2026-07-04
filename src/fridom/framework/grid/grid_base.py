@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from numpy import ndarray
 
 
-@partial(fr.utils.jaxify, dynamic=("_X", "_x_global", "_K", "_k_global"))
+@partial(fr.utils.jaxify, dynamic=("_x_mesh", "_x_global", "_k_mesh", "_k_global"))
 class GridBase:
 
     """
@@ -36,11 +36,11 @@ class GridBase:
         self.name = "GridBase"
 
         self._n_dims = n_dims
-        self._N = None
-        self._L = None
+        self._shape = None
+        self._domain_size = None
         self._total_grid_points = None
         self._periodic_bounds = None
-        self._X = None
+        self._x_mesh = None
         self._x_global = None
         self._x_local = None
         self._dx = None
@@ -53,7 +53,7 @@ class GridBase:
         CENTER = fr.grid.AxisPosition.CENTER
         self._cell_center = fr.grid.Position(tuple([CENTER] * n_dims))
         # spectral properties
-        self._K = None
+        self._k_mesh = None
         self._k_global = None
         self._k_local = None
         self._omega_analytical = None
@@ -111,8 +111,8 @@ class GridBase:
         if position != self.cell_center:
             raise NotImplementedError("Not implemented for this grid")
         if spectral:
-            return self._K
-        return self._X
+            return self._k_mesh
+        return self._x_mesh
 
     # ----------------------------------------------------------------
     #  Fourier Transform Methods
@@ -249,14 +249,14 @@ class GridBase:
     def omega_analytical(self) -> ndarray:
         """Analytical dispersion relation."""
         if self._omega_analytical is None:
-            self._omega_analytical = self.omega(self.K, use_discrete=False)
+            self._omega_analytical = self.omega(self.k_mesh, use_discrete=False)
         return self._omega_analytical
 
     @property
     def omega_space_discrete(self) -> ndarray:
         """Dispersion relation with space-discretization effects."""
         if self._omega_space_discrete is None:
-            self._omega_space_discrete = self.omega(self.K, use_discrete=True)
+            self._omega_space_discrete = self.omega(self.k_mesh, use_discrete=True)
 
         return self._omega_space_discrete
 
@@ -614,14 +614,14 @@ class GridBase:
         return self._n_dims
 
     @property
-    def N(self) -> tuple[int]:
+    def shape(self) -> tuple[int]:
         """The number of grid points in each dimension."""
-        return self._N
+        return self._shape
 
     @property
-    def L(self) -> tuple[float]:
+    def domain_size(self) -> tuple[float]:
         """The length of the grid in each dimension."""
-        return self._L
+        return self._domain_size
 
     @property
     def total_grid_points(self) -> int:
@@ -641,9 +641,9 @@ class GridBase:
         return self._cell_center
 
     @property
-    def X(self) -> tuple[ndarray]:
+    def x_mesh(self) -> tuple[ndarray]:
         """The meshgrid of the grid points."""
-        return self._X
+        return self._x_mesh
 
     @property
     def x_global(self) -> tuple[ndarray]:
@@ -651,9 +651,9 @@ class GridBase:
         return self._x_global
 
     @property
-    def K(self) -> ndarray:
+    def k_mesh(self) -> ndarray:
         """The wavenumber of the grid."""
-        return self._K
+        return self._k_mesh
 
     @property
     def k_global(self) -> ndarray:

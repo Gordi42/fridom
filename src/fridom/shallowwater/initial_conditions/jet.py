@@ -53,8 +53,8 @@ class Jet(sw.State):
         super().__init__(mset)
         # Shortcuts
         ncp = sw.config.ncp
-        _X, Y = self.grid.X
-        _Lx, Ly = self.grid.L
+        _X, Y = self.grid.x_mesh
+        _Lx, Ly = self.grid.domain_size
 
         # Construct the zonal jets
         z_jet = sw.State(mset)

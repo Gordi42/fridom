@@ -33,7 +33,7 @@ def netcdf_module(directory_name):
 
 @pytest.fixture
 def mset():
-    grid = fr.grid.cartesian.Grid(N=(128, 64), L=(1, 1))
+    grid = fr.grid.cartesian.Grid(shape=(128, 64), domain_size=(1, 1))
     mset = fr.ModelSettingsBase(grid=grid)
     def _state_constructor() -> fr.VectorField:
         var1 = fr.ScalarField(

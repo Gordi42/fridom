@@ -83,7 +83,7 @@ class RandomGeostrophicSpectra(nh.State):
         import fridom.nonhydro as nh
         # Set up the model settings
         grid = nh.grid.cartesian.Grid(
-            N=(128, 128, 32), L=(10, 10, 1),
+            shape=(128, 128, 32), domain_size=(10, 10, 1),
             periodic_bounds=(False, True, False))
         mset = nh.ModelSettings(grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2)
         mset.time_stepper.dt = 0.1
@@ -107,7 +107,7 @@ class RandomGeostrophicSpectra(nh.State):
         super().__init__(mset, is_spectral=False)
 
         ncp = nh.config.ncp
-        kx, ky, kz = mset.grid.K
+        kx, ky, kz = mset.grid.k_mesh
         shape = kx.shape
 
         # construct the geostrophic eigenvectors

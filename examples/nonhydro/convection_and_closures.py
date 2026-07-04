@@ -81,7 +81,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
 def test_closure(closure: fr.modules.Module):
 
     grid = nh.grid.cartesian.Grid(
-        N=(512, 1, 512), L=(100, 1, 100), periodic_bounds=(True, True, False))
+        shape=(512, 1, 512), domain_size=(100, 1, 100), periodic_bounds=(True, True, False))
     mset = nh.ModelSettings(grid=grid, f0=0, stratification_n2=2.5e-5)
     mset.time_stepper.dt = np.timedelta64(1, 's')
 
@@ -108,7 +108,7 @@ def test_closure(closure: fr.modules.Module):
 
     # create an initial condition
     ncp = nh.config.ncp  # the array backend (numpy, cupy, ...)
-    X, Y, Z = grid.X
+    X, Y, Z = grid.x_mesh
     z = nh.State(mset)
     z.b.arr = 1e-3 * ncp.exp(-((X-50)**2 + (Z-50)**2)/(10)**2)
 

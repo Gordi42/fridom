@@ -65,9 +65,9 @@ class SingleWave(nh.State):
         # Shortcuts
         ncp = nh.config.ncp
         grid = mset.grid
-        Kx, Ky, Kz = grid.K
+        Kx, Ky, Kz = grid.k_mesh
         kx, ky, kz = k
-        Lx, Ly, Lz = grid.L
+        Lx, Ly, Lz = grid.domain_size
         pi = ncp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)

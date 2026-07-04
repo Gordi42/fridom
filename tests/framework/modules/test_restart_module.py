@@ -38,7 +38,7 @@ def capture_logs():
 
 @pytest.fixture
 def mset():
-    grid = fr.grid.cartesian.Grid(N=(16, ), L=(1, ))
+    grid = fr.grid.cartesian.Grid(shape=(16, ), domain_size=(1, ))
     return fr.ModelSettingsBase(grid).setup()
 
 # ================================================================

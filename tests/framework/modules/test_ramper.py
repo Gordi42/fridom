@@ -11,7 +11,7 @@ import fridom.framework as fr
 # ================================================================
 @pytest.fixture
 def mset():
-    grid = fr.grid.cartesian.Grid(N=(4, ), L=(1, ))
+    grid = fr.grid.cartesian.Grid(shape=(4, ), domain_size=(1, ))
     return fr.ModelSettingsBase(grid).setup()
 
 @pytest.fixture(params=[

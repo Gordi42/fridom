@@ -35,8 +35,8 @@ class Jet(nh.State):
         # Set up the model settings
         fac = 7
         grid = nh.grid.cartesian.Grid(
-            N=(2**fac, 2**fac, 2**(fac-3)),
-            L=(4, 4, 1),
+            shape=(2**fac, 2**fac, 2**(fac-3)),
+            domain_size=(4, 4, 1),
             periodic_bounds=(True, True, True))
         mset = nh.ModelSettings(grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2, rossby_number=0.1)
         mset.time_stepper.dt = 2**(-fac) * 2
@@ -58,8 +58,8 @@ class Jet(nh.State):
         super().__init__(mset)
         ncp = nh.config.ncp
 
-        _X, Y, Z = mset.grid.X
-        _Lx, Ly, Lz = mset.grid.L
+        _X, Y, Z = mset.grid.x_mesh
+        _Lx, Ly, Lz = mset.grid.domain_size
 
         # two opposite jets
         self.u.arr = -ncp.exp(-(Y-Ly/4)**2/(jet_width)**2)

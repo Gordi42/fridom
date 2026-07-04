@@ -96,8 +96,8 @@ class EquatorialWave(sw.State):
         rossby_radius = (phase_velocity / beta) ** 0.5
         eigenvalue = (2 * equatorial_mode + 1) / (rossby_radius ** 2)
 
-        y0 = grid.L[1] / 2
-        kx = 2 * pi / grid.L[0] * longitudinal_mode
+        y0 = grid.domain_size[1] / 2
+        kx = 2 * pi / grid.domain_size[0] * longitudinal_mode
 
         # Compute the frequencies of the equatorial wave
         coeffs = [1, 0, -csqr * (kx**2 + eigenvalue), -kx * beta * csqr]

@@ -62,19 +62,19 @@ def mode(request):
 
 def test_init(shape, length, periodic):
     grid = hs.grid.cartesian.Grid(shape, length, periodic)
-    assert shape == grid.N
-    assert length == grid.L
+    assert shape == grid.shape
+    assert length == grid.domain_size
     assert periodic == grid.periodic_bounds
 
 def test_setup(shape, length, periodic):
     grid = hs.grid.cartesian.Grid(shape, length, periodic)
     mset = hs.ModelSettings(grid)
     # check that the grid is not setup initially
-    assert grid.X is None
+    assert grid.x_mesh is None
     # setup the grid
     grid.setup(mset)
     # check if the grid is set up correctly
-    assert grid.X is not None
+    assert grid.x_mesh is not None
 
 # TODO(Silvano): Test one example with a model run
 def test_model_run(): ...

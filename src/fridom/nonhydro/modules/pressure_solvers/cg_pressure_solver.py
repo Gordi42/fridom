@@ -34,7 +34,7 @@ class CGPressureSolver(Module):
 
         # shorthand notation
         mset = self.mset
-        Nx  = mset.N[0]; Ny  = mset.N[1]; Nz  = mset.N[2]
+        Nx  = mset.shape[0]; Ny  = mset.shape[1]; Nz  = mset.shape[2]
         dx2 = mset.dtype(1.0) / mset.dx**2
         dy2 = mset.dtype(1.0) / mset.dy**2
         dz2 = mset.dtype(1.0) / mset.dz**2
@@ -69,7 +69,7 @@ class CGPressureSolver(Module):
         """
         p_flat, _info = self.cg(self.A, mz.z_diag.div.reshape(-1), x0=mz.p.reshape(-1),
                              tol=self.tol, maxiter=self.max_iter)
-        mz.z_diag.p[:] = p_flat.reshape(self.mset.N)
+        mz.z_diag.p[:] = p_flat.reshape(self.mset.shape)
 
     def __repr__(self) -> str:
         res = super().__repr__()

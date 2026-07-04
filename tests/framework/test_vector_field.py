@@ -21,7 +21,7 @@ def tmp_dir():
 
 @pytest.fixture
 def grid():
-    return fr.grid.cartesian.Grid(N=(3, 10), L=(1, 2))
+    return fr.grid.cartesian.Grid(shape=(3, 10), domain_size=(1, 2))
 
 @pytest.fixture
 def mset(grid):
@@ -155,7 +155,7 @@ def test_init_list_and_kwargs(mset, kwargs):
 
 @pytest.mark.parametrize("n_dims", [1, 2, 3])
 def test_init_different_dims(n_dims):
-    grid = fr.grid.cartesian.Grid(N=(3,) * n_dims, L=(1,) * n_dims)
+    grid = fr.grid.cartesian.Grid(shape=(3,) * n_dims, domain_size=(1,) * n_dims)
     mset = fr.ModelSettingsBase(grid).setup()
     vec = fr.VectorField(mset, vector_dim=2)
     assert isinstance(vec, fr.VectorField)

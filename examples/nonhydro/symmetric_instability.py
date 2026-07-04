@@ -165,7 +165,7 @@ def perform_experiment(richardson_number, run_length, make_thumbnail=False):
     #  Create the grid and model settings
     # ----------------------------------------------------------------
     N2 = richardson_number * M2**2 / f0**2
-    grid = nh.grid.cartesian.Grid(N=(Nx, 1, Nz), L=(Lx, 1, Lz), 
+    grid = nh.grid.cartesian.Grid(shape=(Nx, 1, Nz), domain_size=(Lx, 1, Lz), 
                                 periodic_bounds=(True, True, False))
     time_stepper = nh.time_steppers.AdamBashforth(order=2, dt=3)
     mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N2, dsqr=1, time_stepper=time_stepper)

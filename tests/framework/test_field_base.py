@@ -57,7 +57,7 @@ class Field(fr.FieldBase):
 @pytest.fixture
 def grid():
     # the dimension etc. of the grid is not important for this test
-    return fr.grid.cartesian.Grid(N=(1, ), L=(1, ))
+    return fr.grid.cartesian.Grid(shape=(1, ), domain_size=(1, ))
 
 @pytest.fixture
 def mset(grid):

@@ -43,8 +43,8 @@ CSQR = STRATIFICATION_N2 * ( DEPTH / (np.pi * VERTICAL_MODE) ) ** 2
 def mset():
     # setting up the grid
     grid = sw.grid.cartesian.Grid(
-        N=(2**RESOLUTION, 2**RESOLUTION),
-        L=(LENGTH_X, LENGTH_Y),
+        shape=(2**RESOLUTION, 2**RESOLUTION),
+        domain_size=(LENGTH_X, LENGTH_Y),
         periodic_bounds=(True, False),
     )
 

@@ -664,7 +664,7 @@ def vec_q(mset: nh.ModelSettings,
 
     # Then we calculate the eigenvector arrays
     u, v, w, b = _vec_q(s, mset.f0, mset.stratification_n2, mset.dsqr,
-                        mset.grid.K, mset.grid.dx, use_discrete)
+                        mset.grid.k_mesh, mset.grid.dx, use_discrete)
 
     # Finally we construct the state and set the nyquist frequency to zero
     z = nh.State(mset, is_spectral=True)
@@ -896,7 +896,7 @@ def vec_p(mset: nh.ModelSettings,
     _check_if_spectral_analysis_is_possible(mset)
     _check_for_horizontal_periodic_boundaries(mset)
     (u, v, w, b) = _vec_p(s, mset.f0, mset.stratification_n2, mset.dsqr,
-                          mset.grid.K, mset.grid.dx, use_discrete)
+                          mset.grid.k_mesh, mset.grid.dx, use_discrete)
     z = nh.State(mset, is_spectral=True)
     z.u.arr = u
     z.v.arr = v

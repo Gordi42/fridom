@@ -74,7 +74,7 @@ def create_plotter(skip):
 # ----------------------------------------------------------------
 def create_modelsettings(exp_name, quiver_skip):
     grid = nh.grid.cartesian.Grid(
-        L=(Lx, Lx, Lx), N=(Nx, Nx, 1), periodic_bounds=periodic)
+        domain_size=(Lx, Lx, Lx), shape=(Nx, Nx, 1), periodic_bounds=periodic)
 
     mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N0**2)
     mset.time_stepper.dt = 0.4 * 1/Nx

@@ -18,7 +18,7 @@ def shape(n_dims):
 
 @pytest.fixture
 def grid(shape):
-    return fr.grid.cartesian.Grid(N=shape, L=(1, 2, 3)[:len(shape)])
+    return fr.grid.cartesian.Grid(shape=shape, domain_size=(1, 2, 3)[:len(shape)])
 
 @pytest.fixture
 def mset(grid):

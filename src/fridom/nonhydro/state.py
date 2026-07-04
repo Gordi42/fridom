@@ -180,7 +180,7 @@ class State(fr.VectorField):
         if self.mset.stratification_n2 != 0:
             epot = 0.5*(self.b**2 / self.mset.stratification_n2_field)
         else:
-            epot = self.b * self.grid.X[2]
+            epot = self.b * self.grid.x_mesh[2]
 
         # Set the attributes
         epot.name = "epot"

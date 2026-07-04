@@ -56,7 +56,7 @@ class BiharmonicClosure(fr.modules.Module):
         velocity_scale = self.velocity_scale
 
         dx, _dy, dz = self.grid.dx
-        lx, _ly, lz = self.mset.grid.L
+        lx, _ly, lz = self.mset.grid.domain_size
 
         aspect_ratio = lz / lx * (self.mset.dsqr ** 0.5)
 

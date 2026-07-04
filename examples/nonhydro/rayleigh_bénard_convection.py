@@ -66,7 +66,7 @@ def main():
     # ----------------------------------------------------------------
     #  Create the grid and model settings
     # ----------------------------------------------------------------
-    grid = nh.grid.cartesian.Grid(N=(Nx, 1, Nz), L=(Lx, 1, Lz), 
+    grid = nh.grid.cartesian.Grid(shape=(Nx, 1, Nz), domain_size=(Lx, 1, Lz), 
                                 periodic_bounds=(True, True, False))
     mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N2)
     mset.time_stepper.dt = 0.2 / Nz

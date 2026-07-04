@@ -37,7 +37,7 @@ class RFFTPressureSolver(fr.modules.Module):
         self.dct_axes = {i for i, periodic in enumerate(periodic_axes) if not periodic}
 
         # we don't need to perform any transform in axis with only one grid point
-        single_point_axes = {i for i, N in enumerate(self.grid.N) if N == 1}
+        single_point_axes = {i for i, N in enumerate(self.grid.shape) if N == 1}
         self.fft_axes -= single_point_axes
         self.dct_axes -= single_point_axes
 
@@ -71,7 +71,7 @@ class RFFTPressureSolver(fr.modules.Module):
             if self.rfft_axis is not None:
                 i = self.rfft_axis
                 k[self.rfft_axis] = ncp.fft.rfftfreq(
-                    grid.N[i], d=grid.dx[i] / (2 * np.pi),
+                    grid.shape[i], d=grid.dx[i] / (2 * np.pi),
                 )
             dso = fr.grid.cartesian.discrete_spectral_operators
             k = [dso.k_hat_squared(kx, dx, use_discrete=True)

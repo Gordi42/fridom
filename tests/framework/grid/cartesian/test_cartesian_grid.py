@@ -47,7 +47,7 @@ def grid(L, N):
 # --------------------------------------------------------------
 
 def test_backend(grid):
-    x = grid.X[0]
+    x = grid.x_mesh[0]
     assert isinstance(x, config.ncp.ndarray)
 
 def test_x(grid, n_dims, N, L, dx):
@@ -59,7 +59,7 @@ def test_x(grid, n_dims, N, L, dx):
         assert x[i][-1] == L[i] - dx[i]/2.0
 
 def test_X(grid, n_dims):
-    X = grid.X
+    X = grid.x_mesh
     assert len(X) == n_dims
 
 def test_k(grid, n_dims, N, L):
@@ -72,5 +72,5 @@ def test_k(grid, n_dims, N, L):
         assert max(ncp.abs(k[i])) == k_max
 
 def test_K(grid, n_dims):
-    K = grid.K
+    K = grid.k_mesh
     assert len(K) == n_dims

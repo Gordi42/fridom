@@ -6,7 +6,7 @@ import fridom.framework as fr
 
 @pytest.fixture
 def mset():
-    return fr.ModelSettingsBase(grid=fr.grid.cartesian.Grid(N=(16, ), L=(1, )))
+    return fr.ModelSettingsBase(grid=fr.grid.cartesian.Grid(shape=(16, ), domain_size=(1, )))
 
 def test_defaut_counter(mset):
     number_of_steps = 100

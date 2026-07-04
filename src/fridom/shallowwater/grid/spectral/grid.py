@@ -14,13 +14,13 @@ if TYPE_CHECKING:
 @fr.utils.jaxify
 class Grid(fr.grid.spectral.Grid):
 
-    def __init__(self, N: list[int], L: list[int], *args: any, **kwargs: dict) -> None:
+    def __init__(self, shape: list[int], domain_size: list[int], *args: any, **kwargs: dict) -> None:
 
         if "periodic_bounds" in kwargs and not all(kwargs["periodic_bounds"]):
             msg = "Only periodic boundaries are supported in the spectral grid."
             raise ValueError(msg)
 
-        super().__init__(N=N, L=L, periodic_bounds=[True, True])
+        super().__init__(shape=shape, domain_size=domain_size, periodic_bounds=[True, True])
 
     def omega(self,
               k: tuple[float] | tuple[ndarray],

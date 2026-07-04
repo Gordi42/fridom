@@ -52,8 +52,8 @@ class BarotropicJet(nh.State):
         # Shortcuts
         ncp = nh.config.ncp
         PI = ncp.pi
-        X, Y, _Z = mset.grid.X
-        Lx, Ly, _Lz = mset.grid.L
+        X, Y, _Z = mset.grid.x_mesh
+        Lx, Ly, _Lz = mset.grid.domain_size
         width = jet_width * Ly * PI
 
         # Construct the zonal jets

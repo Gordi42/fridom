@@ -43,11 +43,11 @@ def test_recursion():
     assert z[0] is z[1]
 
 def test_mset_to_numpy():
-    grid = fr.grid.cartesian.Grid(N=(32, 32, 8), L=(1, 1, 1))
+    grid = fr.grid.cartesian.Grid(shape=(32, 32, 8), domain_size=(1, 1, 1))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
 
     mset_cpu = to_numpy(mset)
     grid_cpu = mset_cpu.grid
 
-    assert isinstance(grid_cpu.X[0], np.ndarray)
+    assert isinstance(grid_cpu.x_mesh[0], np.ndarray)

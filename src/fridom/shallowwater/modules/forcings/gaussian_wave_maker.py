@@ -35,7 +35,7 @@ class GaussianWaveMaker(Module):
     def start(self) -> None:
         # shorthand
         cp = self.grid.cp
-        X, Y = tuple(self.grid.X)
+        X, Y = tuple(self.grid.x_mesh)
 
         # Create gaussian mask
         self.mask = cp.exp(-((X - self.position[0])**2 / self.width[0]**2 +

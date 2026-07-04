@@ -79,8 +79,8 @@ class WavePackage(nh.State):
             self.period = z.period
 
         # Construct mask
-        mask = ncp.ones_like(grid.X[0])
-        for x, pos, width in zip(grid.X, mask_pos, mask_width, strict=False):
+        mask = ncp.ones_like(grid.x_mesh[0])
+        for x, pos, width in zip(grid.x_mesh, mask_pos, mask_width, strict=False):
             if pos is not None and width is not None:
                 mask *= ncp.exp(-(x - pos)**2 / width**2)
 

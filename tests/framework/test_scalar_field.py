@@ -29,12 +29,12 @@ def shape(n_dims):
 # default grid is 2D with shape (3, 10)
 @pytest.fixture
 def grid():
-    return fr.grid.cartesian.Grid(N=(3, 10), L=(1, 2))
+    return fr.grid.cartesian.Grid(shape=(3, 10), domain_size=(1, 2))
 
 # for some tests we test different grid shapes
 @pytest.fixture
 def grid_all(shape):
-    return fr.grid.cartesian.Grid(N=shape, L=(1, 2, 3)[:len(shape)])
+    return fr.grid.cartesian.Grid(shape=shape, domain_size=(1, 2, 3)[:len(shape)])
 
 # default model settings
 @pytest.fixture
@@ -366,7 +366,7 @@ def test_unpad(field, topo, is_spectral):
         return
     arr = field.unpad()
     # check if the shape is correct
-    full_shape = list(field.grid.N)
+    full_shape = list(field.grid.shape)
     # every dimension with topo=False should have a size of 1
     for i, t in enumerate(topo):
         if not t:
@@ -479,7 +479,7 @@ def test_cumulative_integral(field,
 @pytest.mark.parametrize("periodic", [True, False])
 def test_1d_forward_cumulative_integral(position, periodic):
     # setup grid and model settings
-    grid = fr.grid.cartesian.Grid(N=(10,), L=(3,), periodic_bounds=(periodic,))
+    grid = fr.grid.cartesian.Grid(shape=(10,), domain_size=(3,), periodic_bounds=(periodic,))
     mset = fr.ModelSettingsBase(grid)
     mset.halo = 1
     mset.setup()
@@ -511,7 +511,7 @@ def test_1d_forward_cumulative_integral(position, periodic):
 def test_1d_backward_cumulative_integral(position, periodic):
     lx = 3
     # setup grid and model settings
-    grid = fr.grid.cartesian.Grid(N=(10,), L=(lx,), periodic_bounds=(periodic,))
+    grid = fr.grid.cartesian.Grid(shape=(10,), domain_size=(lx,), periodic_bounds=(periodic,))
     mset = fr.ModelSettingsBase(grid)
     mset.halo = 1
     mset.setup()
@@ -831,7 +831,7 @@ def test_apply_operator_topo(mset, is_spectral, topo1, topo2):
     assert all(new_field.mdata.topo)
     # check if the shape is correct (should be the same as the grid)
     if not is_spectral:  # cannot unpad spectral fields (yet)
-        assert new_field.unpad().shape == mset.grid.N
+        assert new_field.unpad().shape == mset.grid.shape
     # check if the data is as expected
     if all(topo1):
         expected_data = field1.arr * 2.0

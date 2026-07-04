@@ -7,12 +7,12 @@ import fridom.framework as fr
 @fr.utils.jaxify
 class Grid(fr.grid.cartesian.Grid):
     def __init__(self,
-                 N: list[int],
-                 L: list[float],
+                 shape: list[int],
+                 domain_size: list[float],
                  periodic_bounds: list[bool] | None = None,
                  ) -> None:
-        super().__init__(N=N,
-                         L=L,
+        super().__init__(shape=shape,
+                         domain_size=domain_size,
                          periodic_bounds=periodic_bounds,
                          diff_mod=fr.grid.cartesian.SpectralDiff(),
                          interp_mod=fr.grid.DummyInterpolation())

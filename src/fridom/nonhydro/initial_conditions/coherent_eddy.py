@@ -64,7 +64,7 @@ class CoherentEddy(nh.State):
         import fridom.nonhydro as nh
         import numpy as np
         grid = nh.grid.cartesian.Grid(
-            N=(128, 128, 1), L=(3, 3, 1), periodic_bounds=(True, False, False))
+            shape=(128, 128, 1), domain_size=(3, 3, 1), periodic_bounds=(True, False, False))
         mset = nh.ModelSettings(grid=grid, f0=1, beta=0.2)
         mset.time_stepper.dt = 0.004
         mset.setup()
@@ -92,7 +92,7 @@ class CoherentEddy(nh.State):
 
         ncp = nh.config.ncp
         grid = self.grid
-        Lx, Ly, _Lz = grid.L
+        Lx, Ly, _Lz = grid.domain_size
 
         CENTER = nh.grid.AxisPosition.CENTER; FACE = nh.grid.AxisPosition.FACE
         position = nh.grid.Position((FACE, FACE, CENTER))
@@ -108,7 +108,7 @@ class CoherentEddy(nh.State):
             -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
 
         if gauss_field == "vorticity":
-            kx, ky, _kz = grid.K
+            kx, ky, _kz = grid.k_mesh
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
             psi.arr = ncp.where(k2 == 0, 0, psi.arr)

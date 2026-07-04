@@ -276,7 +276,7 @@ def vec_q(mset: sw.ModelSettings,
     # Shortcuts
     grid = mset.grid
     ncp = fr.config.ncp
-    kx, ky = grid.K
+    kx, ky = grid.k_mesh
     dx, dy = grid.dx
     f0 = mset.f0
 
@@ -346,7 +346,7 @@ def vec_p(mset: sw.ModelSettings,
     """
     # Shortcuts
     ncp = fr.config.ncp
-    kx, ky = mset.grid.K
+    kx, ky = mset.grid.k_mesh
     csqr = mset.csqr
 
     # Construct the eigenvector

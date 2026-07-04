@@ -51,8 +51,8 @@ class PolarizedWaveMaker(Module):
 
 
         # set mask
-        mask = cp.ones_like(self.grid.X[0])
-        for x, pos, width in zip(self.grid.X, self.mask_pos, self.mask_width, strict=False):
+        mask = cp.ones_like(self.grid.x_mesh[0])
+        for x, pos, width in zip(self.grid.x_mesh, self.mask_pos, self.mask_width, strict=False):
             if pos is not None and width is not None:
                 mask *= cp.exp(-(x - pos)**2 / width**2)
 

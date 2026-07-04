@@ -29,8 +29,8 @@ def periodic_bounds(request):
 def mset(periodic_bounds):
     # setting up the grid
     grid = sw.grid.cartesian.Grid(
-        N=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
-        L=(2*PI, 2*PI),
+        shape=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
+        domain_size=(2*PI, 2*PI),
         periodic_bounds=periodic_bounds,
     )
 
@@ -63,8 +63,8 @@ def compute_energy_diff(z_ini, z_final):
 def test_main_example():
     # setting up the grid
     grid = sw.grid.cartesian.Grid(
-        N=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
-        L=(2*PI, 2*PI),
+        shape=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
+        domain_size=(2*PI, 2*PI),
         periodic_bounds=(True, True),
     )
 

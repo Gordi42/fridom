@@ -52,7 +52,7 @@ class KelvinWave(nh.State):
         import fridom.nonhydro as nh
         import numpy as np
         grid = nh.grid.cartesian.Grid(
-            N=[128]*3, L=[1]*3, periodic_bounds=(True, False, True))
+            shape=[128]*3, domain_size=[1]*3, periodic_bounds=(True, False, True))
         mset = nh.ModelSettings(grid=grid)
         mset.time_stepper.dt = np.timedelta64(10, 'ms')
         mset.tendencies.advection.disable()
@@ -81,7 +81,7 @@ class KelvinWave(nh.State):
         ncp = nh.config.ncp
 
         # convert the wavenumbers
-        Lx, Ly, Lz = mset.grid.L
+        Lx, Ly, Lz = mset.grid.domain_size
         kz = 2 * ncp.pi * kz / Lz
         if side in {"N", "S"}:
             L_parallel = Lx

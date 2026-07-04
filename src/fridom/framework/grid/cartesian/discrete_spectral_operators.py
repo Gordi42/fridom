@@ -229,12 +229,12 @@ def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
         if not grid.periodic_bounds[axis]:
             continue
         # We only need to consider axes with an even number of grid points
-        nx = grid.N[axis]
+        nx = grid.shape[axis]
         if nx % 2 != 0:
             continue
         # Find the position of the nyquist frequency in the local domain
         k_nyquist = grid.k_global[axis][nx//2]
-        nyquist = (grid.K[axis] == k_nyquist)
+        nyquist = (grid.k_mesh[axis] == k_nyquist)
         # Set the nyquist frequency to zero
         for field in z.fields.values():
             field.arr = ncp.where(nyquist, 0, field.arr)

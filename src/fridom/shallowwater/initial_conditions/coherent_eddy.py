@@ -66,7 +66,7 @@ class CoherentEddy(sw.State):
 
         ncp = sw.config.ncp
         grid = self.grid
-        Lx, Ly = grid.L
+        Lx, Ly = grid.domain_size
 
         FACE = sw.grid.AxisPosition.FACE
         position = sw.grid.Position((FACE, FACE))
@@ -82,7 +82,7 @@ class CoherentEddy(sw.State):
             -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
 
         if gauss_field == "vorticity":
-            kx, ky = grid.K
+            kx, ky = grid.k_mesh
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
             psi.arr = ncp.where(k2 == 0, 0, psi.arr)
