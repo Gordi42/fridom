@@ -38,7 +38,7 @@ class Jet(nh.State):
             N=(2**fac, 2**fac, 2**(fac-3)),
             L=(4, 4, 1),
             periodic_bounds=(True, True, True))
-        mset = nh.ModelSettings(grid=grid, f0=1, N2=1.0, dsqr=0.2**2, Ro=0.1)
+        mset = nh.ModelSettings(grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2, rossby_number=0.1)
         mset.time_stepper.dt = 2**(-fac) * 2
         mset.setup()
         # Create the initial conditions

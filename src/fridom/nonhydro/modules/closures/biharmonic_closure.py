@@ -52,7 +52,7 @@ class BiharmonicClosure(fr.modules.Module):
 
     def _on_setup(self) -> None:
         ncp = fr.config.ncp
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
         velocity_scale = self.velocity_scale
 
         dx, _dy, dz = self.grid.dx

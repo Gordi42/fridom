@@ -113,7 +113,7 @@ def main():
         L=(Lx, Lx, Lx), N=(Nx, Nx, 1), periodic_bounds=periodic)
 
     mset = nh.ModelSettings(
-        grid=grid, f0=f0, N2=N0**2, Ro=rossby_number)
+        grid=grid, f0=f0, stratification_n2=N0**2, rossby_number=rossby_number)
     mset.time_stepper.dt = 0.01
     mset.setup()  # This will calculate the grid spacings
 

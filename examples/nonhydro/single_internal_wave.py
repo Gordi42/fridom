@@ -90,7 +90,7 @@ def main():
     # Create the grid and model settings
     grid = nh.grid.cartesian.Grid(
         N=[64*3, 64, 64], L=[300, 100, 100], periodic_bounds=(True, True, True))
-    mset = nh.ModelSettings(grid=grid, f0=1e-4, N2=2.5e-5)
+    mset = nh.ModelSettings(grid=grid, f0=1e-4, stratification_n2=2.5e-5)
     mset.time_stepper.dt = np.timedelta64(20, 's')
     mset.tendencies.advection.disable()
 

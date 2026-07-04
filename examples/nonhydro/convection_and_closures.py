@@ -82,7 +82,7 @@ def test_closure(closure: fr.modules.Module):
 
     grid = nh.grid.cartesian.Grid(
         N=(512, 1, 512), L=(100, 1, 100), periodic_bounds=(True, True, False))
-    mset = nh.ModelSettings(grid=grid, f0=0, N2=2.5e-5)
+    mset = nh.ModelSettings(grid=grid, f0=0, stratification_n2=2.5e-5)
     mset.time_stepper.dt = np.timedelta64(1, 's')
 
     fname = exp_name + "_" + closure.name

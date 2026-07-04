@@ -322,7 +322,7 @@ def _check_if_spectral_analysis_is_possible(mset: nh.ModelSettings) -> None:
         raise ValueError(msg)
     # TODO (Silvano): check if N^2 is constant
     # check if the coriolis frequency and the stratification are zero
-    if mset.f0 == 0 and mset.N2 == 0:
+    if mset.f0 == 0 and mset.stratification_n2 == 0:
         msg = "The coriolis frequency and the stratification are zero."
         raise ValueError(msg)
 
@@ -663,7 +663,7 @@ def vec_q(mset: nh.ModelSettings,
     _check_for_horizontal_periodic_boundaries(mset)
 
     # Then we calculate the eigenvector arrays
-    u, v, w, b = _vec_q(s, mset.f0, mset.N2, mset.dsqr,
+    u, v, w, b = _vec_q(s, mset.f0, mset.stratification_n2, mset.dsqr,
                         mset.grid.K, mset.grid.dx, use_discrete)
 
     # Finally we construct the state and set the nyquist frequency to zero
@@ -895,7 +895,7 @@ def vec_p(mset: nh.ModelSettings,
     """
     _check_if_spectral_analysis_is_possible(mset)
     _check_for_horizontal_periodic_boundaries(mset)
-    (u, v, w, b) = _vec_p(s, mset.f0, mset.N2, mset.dsqr,
+    (u, v, w, b) = _vec_p(s, mset.f0, mset.stratification_n2, mset.dsqr,
                           mset.grid.K, mset.grid.dx, use_discrete)
     z = nh.State(mset, is_spectral=True)
     z.u.arr = u

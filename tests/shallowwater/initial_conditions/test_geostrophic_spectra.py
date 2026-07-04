@@ -37,7 +37,7 @@ def mset(periodic_bounds):
     # setting up the model parameters
     time_stepper = sw.time_steppers.AdamBashforth(dt=2**(-RESOLUTION), order=3)
     return sw.ModelSettings(
-        grid, f0=1, csqr=1, Ro=0.3, time_stepper=time_stepper,
+        grid, f0=1, csqr=1, rossby_number=0.3, time_stepper=time_stepper,
     ).setup()
 
 @pytest.fixture
@@ -71,7 +71,7 @@ def test_main_example():
     # setting up the model parameters
     time_stepper = sw.time_steppers.AdamBashforth(dt=2**(-RESOLUTION), order=3)
     mset = sw.ModelSettings(
-        grid, f0=1, csqr=1, Ro=0.3, time_stepper=time_stepper,
+        grid, f0=1, csqr=1, rossby_number=0.3, time_stepper=time_stepper,
     ).setup()
 
     # creating the initial condition

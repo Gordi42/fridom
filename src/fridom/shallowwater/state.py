@@ -149,7 +149,7 @@ class State(fr.VectorField):
         sw.exceptions.FieldSpaceError.check_if_physical(self)
 
         csqr = self.mset.csqr_field
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
         h_full = csqr + rossby_number * self.p
         ekin = 0.5 * rossby_number**2 * h_full * (self.u**2 + self.v**2)
 
@@ -180,7 +180,7 @@ class State(fr.VectorField):
         sw.exceptions.FieldSpaceError.check_if_physical(self)
 
         csqr = self.mset.csqr_field
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
         h_full = csqr + rossby_number * self.p
         epot = 0.5 * h_full ** 2
 
@@ -272,7 +272,7 @@ class State(fr.VectorField):
         # shortcuts
         f = self.mset.f_coriolis
         csqr = self.mset.csqr_field
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
 
         pot_vort = (self.rel_vort + f) / (csqr + rossby_number * self.p)
 
@@ -302,7 +302,7 @@ class State(fr.VectorField):
         """
         # shortcuts
         f_coriolis = self.mset.f_coriolis
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
 
         local_rossby_number = rossby_number * self.rel_vort / f_coriolis
 

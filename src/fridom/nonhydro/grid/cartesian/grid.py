@@ -28,7 +28,7 @@ class Grid(fr.grid.cartesian.Grid):
               use_discrete: bool = False
               ) -> ndarray:
         return nh.grid.cartesian.eigenvectors.omega(
-            s = 1, f0=self.mset.f0, stratification_n2=self.mset.N2, dsqr=self.mset.dsqr,
+            s = 1, f0=self.mset.f0, stratification_n2=self.mset.stratification_n2, dsqr=self.mset.dsqr,
             k=k, dx=self.dx, use_discrete=use_discrete)
 
     @cache

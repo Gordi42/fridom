@@ -66,7 +66,7 @@ def main():
     grid = nh.grid.cartesian.Grid(
         N=(256, 256, 16), L=(1, 1, 1), periodic_bounds=(True, True, True))
     mset = nh.ModelSettings(
-        grid=grid, f0=1, N2=1, Ro=0.5)
+        grid=grid, f0=1, stratification_n2=1, rossby_number=0.5)
     mset.time_stepper.dt = 0.002
 
     # add a video writer

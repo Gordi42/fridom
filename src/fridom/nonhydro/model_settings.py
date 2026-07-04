@@ -7,7 +7,7 @@ import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
-@partial(fr.utils.jaxify, dynamic=("f_coriolis", "N2", "dsqr", "Ro"))
+@partial(fr.utils.jaxify, dynamic=("f_coriolis", "stratification_n2", "dsqr", "rossby_number"))
 class ModelSettings(fr.ModelSettingsBase):
 
     """
@@ -32,10 +32,10 @@ class ModelSettings(fr.ModelSettingsBase):
         self._f0 = 1             # constant coriolis parameter f0
         self._beta = 0           # beta term d(f)/dy
         self._f_coriolis = None  # the coriolis parameter field
-        self._N2 = 1             # stratification N²
-        self._N2_field = None    # stratification N² field
+        self._stratification_n2 = 1             # stratification N²
+        self._stratification_n2_field = None    # stratification N² field
         self._dsqr = 1           # aspect ratio
-        self._Ro = 1             # Rossby number
+        self._rossby_number = 1             # Rossby number
 
         # Finally, set attributes from keyword arguments
         self.set_attributes(**kwargs)
@@ -59,10 +59,10 @@ class ModelSettings(fr.ModelSettingsBase):
             position=self.grid.cell_center,
             topo=(True, True, True),  # TODO(Silvano): don't need topo in x and y
         )
-        self._N2_field = stratification
-        self.N2 = self.N2
+        self._stratification_n2_field = stratification
+        self.stratification_n2 = self.stratification_n2
         # make sure that the advection term is scaled by the Rossby number
-        self.tendencies.advection.scaling = self.Ro
+        self.tendencies.advection.scaling = self.rossby_number
 
     def state_constructor(self) -> nh.State:  # noqa: D102
         return nh.State(self, is_spectral=self.grid.spectral_grid)
@@ -79,9 +79,9 @@ class ModelSettings(fr.ModelSettingsBase):
         res = super().parameters
         res["coriolis parameter f0"] = f"{self.f0} 1/s"
         res["beta term"] = f"{self.beta} 1/(m*s)"
-        res["Stratification N²"] = f"{self.N2} 1/s^2"
+        res["Stratification N²"] = f"{self.stratification_n2} 1/s^2"
         res["Aspect ratio dsqr"] = f"{self.dsqr}"
-        res["Rossby number Ro"] = f"{self.Ro}"
+        res["Rossby number Ro"] = f"{self.rossby_number}"
         return res
 
     @property
@@ -124,38 +124,38 @@ class ModelSettings(fr.ModelSettingsBase):
         self._f_coriolis.arr = self.f0 + self.beta * y
 
     @property
-    def N2(self) -> float:
+    def stratification_n2(self) -> float:
         """The stratification N²."""
-        return self._N2
+        return self._stratification_n2
 
-    @N2.setter
-    def N2(self, value: float) -> None:
+    @stratification_n2.setter
+    def stratification_n2(self, value: float) -> None:
         # update the stratification field
-        if self._N2_field is not None:
-            _x, _y, z = self._N2_field.get_mesh()
-            self._N2_field.arr = z*0 + value
-        self._N2 = value
+        if self._stratification_n2_field is not None:
+            _x, _y, z = self._stratification_n2_field.get_mesh()
+            self._stratification_n2_field.arr = z*0 + value
+        self._stratification_n2 = value
 
     @property
-    def N2_field(self) -> fr.ScalarField:
+    def stratification_n2_field(self) -> fr.ScalarField:
         """The stratification N² field."""
-        return self._N2_field
+        return self._stratification_n2_field
 
-    @N2_field.setter
-    def N2_field(self, value: fr.ScalarField) -> None:
+    @stratification_n2_field.setter
+    def stratification_n2_field(self, value: fr.ScalarField) -> None:
         if not isinstance(value, fr.ScalarField):
             msg = "The stratification field must be a ScalarField."
             raise TypeError(msg)
-        self._N2_field = value
+        self._stratification_n2_field = value
 
     @property
-    def Ro(self) -> float:
+    def rossby_number(self) -> float:
         """The Rossby number."""
-        return self._Ro
+        return self._rossby_number
 
-    @Ro.setter
-    def Ro(self, value: float) -> None:
-        self._Ro = value
+    @rossby_number.setter
+    def rossby_number(self, value: float) -> None:
+        self._rossby_number = value
         # scale the advection term
         self.tendencies.advection.scaling = value
 

@@ -31,7 +31,7 @@ class ModelSettings(fr.ModelSettingsBase):
         self._f_coriolis = None  # the coriolis parameter field
         self._csqr = 1           # speed of waves squared
         self._csqr_field = None  # c² field (for varying depth)
-        self._Ro = 1             # Rossby number
+        self._rossby_number = 1             # Rossby number
 
         # Finally, set attributes from keyword arguments
         self.set_attributes(**kwargs)
@@ -59,7 +59,7 @@ class ModelSettings(fr.ModelSettingsBase):
         self._csqr_field = csqr_field + self._csqr
 
         # make sure that the advection term is scaled by the Rossby number
-        self.tendencies.advection.scaling = self.Ro
+        self.tendencies.advection.scaling = self.rossby_number
 
     def state_constructor(self) -> sw.State:  # noqa: D102
         return sw.State(self, is_spectral=self.grid.spectral_grid)
@@ -74,7 +74,7 @@ class ModelSettings(fr.ModelSettingsBase):
         res["coriolis parameter f0"] = f"{self.f0} s⁻¹"
         res["beta term"] = f"{self.beta} m⁻¹ s⁻¹)"
         res["Phase velocity c²"] = f"{self._csqr} m²s⁻²"
-        res["Rossby number Ro"] = f"{self.Ro}"
+        res["Rossby number Ro"] = f"{self.rossby_number}"
         return res
 
     @property
@@ -175,12 +175,12 @@ class ModelSettings(fr.ModelSettingsBase):
         self._csqr_field = value
 
     @property
-    def Ro(self) -> float:
+    def rossby_number(self) -> float:
         """The Rossby number."""
-        return self._Ro
+        return self._rossby_number
 
-    @Ro.setter
-    def Ro(self, value: float) -> None:
-        self._Ro = value
+    @rossby_number.setter
+    def rossby_number(self, value: float) -> None:
+        self._rossby_number = value
         # scale the advection term
         self.tendencies.advection.scaling = value

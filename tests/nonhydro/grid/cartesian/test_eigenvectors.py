@@ -36,7 +36,7 @@ def mset(request):
     grid = nh.grid.cartesian.Grid(N=grid_shape,
                                   L=domain_extent,
                                   periodic_bounds=(True, True, True))
-    return nh.ModelSettings(grid, f0=f0, N2=n_squared, dsqr=aspect_ratio**2).setup()
+    return nh.ModelSettings(grid, f0=f0, stratification_n2=n_squared, dsqr=aspect_ratio**2).setup()
 
 @pytest.fixture(
     params=[
@@ -51,7 +51,7 @@ def mset_2d(request):
     grid = nh.grid.cartesian.Grid(N=(128, 1, 128),
                                   L=domain_extent,
                                   periodic_bounds=(True, True, True))
-    return nh.ModelSettings(grid, f0=f0, N2=n_squared, dsqr=aspect_ratio**2).setup()
+    return nh.ModelSettings(grid, f0=f0, stratification_n2=n_squared, dsqr=aspect_ratio**2).setup()
 
 # ================================================================
 #  Tests
@@ -82,7 +82,7 @@ def test_pq_is_kronecker_product(
 ))
 def test_invalid_model_settings(f0, beta, n_squared, mode1, vector):
     grid = nh.grid.cartesian.Grid(N=(3, 3, 3), L=(1, 1, 1))
-    nh.ModelSettings(grid, f0=f0, beta=beta, N2=n_squared).setup()
+    nh.ModelSettings(grid, f0=f0, beta=beta, stratification_n2=n_squared).setup()
 
     vec_constructor = getattr(grid, vector)
 
@@ -112,7 +112,7 @@ def test_nonperiodic_boundaries(mode1, periodic_boundaries, should_pass):
     grid = nh.grid.cartesian.Grid(N=(15, 15, 5),
                                   L=(1, 1, 1),
                                   periodic_bounds=periodic_boundaries)
-    nh.ModelSettings(grid, f0=1, N2=1).setup()
+    nh.ModelSettings(grid, f0=1, stratification_n2=1).setup()
 
     if not should_pass:
         with pytest.raises(ValueError):  # noqa: PT011
@@ -136,7 +136,7 @@ def test_nonperiodic_boundaries(mode1, periodic_boundaries, should_pass):
 @pytest.mark.parametrize("grid_shape", [(3, 3, 4), (3, 4, 3), (4, 4, 3)])
 def test_even_grid_size(mode1, mode2, grid_shape):
     grid = nh.grid.cartesian.Grid(N=grid_shape, L=(1, 1, 1))
-    nh.ModelSettings(grid, f0=1, N2=1).setup()
+    nh.ModelSettings(grid, f0=1, stratification_n2=1).setup()
 
     p = grid.vec_p(s=mode1)
     q = grid.vec_q(s=mode2)

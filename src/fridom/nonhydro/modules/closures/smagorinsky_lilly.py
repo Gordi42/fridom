@@ -49,21 +49,21 @@ class SmagorinskyLilly(fr.modules.Module):
 
     .. math::
         \nu_s = \left( C_s \sqrt[3]{\Delta V} \right)^2
-                |\mathbf{\Sigma}| \Gamma(\text{Ri})
+                |\mathbf{\Sigma}| \Gamma(\text{ri})
 
     where :math:`C_s` is the Smagorinsky constant, :math:`\Delta V` is the
     grid cell volume, :math:`|\mathbf{\Sigma}|` is the magnitude of the strain
-    rate tensor, and :math:`\Gamma(\text{Ri})` is the stratification damping
+    rate tensor, and :math:`\Gamma(\text{ri})` is the stratification damping
     factor given by:
 
     .. math::
-        \Gamma(\text{Ri}) = \sqrt{1 - \min(\beta \text{Ri}, 1)}
+        \Gamma(\text{ri}) = \sqrt{1 - \min(\beta \text{ri}, 1)}
 
-    where :math:`\beta` is the buoyancy multiplier and :math:`\text{Ri}` is the
+    where :math:`\beta` is the buoyancy multiplier and :math:`\text{ri}` is the
     resolved Richardson number given by:
 
     .. math::
-        \text{Ri} = \frac{N^2}{|\mathbf{\Sigma}|}
+        \text{ri} = \frac{N^2}{|\mathbf{\Sigma}|}
 
     where :math:`N^2` is the buoyancy frequency:
 
@@ -109,7 +109,7 @@ class SmagorinskyLilly(fr.modules.Module):
         self.buoyancy_multiplier = buoyancy_multiplier or 1 / turbulent_prandtl_number
 
     def _on_setup(self) -> None:
-        self.filter_width = self.grid.dV**(1/3)
+        self.filter_width = self.grid.cell_volume**(1/3)
 
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         z = mz.z
@@ -134,17 +134,17 @@ class SmagorinskyLilly(fr.modules.Module):
                     + 2 * (s_12**2 + s_13**2 + s_23**2)  ).arr
 
         # Compute the buoyancy frequency (also ignoring the grid position)
-        N2 = (diff_mod.diff(z.b, axis=2) + self.mset.N2).arr
+        n2 = (diff_mod.diff(z.b, axis=2) + self.mset.stratification_n2).arr
 
         # Set the buoyancy frequency to zero where it is negative
-        N2 = ncp.maximum(N2, 0.0)
+        n2 = ncp.maximum(n2, 0.0)
 
         # Compute the resolved Richardson number
         with np.errstate(divide="ignore", invalid="ignore"):
-            Ri = N2 / sigma2
+            ri = n2 / sigma2
 
         # Compute the stratification damping factor
-        gamma = ncp.sqrt(1 - ncp.minimum(self.buoyancy_multiplier * Ri, 1.0))
+        gamma = ncp.sqrt(1 - ncp.minimum(self.buoyancy_multiplier * ri, 1.0))
 
         # set nan values to 0
         gamma = ncp.nan_to_num(gamma, nan=0)

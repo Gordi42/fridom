@@ -85,7 +85,7 @@ class RandomGeostrophicSpectra(nh.State):
         grid = nh.grid.cartesian.Grid(
             N=(128, 128, 32), L=(10, 10, 1),
             periodic_bounds=(False, True, False))
-        mset = nh.ModelSettings(grid=grid, f0=1, N2=1.0, dsqr=0.2**2)
+        mset = nh.ModelSettings(grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2)
         mset.time_stepper.dt = 0.1
         mset.setup()
         # Create the initial conditions
@@ -116,12 +116,12 @@ class RandomGeostrophicSpectra(nh.State):
         # scale the geostrophic eigenvector such that they have energy 1
         abs = ncp.absolute
         dsqr = self.mset.dsqr
-        N2 = self.mset.N2
+        n2 = self.mset.stratification_n2
         # calculate spectral energy using Parseval's theorem
         energy = 0.5 * (   abs(q.u.arr)**2
                          + abs(q.v.arr)**2
                          + abs(q.w.arr)**2 * dsqr
-                         + abs(q.b.arr)**2 / N2 )
+                         + abs(q.b.arr)**2 / n2 )
 
         energy = ncp.where(energy == 0, 1, energy)
 

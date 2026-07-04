@@ -177,8 +177,8 @@ class State(fr.VectorField):
 
         where :math:`z` is the vertical coordinate.
         """
-        if self.mset.N2 != 0:
-            epot = 0.5*(self.b**2 / self.mset.N2_field)
+        if self.mset.stratification_n2 != 0:
+            epot = 0.5*(self.b**2 / self.mset.stratification_n2_field)
         else:
             epot = self.b * self.grid.X[2]
 
@@ -296,8 +296,8 @@ class State(fr.VectorField):
 
         # shortcuts
         f0 = self.mset.f0
-        brunt_vaisala_n2 = self.mset.N2_field
-        rossby_number = self.mset.Ro
+        brunt_vaisala_n2 = self.mset.stratification_n2_field
+        rossby_number = self.mset.rossby_number
 
         # calculate the horizontal vorticity
         ver_vort_x = self.rel_vort_x * rossby_number
@@ -342,8 +342,8 @@ class State(fr.VectorField):
         """
         # shortcuts
         f0 = self.mset.f0
-        brunt_vaisala_n2 = self.mset.N2_field
-        rossby_number = self.mset.Ro
+        brunt_vaisala_n2 = self.mset.stratification_n2_field
+        rossby_number = self.mset.rossby_number
 
         hor_vort = self.rel_vort_z.interpolate(self.grid.cell_center)
         dbdz = self.b.diff(axis=2).interpolate(self.grid.cell_center)
@@ -371,7 +371,7 @@ class State(fr.VectorField):
         """
         # shortcuts
         f_coriolis = self.mset.f_coriolis
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
 
         local_rossby_number = rossby_number * self.rel_vort_z / f_coriolis
 

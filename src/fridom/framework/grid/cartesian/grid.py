@@ -108,7 +108,7 @@ class Grid(fr.grid.GridBase):
         self._N = N
         self._L = L
         self._dx = tuple(L / N for L, N in zip(L, N, strict=False))
-        self._dV = np.prod(self._dx)
+        self._cell_volume = np.prod(self._dx)
         self._total_grid_points = int(np.prod(N))
         self._periodic_bounds = periodic_bounds
         self._domain_decomp = domain_decomp
@@ -393,7 +393,7 @@ class Grid(fr.grid.GridBase):
     def N(self, value: tuple) -> None:
         self._N = value
         self._dx = tuple(L / N for L, N in zip(self._L, self._N, strict=False))
-        self._dV = np.prod(self._dx)
+        self._cell_volume = np.prod(self._dx)
         self._total_grid_points = int(np.prod(self._N))
 
 

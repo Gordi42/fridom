@@ -19,13 +19,13 @@ def grid_ini(N, L):
 def f(request):
     return request.param
 
-@pytest.fixture(params=[1e-4, 2], ids=["N2=1e-4", "N2=2"])
+@pytest.fixture(params=[1e-4, 2], ids=["stratification_n2=1e-4", "stratification_n2=2"])
 def N2(request):
     return request.param
 
 def test_model_settings(grid_ini, f, N2):
-    mset = nh.ModelSettings(grid_ini, f0=f, N2=N2)
+    mset = nh.ModelSettings(grid_ini, f0=f, stratification_n2=N2)
     mset.setup()
     assert mset.grid == grid_ini
     assert nh.config.ncp.allclose(mset.f_coriolis.arr, f)
-    assert mset.N2 == N2
+    assert mset.stratification_n2 == N2

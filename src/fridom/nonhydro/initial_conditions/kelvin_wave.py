@@ -90,13 +90,13 @@ class KelvinWave(nh.State):
         k_parallel = 2 * ncp.pi * k_parallel / L_parallel
 
         # calculate the frequency
-        om = ncp.sqrt((k_parallel**2 * mset.N2) /
+        om = ncp.sqrt((k_parallel**2 * mset.stratification_n2) /
                       (kz**2 + mset.dsqr * k_parallel**2))
 
         # calculate the polarizations
         pol_u_normal = - kz
         pol_w = k_parallel
-        pol_b = - 1j * mset.N2 * k_parallel / om
+        pol_b = - 1j * mset.stratification_n2 * k_parallel / om
 
         # define function to get the exponential decay and the wave pattern
         def wave(x_parallel, x_normal, z):

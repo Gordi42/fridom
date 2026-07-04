@@ -76,7 +76,7 @@ def create_modelsettings(exp_name, quiver_skip):
     grid = nh.grid.cartesian.Grid(
         L=(Lx, Lx, Lx), N=(Nx, Nx, 1), periodic_bounds=periodic)
 
-    mset = nh.ModelSettings(grid=grid, f0=f0, N2=N0**2)
+    mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N0**2)
     mset.time_stepper.dt = 0.4 * 1/Nx
 
     # add the passive tracer to the state vector

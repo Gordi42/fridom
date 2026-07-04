@@ -25,8 +25,8 @@ class SpectralAdvection(fr.modules.advection.AdvectionBase):
         self.padding = padding
 
     def _on_setup(self) -> None:
-        if hasattr(self.mset, "Ro"):
-            self.scaling = self.mset.Ro
+        if hasattr(self.mset, "rossby_number"):
+            self.scaling = self.mset.rossby_number
 
     def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:  # noqa: D102
 

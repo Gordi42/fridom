@@ -46,7 +46,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
 def main():
     grid = nh.grid.cartesian.Grid(
         N=(1024, 1, 512), L=(8000, 1, 4000), periodic_bounds=(True, True, False))
-    mset = nh.ModelSettings(grid=grid, f0=1e-4, N2=2.5e-5)
+    mset = nh.ModelSettings(grid=grid, f0=1e-4, stratification_n2=2.5e-5)
     mset.time_stepper.dt = np.timedelta64(20, 's')
 
     # add a video writer
@@ -71,7 +71,7 @@ def main():
     # For the correct fourier transform, we need triple periodic boundaries
     grid_periodic = nh.grid.cartesian.Grid(
         N=(1024, 1, 512), L=(8000, 1, 4000), periodic_bounds=(True, True, True))
-    mset_periodic = nh.ModelSettings(grid=grid_periodic, f0=1e-4, N2=2.5e-5)
+    mset_periodic = nh.ModelSettings(grid=grid_periodic, f0=1e-4, stratification_n2=2.5e-5)
     mset_periodic.setup()
     # Create the initial conditions from the periodic settings
     z = nh.initial_conditions.WavePackage(

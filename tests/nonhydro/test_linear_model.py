@@ -13,7 +13,7 @@ def test_linear_model(runlen):
     L = (10_000, 10_000, 100)
 
     grid = nh.grid.cartesian.Grid(N=N, L=L)
-    mset = nh.ModelSettings(grid, f0=f0, N2=N2)
+    mset = nh.ModelSettings(grid, f0=f0, stratification_n2=N2)
     mset.time_stepper.dt = np.timedelta64(2, "m")
     mset.tendencies.advection.disable()
     mset.setup()
@@ -51,7 +51,7 @@ def test_boundary_conditions(periodic_bounds):
     L = (10_000, 10_000, 100)
 
     grid = nh.grid.cartesian.Grid(N=N, L=L, periodic_bounds=periodic_bounds)
-    mset = nh.ModelSettings(grid, f0=f0, N2=N2)
+    mset = nh.ModelSettings(grid, f0=f0, stratification_n2=N2)
     mset.time_stepper.dt = np.timedelta64(20, "s")
     mset.tendencies.advection.disable()
     mset.setup()

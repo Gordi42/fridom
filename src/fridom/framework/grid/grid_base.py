@@ -44,7 +44,7 @@ class GridBase:
         self._x_global = None
         self._x_local = None
         self._dx = None
-        self._dV = None
+        self._cell_volume = None
         self._mset = None
         self._water_mask = fr.grid.WaterMask()
         # The domain decomposition
@@ -666,9 +666,9 @@ class GridBase:
         return self._dx
 
     @property
-    def dV(self) -> ndarray:
+    def cell_volume(self) -> ndarray:
         """The volume element of the grid."""
-        return self._dV
+        return self._cell_volume
 
     @property
     def characteristic_function(self) -> fr.ScalarField:
