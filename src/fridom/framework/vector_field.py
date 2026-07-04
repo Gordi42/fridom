@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Callable, Iterator
 from copy import copy
 from functools import partial
-from typing import Literal, Self, TypeVar
+from typing import TYPE_CHECKING, Literal, Self, TypeVar
 
 import numpy as np
 
 import fridom.framework as fr
 from fridom.framework.grid.fft_padding import FFTPadding
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 T = TypeVar("T", bound="VectorField")
 
@@ -230,7 +232,7 @@ class VectorField(fr.FieldBase):
         arrs = [field.arr for field in self.fields.values()]
         arrs = self.grid.sync_multi(arrs)
         # set the arrays to the fields
-        for field, arr in zip(self.fields.values(), arrs):
+        for field, arr in zip(self.fields.values(), arrs, strict=False):
             field.arr = arr
         return self
 
@@ -260,7 +262,7 @@ class VectorField(fr.FieldBase):
 
     def __copy__(self) -> Self:
         # create a new vector field, but copy the fields
-        return self.apply_elementwise(self, lambda field: copy(field))
+        return self.apply_elementwise(self, copy)
 
     # ================================================================
     #  Differential Operators
@@ -369,7 +371,7 @@ class VectorField(fr.FieldBase):
         if isinstance(key, slice):
             # get the names of the fields in the slice
             names = list(self.fields)[key]
-            for name, field in zip(names, value.fields.values()):
+            for name, field in zip(names, value.fields.values(), strict=False):
                 self._check_for_name_mismatch(name, field)
                 # set the fields in the slice
                 self.fields[name] = field
@@ -513,7 +515,7 @@ class VectorField(fr.FieldBase):
         return self.apply_elementwise(self, lambda field: field.conj())
 
     def abs(self) -> Self:  # noqa: D102
-        return self.apply_elementwise(self, lambda field: abs(field))
+        return self.apply_elementwise(self, abs)
 
     @staticmethod
     def apply_elementwise(vector_field: T,

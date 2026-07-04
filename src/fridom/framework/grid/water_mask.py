@@ -11,7 +11,7 @@ class WaterMask:
 
     """
     Water mask for the grid cells (for boundary conditions).
-    
+
     Description
     -----------
     Let's consider the following staggered grid with periodic boundaries:
@@ -42,10 +42,10 @@ class WaterMask:
             [1, 1, 1]           [1, 1, 1]           [0, 1, 1]
         x = [0, 0, 1]       o = [0, 0, 0]       e = [0, 0, 1]
             [0, 1, 1]           [0, 1, 0]           [0, 0, 1]
-    
+
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.name = "Water Mask"
         self._water_mask = None
         self._cache = {}
@@ -60,9 +60,7 @@ class WaterMask:
         self.water_mask = (mset.grid.domain_decomp.create_array(pad=True)+1).astype(bool)
 
     def get_mask(self, position: fr.grid.Position) -> ndarray:
-        """
-        Get the water mask at the given position.
-        """
+        """Get the water mask at the given position."""
         id = hash(position)
         if id not in self._cache:
             self._cache[id] = self.create_mask_at_position(position)
@@ -74,9 +72,7 @@ class WaterMask:
         return f
 
     def create_mask_at_position(self, position: fr.grid.Position) -> ndarray:
-        """
-        Create a water mask at the given position.
-        """
+        """Create a water mask at the given position."""
         new_mask = self._water_mask
         for axis, axpos in enumerate(position.positions):
             new_mask = self.shift_mask_along_axis(new_mask, axis, axpos)
@@ -100,11 +96,11 @@ class WaterMask:
 
             _______           _______
                x  |  x  |  x  |  x  |  x  |  x  |
-        
+
         Hence the water mask would be:
 
         ::
-        
+
             [0, 1, 1, 0, 1, 1]
 
         The new mask at the right position is only water if both neighboring
@@ -114,13 +110,13 @@ class WaterMask:
 
             [0, 1, 0, 0, 1, ?]
 
-        where `?` depends on the neighboring cells. To find the new mask 
+        where `?` depends on the neighboring cells. To find the new mask
         algorithmically, we first determine the left and right cell centers
         of the corresponding cell face. And then we check if both neighboring
         cells are water by multiplying the left and right cell centers.
         Finally we synchronize the mask across the processors and fill the
         halo cells with land.
-        
+
         Parameters
         ----------
         mask : ndarray
@@ -145,25 +141,19 @@ class WaterMask:
                     return right_side * left_side
 
                 new_mask = roll(mask)
-        new_mask = self._sync_mask(new_mask)
-        return new_mask
+        return self._sync_mask(new_mask)
 
     def _sync_mask(self, mask: ndarray) -> ndarray:
-        """
-        Synchronize the mask across the processors.
-        """
+        """Synchronize the mask across the processors."""
         # for some reason, sync does not work on boolean arrays
         # so we convert the mask to integers, sync it and then convert it back
         mask = mask.astype(int)
         mask = self._domain_decomposition.sync(mask)
-        mask = mask.astype(bool)
-        return mask
+        return mask.astype(bool)
 
     @property
     def water_mask(self) -> ndarray:
-        """
-        Get the water mask.
-        """
+        """Get the water mask."""
         return self._water_mask
 
     @water_mask.setter

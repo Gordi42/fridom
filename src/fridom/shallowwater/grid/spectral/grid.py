@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from numpy import ndarray
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
 import fridom.shallowwater as sw
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 
 @fr.utils.jaxify

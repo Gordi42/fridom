@@ -7,10 +7,8 @@ from IPython import get_ipython
 import fridom.framework as fr
 
 
-def chdir_to_submit_dir():
-    """
-    Change the current working directory to the directory where the job was submitted.
-    """
+def chdir_to_submit_dir() -> None:
+    """Change the current working directory to the directory where the job was submitted."""
     fr.log.info("Changing working directory")
     fr.log.info("Old working directory: %s", os.getcwd())
     submit_dir = os.getenv("SLURM_SUBMIT_DIR")

@@ -14,7 +14,7 @@ class DomainDecomposition:
 
     """
     Construct a grid of processors and decompose a global domain into subdomains.
-    
+
     Description
     -----------
     Decompose the global domain into subdomains for parallel computing. The
@@ -24,17 +24,17 @@ class DomainDecomposition:
 
     ::
 
-                   ----------------------------------- 
-                  /                /                /| 
-                 /                /                / | 
-                /                /                /  | 
-               /                /                /   | 
-              /                /                /    | 
-             /                /                /    /| 
-            /                /                /    / | 
-            ----------------------------------    /  | 
-           |                |                |   /   | 
-           |   PROCESSOR    |   PROCESSOR    |  /    | 
+                   -----------------------------------
+                  /                /                /|
+                 /                /                / |
+                /                /                /  |
+               /                /                /   |
+              /                /                /    |
+             /                /                /    /|
+            /                /                /    / |
+            ----------------------------------    /  |
+           |                |                |   /   |
+           |   PROCESSOR    |   PROCESSOR    |  /    |
            |     0, 1       |     1, 1       | /    /
            |                |                |/    /
            |----------------|----------------|    /     ^
@@ -42,7 +42,7 @@ class DomainDecomposition:
            |   PROCESSOR    |   PROCESSOR    |  /     / shared_axis
            |     0, 0       |     1, 0       | /     /
            |                |                |/
-           ----------------------------------- 
+           -----------------------------------
 
     Parameters
     ----------
@@ -66,7 +66,7 @@ class DomainDecomposition:
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
                  shared_axes: tuple[int] | None = None,
-                 device_ids: list[int] | None = None):
+                 device_ids: list[int] | None = None) -> None:
         self._shape = shape
         self._n_dims = len(shape)
         self._halo = halo
@@ -90,7 +90,7 @@ class DomainDecomposition:
         `arr` : ndarray
             The array to synchronize.
         `flat_axes` : list[int] | None
-            Dimensions which are flat (no halo exchange). 
+            Dimensions which are flat (no halo exchange).
             If None, all dimensions are exchanged.
         """
 
@@ -123,8 +123,7 @@ class DomainDecomposition:
             # unpad the array
             arr = self.unpad(arr)
             # apply the forward transform
-            arr = func(arr, axes=axes)
-            return arr
+            return func(arr, axes=axes)
         return wrapper
 
     def parallel_backward_transform(self, func: callable) -> callable:
@@ -141,8 +140,7 @@ class DomainDecomposition:
             # apply the backward transform
             arr = func(arr, axes=axes)
             # pad the array
-            arr = self.pad(arr)
-            return arr
+            return self.pad(arr)
         return wrapper
 
     # ================================================================
@@ -177,7 +175,7 @@ class DomainDecomposition:
 
     def pad_extend(self, arr: ndarray) -> ndarray:
         """
-        Extend the array with zeros (for spectral padding)
+        Extend the array with zeros (for spectral padding).
 
         Parameters
         ----------
@@ -192,7 +190,7 @@ class DomainDecomposition:
 
     def unpad_extend(self, arr: ndarray) -> ndarray:
         """
-        Remove the extension of the array (for spectral padding)
+        Remove the extension of the array (for spectral padding).
 
         Parameters
         ----------
@@ -207,7 +205,7 @@ class DomainDecomposition:
 
     def pad_trim(self, arr: ndarray) -> ndarray:
         """
-        Set the padded region to zero (for spectral padding)
+        Set the padded region to zero (for spectral padding).
 
         Parameters
         ----------
@@ -322,7 +320,7 @@ class DomainDecomposition:
         `arr` : ndarray
             The array to sum.
         `axes` : list[int] | None
-            The axes to sum across. 
+            The axes to sum across.
             If None, sum across all axes.
         `spectral` : bool
             Whether the array is in spectral space.
@@ -341,7 +339,7 @@ class DomainDecomposition:
         `arr` : ndarray
             The array to find the maximum value of.
         `axes` : list[int] | None
-            The axes to find the maximum value across. 
+            The axes to find the maximum value across.
             If None, find the maximum value across all axes.
         `spectral` : bool
             Whether the array is in spectral space.
@@ -360,7 +358,7 @@ class DomainDecomposition:
         `arr` : ndarray
             The array to find the minimum value of.
         `axes` : list[int] | None
-            The axes to find the minimum value across. 
+            The axes to find the minimum value across.
             If None, find the minimum value across all axes.
         `spectral` : bool
             Whether the array is in spectral space.
@@ -465,79 +463,57 @@ class DomainDecomposition:
 
     @property
     def n_dims(self) -> int:
-        """
-        Number of dimensions.
-        """
+        """Number of dimensions."""
         return self._n_dims
 
     @property
     def shape(self) -> tuple[int]:
-        """
-        Shape of the domain (number of grid points).
-        """
+        """Shape of the domain (number of grid points)."""
         return self._shape
 
     @property
     def halo(self) -> int:
-        """
-        Width of the halo region (same for all dimensions).
-        """
+        """Width of the halo region (same for all dimensions)."""
         return self._halo
 
     @property
     def periods(self) -> tuple[bool] | None:
-        """
-        Periodic boundaries of the domain.
-        """
+        """Periodic boundaries of the domain."""
         return self._periods
 
     @property
     def parallel(self) -> bool:
-        """
-        Whether the domain is parallel.
-        """
+        """Whether the domain is parallel."""
         return self.size > 1
 
     @property
     def rank(self) -> int:
-        """
-        Rank of the current process.
-        """
+        """Rank of the current process."""
         return self._rank
 
     @property
     def size(self) -> int:
-        """
-        Number of processes.
-        """
+        """Number of processes."""
         return np.prod(self.p_dims)
 
     @property
     def device_ids(self) -> list[int] | None:
-        """
-        List of device ids.
-        """
+        """List of device ids."""
         return self._device_ids
 
     @property
     def i_am_active(self) -> bool:
-        """
-        Whether the current process is active in this domain.
-        """
+        """Whether the current process is active in this domain."""
         return self.rank in self.device_ids
 
     @property
     def p_dims(self) -> tuple[int]:
-        """
-        Number of processes in each dimension.
-        """
+        """Number of processes in each dimension."""
         return self._p_dims
 
     @property
     def shared_axes(self) -> tuple[int]:
-        """
-        Axes shared by all processes.
-        """
+        """Axes shared by all processes."""
         return [i for i, x in enumerate(self.p_dims) if x == 1]
 
 
@@ -564,3 +540,4 @@ def get_default_domain_decomposition() -> DomainDecomposition:
             return fall_back
         # otherwise, we use the jax decomposition
         return fr.domain_decomposition.JaxDecomposition
+    return None

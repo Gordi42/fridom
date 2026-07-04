@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from functools import partial
-from typing import Literal
-
-from numpy import ndarray
+from typing import TYPE_CHECKING, Literal
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 
 @partial(fr.utils.jaxify, dynamic=("_X", "_x_global", "_K", "_k_global"))
@@ -14,7 +15,7 @@ class GridBase:
 
     """
     Base class for all grids in the framework.
-    
+
     Description
     -----------
     This class does not implement any functionality, but provides a template
@@ -76,7 +77,7 @@ class GridBase:
     def setup(self, mset: fr.ModelSettingsBase) -> None:
         """
         Initialize the grid from the model settings.
-        
+
         Parameters
         ----------
         `mset` : `ModelSettingsBase`
@@ -92,14 +93,14 @@ class GridBase:
     ) -> tuple[ndarray]:
         """
         Get the meshgrid of the grid points.
-        
+
         Parameters
         ----------
         `position` : `Position` or `None` (default: `None`)
             The position of the field.
         `spectral` : `bool` (default: `False`)
             Whether to return the meshgrid of the spectral domain.
-        
+
         Returns
         -------
         `tuple[ndarray]`
@@ -127,7 +128,7 @@ class GridBase:
             ) -> ndarray:
         """
         Perform a (fast) fourier transform on the input array.
-        
+
         Parameters
         ----------
         `arr` : `ndarray`
@@ -140,7 +141,7 @@ class GridBase:
             The position of the field.
         `axes` : `tuple[int]` or `None` (default: `None`)
             The axes to transform.
-        
+
         Returns
         -------
         `ndarray`
@@ -158,7 +159,7 @@ class GridBase:
              ) -> ndarray:
         """
         Perform an inverse (fast) fourier transform on the input array.
-        
+
         Parameters
         ----------
         `arr` : `ndarray`
@@ -171,7 +172,7 @@ class GridBase:
             The position of the field.
         `axes` : `tuple[int]` or `None` (default: `None`)
             The axes to transform.
-        
+
         Returns
         -------
         `ndarray`
@@ -190,14 +191,14 @@ class GridBase:
               ) -> ndarray:
         """
         Compute the dispersion relation of the model.
-        
+
         Parameters
         ----------
         `k` : `tuple[float] | tuple[ndarray]`
             The wave numbers
         `use_discrete` : `bool` (default: False)
             Whether to include space-discretization effects.
-        
+
         Returns
         -------
         `ndarray`
@@ -209,7 +210,7 @@ class GridBase:
     def vec_q(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
         Computes the eigenvector of the linear operator of the mode `s`.
-        
+
         Parameters
         ----------
         `s` : `int`
@@ -228,7 +229,7 @@ class GridBase:
     def vec_p(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
         Computes the projection vector of the linear operator of the mode `s`.
-        
+
         Parameters
         ----------
         `s` : `int`
@@ -246,18 +247,14 @@ class GridBase:
 
     @property
     def omega_analytical(self) -> ndarray:
-        """
-        Analytical dispersion relation.
-        """
+        """Analytical dispersion relation."""
         if self._omega_analytical is None:
             self._omega_analytical = self.omega(self.K, use_discrete=False)
         return self._omega_analytical
 
     @property
     def omega_space_discrete(self) -> ndarray:
-        """
-        Dispersion relation with space-discretization effects.
-        """
+        """Dispersion relation with space-discretization effects."""
         if self._omega_space_discrete is None:
             self._omega_space_discrete = self.omega(self.K, use_discrete=True)
 
@@ -285,7 +282,7 @@ class GridBase:
              flat_axes: list[int] | None = None) -> ndarray:
         """
         Synchronize the halo (boundary) points of an array across all MPI ranks.
-        
+
         Parameters
         ----------
         `arr` : `ndarray`
@@ -301,12 +298,12 @@ class GridBase:
     def sync_multi(self, arrs: tuple[ndarray]) -> tuple[ndarray]:
         """
         Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
-        
+
         Parameters
         ----------
         `arrs` : `list[ndarray]`
             The list of arrays to synchronize.
-        
+
         Returns
         -------
         `list[ndarray]`
@@ -317,12 +314,12 @@ class GridBase:
     def unpad(self, arr: ndarray) -> ndarray:
         """
         Remove the halo padding from an array.
-        
+
         Parameters
         ----------
         `arr` : `ndarray`
             The padded array.
-        
+
         Returns
         -------
         `ndarray`
@@ -333,12 +330,12 @@ class GridBase:
     def pad(self, arr: ndarray) -> ndarray:
         """
         Add halo padding to an array.
-        
+
         Parameters
         ----------
         `arr` : `ndarray`
             The unpadded array.
-        
+
         Returns
         -------
         `ndarray`
@@ -536,7 +533,7 @@ class GridBase:
     def info(self) -> dict:
         """
         Return a dictionary with information about the grid.
-        
+
         Description
         -----------
         This method should be overridden by the child class to return a
@@ -546,9 +543,7 @@ class GridBase:
         return {}
 
     def __repr__(self) -> str:
-        """
-        String representation of the grid.
-        """
+        """String representation of the grid."""
         res = self.name
         for key, value in self.info.items():
             res += f"\n  - {key}: {value}"
@@ -582,9 +577,7 @@ class GridBase:
 
     @property
     def water_mask(self) -> fr.grid.WaterMask:
-        """
-        Get the water mask.
-        """
+        """Get the water mask."""
         return self._water_mask
 
     @water_mask.setter

@@ -42,7 +42,7 @@ class SmagorinskyLilly(fr.modules.Module):
     where :math:`\mathbf{\Sigma}` is the strain rate tensor given by:
 
     .. math::
-        \mathbf{\Sigma} = \frac{1}{2} \left( 
+        \mathbf{\Sigma} = \frac{1}{2} \left(
             \nabla \boldsymbol{u} + (\nabla \boldsymbol{u})^T \right)
 
     and :math:`\nu_s` is the Smagorinsky viscosity given by:
@@ -125,8 +125,8 @@ class SmagorinskyLilly(fr.modules.Module):
         # Compute the strain rate tensor
         # TODO(Silvano): Make use of the tensor module
         s_11 = du[0]; s_12 = 0.5 * (du[1] + dv[0]); s_13 = 0.5 * (du[2] + dw[0])
-        s_21 = s_12 ; s_22 = dv[1]                ; s_23 = 0.5 * (dv[2] + dw[1])
-        s_31 = s_13 ; s_32 = s_23                 ; s_33 = dw[2]
+        s_22 = dv[1]                ; s_23 = 0.5 * (dv[2] + dw[1])
+        s_33 = dw[2]
 
         # Compute the squared magnitude of the strain rate tensor
         # ignore the different grid positions of each component of s here

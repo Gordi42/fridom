@@ -13,13 +13,13 @@ class Grid(fr.grid.GridBase):
 
     """
     An n-dimensional cartesian grid with capabilities for fourier transforms.
-    
+
     Description
     -----------
     The cartesian grid is a regular grid with constant grid spacing in each
     direction. The grid can be periodic in some directions and non-periodic in
-    others. 
-    
+    others.
+
     Parameters
     ----------
     `N` : `tuple[int]`
@@ -37,9 +37,9 @@ class Grid(fr.grid.GridBase):
         A module that contains the differentiation operators.
         If None, the finite differences module is used.
     `interp_mod` : `InterpolationModule`, (default: None)
-        A module that contains the interpolation methods. 
+        A module that contains the interpolation methods.
         If None, the linear interpolation module is used.
-    
+
     Examples
     --------
     .. code-block:: python
@@ -107,7 +107,7 @@ class Grid(fr.grid.GridBase):
         # private attributes
         self._N = N
         self._L = L
-        self._dx = tuple(L / N for L, N in zip(L, N))
+        self._dx = tuple(L / N for L, N in zip(L, N, strict=False))
         self._dV = np.prod(self._dx)
         self._total_grid_points = int(np.prod(N))
         self._periodic_bounds = periodic_bounds
@@ -154,7 +154,7 @@ class Grid(fr.grid.GridBase):
         #  Initialize the meshgrids
         # --------------------------------------------------------------
         x = tuple(ncp.linspace(0, li, ni, dtype=dtype, endpoint=False) + 0.5 * dxi
-                  for li, ni, dxi in zip(self._L, self._N, self._dx))
+                  for li, ni, dxi in zip(self._L, self._N, self._dx, strict=False))
         X = domain_decomp.create_meshgrid(*x, pad=True, spectral=False)
 
         if self.fourier_transform_available:
@@ -192,9 +192,9 @@ class Grid(fr.grid.GridBase):
         # compute the offsets based on the position
         position = position or self.cell_center
         offsets = [0.5 * dx if pos == fr.grid.AxisPosition.FACE else 0
-                   for dx, pos in zip(self.dx, position.positions)]
+                   for dx, pos in zip(self.dx, position.positions, strict=False)]
         # apply the offsets
-        return tuple(x + offset for x, offset in zip(self.X, offsets))
+        return tuple(x + offset for x, offset in zip(self.X, offsets, strict=False))
 
     def _construct_domain_decomp(self, halo: int) -> None:
         DomainDecomposition = fr.domain_decomposition.get_default_domain_decomposition()
@@ -218,7 +218,8 @@ class Grid(fr.grid.GridBase):
             axes: tuple[int] | None = None,
             ) -> np.ndarray:
         # Forward transform the array
-        f = lambda x, axes: self._fft.forward(x, axes, bc_types, positions)
+        def f(x, axes):
+            return self._fft.forward(x, axes, bc_types, positions)
         forward = self._domain_decomp.parallel_forward_transform(f)
         u_hat = forward(arr, axes)
 
@@ -243,7 +244,8 @@ class Grid(fr.grid.GridBase):
             case fr.grid.FFTPadding.EXTEND:
                 u = self.domain_decomp.pad_extend(arr)
 
-        f = lambda x, axes: self._fft.backward(x, axes, bc_types, positions)
+        def f(x, axes):
+            return self._fft.backward(x, axes, bc_types, positions)
         backward = self._domain_decomp.parallel_backward_transform(f)
         return backward(u, axes)
 
@@ -379,18 +381,18 @@ class Grid(fr.grid.GridBase):
         """Domain size in each direction."""
         return self._L
     @L.setter
-    def L(self, value: tuple):
+    def L(self, value: tuple) -> None:
         self._L = value
-        self._dx = tuple(L / N for L, N in zip(self._L, self._N))
+        self._dx = tuple(L / N for L, N in zip(self._L, self._N, strict=False))
 
     @property
     def N(self) -> tuple:
         """Grid points in each direction."""
         return self._N
     @N.setter
-    def N(self, value: tuple):
+    def N(self, value: tuple) -> None:
         self._N = value
-        self._dx = tuple(L / N for L, N in zip(self._L, self._N))
+        self._dx = tuple(L / N for L, N in zip(self._L, self._N, strict=False))
         self._dV = np.prod(self._dx)
         self._total_grid_points = int(np.prod(self._N))
 

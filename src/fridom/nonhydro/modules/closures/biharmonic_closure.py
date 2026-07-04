@@ -55,8 +55,8 @@ class BiharmonicClosure(fr.modules.Module):
         rossby_number = self.mset.Ro
         velocity_scale = self.velocity_scale
 
-        dx, dy, dz = self.grid.dx
-        lx, ly, lz = self.mset.grid.L
+        dx, _dy, dz = self.grid.dx
+        lx, _ly, lz = self.mset.grid.L
 
         aspect_ratio = lz / lx * (self.mset.dsqr ** 0.5)
 

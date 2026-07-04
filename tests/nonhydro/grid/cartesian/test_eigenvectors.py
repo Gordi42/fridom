@@ -164,7 +164,7 @@ def test_model_run(mset_2d: nh.ModelSettings, use_discrete):
     # construct a wave using the eigenvector
     q = grid.vec_q(s=1, use_discrete=use_discrete)
     # we test a wave that fits twice in x and once in z
-    lx, ly, lz = grid.L
+    lx, _ly, lz = grid.L
     kx = 4 * ncp.pi / lx
     kz = 2 * ncp.pi / lz
     # construct a mask to select the mode

@@ -3,7 +3,7 @@ import fridom.shallowwater as sw
 
 class Jet(sw.State):
 
-    """
+    r"""
     Two opposing instable jets.
 
     Description
@@ -14,7 +14,7 @@ class Jet(sw.State):
     .. math::
         u = \\exp\\left(-\\left(\\frac{y - p L_y}{\\sigma L_y}\\right)^2\\right)
 
-    where :math:`L_y` is the domain length in the y-direction, 
+    where :math:`L_y` is the domain length in the y-direction,
     :math:`p` is the relative position of the jet
     and :math:`\\sigma` is the relative width of the jet. The perturbation
     is given by:
@@ -49,12 +49,12 @@ class Jet(sw.State):
                  waveamp: float = 0.1,
                  pos: float = 0.5,
                  width: float = 0.1,
-                 geo_proj: bool = True):
+                 geo_proj: bool = True) -> None:
         super().__init__(mset)
         # Shortcuts
         ncp = sw.config.ncp
-        X, Y = self.grid.X
-        Lx, Ly = self.grid.L
+        _X, Y = self.grid.X
+        _Lx, Ly = self.grid.L
 
         # Construct the zonal jets
         z_jet = sw.State(mset)

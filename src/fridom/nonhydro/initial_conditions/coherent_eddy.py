@@ -15,7 +15,7 @@ class CoherentEddy(nh.State):
         \psi = A \exp\left(
         -\frac{(x - p_x L_x)^2 + (y - p_y L_y)^2}{(\sigma L_x)^2}\right)
 
-    where :math:`A` is the amplitude, :math:`(p_x, p_y)` is the relative 
+    where :math:`A` is the amplitude, :math:`(p_x, p_y)` is the relative
     position of the eddy, :math:`(\sigma L_x)` is the width of the eddy, and
     :math:`L_x, L_y` are the domain sizes in the x and y directions. The
     velocity field is given by:
@@ -55,8 +55,8 @@ class CoherentEddy(nh.State):
 
     Examples
     --------
-    This setup creates a coherent eddy in an scaled setup with varying 
-    coriolis parameter. The eddy moves in positive x and 
+    This setup creates a coherent eddy in an scaled setup with varying
+    coriolis parameter. The eddy moves in positive x and
     negative y direction and hits the northern wall.
 
     .. code-block:: python
@@ -92,7 +92,7 @@ class CoherentEddy(nh.State):
 
         ncp = nh.config.ncp
         grid = self.grid
-        Lx, Ly, Lz = grid.L
+        Lx, Ly, _Lz = grid.L
 
         CENTER = nh.grid.AxisPosition.CENTER; FACE = nh.grid.AxisPosition.FACE
         position = nh.grid.Position((FACE, FACE, CENTER))
@@ -103,12 +103,12 @@ class CoherentEddy(nh.State):
         field = nh.ScalarField(
             mset, position=position, name="psi", bc_types=bc_types)
 
-        X, Y, Z = field.get_mesh()
+        X, Y, _Z = field.get_mesh()
         field.arr = amplitude * ncp.exp(
             -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
 
         if gauss_field == "vorticity":
-            kx, ky, kz = grid.K
+            kx, ky, _kz = grid.K
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
             psi.arr = ncp.where(k2 == 0, 0, psi.arr)

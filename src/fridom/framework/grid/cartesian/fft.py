@@ -19,8 +19,7 @@ def _create_kn_mesh(N: int):
 def _apply_weights(x, weights, axis):
     ncp = config.ncp
     y = ncp.tensordot(x, weights, axes=([axis], [0]))
-    y = ncp.moveaxis(y, -1, axis)
-    return y
+    return ncp.moveaxis(y, -1, axis)
 
 @partial(utils.jaxjit, static_argnames=["axis", "N"])
 def dct_type2(x, axis, N):
@@ -97,23 +96,23 @@ class FFT:
 
     """
     Class for performing fourier transforms on a cartesian grid.
-    
+
     Description
     -----------
-    Model grids that have periodic boundary conditions in some directions, 
+    Model grids that have periodic boundary conditions in some directions,
     and non-periodic boundary conditions in other directions, require a
     combination of fast fourier transforms and discrete cosine transforms.
     This class provides a method to transform an array from physical space to
     spectral space and back. For the discrete cosine transform, the type 2
-    transform is used. This means that the variable must be located at the 
+    transform is used. This means that the variable must be located at the
     cell centers in that direction.
-        
+
     Parameters
     ----------
     `periodic` : `tuple[bool]`
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
-    
+
     Examples
     --------
     .. code-block:: python
@@ -154,24 +153,24 @@ class FFT:
                  dx: tuple[float] ) -> tuple[np.ndarray]:
         """
         Get the frequencies for the given shape and dx.
-        
+
         Description
         -----------
-        This method calculates the frequencies for the given shape and dx. The 
+        This method calculates the frequencies for the given shape and dx. The
         returned frequencies could be used to construct wavenumber meshgrids.
-        
+
         Parameters
         ----------
         `shape` : `tuple[int]`
             The global shape (number of grid points in each direction).
         `dx` : `tuple[float]`
             The grid spacing in each direction.
-        
+
         Returns
         -------
         `tuple[np.ndarray]`
             The frequencies in each direction.
-        
+
         Examples
         --------
         .. code-block:: python
@@ -201,7 +200,7 @@ class FFT:
                 ) -> np.ndarray:
         """
         Forward transform from physical space to spectral space.
-        
+
         Parameters
         ----------
         `u` : `np.ndarray`
@@ -212,7 +211,7 @@ class FFT:
             The type of boundary conditions for each axis.
         `positions` : `tuple[fr.grid.AxisPosition] | None`
             The position of the variable in each direction.
-        
+
         Returns
         -------
         `np.ndarray`
@@ -247,9 +246,8 @@ class FFT:
                     u_hat = dst_type1(u_hat, axis, u_hat.shape[axis])
 
         # fourier transform for periodic boundary conditions
-        u_hat = ncp.fft.fftn(u_hat, axes=fft_axes)
+        return ncp.fft.fftn(u_hat, axes=fft_axes)
 
-        return u_hat
 
     def backward(self, u_hat: np.ndarray,
                  axes: list[int] | None = None,
@@ -258,7 +256,7 @@ class FFT:
                  ) -> np.ndarray:
         """
         Backward transform from spectral space to physical space.
-        
+
         Parameters
         ----------
         `u_hat` : `np.ndarray`
@@ -269,7 +267,7 @@ class FFT:
             The type of boundary conditions for each axis.
         `positions` : `tuple[fr.grid.AxisPosition] | None`
             The position of the variable in each direction.
-        
+
         Returns
         -------
         `np.ndarray`

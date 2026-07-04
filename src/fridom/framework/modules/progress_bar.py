@@ -113,7 +113,7 @@ class ProgressBar(fr.modules.Module):
                     main_loop_type: str,
                     datetime_formatting: bool,
                     start_value: float,
-                    final_value: float):
+                    final_value: float) -> None:
         self._main_loop_type = main_loop_type
         self._datetime_formatting = datetime_formatting
         self._start_value = start_value

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from numpy import ndarray
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 ncp = fr.config.ncp
 @fr.utils.jaxify
@@ -11,7 +14,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
                  shared_axes: tuple[int] | None = None,
-                 device_ids: list[int] | None = None):
+                 device_ids: list[int] | None = None) -> None:
         super().__init__(shape, halo, periods, shared_axes, device_ids)
         self._p_dims = tuple([1]*self.n_dims)
 
@@ -149,8 +152,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
             pw_nonperiodic[axis] = (0, 0)
         # pad the array
         arr = ncp.pad(arr, tuple(pw_periodic), mode="wrap")
-        arr = ncp.pad(arr, tuple(pw_nonperiodic), mode="constant")
-        return arr
+        return ncp.pad(arr, tuple(pw_nonperiodic), mode="constant")
 
     def unpad(self, arr: ndarray, flat_axes: tuple[int] | None = None) -> ndarray:
         if self.halo == 0:
@@ -229,13 +231,13 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                          topo: tuple[bool] | None
                          ) -> tuple[tuple[int], tuple[int]]:
         """
-        Returns the shape and the flat axes for the given topology
+        Returns the shape and the flat axes for the given topology.
 
         Parameters
         ----------
         topo : tuple[bool] | None
             The topology of the array
-        
+
         Returns
         -------
         shape : tuple[int]

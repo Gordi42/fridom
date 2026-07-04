@@ -94,11 +94,11 @@ class InterWENO(fr.grid.BiasedInterpolationModule):
         right_weights = self._compute_weights(all_stencils[1:], mode="right")
 
         # compute the interpolations candidates for all stencils
-        candidates = [sum(v*c for c, v in zip(self.pol_coeffs[size - n], stencil))
+        candidates = [sum(v*c for c, v in zip(self.pol_coeffs[size - n], stencil, strict=False))
                         for n, stencil in enumerate(all_stencils)]
 
-        left = sum(w*c for w, c in zip(left_weights, candidates[:-1]))
-        right = sum(w*c for w, c in zip(right_weights, candidates[1:]))
+        left = sum(w*c for w, c in zip(left_weights, candidates[:-1], strict=False))
+        right = sum(w*c for w, c in zip(right_weights, candidates[1:], strict=False))
 
         return ncp.where(bias > 0, left, right)
 

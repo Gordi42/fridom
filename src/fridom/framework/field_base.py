@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, Self, TypeVar
 
 import numpy as np
@@ -10,6 +9,8 @@ import numpy as np
 from fridom.framework.grid.fft_padding import FFTPadding
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
     import xarray as xr
 
     import fridom.framework as fr

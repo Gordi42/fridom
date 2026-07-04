@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import time as system_time
 import warnings
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import zarr
 from zarr.errors import ZarrUserWarning
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 warnings.filterwarnings("ignore", category=ZarrUserWarning)
 
@@ -139,7 +142,7 @@ class ZarrWriter(fr.modules.Module):
         """
         # we first remove the suffix from the filename, if the suffix is .nc or .cdf
         suffix = self.filename.suffix.lower()
-        if suffix in [".zarr"]:
+        if suffix == ".zarr":
             base_name = self.filename.parent / self.filename.stem
         else:
             base_name = self.filename

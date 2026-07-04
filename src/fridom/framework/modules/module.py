@@ -61,19 +61,19 @@ class Module:
     as for example outputting the model state to a file.
 
     Required methods:
-    1. `__init__(self, ...) -> None`: The constructor only takes keyword 
-    argument which are stored as attributes. Always call the parent constructor 
+    1. `__init__(self, ...) -> None`: The constructor only takes keyword
+    argument which are stored as attributes. Always call the parent constructor
     with `super().__init__(name, **kwargs)`. The name of the module is stored in
     the timing module and should not be too long.
     2. `update(self, mz: ModelState) -> None`: This method is
-    called by the model at each time step. It can for example update the 
+    called by the model at each time step. It can for example update the
     tendency state `mz.dz` based on the model state `mz`. Or write the model state
     to a file. Make sure to wrap the method with the `@update_module` decorator.
 
     Optional methods:
-    1. `start(self, mset: ModelSettingsBase) -> None`: 
-    This method is called by the model when the module is started. It can for 
-    example open an output file. Make sure to wrap the method with the 
+    1. `start(self, mset: ModelSettingsBase) -> None`:
+    This method is called by the model when the module is started. It can for
+    example open an output file. Make sure to wrap the method with the
     `@start_module` decorator.
     2. `stop(self) -> None`: This method is called by the model when the module
     is stopped. It can for example close an output file. Make sure to wrap the
@@ -195,7 +195,7 @@ class Module:
 
         Description
         -----------
-        This method is called at the beginning of the model run. Child classes 
+        This method is called at the beginning of the model run. Child classes
         that require a start method (for example to start an output writer)
         should overwrite this method. Make sure to decorate the method with
         the `@module_method` decorator.
@@ -208,7 +208,7 @@ class Module:
         Description
         -----------
         This method is called by the model at the end of the model run or
-        when the model is reset. Child classes that require a stop method 
+        when the model is reset. Child classes that require a stop method
         (for example to close an output file) should overwrite this method.
         Make sure to decorate the method with the `@module_method` decorator.
         """

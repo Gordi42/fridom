@@ -239,9 +239,9 @@ class VideoWriter(fr.modules.Module):
     #  PARALLEL FUNCTIONS
     # =====================================================================
 
-    def p_make_figure(**kwargs):
+    def p_make_figure(**kwargs) -> None:
         """
-        Parallel function that gets a ModelPlotter object, makes the image 
+        Parallel function that gets a ModelPlotter object, makes the image
         of it and puts it in the output queue.
 
         Arguments:

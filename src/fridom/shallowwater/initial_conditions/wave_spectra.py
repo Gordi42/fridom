@@ -4,9 +4,7 @@ from fridom.shallowwater.state import State
 
 class WaveSpectra(State):
 
-    """
-    Wave spectra with power law scaling of frequency.
-    """
+    """Wave spectra with power law scaling of frequency."""
 
     def __init__(self, grid:Grid,
                  power_law=-2, seed=12345,

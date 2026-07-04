@@ -8,15 +8,15 @@ import fridom.framework as fr
 class GeostrophicTimeAverage(fr.projection.Projection):
 
     """
-    Projection onto the geostrophic subspace using time-averaging
-    
+    Projection onto the geostrophic subspace using time-averaging.
+
     Description
     -----------
     For a constant coriolis parameter, the linear geostrophic mode is constant
     in time, while the inertia-gravity wave modes are oscillatory. By averaging
     the flow over a time period, the inertia-gravity wave modes are removed.
     This process can be repeated for more effective removal of the inertia-gravity.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`
@@ -33,7 +33,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         Whether to use backward-forward averaging.
     `disable_diagnostic` : `bool`
         Whether to disable the diagnostic tendencies during the averaging.
-    
+
     Methods
     -------
     `__call__(z: State) -> State`
@@ -76,12 +76,12 @@ class GeostrophicTimeAverage(fr.projection.Projection):
         """
         Project a state to the geostrophic subspace using time-averaging.
         Warning: This method is computationally expensive.
-        
+
         Parameters
         ----------
         `z` : `State`
             The state to project.
-        
+
         Returns
         -------
         `State`

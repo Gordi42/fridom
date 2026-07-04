@@ -1,10 +1,13 @@
 """StencilView class representing a view of a stencil on a given array and axis."""
 from __future__ import annotations
 
-from collections.abc import Iterator
 from functools import cache
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 ncp = fr.config.ncp
 

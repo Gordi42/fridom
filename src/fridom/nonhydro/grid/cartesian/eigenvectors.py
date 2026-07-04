@@ -701,7 +701,7 @@ def _normalize_p_vec(
     mask = ncp.where(f0 == 0, horizontal_mask, mask)
     # if both f0 and N2 are zero => This case should never happen
 
-    norm = ncp.abs(sum(p_i * q_i.conj() for p_i, q_i in zip(p, q)))
+    norm = ncp.abs(sum(p_i * q_i.conj() for p_i, q_i in zip(p, q, strict=False)))
 
     return tuple(ncp.where(mask, p_i/norm, 0) for p_i in p)
 
@@ -741,7 +741,7 @@ def _vec_p_geostrophic(
     w = 0
     b = ohpm(kx,dx) * ohpm(ky,dy) * f0 * khp(kz,dz)
 
-    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q))
+    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q, strict=False))
 
     return _normalize_p_vec(p, q, f0, n_squared, k)
 
@@ -818,7 +818,7 @@ def _vec_p_igw(
     w = 1j * om * kh2
     b = ohm(kz,dz) * gamma * kh2
 
-    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q))
+    p = tuple(ncp.where(nonzero_horizontal, arr, q_i) for arr, q_i in zip((u, v, w, b), q, strict=False))
 
     # normalize the vector
     return _normalize_p_vec(p, q, f0, n_squared, k)

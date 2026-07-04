@@ -54,6 +54,6 @@ class UpwindInterpolation(fr.grid.BiasedInterpolationModule):
             grid=self.grid, size=size, offset=start-1, destination=destination,
             ).view(x, axis=axis)
 
-        left = sum(c * v for c, v in zip(self.left_coeffs, left_view))
-        right = sum(c * v for c, v in zip(self.right_coeffs, right_view))
+        left = sum(c * v for c, v in zip(self.left_coeffs, left_view, strict=False))
+        right = sum(c * v for c, v in zip(self.right_coeffs, right_view, strict=False))
         return ncp.where(bias > 0, left, right)

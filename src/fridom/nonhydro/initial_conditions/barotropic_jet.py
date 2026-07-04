@@ -4,7 +4,7 @@ import fridom.nonhydro as nh
 class BarotropicJet(nh.State):
 
     r"""
-    Barotropic instable jet setup with 2 zonal jets
+    Barotropic instable jet setup with 2 zonal jets.
 
     Description
     -----------
@@ -13,10 +13,10 @@ class BarotropicJet(nh.State):
 
     .. math::
         u = 2.5 \left( \exp\left(-\left(\frac{y - 0.75 L_y}{\sigma L_y \pi}\right)^2\right) -
-                        \exp\left(-\left(\frac{y - 0.25 L_y}{\sigma L_y \pi}\right)^2\right) 
+                        \exp\left(-\left(\frac{y - 0.25 L_y}{\sigma L_y \pi}\right)^2\right)
                 \right)
 
-    where :math:`L_y` is the domain length in the y-direction, 
+    where :math:`L_y` is the domain length in the y-direction,
     and :math:`\sigma` is the width of the jet. The perturbation
     is given by:
 
@@ -47,13 +47,13 @@ class BarotropicJet(nh.State):
                  wavenum=5,
                  waveamp=0.1,
                  jet_width=0.04,
-                 geo_proj=True):
+                 geo_proj=True) -> None:
         super().__init__(mset)
         # Shortcuts
         ncp = nh.config.ncp
         PI = ncp.pi
-        X, Y, Z = mset.grid.X
-        Lx, Ly, Lz = mset.grid.L
+        X, Y, _Z = mset.grid.X
+        Lx, Ly, _Lz = mset.grid.L
         width = jet_width * Ly * PI
 
         # Construct the zonal jets

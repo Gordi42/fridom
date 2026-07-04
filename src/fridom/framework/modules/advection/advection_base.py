@@ -98,7 +98,7 @@ class AdvectionBase(fr.modules.Module):
         Description
         -----------
         Some modules require to scale the nonlinear terms, as for example the
-        optimal balance projection 
+        optimal balance projection
         (:py:class:`fridom.framework.projection.OptimalBalance`). This parameter
         provides an interface to set this scaling factor.
         """

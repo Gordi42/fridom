@@ -75,7 +75,7 @@ class RFFTPressureSolver(fr.modules.Module):
                 )
             dso = fr.grid.cartesian.discrete_spectral_operators
             k = [dso.k_hat_squared(kx, dx, use_discrete=True)
-                    for (kx,dx) in zip(k, grid.dx)]
+                    for (kx,dx) in zip(k, grid.dx, strict=False)]
             k = grid.domain_decomp.create_meshgrid(*k, pad=False, spectral=True)
             k_squared = k[0] + k[1] + k[2] / self.mset.dsqr
             with np.errstate(divide="ignore", invalid="ignore"):

@@ -108,7 +108,7 @@ def test_model_run(mset, z_ini):
     # check if fields are approximately constant
 
     accepted_tolerance = 1e-1  # 10% because of the coarse resolution
-    for f1, f2 in zip(z_ini, z_fin):
+    for f1, f2 in zip(z_ini, z_fin, strict=False):
         amp = f1.abs().mean().arr.item()
         rel_diff = (f1 - f2).abs().mean().arr.item() / amp
         assert rel_diff < accepted_tolerance

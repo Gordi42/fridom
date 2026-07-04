@@ -3,7 +3,7 @@ import fridom.nonhydro as nh
 
 class KelvinWave(nh.State):
 
-    """
+    r"""
     Initial condition with a kelvin wave at the boundary.
 
     TODO: Add some more details about the math, add proper gallery example.
@@ -11,12 +11,12 @@ class KelvinWave(nh.State):
     Description
     -----------
     Lets consider a Kelvin wave at the southern boundary of the domain with
-    the horizontal wavenumber `kh` and the vertical wavenumber `kz`. Searching 
+    the horizontal wavenumber `kh` and the vertical wavenumber `kz`. Searching
     in the linearized nonhydrostatic equations for a solution of the form:
 
     .. math::
         (U, V, W, B) \\exp(- k_n y) \\exp(i(k_h x + k_z z - \\omega t))
-    
+
     Yields
     ------
 
@@ -29,9 +29,9 @@ class KelvinWave(nh.State):
         V = 0 \\quad
         W = k_h \\quad
         B = -i N^2 k_h / \\omega
-    
+
     Similar polarizations can be found for the other boundaries.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`
@@ -42,9 +42,9 @@ class KelvinWave(nh.State):
     `kz` : `int`
         The vertical wavenumber. (Can be positive or negative)
     `kh` : `int`
-        The horizontal wavenumber in the direction of the boundary. 
+        The horizontal wavenumber in the direction of the boundary.
         (Must be positive)
-    
+
     Examples
     --------
     .. code-block:: python
@@ -76,16 +76,16 @@ class KelvinWave(nh.State):
                  side: str,
                  kz: int,
                  k_parallel: int,
-                 phase: float = 0):
+                 phase: float = 0) -> None:
         super().__init__(mset, is_spectral=False)
         ncp = nh.config.ncp
 
         # convert the wavenumbers
         Lx, Ly, Lz = mset.grid.L
         kz = 2 * ncp.pi * kz / Lz
-        if side == "N" or side == "S":
+        if side in {"N", "S"}:
             L_parallel = Lx
-        if side == "E" or side == "W":
+        if side in {"E", "W"}:
             L_parallel = Ly
         k_parallel = 2 * ncp.pi * k_parallel / L_parallel
 

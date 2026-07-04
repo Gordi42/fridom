@@ -382,7 +382,7 @@ def test_get_mesh(field, topo):
     mesh = field.get_mesh()
     grid_mesh = field.grid.get_mesh(position=field.position,
                                     spectral=field.is_spectral)
-    for (x1, x2) in zip(mesh, grid_mesh):
+    for (x1, x2) in zip(mesh, grid_mesh, strict=False):
         assert fr.config.ncp.allclose(x1, x2)
 
 @pytest.mark.parametrize("new_position", [

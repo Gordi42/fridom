@@ -41,7 +41,7 @@ def test_init():
     # check if the module has the correct name
     assert module.name == "Increment"
     # check if the module has the correct number
-    assert module.number == None
+    assert module.number is None
     assert not module.is_setup
     # check if access to the mset results in an error
     with pytest.raises(fr.exceptions.NotSetUpError):
@@ -50,7 +50,7 @@ def test_init():
 def test_start(mset):
     # create a module
     module = Increment()
-    assert module.number == None
+    assert module.number is None
     # start the module
     module.setup(mset=mset)
     # check if the number is 0
@@ -96,7 +96,7 @@ def test_stop(mset):
     # stop the module
     module.stop()
     # check if the number is None
-    assert module.number == None
+    assert module.number is None
 
 def test_reset(mset):
     # create a module

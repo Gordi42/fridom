@@ -1,11 +1,9 @@
 """jax_utils.py - Utilities for JAX operations."""
+import contextlib
 from typing import Generic, TypeVar
 
-try:
+with contextlib.suppress(ImportError):
     import jax
-except ImportError:
-    pass
-import regex as re
 
 import fridom.framework as fr
 
@@ -14,22 +12,22 @@ T = TypeVar("T")
 def jaxjit(fun: callable, *args, **kwargs) -> callable:
     """
     Decorator for JAX JIT compilation.
-    
+
     Description
     -----------
     This decorator is a wrapper around jax.jit. When jax is not installed,
     the function is returned as it is.
-    
+
     Parameters
     ----------
     `fun` : `callable`
         The function to JIT compile.
-    
+
     Returns
     -------
     `callable`
         The JIT compiled function.
-    
+
     Examples
     --------
     >>> import fridom.framework as fr
@@ -45,7 +43,7 @@ def jaxjit(fun: callable, *args, **kwargs) -> callable:
         return jax.jit(fun, *args, **kwargs)
     return fun
 
-def free_memory():
+def free_memory() -> None:
     """
     This function deletes all live buffers in the JAX backend.
 
@@ -53,7 +51,7 @@ def free_memory():
     -----------
     This function destroys all live buffers in the JAX backend. This is
     useful for rerunning the code in the same session without running out
-    of memory. 
+    of memory.
     Note that the memory is only freed within JAX, not in the operating
     system. The operating system will still show the same memory usage.
     """
@@ -66,7 +64,7 @@ def free_memory():
 def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     """
     Add JAX pytree support to a class (for jit compilation).
-    
+
     Description
     -----------
     In order to use jax.jit on custom classes, the class must be registered
@@ -90,14 +88,14 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     .. warning::
         Methods that are jit compiled with fr.utils.jaxjit will not modify the
         object in place.
-    
+
     Parameters
     ----------
     `cls` : `type`
         The class to add jax support to.
     `dynamic` : `tuple[str] | None` (default=None)
         A tuple of attribute names that should be considered dynamic.
-    
+
     Examples
     --------
     A class with no dynamic attributes:
@@ -111,7 +109,7 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
             _dynamic_attributes = ["x",]
             def __init__(self, power):
                 self.power = power
-       
+
             @fr.utils.jaxjit
             def raise_to_power(self, arr):
                 return arr**self.power
@@ -128,7 +126,7 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
             def __init__(self, arr, power):
                 self.power = power
                 self.arr = arr
-       
+
             @fr.utils.jaxjit
             def raise_to_power(self):
                 return self.arr**self.power
@@ -199,10 +197,10 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
 # ================================================================
 #  Inspect jax jit functions
 # ================================================================
-def inspect_jitted_function(func: callable, args: tuple):
+def inspect_jitted_function(func: callable, args: tuple) -> None:
     """
     Inspect if a jit compiled function has communication operations.
-    
+
     Parameters
     ----------
     `func` : `callable`
@@ -210,9 +208,7 @@ def inspect_jitted_function(func: callable, args: tuple):
     `args` : `tuple`
         The arguments to pass to the function. Must be a tuple.
     """
-    hlo = func.lower(*args).compile().runtime_executable().hlo_modules()[0].to_string()
-    print("================================================")
-    print(f"Checking HLO of {func.__name__}")
+    func.lower(*args).compile().runtime_executable().hlo_modules()[0].to_string()
     patterns = ["all-gather",
                 "all-reduce",
                 "all-to-all",
@@ -221,5 +217,5 @@ def inspect_jitted_function(func: callable, args: tuple):
                 "cross-replica-sum",
                 "collective-permute",
                 "dynamic-slice"]
-    for pattern in patterns:
-        print(f"{pattern}: {bool(re.search(pattern, hlo))}")
+    for _pattern in patterns:
+        pass

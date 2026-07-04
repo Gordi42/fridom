@@ -1,13 +1,16 @@
 """netcdf_writer.py - Writing model output to NetCDF files."""
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from netCDF4 import Dataset
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class NetCDFWriter(fr.modules.Module):
@@ -200,7 +203,7 @@ class NetCDFWriter(fr.modules.Module):
         x = [ncfile.createVariable(name, dtype, (name,)) for name in x_names]
         time = ncfile.createVariable("time", dtype, ("time",))
 
-        for xi, name in zip(x, x_names):
+        for xi, name in zip(x, x_names, strict=False):
             xi.units = "m"
             xi.long_name = f"{name} coordinate"
 

@@ -21,8 +21,8 @@ class GaussianWaveMaker(fr.modules.Module):
     .. math::
         S(\boldsymbol{x}, t) = A \sin(2\pi f t) M(\boldsymbol{x})
 
-    where :math:`A` is the amplitude, :math:`x_i` is the x coordinate, 
-    :math:`p_i` is the position, :math:`w_i` is the width and :math:`f` 
+    where :math:`A` is the amplitude, :math:`x_i` is the x coordinate,
+    :math:`p_i` is the position, :math:`w_i` is the width and :math:`f`
     is the frequency of the wave maker. The source term is added to the
     u-component of the velocity field:
 
@@ -65,7 +65,7 @@ class GaussianWaveMaker(fr.modules.Module):
         ncp = fr.config.ncp
         # Construct mask
         mask = ncp.ones_like(self.grid.X[0])
-        for x, pos, width in zip(self.grid.X, self.position, self.width):
+        for x, pos, width in zip(self.grid.X, self.position, self.width, strict=False):
             if pos is not None and width is not None:
                 mask *= ncp.exp(-(x - pos)**2 / width**2)
         mask *= self.amplitude

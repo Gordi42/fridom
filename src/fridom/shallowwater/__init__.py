@@ -7,7 +7,7 @@ System of equations
 .. math::
 
     \partial_t \boldsymbol{u} + Ro~\, \boldsymbol{u} \cdot \nabla \boldsymbol{u}
-        = - f \underset{\neg}{\boldsymbol u} 
+        = - f \underset{\neg}{\boldsymbol u}
           - \nabla p + \boldsymbol{F}_\boldsymbol{u}
 
 .. math::
@@ -52,7 +52,7 @@ obtain the pressure:
 
 .. math::
 
-    p'(\boldsymbol{x},z) 
+    p'(\boldsymbol{x},z)
         = p'(\boldsymbol{x}, \eta) + \int_{\eta}^z \partial_{z'} p' dz'
         = p'(\boldsymbol{x}, \eta) + \int_z^{\eta} \rho_0 g dz'
         = p'(\boldsymbol{x}, \eta) + \rho_0 g (\eta + z)
@@ -117,7 +117,7 @@ We start with the unscaled shallow water equations from above:
 .. math::
 
     \partial_t \boldsymbol{u} + \boldsymbol{u} \cdot \nabla \boldsymbol{u}
-        = - f \underset{\neg}{\boldsymbol u} - \nabla p 
+        = - f \underset{\neg}{\boldsymbol u} - \nabla p
     ~, \quad
     \partial_t p + \nabla \cdot \left( p \boldsymbol{u} \right)
         = - c^2 \nabla \cdot \boldsymbol{u}

@@ -31,9 +31,9 @@ class SingleWave(nh.State):
     with :math:`\boldsymbol{L}` the domain size in the x, y, and z directions
     and :math:`\boldsymbol{k}_0` the wavenumber that is passed as an argument.
     The phase :math:`\phi` is also passed as an argument. Finally, the state
-    is fourier transformed to physical space and normalized so that its 
+    is fourier transformed to physical space and normalized so that its
     L2 norm is equal to 1.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`

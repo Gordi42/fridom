@@ -15,10 +15,10 @@ class FFTPadding(Enum):
 
     Description:
     ------------
-    Let :math:`k_{\text{max}}` be the maximum wavenumber in the original grid and :math:`u(k)` be the field to be fourier transformed. The FFTPadding options modifies the field as follows: 
+    Let :math:`k_{\text{max}}` be the maximum wavenumber in the original grid and :math:`u(k)` be the field to be fourier transformed. The FFTPadding options modifies the field as follows:
 
     Spectral -> Physical:
-    - NOPADDING: no modification 
+    - NOPADDING: no modification
     - TRIM: all wavenumbers :math:`k > 2/3 k_{\text{max}}` are set to zero.
     - EXTEND: extend the field to include all wavenumbers :math:`k < 3/2 k_{\text{max}}` by adding zeros.
 

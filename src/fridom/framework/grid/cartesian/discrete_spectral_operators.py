@@ -8,13 +8,13 @@ The linear interpolation operator on a field :math:`u` is defined as:
 .. math::
     \overline{u}^{x\pm} = \frac{u(x \pm \Delta x) + u(x)}{2}
 
-where :math:`\pm` denotes the forward (+) or backward (-) linear 
+where :math:`\pm` denotes the forward (+) or backward (-) linear
 interpolation. A fourier transform yields the discrete spectral operator:
 
 .. math::
     \overline{u}^{x\pm} \rightarrow \frac{e^{\pm ik_x \Delta x} + 1}{2}u =
         \hat{1}_x^\pm u
-    
+
 Hence, the discrete spectral operator `one_hat` is given by:
 
 .. math::
@@ -45,7 +45,7 @@ A fourier transform yields the discrete spectral operator:
 .. math::
     \delta_x^\pm u \rightarrow \pm \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}u =
         i \hat{k}_x^\pm u
-    
+
 Hence, the discrete spectral operator `k_hat` is given by:
 
 .. math::
@@ -74,7 +74,7 @@ import fridom.framework as fr
 def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator for the forward linear interpolation.
-    
+
     Description
     -----------
     Computes the spectral operator :math:`\hat{1}_x^\pm` that arises from the
@@ -82,7 +82,7 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
 
     .. math::
         \hat{1}_x^\pm = \frac{e^{\pm ik_x \Delta x} + 1}{2}
-    
+
     Parameters
     ----------
     `kx` : `ndarray`
@@ -94,7 +94,7 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
     `use_discrete` : `bool` (default: True)
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is 1 for forward and backward interpolation.
-    
+
     Returns
     -------
     `ndarray`
@@ -107,7 +107,7 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
 def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     r"""
     Discrete spectral operator of forward - backward linear interpolation.
-    
+
     Description
     -----------
     Computes the spectral operator :math:`\hat{1}_x^2` that arises from the
@@ -126,7 +126,7 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
     `use_discrete` : `bool`
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always 1.
-    
+
     Returns
     -------
     `ndarray`
@@ -139,7 +139,7 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
 def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator for the forward finite difference.
-    
+
     Description
     -----------
     Computes the spectral operator :math:`\hat{k}_x^\pm` that arises from the
@@ -147,7 +147,7 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
 
     .. math::
         \hat{k}_x^\pm = \mp i \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}
-    
+
     Parameters
     ----------
     `kx` : `ndarray`
@@ -159,7 +159,7 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
     `use_discrete` : `bool`
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always kx.
-    
+
     Returns
     -------
     `ndarray`
@@ -172,10 +172,10 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
 def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator of forward - backward finite difference.
-    
+
     Description
     -----------
-    Computes the spectral operator :math:`\hat{k}_x^2` that arises from 
+    Computes the spectral operator :math:`\hat{k}_x^2` that arises from
     forward - backward finite difference:
 
     .. math::
@@ -191,7 +191,7 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
     `use_discrete` : `bool`
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always kx**2.
-    
+
     Returns
     -------
     `ndarray`
@@ -208,12 +208,12 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
 def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
     r"""
     Set the nyquist frequency to zero in the spectral domain.
-    
+
     Parameters
     ----------
     `z` : `State`
         The state which nyquist frequency should be set to zero.
-    
+
     Returns
     -------
     `State`

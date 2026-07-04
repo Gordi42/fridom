@@ -15,7 +15,7 @@ class CoherentEddy(sw.State):
         \psi = A \exp\left(
         -\frac{(x - p_x L_x)^2 + (y - p_y L_y)^2}{(\sigma L_x)^2}\right)
 
-    where :math:`A` is the amplitude, :math:`(p_x, p_y)` is the relative 
+    where :math:`A` is the amplitude, :math:`(p_x, p_y)` is the relative
     position of the eddy, :math:`(\sigma L_x)` is the width of the eddy, and
     :math:`L_x, L_y` are the domain sizes in the x and y directions. The
     velocity field is given by:

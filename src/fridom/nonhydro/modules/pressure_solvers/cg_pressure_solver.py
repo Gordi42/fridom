@@ -8,11 +8,9 @@ from fridom.nonhydro.state import State
 
 class CGPressureSolver(Module):
 
-    """
-    This class solves the pressure field with a conjugate gradient solver.
-    """
+    """This class solves the pressure field with a conjugate gradient solver."""
 
-    def __init__(self, max_iter: int = 1000, tol: float = 1e-10):
+    def __init__(self, max_iter: int = 1000, tol: float = 1e-10) -> None:
         """
         # Conjugate Gradient Pressure Solver
         ## Arguments:
@@ -22,7 +20,7 @@ class CGPressureSolver(Module):
         super().__init__(name="Pressure Solver", max_iter=max_iter, tol=tol)
 
     @start_module
-    def start(self):
+    def start(self) -> None:
         # cast the parameters to the correct data type
         self.tol = self.mset.dtype(self.tol)
 
@@ -69,7 +67,7 @@ class CGPressureSolver(Module):
         Args:
             mz (ModelState) : Model state.
         """
-        p_flat, info = self.cg(self.A, mz.z_diag.div.reshape(-1), x0=mz.p.reshape(-1),
+        p_flat, _info = self.cg(self.A, mz.z_diag.div.reshape(-1), x0=mz.p.reshape(-1),
                              tol=self.tol, maxiter=self.max_iter)
         mz.z_diag.p[:] = p_flat.reshape(self.mset.N)
 

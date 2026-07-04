@@ -1,12 +1,14 @@
 """array_ops.py - Utilities for array operations."""
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Generic, TypeVar
-
-import numpy as np
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import numpy as np
 
 T = TypeVar("T")
 
@@ -31,14 +33,14 @@ class SliceableAttribute(Generic[T]):
 def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray:
     """
     Return a new array with the modifications.
-    
+
     Description
     -----------
     A fundamental difference between JAX and NumPy is that NumPy allows
-    in-place modification of arrays, while JAX does not. This function does 
+    in-place modification of arrays, while JAX does not. This function does
     not modify the input array in place, but returns a new array with the
     modifications.
-    
+
     Parameters
     ----------
     `arr` : `np.ndarray`
@@ -47,12 +49,12 @@ def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray
         The slice to modify.
     `value` : `np.ndarray | float | int`
         The value to set.
-    
+
     Returns
     -------
     `np.ndarray`
         The modified array.
-    
+
     Examples
     --------
     >>> import fridom.framework as fr

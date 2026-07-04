@@ -22,7 +22,7 @@ class SpectralPressureSolver(fr.modules.Module):
                 fft_required = True
                 dso = fr.grid.cartesian.discrete_spectral_operators
                 k2 = [dso.k_hat_squared(kx, dx, use_discrete=True)
-                      for (kx,dx) in zip(self.grid.K, self.grid.dx)]
+                      for (kx,dx) in zip(self.grid.K, self.grid.dx, strict=False)]
             case nh.grid.spectral.Grid:
                 fft_required = False
                 k2 = [kx**2 for kx in self.grid.K]

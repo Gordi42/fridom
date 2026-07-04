@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from copy import copy, deepcopy
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class OptimalBalance(fr.projection.Projection):
@@ -45,7 +47,7 @@ class OptimalBalance(fr.projection.Projection):
     def __init__(self, mset: fr.ModelSettingsBase,
                  base_proj: fr.projection.Projection,
                  ramp_period: np.timedelta64 | float | None,
-                 update_parameters: Callable[[fr.ModelSettings, float, str], None] = None,
+                 update_parameters: Callable[[fr.ModelSettings, float, str], None] | None = None,
                  mset_backwards: fr.ModelSettingsBase = None,
                  ramp_type: str = "exp",
                  update_base_point: bool = True,
@@ -95,9 +97,7 @@ class OptimalBalance(fr.projection.Projection):
 
 
     def forward_to_nonlinear(self, z: fr.VectorField) -> fr.VectorField:
-        """
-        Perform forward ramping from linear model to nonlinear model.
-        """
+        """Perform forward ramping from linear model to nonlinear model."""
         model = self.model_forward
         model.reset()
         mset = model.mset
@@ -116,9 +116,7 @@ class OptimalBalance(fr.projection.Projection):
         return model.z
 
     def backward_to_linear(self, z: fr.VectorField) -> fr.VectorField:
-        """
-        Perform backward ramping from nonlinear model to linear model.
-        """
+        """Perform backward ramping from nonlinear model to linear model."""
         model = self.model_backward
         model.reset()
         mset = model.mset
@@ -136,9 +134,7 @@ class OptimalBalance(fr.projection.Projection):
         return model.z
 
     def forward_to_linear(self, z: fr.VectorField) -> fr.VectorField:
-        """
-        Perform forward ramping from nonlinear model to linear model.
-        """
+        """Perform forward ramping from nonlinear model to linear model."""
         model = self.model_forward
         model.reset()
         mset = model.mset
@@ -156,9 +152,7 @@ class OptimalBalance(fr.projection.Projection):
         return model.z
 
     def backward_to_nonlinear(self, z: fr.VectorField) -> fr.VectorField:
-        """
-        Perform backward ramping from linear model to nonlinear model.
-        """
+        """Perform backward ramping from linear model to nonlinear model."""
         model = self.model_backward
         model.reset()
         mset = model.mset
@@ -176,19 +170,19 @@ class OptimalBalance(fr.projection.Projection):
 
         return model.z
 
-    def get_ramp_func(ramp_type):
-        if ramp_type == "exp":
+    def get_ramp_func(self):
+        if self == "exp":
             def ramp_func(theta):
                 t1 = 1./np.maximum(1e-32,theta )
                 t2 = 1./np.maximum(1e-32,1.-theta )
                 return np.exp(-t1)/(np.exp(-t1)+np.exp(-t2))
-        elif ramp_type == "pow":
+        elif self == "pow":
             def ramp_func(theta):
                 return theta**3/(theta**3+(1.-theta)**3)
-        elif ramp_type == "cos":
+        elif self == "cos":
             def ramp_func(theta):
                 return 0.5*(1.-np.cos(np.pi*theta))
-        elif ramp_type == "lin":
+        elif self == "lin":
             def ramp_func(theta):
                 return theta
         else:
@@ -200,12 +194,12 @@ class OptimalBalance(fr.projection.Projection):
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
         """
         Project a state to the balanced subspace using optimal balance.
-        
+
         Parameters
         ----------
         `z` : `State`
             The state to project.
-        
+
         Returns
         -------
         `State`

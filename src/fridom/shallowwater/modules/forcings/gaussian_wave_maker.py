@@ -8,15 +8,13 @@ from fridom.shallowwater.state import State
 
 class GaussianWaveMaker(Module):
 
-    """
-    A Gaussian wave maker that forces the u-component of the velocity field.
-    """
+    """A Gaussian wave maker that forces the u-component of the velocity field."""
 
     def __init__(self,
                  position: tuple,
                  width: tuple,
                  frequency: float,
-                 amplitude: float):
+                 amplitude: float) -> None:
         """
         Constructor of the wave maker source term.
         Adds an unpolarized gaussian signal to the h-component.
@@ -34,7 +32,7 @@ class GaussianWaveMaker(Module):
                          amplitude=amplitude)
 
     @start_module
-    def start(self):
+    def start(self) -> None:
         # shorthand
         cp = self.grid.cp
         X, Y = tuple(self.grid.X)

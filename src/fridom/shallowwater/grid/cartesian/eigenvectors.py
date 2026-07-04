@@ -15,17 +15,17 @@ and performing a spatial Fourier transform, we obtain the following system:
 with
 
 .. math::
-    \boldsymbol{z} = 
+    \boldsymbol{z} =
     \begin{pmatrix}
-        u \\ v \\ p 
-    \end{pmatrix} 
+        u \\ v \\ p
+    \end{pmatrix}
     \quad, \quad
-    \mathbf{A} = 
+    \mathbf{A} =
     \begin{pmatrix}
         0       & if      & k_x \\
         -if     & 0       & k_y \\
         c^2 k_x & c^2 k_y & 0
-    \end{pmatrix} 
+    \end{pmatrix}
 
 Eigenvalues
 -----------
@@ -42,7 +42,7 @@ The other two eigenvalues correspond to the inertial-gravity wave modes:
 
 Eigenvectors
 ------------
-For :math:`|\boldsymbol{k}| > 0` the eigenvectors that correspond to the 
+For :math:`|\boldsymbol{k}| > 0` the eigenvectors that correspond to the
 mode :math:`s=0,+,-` are given by:
 
 .. math::
@@ -59,7 +59,7 @@ For :math:`|\boldsymbol{k}| = 0` we obtain the eigenvectors for the inertial mod
 
 Projection Vectors
 ------------------
-Projection vectors should satisfy 
+Projection vectors should satisfy
 
 .. math::
     {\boldsymbol{p^s}}^* \cdot \boldsymbol{q^{s'}} = \delta_{s,s'}
@@ -70,11 +70,11 @@ where the star denotes the hermitian transposed. Solving this equation for
 .. math::
     \boldsymbol{p^s} = \begin{pmatrix} q^s_x \\ q^s_y \\ c^{-2} q^s_z \end{pmatrix}
 
-where :math:`q^s_i` denotes the :math:`i`-th component of the 
+where :math:`q^s_i` denotes the :math:`i`-th component of the
 eigenvector :math:`\boldsymbol{q^s}`.
 
 For the inertial modes (i.e. :math:`|\boldsymbol{k}| = 0`), the projection vectors
-are equal to the eigenvectors. All projection vectors are normalized such that 
+are equal to the eigenvectors. All projection vectors are normalized such that
 :math:`{\boldsymbol{p^s}}^* \cdot \boldsymbol{p^s} = 1` holds.
 
 
@@ -96,7 +96,7 @@ A fourier transform yields the discrete spectral operators:
     \quad, \quad
     \delta_x^- u \rightarrow \frac{1 - e^{-ik_x \Delta x}}{\Delta x} =
         i \hat{k}_x^- u
-     
+
 Similarly, we define the forward and backward linear interpolation operators as:
 
 .. math::
@@ -130,9 +130,9 @@ The eigenvalues of the discrete system matrix are:
     \omega^0 = 0
     \quad \text{and} \quad
     \omega^\pm =
-        \sqrt{\hat{1}_x^2 \hat{1}_y^2 f^2 + 
+        \sqrt{\hat{1}_x^2 \hat{1}_y^2 f^2 +
         c^2 (\hat{k}_x^2 + \hat{k}_y^2)}
-    
+
 with
 
 .. math::
@@ -151,7 +151,7 @@ The eigenvectors :math:`\boldsymbol{q^s}` for :math:`|\boldsymbol{k}| > 0` are:
         \hat{1}_x^2 \hat{1}_y^2 f^2 - (\omega^s)^2
     \end{pmatrix}
 
-For :math:`|\boldsymbol{k}| = 0` the eigenvectors are identical to the 
+For :math:`|\boldsymbol{k}| = 0` the eigenvectors are identical to the
 continuous case. The projection vectors are the same as in the continuous case,
 but by using the discrete eigenvectors.
 """
@@ -228,8 +228,10 @@ def omega(mset: sw.ModelSettings,
     from fridom.framework.grid.cartesian import (
         discrete_spectral_operators as dso,
     )
-    ohpm = lambda k, d: dso.one_hat_squared(k, d, use_discrete)
-    khpm = lambda k, d: dso.k_hat_squared(k, d, use_discrete)
+    def ohpm(k, d):
+        return dso.one_hat_squared(k, d, use_discrete)
+    def khpm(k, d):
+        return dso.k_hat_squared(k, d, use_discrete)
 
     # compute each part of the eigenvalue
     kh2 = khpm(kx, dx) + khpm(ky, dy)
@@ -248,7 +250,7 @@ def vec_q(mset: sw.ModelSettings,
           s: int,
           use_discrete=True) -> sw.State:
     r"""
-    The eigenvectors of the system matrix
+    The eigenvectors of the system matrix.
 
     Computes the continuous or discrete eigenvectors as described in
     :py:mod:`eigenvectors <fridom.shallowwater.grid.cartesian.eigenvectors>`.
@@ -282,10 +284,14 @@ def vec_q(mset: sw.ModelSettings,
     from fridom.framework.grid.cartesian import (
         discrete_spectral_operators as dso,
     )
-    ohp = lambda k, d: dso.one_hat(k, d, +1, use_discrete)
-    ohm = lambda k, d: dso.one_hat(k, d, -1, use_discrete)
-    khp = lambda k, d: dso.k_hat(k, d, +1, use_discrete)
-    ohpm = lambda k, d: dso.one_hat_squared(k, d, use_discrete)
+    def ohp(k, d):
+        return dso.one_hat(k, d, +1, use_discrete)
+    def ohm(k, d):
+        return dso.one_hat(k, d, -1, use_discrete)
+    def khp(k, d):
+        return dso.k_hat(k, d, +1, use_discrete)
+    def ohpm(k, d):
+        return dso.one_hat_squared(k, d, use_discrete)
 
     # compute the eigenvalue
     om = omega(mset, s, (kx, ky), use_discrete=use_discrete)
@@ -309,8 +315,7 @@ def vec_q(mset: sw.ModelSettings,
     z.p.arr = ncp.where(k_nonzero, p, p_in)
 
     # Set the nyquist frequency to zero
-    z = dso.set_nyquist_to_zero(z)
-    return z
+    return dso.set_nyquist_to_zero(z)
 
 def vec_p(mset: sw.ModelSettings,
           s: int,
@@ -365,5 +370,4 @@ def vec_p(mset: sw.ModelSettings,
     from fridom.framework.grid.cartesian import (
         discrete_spectral_operators as dso,
     )
-    z = dso.set_nyquist_to_zero(z)
-    return z
+    return dso.set_nyquist_to_zero(z)

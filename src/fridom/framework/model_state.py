@@ -10,14 +10,14 @@ class ModelState:
 
     """
     Stores the model state variables and the time information.
-    
+
     Description
     -----------
     The base class for model states. It contains the state vector, the time step
     and the model time. Child classes may add more attributes as for example the
     diagnostic variables needed for the model.
     All model state variables should be stored in this class.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`
@@ -54,16 +54,12 @@ class ModelState:
     # ================================================================
     @property
     def xr(self):
-        """
-        Model State as xarray dataset
-        """
+        """Model State as xarray dataset."""
         return self.xrs[:]
 
     @property
     def xrs(self):
-        """
-        Model State of sliced domain as xarray dataset 
-        """
+        """Model State of sliced domain as xarray dataset."""
         # xarray sometimes takes a long time to load, so we only import it here
         # if it is actually needed
         try:
@@ -75,8 +71,7 @@ class ModelState:
         def slicer(key):
             ds_z = self.z.xrs[key]
             ds_zd = self.z_diag.xrs[key]
-            ds = xr.merge([ds_z, ds_zd])
-            return ds
+            return xr.merge([ds_z, ds_zd])
         return fr.utils.SliceableAttribute(slicer)
 
     # ================================================================
@@ -84,9 +79,7 @@ class ModelState:
     # ================================================================
     @property
     def z(self) -> "fr.VectorField":
-        """
-        The state vector.
-        """
+        """The state vector."""
         return self._z
 
     @z.setter
@@ -145,9 +138,7 @@ class ModelState:
 
     @property
     def clock(self) -> "fr.Clock":
-        """
-        The clock of the model.
-        """
+        """The clock of the model."""
         return self._clock
 
     @property

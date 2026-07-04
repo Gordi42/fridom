@@ -7,9 +7,11 @@ import fridom.shallowwater as sw
 @fr.utils.jaxify
 class Grid(fr.grid.cartesian.Grid):
     def __init__(self, N: list[int], L: list[int],
-                 periodic_bounds: list[bool] = [True, True],
+                 periodic_bounds: list[bool] | None = None,
                  domain_decomp: fr.domain_decomposition.DomainDecomposition | None = None,
-                 ):
+                 ) -> None:
+        if periodic_bounds is None:
+            periodic_bounds = [True, True]
         super().__init__(N, L, periodic_bounds, domain_decomp=domain_decomp)
 
     def omega(self,

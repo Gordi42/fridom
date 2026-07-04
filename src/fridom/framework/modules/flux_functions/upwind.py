@@ -27,7 +27,7 @@ class Upwind(fr.modules.flux_functions.FluxFunctionBase):
 
     with the advection velocity :math:`u` and the advected quantity :math:`q`.
     Let's assume we have two estimations of the flux :math:`F_L` and :math:`F_R`
-    where :math:`F_L` is a flux which is biased to the left (e.g. for its 
+    where :math:`F_L` is a flux which is biased to the left (e.g. for its
     computation was more influenced by values on the left side of the cell) and
     :math:`F_R` is a flux which is biased to the right.
     The upwind flux is computed by selecting the flux based on the sign of the

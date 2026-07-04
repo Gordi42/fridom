@@ -5,13 +5,13 @@ class Jet(nh.State):
 
     """
     A 3D jet with horizontal and vertical shear.
-    
+
     Description
     -----------
     Superposition of a zonal jet and a geostrophic perturbation.
     Following the setup of Chouksey et al. 2022.
     For very large jet_strengths, convective instabilities can occur.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`
@@ -35,8 +35,8 @@ class Jet(nh.State):
         # Set up the model settings
         fac = 7
         grid = nh.grid.cartesian.Grid(
-            N=(2**fac, 2**fac, 2**(fac-3)), 
-            L=(4, 4, 1), 
+            N=(2**fac, 2**fac, 2**(fac-3)),
+            L=(4, 4, 1),
             periodic_bounds=(True, True, True))
         mset = nh.ModelSettings(grid=grid, f0=1, N2=1.0, dsqr=0.2**2, Ro=0.1)
         mset.time_stepper.dt = 2**(-fac) * 2
@@ -44,7 +44,7 @@ class Jet(nh.State):
         # Create the initial conditions
         model = nh.Model(mset)
         model.z = nh.initial_conditions.Jet(
-            mset, jet_strength=2, jet_width=0.16, 
+            mset, jet_strength=2, jet_width=0.16,
             pert_strength=0.1, pert_wavenum=2)
         model.run(runlen=50.0)
     """
@@ -54,12 +54,12 @@ class Jet(nh.State):
                  jet_width=0.16,
                  pert_strength=0.05,
                  pert_wavenum=5,
-                 geo_proj=True):
+                 geo_proj=True) -> None:
         super().__init__(mset)
         ncp = nh.config.ncp
 
-        X, Y, Z = mset.grid.X
-        Lx, Ly, Lz = mset.grid.L
+        _X, Y, Z = mset.grid.X
+        _Lx, Ly, Lz = mset.grid.L
 
         # two opposite jets
         self.u.arr = -ncp.exp(-(Y-Ly/4)**2/(jet_width)**2)

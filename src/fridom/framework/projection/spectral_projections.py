@@ -29,14 +29,14 @@ class WaveSpectral(fr.projection.Projection):
 
     """
     Projection onto the inertia-gravity wave subspace using spectral eigenvectors.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`
         The model settings.
     `use_discrete` : `bool` (default: `True`)
         Whether to use discrete eigenvectors.
-    
+
     Methods
     -------
     `__call__(z: State) -> State`
@@ -61,7 +61,7 @@ class DivergenceSpectral(fr.projection.Projection):
 
     """
     Projection onto the divergence subspace using spectral eigenvectors.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`

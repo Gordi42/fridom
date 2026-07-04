@@ -12,7 +12,7 @@ class WavePackage(State):
         kx (float)     : The wavenumber in the x-direction.
         ky (float)     : The wavenumber in the y-direction.
         mode (int)     : The mode (0, 1, -1)
-        omega (complex): The frequency of the wave 
+        omega (complex): The frequency of the wave
                          (includes effects of time discretization)
                          (only for inertia-gravity modes).
         period (float) : The period of the wave.
@@ -46,13 +46,13 @@ class WavePackage(State):
             .single_wave import SingleWave
         z = SingleWave(grid, kx, ky, s, phase)
 
-        if not s == 0:
+        if s != 0:
             self.omega = z.omega
             self.period = z.period
 
         # Construct mask
         mask = cp.ones_like(grid.X[0])
-        for x, pos, width in zip(grid.X, mask_pos, mask_width):
+        for x, pos, width in zip(grid.X, mask_pos, mask_width, strict=False):
             if pos is not None and width is not None:
                 mask *= cp.exp(-(x - pos)**2 / width**2)
 
@@ -67,7 +67,7 @@ class WavePackage(State):
 
         z = z.project(p, q)
 
-        if not s == 0:
+        if s != 0:
             z *= 2
 
         # save the state

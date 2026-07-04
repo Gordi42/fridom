@@ -86,10 +86,10 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
 
     return result
 
-def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object:
+def to_numpy(obj: object, memo: dict | None = None, _nil: list | None = None) -> object:
     """
     Creates a deep copy of an object with all arrays converted to numpy.
-    
+
     Description
     -----------
     Some functions require numpy arrays as input, as for example plotting
@@ -100,17 +100,17 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object
     static, i.e. they do not change during the simulation, should have a
     _cpu attribute. If the _cpu attribute is None, the object is converted
     to numpy and cached in the _cpu attribute. If the _cpu attribute is not
-    None, the cached numpy array is returned. Objects that require a 
+    None, the cached numpy array is returned. Objects that require a
     custom conversion should implement a __to_numpy__ method that returns
     the converted object.
-    
+
     Parameters
     ----------
     `obj` : `Any`
         The object to convert to numpy.
     `memo` : `dict` (default=None)
         A dictionary to store the converted objects (used for recursion).
-    
+
     Returns
     -------
     `Any`

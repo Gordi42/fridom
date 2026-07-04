@@ -120,7 +120,7 @@ def test_init_from_field_list(mset, is_spectral, field_names, double_names):
             fr.VectorField(mset, field_list=fields)
     else:
         vec = fr.VectorField(mset, field_list=fields)
-        for f, name in zip(vec, field_names):
+        for f, name in zip(vec, field_names, strict=False):
             assert f.name == name
 
 def test_init_from_field_dict(mset, is_spectral):
@@ -128,7 +128,7 @@ def test_init_from_field_dict(mset, is_spectral):
     fields = OrderedDict((name, fr.ScalarField(mset, is_spectral=is_spectral, name=name))
                          for name in field_names)
     vec = fr.VectorField(mset, field_list=fields)
-    for f, name in zip(vec, field_names):
+    for f, name in zip(vec, field_names, strict=False):
         assert f.name == name
 
     fields = {name: fr.ScalarField(mset, is_spectral=is_spectral, name=name)
@@ -206,14 +206,14 @@ def test_fft_ifft(mset):
     vec_hat = vec.fft()
     # check that the vector is spectral and the values have changed
     assert vec_hat.is_spectral
-    for f, f_hat in zip(vec, vec_hat):
+    for f, f_hat in zip(vec, vec_hat, strict=False):
         assert f.name == f_hat.name
         assert f.arr.shape != f_hat.arr.shape
     # compute the inverse fft
     vec_inv = vec_hat.ifft()
     # check that the vector is physical and the values are the same
     assert not vec_inv.is_spectral
-    for f, f_inv in zip(vec, vec_inv):
+    for f, f_inv in zip(vec, vec_inv, strict=False):
         assert f.name == f_inv.name
         assert fr.config.ncp.allclose(f.arr, f_inv.arr)
 
@@ -232,12 +232,12 @@ def test_sync(vector):
     # create a copy of the vector and sync the copy
     vec_sync = copy(vector).sync()
     # check that the fields are different
-    for f, f_sync in zip(vector, vec_sync):
+    for f, f_sync in zip(vector, vec_sync, strict=False):
         assert not fr.config.ncp.allclose(f.arr, f_sync.arr)
     # sync the original vector
     vector.sync()
     # check that the fields are the same
-    for f, f_sync in zip(vector, vec_sync):
+    for f, f_sync in zip(vector, vec_sync, strict=False):
         assert fr.config.ncp.allclose(f.arr, f_sync.arr)
 
 def test_apply_watermask(mset, topo, is_spectral):
@@ -260,7 +260,7 @@ def test_has_nan(vector):
     # field should not have any nan values initially
     assert not vector.has_nan()
     # set some nan values
-    f1, f2 = vector
+    _f1, f2 = vector
     f2.arr = fr.utils.modify_array(f2.arr, (0, 0), fr.config.ncp.nan)
     assert f2.has_nan()
     assert vector.has_nan()
@@ -272,7 +272,7 @@ def test_copy(vector):
     # check that the model settings is the same
     assert vec_copy.mset is vector.mset
     # check that the fields are not the same
-    for f, f_copy in zip(vector, vec_copy):
+    for f, f_copy in zip(vector, vec_copy, strict=False):
         assert f is not f_copy
         assert f.arr.shape == f_copy.arr.shape
         assert fr.config.ncp.allclose(f.arr, f_copy.arr)
@@ -295,7 +295,7 @@ def test_set_random(mset, topo, is_spectral):
     # check that the field is reproducible
     vec2 = fr.VectorField(mset, is_spectral=is_spectral, topo=topo, vector_dim=2)
     vec2.set_random(seed=12345)
-    for f1, f2 in zip(vec, vec2):
+    for f1, f2 in zip(vec, vec2, strict=False):
         assert fr.config.ncp.allclose(f1.arr, f2.arr)
 
 # ----------------------------------------------------------------
@@ -314,7 +314,7 @@ def test_diff(mset, topo, is_spectral):
             lambda: vec.diff(axis=0))
         return
     diff_vec = vec.diff(axis=0)
-    for f, f_diff in zip(vec, diff_vec):
+    for f, f_diff in zip(vec, diff_vec, strict=False):
         assert fr.config.ncp.allclose(f_diff.arr, f.diff(axis=0).arr)
 
 def test_grad(mset, topo, is_spectral):
@@ -333,7 +333,7 @@ def test_laplacian(mset, topo, is_spectral):
         not_implemented_for_spectral_fields(vec.laplacian)
         return
     lap_vec = vec.laplacian()
-    for f, f_lap in zip(vec, lap_vec):
+    for f, f_lap in zip(vec, lap_vec, strict=False):
         assert fr.config.ncp.allclose(f_lap.arr, f.laplacian().arr)
 
 def test_div(mset, topo, is_spectral):
@@ -364,7 +364,7 @@ def test_cumulative_integral(mset, topo, is_spectral, direction):
         return
 
     cumvec = vec.cumulative_integral(axis=1, direction=direction)
-    for cv, f in zip(cumvec, vec):
+    for cv, f in zip(cumvec, vec, strict=False):
         cum_f = f.cumulative_integral(axis=1, direction=direction)
         # check if the fields are the same
         assert fr.config.ncp.allclose(cv.arr, cum_f.arr)
@@ -428,7 +428,7 @@ def test_from_xr(mset, topo, is_spectral, key, possible):
     # new vector should not be the same as the original vector
     assert new_vec is not vec
     # check that the fields are the same
-    for f, f_new in zip(vec, new_vec):
+    for f, f_new in zip(vec, new_vec, strict=False):
         assert fr.config.ncp.allclose(f.arr, f_new.arr)
 
 def test_netcdf_save_load(mset, is_spectral, tmp_dir):
@@ -438,7 +438,7 @@ def test_netcdf_save_load(mset, is_spectral, tmp_dir):
     # load the field from the netcdf file
     new_vec = fr.VectorField.from_netcdf(mset, tmp_dir + "/vec.nc")
     # check that the fields are the same
-    for f, f_new in zip(vec, new_vec):
+    for f, f_new in zip(vec, new_vec, strict=False):
         assert fr.config.ncp.allclose(f.arr, f_new.arr)
 
 # ----------------------------------------------------------------
@@ -527,7 +527,7 @@ def test_dill(mset, is_spectral, topo, tmp_dir):
     with path.open("rb") as f:
         new_vec = dill.load(f)  # noqa: S301
     # check that the fields are the same
-    for f, f_new in zip(vec, new_vec):
+    for f, f_new in zip(vec, new_vec, strict=False):
         assert fr.config.ncp.allclose(f.arr, f_new.arr)
 
 # ----------------------------------------------------------------
@@ -653,7 +653,7 @@ def test_apply_operator_with_scalar_field(mset, topo, is_spectral, op):
     # check if the result is a vector field
     assert isinstance(new_vec, fr.VectorField)
     # check if the fields are correct
-    for f, f_new in zip(vec, new_vec):
+    for f, f_new in zip(vec, new_vec, strict=False):
         assert fr.config.ncp.allclose(op(f.arr, scalar.arr), f_new.arr)
 
 @pytest.mark.parametrize(*(
@@ -680,7 +680,7 @@ def test_apply_operator_with_vector_field(mset, topo, is_spectral, op):
     # check if the result is a vector field
     assert isinstance(new_vec, fr.VectorField)
     # check if the fields are correct
-    for f1, f2, f_new in zip(vec1, vec2, new_vec):
+    for f1, f2, f_new in zip(vec1, vec2, new_vec, strict=False):
         assert fr.config.ncp.allclose(op(f1.arr, f2.arr), f_new.arr)
 
 def test_apply_operator_with_invalid_vector_field(mset):
@@ -715,7 +715,7 @@ def test_apply_operator_with_scalar(mset, topo, is_spectral, op):
     # check if the result is a vector field
     assert isinstance(new_vec, fr.VectorField)
     # check if the fields are correct
-    for f, f_new in zip(vec, new_vec):
+    for f, f_new in zip(vec, new_vec, strict=False):
         assert fr.config.ncp.allclose(op(f.arr, scalar), f_new.arr)
 
 @pytest.mark.parametrize(*(
@@ -749,7 +749,7 @@ def test_dot_with_scalar_field(mset, topo, is_spectral, dot_op):
     # check if the result is a vector field
     assert isinstance(result, fr.VectorField)
     # check if the fields are correct
-    for f, f_new in zip(vec, result):
+    for f, f_new in zip(vec, result, strict=False):
         assert fr.config.ncp.allclose(f.arr * scalar.arr.conj(), f_new.arr)
 
 def test_dot_with_vector_field(mset, topo, is_spectral, dot_op):
@@ -767,7 +767,7 @@ def test_dot_with_vector_field(mset, topo, is_spectral, dot_op):
     # check if the result is a scalar field
     assert isinstance(result, fr.ScalarField)
     # check if the fields are correct
-    expected = sum(f1 * f2.conj() for f1, f2 in zip(vec1, vec2))
+    expected = sum(f1 * f2.conj() for f1, f2 in zip(vec1, vec2, strict=False))
     assert fr.config.ncp.allclose(expected.arr, result.arr)
 
 def test_dot_with_invalid_vector_field(mset, dot_op):
@@ -785,7 +785,7 @@ def test_abs(mset, topo, is_spectral):
     if all(topo):
         vec.set_random()
     vec_abs = abs(vec)
-    for f, f_abs in zip(vec, vec_abs):
+    for f, f_abs in zip(vec, vec_abs, strict=False):
         assert fr.config.ncp.allclose(abs(f.arr), f_abs.arr)
 
 def test_conj(mset, topo, is_spectral):
@@ -793,7 +793,7 @@ def test_conj(mset, topo, is_spectral):
     if all(topo):
         vec.set_random()
     vec_conj = vec.conj()
-    for f, f_conj in zip(vec, vec_conj):
+    for f, f_conj in zip(vec, vec_conj, strict=False):
         assert fr.config.ncp.allclose(f.arr.conj(), f_conj.arr)
 
 def test_neg(mset, topo, is_spectral):
@@ -801,7 +801,7 @@ def test_neg(mset, topo, is_spectral):
     if all(topo):
         vec.set_random()
     vec_neg = -vec
-    for f, f_neg in zip(vec, vec_neg):
+    for f, f_neg in zip(vec, vec_neg, strict=False):
         assert fr.config.ncp.allclose(-f.arr, f_neg.arr)
 
 def test_norm_l2(mset, topo, is_spectral):
@@ -857,7 +857,7 @@ def test_jit(mset, op):
         return op(f)
     new_vec = func(vec)
     assert isinstance(new_vec, fr.VectorField)
-    for f_exp, f_new in zip(op(vec), new_vec):
+    for f_exp, f_new in zip(op(vec), new_vec, strict=False):
         assert fr.config.ncp.allclose(f_exp.arr, f_new.arr)
     if not fr.config.backend_is_jax:
         return

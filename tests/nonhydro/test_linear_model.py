@@ -18,8 +18,8 @@ def test_linear_model(runlen):
     mset.tendencies.advection.disable()
     mset.setup()
 
-    X, Y, Z = grid.X
-    Lx, Ly, Lz = grid.L
+    _X, Y, Z = grid.X
+    _Lx, Ly, Lz = grid.L
 
     z = nh.State(mset)
     z.u.arr = ncp.exp(-(Y - Ly/2)**2 / (0.2*Ly)**2) * ncp.exp(-(Z - Lz/2)**2 / (0.2*Lz)**2)

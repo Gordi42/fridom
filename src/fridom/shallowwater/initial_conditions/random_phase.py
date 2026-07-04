@@ -18,15 +18,15 @@ class RandomPhase(State):
         Arguments:
             spectral_function (callable) : with interface spectral_function(K)
             random_type (str)            : "uniform" or "normal"
-                => uniform: The phase is randomized by multiplying the complex 
+                => uniform: The phase is randomized by multiplying the complex
                             value e^ip to the state where p is uniformly
                             distributed between 0 and 2pi.
-                => normal:  The phase is randomized by multiplying 
+                => normal:  The phase is randomized by multiplying
                             (a + ib) to the state where a and b are
                             normally distributed.
             amplitude (float)             : The resulting height field is
                                             normalized to this value.
-            seed (int)                    : The seed for the random phase
+            seed (int)                    : The seed for the random phase.
         """
         super().__init__(grid)
         # get the wavenumber

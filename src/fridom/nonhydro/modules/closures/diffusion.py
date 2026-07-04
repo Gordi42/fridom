@@ -12,7 +12,7 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
 
     Description
     -----------
-    Applies the harmonic diffusion operator :math:`\mathcal{H}` 
+    Applies the harmonic diffusion operator :math:`\mathcal{H}`
     (see :py:class:`fridom.framework.modules.closures.HarmonicDiffusion`)
     to all fields with the flag "ENABLE_MIXING".
 
@@ -112,7 +112,7 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
 
     Description
     -----------
-    Applies the biharmonic diffusion operator :math:`\mathcal{B}` 
+    Applies the biharmonic diffusion operator :math:`\mathcal{B}`
     (see :py:class:`fridom.framework.modules.closures.BiharmonicDiffusion`)
     to all fields with the flag "ENABLE_MIXING".
 

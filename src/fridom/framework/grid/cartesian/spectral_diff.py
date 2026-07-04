@@ -8,7 +8,7 @@ class SpectralDiff(fr.grid.DiffModule):
 
     r"""
     Differentiation module in spectral space.
-    
+
     Description
     -----------
     In spectral space, the differentiation of a field is equivalent to a multiplication by the wavenumber and the imaginary unit:

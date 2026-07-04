@@ -1,9 +1,12 @@
 """Stencil class representing a stencil of a given size and offset."""
 from __future__ import annotations
 
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 ncp = fr.config.ncp
 

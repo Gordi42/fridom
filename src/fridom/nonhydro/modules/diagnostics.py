@@ -8,7 +8,7 @@ class Diagnostics(Module):
                  interval = 50,
                  energy_info = True,
                  cfl_info = True,
-                 ):
+                 ) -> None:
         super().__init__()
         self.interval = interval
         self.energy_info = energy_info
@@ -16,9 +16,7 @@ class Diagnostics(Module):
 
     @module_method
     def update(self, mz: ModelState) -> ModelState:
-        """
-        Print diagnostic information.
-        """
+        """Print diagnostic information."""
         # check if it is time to print diagnostic information
         if mz.clock.it % self.interval != 0:
             return None
@@ -32,7 +30,6 @@ class Diagnostics(Module):
         if self.cfl_info:
             out += f"hor. CFL = {mz.z.max_cfl_h():.2f},           "
             out += f"vert. CFL = {mz.z.max_cfl_v():.2f}"
-        print(out)
         return mz
 
     def __repr__(self) -> str:

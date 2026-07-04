@@ -8,22 +8,22 @@ from PIL import Image
 def skip_on_doc_build(func: callable) -> callable:
     """
     Skip a function when building the documentation.
-    
+
     Description
     -----------
     This decorator skips a function when building the documentation. This is
     useful to avoid expensive computations during the documentation build.
-    
+
     Parameters
     ----------
     `func` : `callable`
         The function to skip.
-    
+
     Returns
     -------
     `callable`
         The function that is skipped when building the documentation.
-    
+
     Examples
     --------
     >>> import fridom.framework as fr
@@ -33,14 +33,14 @@ def skip_on_doc_build(func: callable) -> callable:
     """
     # check if we are building the documentation
     if os.getenv("FRIDOM_DOC_GENERATION") == "True":
-        def do_nothing(*args, **kwargs):  # pylint: disable=unused-argument
+        def do_nothing(*args, **kwargs) -> None:  # pylint: disable=unused-argument
             return None
         return do_nothing
     return func
 
 def cache_figure(
         func: Callable,
-        name: str = None,
+        name: str | None = None,
         force_recompute: bool = False,
         dpi: int = 200) -> callable:
     """
@@ -80,6 +80,5 @@ def cache_figure(
             fig = func()
             fig.savefig(filename, dpi=dpi)
 
-        img = Image.open(filename)
-        return img
+        return Image.open(filename)
     return wrapper

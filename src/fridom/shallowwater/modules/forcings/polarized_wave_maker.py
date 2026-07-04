@@ -7,9 +7,7 @@ from fridom.shallowwater.state import State
 
 class PolarizedWaveMaker(Module):
 
-    """
-    A polarized wave maker
-    """
+    """A polarized wave maker."""
 
     def __init__(self,
                  kx: float = 6.0,
@@ -17,7 +15,7 @@ class PolarizedWaveMaker(Module):
                  s: int = 1,
                  amplitude: float = 1.0,
                  mask_pos: tuple = (0.5, 0.5),
-                 mask_width: tuple = (0.2, 0.2)):
+                 mask_width: tuple = (0.2, 0.2)) -> None:
         """
         Constructor of the wave maker source term.
 
@@ -41,7 +39,7 @@ class PolarizedWaveMaker(Module):
                          mask_width=mask_width)
 
     @start_module
-    def start(self):
+    def start(self) -> None:
         # Shortcuts
         cp = self.grid.cp
 
@@ -54,7 +52,7 @@ class PolarizedWaveMaker(Module):
 
         # set mask
         mask = cp.ones_like(self.grid.X[0])
-        for x, pos, width in zip(self.grid.X, self.mask_pos, self.mask_width):
+        for x, pos, width in zip(self.grid.X, self.mask_pos, self.mask_width, strict=False):
             if pos is not None and width is not None:
                 mask *= cp.exp(-(x - pos)**2 / width**2)
 

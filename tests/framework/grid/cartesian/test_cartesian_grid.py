@@ -33,7 +33,7 @@ def N(n_dims):
 
 @pytest.fixture
 def dx(L, N):
-    return [li/ni for li, ni in zip(L, N)]
+    return [li/ni for li, ni in zip(L, N, strict=False)]
 
 @pytest.fixture
 def grid(L, N):
@@ -48,8 +48,6 @@ def grid(L, N):
 
 def test_backend(grid):
     x = grid.X[0]
-    print(type(x))
-    print(config.ncp.ndarray)
     assert isinstance(x, config.ncp.ndarray)
 
 def test_x(grid, n_dims, N, L, dx):

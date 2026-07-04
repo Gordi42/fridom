@@ -620,7 +620,7 @@ class ScalarField(fr.FieldBase):
     def extend(self, topo: tuple[bool]) -> ScalarField:  # noqa: D102
         # check if the topology is valid (no shrinking)
         old_topo = self.topo
-        for (old, new) in zip(old_topo, topo):
+        for (old, new) in zip(old_topo, topo, strict=False):
             if old and not new:
                 msg = "Cannot shrink the field in any direction"
                 raise ValueError(msg)
@@ -724,7 +724,7 @@ class ScalarField(fr.FieldBase):
                          ) -> ScalarField:
         new_mdata = deepcopy(field.mdata)
         if isinstance(other, ScalarField):
-            topo = [p or q for p, q in zip(field.topo, other.topo)]
+            topo = [p or q for p, q in zip(field.topo, other.topo, strict=False)]
             new_mdata.topo = topo
             result = op(field.arr, other.arr)
         elif isinstance(other, (int,

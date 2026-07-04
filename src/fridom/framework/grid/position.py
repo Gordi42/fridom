@@ -50,7 +50,7 @@ class Position:
 
     """
     The position of a field on a staggered grid.
-    
+
     Parameters
     ----------
     `positions` : `tuple[AxisPosition]`
@@ -94,7 +94,7 @@ class Position:
         if not isinstance(value, Position):
             return False
 
-        for my_pos, other_pos in zip(self.positions, value.positions):
+        for my_pos, other_pos in zip(self.positions, value.positions, strict=False):
             if my_pos != other_pos:
                 return False
         return True
@@ -115,7 +115,5 @@ class Position:
     # ----------------------------------------------------------------
     @property
     def positions(self) -> tuple[AxisPosition]:
-        """
-        The positions of the field along each axis.
-        """
+        """The positions of the field along each axis."""
         return self._positions

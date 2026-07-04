@@ -1,13 +1,15 @@
 """Initial conditions with prescribed spectra and random phases."""
 from __future__ import annotations
 
-from collections.abc import Callable
 from functools import partial
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 import numpy as np
 
 import fridom.shallowwater as sw
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 T = TypeVar("T", float, np.ndarray)
 

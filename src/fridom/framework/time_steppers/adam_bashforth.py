@@ -26,7 +26,7 @@ def _update_state(
     buffers: tuple[fr.VectorField],
     coeffs: np.ndarray,
 ) -> fr.VectorField:
-    return z + sum(c * b for c, b in zip(coeffs, buffers))
+    return z + sum(c * b for c, b in zip(coeffs, buffers, strict=False))
 
 
 @partial(fr.utils.jaxify,

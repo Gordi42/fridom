@@ -132,7 +132,7 @@ class ModelSettings(fr.ModelSettingsBase):
     def N2(self, value: float) -> None:
         # update the stratification field
         if self._N2_field is not None:
-            x, y, z = self._N2_field.get_mesh()
+            _x, _y, z = self._N2_field.get_mesh()
             self._N2_field.arr = z*0 + value
         self._N2 = value
 

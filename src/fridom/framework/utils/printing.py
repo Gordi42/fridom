@@ -4,7 +4,7 @@ import datetime
 import fridom.framework as fr
 
 
-def print_bar(char="="):
+def print_bar(char="=") -> None:
     """
     Print a bar to the log file.
 
@@ -16,10 +16,8 @@ def print_bar(char="="):
     if fr.utils.I_AM_MAIN_RANK:
         fr.log.info(char*80)
 
-def print_job_init_info():
-    """
-    Print the job starting time and the number of MPI processes.
-    """
+def print_job_init_info() -> None:
+    """Print the job starting time and the number of MPI processes."""
     print_bar("#")
     fr.log.info("FRIDOM: Framework for Idealized Ocean Models")
     # Get the current system time

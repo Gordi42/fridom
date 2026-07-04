@@ -2,7 +2,7 @@
 import datetime
 
 
-def humanize_length(value: float):
+def humanize_length(value: float) -> str:
     """
     Format a length in human readable format [mm, cm, m, km].
 

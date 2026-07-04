@@ -20,7 +20,7 @@ class Grid(fr.grid.cartesian.Grid):
         self.mpi_available = False
         self.spectral_grid = True
 
-    def setup(self, mset: "fr.ModelSettingsBase"):
+    def setup(self, mset: "fr.ModelSettingsBase") -> None:
         super().setup(mset, req_halo=0)
 
     def get_mesh(self,

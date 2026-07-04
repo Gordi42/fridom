@@ -11,7 +11,7 @@ class Projection:
 
     """
     Base class for projections. All projections should inherit from this class.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`

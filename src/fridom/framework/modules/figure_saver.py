@@ -30,7 +30,7 @@ class FigureSaver(fr.modules.Module):
                  filename: str,
                  model_time: float,
                  plotter: fr.modules.animation.ModelPlotter,
-                 dpi: int = 256):
+                 dpi: int = 256) -> None:
         super().__init__()
         self.filename = filename
         self.model_time = model_time

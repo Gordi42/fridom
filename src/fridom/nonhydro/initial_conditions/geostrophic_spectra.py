@@ -2,13 +2,13 @@ import fridom.nonhydro as nh
 
 
 def geostrophic_energy_spectrum(kx, ky, kz, d=7, k0=6, c=2):
-    """
+    r"""
     Geostrophic energy spectrum.
-    
+
     Description
     -----------
     The geostrophic energy spectrum is separated into horizontal and vertical
-    components. Following the work of Masur & Oliver [2020], the horizontal 
+    components. Following the work of Masur & Oliver [2020], the horizontal
     energy spectrum :math:`S_h` is given by:
 
     .. math::
@@ -31,7 +31,7 @@ def geostrophic_energy_spectrum(kx, ky, kz, d=7, k0=6, c=2):
 
     where :math:`k_z` is the vertical wavenumber and :math:`c` is a constant.
     The total energy spectrum is given by :math:`S = S_h S_v`.
-    
+
     Parameters
     ----------
     `kx` : `float`
@@ -41,7 +41,7 @@ def geostrophic_energy_spectrum(kx, ky, kz, d=7, k0=6, c=2):
     `kz` : `float`
         The vertical wavenumber.
     `d` : `float`, optional (default=7)
-        The power law exponent for large horizontal wavenumbers 
+        The power law exponent for large horizontal wavenumbers
         (:math:`S_h(k) \\sim k^{-d}` for :math:`k \\to \\infty`).
     `k0` : `float`, optional (default=6)
         The wavenumber with the maximum energy.
@@ -65,7 +65,7 @@ class RandomGeostrophicSpectra(nh.State):
 
     """
     Random geostrophic state with a given spectral energy density.
-    
+
     Parameters
     ----------
     `mset` : `ModelSettings`
@@ -75,7 +75,7 @@ class RandomGeostrophicSpectra(nh.State):
     `spectral_energy_density` : `callable(kx, ky, kz)`
         Callable that returns the spectral energy density as a function of the
         wavenumbers `kx`, `ky`, and `kz`.
-    
+
     Examples
     --------
     .. code-block:: python
@@ -83,7 +83,7 @@ class RandomGeostrophicSpectra(nh.State):
         import fridom.nonhydro as nh
         # Set up the model settings
         grid = nh.grid.cartesian.Grid(
-            N=(128, 128, 32), L=(10, 10, 1), 
+            N=(128, 128, 32), L=(10, 10, 1),
             periodic_bounds=(False, True, False))
         mset = nh.ModelSettings(grid=grid, f0=1, N2=1.0, dsqr=0.2**2)
         mset.time_stepper.dt = 0.1
@@ -103,7 +103,7 @@ class RandomGeostrophicSpectra(nh.State):
     def __init__(self,
                  mset: nh.ModelSettings,
                  seed=12345,
-                 spectral_energy_density=geostrophic_energy_spectrum):
+                 spectral_energy_density=geostrophic_energy_spectrum) -> None:
         super().__init__(mset, is_spectral=False)
 
         ncp = nh.config.ncp

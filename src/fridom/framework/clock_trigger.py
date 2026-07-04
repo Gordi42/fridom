@@ -1,12 +1,15 @@
 """clock_trigger.py - Emits signals based on the state of a clock."""
 from __future__ import annotations
 
-from collections.abc import Callable
 from copy import copy
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ClockTrigger:

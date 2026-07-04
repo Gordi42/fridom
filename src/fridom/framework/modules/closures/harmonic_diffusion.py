@@ -14,7 +14,7 @@ class HarmonicDiffusion(fr.modules.Module):
 
     Description
     -----------
-    The harmonic diffusion operator :math:`\mathcal{H}` on a scalar field 
+    The harmonic diffusion operator :math:`\mathcal{H}` on a scalar field
     :math:`u` is given by:
 
     .. math::

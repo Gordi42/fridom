@@ -60,15 +60,15 @@ def test_padding(halo, shape):
         return
     for axis in range(len(shape)):
         # left halos
-        left_halo = list(slice(None) for _ in shape)
+        left_halo = [slice(None) for _ in shape]
         left_halo[axis] = slice(0, halo)
-        right_inside = list(slice(None) for _ in shape)
+        right_inside = [slice(None) for _ in shape]
         right_inside[axis] = slice(-2*halo, -halo)
         assert (u_padded[tuple(left_halo)] == u_padded[tuple(right_inside)]).all()
         # right halos
-        right_halo = list(slice(None) for _ in shape)
+        right_halo = [slice(None) for _ in shape]
         right_halo[axis] = slice(-halo, None)
-        left_inside = list(slice(None) for _ in shape)
+        left_inside = [slice(None) for _ in shape]
         left_inside[axis] = slice(halo, 2*halo)
         assert (u_padded[tuple(right_halo)] == u_padded[tuple(left_inside)]).all()
 
@@ -149,15 +149,15 @@ def test_halo_exchange(halo, shape):
         return
     for axis in range(len(shape)):
         # left halos
-        left_halo = list(slice(None) for _ in shape)
+        left_halo = [slice(None) for _ in shape]
         left_halo[axis] = slice(0, halo)
-        right_inside = list(slice(None) for _ in shape)
+        right_inside = [slice(None) for _ in shape]
         right_inside[axis] = slice(-2*halo, -halo)
         assert (u_padded[tuple(left_halo)] == u_padded[tuple(right_inside)]).all()
         # right halos
-        right_halo = list(slice(None) for _ in shape)
+        right_halo = [slice(None) for _ in shape]
         right_halo[axis] = slice(-halo, None)
-        left_inside = list(slice(None) for _ in shape)
+        left_inside = [slice(None) for _ in shape]
         left_inside[axis] = slice(halo, 2*halo)
         assert (u_padded[tuple(right_halo)] == u_padded[tuple(left_inside)]).all()
 

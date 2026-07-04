@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from functools import cached_property, partial
+from typing import TYPE_CHECKING
 
 import jax
 from jax.experimental import multihost_utils
 from jax.experimental.shard_map import shard_map
 from jax.sharding import NamedSharding
 from jax.sharding import PartitionSpec as P
-from numpy import ndarray
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 MINIMUM_NUMBER_OF_DIMS = 2
 ncp = fr.config.ncp
@@ -22,7 +25,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                  periods: tuple[bool] | None = None,
                  p_dims: tuple[int] | None = None,
                  shared_axes: tuple[int] | None = None,
-                 device_ids: list[int] | None = None):
+                 device_ids: list[int] | None = None) -> None:
         super().__init__(shape, halo, periods, shared_axes, device_ids)
 
         # initialize jax distributed
@@ -199,8 +202,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             @self.main_shard_map
             def _pad(arr: ndarray) -> ndarray:
                 ncp = fr.config.ncp
-                arr = ncp.pad(arr, tuple(paddings))
-                return arr
+                return ncp.pad(arr, tuple(paddings))
 
             return _pad(arr)
         return pad
@@ -364,7 +366,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         shard = self._shard_alt if spectral else self._shard_main
         if topo is not None:
             new_specs = []
-            for ax, is_extended in zip(shard.spec, topo):
+            for ax, is_extended in zip(shard.spec, topo, strict=False):
                 if is_extended:
                     new_specs.append(ax)
                 else:

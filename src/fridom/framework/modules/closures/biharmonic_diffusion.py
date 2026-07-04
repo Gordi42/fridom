@@ -12,14 +12,14 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
 
     Description
     -----------
-    Following Griffiies et al. (2000), the biharmonic mixing operator 
+    Following Griffiies et al. (2000), the biharmonic mixing operator
     :math:`\mathcal{B}` iterates twice over the harmonic mixing operator
     :math:`\mathcal{H}`. For a scalar field :math:`u` it is given by:
 
     .. math::
         \mathcal{B}(u) = - \mathcal{H} \left( \mathcal{H}(u) \right)
 
-    where we use the biharmonic diffusion coefficient :math:`\sqrt{|\kappa_i|}`. 
+    where we use the biharmonic diffusion coefficient :math:`\sqrt{|\kappa_i|}`.
     The index :math:`i` refers to the direction of the diffusion.
 
     Parameters

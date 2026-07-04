@@ -13,7 +13,7 @@ MPI_AVAILABLE = MPI is not None
 def am_i_main_rank():
     """
     Check if the current rank is the main rank.
-    
+
     Returns
     -------
     `bool`
@@ -30,10 +30,8 @@ def am_i_main_rank():
 
 I_AM_MAIN_RANK = am_i_main_rank()
 
-def mpi_barrier():
-    """
-    Barrier synchronization for MPI.
-    """
+def mpi_barrier() -> None:
+    """Barrier synchronization for MPI."""
     if MPI_AVAILABLE:
         MPI.COMM_WORLD.Barrier()
     if fr.config.backend_is_jax:
