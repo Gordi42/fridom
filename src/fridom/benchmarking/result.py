@@ -206,6 +206,9 @@ class BenchmarkResult:
     extras : dict[str, float], optional
         Additional user-defined metrics, e.g. a throughput
         (default: {}).
+    error : str | None, optional
+        The error message if the benchmark case failed; None on
+        success (default: None).
     """
 
     name: str
@@ -220,6 +223,7 @@ class BenchmarkResult:
     flops: float | None = None
     peak_bytes: int | None = None
     extras: dict[str, float] = field(default_factory=dict)
+    error: str | None = None
 
     # ----------------------------------------------------------------
     #  Properties

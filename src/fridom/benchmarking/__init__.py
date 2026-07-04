@@ -15,6 +15,14 @@ if TYPE_CHECKING:  # pragma: no cover
         SuiteResult,
         collect_metadata,
     )
+    from .runner import run_suite
+    from .suite import (
+        BenchmarkCase,
+        CaseInstance,
+        benchmark_case,
+        discover_cases,
+        load_cases,
+    )
 
 # ================================================================
 #  Setup lazy loading
@@ -30,6 +38,14 @@ all_imports_by_origin = {
         "RunMetadata",
         "SuiteResult",
         "collect_metadata",
+    ],
+    f"{base}.runner": ["run_suite"],
+    f"{base}.suite": [
+        "BenchmarkCase",
+        "CaseInstance",
+        "benchmark_case",
+        "discover_cases",
+        "load_cases",
     ],
 }
 
