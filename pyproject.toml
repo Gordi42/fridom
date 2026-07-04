@@ -44,6 +44,8 @@ dev = [
   "pylint",
   "pytest",
   "coverage",
+  "ruff",
+  "pre-commit",
   "xarray",
   "matplotlib",
   "imageio[ffmpeg]",

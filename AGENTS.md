@@ -24,7 +24,8 @@ which the modern code (e.g. `framework/modules/module.py`,
 pip install -e '.[dev]'                 # install with dev extras
 ./run_tests.sh                          # run tests across all backends
 FRIDOM_BACKEND=numpy pytest tests/      # run tests on a single backend
-ruff check src tests                    # lint
+ruff check src tests                    # lint (must stay at zero errors)
+pre-commit install                      # install the ruff pre-commit hook
 ```
 
 - Tests select the array backend via the `FRIDOM_BACKEND` env var

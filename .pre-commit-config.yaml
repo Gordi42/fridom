@@ -1,0 +1,13 @@
+# Pre-commit hooks for FRIDOM.
+#
+# Install the hooks with:
+#     pre-commit install
+#
+# Run on all files with:
+#     pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.11
+    hooks:
+      - id: ruff-check
+        args: [--fix]
