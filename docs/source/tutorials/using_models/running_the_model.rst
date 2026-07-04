@@ -22,7 +22,7 @@ Below is an example that uses the jet initial condition from the shallow water m
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
             mset.time_stepper.dt = 0.7e-3
             mset.setup()
@@ -49,7 +49,7 @@ Below is an example that uses the jet initial condition from the shallow water m
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
             mset.time_stepper.dt = 0.7e-3
             mset.setup()
@@ -77,7 +77,7 @@ Below is an example that uses the jet initial condition from the shallow water m
             import numpy as np
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
             mset.time_stepper.dt = 0.7e-3
             mset.setup()
@@ -115,7 +115,7 @@ You can also manually control the model loop by calling ``model.step()``. Howeve
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
     mset.time_stepper.dt = 0.7e-3
     mset.setup()
@@ -158,7 +158,7 @@ It is possible to save the state of the model and reload it later to continue th
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
             mset.time_stepper.dt = 0.7e-3
             mset.setup()
@@ -183,7 +183,7 @@ It is possible to save the state of the model and reload it later to continue th
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
             mset.time_stepper.dt = 0.7e-3
             mset.setup()

@@ -35,7 +35,7 @@ In the following example, we create a scalar field for temperature:
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -58,7 +58,7 @@ Let's start with arithmetic operations between scalar fields and scalars:
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -103,7 +103,7 @@ We can also perform these arithmetic operations between two scalar fields. When 
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -158,7 +158,7 @@ Fourier transformations are one of the built-in methods that can be applied to s
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -194,7 +194,7 @@ A variety of other methods are available to facilitate working in parallel setti
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -218,7 +218,7 @@ Apply Numpy Functions
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -242,7 +242,7 @@ In a similar manner, most ``numpy`` functions can be applied to scalar fields. H
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -278,7 +278,7 @@ In FRIDOM, positions can be defined in two ways: either by using the cell center
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -299,7 +299,7 @@ In FRIDOM, positions can be defined in two ways: either by using the cell center
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -334,7 +334,7 @@ The easiest way to plot scalar fields is to convert them into an ``xarray`` ``Da
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -356,7 +356,7 @@ The easiest way to plot scalar fields is to convert them into an ``xarray`` ``Da
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -398,7 +398,7 @@ When modeling partial differential equations, one is often interested in the der
     import matplotlib.pyplot as plt
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -468,7 +468,7 @@ Consider the following example, in which we create a 2D scalar field that has an
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -481,7 +481,7 @@ If you add this field to a scalar field that extends in all directions, the resu
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -518,7 +518,7 @@ By default, all boundaries are set to ``NEUMANN``. They can be customized using 
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 

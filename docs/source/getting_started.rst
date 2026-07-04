@@ -20,7 +20,7 @@ Here, we’ll walk through a simple example to show you how to run a model in FR
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
     mset.time_stepper.dt = 0.7e-3
     mset.setup()

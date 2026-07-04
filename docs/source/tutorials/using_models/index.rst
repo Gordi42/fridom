@@ -35,7 +35,7 @@ Throughout this chapter, we primarily use the 2D shallow water model as our exam
          import fridom.shallowwater as sw
 
          # Create the grid and model settings
-         grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+         grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
          mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
          mset.time_stepper.dt = 0.7e-3
          mset.setup()
@@ -58,8 +58,8 @@ Throughout this chapter, we primarily use the 2D shallow water model as our exam
          import fridom.nonhydro as nh
 
          # Create the grid and model settings
-         grid = nh.grid.cartesian.Grid(N=(256,256,16), L=(1,1,1), periodic_bounds=(True, True, False))
-         mset = nh.ModelSettings(grid=grid, f0=1, N2=1, Ro=0.5)
+         grid = nh.grid.cartesian.Grid(shape=(256,256,16), domain_size=(1,1,1), periodic_bounds=(True, True, False))
+         mset = nh.ModelSettings(grid=grid, f0=1, stratification_n2=1, rossby_number=0.5)
          mset.time_stepper.dt = 1e-3
          mset.setup()
 

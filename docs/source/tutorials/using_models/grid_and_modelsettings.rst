@@ -26,7 +26,7 @@ The following code snippets demonstrate how to create a Cartesian grid:
             Lx = 1_000; Ly = 1_000
 
             grid = sw.grid.cartesian.Grid(
-                N=(Nx,Ny), L=(Lx,Ly), periodic_bounds=(True, True)
+                shape=(Nx,Ny), domain_size=(Lx,Ly), periodic_bounds=(True, True)
             )
 
             print(grid)
@@ -56,7 +56,7 @@ The following code snippets demonstrate how to create a Cartesian grid:
             Lx = 1_000; Ly = 1_000; Lz = 100
 
             grid = nh.grid.cartesian.Grid(
-                N=(Nx,Ny,Nz), L=(Lx,Ly,Lz), periodic_bounds=(True, True, False)
+                shape=(Nx,Ny,Nz), domain_size=(Lx,Ly,Lz), periodic_bounds=(True, True, False)
             )
 
             print(grid)
@@ -103,7 +103,7 @@ The following code snippets demonstrate how to create and setup a ModelSettings 
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
 
     # Settings parameters for the 2D Shallow Water Model
     f0   = 1e-4   # Coriolis frequency in 1/s
@@ -175,7 +175,7 @@ Once both the grid and ModelSettings object are created, you can use the various
         
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1e-4, csqr=9.81*20)
             mset.setup()
 
@@ -187,7 +187,7 @@ Once both the grid and ModelSettings object are created, you can use the various
 
             import fridom.nonhydro as nh
 
-            grid = nh.grid.cartesian.Grid(N=(256,256,16), L=(1,1,1), periodic_bounds=(True, True, False))
+            grid = nh.grid.cartesian.Grid(shape=(256,256,16), domain_size=(1,1,1), periodic_bounds=(True, True, False))
             mset = nh.ModelSettings(grid=grid)
             mset.setup()
 
@@ -203,7 +203,7 @@ If the grid allows for Fourier transformations, you can also access the k-space 
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1e-4, csqr=9.81*20)
             mset.setup()
 
@@ -215,7 +215,7 @@ If the grid allows for Fourier transformations, you can also access the k-space 
 
             import fridom.nonhydro as nh
 
-            grid = nh.grid.cartesian.Grid(N=(256,256,16), L=(1,1,1), periodic_bounds=(True, True, False))
+            grid = nh.grid.cartesian.Grid(shape=(256,256,16), domain_size=(1,1,1), periodic_bounds=(True, True, False))
             mset = nh.ModelSettings(grid=grid)
             mset.setup()
 
@@ -230,7 +230,7 @@ To simplify working with different backends, you can access ``ncp`` from the con
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid, f0=1e-4, csqr=9.81*20)
     mset.setup()
 

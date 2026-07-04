@@ -16,7 +16,7 @@ Let's take a look at the state vector in two different model setups:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -42,7 +42,7 @@ Let's take a look at the state vector in two different model setups:
             import fridom.nonhydro as nh
 
             # Create the grid and model settings
-            grid = nh.grid.cartesian.Grid(N=(256, 256, 16), L=(1, 1, 1), periodic_bounds=(True, True, False))
+            grid = nh.grid.cartesian.Grid(shape=(256, 256, 16), domain_size=(1, 1, 1), periodic_bounds=(True, True, False))
             mset = nh.ModelSettings(grid=grid)
             mset.setup()
 
@@ -105,7 +105,7 @@ Either as a dictionary or as an attribute:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -122,7 +122,7 @@ Either as a dictionary or as an attribute:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -146,7 +146,7 @@ This can be particularly useful in cases where you want to add two state vectors
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -183,7 +183,7 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -211,7 +211,7 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -249,7 +249,7 @@ If you want to use a state vector as the initial condition for a model, you can 
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -280,7 +280,7 @@ For example, the shallow water model has a built-in Jet initial condition:
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -338,13 +338,13 @@ The following example shows how to create a custom initial condition that genera
             super().__init__(mset)
 
             x, y = self.p.get_mesh()
-            lx, ly = mset.grid.L
+            lx, ly = mset.grid.domain_size
             ncp = sw.config.ncp
 
             self.p.arr = height * ncp.exp(-((x - lx/2)**2 + (y - ly/2)**2) / (2 * width**2))
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -378,7 +378,7 @@ The following example demonstrates how to calculate the potential vorticity of t
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -409,7 +409,7 @@ These variables are added through the model settings. In the following example, 
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -466,7 +466,7 @@ The following example shows how to save a state vector to a netCDF file and load
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -483,7 +483,7 @@ The following example shows how to save a state vector to a netCDF file and load
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
