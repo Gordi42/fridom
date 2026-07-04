@@ -10,6 +10,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .coherent_eddy import CoherentEddy
     from .equatorial_wave import EquatorialWave
     from .geostrophic_spectra import (
+        PrescribedSpectraRandomPhase,
         RandomGeostrophicSpectra,
         RandomWaveSpectra,
         ShallowWaterRandom,
@@ -30,6 +31,7 @@ all_imports_by_origin = {
     f"{base_path}.coherent_eddy": ["CoherentEddy"],
     f"{base_path}.equatorial_wave": ["EquatorialWave"],
     f"{base_path}.geostrophic_spectra": [
+        "PrescribedSpectraRandomPhase",
         "RandomGeostrophicSpectra",
         "RandomWaveSpectra",
         "ShallowWaterRandom",

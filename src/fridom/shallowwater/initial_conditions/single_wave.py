@@ -81,6 +81,11 @@ class SingleWave(sw.State):
         is_ky = jnp.isclose(ky_mesh, ky)
         k_loc = is_kx & is_ky
 
+        if not bool(jnp.any(k_loc)):
+            msg = (f"The wavenumber k={k} does not exist on the grid. "
+                   "Please choose a resolvable wavenumber.")
+            raise ValueError(msg)
+
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
         mask = jnp.where(k_loc, 1, 0)

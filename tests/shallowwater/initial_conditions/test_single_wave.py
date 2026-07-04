@@ -90,3 +90,8 @@ def test_geostrophic_mode_is_stationary(mset):
     model.run(runlen=1.0)
 
     assert (model.z - z).norm_l2() < 1e-10
+
+
+def test_unresolvable_wavenumber_raises(mset):
+    with pytest.raises(ValueError, match="does not exist on the grid"):
+        sw.initial_conditions.SingleWave(mset, k=(1000, 0))

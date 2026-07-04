@@ -79,3 +79,8 @@ def test_phase_shift(mset_ns):
 
     # a phase shift of pi flips the sign of the state
     assert (z_0 + z_pi).norm_l2() < 1e-10
+
+
+def test_invalid_side_raises(mset_ns):
+    with pytest.raises(ValueError, match="Invalid side 'X'"):
+        nh.initial_conditions.KelvinWave(mset_ns, "X", kz=2, k_parallel=1)

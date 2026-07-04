@@ -91,13 +91,15 @@ class KelvinWave(nh.State):
                  phase: float = 0) -> None:
         super().__init__(mset, is_spectral=False)
 
+        if side not in {"N", "S", "E", "W"}:
+            msg = (f"Invalid side '{side}'. "
+                   "Must be one of 'N', 'S', 'E', or 'W'.")
+            raise ValueError(msg)
+
         # convert the wavenumbers
         lx, ly, lz = mset.grid.domain_size
         kz = 2 * jnp.pi * kz / lz
-        if side in {"N", "S"}:
-            l_parallel = lx
-        if side in {"E", "W"}:
-            l_parallel = ly
+        l_parallel = lx if side in {"N", "S"} else ly
         k_parallel = 2 * jnp.pi * k_parallel / l_parallel
 
         # calculate the frequency
