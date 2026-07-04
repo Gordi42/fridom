@@ -69,7 +69,7 @@ class SingleWave(nh.State):
 
         # Shortcuts
         grid = mset.grid
-        kx, ky, kz = grid.k_mesh
+        kx_mesh, ky_mesh, kz_mesh = grid.k_mesh
         kx, ky, kz = k
         lx, ly, lz = grid.domain_size
         pi = jnp.pi
@@ -78,9 +78,9 @@ class SingleWave(nh.State):
         kx = 2*pi*kx/lx
         ky = 2*pi*ky/ly
         kz = 2*pi*kz/lz
-        is_kx = jnp.isclose(kx, kx)
-        is_ky = jnp.isclose(ky, ky)
-        is_kz = jnp.isclose(kz, kz)
+        is_kx = jnp.isclose(kx_mesh, kx)
+        is_ky = jnp.isclose(ky_mesh, ky)
+        is_kz = jnp.isclose(kz_mesh, kz)
         k_loc = is_kx & is_ky & is_kz
 
         # Construct the spectral field of the corresponding mode

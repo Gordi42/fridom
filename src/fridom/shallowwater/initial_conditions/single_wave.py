@@ -69,7 +69,7 @@ class SingleWave(sw.State):
 
         # Shortcuts
         grid = mset.grid
-        kx, ky = grid.k_mesh
+        kx_mesh, ky_mesh = grid.k_mesh
         kx, ky = k
         lx, ly = grid.domain_size
         pi = jnp.pi
@@ -77,8 +77,8 @@ class SingleWave(sw.State):
         # Find index of the wavenumber in the grid (nearest neighbor)
         kx = 2*pi*kx/lx
         ky = 2*pi*ky/ly
-        is_kx = jnp.isclose(kx, kx)
-        is_ky = jnp.isclose(ky, ky)
+        is_kx = jnp.isclose(kx_mesh, kx)
+        is_ky = jnp.isclose(ky_mesh, ky)
         k_loc = is_kx & is_ky
 
         # Construct the spectral field of the corresponding mode
