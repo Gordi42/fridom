@@ -42,13 +42,20 @@ class SpectralAdvection(fr.modules.advection.AdvectionBase):
         divergence = self.diff_module.div
 
         vel_p = ifft(z.velocity)
-        dz.u -= self.scaling * fft(vel_p @ ifft(grad(z.u)))
-        dz.v -= self.scaling * fft(vel_p @ ifft(grad(z.v)))
+
+        def advect(field: fr.ScalarField) -> fr.ScalarField:
+            # compute v * grad(field) pseudo-spectrally
+            grad_p = (ifft(g) for g in grad(field))
+            return fft(sum(v * g for v, g in
+                           zip(vel_p, grad_p, strict=True)))
+
+        dz.u -= self.scaling * advect(z.u)
+        dz.v -= self.scaling * advect(z.v)
         dz.p -= self.scaling * divergence(fft(vel_p * ifft(z.p)))
 
         for field in z.tracers:
             if field.flags["NO_ADV"]:
                 continue
-            dz[field.name] -= self.scaling * fft(vel_p @ ifft(grad(field)))
+            dz[field.name] -= self.scaling * advect(field)
 
         return dz
