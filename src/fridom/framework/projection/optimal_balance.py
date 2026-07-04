@@ -19,31 +19,31 @@ class OptimalBalance(fr.projection.Projection):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `base_proj` : `Projection`
+    base_proj : Projection
         The projection onto the base point.
-    `ramp_period` : `np.timedelta64 | float | int` (default: None)
-        The ramping period.
+    ramp_period : np.timedelta64 | float | int, optional
+        The ramping period (default: None).
     update_parameters : Callable[[ModelSettings, float, str], None], optional
         A method that updates the model parameters based on the ramped value.
         It should take the model settings and the ramped value which is
         between 0 and 1.
-    `mset_backwards` : `ModelSettings`
+    mset_backwards : ModelSettings
         The model settings for the backward ramping. If None, the forward
         model settings are used. This option is useful when the backwards
         ramping should be done with a different setup (e.g. negative
         viscosity).
-    `ramp_type` : `str`
+    ramp_type : str
         The ramping type. Choose from "exp", "pow", "cos", "lin".
-    `disable_diagnostic` : `bool`
+    disable_diagnostic : bool
         Whether to disable the diagnostic tendencies during the iterations.
-    `update_base_point` : `bool`
+    update_base_point : bool
         Whether to update the base point after each iteration. This has no
         effect on OB. But it matters for OBTA. Should be True for OBTA.
-    `max_it` : `int`
+    max_it : int
         Maximum number of iterations.
-    `stop_criterion` : `float`
+    stop_criterion : float
         The stopping criterion.
     """
 
@@ -208,7 +208,7 @@ class OptimalBalance(fr.projection.Projection):
 
         Parameters
         ----------
-        `z` : `State`
+        z : State
             The state to project.
 
         Returns

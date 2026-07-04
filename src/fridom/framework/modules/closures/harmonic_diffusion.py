@@ -40,8 +40,8 @@ class HarmonicDiffusion(fr.modules.Module):
     diffusion_coefficients : tuple[float | fr.ScalarField]
         A tuple of diffusion coefficients. The length of the tuple must match
         the number of dimensions of the grid.
-    name : str, (default="Harmonic Diffusion")
-        Name of the module.
+    name : str, optional
+        Name of the module (default: "Harmonic Diffusion").
 
     """
 

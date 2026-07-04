@@ -23,9 +23,9 @@ class ModelState:
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings object.
-    `clock` : `Clock`, optional
+    clock : Clock, optional
         The clock object to keep track of the model time.
 
     """

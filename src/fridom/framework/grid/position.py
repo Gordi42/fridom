@@ -13,9 +13,9 @@ class AxisPosition(StrEnum):
 
     Options
     -------
-    `CENTER` :
+    CENTER :
         Center of the grid cell.
-    `FACE` :
+    FACE :
         Face of the grid cell (right edge of the cell).
 
     ::
@@ -56,7 +56,7 @@ class Position:
 
     Parameters
     ----------
-    `positions` : `tuple[AxisPosition]`
+    positions : tuple[AxisPosition]
         The positions of the field along each axis.
 
     """
@@ -73,7 +73,7 @@ class Position:
 
         Parameters
         ----------
-        `axis` : `int`
+        axis : int
             The axis along which to shift the field.
 
         Returns

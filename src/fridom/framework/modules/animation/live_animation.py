@@ -24,8 +24,9 @@ class LiveAnimation(fr.modules.Module):
     ----------
     model_plotter : ModelPlotterBase
         The model plotter that will be used to create the figure.
-    interval : int, optional (default=50)
-        The interval (time steps) at which the plot will be updated.
+    interval : int, optional
+        The interval (time steps) at which the plot will be updated (default:
+        50).
 
     """
 

@@ -42,11 +42,11 @@ def geostrophic_energy_spectrum(kx: T, ky: T,
         The horizontal wavenumber in the x-direction.
     ky : float | np.ndarray
         The horizontal wavenumber in the y-direction.
-    d : float, optional (default=7)
+    d : float, optional
         The power law exponent for large horizontal wavenumbers
-        (:math:`S_h(k) \sim k^{-d}` for :math:`k \to \infty`).
-    k0 : float, optional (default=4)
-        The wavenumber with the maximum energy.
+        (:math:`S_h(k) \sim k^{-d}` for :math:`k \to \infty`) (default: 7).
+    k0 : float, optional
+        The wavenumber with the maximum energy (default: 4).
 
     Returns
     -------
@@ -90,13 +90,13 @@ def gm_energy_spectrum(kx: T,
         The horizontal wavenumber in the x-direction.
     ky : float | np.ndarray
         The horizontal wavenumber in the y-direction.
-    wave_power_law : float, optional (default=-2)
+    wave_power_law : float, optional
         The power law exponent for the energy spectrum as a function of the
-        frequency.
-    f0 : float, optional (default=1.0)
-        The Coriolis parameter.
-    csqr : float, optional (default=1.0)
-        The phase speed.
+        frequency (default: -2).
+    f0 : float, optional
+        The Coriolis parameter (default: 1.0).
+    csqr : float, optional
+        The phase speed (default: 1.0).
 
     Returns
     -------
@@ -251,17 +251,18 @@ class ShallowWaterRandom(sw.State):
     ----------
     mset : ModelSettings
         The model settings (need to be set up).
-    amplitude_geo : float, optional (default=0.2)
-        The amplitude of the geostrophic component.
-    amplitude_wave : float, optional (default=0.1)
-        The amplitude of the wave component.
-    d : float, optional (default=7)
-        The power law exponent for large horizontal wavenumbers (geo).
-    k0 : float, optional (default=4)
-        The wavenumber with the maximum energy (geo).
-    wave_power_law : float, optional (default=-2)
+    amplitude_geo : float, optional
+        The amplitude of the geostrophic component (default: 0.2).
+    amplitude_wave : float, optional
+        The amplitude of the wave component (default: 0.1).
+    d : float, optional
+        The power law exponent for large horizontal wavenumbers (geo) (default:
+        7).
+    k0 : float, optional
+        The wavenumber with the maximum energy (geo) (default: 4).
+    wave_power_law : float, optional
         The power law exponent for the energy spectrum as a function of the
-        frequency (wave).
+        frequency (wave) (default: -2).
     seed : int
         Seed for the random number generator (for the phase)
 

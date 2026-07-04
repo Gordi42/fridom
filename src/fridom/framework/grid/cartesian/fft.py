@@ -126,7 +126,7 @@ class FFT:
 
     Parameters
     ----------
-    `periodic` : `tuple[bool]`
+    periodic : tuple[bool]
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
 
@@ -178,9 +178,9 @@ class FFT:
 
         Parameters
         ----------
-        `shape` : `tuple[int]`
+        shape : tuple[int]
             The global shape (number of grid points in each direction).
-        `dx` : `tuple[float]`
+        dx : tuple[float]
             The grid spacing in each direction.
 
         Returns
@@ -221,13 +221,13 @@ class FFT:
 
         Parameters
         ----------
-        `u` : `np.ndarray`
+        u : np.ndarray
             The array to transform from physical space to spectral space.
-        `axes` : `list[int] | None`
+        axes : list[int] | None
             The axes to transform. If None, all axes are transformed.
-        `bc_types` : `tuple[fr.grid.BCType] | None`
+        bc_types : tuple[fr.grid.BCType] | None
             The type of boundary conditions for each axis.
-        `positions` : `tuple[fr.grid.AxisPosition] | None`
+        positions : tuple[fr.grid.AxisPosition] | None
             The position of the variable in each direction.
 
         Returns
@@ -279,13 +279,13 @@ class FFT:
 
         Parameters
         ----------
-        `u_hat` : `np.ndarray`
+        u_hat : np.ndarray
             The array to transform from spectral space to physical space.
-        `axes` : `list[int] | None`
+        axes : list[int] | None
             The axes to transform. If None, all axes are transformed.
-        `bc_types` : `tuple[fr.grid.BCType] | None`
+        bc_types : tuple[fr.grid.BCType] | None
             The type of boundary conditions for each axis.
-        `positions` : `tuple[fr.grid.AxisPosition] | None`
+        positions : tuple[fr.grid.AxisPosition] | None
             The position of the variable in each direction.
 
         Returns

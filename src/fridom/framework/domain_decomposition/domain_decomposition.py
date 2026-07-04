@@ -46,19 +46,19 @@ class DomainDecomposition:
 
     Parameters
     ----------
-    `shape` : `tuple[int]`
+    shape : tuple[int]
         The total number of grid points in each dimension.
-    `halo` : `int`, optional (default=0)
+    halo : int, optional
         The number of halo cells (ghost cells) around the local domain
-        for the exchange of boundary values.
-    `periods` : `tuple[bool]`, optional (default=None)
+        for the exchange of boundary values (default: 0).
+    periods : tuple[bool], optional
         A list of booleans indicating whether the domain is periodic in
-        each dimension. If None, all dimensions are periodic.
-    `shared_axes` : `list[int]`, optional (default=None)
-        A list of axes that are shared between processors.
-    `device_ids` : `list[int]`, optional (default=None)
+        each dimension. If None, all dimensions are periodic (default: None).
+    shared_axes : list[int], optional
+        A list of axes that are shared between processors (default: None).
+    device_ids : list[int], optional
         Optional list of device ids to use. If None, all devices are used.
-        This option is useful for coupled simulations.
+        This option is useful for coupled simulations (default: None).
     """
 
     def __init__(self,
@@ -89,9 +89,9 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to synchronize.
-        `flat_axes` : list[int] | None
+        flat_axes : list[int] | None
             Dimensions which are flat (no halo exchange).
             If None, all dimensions are exchanged.
         """
@@ -102,7 +102,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : list[ndarray]
+        arr : list[ndarray]
             The list of arrays to synchronize.
         """
         return [self.sync(a) for a in arr]
@@ -117,7 +117,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `func` : callable
+        func : callable
             The function to apply the forward transform to.
             func(arr: ndarray, axes: list[int] | None = None) -> ndarray
         """
@@ -134,7 +134,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `func` : callable
+        func : callable
             The function to apply the backward transform to.
             func(arr: ndarray, axes: list[int] | None = None) -> ndarray
         """
@@ -156,7 +156,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to pad.
         """
 
@@ -167,7 +167,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to unpad.
         """
 
@@ -181,7 +181,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to pad.
 
         Returns
@@ -196,7 +196,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to unpad.
 
         Returns
@@ -211,7 +211,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to pad.
         """
 
@@ -230,15 +230,15 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to gather.
-        `slc` : tuple[slice] (default=None)
+        slc : tuple[slice], optional
             The slice of the array to gather.
-            If None, gather the entire array.
-        `dest_rank` : int (default=None)
+            If None, gather the entire array (default: None).
+        dest_rank : int, optional
             The rank of the process to gather to.
-            If None, gather to all processes.
-        `spectral` : bool
+            If None, gather to all processes (default: None).
+        spectral : bool
             Whether the array is in spectral space.
         """
 
@@ -256,11 +256,11 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `pad` : bool
+        pad : bool
             Whether to add padding to the array.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
+        topo : tuple[bool] | None
             The topology of the array. Axes with false are flat
             (only one grid point)
         """
@@ -277,13 +277,13 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `seed` : int
+        seed : int
             The seed for the random number generator.
-        `pad` : bool
+        pad : bool
             Whether to add padding to the array.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
+        topo : tuple[bool] | None
             The topology of the array. Axes with false are flat
             (only one grid point)
 
@@ -299,11 +299,11 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `args` : ndarray
+        args : ndarray
             The arrays to meshgrid.
-        `pad` : bool
+        pad : bool
             Whether to add padding to the meshgrid.
-        `spectral` : bool
+        spectral : bool
             Whether the meshgrid is in spectral space.
         """
 
@@ -321,12 +321,12 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to sum.
-        `axes` : list[int] | None
+        axes : list[int] | None
             The axes to sum across.
             If None, sum across all axes.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
         """
 
@@ -340,12 +340,12 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to find the maximum value of.
-        `axes` : list[int] | None
+        axes : list[int] | None
             The axes to find the maximum value across.
             If None, find the maximum value across all axes.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
         """
 
@@ -359,12 +359,12 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to find the minimum value of.
-        `axes` : list[int] | None
+        axes : list[int] | None
             The axes to find the minimum value across.
             If None, find the minimum value across all axes.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
         """
 
@@ -433,7 +433,7 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `func` : callable
+        func : callable
             The function to apply.
         """
         return func
@@ -528,7 +528,7 @@ def get_default_domain_decomposition() -> DomainDecomposition:
 
     Parameters
     ----------
-    `backend` : str
+    backend : str
         The backend to use. Options are 'single' and 'jax'.
     """
     fall_back = fr.domain_decomposition.SingleDecomposition

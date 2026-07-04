@@ -102,16 +102,16 @@ class Model:
 
         Parameters
         ----------
-        steps : int (default: None)
-            Number of steps to run.
-        runlen : np.timedelta64 | float | int (default: None)
-            Length of the run.
-        start_step : int (default: 0)
-            Start iteration of the run.
-        start_time : np.datetime64 | float | int (default: 0)
-            Start time of the run.
-        end_time : np.datetime64 | float | int (default: None)
-            End time of the run.
+        steps : int, optional
+            Number of steps to run (default: None).
+        runlen : np.timedelta64 | float | int, optional
+            Length of the run (default: None).
+        start_step : int, optional
+            Start iteration of the run (default: 0).
+        start_time : np.datetime64 | float | int, optional
+            Start time of the run (default: 0).
+        end_time : np.datetime64 | float | int, optional
+            End time of the run (default: None).
 
         """
         #  Check input

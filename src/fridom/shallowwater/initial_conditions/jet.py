@@ -33,17 +33,17 @@ class Jet(sw.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `wavenum` : `int`
+    wavenum : int
         The relative wavenumber of the perturbation.
-    `waveamp` : `float`
+    waveamp : float
         The amplitude of the perturbation.
-    `pos` : `float`
+    pos : float
         The relative position of the jet in the y-direction
-    `width` : `float`
+    width : float
         The relative width of the jet.
-    `geo_proj` : `bool`
+    geo_proj : bool
         Whether to project the initial condition to the geostrophic subspace.
     """
 

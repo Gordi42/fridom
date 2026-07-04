@@ -38,21 +38,22 @@ class SingleWave(sw.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `k` : `tuple[int]`
+    k : tuple[int]
         The wavenumber in the x and y directions.
         A wavenumber of one means that the wave has a wavelength equal to the
         domain size in that direction.
-    `s` : `int`
+    s : int
         The mode (0, 1, -1)
         0 => geostrophic mode
         1 => positive inertia-gravity mode
         -1 => negative inertia-gravity mode
-    `phase` : `float`
+    phase : float
         The phase of the wave. (default: 0)
-    `use_discrete` : `bool` (default: True)
-        Whether to use the discrete eigenvectors or the analytical ones.
+    use_discrete : bool, optional
+        Whether to use the discrete eigenvectors or the analytical ones
+        (default: True).
 
     """
 

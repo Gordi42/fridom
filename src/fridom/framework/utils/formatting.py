@@ -14,7 +14,7 @@ def humanize_length(value: float) -> str:
 
     Parameters
     ----------
-    `value` : `float`
+    value : float
         The length to format.
 
     Returns
@@ -36,7 +36,7 @@ def humanize_time(value: float) -> str:
 
     Parameters
     ----------
-    `value` : `float`
+    value : float
         The time to format.
 
     Returns
@@ -86,9 +86,9 @@ def humanize_number(value: float, unit: str) -> str:
 
     Parameters
     ----------
-    `value` : `float`
+    value : float
         The number to format.
-    `unit` : `str`
+    unit : str
         The unit of the number (e.g., meters, seconds).
 
     Returns

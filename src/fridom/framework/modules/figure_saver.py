@@ -19,13 +19,13 @@ class FigureSaver(fr.modules.Module):
 
     Parameters
     ----------
-    `thumbnail_path` : `str`
+    thumbnail_path : str
         The path to the file where the figure should be saved.
-    `model_time` : `float`
+    model_time : float
         The model time at which the figure should be saved.
-    `plotter` : `ModelPlotter`
+    plotter : ModelPlotter
         The Plotter module that creates the figure.
-    `dpi` : `int`
+    dpi : int
         The resolution of the figure in dots per inch.
     """
 

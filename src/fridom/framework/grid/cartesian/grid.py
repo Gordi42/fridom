@@ -23,23 +23,24 @@ class Grid(fr.grid.GridBase):
 
     Parameters
     ----------
-    `shape` : `tuple[int]`
+    shape : tuple[int]
         Number of grid points in each direction.
-    `domain_size` : `tuple[float]`
+    domain_size : tuple[float]
         Domain size in meters in each direction.
-    `periodic_bounds` : `tuple[bool]`, (default: None)
+    periodic_bounds : tuple[bool], optional
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
-        Default is True for all axes.
-    `shared_axes` : `list[int]`, (default: None)
+        Default is True for all axes (default: None).
+    shared_axes : list[int], optional
         A list of integers that indicate which axes are shared among MPI ranks.
-        Default is None, which means that no fourier transforms are available.
-    `diff_mod` : `DiffModule`, (default: None)
+        Default is None, which means that no fourier transforms are available
+        (default: None).
+    diff_mod : DiffModule, optional
         A module that contains the differentiation operators.
-        If None, the finite differences module is used.
-    `interp_mod` : `InterpolationModule`, (default: None)
+        If None, the finite differences module is used (default: None).
+    interp_mod : InterpolationModule, optional
         A module that contains the interpolation methods.
-        If None, the linear interpolation module is used.
+        If None, the linear interpolation module is used (default: None).
 
     Examples
     --------

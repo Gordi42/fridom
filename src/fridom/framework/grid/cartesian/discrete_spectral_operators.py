@@ -94,15 +94,16 @@ def one_hat(kx: ndarray,
 
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `sign` : `int`
+    sign : int
         The sign of the operator (+1 for forward, -1 for backward)
-    `use_discrete` : `bool` (default: True)
+    use_discrete : bool, optional
         If True, the discrete operator is returned. Otherwise, the continuous
-        operator is returned which is 1 for forward and backward interpolation.
+        operator is returned which is 1 for forward and backward interpolation
+        (default: True).
 
     Returns
     -------
@@ -130,11 +131,11 @@ def one_hat_squared(kx: ndarray,
 
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `use_discrete` : `bool`
+    use_discrete : bool
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always 1.
 
@@ -164,13 +165,13 @@ def k_hat(kx: ndarray,
 
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `sign` : `int`
+    sign : int
         The sign of the operator (+1 for forward, -1 for backward)
-    `use_discrete` : `bool`
+    use_discrete : bool
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always kx.
 
@@ -200,11 +201,11 @@ def k_hat_squared(kx: ndarray,
 
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `use_discrete` : `bool`
+    use_discrete : bool
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always kx**2.
 
@@ -227,7 +228,7 @@ def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
 
     Parameters
     ----------
-    `z` : `State`
+    z : State
         The state which nyquist frequency should be set to zero.
 
     Returns

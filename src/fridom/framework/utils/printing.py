@@ -12,7 +12,7 @@ def print_bar(char: str = "=") -> None:
 
     Parameters
     ----------
-    `char`: `str`
+    char: str
         Character to use for the bar.
     """
     if fr.utils.I_AM_MAIN_RANK:

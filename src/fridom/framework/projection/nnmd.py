@@ -19,14 +19,15 @@ class NNMD(fr.projection.Projection):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `order` : `int`
+    order : int
         The order of the balanced state.
-    `use_discrete` : `bool` (default: True)
-        Whether to use the discrete eigenvectors vectors.
-    `enable_dealiasing` : `bool` (default: True)
-        Whether to enable dealiasing when computing the nonlinear term.
+    use_discrete : bool, optional
+        Whether to use the discrete eigenvectors vectors (default: True).
+    enable_dealiasing : bool, optional
+        Whether to enable dealiasing when computing the nonlinear term
+        (default: True).
 
     Description
     -----------
@@ -588,10 +589,11 @@ class NNMD(fr.projection.Projection):
 
         Parameters
         ----------
-        `order` : `int`
+        order : int
             The order up to which the state is created.
-        `spectral` : `bool` (default: False)
-            Whether the returned state should be in spectral space.
+        spectral : bool, optional
+            Whether the returned state should be in spectral space (default:
+            False).
         """
         # compute the two wave modes:
         zw1 = sum(self[1,n,0] for n in range(1, order+1))
@@ -644,14 +646,14 @@ class NNMD(fr.projection.Projection):
 
         Parameters
         ----------
-        `z1` : `State`
+        z1 : State
             The first state (spectral space).
-        `z2` : `State`
+        z2 : State
             The second state (spectral space).
 
         Returns
         -------
-        `S` : `State`
+        S : State
             The interaction term (spectral space).
         """
         # TODO(Silvano): add dealiasing
@@ -684,9 +686,9 @@ class NNMD(fr.projection.Projection):
 
         Parameters
         ----------
-        `order_series` : `int`
+        order_series : int
             The order :math:`n` of the power series expansion.
-        `order_derivative` : `int`
+        order_derivative : int
             The order :math:`k` of the slow time derivative.
 
         Returns

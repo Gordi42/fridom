@@ -22,7 +22,7 @@ def jaxjit(fun: callable, *args: Any, **kwargs: Any) -> callable:
 
     Parameters
     ----------
-    `fun` : `callable`
+    fun : callable
         The function to JIT compile.
 
     Returns
@@ -95,10 +95,11 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
 
     Parameters
     ----------
-    `cls` : `type`
+    cls : type
         The class to add jax support to.
-    `dynamic` : `tuple[str] | None` (default=None)
-        A tuple of attribute names that should be considered dynamic.
+    dynamic : tuple[str] | None, optional
+        A tuple of attribute names that should be considered dynamic (default:
+        None).
 
     Examples
     --------
@@ -211,9 +212,9 @@ def inspect_jitted_function(func: callable, args: tuple) -> None:
 
     Parameters
     ----------
-    `func` : `callable`
+    func : callable
         The function to inspect.
-    `args` : `tuple`
+    args : tuple
         The arguments to pass to the function. Must be a tuple.
     """
     func.lower(*args).compile().runtime_executable().hlo_modules()[0].to_string()

@@ -107,7 +107,7 @@ class Clock:
 
         Parameters
         ----------
-        time : `np.datetime64` or `float`
+        time : np.datetime64 | float
             The start time of the model run.
 
         """

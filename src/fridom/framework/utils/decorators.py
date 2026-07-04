@@ -22,7 +22,7 @@ def skip_on_doc_build(func: callable) -> callable:
 
     Parameters
     ----------
-    `func` : `callable`
+    func : callable
         The function to skip.
 
     Returns
@@ -61,15 +61,16 @@ def cache_figure(
 
     Parameters
     ----------
-    `func` : `Callable`
+    func : Callable
         The function that computes the figure. This function must return a
         matplotlib figure.
-    `name` : `str`
+    name : str
         The name of the figure file.
-    `force_recompute` : `bool` (default=False)
-        If True, the figure is recomputed even if it exists on disk.
-    `dpi` : `int` (default=200)
-        The DPI of the figure.
+    force_recompute : bool, optional
+        If True, the figure is recomputed even if it exists on disk (default:
+        False).
+    dpi : int, optional
+        The DPI of the figure (default: 200).
 
     Returns
     -------

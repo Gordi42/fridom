@@ -19,12 +19,12 @@ class ModelSettings(fr.ModelSettingsBase):
     ----------
     grid : Grid
         The grid object.
-    coriolis_parameter : float | fr.ScalarField (default=0)
-        The coriolis parameter. Can be a constant or a field.
-    background_stratification : float | fr.ScalarField (default=0)
-        The background stratification. Also referred to as N².
-    rossby_number : float (default=1)
-        The Rossby number for scaling the nonlinearity.
+    coriolis_parameter : float | fr.ScalarField, optional
+        The coriolis parameter. Can be a constant or a field (default: 0).
+    background_stratification : float | fr.ScalarField, optional
+        The background stratification. Also referred to as N² (default: 0).
+    rossby_number : float, optional
+        The Rossby number for scaling the nonlinearity (default: 1).
 
     """
 

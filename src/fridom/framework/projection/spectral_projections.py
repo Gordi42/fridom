@@ -11,10 +11,10 @@ class GeostrophicSpectral(fr.projection.Projection):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `use_discrete` : `bool` (default: `True`)
-        Whether to use discrete eigenvectors.
+    use_discrete : bool, optional
+        Whether to use discrete eigenvectors (default: True).
     """
 
     def __init__(self,
@@ -36,10 +36,10 @@ class WaveSpectral(fr.projection.Projection):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `use_discrete` : `bool` (default: `True`)
-        Whether to use discrete eigenvectors.
+    use_discrete : bool, optional
+        Whether to use discrete eigenvectors (default: True).
 
     Methods
     -------
@@ -69,10 +69,10 @@ class DivergenceSpectral(fr.projection.Projection):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `use_discrete` : `bool` (default: `True`)
-        Whether to use discrete eigenvectors.
+    use_discrete : bool, optional
+        Whether to use discrete eigenvectors (default: True).
     """
 
     def __init__(self,

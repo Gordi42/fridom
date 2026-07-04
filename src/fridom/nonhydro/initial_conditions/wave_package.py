@@ -33,33 +33,33 @@ class WavePackage(nh.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `mask_pos` : `tuple[float | None]`
+    mask_pos : tuple[float | None]
         The position of the mask in the x, y, and z directions.
         If `None`, the mask is not applied in that direction.
-    `mask_width` : `tuple[float | None]`
+    mask_width : tuple[float | None]
         The width of the mask in the x, y, and z directions.
         If `None`, the mask is not applied in that direction.
-    `kx` : `int`
+    kx : int
         The wavenumber in the x-direction.
-    `ky` : `int`
+    ky : int
         The wavenumber in the y-direction.
-    `kz` : `int`
+    kz : int
         The wavenumber in the z-direction.
-    `s` : `int`
+    s : int
         The mode (0, 1, -1)
         0 => geostrophic mode
         1 => positive inertia-gravity mode
         -1 => negative inertia-gravity mode
-    `phase` : `real`
+    phase : real
         The phase of the wave. (Default: 0)
 
     Attributes
     ----------
-    `omega` : `complex`
+    omega : complex
         The frequency of the wave (only for inertia-gravity modes).
-    `period` : `float`
+    period : float
         The period of the wave (only for inertia-gravity modes).
 
     """

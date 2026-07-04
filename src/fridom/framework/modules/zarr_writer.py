@@ -36,11 +36,11 @@ class ZarrWriter(fr.modules.Module):
         The name of the file to write to. Default is "snap" (no directory).
     directory : str, optional
         The directory where the files should be stored. Default is "snapshots".
-    get_variables : callable, (default: None)
+    get_variables : callable, optional
         A function that returns a list of scalar fields that should be written
         to the file. If None, all fields of the State object will be written.
         The function signature of get_variables is:
-        `get_variables(mz: 'ModelState') -> list[ScalarField]`
+        `get_variables(mz: 'ModelState') -> list[ScalarField]` (default: None).
 
     """
 

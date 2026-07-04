@@ -17,17 +17,17 @@ class Jet(nh.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `jet_strength` : `float`
+    jet_strength : float
         The strength of the zonal jets.
-    `jet_width` : `float`
+    jet_width : float
         The width of the zonal jets.
-    `pert_strength` : `float`
+    pert_strength : float
         The strength of the perturbation.
-    `pert_wavenum` : `int`
+    pert_wavenum : int
         The wavenumber of the perturbation.
-    `geo_proj` : `bool`
+    geo_proj : bool
         Whether to project the initial condition to the geostrophic subspace.
 
     Examples

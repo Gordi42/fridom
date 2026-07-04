@@ -47,11 +47,11 @@ def modify_array(
 
     Parameters
     ----------
-    `arr` : `np.ndarray`
+    arr : np.ndarray
         The array to modify.
-    `where` : `slice`
+    where : slice
         The slice to modify.
-    `value` : `np.ndarray | float | int`
+    value : np.ndarray | float | int
         The value to set.
 
     Returns

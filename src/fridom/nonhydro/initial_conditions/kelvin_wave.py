@@ -42,14 +42,14 @@ class KelvinWave(nh.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings object.
-    `side` : `str`
+    side : str
         The side of the domain where the wave is located.
         Possible values are 'N': North, 'S': South, 'E': East, 'W': West.
-    `kz` : `int`
+    kz : int
         The vertical wavenumber. (Can be positive or negative)
-    `kh` : `int`
+    kh : int
         The horizontal wavenumber in the direction of the boundary.
         (Must be positive)
 

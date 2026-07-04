@@ -407,9 +407,9 @@ def omega(s: int,
         The square of the aspect ratio.
     dx : tuple[float], optional
         The grid spacing. Required if `use_discrete` is True.
-    use_discrete : bool (default: False)
+    use_discrete : bool, optional
         If True, the discrete eigenvalues are returned. Otherwise, the
-        continuous eigenvalues are returned.
+        continuous eigenvalues are returned (default: False).
 
     """
     _check_use_discrete_argument(dx, use_discrete)
@@ -628,9 +628,9 @@ def vec_q(mset: nh.ModelSettings,
         "d" => divergent,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
-    use_discrete : bool (default: True)
+    use_discrete : bool, optional
         If True, the discrete eigenvectors are returned. Otherwise, the
-        continuous eigenvectors are returned.
+        continuous eigenvectors are returned (default: True).
 
     Returns
     -------
@@ -872,9 +872,9 @@ def vec_p(mset: nh.ModelSettings,
         "d" => divergent,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
-    use_discrete : bool (default: True)
+    use_discrete : bool, optional
         If True, the discrete eigenvectors are returned. Otherwise, the
-        continuous eigenvectors are returned.
+        continuous eigenvectors are returned (default: True).
 
     Description
     -----------

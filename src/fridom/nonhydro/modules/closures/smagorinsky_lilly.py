@@ -79,17 +79,17 @@ class SmagorinskyLilly(fr.modules.Module):
 
     Parameters
     ----------
-    background_viscosity : float, (default=1.05e-6)
-        The background viscosity for velocity fields.
-    background_diffusivity : float, (default=1.46e-7)
-        The background diffusivity for tracer fields.
-    turbulent_prandtl_number : float, (default=1.0)
-        The turbulent Prandtl number.
-    smagorinsky_constant : float, (default=0.16)
-        The Smagorinsky constant.
-    buoyancy_multiplier : float | None, (default=None)
+    background_viscosity : float, optional
+        The background viscosity for velocity fields (default: 1.05e-6).
+    background_diffusivity : float, optional
+        The background diffusivity for tracer fields (default: 1.46e-7).
+    turbulent_prandtl_number : float, optional
+        The turbulent Prandtl number (default: 1.0).
+    smagorinsky_constant : float, optional
+        The Smagorinsky constant (default: 0.16).
+    buoyancy_multiplier : float | None, optional
         The buoyancy multiplier. If None, the buoyancy multiplier is set to
-        :math:`1 / \text{turbulent_prandtl_number}`.
+        :math:`1 / \text{turbulent_prandtl_number}` (default: None).
 
     """
 

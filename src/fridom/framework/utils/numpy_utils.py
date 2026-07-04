@@ -111,10 +111,11 @@ def to_numpy(
 
     Parameters
     ----------
-    `obj` : `Any`
+    obj : Any
         The object to convert to numpy.
-    `memo` : `dict` (default=None)
-        A dictionary to store the converted objects (used for recursion).
+    memo : dict, optional
+        A dictionary to store the converted objects (used for recursion)
+        (default: None).
 
     Returns
     -------
@@ -153,7 +154,7 @@ def to_seconds(t: float | np.datetime64 | np.timedelta64) -> float:
 
     Parameters
     ----------
-    t : Union[float, np.datetime64, np.timedelta64]
+    t : float | np.datetime64 | np.timedelta64
         The time to convert to seconds.
 
     Returns

@@ -27,9 +27,9 @@ class GridBase:
 
     Flags
     -----
-    `fourier_transform_available` : `bool`
+    fourier_transform_available : bool
         Indicates whether the grid supports fast fourier transforms.
-    `mpi_available` : `bool`
+    mpi_available : bool
         Indicates whether the grid supports MPI parallelization.
     """
 
@@ -82,7 +82,7 @@ class GridBase:
 
         Parameters
         ----------
-        `mset` : `ModelSettingsBase`
+        mset : ModelSettingsBase
             The model settings object. This is for example needed to
             determine the required halo size.
         """
@@ -98,10 +98,11 @@ class GridBase:
 
         Parameters
         ----------
-        `position` : `Position` or `None` (default: `None`)
-            The position of the field.
-        `spectral` : `bool` (default: `False`)
-            Whether to return the meshgrid of the spectral domain.
+        position : Position or None, optional
+            The position of the field (default: None).
+        spectral : bool, optional
+            Whether to return the meshgrid of the spectral domain (default:
+            False).
 
         Returns
         -------
@@ -133,16 +134,16 @@ class GridBase:
 
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The input array.
-        `padding` : `FFTPadding` (default: `FFTPadding.NOPADDING`)
-            The padding to apply to the array.
-        `bc_types` : `tuple[BCType]` or `None` (default: `None`)
-            The boundary conditions to apply to each axis.
-        `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
-            The position of the field.
-        `axes` : `tuple[int]` or `None` (default: `None`)
-            The axes to transform.
+        padding : FFTPadding, optional
+            The padding to apply to the array (default: FFTPadding.NOPADDING).
+        bc_types : tuple[BCType] or None, optional
+            The boundary conditions to apply to each axis (default: None).
+        positions : tuple[AxisPosition] or None, optional
+            The position of the field (default: None).
+        axes : tuple[int] or None, optional
+            The axes to transform (default: None).
 
         Returns
         -------
@@ -164,16 +165,16 @@ class GridBase:
 
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The input array.
-        `padding` : `FFTPadding` (default: `FFTPadding.NOPADDING`)
-            The padding to apply to the array.
-        `bc_types` : `tuple[BCType]` or `None` (default: `None`)
-            The boundary conditions to apply to each axis.
-        `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
-            The position of the field.
-        `axes` : `tuple[int]` or `None` (default: `None`)
-            The axes to transform.
+        padding : FFTPadding, optional
+            The padding to apply to the array (default: FFTPadding.NOPADDING).
+        bc_types : tuple[BCType] or None, optional
+            The boundary conditions to apply to each axis (default: None).
+        positions : tuple[AxisPosition] or None, optional
+            The position of the field (default: None).
+        axes : tuple[int] or None, optional
+            The axes to transform (default: None).
 
         Returns
         -------
@@ -196,10 +197,10 @@ class GridBase:
 
         Parameters
         ----------
-        `k` : `tuple[float] | tuple[ndarray]`
+        k : tuple[float] | tuple[ndarray]
             The wave numbers
-        `use_discrete` : `bool` (default: False)
-            Whether to include space-discretization effects.
+        use_discrete : bool, optional
+            Whether to include space-discretization effects (default: False).
 
         Returns
         -------
@@ -215,10 +216,10 @@ class GridBase:
 
         Parameters
         ----------
-        `s` : `int`
+        s : int
             The mode (which eigenvalue / eigenvector to compute).
-        `use_discrete` : `bool` (default: True)
-            Whether to include space-discretization effects.
+        use_discrete : bool, optional
+            Whether to include space-discretization effects (default: True).
 
         Returns
         -------
@@ -234,10 +235,10 @@ class GridBase:
 
         Parameters
         ----------
-        `s` : `int`
+        s : int
             The mode (which eigenvalue / eigenvector to compute).
-        `use_discrete` : `bool` (default: True)
-            Whether to include space-discretization effects.
+        use_discrete : bool, optional
+            Whether to include space-discretization effects (default: True).
 
         Returns
         -------
@@ -290,7 +291,7 @@ class GridBase:
 
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The array to synchronize.
 
         Returns
@@ -306,7 +307,7 @@ class GridBase:
 
         Parameters
         ----------
-        `arrs` : `list[ndarray]`
+        arrs : list[ndarray]
             The list of arrays to synchronize.
 
         Returns
@@ -322,7 +323,7 @@ class GridBase:
 
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The padded array.
 
         Returns
@@ -338,7 +339,7 @@ class GridBase:
 
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The unpadded array.
 
         Returns
@@ -357,11 +358,11 @@ class GridBase:
 
         Parameters
         ----------
-        `pad` : bool
+        pad : bool
             Whether to add padding to the array.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
+        topo : tuple[bool] | None
             The topology of the array. Axes with false are flat
             (only one grid point)
         """
@@ -379,13 +380,13 @@ class GridBase:
 
         Parameters
         ----------
-        `seed` : int
+        seed : int
             The seed for the random number generator.
-        `pad` : bool
+        pad : bool
             Whether to add padding to the array.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
+        topo : tuple[bool] | None
             The topology of the array. Axes with false are flat
             (only one grid point)
         """
@@ -407,8 +408,9 @@ class GridBase:
         ----------
         field : ScalarField
             The field to sum.
-        axes : tuple[int] or None (default: None)
-            The axes to sum over. If None, all axes are summed over.
+        axes : tuple[int] or None, optional
+            The axes to sum over. If None, all axes are summed over (default:
+            None).
 
         Returns
         -------
@@ -429,8 +431,9 @@ class GridBase:
         ----------
         field : ScalarField
             The field to compute the minimum.
-        axes : tuple[int] or None (default: None)
-            The axes to compute the minimum over. If None, all axes are used.
+        axes : tuple[int] or None, optional
+            The axes to compute the minimum over. If None, all axes are used
+            (default: None).
 
         Returns
         -------
@@ -451,8 +454,9 @@ class GridBase:
         ----------
         field : ScalarField
             The field to compute the maximum.
-        axes : tuple[int] or None (default: None)
-            The axes to compute the maximum over. If None, all axes are used.
+        axes : tuple[int] or None, optional
+            The axes to compute the maximum over. If None, all axes are used
+            (default: None).
 
         Returns
         -------
@@ -473,8 +477,8 @@ class GridBase:
         ----------
         field : ScalarField
             The field to integrate.
-        axes : tuple[int] or None (default: None)
-            The axes to integrate over.
+        axes : tuple[int] or None, optional
+            The axes to integrate over (default: None).
 
         Returns
         -------

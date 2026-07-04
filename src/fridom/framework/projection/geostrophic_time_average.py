@@ -23,19 +23,19 @@ class GeostrophicTimeAverage(fr.projection.Projection):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `n_ave` : `int`
+    n_ave : int
         The number of averages to perform.
-    `equidistant_chunks` : `bool`
+    equidistant_chunks : bool
         Whether to split the averaging periods into equidistant chunks.
         If False, the averaging periods will be equal to the maximum period.
-    `max_period` : `float`
+    max_period : float
         The maximum period of the time averages. If None, the maximum
         period is set to the inertial period.
-    `backward_forward` : `bool`
+    backward_forward : bool
         Whether to use backward-forward averaging.
-    `disable_diagnostic` : `bool`
+    disable_diagnostic : bool
         Whether to disable the diagnostic tendencies during the averaging.
 
     Methods
@@ -86,7 +86,7 @@ class GeostrophicTimeAverage(fr.projection.Projection):
 
         Parameters
         ----------
-        `z` : `State`
+        z : State
             The state to project.
 
         Returns

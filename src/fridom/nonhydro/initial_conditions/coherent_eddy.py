@@ -40,21 +40,21 @@ class CoherentEddy(nh.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `pos_x` : `float`, optional (default=0.5)
-        The relative position of the eddy in the x-direction.
-    `pos_y` : `float`, optional (default=0.5)
-        The relative position of the eddy in the y-direction.
-    `width` : `float`, optional (default=0.1)
+    pos_x : float, optional
+        The relative position of the eddy in the x-direction (default: 0.5).
+    pos_y : float, optional
+        The relative position of the eddy in the y-direction (default: 0.5).
+    width : float, optional
         The relative width of the eddy. (relative to the domain size in the
-        x-direction)
-    `amplitude` : `float`, optional (default=1)
+        x-direction) (default: 0.1).
+    amplitude : float, optional
         The amplitude of the eddy. When the amplitude negative, the eddy
-        rotates clockwise. Otherwise, it rotates counterclockwise.
-    `gauss_field` : `str`, optional (default='vorticity')
+        rotates clockwise. Otherwise, it rotates counterclockwise (default: 1).
+    gauss_field : str, optional
         The field that is prescribed as a gaussian function. It can be either
-        'vorticity' or 'streamfunction'.
+        'vorticity' or 'streamfunction' (default: 'vorticity').
 
     Examples
     --------

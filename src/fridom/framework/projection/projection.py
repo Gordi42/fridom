@@ -17,7 +17,7 @@ class Projection:
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
     """
 
@@ -32,7 +32,7 @@ class Projection:
 
         Parameters
         ----------
-        `z` : `State`
+        z : State
             The state to project.
 
         Returns

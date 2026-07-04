@@ -36,15 +36,15 @@ class BarotropicJet(nh.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `wavenum` : `int`
+    wavenum : int
         The wavenumber of the perturbation.
-    `waveamp` : `float`
+    waveamp : float
         The amplitude of the perturbation.
-    `jet_width` : `float`
+    jet_width : float
         The width of the jet.
-    `geo_proj` : `bool`
+    geo_proj : bool
         Whether to project the initial condition to the geostrophic subspace.
     """
 

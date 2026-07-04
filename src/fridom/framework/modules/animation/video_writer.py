@@ -31,14 +31,17 @@ class VideoWriter(fr.modules.Module):
         The model plotter that will be used to create the figure.
     write_interval : np.timedelta64 | float
         The interval at which the data should be written to the file.
-    filename : str, optional (default="output.mp4")
-        The filename of the video (will be stored in videos/filename).
-    fps : int, optional (default=30)
-        The frames per second of the video.
-    parallel : bool, optional (default=True)
-        If True, the video writer will use parallelism to create the video.
-    max_jobs : float, optional (default=0.4)
-        The maximum fraction of the available threads that will be used.
+    filename : str, optional
+        The filename of the video (will be stored in videos/filename) (default:
+        "output.mp4").
+    fps : int, optional
+        The frames per second of the video (default: 30).
+    parallel : bool, optional
+        If True, the video writer will use parallelism to create the video
+        (default: True).
+    max_jobs : float, optional
+        The maximum fraction of the available threads that will be used
+        (default: 0.4).
 
     """
 

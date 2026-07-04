@@ -191,18 +191,18 @@ def omega(mset: sw.ModelSettings,
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `s` : `int`
+    s : int
         The mode of the eigenvector.
         0  => geostrophic,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
-    `k` : `tuple[float] | tuple[ndarray]`
+    k : tuple[float] | tuple[ndarray]
         The wavenumber tuple :math:`(k_x, k_y)`.
-    `use_discrete` : `bool` (default: True)
+    use_discrete : bool, optional
         If True, the discrete eigenvectors are returned. Otherwise, the
-        continuous eigenvectors are returned.
+        continuous eigenvectors are returned (default: True).
 
     Returns
     -------
@@ -267,16 +267,16 @@ def vec_q(mset: sw.ModelSettings,
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `s` : `int`
+    s : int
         The mode of the eigenvector.
         0  => geostrophic,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
-    `use_discrete` : `bool` (default: True)
+    use_discrete : bool, optional
         If True, the discrete eigenvectors are returned. Otherwise, the
-        continuous eigenvectors are returned.
+        continuous eigenvectors are returned (default: True).
 
     Returns
     -------
@@ -334,16 +334,16 @@ def vec_p(mset: sw.ModelSettings,
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `s` : `int`
+    s : int
         The mode of the eigenvector.
         0  => geostrophic,
         1  => positive inertial-gravity,
         -1 => negative inertial-gravity
-    `use_discrete` : `bool` (default: True)
+    use_discrete : bool, optional
         If True, the discrete eigenvectors are returned. Otherwise, the
-        continuous eigenvectors are returned.
+        continuous eigenvectors are returned (default: True).
 
     Returns
     -------

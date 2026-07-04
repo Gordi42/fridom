@@ -49,19 +49,19 @@ def geostrophic_energy_spectrum(kx: ndarray,
 
     Parameters
     ----------
-    `kx` : `float`
+    kx : float
         The horizontal wavenumber in the x-direction.
-    `ky` : `float`
+    ky : float
         The horizontal wavenumber in the y-direction.
-    `kz` : `float`
+    kz : float
         The vertical wavenumber.
-    `d` : `float`, optional (default=7)
+    d : float, optional
         The power law exponent for large horizontal wavenumbers
-        (:math:`S_h(k) \\sim k^{-d}` for :math:`k \\to \\infty`).
-    `k0` : `float`, optional (default=6)
-        The wavenumber with the maximum energy.
-    `c` : `float`, optional (default=2)
-        The decay rate of the vertical energy spectrum.
+        (:math:`S_h(k) \\sim k^{-d}` for :math:`k \\to \\infty`) (default: 7).
+    k0 : float, optional
+        The wavenumber with the maximum energy (default: 6).
+    c : float, optional
+        The decay rate of the vertical energy spectrum (default: 2).
     """
     ncp = nh.config.ncp
 
@@ -83,11 +83,11 @@ class RandomGeostrophicSpectra(nh.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings (need to be set up).
-    `seed` : `int`
+    seed : int
         Seed for the random number generator (for the phase)
-    `spectral_energy_density` : `callable(kx, ky, kz)`
+    spectral_energy_density : callable(kx, ky, kz)
         Callable that returns the spectral energy density as a function of the
         wavenumbers `kx`, `ky`, and `kz`.
 
