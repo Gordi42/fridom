@@ -55,8 +55,16 @@ def halo(request):
     return request.param
 
 
-@pytest.fixture(params=[(32, 32), (32, 16), (16, 16, 8)],
-                ids=["2d_32x32", "2d_32x16", "3d_16x16x8"])
+@pytest.fixture(params=[
+    pytest.param((64,), id="1d_64"),
+    # odd shapes are not divisible across several devices
+    pytest.param((65,), id="1d_65", marks=pytest.mark.single_device),
+    pytest.param((32, 32), id="2d_32x32"),
+    pytest.param((32, 16), id="2d_32x16"),
+    pytest.param((32, 33), id="2d_32x33", marks=pytest.mark.single_device),
+    pytest.param((16, 16, 8), id="3d_16x16x8"),
+    pytest.param((16, 16, 7), id="3d_16x16x7"),
+])
 def shape(request):
     return request.param
 
@@ -79,14 +87,16 @@ def test_construction(domain, halo, shape):
     assert domain.halo == halo
 
 
-def test_one_dimensional_shape_raises():
-    with pytest.raises(ValueError, match="at least 2 dimensions"):
-        fr.domain_decomposition.JaxDecomposition(shape=(32,), halo=1)
-
-
 def test_too_large_halo_raises():
     with pytest.raises(ValueError, match="smaller than halo"):
         fr.domain_decomposition.JaxDecomposition(shape=(4, 4), halo=8)
+
+
+def test_indivisible_first_axis_raises(monkeypatch):
+    # force a multi-device setup regardless of the actual device count
+    monkeypatch.setattr(jax, "device_count", lambda: 4)
+    with pytest.raises(ValueError, match="divisible by the number"):
+        fr.domain_decomposition.JaxDecomposition(shape=(30, 32), halo=1)
 
 
 # ================================================================
@@ -115,6 +125,33 @@ def test_flat_axis_padding(halo):
 
     u_unpadded = domain.unpad(u_padded, flat_axes)
     assert u_unpadded.shape == u.shape
+
+
+def test_flat_first_axis_padding(halo):
+    # the sharded axis (axis 0) may itself be flat; it is then neither
+    # padded nor halo-exchanged
+    shape = (32, 32)
+    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    u = domain.create_array(pad=False, topo=(False, True))
+
+    flat_axes = [0]
+    u_padded = domain.pad(u, flat_axes)
+    assert u_padded.shape == (1, shape[1] + 2 * halo)
+
+    u_synced = domain.sync(u_padded, flat_axes)
+    assert u_synced.shape == u_padded.shape
+
+    u_unpadded = domain.unpad(u_synced, flat_axes)
+    assert u_unpadded.shape == u.shape
+
+
+def test_create_array_with_flat_first_axis(halo):
+    shape = (32, 32)
+    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    arr = domain.create_array(topo=(False, True))
+
+    assert arr.shape == (1, shape[1] + 2 * halo)
+    assert (np.asarray(arr) == 0).all()
 
 
 # ================================================================
@@ -348,6 +385,51 @@ def test_reductions_exclude_halo_cells(domain, u):
     negative = -(jnp.abs(u) + 1.0)
     assert np.isclose(scalar(domain.max(domain.pad(negative))),
                       -(np.abs(u_np).min() + 1.0))
+
+
+def test_cumsum(domain, u):
+    u_np = np.asarray(u)
+    u_padded = domain.sync(domain.pad(u))
+
+    result = domain.cumsum(u_padded, axis=0)
+    assert result.shape == u_padded.shape
+
+    gathered = domain.gather(result)
+    assert np.allclose(gathered, np.cumsum(u_np, axis=0))
+
+
+def test_inv_cumsum(domain, u):
+    u_np = np.asarray(u)
+    u_padded = domain.sync(domain.pad(u))
+
+    result = domain.inv_cumsum(u_padded, axis=0)
+    assert result.shape == u_padded.shape
+
+    expected = np.flip(np.cumsum(np.flip(u_np, axis=0), axis=0), axis=0)
+    gathered = domain.gather(result)
+    assert np.allclose(gathered, expected)
+
+
+def test_cumsum_along_local_axis(halo):
+    shape = (32, 16)
+    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    u = domain.create_random_array(seed=42, pad=False)
+    u_padded = domain.sync(domain.pad(u))
+
+    result = domain.cumsum(u_padded, axis=1)
+
+    gathered = domain.gather(result)
+    assert np.allclose(gathered, np.cumsum(np.asarray(u), axis=1))
+
+
+def test_sync_multiple(domain, u):
+    v = domain.create_random_array(seed=7, pad=False)
+    synced = domain.sync_multiple([domain.pad(u), domain.pad(v)])
+
+    expected_u = domain.sync(domain.pad(u))
+    expected_v = domain.sync(domain.pad(v))
+    assert (np.asarray(synced[0]) == np.asarray(expected_u)).all()
+    assert (np.asarray(synced[1]) == np.asarray(expected_v)).all()
 
 
 # ================================================================

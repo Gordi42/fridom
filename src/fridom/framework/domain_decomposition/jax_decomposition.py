@@ -1,7 +1,8 @@
 """Domain decomposition based on JAX sharding."""
 from __future__ import annotations
 
-from functools import cached_property, partial
+from copy import deepcopy
+from functools import partial
 from typing import TYPE_CHECKING
 
 import jax
@@ -16,7 +17,6 @@ import fridom.framework as fr
 if TYPE_CHECKING:
     from numpy import ndarray
 
-MINIMUM_NUMBER_OF_DIMS = 2
 
 @fr.utils.jaxify
 class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
@@ -27,7 +27,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                  shape: tuple[int],
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
-                 p_dims: tuple[int] | None = None,  # noqa: ARG002 (interface conformity)
                  shared_axes: tuple[int] | None = None,
                  device_ids: list[int] | None = None) -> None:
         super().__init__(shape, halo, periods, shared_axes, device_ids)
@@ -37,21 +36,13 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         self.n_devices = (
             jax.device_count() if self.n_ranks == 1 else self.n_ranks)
 
-        if len(shape) < MINIMUM_NUMBER_OF_DIMS:
-            msg = f"Must have at least {MINIMUM_NUMBER_OF_DIMS} dimensions."
+        # the first axis is distributed across the devices
+        if shape[0] % self.n_devices != 0:
+            msg = (
+                f"The first dimension of the shape {shape} must be "
+                f"divisible by the number of devices {self.n_devices}.")
             raise ValueError(msg)
 
-
-        self._p_dims = (self.n_devices,)
-        self.mesh = jax.make_mesh(self._p_dims, axis_names=("x",))
-        self._spec_main = P("x", * (len(shape) - 1) * (None,))
-        self._spec_alt = self._permute_spec(0, 1)
-        self._shard_main = NamedSharding(self.mesh, self._spec_main)
-        self._shard_alt = NamedSharding(self.mesh, self._spec_alt)
-
-        # ----------------------------------------------------------------
-        #  Halo exchange slices and paddings
-        # ----------------------------------------------------------------
         local_shape = list(self.shape)
         local_shape[0] //= self.n_devices
         self._local_shape = tuple(local_shape)
@@ -63,17 +54,80 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                     f"{self.halo} in dimension {dim}")
                 raise ValueError(msg)
 
+        self._p_dims = (self.n_devices,) + (1,) * (self.n_dims - 1)
+        self._setup_mesh()
 
+        # ----------------------------------------------------------------
+        #  Halo exchange slices and paddings
+        # ----------------------------------------------------------------
         pw = self.halo
         self._padding = (((pw, pw),) * self.n_dims)
 
         inner = slice(self.halo, -self.halo) if self.halo > 0 else slice(None)
         self._inner_slice = tuple([inner]*self.n_dims)
 
+    def _setup_mesh(self) -> None:
+        """Create the device mesh and the sharding specifications."""
+        self.mesh = jax.make_mesh((self.n_devices,), axis_names=("x",))
+        if self.n_devices == 1:
+            # a single device holds the whole domain: every sharding
+            # is fully replicated, shard maps reduce to plain calls,
+            # and all array operations stay ordinary local operations
+            self._spec_main = P(*(None,) * self.n_dims)
+            self._spec_alt = self._spec_main
+        elif self.n_dims > 1:
+            self._spec_main = P("x", * (self.n_dims - 1) * (None,))
+            # spectral arrays are distributed along the second axis, so
+            # that fourier transforms along the first axis are local
+            self._spec_alt = self._permute_spec(0, 1)
+        else:
+            self._spec_main = P("x")
+            # 1-d domains have no second axis to transpose to; the
+            # alternative sharding replicates the array instead
+            self._spec_alt = P(None)
+        self._shard_main = NamedSharding(self.mesh, self._spec_main)
+        self._shard_alt = NamedSharding(self.mesh, self._spec_alt)
+
     def _permute_spec(self, dim1: int, dim2: int) -> P:
         spec_list = list(self._spec_main)
         spec_list[dim1], spec_list[dim2] = spec_list[dim2], spec_list[dim1]
         return P(*spec_list)
+
+    # ================================================================
+    #  Pickling
+    # ================================================================
+
+    def __getstate__(self) -> dict:
+        """Return the state for pickling.
+
+        Description
+        -----------
+        The device mesh and the shardings hold device handles that
+        cannot be pickled; they are dropped here and rebuilt from the
+        remaining state when unpickling.
+        """
+        state = self.__dict__.copy()
+        for attr in ("mesh", "_spec_main", "_spec_alt",
+                     "_shard_main", "_shard_alt"):
+            state.pop(attr, None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the state and rebuild the device mesh."""
+        self.__dict__.update(state)
+        self._setup_mesh()
+
+    def __to_numpy__(self, memo: dict) -> JaxDecomposition:
+        """Return a host-side copy (see :py:func:`fr.utils.to_numpy`).
+
+        Description
+        -----------
+        The decomposition holds no device arrays, so a deep copy
+        (which rebuilds the device mesh) is sufficient. Without this
+        hook, the generic attribute walk of ``to_numpy`` would try to
+        deep-copy the raw mesh and fail on its device handles.
+        """
+        return deepcopy(self, memo)
 
     # ================================================================
     #  Halo exchange
@@ -87,11 +141,36 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         if self.halo == 0:
             return arr
 
+        flat_axes = flat_axes or []
+
+        # the first axis is distributed across the devices and requires
+        # a halo exchange between neighboring devices
+        if 0 not in flat_axes:
+            arr = self._sync_sharded_axis(arr)
+
+        # all other axes are local to each device
+        for axis in range(1, self.n_dims):
+            if axis in flat_axes:
+                continue
+            if self.periods[axis]:
+                arr = self._sync_periodic_axis(arr, axis)
+            else:
+                arr = self._sync_non_periodic_axis(arr, axis)
+        return arr
+
+    def _sync_sharded_axis(self, arr: ndarray) -> ndarray:
+        if self.n_devices == 1:
+            # a single device is its own neighbor: the halo exchange
+            # reduces to a periodic wrap (or zero boundaries)
+            if self.periods[0]:
+                return self._sync_periodic_axis(arr, 0)
+            return self._sync_non_periodic_axis(arr, 0)
+
         halo = self.halo
         n_devices = self.n_devices
 
         @self.main_shard_map
-        def halo_exchange_across_x(x: ndarray) -> ndarray:
+        def halo_exchange(x: ndarray) -> ndarray:
             left_halo = x[halo : 2 * halo]
             right_halo = x[-(2 * halo) : -halo]
 
@@ -117,32 +196,25 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                 perm=permutations_backward,
             )
 
-            return jax.numpy.concatenate(
+            return jnp.concatenate(
                 [received_left_halo, x[halo:-halo], received_right_halo],
                 axis=0)
 
-        def halo_exchange_axis(x: ndarray, dim: int) -> ndarray:
-            x = jnp.swapaxes(x, 0, dim)
-            spec = self._permute_spec(0, dim)
-            def halo_exchange(x: ndarray) -> ndarray:
-                if not self.periods[dim]:
-                    left = right = jnp.zeros_like(x[:halo])
-                else:
-                    left = x[halo : 2 * halo]
-                    right = x[-(2 * halo) : -halo]
-                return jnp.concatenate([right, x[halo:-halo], left], axis=0)
-            x = shard_map(
-                halo_exchange, mesh=self.mesh,
-                in_specs=spec, out_specs=spec)(x)
-            return jnp.swapaxes(x, 0, dim)
+        return halo_exchange(arr)
 
-        x = halo_exchange_across_x(arr)
-        for dim in range(1, self.n_dims):
-            if dim in (flat_axes or []):
-                continue
-            x = halo_exchange_axis(x, dim)
-        return x
+    def _sync_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
+        halo = self.halo
+        x = jnp.swapaxes(x, 0, axis)
+        x = jnp.concatenate(
+            [ x[-2*halo:-halo], x[halo:-halo], x[halo:2*halo] ], axis=0)
+        return jnp.swapaxes(x, 0, axis)
 
+    def _sync_non_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
+        halo = self.halo
+        x = jnp.swapaxes(x, 0, axis)
+        halo_region = jnp.zeros_like(x[:halo])
+        x = jnp.concatenate([halo_region, x[halo:-halo], halo_region], axis=0)
+        return jnp.swapaxes(x, 0, axis)
 
     # ================================================================
     #  Apply Transform (e.g. FFT)
@@ -150,6 +222,13 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     def parallel_forward_transform(self, func: callable) -> callable:
         """Wrap a forward transform to work on distributed arrays."""
+        if self.n_devices == 1:
+            # the whole domain is local: apply the transform directly
+            def _local_forward_transform(
+                arr: ndarray, axes: list[int] | None = None,
+            ) -> ndarray:
+                return func(self.unpad(arr), axes=axes)
+            return _local_forward_transform
 
         def _my_forward_transform(
             arr: ndarray, axes: list[int] | None = None,
@@ -179,6 +258,13 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     def parallel_backward_transform(self, func: callable) -> callable:
         """Wrap a backward transform to work on distributed arrays."""
+        if self.n_devices == 1:
+            # the whole domain is local: apply the transform directly
+            def _local_backward_transform(
+                arr: ndarray, axes: list[int] | None = None,
+            ) -> ndarray:
+                return self.sync(self.pad(func(arr, axes=axes)))
+            return _local_backward_transform
 
         def _my_backward_transform(
             arr: ndarray, axes: list[int] | None = None,
@@ -211,45 +297,55 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
     #  Padding
     # ================================================================
 
-    @cached_property
-    def pad(self) -> callable:
-        """Return a function that adds halo padding to an array."""
-        def pad(arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
-            if self.halo == 0:
-                return arr
+    def pad(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
+        """Add halo padding to an array."""
+        if self.halo == 0:
+            return arr
 
-            # update the paddings for flat axes
-            paddings = list(self._padding)
-            for axis in flat_axes or []:
-                paddings[axis] = (0, 0)
+        # update the paddings for flat axes
+        paddings = list(self._padding)
+        for axis in flat_axes or []:
+            paddings[axis] = (0, 0)
+        paddings = tuple(paddings)
 
-            @self.main_shard_map
-            def _pad(arr: ndarray) -> ndarray:
-                return jnp.pad(arr, tuple(paddings))
+        if self.n_devices == 1 or 0 in (flat_axes or []):
+            # a single device or a flat first axis carries no
+            # distributed halo: all padding is local
+            return jnp.pad(arr, paddings)
 
-            return _pad(arr)
-        return pad
+        # each device shard carries its own halo region on the
+        # distributed axis
+        @self.main_shard_map
+        def _pad(arr: ndarray) -> ndarray:
+            return jnp.pad(arr, paddings)
 
-    @cached_property
-    def unpad(self) -> callable:
-        """Return a function that removes halo padding from an array."""
-        def unpad(
-            arr: ndarray, flat_axes: list[int] | None = None,
-        ) -> ndarray:
-            if self.halo == 0:
-                return arr
+        return _pad(arr)
 
-            # remove the paddings for flat axes
-            ics = list(self._inner_slice)
-            for axis in flat_axes or []:
-                ics[axis] = slice(None)
+    def unpad(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
+        """Remove halo padding from an array."""
+        if self.halo == 0:
+            return arr
 
-            @self.main_shard_map
-            def _unpad(arr: ndarray) -> ndarray:
-                return arr[tuple(ics)]
+        # remove the paddings for flat axes
+        ics = list(self._inner_slice)
+        for axis in flat_axes or []:
+            ics[axis] = slice(None)
+        ics = tuple(ics)
 
-            return _unpad(arr)
-        return unpad
+        if self.n_devices == 1 or 0 in (flat_axes or []):
+            # a single device or a flat first axis carries no
+            # distributed halo: all slicing is local
+            return arr[ics]
+
+        @self.main_shard_map
+        def _unpad(arr: ndarray) -> ndarray:
+            return arr[ics]
+
+        return _unpad(arr)
 
     # ================================================================
     #  Gather
@@ -296,11 +392,16 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         sharding = self._get_sharding(spectral, topo)
         shape, flat_axes = self._get_array_attrs(topo)
 
-        @partial(jax.jit, out_shardings=sharding)
-        def create_zeros() -> ndarray:
-            return jax.numpy.zeros(shape, dtype=dtype)
-        arr = create_zeros()
-        arr = jax.reshard(arr, sharding)
+        if self.n_devices == 1:
+            # create the array directly (jitted creation would
+            # retrace on every call)
+            arr = jnp.zeros(shape, dtype=dtype)
+        else:
+            @partial(jax.jit, out_shardings=sharding)
+            def create_zeros() -> ndarray:
+                return jnp.zeros(shape, dtype=dtype)
+            arr = create_zeros()
+            arr = jax.reshard(arr, sharding)
 
         if pad and not spectral:
             arr = self.pad(arr, flat_axes)
@@ -318,15 +419,20 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         sharding = self._get_sharding(spectral, topo)
         shape, flat_axes = self._get_array_attrs(topo)
 
-        @partial(jax.jit, out_shardings=sharding)
-        def create_random_array() -> ndarray:
+        def _random_array() -> ndarray:
             real = jax.random.normal(jax.random.PRNGKey(seed), shape)
             if not spectral:
                 return real.astype(dtype)
             imag = jax.random.normal(jax.random.PRNGKey(2*seed+3), shape)
-            return jax.numpy.array(real + 1j*imag, dtype=dtype)
-        arr = create_random_array()
-        arr = jax.reshard(arr, sharding)
+            return jnp.array(real + 1j*imag, dtype=dtype)
+
+        if self.n_devices == 1:
+            # create the array directly (jitted creation would
+            # retrace on every call)
+            arr = _random_array()
+        else:
+            arr = jax.jit(_random_array, out_shardings=sharding)()
+            arr = jax.reshard(arr, sharding)
 
         if pad and not spectral:
             arr = self.pad(arr, flat_axes)
@@ -340,16 +446,23 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
                         spectral: bool = False) -> tuple[ndarray]:
         """Create a sharded meshgrid of arrays."""
         sharding = self._get_sharding(spectral, None)
-        shardings = [sharding]*len(args)
-        @partial(jax.jit, out_shardings=shardings)
-        def create_meshgrid() -> list[ndarray]:
-            return jax.numpy.meshgrid(*args, indexing="ij")
-        arrs = create_meshgrid()
-        arrs = [jax.reshard(arr, sharding) for arr in arrs]
+        if self.n_devices == 1:
+            # create the meshgrid directly (jitted creation would
+            # retrace on every call)
+            arrs = jnp.meshgrid(*args, indexing="ij")
+        else:
+            shardings = [sharding]*len(args)
+            @partial(jax.jit, out_shardings=shardings)
+            def create_meshgrid() -> list[ndarray]:
+                return jnp.meshgrid(*args, indexing="ij")
+            arrs = create_meshgrid()
+            arrs = [jax.reshard(arr, sharding) for arr in arrs]
 
         if pad and not spectral:
-            return tuple(self.pad(arr) for arr in arrs)
-        return arrs
+            # synchronize so that periodic halo regions carry the
+            # wrapped coordinate values instead of zeros
+            return tuple(self.sync(self.pad(arr)) for arr in arrs)
+        return tuple(arrs)
 
 
     # ================================================================
@@ -363,7 +476,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         """Sum an array across specified axes."""
         # the halo cells must not contribute to the sum
         arr = self.unpad(arr)
-        return jax.numpy.sum(arr, axis=axes, keepdims=True)
+        return jnp.sum(arr, axis=axes, keepdims=True)
 
     def max(self,
             arr: ndarray,
@@ -372,7 +485,7 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         """Find the maximum of an array across specified axes."""
         # the halo cells must not contribute to the maximum
         arr = self.unpad(arr)
-        return jax.numpy.max(arr, axis=axes, keepdims=True)
+        return jnp.max(arr, axis=axes, keepdims=True)
 
     def min(self,
             arr: ndarray,
@@ -381,8 +494,39 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
         """Find the minimum of an array across specified axes."""
         # the halo cells must not contribute to the minimum
         arr = self.unpad(arr)
-        return jax.numpy.min(arr, axis=axes, keepdims=True)
+        return jnp.min(arr, axis=axes, keepdims=True)
 
+    def _cumsum_along_axis(self, arr: ndarray, axis: int) -> ndarray:
+        """Cumulative sum of an unpadded array along an axis."""
+        if axis > 0:
+            # the axis is local to each device
+            return jnp.cumsum(arr, axis=axis)
+        # a cumulative sum along the distributed axis is computed under
+        # the alternative sharding, where the first axis is local
+        arr = self.to_alterative_sharding(arr)
+        cumsum = jnp.cumsum(arr, axis=axis)
+        return self.to_main_sharding(cumsum)
+
+    def cumsum(self,  # noqa: D102
+               arr: ndarray,
+               axis: int,
+               ) -> ndarray:
+        arr = self.unpad(arr)
+        cumsum = self._cumsum_along_axis(arr, axis)
+        return self.sync(self.pad(cumsum))
+
+    def inv_cumsum(self,  # noqa: D102
+                   arr: ndarray,
+                   axis: int,
+                   ) -> ndarray:
+        arr = self.unpad(arr)
+        # reverse the array in the given axis
+        arr = jnp.flip(arr, axis=axis)
+        # calculate the cumsum
+        cumsum = self._cumsum_along_axis(arr, axis)
+        # reverse the array back
+        cumsum = jnp.flip(cumsum, axis=axis)
+        return self.sync(self.pad(cumsum))
 
     # ================================================================
     #  Helper functions
@@ -403,19 +547,35 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             shard = NamedSharding(self.mesh, P(*new_specs))
         return shard
 
+    def _shard_map_with(self, func: callable,
+                        sharding: NamedSharding) -> callable:
+        """Apply a shard map with the given sharding to a function."""
+        if self.n_devices == 1:
+            # a single shard covers the whole domain: the mapped
+            # function can be applied directly (eager shard maps
+            # carry a large dispatch overhead)
+            return func
+
+        mapped = shard_map(func,
+                           mesh=self.mesh,
+                           in_specs=sharding.spec,
+                           out_specs=sharding.spec)
+
+        def wrapper(*args: ndarray) -> ndarray:
+            # shard_map does not reshard its inputs, so arrays that
+            # carry a different sharding (e.g. plain arrays assigned
+            # directly to a field) are moved to the target sharding
+            args = tuple(jax.device_put(arg, sharding) for arg in args)
+            return mapped(*args)
+        return wrapper
+
     def main_shard_map(self, func: callable) -> callable:
         """Apply a shard map with the main sharding to a function."""
-        return shard_map(func,
-                         mesh=self.mesh,
-                         in_specs=self._spec_main,
-                         out_specs=self._spec_main)
+        return self._shard_map_with(func, self._shard_main)
 
     def alt_shard_map(self, func: callable) -> callable:
         """Apply a shard map with the alternative sharding to a function."""
-        return shard_map(func,
-                         mesh=self.mesh,
-                         in_specs=self._spec_alt,
-                         out_specs=self._spec_alt)
+        return self._shard_map_with(func, self._shard_alt)
 
     def shard_map(self, func: callable) -> callable:
         """Decorate a function to apply it to the active processes only."""
