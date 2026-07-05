@@ -10,7 +10,6 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
-from fridom.framework.grid.fft_padding import FFTPadding
 
 if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
@@ -80,16 +79,13 @@ class ScalarField(fr.FieldBase):
     #  General methods
     # ================================================================
 
-    def fft(self,  # noqa: D102
-            padding: FFTPadding = FFTPadding.NOPADDING,
-            ) -> ScalarField:
+    def fft(self) -> ScalarField:  # noqa: D102
         self._fft_possible()
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
 
         transformed_arr = self.grid.fft(
             arr=self.arr,
-            padding=padding,
             bc_types=self.bc_types,
             positions=self.position.positions)
 
@@ -101,16 +97,13 @@ class ScalarField(fr.FieldBase):
                            mdata=deepcopy(self.mdata),
                            is_spectral=True)
 
-    def ifft(self,  # noqa: D102
-             padding: FFTPadding = FFTPadding.NOPADDING,
-             ) -> ScalarField:
+    def ifft(self) -> ScalarField:  # noqa: D102
         self._ifft_possible()
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
 
         transformed_arr = self.grid.ifft(
             arr=self.arr,
-            padding=padding,
             bc_types=self.bc_types,
             positions=self.position.positions)
 

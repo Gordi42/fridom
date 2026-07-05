@@ -10,7 +10,6 @@ import jax
 import numpy as np
 
 import fridom.framework as fr
-from fridom.framework.grid.fft_padding import FFTPadding
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -168,17 +167,11 @@ class VectorField(fr.FieldBase):
     #  General Methods
     # ================================================================
 
-    def fft(self,  # noqa: D102
-            padding: FFTPadding = FFTPadding.NOPADDING,
-            ) -> Self:
-        return self.apply_elementwise(self,
-                                      lambda field: field.fft(padding=padding))
+    def fft(self) -> Self:  # noqa: D102
+        return self.apply_elementwise(self, lambda field: field.fft())
 
-    def ifft(self,  # noqa: D102
-             padding: FFTPadding = FFTPadding.NOPADDING,
-             ) -> Self:
-        return self.apply_elementwise(
-            self, lambda field: field.ifft(padding=padding))
+    def ifft(self) -> Self:  # noqa: D102
+        return self.apply_elementwise(self, lambda field: field.ifft())
 
     def project(self,
                 p_vec: Self,

@@ -109,8 +109,12 @@ def test_setup_without_fourier_transform():
     assert grid.k_mesh is None
     assert grid.k_global is None
 
+def test_extend_topo():
+    grid = fr.grid.cartesian.Grid(shape=(8, 8), domain_size=(1.0, 1.0))
+    assert grid._extend_topo((False, True), (0,)) == (True, True)
+
 # --------------------------------------------------------------
-#  Fourier transform paddings
+#  Reductions
 # --------------------------------------------------------------
 
 @pytest.fixture
@@ -122,32 +126,6 @@ def wave_field():
     x, _y = grid.x_mesh
     f.arr = jnp.sin(2 * jnp.pi * 2 * x)
     return f.sync()
-
-def test_fft_trim_padding_roundtrip(wave_field):
-    f_hat = wave_field.fft(padding=fr.grid.FFTPadding.TRIM)
-    f_back = f_hat.ifft(padding=fr.grid.FFTPadding.TRIM)
-    assert jnp.abs(f_back.arr - wave_field.arr).max() < 1e-12
-
-def test_fft_extend_padding(wave_field):
-    # the extend padding evaluates the inverse transform on a grid
-    # extended by a factor 3/2 (for dealiased products); the amplitude
-    # scales with (2/3)^ndims because the transforms are unnormalized
-    f_hat = wave_field.fft(padding=fr.grid.FFTPadding.EXTEND)
-    f_back = f_hat.ifft(padding=fr.grid.FFTPadding.EXTEND)
-
-    assert f_back.arr.shape[0] > wave_field.arr.shape[0]
-    expected_amplitude = (2.0 / 3.0) ** 2
-    # the maximum sampled value is slightly below the amplitude
-    assert jnp.abs(f_back.arr).max() == pytest.approx(
-        expected_amplitude, rel=1e-2)
-
-def test_extend_topo():
-    grid = fr.grid.cartesian.Grid(shape=(8, 8), domain_size=(1.0, 1.0))
-    assert grid._extend_topo((False, True), (0,)) == (True, True)
-
-# --------------------------------------------------------------
-#  Reductions
-# --------------------------------------------------------------
 
 def test_max_and_min(wave_field):
     grid = wave_field.mset.grid

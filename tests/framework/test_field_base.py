@@ -17,14 +17,12 @@ class Field(fr.FieldBase):
         self.value = value
         self._is_spectral = is_spectral
 
-    def fft(self, padding=None):
+    def fft(self):
         super()._fft_possible()
-        _ = padding
         return Field(self.mset, self.value, is_spectral=True)
 
-    def ifft(self, padding=None):
+    def ifft(self):
         super()._ifft_possible()
-        _ = padding
         return Field(self.mset, self.value, is_spectral=False)
 
     @property

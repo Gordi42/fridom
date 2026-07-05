@@ -251,25 +251,6 @@ class JaxDecomposition(fr.domain_decomposition.DomainDecomposition):
             return _unpad(arr)
         return unpad
 
-    # ----------------------------------------------------------------
-    #  Spectral paddings
-    # ----------------------------------------------------------------
-
-    def pad_extend(self, arr: ndarray) -> ndarray:
-        """Extend the array with zeros (not supported)."""
-        msg = "Spectral padding not supported in JaxDecomposition."
-        raise NotImplementedError(msg)
-
-    def unpad_extend(self, arr: ndarray) -> ndarray:
-        """Remove the extension of the array (not supported)."""
-        msg = "Spectral padding not supported in JaxDecomposition."
-        raise NotImplementedError(msg)
-
-    def pad_trim(self, arr: ndarray) -> ndarray:
-        """Set the padded region to zero (not supported)."""
-        msg = "Spectral padding not supported in JaxDecomposition."
-        raise NotImplementedError(msg)
-
     # ================================================================
     #  Gather
     # ================================================================

@@ -231,7 +231,6 @@ class Grid(fr.grid.GridBase):
     # ================================================================
     def fft(self,
             arr: np.ndarray,
-            padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
             bc_types: tuple[fr.grid.BCType] | None = None,
             positions: tuple[fr.grid.AxisPosition] | None = None,
             axes: tuple[int] | None = None,
@@ -241,34 +240,19 @@ class Grid(fr.grid.GridBase):
         def f(x: np.ndarray, axes: tuple[int] | None) -> np.ndarray:
             return self._fft.forward(x, axes, bc_types, positions)
         forward = self._domain_decomp.parallel_forward_transform(f)
-        u_hat = forward(arr, axes)
-
-        # Apply padding if necessary
-        if padding == fr.grid.FFTPadding.EXTEND:
-            u_hat = self.domain_decomp.unpad_extend(u_hat)
-        return u_hat
+        return forward(arr, axes)
 
     def ifft(self,
              arr: np.ndarray,
-             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
              ) -> np.ndarray:
         """Transform an array from spectral to physical space."""
-        # Apply padding if necessary
-        match padding:
-            case fr.grid.FFTPadding.NOPADDING:
-                u = arr
-            case fr.grid.FFTPadding.TRIM:
-                u = self.domain_decomp.pad_trim(arr)
-            case fr.grid.FFTPadding.EXTEND:
-                u = self.domain_decomp.pad_extend(arr)
-
         def f(x: np.ndarray, axes: tuple[int] | None) -> np.ndarray:
             return self._fft.backward(x, axes, bc_types, positions)
         backward = self._domain_decomp.parallel_backward_transform(f)
-        return backward(u, axes)
+        return backward(arr, axes)
 
     # ================================================================
     #  Shrinking and Expanding

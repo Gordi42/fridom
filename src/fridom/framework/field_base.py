@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Literal, Self, TypeVar
 
 import numpy as np
 
-from fridom.framework.grid.fft_padding import FFTPadding
-
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
@@ -46,22 +44,13 @@ class FieldBase:
     # ================================================================
 
     @abstractmethod
-    def fft(self: T,
-            padding: FFTPadding = FFTPadding.NOPADDING,
-            ) -> T:
+    def fft(self: T) -> T:
         r"""
         Perform a Fast Fourier Transform (FFT) on the field.
 
         Description
         -----------
-        Computes the Fast Fourier Transform (FFT) of the field. The
-        padding parameter can be used to specify the zero-padding
-        strategy.
-
-        Parameters
-        ----------
-        padding : fr.grid.FFTPadding
-            The padding strategy.
+        Computes the Fast Fourier Transform (FFT) of the field.
 
         Returns
         -------
@@ -71,22 +60,13 @@ class FieldBase:
         """
 
     @abstractmethod
-    def ifft(self: T,
-             padding: FFTPadding = FFTPadding.NOPADDING,
-             ) -> T:
+    def ifft(self: T) -> T:
         r"""
         Perform an Inverse Fast Fourier Transform (IFFT) on the field.
 
         Description
         -----------
         Computes the Inverse Fast Fourier Transform (IFFT) of the field.
-        The padding parameter can be used to specify the zero-padding
-        strategy.
-
-        Parameters
-        ----------
-        padding : fr.grid.FFTPadding
-            The padding strategy.
 
         Returns
         -------

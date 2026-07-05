@@ -171,50 +171,6 @@ class DomainDecomposition:
             The array to unpad.
         """
 
-    # ----------------------------------------------------------------
-    #  Spectral paddings
-    # ----------------------------------------------------------------
-
-    def pad_extend(self, arr: ndarray) -> ndarray:
-        """
-        Extend the array with zeros (for spectral padding).
-
-        Parameters
-        ----------
-        arr : ndarray
-            The array to pad.
-
-        Returns
-        -------
-        ndarray
-            The padded array.
-        """
-
-    def unpad_extend(self, arr: ndarray) -> ndarray:
-        """
-        Remove the extension of the array (for spectral padding).
-
-        Parameters
-        ----------
-        arr : ndarray
-            The array to unpad.
-
-        Returns
-        -------
-        ndarray
-            The unpadded array.
-        """
-
-    def pad_trim(self, arr: ndarray) -> ndarray:
-        """
-        Set the padded region to zero (for spectral padding).
-
-        Parameters
-        ----------
-        arr : ndarray
-            The array to pad.
-        """
-
     # ================================================================
     #  Gather
     # ================================================================

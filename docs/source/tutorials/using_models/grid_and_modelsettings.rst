@@ -7,7 +7,7 @@ The Grid
 
 Configuring the grid is typically the first step when creating a model setup. The grid defines the geometry of the domain, including the number of grid points, domain lengths in each direction, and how the domain is distributed across processes. Additionally, the grid includes fundamental operators for tasks like computing derivatives and interpolations.
 
-Depending on the model, different grids are available. These grids are generally described in the model documentation. Currently, there are two grid types available: a Cartesian grid, which uses finite differences to compute derivatives, and a spectral grid, which operates in the spectral space. In the future, we plan to add more grid types, such as a rectilinear grid with variable spacing in different dimensions and a spherical grid for simulations on the Earth's surface.
+Depending on the model, different grids are available. These grids are generally described in the model documentation. Currently, one grid type is available: a Cartesian grid, which uses finite differences to compute derivatives. In the future, we plan to add more grid types, such as a rectilinear grid with variable spacing in different dimensions and a spherical grid for simulations on the Earth's surface.
 
 The following code snippets demonstrate how to create a Cartesian grid:
 

@@ -117,12 +117,6 @@ def test_flat_axis_padding(halo):
     assert u_unpadded.shape == u.shape
 
 
-def test_spectral_paddings_are_not_supported(domain, u):
-    for method in (domain.pad_extend, domain.unpad_extend, domain.pad_trim):
-        with pytest.raises(NotImplementedError, match="not supported"):
-            method(u)
-
-
 # ================================================================
 #  Halo exchange
 # ================================================================

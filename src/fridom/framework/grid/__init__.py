@@ -14,7 +14,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from .biased_interpolation import BiasedInterpolationModule
     from .boundary_type import BCType
     from .diff_module import DiffModule
-    from .fft_padding import FFTPadding
     from .grid_base import GridBase
     from .interpolation_module import InterpolationModule
     from .position import AxisPosition, Position
@@ -33,7 +32,6 @@ all_imports_by_origin = {
     f"{base}.biased_interpolation": ["BiasedInterpolationModule"],
     f"{base}.boundary_type": ["BCType"],
     f"{base}.diff_module": ["DiffModule"],
-    f"{base}.fft_padding": ["FFTPadding"],
     f"{base}.grid_base": ["GridBase"],
     f"{base}.interpolation_module": ["InterpolationModule"],
     f"{base}.position": ["AxisPosition", "Position"],

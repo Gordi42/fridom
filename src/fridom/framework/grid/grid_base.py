@@ -123,7 +123,6 @@ class GridBase:
     @abstractmethod
     def fft(self,
              arr: ndarray,
-             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
@@ -135,8 +134,6 @@ class GridBase:
         ----------
         arr : ndarray
             The input array.
-        padding : FFTPadding, optional
-            The padding to apply to the array (default: FFTPadding.NOPADDING).
         bc_types : tuple[BCType] | None, optional
             The boundary conditions to apply to each axis (default: None).
         positions : tuple[AxisPosition] | None, optional
@@ -154,7 +151,6 @@ class GridBase:
     @abstractmethod
     def ifft(self,
              arr: ndarray,
-             padding: fr.grid.FFTPadding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
@@ -166,8 +162,6 @@ class GridBase:
         ----------
         arr : ndarray
             The input array.
-        padding : FFTPadding, optional
-            The padding to apply to the array (default: FFTPadding.NOPADDING).
         bc_types : tuple[BCType] | None, optional
             The boundary conditions to apply to each axis (default: None).
         positions : tuple[AxisPosition] | None, optional

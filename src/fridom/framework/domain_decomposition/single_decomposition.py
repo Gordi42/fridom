@@ -16,7 +16,7 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
 
     """Domain decomposition where a single process holds the full domain."""
 
-    def __init__(self, shape: tuple[int],  # noqa: PLR0915
+    def __init__(self, shape: tuple[int],
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
                  shared_axes: tuple[int] | None = None,
@@ -54,58 +54,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
                                for i in range(self.n_dims))
                          for j in range(self.n_dims))
         self._paddings = paddings
-
-        # ----------------------------------------------------------------
-        #  Extend slices and paddings
-        # ----------------------------------------------------------------
-
-        # paddings for spectral extend
-        # first the outer padding of trim option
-        trim_zero_slice = []
-        for i in range(self.n_dims):
-            slices = [slice(None)] * self.n_dims
-            if self.periods[i]:
-                new_kmax = int(2/3 * int(self.shape[i]/2))
-                slices[i] = slice(new_kmax+1, -new_kmax)
-            else:
-                new_kmax = int(2/3 * (self.shape[i]-1))
-                slices[i] = slice(new_kmax+1, None)
-            trim_zero_slice.append(tuple(slices))
-
-        # extend option
-        extend_first_halfs = []
-        extend_second_halfs = []
-        extend_paddings = []
-        extend_unpad_slices = []
-        extend_factor = 1
-        for i in range(self.n_dims):
-            first_half = [slice(None)] * self.n_dims
-            first_half[i] = slice(0, int((self.shape[i]+1)/2))
-            extend_first_halfs.append(tuple(first_half))
-
-            second_half = [slice(None)] * self.n_dims
-            second_half[i] = slice(-int(self.shape[i]/2), None)
-            extend_second_halfs.append(tuple(second_half))
-
-            paddings = [(0,0)] * self.n_dims
-            paddings[i] = (0, int((self.shape[i]+1)/2))
-            extend_paddings.append(tuple(paddings))
-
-            extend_factor *= (int((self.shape[i]+1)/2) / self.shape[i] + 1.0)
-
-            sl = [slice(None)] * self.n_dims
-            sl[i] = slice(0, self.shape[i])
-            extend_unpad_slices.append(tuple(sl))
-
-        self._pad_trim_zero_slice: tuple[slice] = tuple(trim_zero_slice)
-        self._extend_first_halfs: tuple[tuple[slice]] = tuple(
-            extend_first_halfs)
-        self._extend_second_halfs: tuple[tuple[slice]] = tuple(
-            extend_second_halfs)
-        self._extend_pad: tuple[tuple[int]] = tuple(extend_paddings)
-        self._extend_unpad_slices: tuple[tuple[slice]] = tuple(
-            extend_unpad_slices)
-        self._extend_factor = extend_factor
 
     # ================================================================
     #  Halo exchange
@@ -176,56 +124,6 @@ class SingleDecomposition(fr.domain_decomposition.DomainDecomposition):
         for axis in flat_axes or []:
             ics[axis] = slice(None)
         return arr[tuple(ics)]
-
-    # ----------------------------------------------------------------
-    #  Spectral paddings
-    # ----------------------------------------------------------------
-
-    def _pad_extend_axis(self,
-                         arr: ndarray,
-                         axis: int,
-                         ) -> ndarray:
-        if self.periods[axis]:
-            first_part = arr[self._extend_first_halfs[axis]]
-            second_part = arr[self._extend_second_halfs[axis]]
-            first_part = jnp.pad(
-                first_part, self._extend_pad[axis], mode="constant")
-            arr = jnp.concatenate((first_part, second_part), axis=axis)
-        else:
-            arr = jnp.pad(arr, self._extend_pad[axis], mode="constant")
-        return arr
-
-    def _unpad_extend_axis(self,
-                           arr: ndarray,
-                           axis: int,
-                           ) -> ndarray:
-        if self.periods[axis]:
-            arr = jnp.concatenate(
-                (arr[self._extend_first_halfs[axis]],
-                 arr[self._extend_second_halfs[axis]]), axis=axis)
-        else:
-            arr = arr[self._extend_unpad_slices[axis]]
-        return arr
-
-    def pad_extend(self, arr: ndarray) -> ndarray:
-        """Extend the array with zeros (for spectral padding)."""
-        for axis in range(self.n_dims):
-            arr = self._pad_extend_axis(arr, axis)
-        return arr * self._extend_factor
-
-    def unpad_extend(self, arr: ndarray) -> ndarray:
-        """Remove the extension of the array (for spectral padding)."""
-        for axis in range(self.n_dims):
-            arr = self._unpad_extend_axis(arr, axis)
-        return arr / self._extend_factor
-
-    def pad_trim(self, arr: ndarray) -> ndarray:
-        """Set the padded region to zero (for spectral padding)."""
-        for axis in range(self.n_dims):
-            arr = fr.utils.modify_array(
-                arr, self._pad_trim_zero_slice[axis], 0)
-        return arr
-
 
     # ================================================================
     #  Gather

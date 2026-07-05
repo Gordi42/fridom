@@ -200,19 +200,19 @@ whenever the docstring contains LaTeX. Every module needs a (usually one-line)
 module docstring.
 
 ```python
-def fft(self, padding: FFTPadding = FFTPadding.NOPADDING) -> fr.FieldBase:
+def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
     r"""
     Perform a Fast Fourier Transform (FFT) on the field.
 
     Description
     -----------
-    Computes the FFT of the field. The padding parameter controls the
-    zero-padding strategy.
+    Computes the FFT of the field. The axes parameter selects the
+    axes to transform.
 
     Parameters
     ----------
-    padding : fr.grid.FFTPadding, optional
-        The zero-padding strategy (default: FFTPadding.NOPADDING).
+    axes : tuple[int] | None, optional
+        The axes to transform; None transforms all axes (default: None).
 
     Returns
     -------
