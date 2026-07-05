@@ -6,7 +6,9 @@ import jax.numpy as jnp
 import fridom.framework as fr
 from fridom.benchmarking import benchmark_case
 
-SIZES = [256, 1024]
+# 4096 provides a compute-bound regime on gpu, where the smaller
+# sizes are dominated by per-call and kernel-launch overhead
+SIZES = [256, 1024, 4096]
 
 
 def _make_field(n: int) -> fr.ScalarField:

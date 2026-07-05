@@ -10,7 +10,7 @@ SIZES = [256, 512]
 # warmup=4: the Adams-Bashforth stepper ramps its order over the
 # first steps, each triggering a fresh jit compilation
 @benchmark_case(
-    params={"n": SIZES}, reps=5, warmup=4, measure_compile=False)
+    params={"n": SIZES}, reps=20, warmup=4, measure_compile=False)
 def bench_shallowwater_step(n):
     """One full time step of the shallow water model."""
     grid = sw.grid.cartesian.Grid(shape=(n, n), domain_size=(1.0, 1.0))

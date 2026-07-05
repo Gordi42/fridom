@@ -1,6 +1,7 @@
 """Macro benchmarks for the nonhydrostatic model."""
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
@@ -8,6 +9,9 @@ import fridom.nonhydro as nh
 from fridom.benchmarking import benchmark_case
 
 SIZES = [32, 64, 128]
+# the largest size is too expensive for cpu runs (and the ci smoke job)
+if jax.default_backend() == "gpu":
+    SIZES += [256]
 
 
 def _make_model(n: int, advection: bool) -> nh.Model:
@@ -38,7 +42,7 @@ def _make_model(n: int, advection: bool) -> nh.Model:
 # warmup=4: the Adams-Bashforth stepper ramps its order over the
 # first steps, each triggering a fresh jit compilation
 @benchmark_case(
-    params={"n": SIZES}, reps=5, warmup=4, measure_compile=False)
+    params={"n": SIZES}, reps=20, warmup=4, measure_compile=False)
 def bench_nonhydro_step(n):
     """One full time step (advection, pressure solve, diagnostics)."""
     model = _make_model(n, advection=True)
@@ -51,7 +55,7 @@ def bench_nonhydro_step(n):
 
 
 @benchmark_case(
-    params={"n": SIZES}, reps=5, warmup=4, measure_compile=False)
+    params={"n": SIZES}, reps=20, warmup=4, measure_compile=False)
 def bench_nonhydro_linear_step(n):
     """One time step of the linearized model (advection disabled)."""
     model = _make_model(n, advection=False)
