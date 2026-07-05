@@ -56,7 +56,7 @@ same phase.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 2.1 | **Design doc: model composition** | How `Model` replaces `ModelSettingsBase` as the composition root; setup order and halo negotiation without mset; the shape of the "full model pytree"; module lifecycle; the `update` signature (likely `update(mz)` where `mz` reaches modules and grid). |
+| 2.1 | **Design doc: model composition** | How `Model` replaces `ModelSettingsBase` as the composition root; setup order and halo negotiation without mset; the shape of the "full model pytree"; module lifecycle; the `update` signature (likely `update(mz)` where `mz` reaches modules and grid); how tendency terms declare their time-integration treatment (explicit / implicit), so that split time stepping (3.6) is not precluded. |
 | 2.2 | **Module field registration** | `Module` API to declare `FieldMetadata` it contributes to the state vector (replaces `mset.custom_state_fields`). State vectors are built from grid defaults plus module registrations. |
 | 2.3 | **Modules can modify anything** | Put modules and grid into the traced state so `update` can change module parameters, grid parameters, and other modules. Also removes the forced-re-setup property spaghetti (`halo`/`tendencies` setters triggering global re-setup). |
 | 2.4 | **Parameters move into modules** | `FPlaneCoriolis` / `BetaPlaneCoriolis` (own `f0`, `beta`), `ConstantStratification` (owns `n2`), shallowwater `csqr` module, Rossby-number scaling module. Migrate nonhydro and shallowwater. |
@@ -81,6 +81,7 @@ Depends on Phase 2 (module purity + full model pytree).
 | 3.3 | **Rework diagnostics/IO modules** | TensorStore writer (from 1.4), progress bar, NaN checker, restart module — adapted to the chosen strategy from 3.1. |
 | 3.4 | **Scan-based main loop** | Replace the Python loops in `model.py` (`_main_loop_steps` / `_main_loop_time`); remove the per-step jitted helpers in `adam_bashforth.py` / `runge_kutta.py`; time steppers become pure scan-body components. |
 | 3.5 | **Simplify jit machinery** | With a single jit entry point, the structural-equality / memoization layer in `utils/jax_utils.py` (a known complexity hotspot) can likely shrink substantially. |
+| 3.6 | **Split (IMEX) time stepping** | Some solvers split the time integration: explicit for some terms (e.g. advection), implicit for others (e.g. vertical diffusion, fast linear waves). Not possible today: the stepper integrates the single summed tendency with one scheme. Tendency registration (2.2) gains a treatment declaration; implicit-capable modules expose their term not only as a tendency but as an implicit solve `z* = (1 - dt*gamma*L)^-1 rhs` (tridiagonal solves for vertical mixing, spectral solves for linear operators). New IMEX steppers — multistep (CNAB/SBDF) and IMEX-RK via paired Butcher tableaus — partition the registered terms into an explicit and an implicit group; built directly on the scan-based stepper form from 3.4. The pressure projection is a special case of splitting and should fit the same stage abstraction. Split-explicit subcycling (fast free-surface mode) is deferred to 5.1. |
 
 ## Phase 4 — Grid abstraction rewrite (function spaces)
 
@@ -120,7 +121,7 @@ parallel with Phases 2–3; implementation lands after Phase 3.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 5.1 | **Hydrostatic model** | Currently a stub (empty `MainTendency`, `NotImplementedError` eigenvectors). Implement linear tendency, hydrostatic pressure solver, advection wiring, and eigenvectors — built once, directly on the Phase 2 architecture. |
+| 5.1 | **Hydrostatic model** | Currently a stub (empty `MainTendency`, `NotImplementedError` eigenvectors). Implement linear tendency, hydrostatic pressure solver, advection wiring, and eigenvectors — built once, directly on the Phase 2 architecture. Implicit vertical mixing (and optionally a split-explicit free surface) build on 3.6. |
 | 5.2 | **Coupled models — design** | `jax.distributed`, exchanging fields between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. Interacts with Phase 3 (exchange points inside/between scans). |
 | 5.3 | **Coupled models — implementation** | Milestone 1: same-process, multi-device coupling. Milestone 2: multi-host. |
 
@@ -135,6 +136,7 @@ parallel with Phases 2–3; implementation lands after Phase 3.
 1.x field ergonomics ────────► (independent; 1.2 revisited by 4.3)
 1.4 tensorstore writer ──────► 3.3 (adapt IO to scan)
 2.1 design ► 2.2 ► 2.3 ► 2.4 ► 2.5 ► 2.6 ─► 3.x, 5.1
+2.2 registration ► 3.6 imex ─► 5.1 hydrostatic
 4.1 design (parallel) ► 4.2 ► 4.3 ► 4.4 ► {4.5, 4.6}
 3.x single jit ──────────────► 5.2 / 5.3 coupling
 ```
