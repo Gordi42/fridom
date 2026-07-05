@@ -32,8 +32,9 @@ Low-risk work that unblocks and de-risks everything else.
 | #   | Task | Notes |
 |-----|------|-------|
 | 0.1 | **Benchmark infrastructure** **(done)** | New `benchmarks/` package: wall time, compile time, peak device memory (`jax.profiler` / device memory profiles), and comparison reports between two commits/branches. Replaces the stale `benchmark/` directory (obsolete API). Comes first so that every later refactor is measured. |
-| 0.2 | **Unify domain decomposition** | Delete `SingleDecomposition`; make `JaxDecomposition` the only implementation and make it work for `jax.device_count() == 1`. Fill its gaps: spectral padding EXTEND/TRIM (currently `NotImplementedError`), lift the "at least 2 dims" restriction. Collapse the base-class abstraction if only one implementation remains. |
+| 0.2 | **Unify domain decomposition** | Delete `SingleDecomposition`; make `JaxDecomposition` the only implementation and make it work for `jax.device_count() == 1`. Fill its gaps: lift the "at least 2 dims" restriction. (Spectral padding EXTEND/TRIM is removed in 0.4, not implemented.) Collapse the base-class abstraction if only one implementation remains. |
 | 0.3 | **Repo cleanup** | Remove `src.bak/` and the stale `benchmark/` scripts. |
+| 0.4 | **Remove experimental spectral grid support (temporary)** | Delete the spectral grid classes (`grid/spectral/` in framework, nonhydro, shallowwater), the `SpectralAdvection` modules, `SpectralDiff`, the `spectral_grid` flag, and the pseudo-spectral `FFTPadding.TRIM/EXTEND` machinery — dropping the `padding=` argument from `fft`/`ifft` and the `pad_trim`/`pad_extend`/`unpad_extend` domain-decomposition methods entirely. Keep all Fourier-space-on-cartesian machinery (`is_spectral`, `fft`/`ifft`, `discrete_spectral_operators`, the `*Spectral` projections, RFFT/Spectral cartesian pressure solvers, spectral-energy initial conditions); for `SpectralPressureSolver` keep the cartesian branch, dropping only its spectral-grid case. The current implementation is experimental and complicates 0.2 and Phase 4; spectral methods are reintroduced as function-space operators in Phase 4. |
 
 ## Phase 1 — Field ergonomics
 
@@ -89,7 +90,7 @@ parallel with Phases 2–3; implementation lands after Phase 3.
 | #   | Task | Notes |
 |-----|------|-------|
 | 4.1 | **Design doc: function spaces** | `FunctionSpace`, `TensorProductSpace`, bases/transforms (Fourier, DCT; Chebyshev-ready), operators `A: F_i -> F_j`, error on mixed-space arithmetic, how fields carry their space, pytree/equality treatment, interaction with the domain decomposition. Must not preclude unstructured grids. |
-| 4.2 | **Cartesian function spaces** | Implement Cell/Face spaces and tensor products; port FFT/DCT, finite differences, and interpolations as space-mapping operators. Replaces `Position` / `AxisPosition` staggering. |
+| 4.2 | **Cartesian function spaces** | Implement Cell/Face spaces and tensor products; port FFT/DCT, finite differences, and interpolations as space-mapping operators. Replaces `Position` / `AxisPosition` staggering. Reintroduce spectral (Fourier) differentiation — removed in 0.4 — as a space-mapping operator here. |
 | 4.3 | **Port fields** | `ScalarField.function_space`; `f + g` across different spaces raises; `diff`/interp return fields on the mapped space. Port the eigenvector/projection machinery (`nonhydro/grid/cartesian/eigenvectors.py` is the biggest item). Revisit 1.2: a slice at `x = a` naturally lives on a reduced tensor-product space. |
 | 4.4 | **Water mask as wrapper grid** | `MaskedGrid(inner_grid)` grid class; remove the default `WaterMask` from `GridBase`; masks derived per function space; masked operators wrap the inner operators. |
 | 4.5 | **Stretched coordinates** | Coordinate-map grid (metric terms / Jacobians) on top of the new abstraction. |
@@ -110,6 +111,7 @@ parallel with Phases 2–3; implementation lands after Phase 3.
 ```
 0.1 benchmarks ──────────────► 3.1 (measure), all phases
 0.2 unify decomposition ─────► 3.x, 4.x, 5.3
+0.4 remove spectral ─────────► simplifies 0.2; revisited by 4.2
 1.x field ergonomics ────────► (independent; 1.2 revisited by 4.3)
 1.4 tensorstore writer ──────► 3.3 (adapt IO to scan)
 2.1 design ► 2.2 ► 2.3 ► 2.4 ► 2.5 ► 2.6 ─► 3.x, 5.1
@@ -140,3 +142,8 @@ parallel with Phases 2–3; implementation lands after Phase 3.
    dedicated strategy; part of 3.1.
 4. Presentation items explicitly deferred: unstructured grids,
    Chebyshev basis (4.1 must not preclude them).
+5. **Spectral grid removed temporarily (0.4)**: the current
+   pseudo-spectral grid is experimental and complicates the
+   decomposition (0.2) and grid rewrite (Phase 4); spectral methods
+   return as function-space operators once the abstraction (4.1/4.2)
+   can host them cleanly.
