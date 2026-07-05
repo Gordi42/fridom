@@ -484,13 +484,7 @@ def get_default_domain_decomposition() -> DomainDecomposition:
 
     Description
     -----------
-    If more than one device is available, the domain is decomposed across
-    the devices using the JaxDecomposition. Otherwise, the
-    SingleDecomposition is used.
+    The domain is decomposed across the available devices using the
+    JaxDecomposition (which also handles the single-device case).
     """
-    import jax  # noqa: PLC0415 (avoid initializing the backend on import)
-    # if we only have one available device, we use single decomposition
-    if jax.device_count() == 1:
-        return fr.domain_decomposition.SingleDecomposition
-    # otherwise, we use the jax decomposition
     return fr.domain_decomposition.JaxDecomposition

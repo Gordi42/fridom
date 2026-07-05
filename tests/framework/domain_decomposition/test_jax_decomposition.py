@@ -22,6 +22,8 @@ that only make sense on one of the two suites are marked with
 """
 
 import os
+import pickle
+from copy import deepcopy
 
 import jax
 import jax.numpy as jnp
@@ -85,6 +87,29 @@ def u(domain):
 def test_construction(domain, halo, shape):
     assert domain.shape == shape
     assert domain.halo == halo
+
+
+def test_deepcopy():
+    domain = fr.domain_decomposition.JaxDecomposition(
+        shape=(64, 64), halo=0)
+    domain_copy = deepcopy(domain)
+    # the copy is an independent object ...
+    assert domain_copy is not domain
+    # ... but structurally equal to the original (jit-cache stability)
+    assert domain == domain_copy
+    assert domain.shape == domain_copy.shape
+
+
+def test_pickle_roundtrip(domain, u):
+    # the device mesh and the shardings are rebuilt on unpickling
+    # (model save/load pickles fields together with their grid)
+    restored = pickle.loads(pickle.dumps(domain))  # noqa: S301
+
+    assert restored == domain
+    assert restored.mesh == domain.mesh
+    u_synced = domain.sync(domain.pad(u))
+    r_synced = restored.sync(restored.pad(u))
+    assert (np.asarray(r_synced) == np.asarray(u_synced)).all()
 
 
 def test_too_large_halo_raises():
@@ -227,6 +252,40 @@ def test_halo_exchange_nonperiodic(halo, shape):
 
         assert (u_synced[tuple(left_halo)] == 0).all()
         assert (u_synced[tuple(right_halo)] == 0).all()
+
+
+def test_halo_exchange_mixed_periods(halo):
+    # non-periodic in x and z, periodic in y
+    shape = (32, 32, 32)
+    domain = fr.domain_decomposition.JaxDecomposition(
+        shape=shape, halo=halo, periods=(False, True, False))
+    u = domain.create_random_array(seed=42, pad=False)
+    u_synced = np.asarray(domain.sync(domain.pad(u)))
+
+    if halo == 0:
+        return
+
+    # non-periodic axes have zero halo regions at the domain boundary
+    assert (u_synced[:halo] == 0).all()
+    assert (u_synced[-halo:] == 0).all()
+    assert (u_synced[:, :, :halo] == 0).all()
+    assert (u_synced[:, :, -halo:] == 0).all()
+    # the periodic axis wraps around
+    assert (u_synced[:, :halo, :] == u_synced[:, -2*halo:-halo, :]).all()
+    assert (u_synced[:, -halo:, :] == u_synced[:, halo:2*halo, :]).all()
+
+
+def test_pad_unpad_with_multiple_flat_axes(halo):
+    shape = (32, 32, 32)
+    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    flat_axes = (0, 1)
+    u = domain.create_array(pad=False, topo=(False, False, True))
+
+    u_padded = domain.pad(u, flat_axes)
+    assert u_padded.shape == (1, 1, shape[2] + 2 * halo)
+
+    u_unpadded = domain.unpad(u_padded, flat_axes)
+    assert u_unpadded.shape == u.shape
 
 
 # ================================================================
