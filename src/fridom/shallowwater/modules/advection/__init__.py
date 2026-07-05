@@ -10,7 +10,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.modules.advection import AdvectionBase
 
     from .sadourny_advection import SadournyAdvection
-    from .spectral_advection import SpectralAdvection
 
 # ================================================================
 #  Setup lazy loading
@@ -23,7 +22,6 @@ all_modules_by_origin = {}
 all_imports_by_origin = {
     f"{fr_base_path}": ["AdvectionBase"],
     f"{base_path}.sadourny_advection": ["SadournyAdvection"],
-    f"{base_path}.spectral_advection": ["SpectralAdvection"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

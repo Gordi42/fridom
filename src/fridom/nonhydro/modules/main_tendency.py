@@ -26,11 +26,6 @@ class MainTendency(fr.modules.ModuleContainer):
 
         super().__init__(module_list=self.module_list)
 
-    def _on_setup(self) -> None:
-        # update the advection module if the grid is spectral
-        if type(self.mset.grid) is nh.grid.spectral.Grid:
-            self.advection = nh.modules.advection.SpectralAdvection()
-
     def add_module(self, module: fr.modules.Module) -> None:  # noqa: D102
         self._additional_modules.append(module)
         self._set_module_list()
