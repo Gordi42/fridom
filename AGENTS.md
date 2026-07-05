@@ -39,6 +39,27 @@ XLA_FLAGS=--xla_force_host_platform_device_count=4 FRIDOM_TEST_FORCED_DEVICES=4 
   redundant compilations across workers. For single files or debugging
   (`-x`, `--pdb`), run serially.
 
+- `-n 8` is the sweet spot even on many-core nodes. The suite is
+  compilation-bound with per-file distribution, so a tail of slow tests
+  plus per-worker jax-import startup set the floor; raising the worker
+  count past ~16 is counterproductive (measured slower), and extra CPUs
+  do not help.
+
+- `tests/conftest.py` auto-enables a **persistent jax compilation cache**
+  (`.jax_cache/`, gitignored) so the many small compilations are only
+  paid once; warm runs are roughly twice as fast on both cpu and gpu.
+  Override the cache dir with `FRIDOM_TEST_JAX_CACHE_DIR` (set it empty to
+  disable). The cache is keyed on HLO + jaxlib version + backend, so it is
+  safe across code changes.
+
+- The suite runs on the gpu out of the box: `conftest.py` sets
+  `XLA_PYTHON_CLIENT_PREALLOCATE=false` so pytest-xdist workers share the
+  single device instead of each preallocating ~75% of its memory (which
+  otherwise stalls all but one worker). Force the backend with
+  `JAX_PLATFORMS=cpu` / `JAX_PLATFORMS=cuda`. The micro-test suite is
+  fastest on cpu (gpu kernel-launch latency dominates the tiny problems);
+  the gpu is primarily for the `benchmarks/` suite.
+
 - The repo ships a uv-managed environment (`.venv` + `uv.lock`); run everything
   through `uv run` (or activate `.venv`) so the correct interpreter and pinned
   dependencies are used. `uv sync --extra dev` provisions the dev toolchain

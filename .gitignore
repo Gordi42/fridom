@@ -3,6 +3,9 @@ testing/
 gdrive/
 benchmarks/results/
 
+# persistent jax compilation cache (enabled in tests/conftest.py)
+.jax_cache/
+
 # Clean up the example folder
 examples/**/*.nc
 examples/**/*.cdf
