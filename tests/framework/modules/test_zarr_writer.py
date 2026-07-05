@@ -208,15 +208,20 @@ def test_restart_trigger(restart_trigger, expected_files, directory_name,
 
 
 @pytest.mark.parametrize(*(
-    "filename, clock, expected",
+    "filename, clock_kwargs, expected",
     [
-        ("snap", fr.Clock(), "snap_0s.zarr"),
-        ("snap.zarr", fr.Clock(), "snap_0s.zarr"),
-        ("snap", fr.Clock(start_date=np.datetime64("2020-01-01")),
+        ("snap", {}, "snap_0s.zarr"),
+        ("snap.zarr", {}, "snap_0s.zarr"),
+        ("snap", {"start_date": np.datetime64("2020-01-01")},
          "snap_2020-01-01T00:00:00.zarr"),
     ],
 ))
-def test_format_filename(filename, clock, expected, directory_name):
+def test_format_filename(filename, clock_kwargs, expected, directory_name):
+    # build the clock inside the test: a clock created at parametrize
+    # collection time holds a jax array whose buffer is invalidated when
+    # another test in the same xdist worker toggles jax_enable_x64,
+    # deleting it before this test runs
+    clock = fr.Clock(**clock_kwargs)
     zarr_module = fr.modules.ZarrWriter(
         filename=filename, directory=directory_name)
     zarr_module.add_timestamp = True
