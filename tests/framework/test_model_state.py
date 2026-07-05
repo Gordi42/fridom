@@ -30,13 +30,6 @@ def mset():
 
 
 @pytest.fixture
-def spectral_mset():
-    grid = fr.grid.spectral.Grid(shape=(8, 8), domain_size=(1.0, 1.0))
-    mset = fr.ModelSettingsBase(grid=grid)
-    return add_constructors(mset).setup()
-
-
-@pytest.fixture
 def mz(mset):
     return fr.ModelState(mset)
 
@@ -66,22 +59,6 @@ def test_setters_convert_to_physical(mset, mz):
     # the tendency can be reset with None
     mz.dz = None
     assert mz.dz is None
-
-
-def test_setters_convert_to_spectral(spectral_mset):
-    # on a spectral grid, physical inputs are transformed forward
-    # (the state constructor creates physical fields)
-    mz = fr.ModelState(spectral_mset)
-    assert mz.z.is_spectral
-
-    mz.z = spectral_mset.state_constructor()
-    assert mz.z.is_spectral
-
-    mz.z_diag = spectral_mset.diagnostic_state_constructor()
-    assert mz.z_diag.is_spectral
-
-    mz.dz = spectral_mset.state_constructor()
-    assert mz.dz.is_spectral
 
 
 def test_setters_with_empty_state():

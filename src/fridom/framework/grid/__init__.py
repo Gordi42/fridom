@@ -8,13 +8,12 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
-    from . import cartesian, spectral
+    from . import cartesian
 
     # import all classes
     from .biased_interpolation import BiasedInterpolationModule
     from .boundary_type import BCType
     from .diff_module import DiffModule
-    from .dummy_interpolation import DummyInterpolation
     from .fft_padding import FFTPadding
     from .grid_base import GridBase
     from .interpolation_module import InterpolationModule
@@ -28,14 +27,12 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 base = "fridom.framework.grid"
 
-all_modules_by_origin = { base: ["cartesian",
-                                 "spectral"] }
+all_modules_by_origin = { base: ["cartesian"] }
 
 all_imports_by_origin = {
     f"{base}.biased_interpolation": ["BiasedInterpolationModule"],
     f"{base}.boundary_type": ["BCType"],
     f"{base}.diff_module": ["DiffModule"],
-    f"{base}.dummy_interpolation": ["DummyInterpolation"],
     f"{base}.fft_padding": ["FFTPadding"],
     f"{base}.grid_base": ["GridBase"],
     f"{base}.interpolation_module": ["InterpolationModule"],

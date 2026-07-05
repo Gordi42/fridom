@@ -51,10 +51,10 @@ class ModelSettings(fr.ModelSettingsBase):
         self.background_stratification = self.background_stratification
 
     def state_constructor(self) -> hs.State:  # noqa: D102
-        return hs.State(self, is_spectral=self.grid.spectral_grid)
+        return hs.State(self)
 
     def diagnostic_state_constructor(self) -> None:  # noqa: D102
-        return hs.DiagnosticState(self, is_spectral=self.grid.spectral_grid)
+        return hs.DiagnosticState(self)
 
     # ================================================================
     #  Properties

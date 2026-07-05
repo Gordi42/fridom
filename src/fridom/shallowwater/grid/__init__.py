@@ -9,15 +9,14 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.grid import AxisPosition, BCType, Position
 
-    from . import cartesian, spectral
+    from . import cartesian
 
 # ================================================================
 #  Setup lazy loading
 # ================================================================
 base = "fridom.shallowwater.grid"
 
-all_modules_by_origin = { base: ["cartesian",
-                                 "spectral"] }
+all_modules_by_origin = { base: ["cartesian"] }
 
 all_imports_by_origin = {
     "fridom.framework.grid": ["AxisPosition", "Position", "BCType"],

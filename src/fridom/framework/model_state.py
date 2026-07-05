@@ -92,11 +92,8 @@ class ModelState:
         if value.vector_dim == 0:
             self._z = value
             return
-        # convert to correct space
-        spectral_grid = value.grid.spectral_grid
-        if spectral_grid and not value.is_spectral:
-            value = value.fft()
-        if not spectral_grid and value.is_spectral:
+        # states are always stored in physical space
+        if value.is_spectral:
             value = value.ifft()
         self._z = value
 
@@ -111,11 +108,8 @@ class ModelState:
         if value.vector_dim == 0:
             self._z_diag = value
             return
-        # convert to correct space
-        spectral_grid = value.grid.spectral_grid
-        if spectral_grid and not value.is_spectral:
-            value = value.fft()
-        if not spectral_grid and value.is_spectral:
+        # states are always stored in physical space
+        if value.is_spectral:
             value = value.ifft()
         self._z_diag = value
 
@@ -132,11 +126,8 @@ class ModelState:
         if value.vector_dim == 0:
             self._dz = value
             return
-        # convert to correct space
-        spectral_grid = value.grid.spectral_grid
-        if spectral_grid and not value.is_spectral:
-            value = value.fft()
-        if not spectral_grid and value.is_spectral:
+        # states are always stored in physical space
+        if value.is_spectral:
             value = value.ifft()
         self._dz = value
 

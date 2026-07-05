@@ -23,7 +23,6 @@ def test_cartesian_grid_solves_discrete_poisson_equation():
     mset = nh.ModelSettings(grid, f0=1.0, stratification_n2=4.0).setup()
     solver = nh.modules.pressure_solvers.SpectralPressureSolver()
     solver.setup(mset=mset)
-    assert solver.fft_required
 
     mz = fr.ModelState(mset)
     x, _y, z = grid.x_mesh
@@ -45,32 +44,6 @@ def test_cartesian_grid_solves_discrete_poisson_equation():
 
     div = mz.z_diag.div
     assert (laplacian - div).norm_l2() / div.norm_l2() < 1e-12
-
-
-def test_spectral_grid_solves_poisson_equation():
-    # on the spectral grid: -k^2 p_hat = div_hat
-    grid = nh.grid.spectral.Grid(shape=(16, 16, 16), domain_size=(2*PI,)*3)
-    mset = nh.ModelSettings(grid, f0=1.0, stratification_n2=4.0)
-    mset.tendencies.pressure_solver = \
-        nh.modules.pressure_solvers.SpectralPressureSolver()
-    mset.setup()
-    solver = mset.tendencies.pressure_solver
-    assert not solver.fft_required
-
-    mz = fr.ModelState(mset)
-    x, _y, z = grid.x_mesh
-    f = fr.ScalarField(mset, name="div_phys")
-    f.arr = jnp.sin(2 * x) * jnp.sin(z)
-    mz.z_diag.div.arr = f.fft().arr
-
-    mz = solver.update(mz=mz)
-
-    kx, ky, kz = grid.k_mesh
-    k2 = kx**2 + ky**2 + kz**2
-    laplacian_hat = -k2 * mz.z_diag.p.arr
-    div_hat = mz.z_diag.div.arr
-    error = jnp.abs(laplacian_hat - div_hat).max() / jnp.abs(div_hat).max()
-    assert error < 1e-12
 
 
 def test_unsupported_grid_raises():

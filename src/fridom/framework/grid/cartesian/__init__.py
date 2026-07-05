@@ -21,7 +21,6 @@ if TYPE_CHECKING:  # pragma: no cover
         compute_polynomial_coefficients_cell_average,
         compute_polynomial_coefficients_pointwise,
     )
-    from .spectral_diff import SpectralDiff
     from .upwind_interpolation import UpwindInterpolation
     from .weno_interpolation import InterWENO
 
@@ -45,7 +44,6 @@ all_imports_by_origin = {
         "compute_polynomial_coefficients_cell_average",
         "compute_polynomial_coefficients_pointwise",
     ],
-    f"{base}.spectral_diff": ["SpectralDiff"],
     f"{base}.upwind_interpolation": ["UpwindInterpolation"],
     f"{base}.weno_interpolation": ["InterWENO"],
 }

@@ -48,7 +48,7 @@ def test_state_constructor(grid):
     mset = hs.ModelSettings(grid).setup()
     state = mset.state_constructor()
     assert isinstance(state, hs.State)
-    assert state.is_spectral == grid.spectral_grid
+    assert not state.is_spectral
 
 def test_diagnostic_constructor(grid):
     mset = hs.ModelSettings(grid).setup()

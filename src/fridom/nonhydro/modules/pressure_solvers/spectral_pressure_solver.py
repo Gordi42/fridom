@@ -18,19 +18,14 @@ class SpectralPressureSolver(fr.modules.Module):
     name = "Spectral Pressure Solver"
 
     def _on_setup(self) -> None:
-        match type(self.mset.grid):
-            case nh.grid.cartesian.Grid:
-                fft_required = True
-                dso = fr.grid.cartesian.discrete_spectral_operators
-                k2 = [dso.k_hat_squared(kx, dx, use_discrete=True)
-                      for (kx,dx) in zip(self.grid.k_mesh, self.grid.dx,
-                                         strict=False)]
-            case nh.grid.spectral.Grid:
-                fft_required = False
-                k2 = [kx**2 for kx in self.grid.k_mesh]
-            case _:
-                msg = "The spectral solver does not support this grid type."
-                raise ValueError(msg)
+        if type(self.mset.grid) is not nh.grid.cartesian.Grid:
+            msg = "The spectral solver does not support this grid type."
+            raise ValueError(msg)
+
+        dso = fr.grid.cartesian.discrete_spectral_operators
+        k2 = [dso.k_hat_squared(kx, dx, use_discrete=True)
+              for (kx,dx) in zip(self.grid.k_mesh, self.grid.dx,
+                                 strict=False)]
 
         # scaled discretized wave number squared
         k_squared = k2[0] + k2[1] + k2[2] / self.mset.dsqr
@@ -42,15 +37,11 @@ class SpectralPressureSolver(fr.modules.Module):
         # Set k2_hat_inv to zero where k2_hat is zero
         self.k_squared_inv = jnp.where(
             k_squared == 0, 0, k_squared_inv)
-        self.fft_required = fft_required
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
         div = mz.z_diag.div
-        if self.fft_required:
-            p = ( - div.fft() * self.k_squared_inv).ifft()
-        else:
-            p = - div * self.k_squared_inv
+        p = ( - div.fft() * self.k_squared_inv).ifft()
         mz.z_diag.p.arr = p.arr
         return mz
 

@@ -62,7 +62,7 @@ class ModelSettings(fr.ModelSettingsBase):
         self.tendencies.advection.scaling = self.rossby_number
 
     def state_constructor(self) -> sw.State:  # noqa: D102
-        return sw.State(self, is_spectral=self.grid.spectral_grid)
+        return sw.State(self)
 
     # ================================================================
     #  Properties
