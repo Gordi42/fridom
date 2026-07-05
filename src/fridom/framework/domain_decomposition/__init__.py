@@ -17,7 +17,6 @@ if TYPE_CHECKING:  # pragma: no cover
         DomainDecomposition,
         get_default_domain_decomposition,
     )
-    from .jax_decomposition import JaxDecomposition
 
 # ================================================================
 #  Setup lazy loading
@@ -28,7 +27,6 @@ dom_path = "fridom.framework.domain_decomposition"
 all_imports_by_origin = {
     f"{dom_path}.domain_decomposition": ["DomainDecomposition",
                                          "get_default_domain_decomposition"],
-    f"{dom_path}.jax_decomposition": ["JaxDecomposition"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

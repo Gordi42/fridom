@@ -35,7 +35,7 @@ jobs:
         XLA_FLAGS: --xla_force_host_platform_device_count=4
         FRIDOM_TEST_FORCED_DEVICES: "4"
       run: |
-        uv run pytest tests/framework/domain_decomposition/test_jax_decomposition.py -q
+        uv run pytest tests/framework/domain_decomposition/test_domain_decomposition.py -q
 
     - name: Upload test results
       if: ${{ !cancelled() }}

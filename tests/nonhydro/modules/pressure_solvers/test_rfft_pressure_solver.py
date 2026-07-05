@@ -141,8 +141,8 @@ def test_multiple_gpus_detection():
     solver = mset.tendencies.pressure_solver
     assert not solver.multiple_gpus
 
-    fake_decomp = MagicMock(spec=fr.domain_decomposition.JaxDecomposition)
-    fake_decomp.n_devices = 4
+    fake_decomp = MagicMock(spec=fr.domain_decomposition.DomainDecomposition)
+    fake_decomp.parallel = True
     original = mset.grid._domain_decomp
     try:
         mset.grid._domain_decomp = fake_decomp

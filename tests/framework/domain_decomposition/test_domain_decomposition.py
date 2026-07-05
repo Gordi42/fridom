@@ -73,7 +73,7 @@ def shape(request):
 
 @pytest.fixture
 def domain(halo, shape):
-    return fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    return fr.domain_decomposition.DomainDecomposition(shape=shape, halo=halo)
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ def test_construction(domain, halo, shape):
 
 
 def test_deepcopy():
-    domain = fr.domain_decomposition.JaxDecomposition(
+    domain = fr.domain_decomposition.DomainDecomposition(
         shape=(64, 64), halo=0)
     domain_copy = deepcopy(domain)
     # the copy is an independent object ...
@@ -114,14 +114,14 @@ def test_pickle_roundtrip(domain, u):
 
 def test_too_large_halo_raises():
     with pytest.raises(ValueError, match="smaller than halo"):
-        fr.domain_decomposition.JaxDecomposition(shape=(4, 4), halo=8)
+        fr.domain_decomposition.DomainDecomposition(shape=(4, 4), halo=8)
 
 
 def test_indivisible_first_axis_raises(monkeypatch):
     # force a multi-device setup regardless of the actual device count
     monkeypatch.setattr(jax, "device_count", lambda: 4)
     with pytest.raises(ValueError, match="divisible by the number"):
-        fr.domain_decomposition.JaxDecomposition(shape=(30, 32), halo=1)
+        fr.domain_decomposition.DomainDecomposition(shape=(30, 32), halo=1)
 
 
 # ================================================================
@@ -139,7 +139,8 @@ def test_pad_unpad_roundtrip(domain, u):
 
 def test_flat_axis_padding(halo):
     shape = (32, 32)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    domain = fr.domain_decomposition.DomainDecomposition(
+        shape=shape, halo=halo)
     u = domain.create_array(pad=False, topo=(True, False))
 
     flat_axes = [1]
@@ -156,7 +157,8 @@ def test_flat_first_axis_padding(halo):
     # the sharded axis (axis 0) may itself be flat; it is then neither
     # padded nor halo-exchanged
     shape = (32, 32)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    domain = fr.domain_decomposition.DomainDecomposition(
+        shape=shape, halo=halo)
     u = domain.create_array(pad=False, topo=(False, True))
 
     flat_axes = [0]
@@ -172,7 +174,8 @@ def test_flat_first_axis_padding(halo):
 
 def test_create_array_with_flat_first_axis(halo):
     shape = (32, 32)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    domain = fr.domain_decomposition.DomainDecomposition(
+        shape=shape, halo=halo)
     arr = domain.create_array(topo=(False, True))
 
     assert arr.shape == (1, shape[1] + 2 * halo)
@@ -224,7 +227,7 @@ def test_halo_exchange_periodic(domain, u, halo, shape):
 
 
 def test_halo_exchange_nonperiodic(halo, shape):
-    domain = fr.domain_decomposition.JaxDecomposition(
+    domain = fr.domain_decomposition.DomainDecomposition(
         shape=shape, halo=halo, periods=(False,) * len(shape))
     u = domain.create_random_array(seed=42, pad=False)
     u_synced = np.asarray(domain.sync(domain.pad(u)))
@@ -257,7 +260,7 @@ def test_halo_exchange_nonperiodic(halo, shape):
 def test_halo_exchange_mixed_periods(halo):
     # non-periodic in x and z, periodic in y
     shape = (32, 32, 32)
-    domain = fr.domain_decomposition.JaxDecomposition(
+    domain = fr.domain_decomposition.DomainDecomposition(
         shape=shape, halo=halo, periods=(False, True, False))
     u = domain.create_random_array(seed=42, pad=False)
     u_synced = np.asarray(domain.sync(domain.pad(u)))
@@ -277,7 +280,8 @@ def test_halo_exchange_mixed_periods(halo):
 
 def test_pad_unpad_with_multiple_flat_axes(halo):
     shape = (32, 32, 32)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    domain = fr.domain_decomposition.DomainDecomposition(
+        shape=shape, halo=halo)
     flat_axes = (0, 1)
     u = domain.create_array(pad=False, topo=(False, False, True))
 
@@ -311,7 +315,7 @@ def test_fft(domain, u):
 ])
 def test_fft_along_single_axis(axes):
     shape = (32, 16)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=1)
+    domain = fr.domain_decomposition.DomainDecomposition(shape=shape, halo=1)
     u = domain.create_random_array(seed=42, pad=False)
     u_hat_expected = jnp.fft.fftn(np.asarray(u), axes=axes)
 
@@ -367,7 +371,8 @@ def test_create_array_spectral(domain, shape):
 
 def test_create_array_with_topography(halo):
     shape = (32, 32)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    domain = fr.domain_decomposition.DomainDecomposition(
+        shape=shape, halo=halo)
     arr = domain.create_array(topo=(True, False))
 
     # the flat axis has size one and is not padded
@@ -392,7 +397,8 @@ def test_create_random_array_spectral(domain, shape):
 
 def test_create_meshgrid(halo):
     shape = (32, 16)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    domain = fr.domain_decomposition.DomainDecomposition(
+        shape=shape, halo=halo)
     x = jnp.arange(shape[0], dtype=fr.utils.dtype_real())
     y = jnp.arange(shape[1], dtype=fr.utils.dtype_real())
 
@@ -471,7 +477,8 @@ def test_inv_cumsum(domain, u):
 
 def test_cumsum_along_local_axis(halo):
     shape = (32, 16)
-    domain = fr.domain_decomposition.JaxDecomposition(shape=shape, halo=halo)
+    domain = fr.domain_decomposition.DomainDecomposition(
+        shape=shape, halo=halo)
     u = domain.create_random_array(seed=42, pad=False)
     u_padded = domain.sync(domain.pad(u))
 
@@ -528,7 +535,7 @@ def test_forced_device_count():
 @pytest.mark.multi_device
 def test_arrays_are_distributed_across_all_devices():
     """The created arrays must actually live on all devices."""
-    domain = fr.domain_decomposition.JaxDecomposition(
+    domain = fr.domain_decomposition.DomainDecomposition(
         shape=(32, 32), halo=1)
 
     for arr in (domain.create_array(),

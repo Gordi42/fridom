@@ -31,7 +31,7 @@ uv run pre-commit install                  # install the ruff pre-commit hook
 
 # multi-device suite (reruns the decomposition tests on 4 forced host devices)
 XLA_FLAGS=--xla_force_host_platform_device_count=4 FRIDOM_TEST_FORCED_DEVICES=4 \
-  uv run pytest tests/framework/domain_decomposition/test_jax_decomposition.py
+  uv run pytest tests/framework/domain_decomposition/test_domain_decomposition.py
 ```
 
 - For full-suite runs use pytest-xdist with `--dist loadfile`: tests in the

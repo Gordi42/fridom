@@ -76,12 +76,7 @@ class RFFTPressureSolver(fr.modules.Module):
         self.dct_axes -= single_point_axes
 
     def _check_multiple_gpus(self) -> None:
-        dd = self.mset.grid.domain_decomp
-        if (isinstance(dd, fr.domain_decomposition.JaxDecomposition)
-                and dd.n_devices > 1):
-            self.multiple_gpus = True
-            return
-        self.multiple_gpus = False
+        self.multiple_gpus = self.mset.grid.domain_decomp.parallel
 
     def _determine_rfft_axis(self) -> None:
         if self.multiple_gpus:
