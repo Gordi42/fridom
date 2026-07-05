@@ -87,6 +87,13 @@ def u(domain):
 def test_construction(domain, halo, shape):
     assert domain.shape == shape
     assert domain.halo == halo
+    assert domain.rank == 0
+    assert domain.device_ids is None
+    assert domain.p_dims == (domain.n_devices,) + (1,) * (len(shape) - 1)
+    assert domain.size == domain.n_devices
+    assert domain.parallel == (domain.n_devices > 1)
+    # all axes except the distributed one are shared by every process
+    assert set(domain.shared_axes) >= set(range(1, len(shape)))
 
 
 def test_deepcopy():
@@ -98,6 +105,16 @@ def test_deepcopy():
     # ... but structurally equal to the original (jit-cache stability)
     assert domain == domain_copy
     assert domain.shape == domain_copy.shape
+
+
+def test_get_default_domain_decomposition():
+    cls = fr.domain_decomposition.get_default_domain_decomposition()
+    assert cls is fr.domain_decomposition.DomainDecomposition
+
+
+def test_to_numpy(domain):
+    host_copy = fr.utils.to_numpy(domain)
+    assert host_copy == domain
 
 
 def test_pickle_roundtrip(domain, u):
