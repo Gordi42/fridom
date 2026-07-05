@@ -24,7 +24,9 @@ def _make_field(n: int) -> fr.ScalarField:
     return field.sync()
 
 
-@benchmark_case(params={"n": SIZES})
+# reps=50: repetitions are ~100 us each; the higher count pulls the
+# medians of these tiny cases out of the per-call jitter noise band
+@benchmark_case(params={"n": SIZES}, reps=50)
 def bench_diff(n):
     """Partial derivative along the first axis."""
     field = _make_field(n)
@@ -35,7 +37,7 @@ def bench_diff(n):
     return run, (field,), {"points": float(n * n)}
 
 
-@benchmark_case(params={"n": SIZES})
+@benchmark_case(params={"n": SIZES}, reps=50)
 def bench_laplacian(n):
     """Laplacian of a scalar field."""
     field = _make_field(n)
@@ -46,7 +48,7 @@ def bench_laplacian(n):
     return run, (field,), {"points": float(n * n)}
 
 
-@benchmark_case(params={"n": SIZES})
+@benchmark_case(params={"n": SIZES}, reps=50)
 def bench_fft(n):
     """Forward FFT of a scalar field."""
     field = _make_field(n)
@@ -57,7 +59,7 @@ def bench_fft(n):
     return run, (field,), {"points": float(n * n)}
 
 
-@benchmark_case(params={"n": SIZES})
+@benchmark_case(params={"n": SIZES}, reps=50)
 def bench_sync(n):
     """Halo synchronization of a scalar field."""
     field = _make_field(n)

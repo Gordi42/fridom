@@ -26,7 +26,9 @@ def _make_fields(n: int) -> tuple[fr.ScalarField, fr.ScalarField]:
     return f.sync(), g.sync()
 
 
-@benchmark_case(params={"n": SIZES})
+# reps=50: repetitions are ~100 us each; the higher count pulls the
+# medians of these tiny cases out of the per-call jitter noise band
+@benchmark_case(params={"n": SIZES}, reps=50)
 def bench_arithmetic_chain(n):
     """Evaluate a chain of elementwise field operations."""
     f, g = _make_fields(n)
@@ -37,7 +39,7 @@ def bench_arithmetic_chain(n):
     return run, (f, g), {"points": float(n * n)}
 
 
-@benchmark_case(params={"n": SIZES})
+@benchmark_case(params={"n": SIZES}, reps=50)
 def bench_reduction(n):
     """Integration of a scalar field over the domain."""
     f, _ = _make_fields(n)
