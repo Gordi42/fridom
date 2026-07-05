@@ -215,7 +215,11 @@ def test_restart_from_command_without_mpi(mset, file_path, monkeypatch):
     assert not run_mock.called
 
 
-def test_restart_without_command_raises(mset, file_path):
+def test_restart_without_command_raises(mset, file_path, monkeypatch):
+    # ensure no slurm job id leaks in from the environment (e.g. when the
+    # suite runs inside a slurm allocation), which would auto-detect a
+    # restart command and take the command branch instead of raising
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
     module = fr.modules.RestartModule(
         realtime_interval=np.timedelta64(0, "s"), file_path=file_path)
     module.setup(mset=mset)
