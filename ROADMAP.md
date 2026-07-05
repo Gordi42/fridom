@@ -44,6 +44,7 @@ Quick wins, largely independent of the architectural work.
 | 1.1 | **Set fields via functions** | `field.set(lambda x, y: ...)` (or a constructor argument): evaluate the callable on the mesh at the field's position/space, handling staggering automatically. |
 | 1.2 | **Dimension reduction / selection** | `g = f.sel(x=a)` returns a field with reduced `topo` (e.g. to extract boundary values). Requires making partial-domain fields first-class: resolve the `TODO(Silvano): make this work for non full domain fields` cluster in `scalar_field.py` (fft, sync, diff, interpolate, ...) and replace the `__getitem__` / `__setitem__` `NotImplementedError`. |
 | 1.3 | **Lazy grid arrays** | `x_mesh`, `k_mesh`, `x_global`, ... become cached properties computed on demand instead of eagerly in `Grid.setup()`. Small, self-contained stepping stone for the Phase 4 grid rewrite. |
+| 1.4 | **TensorStore output writer** | Remove the NetCDF (`netcdf_writer.py`) and Zarr (`zarr_writer.py`) writers and drop the `netcdf4`/`zarr` deps; replace with a single `TensorStoreWriter` that writes a zarr-format store via [tensorstore](https://google.github.io/tensorstore/) with xarray-openable metadata (dimension names/coords, consolidated metadata). TensorStore's async, chunk-wise writes also fit the Phase 3 `io_callback` model. Follow-up: partial-array output — write only a sub-region / decomposed slice of a field (connects to 0.2 decomposition and 1.2 selection). |
 
 ## Phase 2 — Composition refactor
 
@@ -76,7 +77,7 @@ Depends on Phase 2 (module purity + full model pytree).
 |-----|------|-------|
 | 3.1 | **Design/prototype (open question)** | Prototype both strategies: (a) one `lax.scan`/`while_loop` over the full run with `io_callback` for IO/diagnostics; (b) chunked scan between IO events with a thin Python driver. Benchmark with the 0.1 infrastructure (runtime, compile time, memory) and decide. Includes a strategy for NaN checking / early exit under scan (checkify, panicked flag + `while_loop`, ...). |
 | 3.2 | **Trace-friendly clock & scheduling** | Rework `Clock` / `ClockTrigger` / schedules so "every N steps / every T seconds" works under scan without Python branching on traced values. |
-| 3.3 | **Rework diagnostics/IO modules** | NetCDF/Zarr writers, progress bar, NaN checker, restart module — adapted to the chosen strategy from 3.1. |
+| 3.3 | **Rework diagnostics/IO modules** | TensorStore writer (from 1.4), progress bar, NaN checker, restart module — adapted to the chosen strategy from 3.1. |
 | 3.4 | **Scan-based main loop** | Replace the Python loops in `model.py` (`_main_loop_steps` / `_main_loop_time`); remove the per-step jitted helpers in `adam_bashforth.py` / `runge_kutta.py`; time steppers become pure scan-body components. |
 | 3.5 | **Simplify jit machinery** | With a single jit entry point, the structural-equality / memoization layer in `utils/jax_utils.py` (a known complexity hotspot) can likely shrink substantially. |
 
@@ -110,6 +111,7 @@ parallel with Phases 2–3; implementation lands after Phase 3.
 0.1 benchmarks ──────────────► 3.1 (measure), all phases
 0.2 unify decomposition ─────► 3.x, 4.x, 5.3
 1.x field ergonomics ────────► (independent; 1.2 revisited by 4.3)
+1.4 tensorstore writer ──────► 3.3 (adapt IO to scan)
 2.1 design ► 2.2 ► 2.3 ► 2.4 ► 2.5 ► 2.6 ─► 3.x, 5.1
 4.1 design (parallel) ► 4.2 ► 4.3 ► 4.4 ► {4.5, 4.6}
 3.x single jit ──────────────► 5.2 / 5.3 coupling
