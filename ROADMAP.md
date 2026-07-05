@@ -31,7 +31,7 @@ Low-risk work that unblocks and de-risks everything else.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 0.1 | **Benchmark infrastructure** | New `benchmarks/` package: wall time, compile time, peak device memory (`jax.profiler` / device memory profiles), and comparison reports between two commits/branches. Replaces the stale `benchmark/` directory (obsolete API). Comes first so that every later refactor is measured. |
+| 0.1 | **Benchmark infrastructure** **(done)** | New `benchmarks/` package: wall time, compile time, peak device memory (`jax.profiler` / device memory profiles), and comparison reports between two commits/branches. Replaces the stale `benchmark/` directory (obsolete API). Comes first so that every later refactor is measured. |
 | 0.2 | **Unify domain decomposition** | Delete `SingleDecomposition`; make `JaxDecomposition` the only implementation and make it work for `jax.device_count() == 1`. Fill its gaps: spectral padding EXTEND/TRIM (currently `NotImplementedError`), lift the "at least 2 dims" restriction. Collapse the base-class abstraction if only one implementation remains. |
 | 0.3 | **Repo cleanup** | Remove `src.bak/` and the stale `benchmark/` scripts. |
 
@@ -64,6 +64,13 @@ same phase.
 ## Phase 3 — Single `jax.jit` for the full run
 
 Depends on Phase 2 (module purity + full model pytree).
+
+> The 0.1 GPU baseline (A100) quantifies the prize: per-call dispatch
+> overhead pins every jitted call to a ~100 us floor, and model steps
+> to ~1.3 ms — nonhydro steps at 32-64^3 are overhead-dominated, and
+> only ~256^3 becomes compute-bound. A scan-based single-jit run
+> should recover roughly an order of magnitude at small and medium
+> resolutions.
 
 | #   | Task | Notes |
 |-----|------|-------|
