@@ -482,10 +482,21 @@ factor.
 
 ---
 
+## Status
+
+**D8 executed** (this round): `03_operators.md`'s base hierarchy,
+composed operators, and registry are rewritten onto the algebra — the
+`Operator` dunders and `__getitem__`, bind-only `UnaryOperator`,
+`SeparableOperator.bound_axis`, the new "Operator algebra" section
+(`Identity`/`Zero`/`Composite`/`SeparableComposite`/`OperatorSum`/
+`ScaledOperator`/`Block`/`Dispatched`), the algebra-derived
+`FVDerivative`/`Gradient`/`Divergence`/`Curl`/`Laplacian` factories,
+and the registry's `Dispatched`-at-merge resolution. The bind-only
+`_apply(self, f)` pass is applied to every operator in the document.
+The T4 wording fix to `operator_design` §3.7 is in.
+
 ## Still open (next)
 
 - The `f.to` / interpolation forwarder spelling (D3), and whether
-  `Dispatched` needs a public constructor or only the seeded verbs.
-- Executing D8: the actual rewrite of `03_operators.md`'s base
-  hierarchy, composed-operators, and registry sections — plus the T4
-  wording fix to `operator_design` §3.7.
+  `Dispatched` needs a public constructor or only the seeded verbs —
+  the one residual (`ConstantBroadcast`'s target binding).

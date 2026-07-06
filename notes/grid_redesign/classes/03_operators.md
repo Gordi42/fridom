@@ -5,17 +5,21 @@ for the document map. Status: draft class design, no implementation.
 Signatures are the intended public API for `framework.grid2`; the
 numbered concept sections remain the normative reference.
 
-> **Pending merge.** The operator *algebra* — composition `@`, sums,
-> `c * A` scaling, `Identity`/`Zero`/`Block`, axis binding `op["x"]`,
-> tuple signatures — is designed in the sibling note set
+> **Operator algebra folded in (D8).** The operator *algebra* —
+> composition `@`, sums, `c * A` scaling, `Identity`/`Zero`/`Block`,
+> axis binding `op["x"]`, tuple signatures — is designed in the sibling
+> note set
 > [`../../operator_design/`](../../operator_design/00_overview.md)
-> (authored on `dev`). This document predates it. The decisions for
-> folding it in — algebra-derived composed operators, bind-only axis
-> naming (`op["x"]` replaces the `axis=` keyword), `SeparableComposite`
-> typing, interning — are recorded in
-> [`operator_algebra_merge.md`](operator_algebra_merge.md); the base
-> hierarchy, composed-operators, and registry sections below are
-> revised there and not yet updated here.
+> (authored on `dev`); the reconciliation decisions are in
+> [`operator_algebra_merge.md`](operator_algebra_merge.md). Those
+> decisions are now applied to the **base hierarchy**
+> ([Operator algebra](#operator-algebra), bind-only `__call__`,
+> `bound_axis`), the **composed operators** (algebra-derived factories),
+> and the **registry** below. Bind-only axis naming (`op["x"]` replaces
+> the `axis=` keyword) rippled through every operator's `_apply`
+> signature — now uniformly `_apply(self, f)`, with the separable
+> `_apply_factor(self, f, axis)` unchanged; that pass is applied
+> throughout this document.
 
 This document owns the **Operator cluster**: the operator base
 hierarchy, the concrete stencil/nodal operators, transforms, `Symbol`,
@@ -45,7 +49,9 @@ src/fridom/framework/grid2/operators/
     __init__.py           # lazypimp; aliased as fr.operators
     base.py               # Operator, UnaryOperator, BinaryOperator,
                           # SeparableOperator, OperatorRequirements,
-                          # EigenbasisError
+                          # EigenbasisError; algebra objects: Identity,
+                          # Zero, Composite, SeparableComposite,
+                          # OperatorSum, ScaledOperator, Block, Dispatched
     registry.py           # OperatorRegistry, DispatchError
     symbol.py             # Symbol
     finite_difference.py  # FiniteDifference
@@ -81,7 +87,10 @@ are **static structure** — order, stencil pattern, axes, pad factor are
 part of the dispatch/jit key. Spacing-dependent *coefficient values*
 are never stored; they are derived from the grid's measure fields
 (`grid.measure(space, name=...)`, doc 04, iteration 1) at trace time.
-The only dynamic-leaf carrier in this cluster is `Symbol` (`_data`).
+The dynamic-leaf carriers in this cluster are `Symbol` (`_data`) and a
+`ScaledOperator` with a *field* coefficient ([Operator algebra](#operator-algebra),
+D8) — every other operator, including all other algebra objects, is
+fully static.
 The grid itself is **fully static** (G1, doc 04): `Transform._grid`
 is static structure (plans, layouts, refined meshes) with no dynamic
 pytree leaves; all grid-materialized data is read at trace time
@@ -107,6 +116,22 @@ kernels are unary), and a linear hierarchy keeps the shared template
 machinery — the final `__call__` with its halo-tracer interception,
 and the `⊗`-lifting — in exactly one place each.
 
+On top of these sit the **algebra objects**
+([Operator algebra](#operator-algebra) below): the composites, sums,
+blocks, scalings, and placeholders that `@` / `+` / `*` / `Block(...)`
+/ `Dispatched(...)` build — the derived sixth operator kind of
+operator_design §2.1, ordinary operators themselves. They follow the
+merge decisions in
+[`operator_algebra_merge.md`](operator_algebra_merge.md); two of those
+shape the base surface directly. **Axis naming is bind-only** (D2):
+`op["x"]` is the sole way to name an axis — there is no `axis=` call
+keyword — so "can this operator name an axis?" is a matter of type
+(`SeparableOperator` overrides `__getitem__`; whole-space operators
+inherit a raising default). And **operators are interned** (D6): a
+bound variant or a composite is canonicalized on its static structure,
+because the cluster's identity-hash invariant needs structurally-equal
+operators to be the same object.
+
 ### Operator
 
 Root ABC: a typed, free-standing, parameterized map between function
@@ -130,8 +155,11 @@ class Operator(ABC):
     dispatch_kind: ClassVar[str | None] = None
 
     @abstractmethod
-    def codomain(self, *domains: FunctionSpace) -> FunctionSpace:
-        """Resolve the codomain space from the domain space(s)."""
+    def codomain(
+        self, *domains: FunctionSpace,
+    ) -> FunctionSpace | tuple[FunctionSpace, ...]:
+        """Resolve the codomain from the domain space(s); a tuple for
+        direct-sum (vector/tensor) signatures (§3.1)."""
         ...
 
     def requirements(
@@ -145,6 +173,38 @@ class Operator(ABC):
     ) -> Symbol:
         """Diagonal symbol relative to a diagonalizing basis."""
         ...
+
+    # ------------------------------------------------------------
+    #  Algebra (operator_algebra_merge.md D1, T2; §3.2/§3.4/§3.5)
+    # ------------------------------------------------------------
+    def __matmul__(
+        self, other: Operator | tuple[Operator, ...],
+    ) -> Operator:
+        """Composition ``(A @ B)(f) == A(B(f))``; dispatches on operand
+        arity (T2). Separable, axis-compatible operands yield a
+        ``SeparableComposite``, else a ``Composite``."""
+        ...
+
+    def __rmatmul__(self, other: object) -> Operator:
+        """A tuple on the left (``(A1, A2) @ P``) has no meaning: raise."""
+        ...
+
+    def __add__(self, other: Operator) -> Operator: ...   # OperatorSum
+    def __sub__(self, other: Operator) -> Operator: ...   # A + (-1) * B
+    def __neg__(self) -> Operator: ...                    # (-1) * A
+    def __mul__(self, c: ScalarField | complex) -> Operator: ...   # c * A
+    def __rmul__(self, c: ScalarField | complex) -> Operator: ...
+    def __pow__(self, n: int) -> Operator: ...            # n-fold chain
+
+    # ------------------------------------------------------------
+    #  Axis binding (§2.3): default is "nothing to bind"
+    # ------------------------------------------------------------
+    def __getitem__(self, axis: str) -> Operator:
+        """Bind a coordinate axis. Whole-space operators have a fixed
+        signature and raise; ``SeparableOperator`` overrides."""
+        raise TypeError(
+            f"{type(self).__name__} has a fixed signature; nothing to bind"
+        )
 ```
 
 Notes:
@@ -157,17 +217,45 @@ Notes:
   doc 02). Storing an explicit `(domain, codomain)` pair was rejected:
   operators are axis-agnostic separable kernels reused across meshes,
   so the signature must be a function of the incoming space.
+- **Tuple (direct-sum) signatures** (§3.1): the resolver returns a
+  *tuple* of spaces for vector-/tensor-valued operators (one per
+  component), the scalar case being the length-1 tuple. A
+  `VectorField` supplies the operand tuple; signature equality is
+  componentwise space identity **by position** (names are metadata).
+  No new space type is introduced — the tuple is a signature notion,
+  fields on it stay ordinary `VectorField`s (§3.1).
+- **The dunders build the algebra objects** of
+  [Operator algebra](#operator-algebra): `@` a `Composite` /
+  `SeparableComposite`, `+`/`-` an `OperatorSum`, scalar/field `*` a
+  `ScaledOperator`, `Block([...])` a block matrix, `Dispatched(kind)` a
+  registry placeholder. They are **shallow eager structures** — no
+  expression graphs, no algebraic rewriting (operator_design §3.11);
+  the only normalizations are chain-flattening, `Identity` elision, and
+  `Zero`-dropping. Iteration split (D7): `@`, `Identity`, `Dispatched`,
+  and bound axes are **iteration 1** (the FV derivative needs them);
+  `+`/`-`/`*` (sums, scaling), `Zero`, `OperatorSum`, `ScaledOperator`,
+  and `Block` are **designed-for**.
 - `requirements` defaults to `OperatorRequirements()` (halo 0, any
   layout); the grid's halo-accounting trace
   ([§5](../04_decomposition.md#5-domain-decomposition)) reads it per
   applied factor and accumulates depth along un-synced chains.
-- `eigenvalues(grid, space)` is **defined only relative to a
-  diagonalizing coefficient basis** (§2.5): the base implementation
-  raises `EigenbasisError`. It is queried per coefficient *factor*
-  space, never a `(kx, ky, kz)` tuple; multi-factor operators compose
-  per-factor symbols (see `Laplacian`). It is grid-mediated because
-  eigenvalues derive from `grid.wavenumbers(space)` and the metric
-  measures; the operator itself stays grid-free until this call.
+- `eigenvalues` and the **block expansion are optional capabilities**
+  (B4): a nonlinear or nonlinear-tuple-signature operator that answers
+  neither is legal (the base `eigenvalues` raises `EigenbasisError`;
+  there is no mandatory block method). Only linear operators over a
+  diagonalizing basis carry symbols; only linear tuple operators expand
+  into blocks. `eigenvalues(grid, space)` is queried per coefficient
+  *factor* space, never a `(kx, ky, kz)` tuple; composites compose
+  per-factor symbols (§3.7). It is grid-mediated because eigenvalues
+  derive from `grid.wavenumbers(space)` and the metric measures; the
+  operator stays grid-free until this call.
+- **Operators are interned (D6).** Bound variants (`op["x"]`) and
+  algebra objects are canonicalized on their static structure (class,
+  order, bound axes, factor identities, coefficient *placement* — not
+  values), because the cluster's identity-hash invariant
+  (`__eq__`/`__hash__` return `self is other`, README) requires
+  structurally-equal operators to be the same object for jit caching.
+  This resolves operator_design §5.1 toward interning.
 
 ### OperatorRequirements
 
@@ -221,29 +309,25 @@ defined failure mode from day one).
 
 ```python
 class UnaryOperator(Operator, ABC):
-    """Operator applied to a single field: ``op(f, axis=...)``."""
+    """Operator applied to a single field: ``op(f)`` (bind axes first)."""
 
     @abstractmethod
-    def codomain(self, domain: FunctionSpace) -> FunctionSpace:
+    def codomain(
+        self, domain: FunctionSpace,
+    ) -> FunctionSpace | tuple[FunctionSpace, ...]:
         """Resolve the codomain from the single domain space."""
         ...
 
     @final
     def __call__(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None = None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> ScalarField | VectorField:
         """Template: validate, intercept halo tracers, delegate."""
         ...
 
     @abstractmethod
     def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> ScalarField | VectorField:
         """Apply to real (non-tracer) operands (subclass hook)."""
         ...
@@ -257,17 +341,23 @@ tracer without touching data — and delegates real fields to the
 abstract `_apply`. Subclasses implement `_apply` only; no
 per-operator tracer code exists anywhere
 ([§5](../04_decomposition.md#5-domain-decomposition)'s
-author-effort-free claim made structural). The `**kwargs`
-passthrough exists for the few operators with call-site parameters
-(`ConstantBroadcast`'s `to=`); ordinary operators reject unknown
-keywords.
+author-effort-free claim made structural).
 
-`axis` is **optional exactly as §2.5 fixes it**: a separable 1D kernel
-applied to a multi-axis field needs `axis="x"`; operators whose domain
-is already a full product space (composed `grad`, `Laplacian`,
-symbols, transforms) ignore/forbid it — there the axis is fixed by the
-signature. Passing `axis` where it is forbidden, or omitting it where
-it is required, is a `ValueError`.
+**Bind-only axis naming (D2).** There is no `axis=` call keyword and no
+`**kwargs`: an axis is named only by binding, `op["x"](f)` (§2.3). So
+"can this operator name an axis?" is a matter of **type** —
+`SeparableOperator` overrides `__getitem__`, whereas whole-space
+operators (composed `grad`/`Laplacian`, transforms) inherit the raising
+default and are simply applied `op(f)`, the axis fixed by their
+signature. This deletes the old `axis`/`ValueError` validation
+entirely; the "which axis?" question becomes a binding question,
+resolved in `SeparableOperator._apply`. Operators that previously took
+a call-site parameter through `**kwargs` (`ConstantBroadcast`'s `to=`)
+bind it the same way (`to[target]`, D3). This rewrites every concrete
+`_apply(self, f, axis, **kwargs)` signature to `_apply(self, f)` — the
+separable `_apply_factor(self, f, axis)` is unchanged, since there
+`axis` is the resolved axis, always a string — and the pass is applied
+throughout this document.
 
 ### BinaryOperator
 
@@ -317,6 +407,29 @@ and `fr.Real -> fr.Complex` promotion
 ([§3.1](../02_rules.md#31-strict-space-algebra)); anything else is a
 `SpaceMismatchError`.
 
+**Binary operators join the `@` algebra with two rules** (T2,
+operator_design §3.8), asymmetric because a binary has *two inputs but
+one output*:
+
+- **Post-composition wraps the single output**: `A @ P` for binary `P`
+  is the binary operator `(f, g) -> A(P(f, g))`.
+- **Pre-composition takes a tuple, one unary per input**:
+  `P @ (B1, B2)` is `(f, g) -> P(B1(f), B2(g))`; the sugar `P @ B` is
+  `P @ (B, B)`, and the n-ary form `P @ (B1, ..., Bn)` serves the
+  `*more` operands.
+- **`(A1, A2) @ P` is an error** — one output, nothing to distribute a
+  left tuple over; it raises via `Operator.__rmatmul__`.
+
+This is what makes `Convolution = trim @ CollocationProduct @
+pad_inverse` a literal expression of the algebra (§3.12): the padded
+inverse pre-composes both operands, the product runs on the finer
+space, the trimming transform post-composes. A binary-headed composite
+reuses this template (its `_apply` arity follows the chain's inner
+factor); **no named-operand form** (`P.compose(left=, right=)`) is
+added — the positional tuple already covers the n-ary case, and named
+left/right does not generalize past arity 2 (revisit only if flux-module
+porting shows it error-prone).
+
 ### SeparableOperator
 
 Intermediate base for separable 1D kernels — the shape of almost every
@@ -335,18 +448,32 @@ the product lifting `kernel ⊗ identity` is provided once, here.
 class SeparableOperator(UnaryOperator, ABC):
     """Separable 1D kernel lifted per factor: ``kernel ⊗ identity``."""
 
+    #: bound coordinate axis; None = unbound (axis-agnostic 1D kernel).
+    #: Part of the STATIC structure (jit / dispatch identity, §2.3).
+    bound_axis: str | None = None
+
+    @final
+    def __getitem__(self, axis: str) -> Self:
+        """Bind to a coordinate axis: an interned static variant (D5/D6).
+        Rebinding an already-bound kernel raises."""
+        ...
+
+    def _rebind(self, axis: str) -> Self:
+        """Interned structural copy with ``bound_axis`` set."""
+        ...
+
     def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> ScalarField | VectorField:
-        """Resolve the factor and run the 1D kernel per shard."""
+        """axis = ``bound_axis``; else the field's sole bindable factor;
+        else raise. Then run ``_apply_factor`` per shard."""
         ...
 
     @abstractmethod
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
-        """Per-factor signature (e.g. ``Center -> Right``)."""
+        """Per-factor signature. Unbound: 1D factor -> 1D factor
+        (``Center -> Right``). Bound: full product -> product with the
+        bound factor transformed, identity elsewhere."""
         ...
 
     # ------------------------------------------------------------
@@ -354,18 +481,29 @@ class SeparableOperator(UnaryOperator, ABC):
     # ------------------------------------------------------------
     @abstractmethod
     def _apply_factor(self, f: ScalarField, axis: str) -> ScalarField:
-        """Apply the 1D kernel along the named factor axis."""
+        """Apply the 1D kernel along the (resolved) factor axis."""
         ...
 ```
 
 Notes:
 
-- The inherited final `__call__` delegates to the concrete `_apply`
-  here, which resolves the factor: if the field has exactly one
-  non-`ConstantSpace`, non-trivial factor the kernel can act on,
-  `axis` may be omitted; otherwise it is required. Application along a
+- **Binding is the only way to name an axis (D2).** The inherited
+  final `__call__` delegates to `_apply`, which resolves the axis:
+  `bound_axis` if set (via `op["x"]`), else the field's sole
+  non-`ConstantSpace`, non-trivial factor if unambiguous, else a
+  `ValueError` asking for an explicit bind. `op["x"]` returns an
+  **interned static variant** with `bound_axis` set (D6); rebinding
+  (`op["x"]["y"]`) raises; binding distributes over the algebra
+  (`(A @ B)["x"] == A["x"] @ B["x"]`, §2.3). Application along a
   `ConstantSpace` factor is the identity
   ([§3.3](../02_rules.md#33-constantspace-replaces-topo-with-automatic-broadcast)).
+- **`codomain` shape depends on binding state.** Unbound, the resolver
+  is 1D-factor -> 1D-factor (reused across meshes); bound, it takes the
+  full product space and transforms only the bound factor (the
+  `⊗ identity` lift made concrete). An unbound separable kernel
+  composed with another (`flux_diff @ reconstruct`) is still a 1D
+  kernel — a `SeparableComposite` ([Operator algebra](#operator-algebra),
+  D5) — bindable later.
 - Kernels are **slice-based over halo-extended storage, never
   roll-based** ([§3.5](../02_rules.md#35-shape-is-a-property-of-the-space)):
   `_apply_factor` reads stencil-offset slice windows of the local
@@ -387,6 +525,206 @@ Notes:
   (`grid.measure(space, name=...)`, doc 04; reachable as the field
   carries its grid, §2.7), read inside `_apply_factor` at trace time —
   **no hardcoded `dx` constants**. A uniform mesh constant-folds.
+
+---
+
+## Operator algebra
+
+The **derived operators** (operator_design §2.1): the objects `@`, `+`,
+`*`, `Block(...)`, and `Dispatched(...)` build. They are ordinary
+operators — callable, registrable, halo-accountable, symbol-bearing
+where linear — and shallow eager structures with no expression graphs
+or algebraic rewriting (§3.11). Merge decisions:
+[`operator_algebra_merge.md`](operator_algebra_merge.md) D1–D8, B1–B4,
+T2. All live in `grid2.operators.base`. Iteration split (D7): `Identity`,
+`Composite`, `SeparableComposite`, `Dispatched` are **iteration 1** (the
+FV derivative needs them); `Zero`, `OperatorSum`, `ScaledOperator`,
+`Block` are **designed-for**.
+
+**Pytree amendment.** `ScaledOperator` with a *field* coefficient is a
+**second dynamic-leaf carrier** in this cluster (the coefficient field),
+alongside `Symbol` — updating the module-placement rule's "the only
+dynamic-leaf carrier is `Symbol`". Its static part is the algebraic
+structure; the coefficient is the leaf (operator_design §2.2). Every
+other algebra object is fully static.
+
+### Identity / Zero
+
+```python
+@final
+@fr.utils.jaxify
+class Identity(Operator):                       # iteration 1
+    """Neutral element of @ (A @ Identity == A); elided on normalize."""
+    def codomain(self, *domains): ...           # domains unchanged
+
+
+@final
+@fr.utils.jaxify
+class Zero(Operator):                           # designed-for
+    """Neutral of + and absorbing of @ (Zero @ A == A @ Zero == Zero)."""
+    def codomain(self, *domains): ...
+```
+
+`Identity` is what an unbound axis contributes in the `⊗ identity`
+extension (§2.3) and what operators along a `ConstantSpace` axis reduce
+to (§3.3); halo 0, unit symbol. `Zero`'s consumer is the block layout —
+structural zeros in `curl` and sparse system matrices — contributing no
+computation, no halo, a zero symbol.
+
+### Composite
+
+```python
+@final
+@fr.utils.jaxify
+class Composite(UnaryOperator):                 # iteration 1
+    """Flat right-to-left factor chain; whole-space, not bindable.
+
+    A binary-headed chain (Convolution) presents a binary signature and
+    reuses the BinaryOperator template instead.
+    """
+    def __init__(self, factors: tuple[Operator, ...]) -> None:
+        """Flat chain; no nested composites (associativity, §3.2)."""
+        ...
+    def codomain(self, domain): ...             # thread the chain
+    def requirements(self, domain): ...         # per-axis SUM of factor halos (§3.6)
+    def eigenvalues(self, grid, space): ...     # product of factor symbols (§3.7)
+    def _apply(self, f): ...                    # apply factors right-to-left
+```
+
+Whole-space, so it inherits the raising `__getitem__` — a mixed-axis or
+transform-bearing chain (`fd["x"] @ fd["y"]`, `div @ grad`,
+`fourier.forward @ fd["x"]`) is not bindable. Composition is
+associative and flat; a composite normalizes to a single factor chain,
+eliding `Identity` and dropping `Zero`. Halo **sums** along the chain
+(§3.6). A symbol exists iff every factor is linear with a symbol on the
+compatible bases, and is their mode-wise product (§3.7); nonlinear
+factors (WENO, limiters) make the composite symbol-free.
+
+### SeparableComposite
+
+```python
+@final
+@fr.utils.jaxify
+class SeparableComposite(SeparableOperator):    # iteration 1
+    """A chain of separable kernels on one axis; itself separable."""
+    def __init__(self, factors: tuple[SeparableOperator, ...]) -> None: ...
+    def codomain(self, domain): ...             # thread the chain per factor
+    def requirements(self, domain): ...         # SUM of factor halos (§3.6)
+    def eigenvalues(self, grid, space): ...     # PRODUCT of factor symbols (§3.7)
+    def _apply_factor(self, f, axis): ...       # run each factor on `axis`
+```
+
+Produced by `@` when both operands are separable **and axis-compatible**
+(both unbound, or bound to the same axis); different bound axes give a
+whole-space `Composite` instead. Being a `SeparableOperator`, it
+inherits `bound_axis`, `__getitem__`, the axis-resolving `_apply`, and
+the per-shard template — so binding distributes for free
+(`(flux_diff @ reconstruct)["x"]` just sets its `bound_axis`, which is
+`flux_diff["x"] @ reconstruct["x"]`). It overrides only `_apply_factor`
+(chain each factor on the axis), `requirements` (sum), and `eigenvalues`
+(product). This is the object the FV derivative default is
+([`FVDerivative`](#fvderivative), D1).
+
+### OperatorSum / ScaledOperator
+
+```python
+@final
+@fr.utils.jaxify
+class OperatorSum(Operator):                    # designed-for
+    """Flat term list: (A + B)(f) == A(f) + B(f); same signature."""
+    def __init__(self, terms: tuple[Operator, ...]) -> None: ...
+    def codomain(self, *domains): ...           # the terms' common signature
+    def requirements(self, domain): ...         # per-axis MAX (§3.6)
+    def eigenvalues(self, grid, space): ...      # SUM of term symbols (§3.7)
+    def _apply(self, f): ...
+
+
+@final
+@partial(fr.utils.jaxify, dynamic=("coeff",))
+class ScaledOperator(Operator):                 # designed-for
+    """Coefficient-scaled operator: (c * A)(f) == c * A(f)."""
+    #: complex scalar, or a ScalarField on ``A.codomain`` (dynamic leaf)
+    def codomain(self, *domains): ...           # A.codomain
+    def requirements(self, domain): ...         # halo(A) (product is pointwise)
+    def eigenvalues(self, grid, space): ...      # scales A's symbol iff c constant
+    def _apply(self, f): ...
+```
+
+Sums read the same input in parallel, so halo **maxes** (§3.6); `Zero`
+terms drop on normalization. `ScaledOperator` is the §3.4 machinery: a
+field coefficient multiplies the *output* (so `c` lives on
+`A.codomain`, `ConstantSpace` broadcast making plain scalars the
+constant case), and it is what spells the terrain-following derivative
+`ddx_z = fd["x"] - c_metric * fd["sigma"]` (§3.8, sketch 4.4) — the
+metric coefficient a dynamic leaf read through `grid.metric`. A genuine
+field coefficient breaks translation invariance, so the scaled operator
+has **no symbol** unless `c` is constant (§3.7).
+
+### Block
+
+```python
+@final
+@fr.utils.jaxify
+class Block(Operator):                          # designed-for
+    """Block matrix of scalar-signature operators (§3.5, B1)."""
+    def __init__(self, blocks: Sequence[Sequence[Operator]]) -> None:
+        """m x n grid; ``Zero`` for structural zeros, ``Identity`` on
+        the diagonal where needed."""
+        ...
+    def codomain(self, *domains): ...           # tuple codomain (§3.1)
+    def requirements(self, domain): ...         # per block-row max_j(halo compose) (§3.6)
+    def eigenvalues(self, grid, space): ...      # a per-mode block matrix of symbols (§3.7)
+    def _apply(self, f): ...                    # D(f)_i = sum_j D_ij(f_j)
+```
+
+A whole-space, tuple-signatured operator, not bindable. `@` is
+**block-matrix multiplication** ((A @ B)_ik = sum_j A_ij @ B_jk), which
+is why `laplacian = div @ grad` type-checks ((1×n) @ (n×1) = 1×1) and
+its single block is the `OperatorSum` of per-axis `SeparableComposite`
+second derivatives (B1). `grad` is a column, `div` a row, `curl` a
+matrix with `Zero` blocks in 3-D. Its **entries are the bound scalar
+operators** of the separable layer; the block expansion is **metadata
+computed on demand** for halo and symbol queries, never materialized as
+a rewritten operator (§3.11). Nonlinear tuple-signature operators
+(kinetic energy `(u, v) -> ke`) are **not** blocks — they carry a tuple
+signature with a direct `_apply` and decline block/symbol (B4).
+
+### Dispatched
+
+```python
+@final
+@fr.utils.jaxify
+class Dispatched(Operator):                     # iteration 1
+    """A registry kind placeholder, resolved when the grid is known (D4)."""
+    def __init__(self, kind: str) -> None: ...
+    def __getitem__(self, axis: str) -> Dispatched:
+        """Carry a pending axis bind onto the (later) resolved operator."""
+        ...
+    def resolve(
+        self, registry: OperatorRegistry, space: SpaceLike,
+    ) -> Operator:
+        """Replace the placeholder with the registered operator."""
+        ...
+    def __call__(self, f: ScalarField | VectorField):
+        """Standalone use: resolve against ``f.grid.dispatch``, then apply."""
+        ...
+    def codomain(self, *domains): ...           # from the resolved target
+```
+
+**One object, two roles** (D4). As a **chain factor** inside a
+registered default (`flux_diff @ Dispatched("reconstruct")`), it is
+resolved at **model assembly** against the merged registry (grid
+defaults + module overrides), then baked concrete — no per-application
+lookup inside chains, so a module's `reconstruct` override propagates
+into the FV derivative (sketch 4.2). As the **user verb**
+(`diff = Dispatched("diff")`, `diff["x"](f)`), it resolves against
+`f.grid.dispatch` at **application** — exactly what `f.diff("x")` did.
+The unifying rule: *resolve when the registry/grid becomes known.*
+Resolution precedence is ordinary dispatch (space-specific > kind-only
+> default, [registry](#operatorregistry)). The field-sugar forwarders
+(D3) route through this verb: `f.diff(axis) == fr.operators.diff[axis]
+(self)`, `f.integrate(axis) == fr.operators.integrate[axis](self)`;
+`f.to(target)`'s target-space binding spelling is a D3 open detail.
 
 ---
 
@@ -1008,54 +1346,48 @@ both directions; and the pressure gradient is
 
 ### FVDerivative
 
-The composed FV derivative `flux_diff ∘ reconstruct` — the default
-`"diff"` entry on average spaces.
+The FV derivative `flux_diff ∘ reconstruct` — the default `"diff"`
+entry on average spaces. Under D1 it is **not a bespoke class** but a
+factory that builds the algebra chain; the result is an ordinary
+`SeparableComposite`.
 
 | | |
 |---|---|
-| Kind | concrete (final) |
-| Pytree | static |
+| Kind | factory function -> `SeparableComposite` |
+| Pytree | static (the composite) |
 | Iteration | 1 |
-| Concept refs | §3.4, §3.9 |
+| Concept refs | §3.4, §3.9; merge D1/D4/D5 |
 | Module | `grid2.operators.flux_diff` |
 
 ```python
-@final
-class FVDerivative(SeparableOperator):
-    """FV derivative: flux_diff o reconstruct (CellAvg -> CellAvg)."""
+def FVDerivative(
+    reconstruct: SeparableOperator | None = None,
+) -> SeparableComposite:
+    """flux_diff @ (reconstruct or Dispatched("reconstruct")).
 
-    dispatch_kind: ClassVar[str | None] = "diff"
-
-    def __init__(
-        self, reconstruct: SeparableOperator | None = None,
-    ) -> None:
-        """Compose with an explicit reconstruction, or late-bind it."""
-        ...
-
-    def codomain(self, domain: FunctionSpace) -> FunctionSpace:
-        """diff: CellAvg -> CellAvg."""
-        ...
-
-    def requirements(
-        self, domain: FunctionSpace,
-    ) -> OperatorRequirements:
-        """Sum of the resolved reconstruct halo and flux_diff halo."""
-        ...
+    With ``reconstruct=None`` the reconstruction is a ``Dispatched``
+    placeholder resolved once at model assembly (D4); an explicit
+    kernel pins the composition. Both are same-axis separable factors,
+    so the chain is a ``SeparableComposite`` (CellAvg -> CellAvg): it
+    binds with ``["x"]``, its halo is the sum of the factor halos
+    (§3.6), and ``f.diff("x")`` on an average space resolves to it.
+    """
+    return FluxDifference() @ (reconstruct or Dispatched("reconstruct"))
 ```
 
 Notes:
 
-- With `reconstruct=None` the constituent is **late-bound through the
-  field's registry** at apply time
-  (`f.grid.dispatch.resolve("reconstruct", factor)`), so a module
-  override of `"reconstruct"` (sketch 4.2) automatically changes what
-  `f.diff("x")` does on average spaces — the notes' reason advection
-  schemes override reconstruction, not diff. An explicit instance
-  pins the composition.
-- Halo composes additively (un-synced chain,
-  [§5](../04_decomposition.md#5-domain-decomposition)); the
-  registry-resolved constituents make this visible to the
-  halo-accounting trace with no special code.
+- The reconstruction is a **`Dispatched("reconstruct")` placeholder
+  resolved once at model assembly** (D4/D5), not the old apply-time
+  late binding — so a module override of `"reconstruct"` (sketch 4.2)
+  still propagates into what `f.diff("x")` does on average spaces (the
+  reason advection schemes override reconstruction, not diff), but the
+  baked chain is fully concrete and static, with no per-application
+  registry lookup.
+- Halo composes additively as an un-synced chain — but now *because*
+  `SeparableComposite.requirements` sums its factor halos (§3.6), not
+  via bespoke code. The registered default is the composite object
+  itself, so the halo-accounting trace sees it with no special casing.
 
 ---
 
@@ -1348,10 +1680,7 @@ class Transform(UnaryOperator, ABC):
         ...
 
     def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> ScalarField | VectorField:
         """Delegate to ``forward`` (registry-uniform application)."""
         ...
@@ -1727,22 +2056,19 @@ class ConstantBroadcast(SeparableOperator):
         ...
 
     def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        *,
-        to: FunctionSpace | None = None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> ScalarField | VectorField:
-        """Replicate the constant DOF into the target factor."""
+        """Replicate the constant DOF into the bound target factor."""
         ...
 ```
 
 Unlike other separable kernels, the codomain is not a function of the
-domain alone: the target factor comes from the *other* operand at the
-call site (binary ops pass `to=` through the template's `**kwargs`
-when their `codomain` unites a constant factor with a full one) — a
-recorded widening of the per-factor signature, analogous to the
+domain alone: the target factor is supplied by the *other* operand
+when binary `codomain` unites a constant factor with a full one. Under
+bind-only (D2) that target is carried by binding rather than a call
+keyword — the concrete spelling (`broadcast[target]` vs a `to=`
+constructor argument) is the **D3 open detail** (see Open questions) —
+a recorded widening of the per-factor signature, analogous to the
 composed-operator widening. On nodal/average targets the embedding is
 exact replication (halo 0, layout "any", iteration 1). On coefficient
 targets it is the exact delta embedding (the constant lands in the
@@ -1834,12 +2160,9 @@ class Abs(UnaryOperator):
         ...
 
     def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> ScalarField | VectorField:
-        """Elementwise magnitude; ``axis`` is forbidden."""
+        """Elementwise magnitude (whole-space, not bindable)."""
         ...
 ```
 
@@ -2146,167 +2469,91 @@ Notes:
 
 ## Composed operators (vector calculus)
 
-Generic **dispatch kinds**, not special slots (§3.4): the default
-entries on separable grids are compositions over `"diff"`/`"interp"`;
-on non-separable meshes (sphere, unstructured) models register
-primitive metric-aware mesh-level operators under the *same kinds*
-(§6.3, §6.4). The registry-held object *is* the operator
-(`fr.operators.Laplacian(order=2)` and the `"laplacian"` kind resolve
-to the same instance).
+Generic **dispatch kinds**, not special slots (§3.4), and under D1
+**algebra-derived**: the default entries on separable grids are
+`Block`s and chains over `"diff"`/`"interp"`/`"flux_diff"` (B1), *not*
+bespoke classes. `grad`/`div`/`curl`/`laplacian` have **grid-dependent
+block shape** (2-D vs 3-D), so they are `Dispatched`-family (B2): the
+registered default for the kind is a builder that, at model assembly,
+expands against the grid's axis family into a `Block` whose entries are
+`Dispatched("diff")` bound per axis (late-bound, so module overrides
+propagate). On non-separable meshes (sphere, unstructured) models
+register primitive metric-aware mesh-level operators under the *same
+kinds* (§6.3, §6.4) — not blocks; nothing here assumes the registered
+entry is separable or block-structured. The factory names
+(`fr.operators.Gradient(...)` etc.) return that builder; the kind and
+the factory resolve to the same object. There is no distinct
+`Laplacian` *type* — `isinstance(op, Laplacian)` no longer exists (D1).
 
-### Laplacian
-
-| | |
-|---|---|
-| Kind | concrete (final) |
-| Pytree | static |
-| Iteration | designed-for (first consumer: spectral pressure solvers, sketch 4.6) |
-| Concept refs | §2.5, §3.4, sketch 4.6 |
-| Module | `grid2.operators.composed` |
-
-```python
-@final
-class Laplacian(UnaryOperator):
-    """Composed div(grad) on a full product space."""
-
-    dispatch_kind: ClassVar[str | None] = "laplacian"
-
-    def __init__(self, order: int = 2) -> None:
-        """Create the composed Laplacian of the given FD order."""
-        ...
-
-    def codomain(self, domain: TensorProductSpace) -> TensorProductSpace:
-        """laplacian: S -> S (round trip through staggered factors)."""
-        ...
-
-    def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
-    ) -> ScalarField | VectorField:
-        """Apply per factor and sum; ``axis`` is forbidden."""
-        ...
-
-    def eigenvalues(
-        self, grid: Grid, space: TensorProductSpace,
-    ) -> Symbol:
-        """Broadcast sum of per-factor symbols (-|k_hat|^2)."""
-        ...
-```
-
-`eigenvalues` takes the **full product coefficient space** and
-composes per-factor symbols internally: `bwd @ fwd` per factor, each
-factor symbol then **replication-extended** across the remaining
-factors and summed — the diagonal-operator broadcast of the `Symbol`
-notes, *not* doc 02's delta field lift (sketch 4.6). It raises
-`EigenbasisError` unless *every* factor diagonalizes (fully periodic
-grids); mixed grids fall back to banded per-column solves outside
-this operator.
-
-### Gradient / Divergence / Curl
+### Gradient / Divergence / Curl / Laplacian
 
 | | |
 |---|---|
-| Kind | concrete (final), three classes |
-| Pytree | static |
+| Kind | factory functions -> `Block` (assembly-resolved, B2) |
+| Pytree | static (the block / composite) |
 | Iteration | designed-for |
-| Concept refs | §2.4, §3.4, §6.3, sketch 4.7 |
+| Concept refs | §2.4, §3.4, §6.3, sketch 4.6/4.7; merge D1/B1/B2 |
 | Module | `grid2.operators.composed` |
 
 ```python
-@final
-class Gradient(UnaryOperator):
-    """Composed per-factor gradient: scalar -> staggered vector."""
-
-    dispatch_kind: ClassVar[str | None] = "grad"
-
-    def __init__(self) -> None:
-        """Create the composed gradient (resolves "diff" per factor)."""
-        ...
-
-    def codomain(
-        self, domain: TensorProductSpace,
-    ) -> tuple[TensorProductSpace, ...]:
-        """Component spaces, one staggered product space per factor."""
-        ...
-
-    def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
-    ) -> VectorField:
-        """Gradient as a VectorField; ``axis`` is forbidden."""
-        ...
+def Gradient(order: int | None = None) -> Operator:
+    """The "grad" builder (B1/B2). At model assembly it expands, over
+    the grid's axis family, into a column Block
+    ``[[d["x"]], [d["y"]], ...]`` — scalar ``S`` -> the staggered vector
+    ``(Right⊗Center, Center⊗Right, ...)`` — each entry
+    ``Dispatched("diff")`` (or ``FiniteDifference(order)``) bound to
+    that axis.
+    """
+    ...
 
 
-@final
-class Divergence(UnaryOperator):
-    """Composed divergence: staggered vector -> scalar."""
-
-    dispatch_kind: ClassVar[str | None] = "div"
-
-    def __init__(self) -> None:
-        """Create the composed divergence."""
-        ...
-
-    def codomain(
-        self, *domains: TensorProductSpace,
-    ) -> TensorProductSpace:
-        """div: (u, v, w) component spaces -> the common cell space."""
-        ...
-
-    def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
-    ) -> ScalarField:
-        """Divergence of a VectorField; ``axis`` is forbidden."""
-        ...
+def Divergence(order: int | None = None) -> Operator:
+    """The "div" builder: a row Block ``[[d["x"], d["y"], ...]]`` —
+    the staggered vector -> the common cell space. The FV C-grid ``div``
+    (sketch 4.7) resolves ``("flux_diff", factor)`` per axis, exact by
+    type.
+    """
+    ...
 
 
-@final
-class Curl(UnaryOperator):
-    """Composed curl on staggered vector fields."""
+def Curl(order: int | None = None) -> Operator:
+    """The "curl" builder: a matrix Block with ``Zero`` structural zeros
+    — the staggered vector -> its dual-staggered curl."""
+    ...
 
-    dispatch_kind: ClassVar[str | None] = "curl"
 
-    def __init__(self) -> None:
-        """Create the composed curl."""
-        ...
-
-    def codomain(
-        self, *domains: TensorProductSpace,
-    ) -> tuple[TensorProductSpace, ...]:
-        """Component spaces of the curl (dual staggering)."""
-        ...
-
-    def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
-    ) -> VectorField:
-        """Curl of a VectorField; ``axis`` is forbidden."""
-        ...
+def Laplacian(order: int = 2) -> Operator:
+    """``div @ grad`` — block-matmul ((1×n) @ (n×1) = 1×1) to a Block
+    whose single block is the ``OperatorSum`` of per-axis
+    second-derivative ``SeparableComposite``s (B1)."""
+    return Divergence(order) @ Gradient(order)
 ```
 
 Notes:
 
-- These are the only operators in the cluster whose operands are
-  `VectorField`s; they stretch the unary `codomain(domain)` shape to
-  tuples of component spaces — recorded as a deliberate widening of
-  the base signature (the alternative, a third `VectorOperator` ABC,
-  was rejected as one-off ceremony for three classes).
-- Defaults compose registry-resolved `"diff"` (and where needed
-  `"interp"`) per factor — late-bound like `FVDerivative`, so module
-  overrides propagate. On a sphere/unstructured mesh the *same kinds*
-  hold primitive metric-aware registrations (`div: edge-normal ->
-  cell`); nothing here assumes separability of the registered entry.
-- The FV C-grid `div` (sketch 4.7) is this `Divergence` resolving
-  `("flux_diff", factor)` per component axis — exact by type.
+- **These build the dispatch defaults; they are not privileged types**
+  (D1, operator_design §3.5). The block *expansion* — the per-axis
+  entries the halo (per block-row, §3.6) and the symbol matrix (§3.7)
+  walk — is computed **on demand, never materialized** as a rewritten
+  operator (§3.11). This **replaces the rejected `VectorOperator` ABC
+  framing**: grad/div/curl are `Block`s with tuple signatures (§3.1),
+  not unary operators with a widened `codomain` — the ABC is unneeded
+  for a different reason than before.
+- **Laplacian's symbol** falls out of `Block.eigenvalues` on the 1×1
+  block: the `OperatorSum` of per-factor symbols — `bwd @ fwd` per
+  factor, each **replication-extended** across the remaining factors
+  and summed (the diagonal-operator broadcast of the `Symbol` notes,
+  *not* doc 02's delta field lift; sketch 4.6). Raises
+  `EigenbasisError` unless *every* factor diagonalizes (fully periodic
+  grids); mixed grids fall back to banded per-column solves outside
+  this operator. This is the D8-preserved `Symbol` subtlety — now
+  living in the block/chain symbol calculus rather than a bespoke
+  `Laplacian.eigenvalues`.
+- Entries are late-bound `Dispatched("diff")`/`("flux_diff")` per axis,
+  so module overrides propagate (as for `FVDerivative`). On a sphere /
+  unstructured mesh the *same kinds* hold primitive metric-aware
+  registrations (`div: edge-normal -> cell`) instead of blocks; nothing
+  here assumes separability or block structure of the registered entry.
 
 ### RaiseIndex / LowerIndex
 
@@ -2336,10 +2583,7 @@ class RaiseIndex(UnaryOperator):
         ...
 
     def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> VectorField:
         """Contract with the inverse metric from ``grid.metric``."""
         ...
@@ -2362,10 +2606,7 @@ class LowerIndex(UnaryOperator):
         ...
 
     def _apply(
-        self,
-        f: ScalarField | VectorField,
-        axis: str | None,
-        **kwargs: object,
+        self, f: ScalarField | VectorField,
     ) -> VectorField:
         """Contract with the metric from ``grid.metric``."""
         ...
@@ -2503,6 +2744,17 @@ class OperatorRegistry:
   `OperatorRegistry.merge` and swaps the grid's held instance. The
   merge *call site* is the open Phase 2 question (§3.4); this class
   only provides the mechanism.
+- **`Dispatched` placeholders resolve at merge time** (D4). A default
+  may be a chain or block containing `Dispatched("reconstruct")` /
+  `Dispatched("diff")` holes ([`FVDerivative`](#fvderivative),
+  [`Gradient`](#gradient--divergence--curl--laplacian)); `merge`
+  resolves every hole against the *merged* registry (defaults +
+  overrides) with ordinary precedence, and the grid-dependent block
+  builders (`grad`/`div`/`curl`) expand over the grid's axis family at
+  the same moment (B2). After the merge the entries are fully concrete
+  and static — **no per-application registry lookup inside chains**;
+  standalone user-verb `Dispatched` (`diff["x"](f)`) instead resolves
+  at application against `f.grid.dispatch` (same rule, later moment).
 - **Transform rows are lazy factories** (G6; doc 04's grid-lifecycle
   subsection): the `("transform", ...)` defaults are seeded as
   factories, and the grid-bound instance is constructed on first
@@ -2544,7 +2796,7 @@ the cartesian subclass adds nothing):
 |-----|------------------|----------------------|
 | `("diff", Center)` | `FiniteDifference(order=2)` | `Center -> Right` (periodic) / `Inner` (bounded) |
 | `("diff", Right/Outer/Inner)` | `FiniteDifference(order=2)` | `-> Center` |
-| `("diff", CellAvg)` | `FVDerivative()` | `CellAvg -> CellAvg` |
+| `("diff", CellAvg)` | `flux_diff @ Dispatched("reconstruct")` (a `SeparableComposite`, = `FVDerivative()`) | `CellAvg -> CellAvg` |
 | `("diff", Fourier(o))` | `SpectralDerivative()` | `Fourier(o) -> Fourier(o)` |
 | `("diff", Sine/Cosine coeff)` | `SpectralDerivative()` | `Sine <-> Cosine` |
 | `("diff", Chebyshev coeff)` | `SpectralDerivative()` | recurrence, same family |
@@ -2574,8 +2826,8 @@ the cartesian subclass adds nothing):
 | `("integrate", nodal/average factor)` | `Integral()` | `-> ConstantSpace` |
 | `("integrate", coefficient factor)` | none — `DispatchError` ("transform back first"); zero-mode extraction `L * c0` *(designed-for)* | `-> ConstantSpace` |
 | `("cumint", Center/CellAvg)` | `CumulativeIntegral()` | `-> Outer` (bounded) / `Right` (periodic, mean-zero) |
-| `"laplacian"` | `Laplacian(order=2)` *(designed-for)* | `S -> S` |
-| `"grad"` / `"div"` / `"curl"` | `Gradient()` / `Divergence()` / `Curl()` *(designed-for)* | composed |
+| `"laplacian"` | `Laplacian(order=2)` builder -> `div @ grad` Block *(designed-for)* | `S -> S` |
+| `"grad"` / `"div"` / `"curl"` | `Gradient()` / `Divergence()` / `Curl()` builders -> `Block` over the grid's axes (B2) *(designed-for)* | composed (tuple sig) |
 | `"raise_index"` / `"lower_index"` | `RaiseIndex()` / `LowerIndex()` *(designed-for, metric grids)* | variance retag |
 
 Reserved kinds whose default operators live in other clusters:
@@ -2589,11 +2841,16 @@ adoption paragraph, G10) — spaces are interned, so this stays a small
 finite table.
 
 **Sugar wiring** (owned by doc 02's field classes, listed here for
-the contract): `f.diff("x")` resolves
-`f.grid.dispatch.resolve("diff", f.function_space.factor("x"))` and
-calls `op(f, axis="x")`; `f.to(target)` reads the conversion kind
-from the per-axis source/target family relationship and resolves
-`(kind, source_factor)`; `f * g` resolves
+the contract). Under D3 the named field methods are **thin forwarders
+to the operator verbs**, not a parallel path: `f.diff("x")` is
+`fr.operators.diff["x"](f)` where `diff = Dispatched("diff")` resolves
+`("diff", f.function_space.factor("x"))` against `f.grid.dispatch` and
+applies the bound operator (`op["x"](f)`, bind-only — no `axis=`
+keyword); `f.integrate("x")` forwards the same way. `f.to(target)`
+reads the conversion kind from the per-axis source/target family
+relationship and resolves `(kind, source_factor)` (its target-space
+binding spelling is a D3 open detail). The **arithmetic dunders stay
+on the field** (Python syntax): `f * g` resolves
 `("multiply", common_space)` via the product-key rule above, and
 `f / g`, `f ** p`, `abs(f)` resolve `("divide", ...)`,
 `("power", ...)`, `("abs", ...)` the same way; doc 02's `where`
@@ -2618,10 +2875,27 @@ fixes its own codomain; `.to` errors if it disagrees with the target
 3. **Retagging-symbol ergonomics.** The `space`/`codomain` pair and
    `@` composition on `Symbol` implement the notes' diagonal algebra
    for origin-changing diagonals (FD first derivative, `PhaseShift`);
-   sketch 4.6's `fd.eigenvalues(...) ** 2` shorthand is realized
-   inside `Laplacian.eigenvalues` as `bwd @ fwd`. Confirm this
-   reading is acceptable before the `Symbol` iteration lands, or
-   restrict first-derivative symbols to solver-internal use.
+   sketch 4.6's `fd.eigenvalues(...) ** 2` shorthand is realized in the
+   block/chain symbol calculus (`Block.eigenvalues` -> `OperatorSum` of
+   `bwd @ fwd` per factor, D8), not a bespoke `Laplacian.eigenvalues`.
+   Confirm this reading is acceptable before the `Symbol` iteration
+   lands, or restrict first-derivative symbols to solver-internal use.
+4. **D3 forwarder loose ends.** The `f.to(target)` forwarder's
+   target-space binding spelling (`to[target]` vs a `To(space)`
+   builder), and whether `Dispatched` needs a public constructor or
+   only the seeded verbs (`diff`, `integrate`, ...). Small; folds into
+   the model-facing sugar work.
+
+Resolved by the operator-algebra merge (D8,
+[`operator_algebra_merge.md`](operator_algebra_merge.md)): the operator
+*algebra* is folded into the base hierarchy, composed operators, and
+registry above — composition `@`/`Composite`/`SeparableComposite`, axis
+binding `op["x"]` (bind-only, replacing the `axis=` keyword),
+`Identity`/`Zero`/`OperatorSum`/`ScaledOperator`/`Block`/`Dispatched`,
+tuple signatures, and the algebra-derived composed operators. The
+bind-only signature pass (`_apply(self, f)`) is applied to every
+operator in this document; `ConstantBroadcast`'s target-binding
+spelling is the one residual (D3, question 4 above).
 
 Resolved since the first draft: the refined-mesh handle for padded
 transforms is closed — doc 01 defines

@@ -273,10 +273,16 @@ With that:
   [4.6](03_api_sketches.md#46-verifying-fv-exactness-through-composed-symbols)).
 
 Applying a `Symbol` to a field remains a `Hadamard` multiply;
-`Symbol @ Symbol` equals the diagonal product `*` (section 3.4). A
-`Symbol` may appear as a factor in a chain whose neighbors are
-coefficient-space operators (e.g. filter-then-inverse-transform); it
-is then just an operator with a concrete signature.
+`Symbol @ Symbol` equals the diagonal product `*` (section 3.4). A raw
+`Symbol` is **not** a factor in an operator `@` chain: a `Symbol`
+carries a dynamic data leaf while the chain is static structure (the
+class design fixes `Symbol` as *not* an `Operator`). What appears in a
+chain is a **static diagonal operator** — `SpectralDerivative`,
+`PhaseShift`, `SincShift`, a spectral filter — that derives its symbol
+from the grid at trace time and applies it as `Hadamard`; the raw
+`Symbol` stays solver-facing (`op.eigenvalues`, `1 / lap`). So there is
+no `Symbol @ Operator` and no normalization rule to write (thread 5.4,
+resolved; class-design `operator_algebra_merge.md` T4).
 
 ### 3.8 Binary operators in chains
 
