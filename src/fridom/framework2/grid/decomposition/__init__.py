@@ -27,6 +27,17 @@ if TYPE_CHECKING:  # pragma: no cover
         traits,
     )
 
+    # import all classes
+    from .decomposition import (
+        Decomposition,
+        ReshardingReport,
+        SpaceLike,
+    )
+    from .halo import HaloSpec
+    from .layout import Layout
+    from .tensor import TensorDecomposition
+    from .traits import HaloStrategy, MeshDecompositionTraits
+
 # ================================================================
 #  Setup lazy loading
 # ================================================================
@@ -43,6 +54,16 @@ all_modules_by_origin = {
     ],
 }
 
-all_imports_by_origin = {}
+all_imports_by_origin = {
+    f"{base}.traits": ["HaloStrategy", "MeshDecompositionTraits"],
+    f"{base}.halo": ["HaloSpec"],
+    f"{base}.layout": ["Layout"],
+    f"{base}.decomposition": [
+        "Decomposition",
+        "ReshardingReport",
+        "SpaceLike",
+    ],
+    f"{base}.tensor": ["TensorDecomposition"],
+}
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
