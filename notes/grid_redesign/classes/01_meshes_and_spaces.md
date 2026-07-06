@@ -37,7 +37,7 @@ this cluster:
 
 ```
 src/fridom/framework/grid2/
-    scalars.py            # Scalars, Real, Complex
+    scalars.py            # Scalars, Real, Complex, Variance
     bc.py                 # BC, BCStructure
     meshes/               # re-exported as fr.meshes
         mesh.py           # Mesh (ABC)
@@ -95,25 +95,49 @@ These apply to every class below and are not repeated per class:
   field pytrees as *static aux data* — never as leaves — and serve as
   jit-cache and dispatch keys. None of these classes is decorated with
   `@fr.utils.jaxify`.
-- **Identity semantics.** `__eq__` and `__hash__` are the object
-  defaults (identity). Interning turns value equality into identity:
-  two requests for "the center space of mesh `m`" return the same
-  object, so the strict-algebra check (section 3.1) is `a is b`.
+- **Identity semantics — explicit, not defaulted.** `Mesh` and
+  `FunctionSpace` define an *explicit*
+  `def __eq__(self, other): return self is other` plus the matching
+  identity `__hash__`. Relying on the object defaults is a trap:
+  fridom's structural-equality machinery
+  (`framework/utils/jax_utils.py`, `_values_equal`) routes any fridom
+  object whose `__eq__` *is* the object default into a deep
+  structural walk, so two distinct-but-equal meshes — and their
+  interned space families — would compare equal in the jit cache,
+  exactly what this cluster forbids. An explicit identity `__eq__`
+  makes `_values_equal` fall through to plain `a == b`. Interning
+  turns value equality into identity: two requests for "the center
+  space of mesh `m`" return the same object, so the strict-algebra
+  check (section 3.1) is `a is b`.
 - **Meshes are *not* interned by value.** Each mesh construction is a
   new, distinct domain factor: a square domain needs two
   `IntervalMesh(shape=256, extent=(0, 1))` instances, and they must
   not collapse into one. Interning happens *per mesh*, one level down,
   in the mesh-owned space registry.
-- **Space constructors are not user-facing.** Every space class has an
-  ordinary `__init__`, but the only supported construction path is the
-  owning mesh's factory attributes; direct construction bypasses
-  interning and voids the identity-equality guarantee. Signatures are
-  given below for the record, prefixed with the mesh they bind to.
+- **Space constructors are guarded.** The only construction path is
+  the owning mesh's factory attributes: `__init__` takes a *private
+  factory token* keyword and raises when invoked without it (i.e.
+  outside the mesh's interning factory), because direct construction
+  would silently void the identity-equality guarantee of the strict
+  algebra. Signatures are given below for the record, prefixed with
+  the mesh they bind to.
+- **No large static arrays — at all costs.** Static descriptors are
+  numbers, tuples, enums, callables. Bulk array data must never be
+  baked into interned static objects: interned objects are immortal
+  (memory blow-up) and static key content leaks into traced programs
+  as baked constants (compile-time blow-up). Anything bulk is
+  dynamic, grid-materialized-on-demand data. This rule is what makes
+  the unstructured-mesh geometry an unresolved problem (see
+  `UnstructuredMesh` and Open questions).
 - **Naming.** Classes `PascalCase`, members `snake_case`, per
-  `AGENTS.md`. Fixed factory spellings (section 10.2): `mx.center`,
-  `mx.right`, `mx.outer`, `mx.inner`, `mx.cellavg`, `mx.faceavg`,
-  `mx.constant`, `mx.fourier(origin=...)`, `mx.galerkin(bc=...)`,
-  `space.as_complex()`, `space_a * space_b`.
+  `AGENTS.md`. Fixed factory spellings (section 10.2, as amended in
+  this change set): `mx.center`, `mx.right`, `mx.outer`, `mx.inner`,
+  `mx.cell_avg`, `mx.face_avg`, `mx.constant`,
+  `mx.fourier(origin=...)`, `mx.galerkin(bc=...)`,
+  `space.as_complex()`, `space_a * space_b`. The squashed spellings
+  `cellavg`/`faceavg` were rejected for snake_case consistency (the
+  07 cheat sheet is amended in the same change set); the class names
+  `CellAvg`/`FaceAvg` are unchanged.
 
 ---
 
@@ -167,9 +191,10 @@ space (data stays per-field, section 3.6).
 
 - Kind: `BC` final enum; `BCStructure` final value class
 - Static or dynamic: static; `BCStructure` is hashed *by value*
-- Iteration: designed-for (only the BC-free default is exercised in
-  iteration 1; `fr.BC` ships with the first bounded-BC / Galerkin
-  spaces)
+- Iteration: 1 — `bc.py` ships day one; `NONE`, `DIRICHLET`, and
+  `NEUMANN` are all exercised in iteration 1 (carried by the
+  Sine/Cosine coefficient spaces and their structured origins);
+  Galerkin/Shen spaces remain designed-for
 - Concept refs: sections 2.2, 3.2, 3.5, 3.6
 
 ```python
@@ -252,8 +277,20 @@ discretization, no arrays (section 2.1).
 class Mesh(ABC):
     """Atomic factor of the domain geometry (geometry + topology)."""
 
-    def __init__(self, names: tuple[str, ...] | None = None) -> None:
-        """Create the factor; optionally bind coordinate names."""
+    def __init__(self, names: tuple[str, ...]) -> None:
+        """Create the factor; coordinate names are mandatory."""
+        ...
+
+    # ------------------------------------------------------------
+    #  Identity (explicit, see cluster rules)
+    # ------------------------------------------------------------
+    def __eq__(self, other: object) -> bool:
+        """Identity: return self is other (explicit so fridom's
+        structural-equality walk falls through to plain ==)."""
+        ...
+
+    def __hash__(self) -> int:
+        """Identity hash, matching __eq__."""
         ...
 
     # ------------------------------------------------------------
@@ -275,13 +312,8 @@ class Mesh(ABC):
     #  Coordinate names
     # ------------------------------------------------------------
     @property
-    def names(self) -> tuple[str, ...] | None:
-        """Bound coordinate names, or None before binding."""
-        ...
-
-    def bind_names(self, names: tuple[str, ...]) -> None:
-        """Bind coordinate names once (idempotent; conflict is an
-        error); called by the constructor sugar or by grid assembly."""
+    def names(self) -> tuple[str, ...]:
+        """Coordinate names, fixed at construction."""
         ...
 
     # ------------------------------------------------------------
@@ -328,16 +360,20 @@ Notes:
   factories are additionally exposed as `functools.cached_property`
   for attribute-access speed; the cache and the registry hold the
   same object.
-- **Name binding.** Coordinate names are assembly-level labels
-  (sections 2.3, 2.6), not geometry, so they do not participate in
-  hashing (identity) and may be bound late: either at construction
-  (`IntervalMesh(..., name="x")`, used by the cartesian grid subclass)
-  or by `fr.Grid(meshes=..., names=...)` calling `bind_names` at
-  assembly. Binding is write-once; rebinding with a different value
-  raises. `len(names)` equals the number of coordinate names the
+- **Names are mandatory at construction** (owner decision, closing
+  the former late-binding design). 1D meshes take `name: str`
+  (`IntervalMesh(n, extent, periodic, name="x")`); multi-coordinate
+  meshes take `names: tuple[str, ...]`
+  (`SphereMesh(..., names=("lon", "lat"))`). There is no
+  `bind_names`, no pre-binding state, and `Mesh.names` is always
+  well-defined. Consequently the assembly root is
+  `fr.Grid(meshes=...)` — **no `names=`** — which only *validates*
+  that names are duplicate-free across meshes (doc 04 side); the
+  cartesian convenience subclass keeps `names=` because it constructs
+  the meshes itself. Mesh reuse across grids is naturally under fixed
+  names. `len(names)` equals the number of coordinate names the
   factor contributes (1 for 1D factors, 2 for a sphere — independent
-  of storage-axis count). Reprs of spaces use the bound name
-  (`Center(x)`); unnamed meshes fall back to a positional placeholder.
+  of storage-axis count); reprs of spaces use the name (`Center(x)`).
 - **`boundary` is stable.** Repeated access returns the identical
   boundary-mesh object (`cached_property`), so spaces interned on the
   boundary mesh obey the same identity guarantees as bulk spaces.
@@ -382,9 +418,9 @@ class StructuredMesh1D(Mesh):
     space factories."""
 
     def __init__(self, shape: int, extent: tuple[float, float],
-                 periodic: bool, name: str | None = None) -> None:
-        """Store cell count, extent, periodicity; optionally bind
-        the coordinate name."""
+                 periodic: bool, *, name: str) -> None:
+        """Store cell count, extent, periodicity, and the mandatory
+        coordinate name."""
         ...
 
     # ------------------------------------------------------------
@@ -423,13 +459,20 @@ class StructuredMesh1D(Mesh):
                              ) -> MeshDecompositionTraits:
         """GHOST-first for nodal/average spaces; (LOCAL, TRANSPOSE)
         for coefficient spaces (local preferred); (LOCAL,) for
-        ConstantSpace. Chebyshev overrides (all-local)."""
+        ConstantSpace. Chebyshev overrides (transpose-first)."""
         ...
 
     def refined(self, factor: Fraction) -> Self:
         """A new, distinct mesh of the same type with the cell count
         scaled by factor (padded-transform target, section 3.12);
         interned per (mesh, factor)."""
+        ...
+
+    @property
+    def refined_from(self) -> Self | None:
+        """The parent this mesh was refined from (None on unrefined
+        meshes); doc 03's padded transforms derive the coarse trim
+        target from it."""
         ...
 
     # ------------------------------------------------------------
@@ -462,40 +505,39 @@ class StructuredMesh1D(Mesh):
 
     def nodal(self, node_set: NodeSet, *,
               bc: BC | BCStructure = BC.NONE) -> NodalSpace:
-        """General nodal factory with BC structure (designed-for);
-        the properties above are sugar for bc=BC.NONE."""
+        """General nodal factory with BC structure; the properties
+        above are sugar for bc=BC.NONE."""
         ...
 
     # ------------------------------------------------------------
     #  Average factories (section 3.9)
     # ------------------------------------------------------------
     @property
-    def cellavg(self) -> CellAvg:
+    def cell_avg(self) -> CellAvg:
         """Primal-cell averages (n DOFs)."""
         ...
 
     @property
-    def faceavg(self) -> FaceAvg:
+    def face_avg(self) -> FaceAvg:
         """Dual-cell averages (n periodic / n - 1 bounded DOFs)."""
         ...
 
     # ------------------------------------------------------------
     #  Coefficient factories (section 3.2)
     # ------------------------------------------------------------
-    def fourier(self, origin: FunctionSpace | None = None
-                ) -> FourierSpace:
-        """Fourier coefficient space of the given origin (default:
-        self.center); periodic meshes only."""
+    def fourier(self, origin: FunctionSpace) -> FourierSpace:
+        """Fourier coefficient space of the given origin (explicit,
+        no default); periodic meshes only."""
         ...
 
     def sine(self, origin: FunctionSpace) -> SineSpace:
-        """DST coefficient space of a Dirichlet-structured origin
-        (designed-for); bounded meshes only."""
+        """DST coefficient space of a Dirichlet-structured origin;
+        bounded meshes only."""
         ...
 
     def cosine(self, origin: FunctionSpace) -> CosineSpace:
-        """DCT coefficient space of a Neumann-structured origin
-        (designed-for); bounded meshes only."""
+        """DCT coefficient space of a Neumann-structured origin;
+        bounded meshes only."""
         ...
 
     def galerkin(self, *, bc: BC | BCStructure,
@@ -523,11 +565,18 @@ Notes:
   topologies with n DOFs (xgcm semantics: right edges of the n cells;
   on a bounded mesh `Right` excludes the left boundary face).
 - `nodal(node_set, bc=...)` is the BC-structure hook for nodal spaces
-  required by section 3.6; iteration 1 only ever passes the implicit
-  `BC.NONE` through the sugar properties. The `NodeSet` enum
-  (`CENTER`, `LEFT`, `RIGHT`, `OUTER`, `INNER`, `POINTS`) lives in
-  `spaces/nodal.py` and is the interning key component; there is
-  deliberately no string-keyed variant.
+  required by section 3.6, and it is **iteration 1**: the Sine/Cosine
+  coefficient spaces (promoted to iteration 1) need
+  Dirichlet-/Neumann-structured nodal origins (Dirichlet `Center` ->
+  DST-II, Dirichlet `Inner` -> DST-I, Neumann `Center` -> DCT-II,
+  section 3.2). The `NodeSet` enum (`CENTER`, `LEFT`, `RIGHT`,
+  `OUTER`, `INNER`, `POINTS`) lives in `spaces/nodal.py` and is the
+  interning key component; there is deliberately no string-keyed
+  variant.
+- **Coefficient factories take an explicit `origin` — no default**
+  (owner decision, closing former open question 1): an implicit
+  `origin=center` default invites exactly the origin-mixup bugs the
+  per-origin coefficient-space design (section 3.2) exists to catch.
 - No `dx` on the ABC: uniform spacing is an `IntervalMesh` extra;
   measures in general are grid-materialized metric fields
   (section 2.7).
@@ -542,8 +591,13 @@ Notes:
   every rule above. Although meshes are not interned by value,
   `refined` results *are* memoized per (parent mesh, factor), so
   repeated requests return the identical finer mesh and its spaces
-  stay identity-comparable. Iteration 1 on `IntervalMesh`;
-  designed-for on the other 1D meshes.
+  stay identity-comparable. The parent is reachable as
+  `refined_from` (`None` on unrefined meshes), which is how doc 03's
+  padded transforms derive the coarse trim target from the refined
+  domain space. Grid-wise, refined meshes are **"adopted children"**
+  of the grid that owns their parent (rule G10; doc 04 owns that
+  paragraph). Iteration 1 on `IntervalMesh`; designed-for on the
+  other 1D meshes.
 
 ### IntervalMesh
 
@@ -560,9 +614,9 @@ class IntervalMesh(StructuredMesh1D):
     """Uniform 1D interval with n equal cells."""
 
     def __init__(self, shape: int, extent: tuple[float, float],
-                 periodic: bool = True,
-                 name: str | None = None) -> None:
-        """Uniform interval; shape is the cell count."""
+                 periodic: bool = True, *, name: str) -> None:
+        """Uniform interval; shape is the cell count; the coordinate
+        name is mandatory."""
         ...
 
     @property
@@ -602,7 +656,7 @@ class PointMesh(Mesh):
     """0D mesh: a finite tuple of located points."""
 
     def __init__(self, positions: tuple[tuple[float, ...], ...],
-                 name: str | None = None) -> None:
+                 *, name: str) -> None:
         """Points given by their ambient coordinates; may be empty."""
         ...
 
@@ -632,7 +686,7 @@ class PointMesh(Mesh):
         ...
 
     @property
-    def nodal(self) -> PointValues:
+    def points(self) -> PointValues:
         """One nodal DOF per point (the trace space factor)."""
         ...
 ```
@@ -645,8 +699,12 @@ Notes:
   A boundary `PointMesh` inherits its name from the parent factor, so
   trace spaces print as `boundary(x)` (section 3.6).
 - An inflow profile u(x=0, y, z, t) is a field on
-  `boundary(x).nodal ⊗ Center(y) ⊗ Center(z)` — an ordinary product
+  `boundary(x).points ⊗ Center(y) ⊗ Center(z)` — an ordinary product
   space (doc 02); this class adds no data type for boundary data.
+- The factory is named `points`, not `nodal`: `StructuredMesh1D` has
+  a *method* `nodal(node_set, bc=...)`, and reusing the name for a
+  zero-argument property on a sibling would give the same spelling
+  two arities across the mesh family.
 - Point positions are a static tuple-of-tuples of floats: hashable by
   value at construction time (folded into no registry — mesh identity
   still rules), tiny, and host-side.
@@ -668,7 +726,7 @@ class MappedIntervalMesh(StructuredMesh1D):
 
     def __init__(self, shape: int, extent: tuple[float, float],
                  mapping: Callable, periodic: bool = False,
-                 name: str | None = None) -> None:
+                 *, name: str) -> None:
         """mapping: computational s in [0, 1] -> physical x; must be
         a pure, jnp-traceable, strictly monotone function."""
         ...
@@ -698,7 +756,9 @@ Chebyshev/Shen space family (section 2.1, validation 6.2).
 
 - Kind: concrete, final
 - Static or dynamic: static
-- Iteration: designed-for
+- Iteration: 1 (promoted with the rest of the coefficient machinery;
+  doc 03 promotes the Chebyshev transform in parallel). `galerkin`
+  stays designed-for.
 - Concept refs: sections 2.1, 3.2, 3.5; validation 6.2
 
 ```python
@@ -706,7 +766,7 @@ class ChebyshevMesh(StructuredMesh1D):
     """1D interval with Gauss-Lobatto node geometry."""
 
     def __init__(self, shape: int, extent: tuple[float, float],
-                 name: str | None = None) -> None:
+                 *, name: str) -> None:
         """Bounded by construction (periodic is always False)."""
         ...
 
@@ -716,21 +776,22 @@ class ChebyshevMesh(StructuredMesh1D):
         (n + 1 points including the endpoints)."""
         ...
 
-    def chebyshev(self, origin: FunctionSpace | None = None
-                  ) -> ChebyshevSpace:
-        """Chebyshev coefficient space (default origin: lobatto)."""
+    def chebyshev(self, origin: FunctionSpace) -> ChebyshevSpace:
+        """Chebyshev coefficient space of the given origin
+        (explicit, no default)."""
         ...
 
     def galerkin(self, *, bc: BC | BCStructure,
                  extended: bool = False) -> GalerkinSpace:
-        """Shen basis with baked-in BCs (extended=True: the
-        inhomogeneous variant with boundary modes, section 3.6)."""
+        """Shen basis with baked-in BCs (designed-for;
+        extended=True: the inhomogeneous variant with boundary
+        modes, section 3.6)."""
         ...
 
     def decomposition_traits(self, space: FunctionSpace
                              ) -> MeshDecompositionTraits:
-        """Always (LOCAL,): kept on-device; the mixed grid shards
-        the other factors (section 5)."""
+        """TRANSPOSE-first: shardable, with contiguous-axis needs
+        (transform, banded solves) met via transpose layouts."""
         ...
 ```
 
@@ -741,10 +802,23 @@ Notes:
   endpoints); this mesh places them at Gauss–Lobatto locations. The
   alias exists because spectral users think "Lobatto points", not
   "outer faces".
+- **The space family is restricted** (owner decision, closing former
+  open question 4): `outer`/`lobatto`, the `chebyshev`/`galerkin`
+  coefficient spaces, and `constant` — no cell family. The nodal
+  `center`/`left`/`right`/`inner` and average `cell_avg`/`face_avg`
+  factories raise on this mesh until an FV-on-Chebyshev consumer
+  exists.
 - `fourier` raises (bounded); `sine`/`cosine` are admissible but the
   natural bases here are Chebyshev/Shen.
-- Decomposition: `(LOCAL,)` for every space — this is the
-  "shard x/y, keep z on-device" half of the section 5 negotiation.
+- **Decomposition traits are TRANSPOSE-capable, not LOCAL-preferring**
+  (owner directive): a tensor product of Chebyshev meshes would
+  otherwise be undecomposable in every direction. The mesh *is*
+  shardable; operations that need a contiguous dimension (the
+  Chebyshev transform, banded per-column solves) declare
+  transpose-based layouts — `strategies=(TRANSPOSE, ...)` — and
+  doc 04's negotiation consumes this. "Shard x/y, keep z on-device"
+  (section 5) remains one negotiated *outcome* on mixed grids, not a
+  trait forced by this mesh.
 
 ### SphereMesh
 
@@ -772,7 +846,8 @@ class SphereMesh(Mesh):
 
     @property
     def boundary(self) -> Mesh:
-        """The empty mesh: a sphere is a closed manifold."""
+        """The chart boundary: for a lat-lon parameterization the
+        polar-cap latitude circles, not the empty mesh (see notes)."""
         ...
 
     @property
@@ -797,13 +872,28 @@ Notes:
 - This factor contributes **two coordinate names** but stays *one*
   entry in the flat product tuple (section 2.3); `init=` functions
   receive `lon` and `lat` keywords from this one mesh (6.3).
+- **The sphere is in practice not a closed manifold** (owner
+  directive): a lat-lon grid is a chart with boundaries toward the
+  poles, so `boundary` is *not* empty — it is the polar-cap latitude
+  circles (plus periodic identification in lon). The earlier
+  "closed 2D factor, empty boundary" view is superseded.
+- **Owner's favored direction — a manifold abstraction layer.**
+  Rather than a monolithic 2D factor, the eventual design should
+  explore local parameterization: charts `R^2 -> S^2`, under which
+  the two angular coordinates could even be **two `IntervalMesh`
+  factors with metric coupling at grid level** (the section 2.3
+  "topological product, geometrically coupled through metric fields"
+  rule applied to the sphere). This class is therefore a sketch of
+  the *interface* a spherical factor must satisfy (interning,
+  boundary, traits), not a committed shape; the chart-based design
+  supersedes the monolithic 2D-factor-only view when spherical work
+  starts.
 - The staggered space family beyond `center` (and universal
   `constant`) is deliberately unspecified here: on a sphere the
   useful sets (C-grid faces, poles handling, cubed-sphere variants)
-  are implementation questions for the iteration that ships it; the
-  base-class contract (interning, boundary, traits) is what this doc
-  fixes. `grad`/`div` are mesh-level operator registrations (6.3),
-  not space features.
+  are implementation questions for the iteration that ships it.
+  `grad`/`div` are mesh-level operator registrations (6.3), not
+  space features.
 - Metric terms (cos-lat factors, area elements) are grid-materialized
   fields (section 2.7); the mesh stores only `radius` and counts.
 
@@ -826,8 +916,8 @@ class UnstructuredMesh(Mesh):
     def __init__(self, vertices, triangles,
                  names: tuple[str, str] = ("lon", "lat")) -> None:
         """vertices: (n_vertices, 2) coordinates; triangles:
-        (n_triangles, 3) vertex indices — host-side static topology,
-        content-hashed once at construction."""
+        (n_triangles, 3) vertex indices — bulk data whose storage
+        home is unresolved (see notes: no-static-arrays rule)."""
         ...
 
     @property
@@ -870,15 +960,21 @@ class UnstructuredMesh(Mesh):
 
 Notes:
 
-- **Recorded tension with "meshes hold no arrays"**: connectivity and
-  vertex coordinates *are* the geometry descriptor of an unstructured
-  mesh. Resolution: they are **host-side static data** (numpy, never
-  jax pytree leaves), frozen at construction and digested into a
-  content hash once, so the mesh remains a static, hashable key with
-  O(1) hashing. The no-arrays rule targets *derived, device-sharded*
-  arrays (nodes, meshgrids, metrics), which stay grid-owned
-  (section 2.7): per-DOF coordinates come from
-  `grid.evaluation_nodes(space)` (6.4).
+- **Unresolved collision with the no-static-arrays rule** (owner
+  directive): the connectivity and vertex coordinates of an
+  unstructured mesh are **bulk array data**, and baking them into an
+  interned static mesh violates the cluster rule that large static
+  arrays are to be avoided at all costs (immortal interned memory;
+  baked constants in traced programs). The earlier idea — host-side
+  numpy frozen at construction and content-hashed once — mitigates
+  hashing cost but not the memory/compile-time problem. The owner
+  flags this as a **real problem requiring a careful rethink before
+  any unstructured work starts** (see Open questions); candidate
+  directions include keeping only a topology *fingerprint* static
+  and materializing connectivity as dynamic grid-owned data. Derived
+  per-DOF coordinates are unaffected: they were always materialized
+  on demand through `grid.evaluation_nodes(space)` (6.4) by the
+  fully static grid (G1, doc 04).
 - The vertex/edge/cell family is why nodal spaces have no `shift()`
   involution (section 2.2): staggering transitions here exist only as
   operator signatures (`div: edge_normal -> cell`).
@@ -907,8 +1003,22 @@ class FunctionSpace(ABC):
     """How a continuous field is represented on one mesh."""
 
     def __init__(self, mesh: Mesh, scalars: Scalars,
-                 bc: BCStructure) -> None:
-        """Not user-facing: construct through mesh factories only."""
+                 bc: BCStructure, *, _token: object) -> None:
+        """Raises unless _token is the owning mesh's private factory
+        token: construction only through mesh factories (guarded,
+        see cluster rules)."""
+        ...
+
+    # ------------------------------------------------------------
+    #  Identity (explicit, see cluster rules)
+    # ------------------------------------------------------------
+    def __eq__(self, other: object) -> bool:
+        """Identity: return self is other (explicit so fridom's
+        structural-equality walk falls through to plain ==)."""
+        ...
+
+    def __hash__(self) -> int:
+        """Identity hash, matching __eq__."""
         ...
 
     @property
@@ -952,7 +1062,8 @@ class FunctionSpace(ABC):
 
     @property
     def names(self) -> tuple[str, ...]:
-        """The owning mesh's bound coordinate names."""
+        """The owning mesh's coordinate names (always defined; names
+        are fixed at mesh construction)."""
         ...
 
     def factor(self, name: str) -> FunctionSpace:
@@ -990,9 +1101,11 @@ Notes:
 - **Defining attributes = interning key**: `(type, mesh identity,
   node set / basis, bc, scalars, origin)` — exactly the static
   descriptors of section 2.2. Derived coordinate quantities
-  (evaluation nodes, wavenumbers, measures) are grid-materialized
-  `ScalarField`s via `grid.evaluation_nodes(space)` /
-  `grid.wavenumbers(space)`; nothing array-like lives here.
+  (evaluation nodes, wavenumbers, measures) are `ScalarField`s the
+  grid materializes on demand via `grid.evaluation_nodes(space)` /
+  `grid.wavenumbers(space)`; nothing array-like lives here, and the
+  grid itself is fully static too (G1, doc 04) — time-dependent
+  geometry lives in module-owned state fields.
 - `as_complex` / `as_real` are *interning lookups*, not relational
   properties in the rejected sense: the scalar variant is part of the
   space's own defining data (its Körper), and both directions return
@@ -1031,7 +1144,8 @@ representation (xgcm vocabulary, section 2.2).
 - Static or dynamic: static (interned)
 - Iteration: 1 (all five; `Left` is not on the day-one cheat sheet
   but is trivial and completes the xgcm set). BC-structured variants
-  (`bc != NONE`): designed-for.
+  (`bc != NONE`): iteration 1 as well — they are the origins of the
+  iteration-1 Sine/Cosine spaces.
 - Concept refs: sections 2.2, 3.5, 3.6, 10.2
 
 ```python
@@ -1123,7 +1237,7 @@ class PointValues(NodalSpace):
 
 Notes:
 
-- Obtained as `mesh.boundary.nodal`. Not a `ConstantSpace`: it is a
+- Obtained as `mesh.boundary.points`. Not a `ConstantSpace`: it is a
   *located* boundary space (coordinates, generally > 1 DOF, possibly
   0 DOFs on periodic factors) restricted to the boundary manifold; it
   must not broadcast into the interior (section 3.6).
@@ -1180,10 +1294,10 @@ One-line role: modal coefficients relative to a basis, defined by
 
 - Kind: `CoefficientSpace` ABC; concrete classes final
 - Static or dynamic: static (interned)
-- Iteration: `FourierSpace` 1; `SineSpace`, `CosineSpace`,
-  `ChebyshevSpace` designed-for — doc 03's DST/DCT transforms are
-  demoted to designed-for accordingly (bounded-axis parity is the
-  first post-iteration-1 item)
+- Iteration: 1 — all four (`FourierSpace`, `SineSpace`,
+  `CosineSpace`, `ChebyshevSpace`; owner decision). Doc 03 promotes
+  the DST/DCT/Chebyshev transforms in parallel, restoring
+  bounded-axis spectral parity in iteration 1.
 - Concept refs: sections 3.2, 3.1, 3.5; sketches 4.3, 4.9
 
 ```python
@@ -1232,18 +1346,25 @@ Notes:
   represented function, inherited from the origin: a real-origin
   Fourier space has `scalars = fr.Real` while *storing* complex
   numbers, and its half-spectrum shape makes the Hermitian constraint
-  structural (section 3.2) — directly assigned coefficients cannot
-  violate it. `as_complex()` on a coefficient space returns the
-  coefficient space of the complexified origin (full spectrum), i.e.
-  it changes the shape too — it is never a dtype flag flip.
+  *largely* structural (section 3.2). Precisely: the shape removes
+  only the conjugate half of the spectrum; the **realness of the
+  k = 0 and Nyquist entries is a value constraint invisible to the
+  shape**. That value-level invariant is owned at the seams — the
+  field factory projects assigned coefficients at the self-conjugate
+  modes (doc 02), and the random draw handles those modes as special
+  indices (doc 04). `as_complex()` on a coefficient space returns
+  the coefficient space of the complexified origin (full spectrum),
+  i.e. it changes the shape too — it is never a dtype flag flip.
 - The class names carry a `Space` suffix (`FourierSpace`, not
   `Fourier`) to avoid colliding with the transform operator
   `fr.operators.Fourier` (doc 03); users never type the class names —
   the factory spellings `mx.fourier(...)` are the API. Reprs still
   print the concept-note form `Fourier(x, origin=Center)`.
-- `mx.fourier()` defaults its origin to `mx.center`, mirroring
-  `grid.create_field`'s all-`Center` default (section 3.10); every
-  other origin must be named. See Open questions.
+- **`origin` is always explicit** (owner decision): there is no
+  `origin=None`-means-center default on `mx.fourier(...)` /
+  `mx.sine(...)` / `mx.cosine(...)` / `mz.chebyshev(...)` — an
+  implicit default invites exactly the origin-mixup bugs the
+  per-origin design of section 3.2 exists to catch.
 - There is deliberately **no `space.wavenumbers`**: wavenumbers and
   mode indices are grid-materialized (`grid.wavenumbers(space)`,
   section 2.7); the space is only the key.
@@ -1343,35 +1464,46 @@ Notes:
 
 ## Open questions
 
-1. **Default origin of `mx.fourier()`.** This doc proposes
-   `origin=None` meaning `mx.center`, mirroring the field factory's
-   all-`Center` default. The notes only fix the keyword spelling; if
-   implicit defaults prove to invite origin-mixup bugs (the class of
-   bug section 3.2 exists to catch), make `origin` required.
-2. **Name binding time.** `bind_names` (write-once, grid-assembly-
-   driven) keeps meshes constructible without names, but a late-bound
-   attribute on an otherwise frozen object is a wart. The alternative
-   — names mandatory at mesh construction, `fr.Grid(names=...)`
-   validation-only — is stricter but changes the sketch-4.4 call
-   pattern. Doc 04 now specifies the lifecycle (the `Grid`
-   constructor calls `bind_names` during assembly) and mirrors this
-   question; it also affects doc 02's
-   `TensorProductSpace.factor(name)` and the `FunctionSpace.names`
-   protocol default here (both raise/return-None before binding).
-3. **Robin / mixed BCs.** A Robin condition carries a real parameter
-   inside what must be a static, hashable key; hashing floats into
-   space identity works but makes every parameter value a distinct
-   jit key. Deferred until a consumer exists.
-4. **ChebyshevMesh cell-family spaces.** Whether `center` / `cellavg`
-   (Gauss points, GL-interval cells) are worth defining on
-   `ChebyshevMesh`, or whether its space family should be restricted
-   to `outer`/`lobatto` + coefficient/Galerkin spaces until an FV-on-
-   Chebyshev consumer appears.
-5. **Boundary mesh of 2D factors.** `UnstructuredMesh.boundary` needs
-   a 1D polyline/curve mesh type (a closed curve for `SphereMesh` is
-   moot — empty boundary). Not designed here; `PointMesh` only covers
-   the 1D-factor case iteration 1 needs.
-6. **Dedicated unstructured space classes.** Vertex/edge/cell spaces
+Former questions 1 (default `origin`), 2 (name binding time), and 4
+(ChebyshevMesh cell family) are **closed** by owner decisions recorded
+in the body: coefficient factories take an explicit `origin` — no
+default (`StructuredMesh1D` notes); coordinate names are mandatory at
+mesh construction, `bind_names` is deleted, and `fr.Grid(meshes=...)`
+only validates duplicate-free names (`Mesh` notes); the
+`ChebyshevMesh` family is restricted to `outer`/`lobatto` +
+coefficient/Galerkin spaces, no cell family (`ChebyshevMesh` notes).
+
+Still open:
+
+1. **Robin / mixed BCs** (stays open, owner directive; do not resolve
+   yet). Constraints for the eventual decision: a float BC parameter
+   in the static interning key means a **full recompile per parameter
+   value** under the Phase-3 single jit, and it **forecloses
+   autodiff through — and module updates of — BC parameters**. The
+   candidate resolution is: only the DOF-count-changing *structure*
+   (a `BC.ROBIN` member) enters the space key, while the float
+   coefficients are dynamic data living where BC data already lives
+   (module-owned trace fields, section 3.6), consumed by
+   `ghost_fill`/basis assembly at trace time. That candidate ties
+   into the same static-structure-must-hold-no-values tension as the
+   unstructured-mesh question below; decide them coherently.
+2. **Bulk geometry of unstructured meshes** (owner-flagged, requires
+   a careful rethink before any unstructured work). Connectivity and
+   vertex coordinates are bulk array data; the cluster rule forbids
+   large static arrays (memory via immortal interned objects,
+   compile time via baked constants), yet the mesh is supposed to be
+   a static descriptor. Candidate directions: static topology
+   *fingerprint* + dynamic grid-materialized connectivity; a
+   dedicated host-side geometry store the grid owns; or relaxing
+   descriptor-hood for this mesh family. Nothing unstructured may be
+   built until this is resolved.
+3. **Boundary mesh of 2D factors.** `UnstructuredMesh.boundary` needs
+   a 1D polyline/curve mesh type, and — since the sphere is not a
+   closed manifold in practice (chart boundaries toward the poles,
+   `SphereMesh` notes) — `SphereMesh.boundary` needs pole-cap
+   latitude circles as boundary curves too. Not designed here;
+   `PointMesh` only covers the 1D-factor case iteration 1 needs.
+4. **Dedicated unstructured space classes.** Vertex/edge/cell spaces
    are speced as `NodalSpace` instances with new `NodeSet` tags;
    whether dispatch ergonomics want dedicated classes (`Vertex`,
    `Edge`, ...) like the interval family has is left to the
