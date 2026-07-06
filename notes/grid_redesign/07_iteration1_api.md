@@ -120,10 +120,12 @@ kx = grid.wavenumbers(u_hat.function_space.factor("x"))
 ### 10.6 Deferred to later iterations (not typed by a day-one user)
 
 Chebyshev/Galerkin spaces and BCs, immersed/masked domains
-(`grid.immersed`), terrain-following coordinates (`grid.metric`,
-`CoordinateMapping`), the `Symbol` eigenvalue algebra, `Convolution` /
-dealiasing combinators, binary product operators beyond the `*` default,
-`VectorField.map`-based eigenmode construction, and the model-side
-eigenmode objects. These are specified in sections 2–3 and validated in
+(`grid.immersed`; iteration 1 implements the boolean-mask subset per
+section 3.7, but a day-one user does not type it — the full
+volume-fraction surface is deferred), terrain-following coordinates
+(`grid.metric`, `CoordinateMapping`), the `Symbol` eigenvalue algebra,
+`Convolution` / dealiasing combinators, binary product operators beyond
+the `*` default, `VectorField.map`-based eigenmode construction, and
+the model-side eigenmode objects. These are specified in sections 2–3 and validated in
 [section 6](05_validation.md#6-paper-validation-against-future-grid-types)
 so iteration 1 does not preclude them.
