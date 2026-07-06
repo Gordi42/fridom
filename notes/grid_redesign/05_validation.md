@@ -11,8 +11,7 @@ for the document map. Concepts are in
 
 Iteration 1 implements the uniform FD/FV tensor grid at feature parity
 with the current cartesian grid, plus the full coefficient-space layer
-(Fourier, DST/DCT, Chebyshev collocation incl. `ChebyshevMesh` —
-class-design promotion). The Shen/Galerkin *BC bases* of 6.2 and
+(Fourier, DST/DCT, Chebyshev collocation incl. `ChebyshevMesh`). The Shen/Galerkin *BC bases* of 6.2 and
 everything in 6.3–6.5 remain design-for-only. The abstraction is
 validated on paper against five future grid types; each names the API
 pressure points it creates.

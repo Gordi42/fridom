@@ -22,10 +22,6 @@ FD/FV tensor grid at parity with the current cartesian grid plus the
 full coefficient-space layer —, `designed-for` = specified so
 iteration 1 does not preclude it).
 
-The docs went through two review rounds: a seam-consistency pass and
-an adversarial pass (numerics, jax feasibility, API, implementability)
-plus a project-owner review; the decisions from both are folded in.
-
 ---
 
 ## Document map
@@ -41,7 +37,7 @@ plus a project-owner review; the decisions from both are folded in.
 
 | File | Contents |
 |------|----------|
-| [`operator_algebra_merge.md`](operator_algebra_merge.md) | Decisions for merging the operator algebra ([`../../operator_design/`](../../operator_design/00_overview.md), from `dev`) into [`03_operators.md`](03_operators.md): algebra-derived composed operators, bind-only axis naming, `Dispatched` as the user verb, `SeparableComposite` typing, interning, and the iteration split. Drives a scoped rewrite of `03_operators.md`; not yet folded in. |
+| [`operator_algebra_merge.md`](operator_algebra_merge.md) | Decisions for merging the operator algebra ([`../../operator_design/`](../../operator_design/00_overview.md), from `dev`) into [`03_operators.md`](03_operators.md): algebra-derived composed operators, bind-only axis naming, `Dispatched` as the user verb, `SeparableComposite` typing, interning, and the iteration split, applied to `03_operators.md` (D8). |
 
 ## Shared template
 
@@ -61,8 +57,7 @@ Each doc specifies, per class:
 
 ## Cross-cluster seams
 
-The four docs were cross-reviewed for consistency; the fixed seam
-anchors are:
+The fixed seam anchors across the four docs are:
 
 - coordinate names are mandatory mesh-constructor arguments
   (`IntervalMesh(..., name="x")`); `fr.Grid(meshes=...)` only collects

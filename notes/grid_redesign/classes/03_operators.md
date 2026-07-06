@@ -9,17 +9,14 @@ numbered concept sections remain the normative reference.
 > composition `@`, sums, `c * A` scaling, `Identity`/`Zero`/`Block`,
 > axis binding `op["x"]`, tuple signatures — is designed in the sibling
 > note set
-> [`../../operator_design/`](../../operator_design/00_overview.md)
-> (authored on `dev`); the reconciliation decisions are in
-> [`operator_algebra_merge.md`](operator_algebra_merge.md). Those
-> decisions are now applied to the **base hierarchy**
+> [`../../operator_design/`](../../operator_design/00_overview.md); it is
+> applied to the **base hierarchy**
 > ([Operator algebra](#operator-algebra), bind-only `__call__`,
 > `bound_axis`), the **composed operators** (algebra-derived factories),
 > and the **registry** below. Bind-only axis naming (`op["x"]` replaces
-> the `axis=` keyword) rippled through every operator's `_apply`
-> signature — now uniformly `_apply(self, f)`, with the separable
-> `_apply_factor(self, f, axis)` unchanged; that pass is applied
-> throughout this document.
+> the `axis=` keyword) makes every operator's `_apply` signature
+> uniformly `_apply(self, f)`, with the separable
+> `_apply_factor(self, f, axis)` unchanged.
 
 This document owns the **Operator cluster**: the operator base
 hierarchy, the concrete stencil/nodal operators, transforms, `Symbol`,
@@ -120,9 +117,7 @@ On top of these sit the **algebra objects**
 ([Operator algebra](#operator-algebra) below): the composites, sums,
 blocks, scalings, and placeholders that `@` / `+` / `*` / `Block(...)`
 / `Dispatched(...)` build — the derived sixth operator kind of
-operator_design §2.1, ordinary operators themselves. They follow the
-merge decisions in
-[`operator_algebra_merge.md`](operator_algebra_merge.md); two of those
+operator_design §2.1, ordinary operators themselves. Two decisions
 shape the base surface directly. **Axis naming is bind-only** (D2):
 `op["x"]` is the sole way to name an axis — there is no `axis=` call
 keyword — so "can this operator name an axis?" is a matter of type
@@ -231,10 +226,7 @@ Notes:
   registry placeholder. They are **shallow eager structures** — no
   expression graphs, no algebraic rewriting (operator_design §3.11);
   the only normalizations are chain-flattening, `Identity` elision, and
-  `Zero`-dropping. Iteration split (D7): `@`, `Identity`, `Dispatched`,
-  and bound axes are **iteration 1** (the FV derivative needs them);
-  `+`/`-`/`*` (sums, scaling), `Zero`, `OperatorSum`, `ScaledOperator`,
-  and `Block` are **designed-for**.
+  `Zero`-dropping.
 - `requirements` defaults to `OperatorRequirements()` (halo 0, any
   layout); the grid's halo-accounting trace
   ([§5](../04_decomposition.md#5-domain-decomposition)) reads it per
@@ -344,20 +336,15 @@ per-operator tracer code exists anywhere
 author-effort-free claim made structural).
 
 **Bind-only axis naming (D2).** There is no `axis=` call keyword and no
-`**kwargs`: an axis is named only by binding, `op["x"](f)` (§2.3). So
+`**kwargs`: an axis is named only by binding, `op["x"](f)` (§2.3), so
 "can this operator name an axis?" is a matter of **type** —
 `SeparableOperator` overrides `__getitem__`, whereas whole-space
 operators (composed `grad`/`Laplacian`, transforms) inherit the raising
 default and are simply applied `op(f)`, the axis fixed by their
-signature. This deletes the old `axis`/`ValueError` validation
-entirely; the "which axis?" question becomes a binding question,
-resolved in `SeparableOperator._apply`. Operators that previously took
-a call-site parameter through `**kwargs` (`ConstantBroadcast`'s `to=`)
-bind it the same way (`to[target]`, D3). This rewrites every concrete
-`_apply(self, f, axis, **kwargs)` signature to `_apply(self, f)` — the
-separable `_apply_factor(self, f, axis)` is unchanged, since there
-`axis` is the resolved axis, always a string — and the pass is applied
-throughout this document.
+signature. The "which axis?" question becomes a binding question,
+resolved in `SeparableOperator._apply`. Every concrete `_apply` is
+`_apply(self, f)`; the separable `_apply_factor(self, f, axis)` is
+unchanged, since there `axis` is the resolved axis, always a string.
 
 ### BinaryOperator
 
@@ -534,19 +521,17 @@ The **derived operators** (operator_design §2.1): the objects `@`, `+`,
 `*`, `Block(...)`, and `Dispatched(...)` build. They are ordinary
 operators — callable, registrable, halo-accountable, symbol-bearing
 where linear — and shallow eager structures with no expression graphs
-or algebraic rewriting (§3.11). Merge decisions:
-[`operator_algebra_merge.md`](operator_algebra_merge.md) D1–D8, B1–B4,
-T2. All live in `framework2.grid.operators.base`. Iteration split (D7): `Identity`,
+or algebraic rewriting (§3.11). All live in
+`framework2.grid.operators.base`. Iteration split (D7): `Identity`,
 `Composite`, `SeparableComposite`, `Dispatched` are **iteration 1** (the
 FV derivative needs them); `Zero`, `OperatorSum`, `ScaledOperator`,
 `Block` are **designed-for**.
 
-**Pytree amendment.** `ScaledOperator` with a *field* coefficient is a
-**second dynamic-leaf carrier** in this cluster (the coefficient field),
-alongside `Symbol` — updating the module-placement rule's "the only
-dynamic-leaf carrier is `Symbol`". Its static part is the algebraic
-structure; the coefficient is the leaf (operator_design §2.2). Every
-other algebra object is fully static.
+**Pytree amendment.** `ScaledOperator` with a *field* coefficient is the
+cluster's **second dynamic-leaf carrier** (the coefficient field),
+alongside `Symbol`: its static part is the algebraic structure, the
+coefficient is the leaf (operator_design §2.2). Every other algebra
+object is fully static.
 
 ### Identity / Zero
 
@@ -1354,9 +1339,8 @@ both directions; and the pressure gradient is
 ### FVDerivative
 
 The FV derivative `flux_diff ∘ reconstruct` — the default `"diff"`
-entry on average spaces. Under D1 it is **not a bespoke class** but a
-factory that builds the algebra chain; the result is an ordinary
-`SeparableComposite`.
+entry on average spaces. It is not a class but a factory that builds
+the algebra chain; the result is an ordinary `SeparableComposite`.
 
 | | |
 |---|---|
@@ -1385,16 +1369,15 @@ def FVDerivative(
 Notes:
 
 - The reconstruction is a **`Dispatched("reconstruct")` placeholder
-  resolved once at model assembly** (D4/D5), not the old apply-time
-  late binding — so a module override of `"reconstruct"` (sketch 4.2)
-  still propagates into what `f.diff("x")` does on average spaces (the
-  reason advection schemes override reconstruction, not diff), but the
-  baked chain is fully concrete and static, with no per-application
-  registry lookup.
-- Halo composes additively as an un-synced chain — but now *because*
-  `SeparableComposite.requirements` sums its factor halos (§3.6), not
-  via bespoke code. The registered default is the composite object
-  itself, so the halo-accounting trace sees it with no special casing.
+  resolved once at model assembly** (D4/D5) — so a module override of
+  `"reconstruct"` (sketch 4.2) still propagates into what `f.diff("x")`
+  does on average spaces (the reason advection schemes override
+  reconstruction, not diff), while the baked chain is fully concrete and
+  static, with no per-application registry lookup.
+- Halo composes additively as an un-synced chain because
+  `SeparableComposite.requirements` sums its factor halos (§3.6). The
+  registered default is the composite object itself, so the
+  halo-accounting trace sees it with no special casing.
 
 ---
 
@@ -2487,7 +2470,7 @@ kinds* (§6.3, §6.4) — not blocks; nothing here assumes the registered
 entry is separable or block-structured. The factory names
 (`fr.operators.Gradient(...)` etc.) return that builder; the kind and
 the factory resolve to the same object. There is no distinct
-`Laplacian` *type* — `isinstance(op, Laplacian)` no longer exists (D1).
+`Laplacian` *type* and no `isinstance(op, Laplacian)` (D1).
 
 ### Gradient / Divergence / Curl / Laplacian
 
@@ -2541,8 +2524,7 @@ Notes:
   walk — is computed **on demand, never materialized** as a rewritten
   operator (§3.11). This **replaces the rejected `VectorOperator` ABC
   framing**: grad/div/curl are `Block`s with tuple signatures (§3.1),
-  not unary operators with a widened `codomain` — the ABC is unneeded
-  for a different reason than before.
+  not unary operators with a widened `codomain`.
 - **Laplacian's symbol** falls out of `Block.eigenvalues` on the 1×1
   block: the `OperatorSum` of per-factor symbols — `bwd @ fwd` per
   factor, each **replication-extended** across the remaining factors
@@ -2550,9 +2532,8 @@ Notes:
   *not* doc 02's delta field lift; sketch 4.6). Raises
   `EigenbasisError` unless *every* factor diagonalizes (fully periodic
   grids); mixed grids fall back to banded per-column solves outside
-  this operator. This is the D8-preserved `Symbol` subtlety — now
-  living in the block/chain symbol calculus rather than a bespoke
-  `Laplacian.eigenvalues`.
+  this operator. This `Symbol` subtlety lives in the block/chain symbol
+  calculus, not a bespoke `Laplacian.eigenvalues`.
 - Entries are late-bound `Dispatched("diff")`/`("flux_diff")` per axis,
   so module overrides propagate (as for `FVDerivative`). On a sphere /
   unstructured mesh the *same kinds* hold primitive metric-aware
@@ -2889,19 +2870,12 @@ fixes its own codomain; `.to` errors if it disagrees with the target
    `bwd @ fwd` per factor, D8), not a bespoke `Laplacian.eigenvalues`.
    Confirm this reading is acceptable before the `Symbol` iteration
    lands, or restrict first-derivative symbols to solver-internal use.
-Resolved by the operator-algebra merge (D8,
-[`operator_algebra_merge.md`](operator_algebra_merge.md)): the operator
-*algebra* is folded into the base hierarchy, composed operators, and
-registry above — composition `@`/`Composite`/`SeparableComposite`, axis
-binding `op["x"]` (bind-only, replacing the `axis=` keyword),
-`Identity`/`Zero`/`OperatorSum`/`ScaledOperator`/`Block`/`Dispatched`,
-tuple signatures, and the algebra-derived composed operators. The
-bind-only signature pass (`_apply(self, f)`) is applied to every
-operator in this document. The D3 forwarder residual is closed (D3a/D3b):
-`f.diff`/`f.integrate` and the `interpolate` verb are forwarders to
-seeded `Dispatched` verbs; `f.to` stays a multi-kind resolver;
-subscript `["x"]` is axis-only, so non-axis parameters (targets, orders)
-are constructor arguments (`ConstantBroadcast(to=target)`); the
+Resolved (D8): the operator *algebra* is folded into the base
+hierarchy, composed operators, and registry above, and the D3 forwarder
+residual is closed (D3a/D3b) — `f.diff`/`f.integrate` and the
+`interpolate` verb are forwarders to seeded `Dispatched` verbs, `f.to`
+stays a multi-kind resolver, subscript `["x"]` is axis-only (non-axis
+parameters like targets and orders are constructor arguments), and the
 `Dispatched(kind)` constructor stays public as the extension escape-hatch.
 
 Resolved since the first draft: the refined-mesh handle for padded

@@ -646,8 +646,7 @@ Rules:
   counter-based, each device keys `fold_in(seed, global_index)` for its
   local DOFs only and draws directly into its shard — no global
   materialization, and layout-independent by construction (the key is
-  the global index, not the local position), superseding the
-  predecessor's draw-global-then-slice. The draw is over the space's
+  the global index, not the local position). The draw is over the space's
   **true shape** (section 3.5), so pad slots are outside the index
   space and **random values never land in padding**
   ([section 5](04_decomposition.md#5-domain-decomposition)) with no

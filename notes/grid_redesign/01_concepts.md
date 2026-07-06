@@ -405,7 +405,7 @@ What remains of `Grid` is ergonomics and wiring:
   model-agnostic assembly root, taking `meshes=` (pre-built meshes of
   any type, incl. sphere / unstructured; coordinate names are mandatory
   mesh-constructor arguments, so the grid only collects and validates
-  them — class-design decision superseding the earlier `names=` kwarg);
+  them — class-design decision);
   `fr.grid.cartesian.Grid` is a convenience **subclass** taking
   `shape=`/`extent=`/`periodic=` and building the uniform `IntervalMesh`
   factors internally (no `N`/`L`). Splitting the two forms across a base

@@ -129,14 +129,12 @@ These apply to every class below and are not repeated per class:
   the unstructured-mesh geometry an unresolved problem (see
   `UnstructuredMesh` and Open questions).
 - **Naming.** Classes `PascalCase`, members `snake_case`, per
-  `AGENTS.md`. Fixed factory spellings (section 10.2, as amended in
-  this change set): `mx.center`, `mx.right`, `mx.outer`, `mx.inner`,
-  `mx.cell_avg`, `mx.face_avg`, `mx.constant`,
-  `mx.fourier(origin=...)`, `mx.galerkin(bc=...)`,
+  `AGENTS.md`. Fixed factory spellings (section 10.2): `mx.center`,
+  `mx.right`, `mx.outer`, `mx.inner`, `mx.cell_avg`, `mx.face_avg`,
+  `mx.constant`, `mx.fourier(origin=...)`, `mx.galerkin(bc=...)`,
   `space.as_complex()`, `space_a * space_b`. The squashed spellings
-  `cellavg`/`faceavg` were rejected for snake_case consistency (the
-  07 cheat sheet is amended in the same change set); the class names
-  `CellAvg`/`FaceAvg` are unchanged.
+  `cellavg`/`faceavg` were rejected for snake_case consistency; the
+  class names `CellAvg`/`FaceAvg` are unchanged.
 
 ---
 
@@ -359,8 +357,8 @@ Notes:
   factories are additionally exposed as `functools.cached_property`
   for attribute-access speed; the cache and the registry hold the
   same object.
-- **Names are mandatory at construction** (owner decision, closing
-  the former late-binding design). 1D meshes take `name: str`
+- **Names are mandatory at construction** (owner decision). 1D
+  meshes take `name: str`
   (`IntervalMesh(n, extent, periodic, name="x")`); multi-coordinate
   meshes take `names: tuple[str, ...]`
   (`SphereMesh(..., names=("lon", "lat"))`). There is no
@@ -386,8 +384,7 @@ Notes:
 - **Decomposition traits are a per-space query** (section 5): nodal
   and coefficient spaces of one mesh differ (ghost halos vs
   transpose-based transforms), so the single seam method
-  `decomposition_traits(space)` replaces an earlier per-mesh
-  `shardable` flag + `halo_strategy` pair. The returned
+  `decomposition_traits(space)` is a per-space query. The returned
   `MeshDecompositionTraits` (doc 04, `framework2.grid.decomposition.traits`) is
   a frozen record with a preference-ordered
   `strategies: tuple[HaloStrategy, ...]` (`GHOST` / `TRANSPOSE` /
@@ -573,7 +570,7 @@ Notes:
   interning key component; there is deliberately no string-keyed
   variant.
 - **Coefficient factories take an explicit `origin` — no default**
-  (owner decision, closing former open question 1): an implicit
+  (owner decision): an implicit
   `origin=center` default invites exactly the origin-mixup bugs the
   per-origin coefficient-space design (section 3.2) exists to catch.
 - No `dx` on the ABC: uniform spacing is an `IntervalMesh` extra;
@@ -590,10 +587,7 @@ Notes:
   every rule above. Although meshes are not interned by value,
   `refined` results *are* memoized per (parent mesh, factor), so
   repeated requests return the identical finer mesh and its spaces
-  stay identity-comparable. The parent is reachable as
-  `refined_from` (`None` on unrefined meshes), which is how doc 03's
-  padded transforms derive the coarse trim target from the refined
-  domain space. Grid-wise, refined meshes are **"adopted children"**
+  stay identity-comparable. Grid-wise, refined meshes are **"adopted children"**
   of the grid that owns their parent (rule G10; doc 04 owns that
   paragraph). Iteration 1 on `IntervalMesh`; designed-for on the
   other 1D meshes.
@@ -801,8 +795,8 @@ Notes:
   endpoints); this mesh places them at Gauss–Lobatto locations. The
   alias exists because spectral users think "Lobatto points", not
   "outer faces".
-- **The space family is restricted** (owner decision, closing former
-  open question 4): `outer`/`lobatto`, the `chebyshev`/`galerkin`
+- **The space family is restricted** (owner decision):
+  `outer`/`lobatto`, the `chebyshev`/`galerkin`
   coefficient spaces, and `constant` — no cell family. The nodal
   `center`/`left`/`right`/`inner` and average `cell_avg`/`face_avg`
   factories raise on this mesh until an FV-on-Chebyshev consumer
@@ -874,8 +868,7 @@ Notes:
 - **The sphere is in practice not a closed manifold** (owner
   directive): a lat-lon grid is a chart with boundaries toward the
   poles, so `boundary` is *not* empty — it is the polar-cap latitude
-  circles (plus periodic identification in lon). The earlier
-  "closed 2D factor, empty boundary" view is superseded.
+  circles (plus periodic identification in lon).
 - **Owner's favored direction — a manifold abstraction layer.**
   Rather than a monolithic 2D factor, the eventual design should
   explore local parameterization: charts `R^2 -> S^2`, under which
@@ -884,9 +877,7 @@ Notes:
   "topological product, geometrically coupled through metric fields"
   rule applied to the sphere). This class is therefore a sketch of
   the *interface* a spherical factor must satisfy (interning,
-  boundary, traits), not a committed shape; the chart-based design
-  supersedes the monolithic 2D-factor-only view when spherical work
-  starts.
+  boundary, traits), not a committed shape.
 - The staggered space family beyond `center` (and universal
   `constant`) is deliberately unspecified here: on a sphere the
   useful sets (C-grid faces, poles handling, cubed-sphere variants)
@@ -1359,11 +1350,11 @@ Notes:
   `fr.operators.Fourier` (doc 03); users never type the class names —
   the factory spellings `mx.fourier(...)` are the API. Reprs still
   print the concept-note form `Fourier(x, origin=Center)`.
-- **`origin` is always explicit** (owner decision): there is no
+- **`origin` is always explicit** (owner decision): no
   `origin=None`-means-center default on `mx.fourier(...)` /
-  `mx.sine(...)` / `mx.cosine(...)` / `mz.chebyshev(...)` — an
-  implicit default invites exactly the origin-mixup bugs the
-  per-origin design of section 3.2 exists to catch.
+  `mx.sine(...)` / `mx.cosine(...)` / `mz.chebyshev(...)` — same
+  origin-mixup rationale as the `StructuredMesh1D` factories
+  (section 3.2).
 - There is deliberately **no `space.wavenumbers`**: wavenumbers and
   mode indices are grid-materialized (`grid.wavenumbers(space)`,
   section 2.7); the space is only the key.

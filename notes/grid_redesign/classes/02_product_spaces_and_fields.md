@@ -109,7 +109,7 @@ tracing — intended for spaces and grids (they are the cache key) and
 harmless for metadata because component names are stable within a
 run.
 
-**Rejected alternative (review round 2):** carrying the grid as a
+**Rejected alternative:** carrying the grid as a
 pytree *child* of the field with dynamic attachment leaves (immersed
 fraction, mapping parameter fields). Reviewers showed it fails three
 ways: it is **cyclic** — the immersed fraction is itself a
@@ -245,8 +245,8 @@ interned spaces — may legally be shared across grids (same factors,
 same names, different decomposition or dispatch defaults), so the
 space-join check alone cannot detect operands living under different
 decompositions. Because the grid is static aux with identity hashing
-(pytree section above) and jit round trips never clone grids, the
-`f.grid is g.grid` check is exact inside and outside jit.
+(pytree section above), the `f.grid is g.grid` check is exact inside
+and outside jit.
 
 ---
 
@@ -423,8 +423,8 @@ properties like `space.shift()` / `space.spectral` (2.2); a
 
 ### FieldMetadata
 
-Shrunken successor of today's `FieldMetadata`: pure annotation for
-naming and I/O, no discretization content (section 2.4).
+Pure annotation for naming and I/O, no discretization content
+(section 2.4).
 
 | Aspect | Value |
 |--------|-------|
@@ -1205,7 +1205,7 @@ this document.
 
 ## Open questions
 
-Closed by cross-review rounds 1–2: the broadcast dispatch entry
+Closed by review: the broadcast dispatch entry
 (`("broadcast", ConstantSpace)` → `ConstantBroadcast`, cluster 03);
 the `CumulativeIntegral` codomains and integration-constant
 convention (cluster 03); the grid's pytree status (fully static,

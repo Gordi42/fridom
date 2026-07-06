@@ -12,13 +12,10 @@ authored on `dev`) into the **operator class design**
 at different layers: `operator_design` is a rules-layer note set (the
 algebra: composition `@`, sums `+`, field-coefficient scaling `c * A`,
 `Identity`/`Zero`/`Block`, axis binding `op["x"]`, tuple signatures),
-while `03_operators.md` is a class-design note written *before* that
-algebra existed — its `Operator` base has no `@`, `+`, `*`, `**`, or
-`op["x"]`, and its composed operators are bespoke classes.
+while `03_operators.md` is the class design.
 
-These decisions are the reconciliation. They are a **decision log**,
-not yet folded into `03_operators.md`; the rewrite they drive is scoped
-in [section D8](#d8-rewrite-scope). All code snippets are illustrative,
+These decisions are the reconciliation, now applied to
+`03_operators.md` (D8). All code snippets are illustrative,
 not normative; decision numbers `D1`…`D8` are stable identifiers.
 
 Where a decision resolves an `operator_design` open thread or overturns

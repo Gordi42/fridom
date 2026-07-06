@@ -351,8 +351,7 @@ Semantics and invariants:
   [4.2](../03_api_sketches.md#42-custom-operator-module-local-override)).
   `grid.merge_overrides` is a **facade** over the pure registry: it
   calls `OperatorRegistry.merge(overrides)` (which returns a new
-  registry, doc 03) and swaps the held instance — the successor of the
-  removed `diff_module`/`interp_module` slots. Precedence:
+  registry, doc 03) and swaps the held instance. Precedence:
   `(kind, space)` entry > kind-only entry > grid default
   ([§3.4](../02_rules.md#34-generic-operator-dispatch)). Seeding order
   and the freeze discipline are in the **Grid lifecycle** subsection
@@ -451,8 +450,7 @@ Semantics and invariants:
   touches `jax.sharding` directly.
 - **Pytree treatment.** The grid participates in jit cache keys only
   as identity-hashed static aux data on fields. It holds **no**
-  dynamic leaves — the earlier dynamic-attachment design is
-  **reversed** (a grid-held `ScalarField` leaf creates the pytree
+  dynamic leaves (a grid-held `ScalarField` leaf creates the pytree
   cycle field -> grid -> fraction field -> grid, duplicates the leaf
   into every field's flatten, and an attachment swapped inside a
   traced step would execute once at trace time and freeze). Every
@@ -684,8 +682,7 @@ wet region plus derive-on-demand per-space masks/fractions
 - Pytree: **fully static** — holds the init callable / static
   parameters only, no arrays and no `ScalarField`s. Fractions and
   masks are materialized on demand at trace time, exactly like
-  `evaluation_nodes` (G1: the earlier stored-fraction-leaf design is
-  reversed).
+  `evaluation_nodes` (G1).
 - Iteration: 1 for the boolean subset (fraction in `{0, 1}`,
   `WaterMask` parity — fidelity-ladder point 1); cut-cell fractions,
   transition sets, ghost-fill and level-set generalizations are
@@ -790,9 +787,8 @@ Notes:
   registry axis** and no wrapper grid type: mask-aware operators are
   ordinary dispatch entries that *consult* `grid.immersed` (fractions
   as weights in `integrate`/`flux`/`reconstruct`), with the same
-  grid-materialized-array status as `dx` (§3.7). The ROADMAP Phase 1
-  phrasing `MaskedGrid(inner_grid)` is superseded by the notes: the
-  immersed domain is an *attachment* at `grid.immersed`, not a
+  grid-materialized-array status as `dx` (§3.7). The immersed domain is
+  an *attachment* at `grid.immersed`, not a `MaskedGrid(inner_grid)`
   decorator grid — a wrapper would fork the grid identity that spaces,
   fields, and jit keys hang off.
 - Masking correctness is not type-checked (masked and unmasked fields

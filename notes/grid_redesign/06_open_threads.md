@@ -11,9 +11,8 @@ for the document map. Concepts are in
 
 **All twelve threads are resolved.** Each decision has been folded into
 the normative section that owns it; this page is retained only as a map
-from the former thread to where its resolution now lives. The threads
-were deliberately unresolved design questions; the table records the
-outcome so the section numbering (a stable identifier) stays valid.
+from the former thread to where its resolution now lives, so the
+section numbering (a stable identifier) stays valid.
 
 This page predates the class-design phase: the *currently* open
 questions live in the `## Open questions` sections of the four class
