@@ -6,10 +6,13 @@ Description
 Owning class doc: ``notes/framework2/classes/grid.md``. Meshes +
 decomposition + dispatch + field factory: ergonomics and wiring only,
 all mathematics lives in spaces and operators. Iteration-1 subset:
-the single-device decomposition is built directly with zero halo and
-the trivial layout (``negotiate``/``freeze``/``merge_overrides`` are
-Wave-3 stubs), and ``dispatch`` is the duck-typed seam for the
-``OperatorRegistry`` built in the parallel operators cluster.
+``__init__`` seeds the default ``OperatorRegistry`` with the
+grid-free iteration-1 rows (overridable via ``dispatch=``) and ends
+with the provisional negotiation — the halo is the per-operator
+maximum over the seeded registry, sound under the
+sync-after-every-operator contract — building the single-device
+decomposition directly (``negotiate``/``freeze``/``merge_overrides``
+are Wave-3 stubs).
 """
 # Wave 2: Grid
 from __future__ import annotations
@@ -26,7 +29,10 @@ from fridom.framework2.grid.decomposition.layout import Layout
 from fridom.framework2.grid.decomposition.tensor import (
     TensorDecomposition,
 )
-from fridom.framework2.grid.errors import GridMismatchError
+from fridom.framework2.grid.errors import (
+    GridMismatchError,
+    SpaceMismatchError,
+)
 from fridom.framework2.grid.fields.metadata import FieldMetadata
 from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.grid.fields.storage import (
@@ -36,6 +42,17 @@ from fridom.framework2.grid.fields.storage import (
     store,
 )
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.finite_difference import (
+    FiniteDifference,
+)
+from fridom.framework2.grid.operators.interp import LinearInterp
+from fridom.framework2.grid.operators.products import (
+    Abs,
+    CollocationProduct,
+    Divide,
+    Power,
+)
+from fridom.framework2.grid.operators.registry import OperatorRegistry
 from fridom.framework2.grid.random_fields import RandomFieldFactory
 from fridom.framework2.grid.spaces.average import CellAvg, FaceAvg
 from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
@@ -51,6 +68,8 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
 
     from fridom.framework2.grid.meshes.mesh import Mesh
+    from fridom.framework2.grid.operators.base import Operator
+    from fridom.framework2.grid.operators.registry import DispatchKey
     from fridom.framework2.grid.spaces.function_space import (
         FunctionSpace,
     )
@@ -77,8 +96,8 @@ class Grid:
         Pre-built, pre-named mesh factors, in coordinate order.
     dispatch : object | None, optional
         The operator dispatch registry (duck-typed
-        ``OperatorRegistry``); None until the registry merge wires
-        the seeded defaults in (default: None).
+        ``OperatorRegistry``); None seeds the default iteration-1
+        registry from the meshes' space families (default: None).
     device_ids : tuple[int, ...] | None, optional
         Indices into ``jax.devices()``; None selects the first
         device (default: None).
@@ -109,11 +128,16 @@ class Grid:
                 "namespace requires unique names)")
         self._meshes: tuple[Mesh, ...] = meshes
         self._names: tuple[str, ...] = tuple(names)
-        self._dispatch: object | None = dispatch
+        self._dispatch: object = (
+            _default_registry(meshes) if dispatch is None
+            else dispatch)
+        # provisional negotiation: halo = per-operator maximum over
+        # the registry (grid lifecycle step 2; exact under the
+        # iteration-1 sync-after-every-operator contract)
         self._decomposition: TensorDecomposition = TensorDecomposition(
             meshes=meshes,
             names=self._names,
-            halo=HaloSpec.zero(self._names),
+            halo=_registry_halo(self._names, self._dispatch),
             layouts=(Layout({}),),
             device_ids=device_ids,
         )
@@ -148,8 +172,8 @@ class Grid:
     #  operators cluster; the grid owns the instance)
     # ================================================================
     @property
-    def dispatch(self) -> object | None:
-        """The operator dispatch registry (None until merged in)."""
+    def dispatch(self) -> object:
+        """The operator dispatch registry (defaults + overrides)."""
         return self._dispatch
 
     def merge_overrides(
@@ -165,7 +189,7 @@ class Grid:
     # ================================================================
     @property
     def decomposition(self) -> TensorDecomposition:
-        """The (single-device, zero-halo) domain decomposition."""
+        """The (single-device, provisionally negotiated) decomposition."""
         return self._decomposition
 
     def negotiate(self, **kwargs: object) -> object:
@@ -544,3 +568,125 @@ def _node_vector(factor: FunctionSpace) -> jax.Array:
         if membership[1] and right is not BC.NONE:
             stop -= 1
     return nodes[start:stop]
+
+
+# ================================================================
+#  Default registry seeding (grid lifecycle step 1) and the
+#  provisional halo (step 2)
+# ================================================================
+# mesh factory attributes of the seeded space families
+_NODAL_FACTORIES = ("center", "left", "right", "outer", "inner")
+_AVERAGE_FACTORIES = ("cell_avg", "face_avg")
+
+
+def _family_spaces(
+    mesh: Mesh, attrs: tuple[str, ...],
+) -> tuple[FunctionSpace, ...]:
+    """Collect the factory spaces a mesh actually carries."""
+    spaces = []
+    for attr in attrs:
+        try:
+            spaces.append(getattr(mesh, attr))
+        except (AttributeError, ValueError, NotImplementedError):
+            continue  # factory absent on this mesh type/topology
+    return tuple(spaces)
+
+
+def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
+    """
+    Seed the default iteration-1 ``OperatorRegistry``.
+
+    Description
+    -----------
+    Grid-free entries only (grid lifecycle step 1), one row per
+    factor space instance of the meshes' space families
+    (operators_composed.md default entry table, iteration-1 subset):
+    ``("diff", nodal)`` -> ``FiniteDifference(order=2)`` and
+    ``("interpolate", nodal)`` -> ``LinearInterp()`` wherever the
+    per-factor signature applies; the elementwise
+    ``multiply``/``divide``/``power`` rows on nodal *and* average
+    factors (one shared instance per kind — the registry's form-2
+    product resolution requires it) and ``abs`` on nodal factors
+    only, each seeded for the real space and its complex variant.
+    Coefficient and constant factors deliberately get no rows.
+
+    Parameters
+    ----------
+    meshes : tuple[Mesh, ...]
+        The grid's mesh factors.
+
+    Returns
+    -------
+    OperatorRegistry
+        The seeded default registry.
+    """
+    fd = FiniteDifference(order=2)
+    interp = LinearInterp()
+    multiply = CollocationProduct()
+    divide = Divide()
+    power = Power()
+    abs_op = Abs()
+    entries: dict[DispatchKey, Operator] = {}
+    for mesh in meshes:
+        nodal = _family_spaces(mesh, _NODAL_FACTORIES)
+        average = _family_spaces(mesh, _AVERAGE_FACTORIES)
+        for space in nodal:
+            for stencil in (fd, interp):
+                try:
+                    stencil.codomain(space)
+                except (SpaceMismatchError, ValueError):
+                    continue  # no per-factor signature on this space
+                entries[(stencil.dispatch_kind, space)] = stencil
+        for space in nodal + average:
+            for variant in (space, space.as_complex()):
+                entries[("multiply", variant)] = multiply
+                entries[("divide", variant)] = divide
+                entries[("power", variant)] = power
+        for space in nodal:
+            for variant in (space, space.as_complex()):
+                entries[("abs", variant)] = abs_op
+    return OperatorRegistry(entries)
+
+
+def _registry_halo(
+    names: tuple[str, ...], dispatch: object,
+) -> HaloSpec:
+    """
+    Derive the provisional halo from a dispatch registry.
+
+    Description
+    -----------
+    The per-operator maximum of ``requirements(space).halo`` over
+    the registry's space-keyed entries, per coordinate name (grid
+    lifecycle step 2) — exact under the iteration-1
+    sync-after-every-operator contract. A duck-typed registry
+    without an ``items`` surface contributes nothing (zero halo).
+
+    Parameters
+    ----------
+    names : tuple[str, ...]
+        The grid's coordinate names.
+    dispatch : object
+        The (duck-typed) operator registry.
+
+    Returns
+    -------
+    HaloSpec
+        The per-name provisional ghost widths.
+    """
+    widths = dict.fromkeys(names, 0)
+    items = getattr(dispatch, "items", None)
+    if not callable(items):
+        return HaloSpec(widths)
+    for key, op in items():
+        if not isinstance(key, tuple):
+            continue  # kind-only entries carry no space to size on
+        space = key[1]
+        requirements = getattr(op, "requirements", None)
+        if requirements is None:
+            continue
+        halo = requirements(space).halo
+        for name in space.names:
+            if name in widths:
+                widths[name] = max(widths[name], halo)
+    return HaloSpec(widths)

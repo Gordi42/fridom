@@ -25,7 +25,6 @@ if TYPE_CHECKING:  # pragma: no cover
         finite_difference,
         flux_diff,
         fourier,
-        integrate,
         interp,
         movement,
         products,
@@ -35,7 +34,31 @@ if TYPE_CHECKING:  # pragma: no cover
         symbol,
         transform,
         trig,
+        verbs,
     )
+
+    # import all classes and objects
+    from .base import (
+        BinaryOperator,
+        Block,
+        Composite,
+        Dispatched,
+        EigenbasisError,
+        Identity,
+        Operator,
+        OperatorRequirements,
+        OperatorSum,
+        ScaledOperator,
+        SeparableComposite,
+        SeparableOperator,
+        UnaryOperator,
+        Zero,
+        resolve_codomain,
+    )
+    from .finite_difference import FiniteDifference
+    from .interp import LinearInterp
+    from .registry import DispatchError, DispatchKey, OperatorRegistry
+    from .verbs import diff, integrate, interpolate
 
 # ================================================================
 #  Setup lazy loading
@@ -57,14 +80,43 @@ all_modules_by_origin = {
         "trig",
         "chebyshev",
         "products",
-        "integrate",
+        # the "integrate" module is NOT re-exported by name: the
+        # D3b verb below owns the ``fr.operators.integrate`` slot
+        # (the module stays importable by its full path).
         "composed",
         "dealias",
         "combinators",
         "movement",
+        "verbs",
     ],
 }
 
-all_imports_by_origin = {}
+all_imports_by_origin = {
+    f"{base}.base": [
+        "Operator",
+        "UnaryOperator",
+        "BinaryOperator",
+        "SeparableOperator",
+        "OperatorRequirements",
+        "EigenbasisError",
+        "Identity",
+        "Zero",
+        "Composite",
+        "SeparableComposite",
+        "OperatorSum",
+        "ScaledOperator",
+        "Block",
+        "Dispatched",
+        "resolve_codomain",
+    ],
+    f"{base}.registry": [
+        "OperatorRegistry",
+        "DispatchError",
+        "DispatchKey",
+    ],
+    f"{base}.finite_difference": ["FiniteDifference"],
+    f"{base}.interp": ["LinearInterp"],
+    f"{base}.verbs": ["diff", "interpolate", "integrate"],
+}
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

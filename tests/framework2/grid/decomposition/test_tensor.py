@@ -5,13 +5,27 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.decomposition.layout import Layout
 from fridom.framework2.grid.decomposition.tensor import (
     TensorDecomposition,
 )
+from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.spaces.nodal import NodeSet
 
 NAMES = ("x", "y")
+
+
+@dataclass(frozen=True)
+class StandInMesh:
+
+    """Minimal mesh stand-in (topology only, for the halo fill)."""
+
+    periodic: bool = True
+
+
+_PERIODIC_MESH = StandInMesh()
 
 
 @dataclass(frozen=True)
@@ -22,6 +36,7 @@ class StandInSpace:
     shape: tuple
     names: tuple
     layout: object = None
+    mesh: object = _PERIODIC_MESH
 
     @property
     def factors(self):
@@ -210,11 +225,22 @@ def test_zeros_pad_sync_unpad_preserves_values(space):
 #  Data movement
 # ================================================================
 
-def test_sync_skips_exchange_on_one_device(space):
-    decomp = make_decomp(halo=HaloSpec({"x": 1, "y": 0}))
+def test_sync_zero_halo_is_identity_on_one_device(space):
+    decomp = make_decomp()
     storage = decomp.zeros(space)
-    # sanctioned static branch: no exchange, the array is returned
+    # sanctioned static branch: no exchange and (with all widths 0)
+    # no fill either — the array is returned unchanged
     assert decomp.sync(storage, space) is storage
+
+
+def test_sync_fills_periodic_ghosts_locally(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 1, "y": 0}))
+    arr = jnp.arange(40.0).reshape(space.shape)
+    storage = decomp.sync(decomp.pad(arr, space), space)
+    # single device: no exchange, but the ghost slots are wrapped
+    assert jnp.array_equal(storage[0], arr[-1])
+    assert jnp.array_equal(storage[-1], arr[0])
+    assert jnp.array_equal(decomp.unpad(storage, space), arr)
 
 
 def test_sync_rejects_inhomogeneous_fills(space):
@@ -270,3 +296,136 @@ def test_gather_returns_global_true_shape(space):
     gathered = decomp.gather(decomp.pad(arr, space), space)
     assert gathered.shape == space.shape
     assert bool(jnp.all(gathered == arr))
+
+
+# ================================================================
+#  Single-device BC-structured halo fill (real mesh spaces)
+# ================================================================
+def _mesh_decomp(mesh, width):
+    name = mesh.names[0]
+    return TensorDecomposition(
+        meshes=(mesh,), names=(name,),
+        halo=HaloSpec({name: width}), layouts=(Layout({}),))
+
+
+@pytest.fixture
+def bounded():
+    return IntervalMesh(4, (0.0, 1.0), periodic=False, name="y")
+
+
+def _filled(decomp, space, values):
+    return decomp.sync(decomp.pad(jnp.asarray(values), space), space)
+
+
+def test_periodic_wrap_fill_real_space():
+    mesh = IntervalMesh(4, (0.0, 1.0), name="x")
+    decomp = _mesh_decomp(mesh, 2)
+    out = _filled(decomp, mesh.center, [1.0, 2.0, 3.0, 4.0])
+    assert jnp.array_equal(
+        out, jnp.array([3.0, 4.0, 1.0, 2.0, 3.0, 4.0, 1.0, 2.0]))
+
+
+def test_bc_free_fill_is_linear_extrapolation(bounded):
+    decomp = _mesh_decomp(bounded, 1)
+    out = _filled(decomp, bounded.center, [1.0, 2.0, 3.0, 4.0])
+    # one-sided linear extrapolation, never blanket zeros
+    assert jnp.array_equal(
+        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
+
+
+def test_dirichlet_fill_is_the_odd_extension(bounded):
+    space = bounded.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    decomp = _mesh_decomp(bounded, 2)
+    out = _filled(decomp, space, [1.0, 2.0, 3.0, 4.0])
+    assert jnp.array_equal(
+        out,
+        jnp.array([-2.0, -1.0, 1.0, 2.0, 3.0, 4.0, -4.0, -3.0]))
+
+
+def test_neumann_fill_is_the_even_extension(bounded):
+    space = bounded.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    decomp = _mesh_decomp(bounded, 1)
+    out = _filled(decomp, space, [1.0, 2.0, 3.0, 4.0])
+    assert jnp.array_equal(
+        out, jnp.array([1.0, 1.0, 2.0, 3.0, 4.0, 4.0]))
+
+
+def test_dirichlet_fill_on_face_lattice_zeroes_the_boundary(bounded):
+    space = bounded.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    decomp = _mesh_decomp(bounded, 2)
+    out = _filled(decomp, space, [1.0, 2.0, 3.0])
+    # ghost slot 1 IS the boundary (0); deeper slots odd-reflect
+    assert jnp.array_equal(
+        out, jnp.array([-1.0, 0.0, 1.0, 2.0, 3.0, 0.0, -3.0]))
+
+
+def test_bc_free_fill_on_inner_extrapolates_boundary_faces(bounded):
+    decomp = _mesh_decomp(bounded, 1)
+    out = _filled(decomp, bounded.inner, [1.0, 2.0, 3.0])
+    assert jnp.array_equal(
+        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0]))
+
+
+def test_face_avg_fill_uses_the_vacant_boundary_geometry(bounded):
+    decomp = _mesh_decomp(bounded, 1)
+    out = _filled(decomp, bounded.face_avg, [1.0, 2.0, 3.0])
+    assert jnp.array_equal(
+        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0]))
+
+
+def test_cell_avg_fill_uses_the_offset_geometry(bounded):
+    decomp = _mesh_decomp(bounded, 1)
+    out = _filled(decomp, bounded.cell_avg, [1.0, 2.0, 3.0, 4.0])
+    assert jnp.array_equal(
+        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
+
+
+def test_neumann_fill_on_face_lattice_not_grounded(bounded):
+    space = bounded.nodal(NodeSet.INNER, bc=BC.NEUMANN)
+    decomp = _mesh_decomp(bounded, 1)
+    with pytest.raises(NotImplementedError, match="Neumann"):
+        _filled(decomp, space, [1.0, 2.0, 3.0])
+
+
+def test_dirichlet_outer_drops_and_fills_like_inner(bounded):
+    space = bounded.nodal(NodeSet.OUTER, bc=BC.DIRICHLET)
+    assert space.shape == (3,)  # boundary DOFs dropped
+    decomp = _mesh_decomp(bounded, 1)
+    out = _filled(decomp, space, [1.0, 2.0, 3.0])
+    assert jnp.array_equal(
+        out, jnp.array([0.0, 1.0, 2.0, 3.0, 0.0]))
+
+
+def test_bc_free_fill_needs_two_dofs():
+    mesh = IntervalMesh(1, (0.0, 1.0), periodic=False, name="y")
+    decomp = _mesh_decomp(mesh, 1)
+    with pytest.raises(NotImplementedError, match="two DOFs"):
+        _filled(decomp, mesh.center, [1.0])
+
+
+def test_bounded_fill_deeper_than_the_axis_raises(bounded):
+    space = bounded.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    decomp = _mesh_decomp(bounded, 5)
+    with pytest.raises(NotImplementedError, match="deeper"):
+        _filled(decomp, space, [1.0, 2.0, 3.0, 4.0])
+
+
+def test_periodic_wrap_wider_than_the_axis_raises():
+    mesh = IntervalMesh(2, (0.0, 1.0), name="x")
+    decomp = _mesh_decomp(mesh, 3)
+    with pytest.raises(NotImplementedError, match="wider"):
+        _filled(decomp, mesh.center, [1.0, 2.0])
+
+
+def test_coefficient_factors_carry_no_halo_storage():
+    mesh = IntervalMesh(8, (0.0, 1.0), name="x")
+    decomp = _mesh_decomp(mesh, 2)
+    space = mesh.fourier(origin=mesh.center)
+    assert decomp.storage_shape(space) == space.shape
+    assert decomp.storage_shape(mesh.center) == (12,)
+
+
+def test_constant_factors_carry_no_halo_storage():
+    mesh = IntervalMesh(8, (0.0, 1.0), name="x")
+    decomp = _mesh_decomp(mesh, 2)
+    assert decomp.storage_shape(mesh.constant) == (1,)

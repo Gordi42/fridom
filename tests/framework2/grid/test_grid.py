@@ -9,6 +9,17 @@ from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.meshes.point import PointMesh
+from fridom.framework2.grid.operators.base import (
+    OperatorRequirements,
+)
+from fridom.framework2.grid.operators.finite_difference import (
+    FiniteDifference,
+)
+from fridom.framework2.grid.operators.interp import LinearInterp
+from fridom.framework2.grid.operators.registry import (
+    DispatchError,
+    OperatorRegistry,
+)
 from fridom.framework2.grid.spaces.nodal import NodeSet
 
 
@@ -60,17 +71,53 @@ def test_identity_equality_and_hash(mx, my):
     assert hash(a) == id(a)
 
 
-def test_dispatch_defaults_to_none_and_is_settable(mx):
-    assert Grid((mx,)).dispatch is None
-    registry = object()
-    assert Grid((mx,), dispatch=registry).dispatch is registry
+def test_dispatch_defaults_to_seeded_registry_and_is_settable(mx):
+    registry = Grid((mx,)).dispatch
+    assert isinstance(registry, OperatorRegistry)
+    assert isinstance(registry.resolve("diff", mx.center),
+                      FiniteDifference)
+    assert isinstance(registry.resolve("interpolate", mx.center),
+                      LinearInterp)
+    custom = object()
+    assert Grid((mx,), dispatch=custom).dispatch is custom
 
 
-def test_decomposition_is_single_device_zero_halo(grid, mx, my):
+def test_decomposition_is_single_device_provisional_halo(
+        grid, mx, my):
+    # provisional negotiation: halo = per-operator max over the
+    # seeded registry (order-2 stencils declare width 1)
     dec = grid.decomposition
+    assert dec.halo["x"] == 1
+    assert dec.halo["y"] == 1
     space = mx.center * my.center
-    assert dec.storage_shape(space) == space.shape == (8, 4)
+    assert dec.storage_shape(space) == (8 + 2, 4 + 2)
     assert dec.default_layout.device_axes == ()
+
+
+def test_duck_registry_without_items_gets_zero_halo(mx):
+    grid = Grid((mx,), dispatch=object())
+    assert grid.decomposition.halo["x"] == 0
+
+
+def test_seeded_registry_covers_the_default_rows(grid, mx, my):
+    registry = grid.dispatch
+    fd = registry.resolve("diff", mx.center)
+    assert fd is registry.resolve("diff", mx.right)
+    assert fd is registry.resolve("diff", my.outer)
+    assert fd is registry.resolve("diff", my.inner)
+    multiply = registry.resolve("multiply", mx.center)
+    assert multiply is registry.resolve("multiply", mx.cell_avg)
+    assert multiply is registry.resolve(
+        "multiply", mx.center.as_complex())
+    registry.resolve("divide", my.face_avg)
+    registry.resolve("power", mx.cell_avg)
+    registry.resolve("abs", mx.center)
+    with pytest.raises(DispatchError, match="abs"):
+        registry.resolve("abs", mx.cell_avg)  # nodal-only by design
+    with pytest.raises(DispatchError, match="diff"):
+        registry.resolve("diff", mx.fourier(origin=mx.center))
+    with pytest.raises(DispatchError, match="diff"):
+        registry.resolve("diff", my.right)  # no bounded Right row
 
 
 # ================================================================
@@ -354,3 +401,21 @@ def test_nodes_on_non_interval_mesh_not_implemented():
 def test_wavenumbers_not_wired_yet(grid1d, mx):
     with pytest.raises(NotImplementedError, match="transform"):
         grid1d.wavenumbers(mx.fourier(origin=mx.center))
+
+
+def test_registry_halo_derivation_skips_unusable_entries(mx):
+    class ForeignSpace:
+        names = ("z",)
+
+    class WideOp:
+        def requirements(self, space):  # noqa: ARG002
+            return OperatorRequirements(halo=3)
+
+    class DuckRegistry:
+        def items(self):
+            yield "kind_only", object()          # no space to size on
+            yield ("diff", ForeignSpace()), WideOp()  # foreign name
+            yield ("multiply", mx.center), object()   # no requirements
+
+    grid = Grid((mx,), dispatch=DuckRegistry())
+    assert grid.decomposition.halo["x"] == 0

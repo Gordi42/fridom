@@ -502,7 +502,7 @@ def test_as_complex_on_half_spectrum_raises(grid1d, mx):
 
 
 # ================================================================
-#  Deferred sugar (wired by the operator-registry merge)
+#  Dispatch sugar (thin forwarders over the seeded registry)
 # ================================================================
 def test_to_identity_returns_self(f, mx):
     assert f.to(f) is f
@@ -511,24 +511,50 @@ def test_to_identity_returns_self(f, mx):
     assert f.to(mx.center) is f  # single-factor shorthand
 
 
-def test_to_conversion_not_wired_yet(f, mx):
-    with pytest.raises(NotImplementedError, match="registry"):
-        f.to(mx.right)
+def test_to_interpolates_through_the_registry(f, mx, my):
+    g = f.to(mx.right)
+    assert g.function_space.bare is mx.right * my.center
+    # periodic two-point mean (Center -> Right), wrap at the seam
+    expected = 0.5 * (f.data + jnp.roll(f.data, -1, axis=0))
+    assert jnp.allclose(g.data, expected)
+    assert g.metadata == f.metadata  # same-quantity rule
+
+
+def test_to_field_target_and_round_trip_space(f, mx):
+    g = f.to(mx.right)
+    back = g.to(f)
+    assert back.function_space is f.function_space
 
 
 def test_to_single_factor_shorthand_on_lone_factor(grid1d, mx):
     a = grid1d.create_field(mx.center)
     assert a.to(mx.center) is a
-    with pytest.raises(NotImplementedError, match="registry"):
-        a.to(mx.right)
+    assert a.to(mx.right).function_space.bare is mx.right
+
+
+def test_to_transform_target_raises_space_error(grid1d, mx):
+    a = grid1d.create_field(mx.center)
+    with pytest.raises(SpaceMismatchError, match="transform"):
+        a.to(mx.fourier(origin=mx.center))
+
+
+def test_to_unregistered_kind_raises_dispatch_error(grid1d, mx):
+    a = grid1d.create_field(mx.cell_avg)
+    with pytest.raises(KeyError, match="reconstruct"):
+        a.to(mx.right)  # average -> nodal rows land in Wave 3
+
+
+def test_diff_forwards_to_the_seeded_verb(grid1d, mx):
+    a = grid1d.create_field(mx.center)
+    d = a.diff("x")
+    assert d.function_space.bare is mx.right
+    assert d.metadata == FieldMetadata()  # new quantity
 
 
 def test_deferred_methods_raise(f):
-    with pytest.raises(NotImplementedError, match="diff"):
-        f.diff("x")
-    with pytest.raises(NotImplementedError, match="integrate"):
+    with pytest.raises(NotImplementedError, match="Wave 3"):
         f.integrate("x")
-    with pytest.raises(NotImplementedError, match="integrate"):
+    with pytest.raises(NotImplementedError, match="Wave 3"):
         f.mean()
     with pytest.raises(NotImplementedError, match="Reshard"):
         f.reshard(None)
@@ -610,3 +636,52 @@ def test_arithmetic_traces_once_across_same_shape_calls(
     tendency(b, c).block_until_ready()
     tendency(c, a).block_until_ready()
     assert compile_counter.count == 0
+
+
+def test_to_rejects_differing_coordinate_names(grid1d, mx):
+    mz = IntervalMesh(8, (0.0, 1.0), name="z")
+    a = grid1d.create_field(mx.center)
+    with pytest.raises(SpaceMismatchError, match="names differ"):
+        a.to(mz.center)
+
+
+def test_to_codomain_disagreement_raises():
+    my = IntervalMesh(4, (0.0, 2.0), periodic=False, name="y")
+    grid = Grid((my,))
+    a = grid.create_field(my.center)
+    # the registered interpolate default lands on Inner, not Outer
+    with pytest.raises(SpaceMismatchError, match="lands on"):
+        a.to(my.outer)
+
+
+def test_to_nodal_to_average_kind_is_unregistered(grid1d, mx):
+    a = grid1d.create_field(mx.center)
+    with pytest.raises(KeyError, match="average"):
+        a.to(mx.cell_avg)
+
+
+def test_to_between_coefficient_origins_is_unregistered(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(KeyError, match="interpolate"):
+        a.to(mx.fourier(origin=mx.right))
+
+
+def test_to_from_constant_factor_has_no_conversion(grid, mx, my):
+    profile = grid.create_field(mx.constant * my.center)
+    with pytest.raises(SpaceMismatchError, match=r"no \.to conversion"):
+        profile.to(mx.center * my.center)
+
+
+def test_real_on_lone_complex_factor(grid1d, mx):
+    z = grid1d.create_field(mx.center.as_complex(),
+                            data=jnp.full(8, 1.0 + 2.0j))
+    h = z.real
+    assert h.function_space.bare is mx.center
+    assert jnp.array_equal(h.data, jnp.full(8, 1.0))
+
+
+def test_to_nodal_to_constant_has_no_conversion(grid1d, mx):
+    a = grid1d.create_field(mx.center)
+    with pytest.raises(SpaceMismatchError,
+                       match=r"no \.to conversion"):
+        a.to(mx.constant)

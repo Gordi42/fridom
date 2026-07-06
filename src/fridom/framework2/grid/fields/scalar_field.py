@@ -11,12 +11,13 @@ implements the strict algebra (rules sections 3.1, 3.3, 3.11): grid
 identity first, then the Wave-1 join with the two sanctioned lifts
 (constant broadcast, real -> complex promotion).
 
-Iteration-1 dispatch seam: products (``*``, ``/``) resolve through
-``grid.dispatch`` (the duck-typed ``OperatorRegistry``) when the grid
-carries one; without a registry they fall back to the clearly marked
-elementwise defaults below, which mirror the iteration-1 default
-table (nodal/average rows only). The Wave-2 registry merge swaps the
-real registry in via ``Grid(dispatch=...)``.
+Dispatch sugar is thin forwarding only (merge decision D3): the
+dunders resolve ``("multiply"/"divide"/"power"/"abs", space)``
+through ``grid.dispatch`` and apply the registered operator;
+``f.diff`` forwards to the seeded ``Dispatched("diff")`` verb; and
+``f.to`` is the multi-kind resolver (D3a) reading the conversion
+kind from the source/target factor families. There is no elementwise
+fallback path — a missing row is a ``DispatchError``.
 """
 # Wave 2: ScalarField
 from __future__ import annotations
@@ -27,12 +28,20 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.errors import GridMismatchError
+from fridom.framework2.grid.errors import (
+    GridMismatchError,
+    SpaceMismatchError,
+)
 from fridom.framework2.grid.fields.metadata import FieldMetadata
 from fridom.framework2.grid.fields.storage import (
     storage_dtype,
     store,
 )
+from fridom.framework2.grid.operators.base import (
+    Dispatched,
+    resolve_codomain,
+)
+from fridom.framework2.grid.operators.registry import DispatchError
 from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.average import AverageSpace
 from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
@@ -247,23 +256,86 @@ class ScalarField:
                            jnp.conj(self._data), self._metadata)
 
     # ================================================================
-    #  Dispatch sugar — section 3.4 (operator wiring lands with the
-    #  Wave-2 registry merge; the signatures are the it-1 surface)
+    #  Dispatch sugar — section 3.4 (thin forwarders, D3/D3a)
     # ================================================================
     def diff(self, name: str) -> ScalarField:
-        """Default derivative along ``name``: (kind="diff", space)."""
-        raise NotImplementedError(
-            "f.diff resolves ('diff', factor) through the operator "
-            "registry; it is wired in the Wave-2 operators merge")
+        """
+        Default derivative along ``name``: (kind="diff", space).
+
+        Description
+        -----------
+        Thin forwarder to the seeded verb (D3):
+        ``fr.operators.diff[name](self)``.
+
+        Parameters
+        ----------
+        name : str
+            The coordinate name to differentiate along.
+
+        Returns
+        -------
+        ScalarField
+            The derivative on the registered operator's codomain.
+        """
+        return Dispatched("diff")[name](self)
 
     def to(self, target: ScalarField | SpaceLike) -> ScalarField:
-        """Convert per axis onto the target's space."""
+        """
+        Convert per axis onto the target's space.
+
+        Description
+        -----------
+        The multi-kind resolver (D3a): per differing factor it reads
+        the conversion kind from the source/target family
+        relationship (nodal -> nodal ``"interpolate"``, average
+        source ``"reconstruct"``, nodal -> average ``"average"``,
+        coefficient -> coefficient ``"interpolate"``), resolves
+        ``(kind, source_factor)`` in the grid registry, and applies
+        the bound operator. A registered codomain that disagrees
+        with the requested target factor raises
+        ``SpaceMismatchError``; nodal <-> coefficient targets raise
+        (a ``.to`` is not a transform).
+
+        Parameters
+        ----------
+        target : ScalarField | SpaceLike
+            A field, a full product space, or a single factor space
+            (shorthand: convert that factor, keep the rest).
+
+        Returns
+        -------
+        ScalarField
+            The converted field (``self`` when already on target).
+        """
         space = _target_space(self._function_space, target)
-        if space.bare is self._function_space.bare:
+        src_bare = self._function_space.bare
+        dst_bare = space.bare
+        if dst_bare is src_bare:
             return self
-        raise NotImplementedError(
-            "f.to conversions resolve through the operator "
-            "registry; they are wired in the Wave-2 operators merge")
+        if src_bare.names != dst_bare.names:
+            raise SpaceMismatchError(
+                f"cannot convert {src_bare!r} onto {dst_bare!r}: "
+                "the coordinate names differ",
+                left=src_bare, right=dst_bare, operation="to")
+        result = self
+        for name in dst_bare.names:
+            src = result.function_space.bare.factor(name)
+            dst = dst_bare.factor(name)
+            if src is dst:
+                continue
+            kind = _conversion_kind(src, dst)
+            op = self._grid.dispatch.resolve(kind, src)[name]
+            resolved = resolve_codomain(
+                op, result.function_space).factor(name)
+            if resolved is not dst:
+                raise SpaceMismatchError(
+                    f"the registered ({kind!r}, {src!r}) operator "
+                    f"lands on {resolved!r}, not the requested "
+                    f"{dst!r}; use an explicit operator instance "
+                    "or a registry override",
+                    left=src, right=dst, operation="to")
+            result = op(result)
+        return result
 
     def reshard(self, target: object) -> ScalarField:
         """Explicit layout change (never implicit in arithmetic)."""
@@ -274,15 +346,14 @@ class ScalarField:
     def integrate(self, *names: str) -> ScalarField:
         """Weighted integral; named factors reduce to ConstantSpace."""
         raise NotImplementedError(
-            "f.integrate resolves ('integrate', factor) through the "
-            "operator registry; it is wired in the Wave-2 operators "
-            "merge")
+            "f.integrate forwards to the seeded 'integrate' verb "
+            "once the Integral operator rows land in Wave 3")
 
     def mean(self, *names: str) -> ScalarField:
         """Integral divided by the integrated measure (sugar)."""
         raise NotImplementedError(
-            "f.mean is sugar over f.integrate; it is wired in the "
-            "Wave-2 operators merge")
+            "f.mean is sugar over f.integrate; the Integral "
+            "operator rows land in Wave 3")
 
     # ================================================================
     #  Arithmetic — sections 3.1, 3.3, 3.11 (join rule)
@@ -328,8 +399,7 @@ class ScalarField:
     def __mul__(self, other: ScalarField | complex) -> ScalarField:
         """Scalar: linear scaling. Field: dispatched product (3.11)."""
         if isinstance(other, ScalarField):
-            return _dispatched_product(self, other, "multiply", "*",
-                                       lambda x, y: x * y)
+            return _dispatched_product(self, other, "multiply", "*")
         if isinstance(other, _SCALAR_TYPES):
             return _scalar_scale(self, other, lambda d, s: d * s)
         return NotImplemented
@@ -345,8 +415,7 @@ class ScalarField:
     ) -> ScalarField:
         """Scalar: linear scaling. Field: (kind="divide", space)."""
         if isinstance(other, ScalarField):
-            return _dispatched_product(self, other, "divide", "/",
-                                       lambda x, y: x / y)
+            return _dispatched_product(self, other, "divide", "/")
         if isinstance(other, _SCALAR_TYPES):
             return _scalar_scale(self, other, lambda d, s: d / s)
         return NotImplemented
@@ -358,24 +427,26 @@ class ScalarField:
         space = self._function_space
         if isinstance(other, complex):
             space = _promoted_space(space)
-        _require_fallback_entry("divide", space,
-                                _POINTWISE_FAMILIES)
-        return _wrap(self._grid, space, other / self.data)
+        op = self._grid.dispatch.resolve("divide", space.bare)
+        numerator = _wrap(self._grid, space,
+                          jnp.full(space.shape, other))
+        return op(numerator, _lift_field(self, space))
 
     def __pow__(self, exponent: float) -> ScalarField:
         """Physical power, (kind="power", space) (2.5 table)."""
         if not isinstance(exponent, int | float):
             return NotImplemented
         space = self._function_space
-        _require_fallback_entry("power", space, _POINTWISE_FAMILIES)
-        return _wrap(self._grid, space, self.data ** exponent)
+        op = self._grid.dispatch.resolve("power", space.bare)
+        lifted = _wrap(self._grid, space,
+                       jnp.full(space.shape, exponent))
+        return op(self, lifted)
 
     def __abs__(self) -> ScalarField:
         """Pointwise modulus, (kind="abs", space); nodal default."""
         space = self._function_space
-        _require_fallback_entry("abs", space, _ABS_FAMILIES)
-        return _wrap(self._grid, _real_space(space),
-                     jnp.abs(self.data))
+        op = self._grid.dispatch.resolve("abs", space.bare)
+        return op(self)
 
     # ================================================================
     #  Diagnostics and export
@@ -484,7 +555,7 @@ def _check_lift(from_space: SpaceLike, to_space: SpaceLike) -> None:
             continue
         if isinstance(src, ConstantSpace):
             if isinstance(dst, CoefficientSpace):
-                raise KeyError(
+                raise DispatchError(
                     "no ('broadcast', ConstantSpace -> "
                     f"{dst!r}) dispatch entry: broadcasting a "
                     "constant into a coefficient space is the "
@@ -522,7 +593,7 @@ def _scalar_shift(
     space = f.function_space
     for factor in space.factors:
         if isinstance(factor, CoefficientSpace):
-            raise KeyError(
+            raise DispatchError(
                 "no ('broadcast', ConstantSpace -> "
                 f"{factor!r}) dispatch entry: adding a Python "
                 "scalar to a coefficient-space field is the exact "
@@ -545,36 +616,14 @@ def _scalar_scale(
 
 
 # ================================================================
-#  Iteration-1 dispatch seam (registry swap-in point)
+#  Registry dispatch of the product dunders
 # ================================================================
-# ``grid.dispatch`` is the duck-typed ``OperatorRegistry`` (doc:
-# operators_composed.md): when the grid carries one, products resolve
+# ``grid.dispatch`` is the (duck-typed) ``OperatorRegistry`` seeded
+# by the grid constructor: products resolve
 # ``registry.resolve(kind, joined.bare)`` and apply the returned
-# binary operator to the lifted operands — resolution errors
-# (``DispatchError``, a ``KeyError``) propagate untouched. Without a
-# registry the fallback below mirrors the iteration-1 default table:
-# elementwise on nodal/average/constant factors (the registered
-# ``CollocationProduct``/second-order-shortcut default), no entry —
-# hence a ``KeyError`` — on coefficient factors. The Wave-2 registry
-# merge replaces the fallback by passing ``dispatch=`` to ``Grid``.
-
-_POINTWISE_FAMILIES = (NodalSpace, AverageSpace, ConstantSpace)
-_ABS_FAMILIES = (NodalSpace, ConstantSpace)
-
-
-def _require_fallback_entry(
-    kind: str,
-    space: SpaceLike,
-    allowed: tuple[type, ...],
-) -> None:
-    """Mimic the it-1 default table: raise where no row exists."""
-    for factor in space.factors:
-        if not isinstance(factor, allowed):
-            raise KeyError(
-                f"no ('{kind}', {factor!r}) dispatch entry: the "
-                "iteration-1 defaults cover nodal/average factors "
-                "only; coefficient-space products are explicit "
-                "operators (e.g. Convolution)")
+# binary operator to the lifted operands. Resolution errors are
+# ``DispatchError``s (a ``KeyError`` subclass) and propagate
+# untouched; there is no elementwise fallback path.
 
 
 def _lift_field(f: ScalarField, joined: SpaceLike) -> ScalarField:
@@ -592,20 +641,54 @@ def _dispatched_product(
     b: ScalarField,
     kind: str,
     operation: str,
-    data_op: Callable[[jax.Array, jax.Array], jax.Array],
 ) -> ScalarField:
-    """Grid check, join, then registry dispatch (or the fallback)."""
+    """Grid check, join, lift, then registry dispatch."""
     _check_grids(a, b, operation)
     joined = join(a.function_space, b.function_space,
                   operation=operation)
     _check_lift(a.function_space, joined)
     _check_lift(b.function_space, joined)
-    registry = a.grid.dispatch
-    if registry is not None:
-        op = registry.resolve(kind, joined.bare)
-        return op(_lift_field(a, joined), _lift_field(b, joined))
-    _require_fallback_entry(kind, joined, _POINTWISE_FAMILIES)
-    return _wrap(a.grid, joined, data_op(a.data, b.data))
+    op = a.grid.dispatch.resolve(kind, joined.bare)
+    return op(_lift_field(a, joined), _lift_field(b, joined))
+
+
+def _conversion_kind(
+    src: FunctionSpace, dst: FunctionSpace,
+) -> str:
+    """
+    Read the per-axis ``.to`` kind off the family matrix (fields.md).
+
+    Parameters
+    ----------
+    src : FunctionSpace
+        The source factor space.
+    dst : FunctionSpace
+        The requested target factor space.
+
+    Returns
+    -------
+    str
+        The dispatch kind realizing the conversion.
+    """
+    src_coeff = isinstance(src, CoefficientSpace)
+    dst_coeff = isinstance(dst, CoefficientSpace)
+    if src_coeff != dst_coeff:
+        raise SpaceMismatchError(
+            f"a .to from {src!r} to {dst!r} is not a conversion but "
+            "a transform; use fr.operators.Fourier(grid, axes=...)"
+            ".forward/.backward", left=src, right=dst, operation="to")
+    if src_coeff:
+        return "interpolate"  # exact inter-origin shift (3.2)
+    if isinstance(src, AverageSpace):
+        return "reconstruct"
+    if isinstance(src, NodalSpace):
+        if isinstance(dst, AverageSpace):
+            return "average"  # quadrature projection (later)
+        if isinstance(dst, NodalSpace):
+            return "interpolate"
+    raise SpaceMismatchError(
+        f"no .to conversion is defined from {src!r} to {dst!r}",
+        left=src, right=dst, operation="to")
 
 
 def _target_space(
