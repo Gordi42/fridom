@@ -19,9 +19,14 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         metadata,
         scalar_field,
+        storage,
         tensor_field,
         vector_field,
     )
+
+    # import all classes
+    from .metadata import FieldMetadata
+    from .scalar_field import ScalarField
 
 # ================================================================
 #  Setup lazy loading
@@ -32,11 +37,15 @@ all_modules_by_origin = {
     base: [
         "metadata",
         "scalar_field",
+        "storage",
         "vector_field",
         "tensor_field",
     ],
 }
 
-all_imports_by_origin = {}
+all_imports_by_origin = {
+    f"{base}.metadata": ["FieldMetadata"],
+    f"{base}.scalar_field": ["ScalarField"],
+}
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

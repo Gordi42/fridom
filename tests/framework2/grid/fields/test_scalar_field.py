@@ -1,0 +1,612 @@
+"""Tests for fridom.framework2.grid.fields.scalar_field."""
+import jax
+import jax.numpy as jnp
+import pytest
+
+from fridom.framework2.grid.errors import (
+    GridMismatchError,
+    SpaceMismatchError,
+)
+from fridom.framework2.grid.fields.metadata import FieldMetadata
+from fridom.framework2.grid.fields.scalar_field import ScalarField
+from fridom.framework2.grid.grid import Grid
+from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.scalars import Scalars
+
+
+@pytest.fixture
+def mx():
+    return IntervalMesh(8, (0.0, 1.0), name="x")
+
+
+@pytest.fixture
+def my():
+    return IntervalMesh(4, (0.0, 2.0), periodic=False, name="y")
+
+
+@pytest.fixture
+def grid(mx, my):
+    return Grid((mx, my))
+
+
+@pytest.fixture
+def grid1d(mx):
+    return Grid((mx,))
+
+
+@pytest.fixture
+def f(grid):
+    data = jnp.arange(32.0).reshape(8, 4) + 1.0
+    return grid.create_field(data=data, name="f")
+
+
+@pytest.fixture
+def g(grid):
+    data = jnp.linspace(-1.0, 1.0, 32).reshape(8, 4)
+    return grid.create_field(data=data, name="g")
+
+
+# ================================================================
+#  Construction, properties, storage contract
+# ================================================================
+def test_properties(grid, mx, my, f):
+    assert f.grid is grid
+    assert f.function_space.bare is mx.center * my.center
+    assert f.shape == (8, 4)
+    assert f.dtype == jnp.float64
+    assert f.name == "f"
+    assert f.metadata.name == "f"
+
+
+def test_data_roundtrips_through_pad_unpad(grid):
+    data = jnp.arange(32.0).reshape(8, 4)
+    f = grid.create_field(data=data)
+    assert jnp.array_equal(f.data, data)
+    g = f.with_data(2.0 * data)
+    assert jnp.array_equal(g.data, 2.0 * data)
+
+
+def test_with_data_keeps_grid_space_metadata(f):
+    g = f.with_data(jnp.zeros((8, 4)))
+    assert g.grid is f.grid
+    assert g.function_space is f.function_space
+    assert g.metadata == f.metadata
+
+
+def test_with_data_rejects_wrong_shape(f):
+    with pytest.raises(ValueError, match="true-shape"):
+        f.with_data(jnp.zeros((4, 8)))
+
+
+def test_with_metadata(f):
+    g = f.with_metadata(name="q", units="m/s")
+    assert g.name == "q"
+    assert g.metadata.units == "m/s"
+    assert jnp.array_equal(g.data, f.data)
+    assert f.name == "f"
+
+
+def test_trusting_constructor_takes_storage_shaped_data(grid, mx, my):
+    space = (mx.center * my.center).with_layout(
+        grid.decomposition.default_layout)
+    stored = grid.decomposition.zeros(space)
+    f = ScalarField(grid, space, stored)
+    assert f.metadata == FieldMetadata()
+    assert jnp.array_equal(f.data, jnp.zeros((8, 4)))
+
+
+def test_repr(f):
+    text = repr(f)
+    assert "'f'" in text
+    assert "(8, 4)" in text
+
+
+# ================================================================
+#  Identity, truthiness, comparisons
+# ================================================================
+def test_equality_is_identity(grid):
+    data = jnp.ones((8, 4))
+    a = grid.create_field(data=data)
+    b = grid.create_field(data=data)
+    assert a == a  # noqa: PLR0124 — identity semantics under test
+    assert (a == b) is False
+    assert a != b
+
+
+def test_bool_raises(f):
+    with pytest.raises(TypeError, match="no truth value"):
+        bool(f)
+
+
+def test_no_ordering_comparisons(f, g):
+    with pytest.raises(TypeError):
+        _ = f < g
+
+
+# ================================================================
+#  Linear arithmetic and the strict algebra
+# ================================================================
+def test_add_same_space(f, g):
+    h = f + g
+    assert jnp.array_equal(h.data, f.data + g.data)
+    assert h.function_space is f.function_space
+    assert h.metadata == FieldMetadata()  # default-metadata rule
+
+
+def test_sub_same_space(f, g):
+    h = f - g
+    assert jnp.array_equal(h.data, f.data - g.data)
+
+
+def test_cross_space_add_raises_with_factor_diff(grid, mx, my, f):
+    other = grid.create_field(mx.right * my.center)
+    with pytest.raises(SpaceMismatchError,
+                       match=r"x: .*Right.* vs .*Center.*") as exc:
+        _ = other + f
+    assert exc.value.mismatched_names == ("x",)
+    assert "y" in str(exc.value)  # the agreeing factor is reported
+    assert ".to(" in str(exc.value)
+
+
+def test_cross_grid_raises(mx, my, f):
+    other_grid = Grid((mx, my))
+    other = other_grid.create_field(data=jnp.ones((8, 4)))
+    with pytest.raises(GridMismatchError, match="different grids"):
+        _ = f + other
+
+
+def test_factor_count_mismatch_raises(grid, mx, f):
+    lean = grid.create_field(mx.center)
+    with pytest.raises(SpaceMismatchError, match="meshes differ"):
+        _ = f + lean
+
+
+def test_constant_broadcast(grid, mx, my, f):
+    profile = grid.create_field(
+        mx.constant * my.center, data=jnp.arange(4.0).reshape(1, 4))
+    h = f + profile
+    assert h.function_space.bare is mx.center * my.center
+    expected = f.data + jnp.arange(4.0)[None, :]
+    assert jnp.array_equal(h.data, expected)
+
+
+def test_real_complex_promotion(grid, mx, my, f):
+    space = (mx.center * my.center).as_complex()
+    z = grid.create_field(space, data=jnp.full((8, 4), 1.0 + 2.0j))
+    h = f + z
+    assert h.function_space.bare is space
+    assert h.dtype == jnp.complex128
+    assert jnp.array_equal(h.data, f.data + z.data)
+
+
+def test_scalar_add_sub(f):
+    assert jnp.array_equal((f + 2.0).data, f.data + 2.0)
+    assert jnp.array_equal((3 + f).data, f.data + 3.0)
+    assert jnp.array_equal((f - 1.0).data, f.data - 1.0)
+    assert jnp.array_equal((1.0 - f).data, 1.0 - f.data)
+
+
+def test_complex_scalar_add_promotes_space(f):
+    h = f + 1.0j
+    assert h.function_space.scalars is Scalars.COMPLEX
+    assert h.dtype == jnp.complex128
+
+
+def test_scalar_add_on_coefficient_space_raises(grid1d, mx):
+    fhat = grid1d.create_field(mx.fourier(origin=mx.center))
+    with pytest.raises(KeyError, match="zero-mode"):
+        _ = fhat + 1.0
+
+
+def test_coefficient_space_linear_ops_are_elementwise(grid1d, mx):
+    space = mx.fourier(origin=mx.center)
+    a = grid1d.random.normal(space, seed=0)
+    b = grid1d.random.normal(space, seed=1)
+    h = a + b
+    assert h.function_space is a.function_space
+    assert jnp.array_equal(h.data, a.data + b.data)
+
+
+def test_neg_pos(f):
+    assert jnp.array_equal((-f).data, -f.data)
+    assert (-f).metadata == FieldMetadata()
+    assert +f is f
+
+
+def test_unsupported_operand_types(f):
+    with pytest.raises(TypeError):
+        _ = f + "nope"
+    with pytest.raises(TypeError):
+        _ = "nope" + f
+    with pytest.raises(TypeError):
+        _ = f - "nope"
+    with pytest.raises(TypeError):
+        _ = "nope" - f
+    with pytest.raises(TypeError):
+        _ = f * "nope"
+    with pytest.raises(TypeError):
+        _ = "nope" * f
+    with pytest.raises(TypeError):
+        _ = f / "nope"
+    with pytest.raises(TypeError):
+        _ = "nope" / f
+
+
+def test_hash_is_identity_based(f):
+    assert hash(f) == id(f)
+
+
+# ================================================================
+#  Products (dispatch seam and iteration-1 fallback)
+# ================================================================
+def test_mul_same_space_elementwise_fallback(f, g):
+    h = f * g
+    assert jnp.array_equal(h.data, f.data * g.data)
+    assert h.function_space is f.function_space
+    assert h.metadata == FieldMetadata()
+
+
+def test_mul_on_average_space(grid1d, mx):
+    a = grid1d.create_field(mx.cell_avg, data=jnp.arange(8.0))
+    b = grid1d.create_field(mx.cell_avg, data=jnp.ones(8) * 2.0)
+    assert jnp.array_equal((a * b).data, jnp.arange(8.0) * 2.0)
+
+
+def test_mul_cross_space_raises(grid, mx, my, f):
+    other = grid.create_field(mx.right * my.center)
+    with pytest.raises(SpaceMismatchError):
+        _ = f * other
+
+
+def test_mul_on_coefficient_space_raises(grid1d, mx):
+    space = mx.fourier(origin=mx.center)
+    a = grid1d.random.normal(space, seed=0)
+    b = grid1d.random.normal(space, seed=1)
+    with pytest.raises(KeyError, match="multiply"):
+        _ = a * b
+
+
+def test_div(f, g):
+    h = f / (g + 2.0)
+    assert jnp.allclose(h.data, f.data / (g.data + 2.0))
+
+
+def test_div_on_coefficient_space_raises(grid1d, mx):
+    space = mx.fourier(origin=mx.center)
+    a = grid1d.random.normal(space, seed=0)
+    with pytest.raises(KeyError, match="divide"):
+        _ = a / a
+
+
+def test_scalar_mul_div(f):
+    assert jnp.array_equal((f * 2.0).data, f.data * 2.0)
+    assert jnp.array_equal((3 * f).data, 3.0 * f.data)
+    assert jnp.array_equal((f / 2.0).data, f.data / 2.0)
+    assert jnp.allclose((2.0 / f).data, 2.0 / f.data)
+
+
+def test_scalar_scaling_is_legal_on_coefficient_spaces(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    assert jnp.array_equal((2.0 * a).data, 2.0 * a.data)
+    assert jnp.array_equal((a / 2.0).data, a.data / 2.0)
+
+
+def test_complex_scalar_mul_promotes(f):
+    h = f * 1.0j
+    assert h.function_space.scalars is Scalars.COMPLEX
+    assert jnp.array_equal(h.data, f.data * 1.0j)
+
+
+def test_complex_scalar_on_half_spectrum_raises(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(NotImplementedError, match="Hermitian"):
+        _ = a * 1.0j
+
+
+def test_complex_scalar_rtruediv_promotes(f):
+    h = 1.0j / f
+    assert h.function_space.scalars is Scalars.COMPLEX
+    assert jnp.allclose(h.data, 1.0j / f.data)
+
+
+def test_rtruediv_on_coefficient_space_raises(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(KeyError, match="divide"):
+        _ = 1.0 / a
+
+
+def test_pow(f):
+    assert jnp.allclose((f ** 2).data, f.data ** 2)
+    assert jnp.allclose((f ** 0.5).data, f.data ** 0.5)
+
+
+def test_pow_on_coefficient_space_raises(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(KeyError, match="power"):
+        _ = a ** 2
+
+
+def test_pow_bad_exponent(f):
+    with pytest.raises(TypeError):
+        _ = f ** "2"
+
+
+def test_abs(mx, my, g):
+    h = abs(g)
+    assert jnp.array_equal(h.data, jnp.abs(g.data))
+    assert h.function_space.bare is mx.center * my.center
+
+
+def test_abs_of_complex_field_lands_on_real_space(grid, mx, my):
+    space = (mx.center * my.center).as_complex()
+    z = grid.create_field(space, data=jnp.full((8, 4), 3.0 + 4.0j))
+    h = abs(z)
+    assert h.function_space.bare is mx.center * my.center
+    assert jnp.allclose(h.data, jnp.full((8, 4), 5.0))
+
+
+def test_abs_on_lone_complex_factor(grid1d, mx):
+    z = grid1d.create_field(mx.center.as_complex(),
+                            data=jnp.full(8, 3.0 + 4.0j))
+    h = abs(z)
+    assert h.function_space.bare is mx.center
+    assert jnp.allclose(h.data, jnp.full(8, 5.0))
+
+
+def test_abs_not_registered_on_average_spaces(grid1d, mx):
+    a = grid1d.create_field(mx.cell_avg, data=jnp.arange(8.0))
+    with pytest.raises(KeyError, match="abs"):
+        _ = abs(a)
+
+
+def test_constant_into_coefficient_lift_raises(grid1d, mx):
+    space = mx.fourier(origin=mx.center)
+    a = grid1d.random.normal(space, seed=0)
+    c = grid1d.create_field(mx.constant, data=jnp.ones(1))
+    with pytest.raises(KeyError, match="broadcast"):
+        _ = a + c
+
+
+def test_half_spectrum_promotion_lift_raises(grid1d, mx):
+    real_space = mx.fourier(origin=mx.center)
+    full_space = mx.fourier(origin=mx.center.as_complex())
+    a = grid1d.random.normal(real_space, seed=0)
+    b = grid1d.random.normal(full_space, seed=1)
+    with pytest.raises(NotImplementedError, match="Hermitian"):
+        _ = a + b
+
+
+# ================================================================
+#  Registry dispatch seam
+# ================================================================
+class _RecordingRegistry:
+
+    """Duck-typed OperatorRegistry standing in for the merge."""
+
+    def __init__(self):
+        self.calls = []
+        self.operands = []
+
+        def op(a, b):
+            self.operands.append((a, b))
+            return a.with_data(a.data * b.data + 1.0)
+
+        self._op = op
+
+    def resolve(self, kind, space):
+        self.calls.append((kind, space))
+        return self._op
+
+
+class _EmptyRegistry:
+
+    """Registry with no entries: resolve always raises KeyError."""
+
+    def resolve(self, kind, space):
+        raise KeyError(f"no ({kind!r}, {space!r}) entry")
+
+
+def test_mul_routes_through_grid_dispatch(mx, my):
+    registry = _RecordingRegistry()
+    grid = Grid((mx, my), dispatch=registry)
+    f = grid.create_field(data=jnp.ones((8, 4)) * 2.0)
+    g = grid.create_field(data=jnp.ones((8, 4)) * 3.0)
+    h = f * g
+    # the fallback would give 6.0; the registry op gives 7.0
+    assert jnp.array_equal(h.data, jnp.full((8, 4), 7.0))
+    assert registry.calls == [
+        ("multiply", (mx.center * my.center))]
+
+
+def test_dispatch_receives_lifted_operands(mx, my):
+    registry = _RecordingRegistry()
+    grid = Grid((mx, my), dispatch=registry)
+    f = grid.create_field(data=jnp.ones((8, 4)))
+    c = grid.create_field(
+        mx.constant * my.center, data=jnp.arange(4.0).reshape(1, 4))
+    _ = f * c
+    a, b = registry.operands[0]
+    assert a.function_space is b.function_space
+    assert b.function_space.bare is mx.center * my.center
+    assert jnp.array_equal(
+        b.data, jnp.broadcast_to(jnp.arange(4.0), (8, 4)))
+
+
+def test_dispatch_resolution_error_propagates(mx, my):
+    grid = Grid((mx, my), dispatch=_EmptyRegistry())
+    f = grid.create_field(data=jnp.ones((8, 4)))
+    with pytest.raises(KeyError, match="no \\('multiply'"):
+        _ = f * f
+
+
+# ================================================================
+#  Scalars (Körper) surface
+# ================================================================
+def test_real_is_identity_on_real_fields(f):
+    assert f.real is f
+
+
+def test_real_is_identity_on_real_origin_fourier(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    assert a.real is a
+    assert a.conj() is a
+
+
+def test_imag_of_real_field_is_zero_same_space(f):
+    h = f.imag
+    assert h.function_space is f.function_space
+    assert jnp.array_equal(h.data, jnp.zeros((8, 4)))
+    assert h.metadata == f.metadata  # same-quantity rule
+
+
+def test_conj_is_identity_on_real_fields(f):
+    assert f.conj() is f
+
+
+def test_real_imag_conj_on_complex_nodal(grid, mx, my):
+    space = (mx.center * my.center).as_complex()
+    z = grid.create_field(
+        space, data=jnp.full((8, 4), 1.0 + 2.0j), name="z")
+    assert z.real.function_space.bare is mx.center * my.center
+    assert jnp.array_equal(z.real.data, jnp.full((8, 4), 1.0))
+    assert jnp.array_equal(z.imag.data, jnp.full((8, 4), 2.0))
+    assert jnp.array_equal(z.conj().data, jnp.full((8, 4), 1.0 - 2.0j))
+    assert z.conj().function_space is z.function_space
+    assert z.real.name == "z"  # same-quantity ops keep metadata
+
+
+def test_real_imag_conj_on_complex_coefficients_raise(grid1d, mx):
+    space = mx.fourier(origin=mx.center.as_complex())
+    z = grid1d.random.normal(space, seed=0)
+    with pytest.raises(NotImplementedError, match="conjugate"):
+        _ = z.real
+    with pytest.raises(NotImplementedError, match="conjugate"):
+        _ = z.imag
+    with pytest.raises(NotImplementedError, match="conjugate"):
+        _ = z.conj()
+
+
+def test_as_complex(f):
+    z = f.as_complex()
+    assert z.function_space.scalars is Scalars.COMPLEX
+    assert z.dtype == jnp.complex128
+    assert jnp.array_equal(z.data.real, f.data)
+    assert z.as_complex() is z
+    assert z.metadata == f.metadata
+
+
+def test_as_complex_on_half_spectrum_raises(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(NotImplementedError, match="Hermitian"):
+        a.as_complex()
+
+
+# ================================================================
+#  Deferred sugar (wired by the operator-registry merge)
+# ================================================================
+def test_to_identity_returns_self(f, mx):
+    assert f.to(f) is f
+    assert f.to(f.function_space) is f
+    assert f.to(f.function_space.bare) is f
+    assert f.to(mx.center) is f  # single-factor shorthand
+
+
+def test_to_conversion_not_wired_yet(f, mx):
+    with pytest.raises(NotImplementedError, match="registry"):
+        f.to(mx.right)
+
+
+def test_to_single_factor_shorthand_on_lone_factor(grid1d, mx):
+    a = grid1d.create_field(mx.center)
+    assert a.to(mx.center) is a
+    with pytest.raises(NotImplementedError, match="registry"):
+        a.to(mx.right)
+
+
+def test_deferred_methods_raise(f):
+    with pytest.raises(NotImplementedError, match="diff"):
+        f.diff("x")
+    with pytest.raises(NotImplementedError, match="integrate"):
+        f.integrate("x")
+    with pytest.raises(NotImplementedError, match="integrate"):
+        f.mean()
+    with pytest.raises(NotImplementedError, match="Reshard"):
+        f.reshard(None)
+    with pytest.raises(NotImplementedError, match="export"):
+        _ = f.xr
+
+
+# ================================================================
+#  Diagnostics
+# ================================================================
+def test_has_nan(f):
+    assert not bool(f.has_nan())
+    bad = f.with_data(f.data.at[2, 1].set(jnp.nan))
+    assert bool(bad.has_nan())
+
+
+def test_block_until_ready_returns_self(f):
+    assert f.block_until_ready() is f
+
+
+# ================================================================
+#  Pytree behavior
+# ================================================================
+def test_pytree_roundtrip_preserves_statics(grid, f):
+    leaves, treedef = jax.tree_util.tree_flatten(f)
+    assert len(leaves) == 1
+    back = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert back.grid is grid
+    assert back.function_space is f.function_space
+    assert back.metadata == f.metadata
+    assert jnp.array_equal(back.data, f.data)
+
+
+def test_treedef_stable_across_same_space_fields(grid):
+    a = grid.create_field(data=jnp.ones((8, 4)), name="a")
+    b = grid.create_field(data=jnp.zeros((8, 4)), name="a")
+    assert (jax.tree_util.tree_structure(a)
+            == jax.tree_util.tree_structure(b))
+
+
+def test_treedef_changes_when_space_changes(grid, mx, my):
+    a = grid.create_field(mx.center * my.center)
+    b = grid.create_field(mx.right * my.center)
+    assert (jax.tree_util.tree_structure(a)
+            != jax.tree_util.tree_structure(b))
+
+
+def test_treedef_changes_when_metadata_changes(grid):
+    a = grid.create_field(name="a")
+    b = a.with_metadata(name="b")
+    assert (jax.tree_util.tree_structure(a)
+            != jax.tree_util.tree_structure(b))
+
+
+def test_jit_function_over_fields(grid, f, g):
+    @jax.jit
+    def step(a, b):
+        return a + 0.5 * b
+
+    out = step(f, g)
+    assert isinstance(out, ScalarField)
+    assert out.grid is grid
+    assert out.function_space is f.function_space
+    assert jnp.allclose(out.data, f.data + 0.5 * g.data)
+
+
+def test_arithmetic_traces_once_across_same_shape_calls(
+        grid, compile_counter):
+    a = grid.create_field(data=jnp.ones((8, 4)))
+    b = grid.create_field(data=jnp.full((8, 4), 2.0))
+    c = grid.create_field(data=jnp.full((8, 4), 3.0))
+
+    @jax.jit
+    def tendency(u, v):
+        return u * v + u - 0.5 * v
+
+    tendency(a, b).block_until_ready()  # compile once
+    compile_counter.reset()
+    tendency(b, c).block_until_ready()
+    tendency(c, a).block_until_ready()
+    assert compile_counter.count == 0
