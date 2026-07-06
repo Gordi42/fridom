@@ -33,6 +33,7 @@ overview). Layout:
 | Class | Module | Transitional import |
 |-------|--------|---------------------|
 | `SpaceMismatchError` | `grid2/errors.py` | `fr.grid2.SpaceMismatchError` |
+| `GridMismatchError` | `grid2/errors.py` | `fr.grid2.GridMismatchError` |
 | `TensorProductSpace` | `grid2/spaces/tensor_product.py` | `fr.grid2.TensorProductSpace` |
 | `FieldMetadata` | `grid2/fields/metadata.py` | `fr.grid2.FieldMetadata` |
 | `ScalarField` | `grid2/fields/scalar_field.py` | `fr.grid2.ScalarField` |
@@ -78,32 +79,59 @@ beats `ConstantSpace`; complex variant beats real). Because spaces are
 interned, all of this is identity comparison plus two `is`-checks per
 factor — cheap and jit-static.
 
-**The rule.** `f + g`, `f - g`, `f * g`, `f / g` compute the join of
+**The rule.** Binary ops first require **grid identity**:
+`f.grid is g.grid`, else `GridMismatchError` — meshes (and therefore
+interned spaces) may legally be shared across grids, so spaces alone
+cannot distinguish operands living under different decompositions.
+Then `f + g`, `f - g`, `f * g`, `f / g` compute the join of
 the operand spaces, lift both operands to it, and apply the operation
 there. If the join does not exist, they raise `SpaceMismatchError`.
 Nothing else is implicit: staggering conversion, inter-origin phase
 shifts, and transforms are always explicit (`.to`, operators).
 
-**Pytree treatment (whole cluster).** Spaces and `FieldMetadata` are
-pure *static aux*: spaces are interned singletons used as
-jit/dispatch keys (section 2.2) and never appear as pytree leaves;
-metadata is a frozen, hashable dataclass in the treedef. The **grid
-is a pytree child** of every field: `Grid` is itself jaxified
-(cluster 04) with its attachment leaves — the immersed
-volume-fraction field, mapping parameter fields — dynamic, per
-section 2.2's rule that the grid's materialized coordinate/metric
-arrays are dynamic pytree leaves. The grid's static *structure*
-(meshes, names, registry) participates in the treedef, so grid
-identity still keys the jit cache, while the attachment leaves flow
-through jit as data. Field *arrays* are the other dynamic leaves.
+**Pytree treatment (whole cluster).** Spaces, the grid, and
+`FieldMetadata` are pure *static aux*: spaces are interned singletons
+used as jit/dispatch keys (section 2.2) and never appear as pytree
+leaves; metadata is a frozen, hashable dataclass in the treedef; the
+**grid is fully static** — `Grid` defines explicit *identity*
+`__eq__`/`__hash__` (cluster 04), exactly like spaces, so grid
+identity keys the jit cache. Its attachments (`ImmersedDomain`,
+`CoordinateMapping`) are static descriptors that materialize arrays
+on demand at trace time; time-dependent geometry is module-owned
+state fields consumed through explicit-data accessors (cluster 04
+owns the details). Field *arrays* are the only dynamic leaves.
 Concretely: `ScalarField` is
-`@partial(fr.utils.jaxify, dynamic=("_data", "_grid"))`;
-`VectorField` / `TensorField` are jaxified with their component
-mapping dynamic (the `ScalarField` children carry the leaves).
-Consequence: a change of space, grid structure, or metadata changes
-the treedef and retriggers jit tracing — intended for spaces (they
-are the cache key) and harmless for metadata because component names
-are stable within a run.
+`@partial(fr.utils.jaxify, dynamic=("_data",))`; `VectorField` /
+`TensorField` are jaxified with their component mapping dynamic (the
+`ScalarField` children carry the leaves). Consequence: a change of
+space, grid, or metadata changes the treedef and retriggers jit
+tracing — intended for spaces and grids (they are the cache key) and
+harmless for metadata because component names are stable within a
+run.
+
+**Rejected alternative (review round 2):** carrying the grid as a
+pytree *child* of the field with dynamic attachment leaves (immersed
+fraction, mapping parameter fields). Reviewers showed it fails three
+ways: it is **cyclic** — the immersed fraction is itself a
+`ScalarField` carrying `_grid`, and jax pytrees have no cycle
+detection, so flattening recurses to a `RecursionError`; it is
+**leaf-duplicating** — N fields in a jitted signature would ship N
+copies of the fraction array as arguments; and it is **incompatible
+with module updates under a traced scan** — a module cannot swap a
+leaf buried inside every field's grid mid-trace. The static grid has
+a direct payoff in this cluster: jit round trips preserve grid
+*identity* (unflattening never clones grids), so `VectorField`'s
+same-grid validation and the `f.grid is g.grid` precondition stay
+sound inside and outside jit.
+
+**Prerequisite (jaxify flatten order).** Today's `fr.utils.jaxify`
+keeps dynamic attribute names in an unordered `set`, so flatten
+order depends on `PYTHONHASHSEED` — a latent multi-host bug
+(leaf-order mismatch across processes) even before grid2. This is a
+stated **prerequisite**, not an open question: jaxify must store
+dynamic attrs in declaration order (a tuple) before grid2 lands, and
+`VectorField` additionally needs keyed flattening in
+component-declaration order (see its pytree note).
 
 **Fields are immutable.** Construction is functional (section 3.10;
 mutating `f.set(...)` was rejected there). There is no `.arr = ...`
@@ -141,6 +169,7 @@ class SpaceMismatchError(TypeError):
         left: object | None = None,
         right: object | None = None,
         operation: str | None = None,
+        mismatched_names: tuple[str, ...] = (),
     ) -> None:
         """Store the offending spaces for programmatic inspection."""
         ...
@@ -148,15 +177,18 @@ class SpaceMismatchError(TypeError):
     left: object | None       # space of the left operand
     right: object | None      # space of the right operand (None if unary)
     operation: str | None     # "+", "*", "to", "forward", ...
+    mismatched_names: tuple[str, ...]   # factor names that differ
 ```
 
 Notes:
 
 - Subclasses `TypeError`: the operand *combination* is unsupported,
-  the moral analogue of `unsupported operand type(s)`. The message
-  renders both spaces (`Center(x) ⊗ Center(y)` vs
-  `Right(x) ⊗ Center(y)`) and points at `.to(...)` as the explicit
-  conversion path.
+  the moral analogue of `unsupported operand type(s)`.
+  `mismatched_names` lists exactly the factor names whose factors
+  differ beyond the sanctioned lifts; the intended message format is
+  a **per-factor diff over those names** plus the conversion hint,
+  e.g. `cannot add fields: x: Right vs Center (y, z agree); use
+  .to(...) for an explicit conversion`.
 - Raised by: all binary arithmetic when the join does not exist; by
   `.to` when the registered conversion's codomain does not equal the
   requested target factor (section 3.4); and by operator application
@@ -168,6 +200,53 @@ Notes:
   registry-resolution error owned by cluster 03. The distinction:
   `SpaceMismatchError` means "illegal by the algebra", the dispatch
   error means "legal but no default registered".
+
+---
+
+### GridMismatchError
+
+Raised when binary field operations combine fields created on
+different grids.
+
+| Aspect | Value |
+|--------|-------|
+| Kind | concrete, final |
+| Pytree | n/a (exception type) |
+| Iteration | 1 |
+| Concept refs | 2.6, 2.7, section 5 |
+
+```python
+"""Exception for cross-grid field operations."""
+from __future__ import annotations
+
+
+class GridMismatchError(TypeError):
+    """Raised when fields on different grids are combined."""
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        left: object | None = None,
+        right: object | None = None,
+        operation: str | None = None,
+    ) -> None:
+        """Store the offending grids for programmatic inspection."""
+        ...
+
+    left: object | None       # grid of the left operand
+    right: object | None      # grid of the right operand
+    operation: str | None     # "+", "*", "to", ...
+```
+
+Notes: lives beside `SpaceMismatchError` in `grid2/errors.py` and is
+checked *before* the space join. Rationale: meshes — and therefore
+interned spaces — may legally be shared across grids (same factors,
+same names, different decomposition or dispatch defaults), so the
+space-join check alone cannot detect operands living under different
+decompositions. Because the grid is static aux with identity hashing
+(pytree section above) and jit round trips never clone grids, the
+`f.grid is g.grid` check is exact inside and outside jit.
 
 ---
 
@@ -285,7 +364,10 @@ Semantics and invariants:
   argument contributes its factors, never itself — so no factor is a
   product; factors keep left-to-right order; the result is looked up
   in the intern table keyed by the factor identity tuple, so
-  `a * (b * c)` *is* `(a * b) * c` *is* the same object. Flatness is
+  `a * (b * c)` *is* `(a * b) * c` *is* the same object. The intern
+  table is a `weakref.WeakValueDictionary` keyed on the factor-id
+  tuple: unreferenced products are collected, meshes are not pinned
+  by the table, and no state leaks across tests. Flatness is
   at the mesh level: a 2D `SphereMesh` factor stays one entry while
   contributing two names (section 2.3).
 - **Duplicate coordinate names are rejected**: `of` raises
@@ -409,7 +491,7 @@ wavenumbers, masks, metrics) is one of these (sections 2.4, 2.7).
 | Aspect | Value |
 |--------|-------|
 | Kind | concrete, final |
-| Pytree | `jaxify, dynamic=("_data", "_grid")`; space/metadata static aux; grid a pytree child (static structure, dynamic attachment leaves) |
+| Pytree | `jaxify, dynamic=("_data",)`; grid/space/metadata static aux (grid identity-hashed) |
 | Iteration | 1 (core); individual methods tagged |
 | Concept refs | 2.4, 2.7, 3.1–3.5, 3.10–3.13, all sketches |
 
@@ -422,7 +504,7 @@ from functools import partial
 import fridom.framework as fr
 
 
-@partial(fr.utils.jaxify, dynamic=("_data", "_grid"))
+@partial(fr.utils.jaxify, dynamic=("_data",))
 class ScalarField:
     """A discrete scalar field on a tensor-product function space."""
 
@@ -433,7 +515,8 @@ class ScalarField:
         data: jax.Array,
         metadata: FieldMetadata | None = None,
     ) -> None:
-        """Trusting plumbing constructor (jit-hot); no validation."""
+        """Trusting plumbing constructor (jit-hot): takes
+        storage-shaped data, no validation, no copies."""
         ...
 
     # ================================================================
@@ -480,7 +563,8 @@ class ScalarField:
     # ================================================================
 
     def with_data(self, data: jax.Array) -> ScalarField:       # it-1
-        """Same grid/space/metadata, new array."""
+        """Same grid/space/metadata, new true-shape array (routed
+        through decomposition.pad + grid.sync)."""
         ...
 
     def with_metadata(self, **changes: object) -> ScalarField: # it-1
@@ -629,7 +713,7 @@ class ScalarField:
 
     @property
     def xr(self) -> xr.DataArray:                              # it-1
-        """xarray export with xgcm-style staggered coords."""
+        """xarray export (label/gather rules: cluster 04 Export)."""
         ...
 
     def __repr__(self) -> str:                                 # it-1
@@ -660,8 +744,19 @@ Semantics, invariants, error behavior:
   sine/cosine ⇒ real; any complex factor ⇒ complex. `dtype` is a
   read-only report of that derivation (concretely: the array's
   dtype, which `create_field` guarantees consistent).
+- **Hermitian value invariant** (3.2): on coefficient spaces of real
+  origin, the half-spectrum *shape* removes the conjugate half, but
+  realness at the self-conjugate modes (k = 0, Nyquist) is a *value*
+  constraint the shape cannot encode. `grid.create_field` with
+  `init_coeff=` or `data=` therefore **projects the imaginary part
+  at self-conjugate modes** on construction, and operators must
+  preserve the invariant (real-linear operators do so
+  automatically, 3.1). The random-draw side — real-only draws at
+  self-conjugate indices — is owned by cluster 04.
 - **Arithmetic** follows the join rule of the shared-semantics
-  section. Exact raises: `f + g` / `f - g` / `f * g` / `f / g` with
+  section (grid identity first, then the space join). Exact raises:
+  operands from different grids ⇒ `GridMismatchError`;
+  `f + g` / `f - g` / `f * g` / `f / g` with
   no join ⇒ `SpaceMismatchError` (e.g. `Right(x)` vs `Center(x)`,
   or `Fourier(origin=Right)` vs `Fourier(origin=Center)` — sketch
   4.3). Python scalars in `+`/`-` are treated as fields on the
@@ -680,8 +775,10 @@ Semantics, invariants, error behavior:
   cluster 03), higher-order quadrature `# later`. Cluster 03 also
   registers the `"divide"`, `"power"`, and `"abs"` kinds backing the
   dunders below. `f ** n` follows the same
-  table; the coefficient-space default (repeated `Convolution`,
-  integer `n >= 1`) is `# later`. The coefficient-wise product is
+  table; the coefficient-space default is `# later` — cluster 03
+  carries the designed-for `("power", Fourier(origin))` →
+  repeated-`Convolution` registry row (integer `n >= 1`) that this
+  dunder will resolve to. The coefficient-wise product is
   *never* `*`: it is the explicit `Hadamard` operator, and applying
   a `Symbol` to a field is callable Hadamard multiply (cluster 03).
 - **`to(target)`** accepts a field (`g.to(f)`), a full product
@@ -689,10 +786,24 @@ Semantics, invariants, error behavior:
   "convert that factor only, keep the rest"
   (`g.to(mx.center)` ≡ `g.to(g.function_space.replace(x=mx.center))`).
   Per-axis dispatch reads the conversion kind from the source→target
-  factor relationship (`"interp"`, `"reconstruct"`, phase shift;
-  section 3.4); a registered operator whose codomain differs from
-  the requested factor raises `SpaceMismatchError`. `to` onto the
-  identical space returns `self`.
+  factor relationship (section 3.4); the explicit family-pair → kind
+  matrix is:
+
+  | Source factor → target factor | Kind | Status |
+  |-------------------------------|------|--------|
+  | nodal → nodal | `"interp"` | it-1 |
+  | average → nodal/face | `"reconstruct"` | it-1 |
+  | average → average | dual-family transfer (cluster 03) | it-1 |
+  | coefficient → coefficient, same basis / different origin | `"interp"` (exact phase shift, 3.2) | it-1 |
+  | nodal → average | `"average"` (quadrature projection) | later (DispatchError until registered) |
+  | nodal ↔ coefficient | **raises `SpaceMismatchError`** — a `.to` is not a transform; use `fr.operators.Fourier(grid, axes=...).forward/.backward` | — |
+
+  A registered operator whose codomain differs from the requested
+  factor raises `SpaceMismatchError`. **One target per kind**: from
+  a given source factor, exactly one codomain per kind is reachable
+  via `.to` (the registered operator fixes its own codomain, 3.4);
+  any other target requires an explicit operator instance or a
+  registry override. `to` onto the identical space returns `self`.
 - **`integrate(*names)`** (section 3.13): no names ⇒ all factors.
   Signature per factor: `S(x) → ConstantSpace(x)`; already-constant
   factors are identity. Weights come from the space's
@@ -704,33 +815,57 @@ Semantics, invariants, error behavior:
   the array escape hatch (`f.data.sum()`), per 3.13.
 - **`cumint`**: the underlying `CumulativeIntegral` operator is
   **iteration 1** (hydrostatic parity, cluster 03) with fixed
-  codomains — `CellAvg(n) → Outer(n+1)` and `Center → Right` /
-  `Inner`, the discrete-FTC partial inverse of `flux_diff`
-  (3.9/3.13). Only this method *sugar* is tagged `# later`; explicit
-  operator application covers iteration-1 needs.
+  codomains — `CellAvg(n) → Outer(n+1)`, periodic `Center → Right`,
+  and bounded `Center → Outer` (information-preserving; the earlier
+  `Inner` codomain discarded the total and was dropped by cluster
+  03), the discrete-FTC partial inverse of `flux_diff` (3.9/3.13).
+  On periodic meshes the input must be mean-zero for the cumulative
+  integral to be single-valued, and the integration constant is
+  fixed per `direction` by cluster 03's convention (zero at the
+  start face). Only this method *sugar* is tagged `# later`;
+  explicit operator application covers iteration-1 needs.
 - **`sel`/`isel`** (`# later`, roadmap 1.2 revisited by 4.3): reduce
   the named factors to `ConstantSpace` — a slice at `x = a` has no
   x-extent, which is exactly what `ConstantSpace` encodes, and the
   broadcast lift makes `f - f.sel(z=0.0)` work. `sel` requires an
   exact node match unless `method="nearest"`; on coefficient factors
   both raise `ValueError` (no physical coordinate — transform back
-  first). Boundary *data* is not `sel`: trace fields live on
+  first), and on **average factors both raise too**: averages have
+  no position (§2.2 — a `CellAvg` DOF is a functional over the cell,
+  not a value at a point); reconstruct to a nodal space first.
+  Boundary *data* is not `sel`: trace fields live on
   boundary meshes (section 3.6), not on `ConstantSpace`.
 - **Metadata propagation** (decision): operations that re-represent
   the *same quantity* keep metadata (`with_data`, `to`, `real`,
   `imag`, `as_complex`, `conj`, `sel`/`isel`, transforms); operations
   that produce a *different quantity* (all binary arithmetic, `diff`,
   `integrate`, `grad`, ...) return default metadata — no unit
-  algebra is attempted. Users re-annotate via `with_metadata`.
+  algebra is attempted. Users re-annotate via `with_metadata`. This
+  default-metadata rule applies to **bare `ScalarField` ops only**:
+  `VectorField`/`State` componentwise arithmetic *preserves* each
+  component's metadata, because component names are structural there
+  (see the scan-stability rule under `VectorField`).
 - **No comparisons** (decision): `<`, `<=`, `>`, `>=` are not
   defined (elementwise comparisons are `f.data` territory); `==` is
   identity (pytree/jaxjit friendly); `__bool__` raises to catch
   `if f:` bugs early.
-- **Halo synchronization is not part of this surface**: sync/halo
-  exchange, halo-extended storage, and the tracer-field dry run are
-  specified in cluster 04 (section 5); `.data` always exposes the
-  true-shape local view, with padding and halos invisible above the
-  operator layer (3.5).
+- **Storage contract** (jointly with cluster 04): the dynamic leaf
+  `_data` is **storage-shaped** — halo-extended and stagger-padded
+  per the negotiated per-mesh layout (section 5) — while `.data` is
+  the **true-shape view** with halo and padding stripped (3.5).
+  `with_data` and `grid.create_field(..., data=...)` accept
+  *true-shape* arrays and route them through `decomposition.pad` and
+  `grid.sync`, so stored halos are always valid. Iteration-1 halo
+  contract (owned by cluster 04, cross-ref): operator inputs may
+  assume valid halos, and **every operator application returns a
+  synced field**; eliding redundant syncs along traced operator
+  chains is the designed-for optimization. Sync machinery,
+  halo-extended layout, and the tracer-field dry run are specified
+  in cluster 04.
+- **`.xr` export is specified in cluster 04's "Export" subsection**
+  (coordinate-label rules, xgcm staggered-dim naming, wavenumber
+  coords, the multi-device gather path); the `xr` property here is
+  only the field-side entry point delegating to it.
 - **Removed relative to `FieldBase`/`ScalarField` today**: `fft` /
   `ifft` methods (transforms are grid-bound operators,
   `fr.operators.Fourier(grid, axes=...).forward/.backward`, sketch
@@ -903,27 +1038,42 @@ Semantics, invariants, error behavior:
   and safe under jaxify.
 - **Constructor validation**: iterable input takes names from each
   field's `metadata.name`; duplicate names ⇒ `ValueError`; differing
-  grids ⇒ `ValueError`. Component *spaces* are unconstrained — the
-  whole point is that components live on different spaces (2.4).
+  grids ⇒ `GridMismatchError`. When the duplicated name is the
+  default `"unnamed"` (two components built without metadata), the
+  message special-cases: it tells the user to *name the components*
+  (`FieldMetadata.create(name=...)` / `f.with_metadata(name=...)`)
+  rather than reporting a generic duplicate. Component *spaces* are
+  unconstrained — the whole point is that components live on
+  different spaces (2.4).
 - **Componentwise arithmetic**: `vec op vec` requires identical
   component-name tuples (order included) ⇒ `ValueError` otherwise
   (a container-shape error, not a space error); each component pair
-  then follows the ScalarField join rule, so per-component
-  `SpaceMismatchError`s propagate. `vec * field` broadcasts one
+  then follows the ScalarField rule (grid identity, then the join),
+  so per-component `GridMismatchError`s/`SpaceMismatchError`s
+  propagate. `vec * field` broadcasts one
   `ScalarField` against every component (the classic
   `f_cor * velocity` with `f_cor` on a ConstantSpace-in-z product,
   sketch 4.5); `vec * scalar` is linear scaling.
+- **Componentwise arithmetic preserves metadata (scan stability).**
+  Unlike bare `ScalarField` arithmetic, every componentwise op keeps
+  each component's metadata: component names are *structural* (they
+  key the pytree), so the ScalarField default-metadata rule would
+  make the scan carry `z_new = z + dt * dz` lose its names, change
+  the treedef, and break `lax.scan`/`jit` round trips. Required test
+  (model smoke level):
+  `jax.tree_util.tree_structure(step(z)) == tree_structure(z)`.
 - **`map` is the functional surface consumed by eigenmode objects
   and spectra-based ICs** (sketch 4.9): `fn` receives each component
   on its own space and must return a `ScalarField`; the result keeps
   names and order. `map` never inspects spaces — per-component
   space changes (e.g. transforms) are fine and land in the returned
   collection.
-- **Pytree note**: the component mapping is flattened in declaration
-  order with names in the static treedef; renaming or re-keying a
-  component changes the treedef (retrace), mirroring the metadata
-  rule for scalars. (Implementation must pin declaration order
-  explicitly rather than rely on jax's sorted-dict flattening.)
+- **Pytree note**: the component mapping is flattened **keyed, in
+  component-declaration order**, with names in the static treedef;
+  renaming or re-keying a component changes the treedef (retrace),
+  mirroring the metadata rule for scalars. This relies on the jaxify
+  flatten-order **prerequisite** stated in the shared pytree section
+  (declaration-order tuples instead of today's unordered `set`).
 
 ---
 
@@ -943,7 +1093,12 @@ designed-for, kept deliberately brief (section 2.4).
 """A rank-2 collection of scalar fields."""
 from __future__ import annotations
 
+from functools import partial
 
+import fridom.framework as fr
+
+
+@partial(fr.utils.jaxify, dynamic=("_components",))
 class TensorField:
     """Thin rank-2 container of ScalarFields; carries no metric."""
 
@@ -1033,7 +1188,11 @@ class State(fr.grid2.VectorField):
 ```
 
 Constraints this cluster imposes on `State` authors: the component
-set and names must be stable over a model run (pytree treedef);
+set and names must be stable over a model run (pytree treedef) —
+componentwise arithmetic preserves metadata precisely so that the
+scan carry keeps its structure; the required test
+`tree_structure(step(z)) == tree_structure(z)` (see `VectorField`)
+is part of every model port;
 tendency construction is functional (`replace`, `map`, arithmetic) —
 there is no in-place component mutation in the new design; eigenmode
 objects reuse `State` with components on per-variable coefficient
@@ -1046,22 +1205,25 @@ this document.
 
 ## Open questions
 
-Closed by cross-review: the broadcast dispatch entry is registered as
-`("broadcast", ConstantSpace)` → `ConstantBroadcast` (cluster 03),
-and `CumulativeIntegral` ships iteration 1 with fixed codomains
-(cluster 03) — both former questions are resolved above.
+Closed by cross-review rounds 1–2: the broadcast dispatch entry
+(`("broadcast", ConstantSpace)` → `ConstantBroadcast`, cluster 03);
+the `CumulativeIntegral` codomains and integration-constant
+convention (cluster 03); the grid's pytree status (fully static,
+identity-hashed — the pytree-child alternative is recorded as
+rejected above); the metadata/scan collision (componentwise
+arithmetic preserves metadata); and the jaxify flatten-order
+question, which is upgraded to a stated **prerequisite** in the
+shared pytree section, not left open.
 
 1. **`to` single-factor shorthand**: `g.to(mx.center)` (replace one
    factor, keep the rest) is proposed here for ergonomics; confirm it
    does not blur the "target space must be named explicitly" line the
    notes draw elsewhere (mandatory `space` args, 3.10).
-2. **Metadata propagation rule**: the "same quantity keeps metadata,
-   new quantity resets" split is a pragmatic default; fine-tune the
-   exact method list during the nonhydro port (roadmap 4.3/4.4).
+2. **Metadata propagation rule (scalar level)**: the "same quantity
+   keeps metadata, new quantity resets" split for bare `ScalarField`
+   ops is a pragmatic default (the vector/state level is decided:
+   preserved); fine-tune the exact method list during the nonhydro
+   port (roadmap 4.3/4.4).
 3. **Migration mutation shim**: old model code mutates `z.u`; decide
    whether ports go fully functional immediately (`replace`) or a
    temporary deprecation shim on `State` properties is worth it.
-4. **`VectorField` flatten order**: pinning declaration order in the
-   pytree flatten (vs jax's sorted-dict default) needs a small
-   custom flatten rule in `fr.utils.jaxify` — verify it composes with
-   the existing auto-registration of subclasses.
