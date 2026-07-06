@@ -116,7 +116,7 @@ stage testable in isolation) is:
 
 1. static markers, meshes, spaces, products (pure static structure);
 2. minimal `ScalarField` + `create_field(data=/init=)` on nodal
-   spaces + registry + FD/interp, single device;
+   spaces + registry + FD/interpolate, single device;
 3. average family, FV operators, `integrate`, full strict-algebra
    dunders;
 4. transforms (`Fourier`, DST/DCT, Chebyshev) + `refined()` padding;

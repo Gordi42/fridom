@@ -50,7 +50,7 @@ Four normative places already *are* compositions:
    [section 3.12](../grid_redesign/02_rules.md#312-dealiasing)):
    `trim_transform o CollocationProduct o pad_inverse_transform`.
 3. **`grad`/`div`/`laplacian` dispatch defaults** on separable grids
-   are "a composition over `diff`/`interp`" (grid-redesign
+   are "a composition over `diff`/`interpolate`" (grid-redesign
    [section 3.4](../grid_redesign/02_rules.md#34-generic-operator-dispatch)).
 4. **Halo accounting** is specified precisely for "un-synced
    composition chains" (`f.diff("x").diff("x")` needs

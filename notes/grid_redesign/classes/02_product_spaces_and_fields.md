@@ -791,10 +791,10 @@ Semantics, invariants, error behavior:
 
   | Source factor → target factor | Kind | Status |
   |-------------------------------|------|--------|
-  | nodal → nodal | `"interp"` | it-1 |
+  | nodal → nodal | `"interpolate"` | it-1 |
   | average → nodal/face | `"reconstruct"` | it-1 |
   | average → average | dual-family transfer (cluster 03) | it-1 |
-  | coefficient → coefficient, same basis / different origin | `"interp"` (exact phase shift, 3.2) | it-1 |
+  | coefficient → coefficient, same basis / different origin | `"interpolate"` (exact phase shift, 3.2) | it-1 |
   | nodal → average | `"average"` (quadrature projection) | later (DispatchError until registered) |
   | nodal ↔ coefficient | **raises `SpaceMismatchError`** — a `.to` is not a transform; use `fr.operators.Fourier(grid, axes=...).forward/.backward` | — |
 

@@ -721,10 +721,17 @@ into the FV derivative (sketch 4.2). As the **user verb**
 `f.grid.dispatch` at **application** — exactly what `f.diff("x")` did.
 The unifying rule: *resolve when the registry/grid becomes known.*
 Resolution precedence is ordinary dispatch (space-specific > kind-only
-> default, [registry](#operatorregistry)). The field-sugar forwarders
-(D3) route through this verb: `f.diff(axis) == fr.operators.diff[axis]
-(self)`, `f.integrate(axis) == fr.operators.integrate[axis](self)`;
-`f.to(target)`'s target-space binding spelling is a D3 open detail.
+> default, [registry](#operatorregistry)). **Seeded verbs vs. the
+constructor (D3b):** the standard verbs are module-level singletons on
+`fr.operators` — `diff`, `integrate`, `interpolate` (`= Dispatched(
+"diff")` etc.) — the discoverable, ergonomic surface that the field
+forwarders route through (`f.diff(axis) == fr.operators.diff[axis]
+(self)`). The `Dispatched(kind)` constructor stays **public as the
+extension escape-hatch**: a module registering a custom kind can expose
+`Dispatched("mykind")["x"]` as its own verb; an unknown kind is a clean
+`DispatchError` at application, so the open constructor is safe. Ordinary
+use goes through the seeded verbs. `f.to` is deliberately *not* a
+`Dispatched` verb — it is the multi-kind resolver of D3a.
 
 ---
 
@@ -949,7 +956,7 @@ Notes:
 
 ### LinearInterp
 
-Two-point staggering interpolation; the default `"interp"` entry on
+Two-point staggering interpolation; the default `"interpolate"` entry on
 nodal spaces.
 
 | | |
@@ -965,7 +972,7 @@ nodal spaces.
 class LinearInterp(SeparableOperator):
     """Second-order two-point interpolation between nodal node sets."""
 
-    dispatch_kind: ClassVar[str | None] = "interp"
+    dispatch_kind: ClassVar[str | None] = "interpolate"
 
     def __init__(self, target: NodeSet | None = None) -> None:
         """Create the kernel; ``target`` overrides the default codomain."""
@@ -977,7 +984,7 @@ class LinearInterp(SeparableOperator):
         ...
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
-        """interp: Center <-> Right (periodic); Center -> Inner,
+        """interpolate: Center <-> Right (periodic); Center -> Inner,
         Outer/Inner -> Center (bounded); target= selects Outer."""
         ...
 
@@ -1084,7 +1091,7 @@ Notes:
   boundary-extrapolation treatment as `LinearInterp` — an explicit
   instance, not a default row.
 - `"reconstruct"` (average <-> point value) is a distinct kind from
-  `"interp"` (nodal -> nodal), per sketch 4.2; `.to` picks the kind
+  `"interpolate"` (nodal -> nodal), per sketch 4.2; `.to` picks the kind
   from the source/target family (§3.4).
 
 ### WenoReconstruction
@@ -1470,7 +1477,7 @@ Notes:
 ### PhaseShift
 
 Exact inter-origin conversion between Fourier coefficient spaces —
-the `"interp"` entry in coefficient space
+the `"interpolate"` entry in coefficient space
 ([§3.2](../02_rules.md#32-coefficient-representations-are-separate-spaces),
 sketch 4.3).
 
@@ -1487,7 +1494,7 @@ sketch 4.3).
 class PhaseShift(SeparableOperator):
     """Inter-origin e^{i k s dx} shift between Fourier spaces."""
 
-    dispatch_kind: ClassVar[str | None] = "interp"
+    dispatch_kind: ClassVar[str | None] = "interpolate"
 
     def __init__(self, to: NodeSet = NodeSet.CENTER) -> None:
         """Shift to the Fourier space of the given origin node set."""
@@ -1518,7 +1525,7 @@ class PhaseShift(SeparableOperator):
 Notes:
 
 - Diagonal: applying it *is* applying its own symbol. The default
-  registry entry `("interp", Fourier(origin=Right)) ->
+  registry entry `("interpolate", Fourier(origin=Right)) ->
   PhaseShift(to=NodeSet.CENTER)` makes `u_hat.to(w_hat)` in
   sketch 4.3 work; other targets are explicit instances (the `.to`
   sugar errors if the registered codomain does not match the target,
@@ -1534,7 +1541,7 @@ Notes:
   matching §3.2 caveat added to `02_rules.md` in this change set. On
   complex origins and odd `n` the shift is exact and unitary.
 - **One-directional seeding.** Only
-  `("interp", Fourier(o != center)) -> PhaseShift(to=NodeSet.CENTER)`
+  `("interpolate", Fourier(o != center)) -> PhaseShift(to=NodeSet.CENTER)`
   is seeded: a single-codomain entry cannot express per-target
   defaults, so Center -> staggered conversions require explicit
   `PhaseShift(to=NodeSet.RIGHT)`-style instances. Sketch-4.9-style
@@ -1567,7 +1574,7 @@ Fourier spaces — the named `sinc(k dx / 2)` factor of §3.2/§3.9.
 class SincShift(SeparableOperator):
     """sinc(k dx / 2) conversion between average and nodal origins."""
 
-    dispatch_kind: ClassVar[str | None] = "interp"
+    dispatch_kind: ClassVar[str | None] = "interpolate"
 
     def __init__(self, to: NodeSet = NodeSet.CENTER) -> None:
         """Convert to the Fourier space of the given origin node set."""
@@ -2043,33 +2050,30 @@ class ConstantBroadcast(SeparableOperator):
 
     dispatch_kind: ClassVar[str | None] = "broadcast"
 
-    def __init__(self) -> None:
-        """Create the broadcast embedding."""
+    def __init__(self, to: FunctionSpace | None = None) -> None:
+        """Create the embedding; ``to`` is the target factor (static,
+        interned space), supplied by the unification machinery."""
         ...
 
-    def codomain(
-        self,
-        domain: FunctionSpace,
-        to: FunctionSpace | None = None,
-    ) -> FunctionSpace:
-        """broadcast: ConstantSpace(m) -> ``to`` (target factor)."""
+    def codomain(self, domain: FunctionSpace) -> FunctionSpace:
+        """broadcast: ConstantSpace(m) -> ``self.to`` (target factor)."""
         ...
 
     def _apply(
         self, f: ScalarField | VectorField,
     ) -> ScalarField | VectorField:
-        """Replicate the constant DOF into the bound target factor."""
+        """Replicate the constant DOF into the target factor."""
         ...
 ```
 
 Unlike other separable kernels, the codomain is not a function of the
 domain alone: the target factor is supplied by the *other* operand
 when binary `codomain` unites a constant factor with a full one. Under
-bind-only (D2) that target is carried by binding rather than a call
-keyword — the concrete spelling (`broadcast[target]` vs a `to=`
-constructor argument) is the **D3 open detail** (see Open questions) —
-a recorded widening of the per-factor signature, analogous to the
-composed-operator widening. On nodal/average targets the embedding is
+D3a the target is a **constructor parameter** (`ConstantBroadcast(to=
+target)`, the target a static interned space) built by that unification
+machinery — **not** a `["x"]` binding, which stays axis-only; `_apply(
+self, f)` reads the target off `self`. A recorded widening of the
+per-factor signature, analogous to the composed-operator widening. On nodal/average targets the embedding is
 exact replication (halo 0, layout "any", iteration 1). On coefficient
 targets it is the exact delta embedding (the constant lands in the
 k = 0 / mean mode, scaled by the basis normalization) — designed-for.
@@ -2471,7 +2475,7 @@ Notes:
 
 Generic **dispatch kinds**, not special slots (§3.4), and under D1
 **algebra-derived**: the default entries on separable grids are
-`Block`s and chains over `"diff"`/`"interp"`/`"flux_diff"` (B1), *not*
+`Block`s and chains over `"diff"`/`"interpolate"`/`"flux_diff"` (B1), *not*
 bespoke classes. `grad`/`div`/`curl`/`laplacian` have **grid-dependent
 block shape** (2-D vs 3-D), so they are `Dispatched`-family (B2): the
 registered default for the kind is a builder that, at model assembly,
@@ -2800,9 +2804,9 @@ the cartesian subclass adds nothing):
 | `("diff", Fourier(o))` | `SpectralDerivative()` | `Fourier(o) -> Fourier(o)` |
 | `("diff", Sine/Cosine coeff)` | `SpectralDerivative()` | `Sine <-> Cosine` |
 | `("diff", Chebyshev coeff)` | `SpectralDerivative()` | recurrence, same family |
-| `("interp", nodal)` | `LinearInterp()` | `Center <-> Right` (periodic); `Center -> Inner`, `Outer/Inner -> Center` (bounded) |
-| `("interp", Fourier(o = staggered nodal))` | `PhaseShift(to=NodeSet.CENTER)` | `-> Fourier(origin=Center)` |
-| `("interp", Fourier(o = cell_avg/face_avg))` | `SincShift(to=NodeSet.CENTER)` | `-> Fourier(origin=Center)` |
+| `("interpolate", nodal)` | `LinearInterp()` | `Center <-> Right` (periodic); `Center -> Inner`, `Outer/Inner -> Center` (bounded) |
+| `("interpolate", Fourier(o = staggered nodal))` | `PhaseShift(to=NodeSet.CENTER)` | `-> Fourier(origin=Center)` |
+| `("interpolate", Fourier(o = cell_avg/face_avg))` | `SincShift(to=NodeSet.CENTER)` | `-> Fourier(origin=Center)` |
 | `("reconstruct", CellAvg)` | `LinearReconstruction()` | `CellAvg -> Right` (periodic) / `Inner` (bounded) |
 | `("reconstruct", Right/Outer/Inner)` | `LinearReconstruction()` | `-> CellAvg` |
 | `("flux_diff", Outer/Inner)` | `FluxDifference()` | `-> CellAvg` |
@@ -2841,16 +2845,21 @@ adoption paragraph, G10) — spaces are interned, so this stays a small
 finite table.
 
 **Sugar wiring** (owned by doc 02's field classes, listed here for
-the contract). Under D3 the named field methods are **thin forwarders
-to the operator verbs**, not a parallel path: `f.diff("x")` is
-`fr.operators.diff["x"](f)` where `diff = Dispatched("diff")` resolves
-`("diff", f.function_space.factor("x"))` against `f.grid.dispatch` and
-applies the bound operator (`op["x"](f)`, bind-only — no `axis=`
-keyword); `f.integrate("x")` forwards the same way. `f.to(target)`
-reads the conversion kind from the per-axis source/target family
-relationship and resolves `(kind, source_factor)` (its target-space
-binding spelling is a D3 open detail). The **arithmetic dunders stay
-on the field** (Python syntax): `f * g` resolves
+the contract). Under D3 the **single-kind** field methods are **thin
+forwarders to seeded operator verbs**, not a parallel path:
+`f.diff("x")` is `fr.operators.diff["x"](f)` where `diff =
+Dispatched("diff")` resolves `("diff", f.function_space.factor("x"))`
+against `f.grid.dispatch` and applies the bound operator (`op["x"](f)`,
+bind-only — no `axis=` keyword); `f.integrate("x")` and the
+interpolation verb `fr.operators.interpolate["x"]` forward the same way.
+`f.to(target)` is **not** such a verb: it is a *multi-kind resolver*
+(D3a) that reads the conversion kind — `interpolate` / phase shift /
+`transform` — from the per-axis source/target family relationship,
+resolves `(kind, source_factor)`, and delegates to that single-kind
+verb; it stays a field method (delegating, so no drift) and introduces
+**no space-keyed binding** (`["x"]` is axis-only, everywhere). The
+**arithmetic dunders stay on the field** (Python syntax): `f * g`
+resolves
 `("multiply", common_space)` via the product-key rule above, and
 `f / g`, `f ** p`, `abs(f)` resolve `("divide", ...)`,
 `("power", ...)`, `("abs", ...)` the same way; doc 02's `where`
@@ -2880,12 +2889,6 @@ fixes its own codomain; `.to` errors if it disagrees with the target
    `bwd @ fwd` per factor, D8), not a bespoke `Laplacian.eigenvalues`.
    Confirm this reading is acceptable before the `Symbol` iteration
    lands, or restrict first-derivative symbols to solver-internal use.
-4. **D3 forwarder loose ends.** The `f.to(target)` forwarder's
-   target-space binding spelling (`to[target]` vs a `To(space)`
-   builder), and whether `Dispatched` needs a public constructor or
-   only the seeded verbs (`diff`, `integrate`, ...). Small; folds into
-   the model-facing sugar work.
-
 Resolved by the operator-algebra merge (D8,
 [`operator_algebra_merge.md`](operator_algebra_merge.md)): the operator
 *algebra* is folded into the base hierarchy, composed operators, and
@@ -2894,8 +2897,12 @@ binding `op["x"]` (bind-only, replacing the `axis=` keyword),
 `Identity`/`Zero`/`OperatorSum`/`ScaledOperator`/`Block`/`Dispatched`,
 tuple signatures, and the algebra-derived composed operators. The
 bind-only signature pass (`_apply(self, f)`) is applied to every
-operator in this document; `ConstantBroadcast`'s target-binding
-spelling is the one residual (D3, question 4 above).
+operator in this document. The D3 forwarder residual is closed (D3a/D3b):
+`f.diff`/`f.integrate` and the `interpolate` verb are forwarders to
+seeded `Dispatched` verbs; `f.to` stays a multi-kind resolver;
+subscript `["x"]` is axis-only, so non-axis parameters (targets, orders)
+are constructor arguments (`ConstantBroadcast(to=target)`); the
+`Dispatched(kind)` constructor stays public as the extension escape-hatch.
 
 Resolved since the first draft: the refined-mesh handle for padded
 transforms is closed — doc 01 defines

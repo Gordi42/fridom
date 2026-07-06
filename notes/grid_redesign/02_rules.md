@@ -35,7 +35,7 @@ coefficient space
   **real** coefficients; complex + Fourier stores a **full complex
   spectrum**. So a `fr.Real` field can hold a complex array (its
   coefficients) while still denoting a real function.
-- **The standard operators preserve scalars.** `diff`, `interp`,
+- **The standard operators preserve scalars.** `diff`, `interpolate`,
   `grad`/`div`/`laplacian`, and transforms are (real-)linear maps that
   commute with conjugation, so they carry the Körper through unchanged
   — a transform changes the *representation*, never the scalars. The
@@ -155,7 +155,7 @@ structurally.
   describe only the merge *mechanism*, not its call site.)
 - `grad` / `div` / `laplacian` are generic **dispatch kinds**, not
   special slots: their default entry on separable grids is a
-  composition over `diff`/`interp`, but on non-separable meshes they
+  composition over `diff`/`interpolate`, but on non-separable meshes they
   are registered as primitive **mesh-level** operators (metric-aware
   grad/div on a sphere,
   [section 6.3](05_validation.md#63-sphere--curvilinear); `div:
@@ -171,7 +171,7 @@ structurally.
   kind placeholders resolved at assembly time
   ([operator design section 3.10](../operator_design/02_algebra.md#310-dispatch-integration)),
 - arbitrary kinds are allowed (`"grad"`, `"div"`, `"laplacian"`,
-  `"interp"`, `"reconstruct"`, `"filter"`, `"transform"`,
+  `"interpolate"`, `"reconstruct"`, `"filter"`, `"transform"`,
   `"integrate"`, `"discretize"`, `"assign_coeff"`, ...).
 
 On a mixed grid the same `f.diff("z")` call therefore does the right
@@ -182,7 +182,7 @@ field to another space, taking either a field or a space
 (`g.to(f)` uses `f`'s space; `g.to(space)` also works), and dispatches
 **per axis**. The registry key stays the single-space `(kind, space)`
 used everywhere else: `.to` reads the conversion *kind* from the
-source→target relationship along each axis — `"interp"` for nodal
+source→target relationship along each axis — `"interpolate"` for nodal
 spaces, `"reconstruct"` for the average/FV family (section 3.9), the
 exact phase shift for coefficient spaces of differing origin
 (section 3.2) — then resolves `(kind, source_space)`, whose registered

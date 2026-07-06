@@ -45,6 +45,8 @@ an `03_operators.md` rejected-alternative, it says so explicitly.
 | T2 | Binary composition: the **positional tuple** `P @ (B1, …, Bn)` is the one spelling; `(A1, …) @ P` is an error; no named-operand form. | operator_design §5.2 |
 | T3 | Mid-chain syncs are **numerically transparent**, so auto-insertion is *permitted in principle* — an explicit, reportable decomposition-layer optimization, not silent. | operator_design §5.3 |
 | T4 | A **`Symbol` is never a chain factor**; static diagonal *operators* are, deriving their symbol at trace time. Refines operator_design §3.7. | operator_design §5.4 |
+| D3a | `f.to` stays a **multi-kind resolver** (field method); `["x"]` is **axis-only**; non-axis parameters (targets, orders) are constructor args. `interpolate` is the composable single-kind verb. | D3 residual |
+| D3b | Standard verbs (`diff`/`integrate`/`interpolate`) are **seeded** on `fr.operators`; `Dispatched(kind)` stays a **public extension escape-hatch**. | D3 residual |
 
 ---
 
@@ -254,7 +256,7 @@ consumers that were already deferred.
 ## D8. Rewrite scope
 
 The bulk of `03_operators.md` is untouched — the concrete separable
-kernels (`FiniteDifference`, interp, reconstruction, the flux-diff
+kernels (`FiniteDifference`, interpolation, reconstruction, the flux-diff
 family), transforms, `Symbol`, the pointwise/product operators, and
 reductions all sit *below* the algebra. Three sections change:
 
@@ -325,7 +327,7 @@ a 2-row column, 3-D a 3-row column — so they cannot be fixed `Block`
 literals. They are **assembly-resolved builders**: the registered
 default for the `"grad"`/`"div"`/`"curl"`/`"laplacian"` kind expands, at
 model assembly against the grid's axis family, into a `Block` whose
-entries are `Dispatched("diff")["x"]` / `("interp")` / `("flux_diff")`
+entries are `Dispatched("diff")["x"]` / `("interpolate")` / `("flux_diff")`
 per axis. This keeps two D-decisions intact: the entries are late-bound
 (D1 — a module's `reconstruct`/`diff` override propagates into the
 block), and there is **one placeholder concept** (D4 — `Dispatched`
@@ -482,9 +484,55 @@ factor.
 
 ---
 
+## D3 forwarder resolution (D3a / D3b)
+
+D3 made field methods thin forwarders, leaving the `f.to` /
+interpolation spelling and the `Dispatched` constructor open. The
+resolution rests on separating **two "binding-like" needs** that D3
+conflated: *axis binding* (`op["x"]`, key = a coordinate name — which
+mesh factor a separable kernel acts on) and *parameterization* (order,
+pad factor, **target space** — what the operator is). A target space is
+a parameter, not an axis, so it belongs in the constructor;
+overloading `["x"]` to accept a space is a category blur, rejected.
+
+### D3a. `to` is a resolver; subscript is axis-only
+
+`diff`/`integrate` are **single-kind** verbs (one dispatch kind,
+axis-bindable, composable) — good forwarders. `f.to(target)` is
+different: a **multi-kind resolver** that reads *which* conversion the
+source->target family relationship needs (`interpolate` / phase shift /
+`transform`) and delegates to that single-kind verb. It does not fit
+the verb mold, so **it stays a field method** — thin, delegating to the
+registry (no drift, since it owns only the `(source, target) -> kind`
+mapping, which lives nowhere else). The **composable** conversion is
+the single-kind verb `interpolate` (`= Dispatched("interpolate")`,
+axis-bindable like `diff`); `f.to` is the convenience over it.
+Consequently **`["x"]` means axis binding only, everywhere**, and
+non-axis parameters are constructor arguments:
+`FiniteDifference(order)`, and `ConstantBroadcast(to=target)` (its
+target supplied internally by binary-`codomain` unification, a static
+interned space; `_apply(self, f)` reads it off `self`).
+
+The dispatch kind is renamed `"interp"` -> `"interpolate"` so the verb
+and kind match (as `diff` <-> `"diff"`); the class name `LinearInterp`
+is unchanged (class name != kind is already normal, cf.
+`FiniteDifference` / `"diff"`).
+
+### D3b. Seeded verbs, public `Dispatched` constructor
+
+The standard verbs are module-level singletons on `fr.operators` —
+`diff`, `integrate`, `interpolate` — the discoverable surface the field
+forwarders route through. The `Dispatched(kind)` constructor stays
+**public as the extension escape-hatch**: a module registering a custom
+kind can expose `Dispatched("mykind")["x"]` as its own verb; an unknown
+kind is a clean `DispatchError` at application, so the open constructor
+is safe. Ordinary use goes through the seeded verbs.
+
+---
+
 ## Status
 
-**D8 executed** (this round): `03_operators.md`'s base hierarchy,
+**D8 executed** (prior round): `03_operators.md`'s base hierarchy,
 composed operators, and registry are rewritten onto the algebra — the
 `Operator` dunders and `__getitem__`, bind-only `UnaryOperator`,
 `SeparableOperator.bound_axis`, the new "Operator algebra" section
@@ -495,8 +543,16 @@ and the registry's `Dispatched`-at-merge resolution. The bind-only
 `_apply(self, f)` pass is applied to every operator in the document.
 The T4 wording fix to `operator_design` §3.7 is in.
 
+**D3a/D3b closed** (this round): `f.to` is a resolver, `["x"]` is
+axis-only, non-axis parameters are constructor args, the interpolation
+kind/verb is `interpolate`, and the `Dispatched` constructor is a public
+escape-hatch behind the seeded verbs. Applied to `03_operators.md`'s
+registry sugar note, `Dispatched`, and `ConstantBroadcast`, plus the
+`"interp"` -> `"interpolate"` rename across the class docs.
+
 ## Still open (next)
 
-- The `f.to` / interpolation forwarder spelling (D3), and whether
-  `Dispatched` needs a public constructor or only the seeded verbs —
-  the one residual (`ConstantBroadcast`'s target binding).
+Every merge decision (D1–D8, B1–B4, T2–T4, D3a/D3b) is recorded and
+applied to the notes. What remains is **implementation** (ROADMAP
+4.2/4.3), not design — turning these class specs into `framework.grid2`
+code.

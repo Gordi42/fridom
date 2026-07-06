@@ -954,7 +954,7 @@ base); stated here because the decomposition defines the shapes.
   boundary faces. Reliance map for the doc 03 default rows: bounded
   `("diff", ...)` / `("laplacian", ...)` stencils rely on the
   odd/even extension matching the space BC; `("reconstruct",
-  cell_avg)` and `("interp", ...)` rely on the BC-consistent
+  cell_avg)` and `("interpolate", ...)` rely on the BC-consistent
   extension at boundary faces; coefficient-space rows are halo-0 and
   rely on no fill.
 - **Boundary data.** Iteration 1 supports **homogeneous** conditions

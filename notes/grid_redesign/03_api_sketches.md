@@ -41,9 +41,9 @@ print(g.function_space)
 f + g                           # -> SpaceMismatchError
 
 # .to(target) is the generic per-axis conversion: it dispatches to the
-# registered kind (interp here; reconstruct/phase-shift elsewhere) and
+# registered kind (interpolate here; reconstruct/phase-shift elsewhere) and
 # accepts a field or a space
-h = g.to(f)                     # explicit, dispatch: (interp, Right(x))
+h = g.to(f)                     # explicit, dispatch: (interpolate, Right(x))
 f + h                           # ok
 ```
 
@@ -58,7 +58,7 @@ class MyAdvection(fr.modules.advection.AdvectionBase):
         # override the approximate reconstruct step only (CellAvg ->
         # Outer); the exact conservative flux-difference is left
         # untouched (section 3.9). `reconstruct` (average -> point value)
-        # is a distinct kind from `interp` (nodal -> nodal); `.to` is the
+        # is a distinct kind from `interpolate` (nodal -> nodal); `.to` is the
         # generic sugar that dispatches to either.
         self.dispatch["reconstruct"] = weno       # local override
 ```
@@ -78,7 +78,7 @@ w_hat = t.forward(w)       # -> Fourier(x, origin=Center) ⊗ Fourier(y, ...)
 
 u_hat + w_hat                          # -> SpaceMismatchError
 
-# .to dispatches ("interp", Fourier(origin=Right)) -> exact PhaseShift
+# .to dispatches ("interpolate", Fourier(origin=Right)) -> exact PhaseShift
 u_hat = u_hat.to(w_hat)
 u_hat + w_hat                          # ok
 

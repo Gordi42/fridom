@@ -92,7 +92,7 @@ are mutually exclusive, `data=` is the direct-array companion.
 
 ```python
 g = f.diff("x")          # dispatch (kind="diff", space) -> FD (section 3.4)
-h = g.to(f)              # convert g to f's space (interp/reconstruct/phase-shift)
+h = g.to(f)              # convert g to f's space (interpolate/reconstruct/phase-shift)
 f + h                    # strict algebra: same space required (section 3.1)
 f * h                    # physical product, dispatched per space (section 3.11)
 m = f.integrate("x")     # reduce x to ConstantSpace, broadcasts back (section 3.13)
