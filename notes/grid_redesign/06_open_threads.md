@@ -25,7 +25,7 @@ docs under [`classes/`](classes/README.md).
 | 2 | Transform scheduling for nonlinear terms | [§3.12](02_rules.md#312-dealiasing) (explicit transform-once combinator; auto-scheduling rejected) |
 | 3 | Reductions and integrals | [§3.13](02_rules.md#313-reductions-and-integrals) |
 | 4 | Metric terms and vector calculus | [§2.4](01_concepts.md#24-field) (thin `VectorField`), [§6.3](05_validation.md#63-sphere--curvilinear) |
-| 5 | Naming | [§8](00_overview.md#8-migration-strategy) (`fr.meshes`/`fr.operators`; transitional `framework.grid2`) |
+| 5 | Naming | [§8](00_overview.md#8-migration-strategy) (`fr.meshes`/`fr.operators`; transitional `framework2.grid`) |
 | 6 | jax specifics | [§2.7](01_concepts.md#27-where-coordinate-data-lives) (checkpoint knob, dynamic stencil coefficients), [§3.1](02_rules.md#31-strict-space-algebra) (scalar-changing criterion) |
 | 7 | Module-system touchpoints | [§5](04_decomposition.md#5-domain-decomposition) (halo-accounting trace), [§3.4](02_rules.md#34-generic-operator-dispatch) (override registration) |
 | 8 | Eigenmode objects | [§2.5](01_concepts.md#25-operator--typed-maps-between-spaces) (model-side, out of scope for the grid redesign) |

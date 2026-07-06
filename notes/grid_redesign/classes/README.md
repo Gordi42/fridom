@@ -9,8 +9,8 @@ the second design phase: it turns the concept notes (sections 2–3, the
 normative reference) into concrete class specifications — for every
 class the module placement, constructor, and full public surface
 (methods, properties, dunders) with Python signatures. It bridges
-ROADMAP task 4.1 (design) to 4.2+ (implementation in the transitional
-`framework.grid2` package).
+the design (these notes) to ROADMAP Phase 1 implementation
+(tasks 1.1–1.7) in the `framework2.grid` package.
 
 All skeletons are the *intended* public API; names and signatures may
 still shift during implementation, but any deviation from the concept
@@ -35,7 +35,7 @@ plus a project-owner review; the decisions from both are folded in.
 | [`01_meshes_and_spaces.md`](01_meshes_and_spaces.md) | `Mesh` family (`IntervalMesh`, `MappedIntervalMesh`, `ChebyshevMesh`, `SphereMesh`, `UnstructuredMesh`, `PointMesh`), the `FunctionSpace` families (nodal, average, coefficient, Galerkin, `ConstantSpace`), static markers (`Scalars`/`fr.Real`/`fr.Complex`, `BC`/`BCStructure`, `NodeSet`, `Variance`), space interning. |
 | [`02_product_spaces_and_fields.md`](02_product_spaces_and_fields.md) | `TensorProductSpace`, `SpaceMismatchError`/`GridMismatchError`, `FieldMetadata`, `ScalarField`, `VectorField`, `TensorField`, `State`; the strict-algebra arithmetic surface, lifts/joins, field sugar (`diff`, `to`, `integrate`, `sel`, ...). |
 | [`03_operators.md`](03_operators.md) | `Operator` hierarchy (unary/binary/separable), stencil kernels (`FiniteDifference`, interpolation/reconstruction, FV `FluxDifference`/`DualFluxDifference`/`FaceDifference`), transforms (`Fourier`, `Sine`/`Cosine`, `Chebyshev`, padding), `Symbol` diagonal algebra, pointwise/product operators (`Where`, `ConstantBroadcast`), reductions, composed vector calculus, and the `OperatorRegistry` dispatch class. |
-| [`04_grid_and_decomposition.md`](04_grid_and_decomposition.md) | `Grid` + `grid2.cartesian.Grid` (lifecycle: seed -> negotiate -> freeze), `Discretizer`, `RandomFieldFactory`, `ImmersedDomain`, `CoordinateMapping`, `Slip`, decomposition (`HaloStrategy`, `MeshDecompositionTraits`, `HaloSpec`, `HaloTracer`/`trace_halo`, `ArrayLayout`, `Decomposition`/`TensorDecomposition`/`GraphDecomposition`, `negotiate`), the halo/storage contract, export (`f.xr`), and the canonical `grid2` package tree. |
+| [`04_grid_and_decomposition.md`](04_grid_and_decomposition.md) | `Grid` + `framework2.grid.cartesian.Grid` (lifecycle: seed -> negotiate -> freeze), `Discretizer`, `RandomFieldFactory`, `ImmersedDomain`, `CoordinateMapping`, `Slip`, decomposition (`HaloStrategy`, `MeshDecompositionTraits`, `HaloSpec`, `HaloTracer`/`trace_halo`, `ArrayLayout`, `Decomposition`/`TensorDecomposition`/`GraphDecomposition`, `negotiate`), the halo/storage contract, export (`f.xr`), and the canonical `framework2.grid` package tree. |
 
 **Decision log (not a cluster spec):**
 
@@ -108,7 +108,7 @@ anchors are:
   consumed by doc 04's negotiation; halos are per coordinate name,
   accumulated by tracing (`HaloTracer`), never a global integer.
 
-## Suggested implementation staging (roadmap 4.2/4.3)
+## Suggested implementation staging (ROADMAP Phase 1)
 
 The iteration-1 surface is larger than the ~4.9 kloc it replaces and
 is not shippable as one unit; the natural internal ordering (each
@@ -123,9 +123,8 @@ stage testable in isolation) is:
 5. negotiation + `HaloTracer` + multi-device;
 6. immersed boolean subset + export.
 
-This moves a minimal field core into 4.2 (the ROADMAP maps fields to
-4.3); 4.3 then covers algebra completion, the eigen machinery, and
-model-facing sugar.
+Staging 2 lands a minimal field core; staging 3–6 then cover algebra
+completion, the eigen machinery, and model-facing sugar.
 
 ## Normative-note amendments
 

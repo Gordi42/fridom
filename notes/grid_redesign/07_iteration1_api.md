@@ -24,12 +24,12 @@ iteration-1 in the class-design docs
 ([`classes/`](classes/README.md)) is deferred; the numbered sections
 remain the normative reference. Until the final rename
 ([section 8](00_overview.md#8-migration-strategy)) the spellings below
-live under the transitional `fr.grid2.*` package.
+live under the transitional `fr.grid.*` package.
 
 ### 10.1 Building a grid
 
 ```python
-import fridom.framework as fr
+import fridom.framework2 as fr
 
 # cartesian convenience subclass (section 2.6): builds the uniform
 # IntervalMesh factors from shape=/extent=/periodic=/names=

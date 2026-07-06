@@ -2,7 +2,7 @@
 
 Part of the grid redesign notes; see [`../00_overview.md`](../00_overview.md)
 for the document map. Status: draft class design, no implementation.
-Signatures are the intended public API for `framework.grid2`; the
+Signatures are the intended public API for `framework2.grid`; the
 numbered concept sections remain the normative reference.
 
 > **Operator algebra folded in (D8).** The operator *algebra* —
@@ -38,14 +38,14 @@ and `Grid` / decomposition / `grid.evaluation_nodes` /
 
 ## Module placement
 
-Transitional package `fridom.framework.grid2` (renamed to
-`framework.grid` once the old grid is deleted,
-[§8](../00_overview.md#8-migration-strategy)). Free-standing operators
+The code lives in `fridom.framework2.grid` (part of the new parallel
+`fridom.framework2` package), renamed to `fridom.framework.grid` at
+cutover ([§8](../00_overview.md#8-migration-strategy)). Free-standing operators
 are re-exported as the collection namespace `fr.operators` via the
 usual lazypimp `__init__.py`.
 
 ```
-src/fridom/framework/grid2/operators/
+src/fridom/framework2/grid/operators/
     __init__.py           # lazypimp; aliased as fr.operators
     base.py               # Operator, UnaryOperator, BinaryOperator,
                           # SeparableOperator, OperatorRequirements,
@@ -143,7 +143,7 @@ spaces ([§2.5](../01_concepts.md#25-operator--typed-maps-between-spaces)).
 | Pytree | static (jaxify; no dynamic leaves) |
 | Iteration | 1 |
 | Concept refs | §2.5, §2.7, §3.4, §5 |
-| Module | `grid2.operators.base` |
+| Module | `framework2.grid.operators.base` |
 
 ```python
 @fr.utils.jaxify
@@ -268,7 +268,7 @@ decomposition along one factor.
 | Pytree | static value |
 | Iteration | 1 |
 | Concept refs | §2.5, §5 |
-| Module | `grid2.operators.base` |
+| Module | `framework2.grid.operators.base` |
 
 ```python
 @dataclass(frozen=True)
@@ -305,7 +305,7 @@ defined failure mode from day one).
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §2.5 |
-| Module | `grid2.operators.base` |
+| Module | `framework2.grid.operators.base` |
 
 ```python
 class UnaryOperator(Operator, ABC):
@@ -367,7 +367,7 @@ throughout this document.
 | Pytree | static |
 | Iteration | 1 (base; concrete products below carry their own status) |
 | Concept refs | §2.5, §3.11 |
-| Module | `grid2.operators.base` |
+| Module | `framework2.grid.operators.base` |
 
 ```python
 class BinaryOperator(Operator, ABC):
@@ -442,7 +442,7 @@ the product lifting `kernel ⊗ identity` is provided once, here.
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §2.3, §2.5, §3.5 |
-| Module | `grid2.operators.base` |
+| Module | `framework2.grid.operators.base` |
 
 ```python
 class SeparableOperator(UnaryOperator, ABC):
@@ -536,7 +536,7 @@ operators — callable, registrable, halo-accountable, symbol-bearing
 where linear — and shallow eager structures with no expression graphs
 or algebraic rewriting (§3.11). Merge decisions:
 [`operator_algebra_merge.md`](operator_algebra_merge.md) D1–D8, B1–B4,
-T2. All live in `grid2.operators.base`. Iteration split (D7): `Identity`,
+T2. All live in `framework2.grid.operators.base`. Iteration split (D7): `Identity`,
 `Composite`, `SeparableComposite`, `Dispatched` are **iteration 1** (the
 FV derivative needs them); `Zero`, `OperatorSum`, `ScaledOperator`,
 `Block` are **designed-for**.
@@ -749,7 +749,7 @@ primitive ([§2.5](../01_concepts.md#25-operator--typed-maps-between-spaces),
 | Pytree | static space tags, **dynamic** `_data` leaf |
 | Iteration | designed-for (first consumer: the nonhydro port's spectral pressure solver and projections — the `discrete_spectral_operators` successor) |
 | Concept refs | §2.5, §3.2, §3.11, §3.12, sketch 4.6 |
-| Module | `grid2.operators.symbol` |
+| Module | `framework2.grid.operators.symbol` |
 
 ```python
 @final
@@ -899,7 +899,7 @@ default `"diff"` entry on nodal spaces.
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §2.5, §2.7, §3.4, §3.5, sketch 4.6 |
-| Module | `grid2.operators.finite_difference` |
+| Module | `framework2.grid.operators.finite_difference` |
 
 ```python
 @final
@@ -965,7 +965,7 @@ nodal spaces.
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §3.1, §3.4, sketch 4.1 |
-| Module | `grid2.operators.interp` |
+| Module | `framework2.grid.operators.interp` |
 
 ```python
 @final
@@ -1040,7 +1040,7 @@ entry.
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §3.9, sketch 4.7 |
-| Module | `grid2.operators.reconstruct` |
+| Module | `framework2.grid.operators.reconstruct` |
 
 ```python
 @final
@@ -1105,7 +1105,7 @@ archetype (sketch 4.2).
 | Pytree | static |
 | Iteration | 1 on periodic axes (parity with today's `weno_interpolation.py`); bounded-axis boundary biasing designed-for |
 | Concept refs | §3.9, sketch 4.2 |
-| Module | `grid2.operators.reconstruct` |
+| Module | `framework2.grid.operators.reconstruct` |
 
 ```python
 @final
@@ -1170,7 +1170,7 @@ The exact FV flux difference — the discrete Gauss theorem
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §2.7, §3.9, sketch 4.7 |
-| Module | `grid2.operators.flux_diff` |
+| Module | `framework2.grid.operators.flux_diff` |
 
 ```python
 @final
@@ -1233,7 +1233,7 @@ momentum-control-volume derivative of sketch 4.7.
 | Pytree | static |
 | Iteration | 1 (G2: momentum advection on the staggered box) |
 | Concept refs | §2.7, §3.9, sketch 4.7 |
-| Module | `grid2.operators.flux_diff` |
+| Module | `framework2.grid.operators.flux_diff` |
 
 ```python
 @final
@@ -1294,7 +1294,7 @@ review's notation, registered under its own kind.
 | Pytree | static |
 | Iteration | 1 (G2: the C-grid pressure-gradient term) |
 | Concept refs | §2.7, §3.9, sketch 4.7 |
-| Module | `grid2.operators.flux_diff` |
+| Module | `framework2.grid.operators.flux_diff` |
 
 ```python
 @final
@@ -1364,7 +1364,7 @@ factory that builds the algebra chain; the result is an ordinary
 | Pytree | static (the composite) |
 | Iteration | 1 |
 | Concept refs | §3.4, §3.9; merge D1/D4/D5 |
-| Module | `grid2.operators.flux_diff` |
+| Module | `framework2.grid.operators.flux_diff` |
 
 ```python
 def FVDerivative(
@@ -1411,7 +1411,7 @@ there.
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §3.2, §3.4, §6.1 |
-| Module | `grid2.operators.spectral` |
+| Module | `framework2.grid.operators.spectral` |
 
 ```python
 @final
@@ -1487,7 +1487,7 @@ sketch 4.3).
 | Pytree | static |
 | Iteration | 1 |
 | Concept refs | §3.2, §3.4, §6.1, sketch 4.3 |
-| Module | `grid2.operators.spectral` |
+| Module | `framework2.grid.operators.spectral` |
 
 ```python
 @final
@@ -1567,7 +1567,7 @@ Fourier spaces — the named `sinc(k dx / 2)` factor of §3.2/§3.9.
 | Pytree | static |
 | Iteration | 1 (G2: average-origin coefficient spaces are day one) |
 | Concept refs | §3.2, §3.9 |
-| Module | `grid2.operators.spectral` |
+| Module | `framework2.grid.operators.spectral` |
 
 ```python
 @final
@@ -1633,7 +1633,7 @@ decomposition and FFT plan up front, and they are applied through
 | Pytree | static structure; `_grid` is a fully static reference (plans, layouts, refined meshes — G1) |
 | Iteration | 1 |
 | Concept refs | §2.5, §3.2, §3.12, sketches 4.3, 4.10 |
-| Module | `grid2.operators.transform` |
+| Module | `framework2.grid.operators.transform` |
 
 ```python
 @fr.utils.jaxify
@@ -1753,7 +1753,7 @@ Notes:
 | Pytree | static structure (bound grid) |
 | Iteration | 1 (`pad=` included: parity with `FFTPadding`); `truncation_mask` designed-for (with `Symbol`) |
 | Concept refs | §3.1, §3.2, §3.12, sketches 4.3, 4.10, 4.11 |
-| Module | `grid2.operators.fourier` |
+| Module | `framework2.grid.operators.fourier` |
 
 ```python
 @final
@@ -1822,7 +1822,7 @@ structure.
 | Pytree | static structure (bound grid) |
 | Iteration | 1 (U4: all coefficient spaces and transforms are day one; bounded-axis parity with today's `cartesian/fft.py` DST/DCT paths) |
 | Concept refs | §3.2, §3.5, §3.6 |
-| Module | `grid2.operators.trig` |
+| Module | `framework2.grid.operators.trig` |
 
 ```python
 @final
@@ -1901,7 +1901,7 @@ Notes:
 | Pytree | static structure (bound grid) |
 | Iteration | 1 (U4: `ChebyshevMesh` and its spaces are iteration 1 per doc 01) |
 | Concept refs | §3.2, §6.2 |
-| Module | `grid2.operators.chebyshev` |
+| Module | `framework2.grid.operators.chebyshev` |
 
 ```python
 @final
@@ -1946,7 +1946,7 @@ outcome, no longer a structural restriction).
 | Pytree | static value |
 | Iteration | 1 (consumed by `pad=`) |
 | Concept refs | §3.12, sketch 4.10 |
-| Module | `grid2.operators.dealias` |
+| Module | `framework2.grid.operators.dealias` |
 
 ```python
 @dataclass(frozen=True)
@@ -1988,7 +1988,7 @@ is *never* reachable through `*`.
 | Pytree | static |
 | Iteration | 1 (the `*` default on nodal spaces and — as the 2nd-order shortcut — on average spaces) |
 | Concept refs | §3.11, §3.12, sketch 4.10 |
-| Module | `grid2.operators.products` |
+| Module | `framework2.grid.operators.products` |
 
 ```python
 @final
@@ -2041,7 +2041,7 @@ factor into a full factor space — the operator realization of the
 | Pytree | static |
 | Iteration | 1 on nodal/average factors; exact delta embedding on coefficient factors designed-for |
 | Concept refs | §3.3, §3.11 |
-| Module | `grid2.operators.products` |
+| Module | `framework2.grid.operators.products` |
 
 ```python
 @final
@@ -2100,7 +2100,7 @@ recorded as a designed-for row below.
 | Pytree | static |
 | Iteration | 1 (`divide`/`power` on nodal + `CellAvg`/`FaceAvg`; `abs` on nodal only) |
 | Concept refs | §3.11 |
-| Module | `grid2.operators.products` |
+| Module | `framework2.grid.operators.products` |
 
 ```python
 @final
@@ -2191,7 +2191,7 @@ be invisible to the halo-accounting trace.
 | Pytree | static |
 | Iteration | 1 (nodal + `CellAvg`/`FaceAvg`) |
 | Concept refs | §3.11, §5, sketch 4.2 |
-| Module | `grid2.operators.products` |
+| Module | `framework2.grid.operators.products` |
 
 ```python
 @final
@@ -2236,7 +2236,7 @@ the halo tracer.
 | Pytree | static |
 | Iteration | designed-for (first consumer: spectra-based ICs, sketch 4.9) |
 | Concept refs | §3.11, sketch 4.9 |
-| Module | `grid2.operators.products` |
+| Module | `framework2.grid.operators.products` |
 
 ```python
 @final
@@ -2289,7 +2289,7 @@ Notes:
 | Pytree | static structure (holds a grid-bound transform) |
 | Iteration | designed-for (the `*` default on coefficient spaces, §6.1) |
 | Concept refs | §3.11, §3.12 |
-| Module | `grid2.operators.products` |
+| Module | `framework2.grid.operators.products` |
 
 ```python
 @final
@@ -2334,7 +2334,7 @@ performant multi-term idiom.
 | Pytree | n/a (function) |
 | Iteration | designed-for |
 | Concept refs | §3.12, sketch 4.10 |
-| Module | `grid2.operators.combinators` |
+| Module | `framework2.grid.operators.combinators` |
 
 ```python
 def transform_once(
@@ -2365,7 +2365,7 @@ backstop for redundant backwards.
 | Pytree | static |
 | Iteration | 1 (`f.integrate` is day-one surface, §10.4) |
 | Concept refs | §2.7, §3.3, §3.13 |
-| Module | `grid2.operators.integrate` |
+| Module | `framework2.grid.operators.integrate` |
 
 ```python
 @final
@@ -2420,7 +2420,7 @@ weighting belongs to the designed-for coefficient rows, never to
 | Pytree | static |
 | Iteration | 1 (parity: hydrostatic-pressure-style running integrals) |
 | Concept refs | §3.9, §3.13 |
-| Module | `grid2.operators.integrate` |
+| Module | `framework2.grid.operators.integrate` |
 
 ```python
 @final
@@ -2497,7 +2497,7 @@ the factory resolve to the same object. There is no distinct
 | Pytree | static (the block / composite) |
 | Iteration | designed-for |
 | Concept refs | §2.4, §3.4, §6.3, sketch 4.6/4.7; merge D1/B1/B2 |
-| Module | `grid2.operators.composed` |
+| Module | `framework2.grid.operators.composed` |
 
 ```python
 def Gradient(order: int | None = None) -> Operator:
@@ -2567,7 +2567,7 @@ Notes:
 | Pytree | static |
 | Iteration | designed-for (sphere/curvilinear, §6.3) |
 | Concept refs | §2.4, §3.8, §6.3 |
-| Module | `grid2.operators.composed` |
+| Module | `framework2.grid.operators.composed` |
 
 ```python
 @final
@@ -2640,7 +2640,7 @@ seam ([§2.6](../01_concepts.md#26-grid--the-assembly-object)).
 | Pytree | static container; entries are **array-free** operators (G1) |
 | Iteration | 1 |
 | Concept refs | §2.6, §3.4, §5, sketch 4.2 |
-| Module | `grid2.operators.registry` |
+| Module | `framework2.grid.operators.registry` |
 
 ```python
 #: SpaceLike = FunctionSpace | TensorProductSpace (alias owned by

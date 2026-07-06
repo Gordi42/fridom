@@ -3,7 +3,7 @@
 Part of the grid redesign notes; see
 [`../00_overview.md`](../00_overview.md) for the document map. Status:
 draft class design, no implementation. Signatures are the intended
-public API for `framework.grid2`; the numbered concept sections remain
+public API for `framework2.grid`; the numbered concept sections remain
 the normative reference.
 
 This document owns the **Mesh and FunctionSpace cluster**: the mesh
@@ -30,13 +30,12 @@ signatures: `grid.evaluation_nodes(space)`, `grid.wavenumbers(space)`,
 
 ## Module layout
 
-The transitional package is `fridom.framework.grid2` (renamed to
-`framework.grid` once the old grid is deleted, section 8 of
-[`../00_overview.md`](../00_overview.md)). Proposed internal layout for
-this cluster:
+The code lives in `fridom.framework2.grid` (part of the new parallel
+`fridom.framework2` package), renamed to `fridom.framework.grid` at
+cutover. Proposed internal layout for this cluster:
 
 ```
-src/fridom/framework/grid2/
+src/fridom/framework2/grid/
     scalars.py            # Scalars, Real, Complex, Variance
     bc.py                 # BC, BCStructure
     meshes/               # re-exported as fr.meshes
@@ -65,19 +64,19 @@ src/fridom/framework/grid2/
 ```
 
 Only the entries without an ownership annotation are specified in
-this document; `grid2/decomposition/traits.py` and
-`grid2/spaces/tensor_product.py` appear so the shared tree is
+this document; `framework2/grid/decomposition/traits.py` and
+`framework2/grid/spaces/tensor_product.py` appear so the shared tree is
 consistent across the four cluster docs. Doc 04 holds the canonical
 whole-subpackage tree. Import direction: classes here import
 `HaloStrategy` / `MeshDecompositionTraits` *from*
-`grid2.decomposition.traits`.
+`framework2.grid.decomposition.traits`.
 
 Top-level re-exports (lazypimp, per repo convention):
 
-- `fr.meshes` = `fridom.framework.grid2.meshes` (the mesh factors,
+- `fr.meshes` = `fridom.framework2.grid.meshes` (the mesh factors,
   section 8 of the overview);
-- `fr.Real`, `fr.Complex` from `grid2.scalars` (section 3.1);
-- `fr.BC` from `grid2.bc` (sketch 4.4 spells `fr.BC.DIRICHLET`).
+- `fr.Real`, `fr.Complex` from `framework2.grid.scalars` (section 3.1);
+- `fr.BC` from `framework2.grid.bc` (sketch 4.4 spells `fr.BC.DIRICHLET`).
 
 Function spaces get **no top-level namespace**: they are produced only
 by the mesh factory attributes (`mx.center`, `mz.galerkin(...)`), per
@@ -389,7 +388,7 @@ Notes:
   transpose-based transforms), so the single seam method
   `decomposition_traits(space)` replaces an earlier per-mesh
   `shardable` flag + `halo_strategy` pair. The returned
-  `MeshDecompositionTraits` (doc 04, `grid2.decomposition.traits`) is
+  `MeshDecompositionTraits` (doc 04, `framework2.grid.decomposition.traits`) is
   a frozen record with a preference-ordered
   `strategies: tuple[HaloStrategy, ...]` (`GHOST` / `TRANSPOSE` /
   `LOCAL` / `GRAPH`) and `min_local_size: int = 1`. A separate

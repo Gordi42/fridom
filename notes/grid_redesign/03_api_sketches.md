@@ -14,7 +14,7 @@ for the document map. Concepts are in
 ```python
 import jax.numpy as jnp
 
-import fridom.framework as fr
+import fridom.framework2 as fr
 
 # convenience subclass: builds two IntervalMeshes internally. The
 # general assembly root is fr.Grid(meshes=...) (sketch 4.4; coordinate
@@ -269,7 +269,7 @@ model-side and out of scope for the grid redesign):
 ```python
 import jax.numpy as jnp
 
-import fridom.framework as fr
+import fridom.framework2 as fr
 import fridom.nonhydro as nh
 
 # model-side eigenmode object; replaces grid.vec_q. Components live

@@ -14,7 +14,7 @@ signatures are expected to change during implementation.
 
 The notes are split across several files; this overview holds the
 motivation, migration strategy, and precedents. See the document map
-below for the rest. This design is the reference for ROADMAP Phase 4
+below for the rest. This design is the reference for ROADMAP Phase 1
 (the function-space grid rewrite); the mapping from files to roadmap
 tasks is in that document.
 
@@ -34,7 +34,7 @@ The redesign notes are organized as follows (read roughly in order):
 | [`05_validation.md`](05_validation.md) | Paper validation against five future grid types (section 6). |
 | [`06_open_threads.md`](06_open_threads.md) | Open threads (section 7) — all resolved; a stub mapping each former thread to the section that now carries the decision. |
 | [`07_iteration1_api.md`](07_iteration1_api.md) | Iteration-1 public API cheat sheet (section 10): the small surface a day-one user actually types. |
-| [`classes/`](classes/README.md) | Class designs (second design phase): concrete classes and their full public method surfaces for `framework.grid2`, one file per cluster (meshes/spaces, product spaces/fields, operators, grid/decomposition). |
+| [`classes/`](classes/README.md) | Class designs (second design phase): concrete classes and their full public method surfaces for `framework2.grid`, one file per cluster (meshes/spaces, product spaces/fields, operators, grid/decomposition). |
 
 Section and sketch numbers are stable identifiers across the files;
 cross-references between files are linked, references within a file are
@@ -94,11 +94,12 @@ cannot express at all:
 
 ## 8. Migration strategy
 
-- Build the new abstraction as a **parallel subpackage** with its own
-  mirrored tests (95% branch coverage applies from the start). It lives
-  under the transitional name `framework.grid2` while the old grid
-  still works, and is **renamed to the canonical `framework.grid` once
-  the old grid is deleted**. The assembly root is the model-agnostic
+- Build the new architecture as a **parallel package**
+  `fridom.framework2` with its own mirrored tests (95% branch coverage
+  applies from the start). It reuses `framework.utils` but does **not**
+  import the old model/grid stack, so it can be developed and validated
+  independently while the old grid still works. The grid stack lives at
+  `fridom.framework2.grid`. The assembly root is the model-agnostic
   `fr.Grid` (`meshes=`; coordinate names are mesh-constructor
   arguments), with `fr.grid.cartesian.Grid`
   (`shape=`/`extent=`/`periodic=`/`names=`) a convenience subclass —
@@ -109,9 +110,14 @@ cannot express at all:
   (plural collection namespaces, matching `fr.modules`/`fr.time_steppers`);
   function spaces need no top-level namespace — they are produced by
   mesh factories (`mx.center`, `mz.galerkin(...)`).
-- Port model packages one by one (nonhydro first, as the most complete
-  consumer), keeping the old `framework.grid` working throughout.
-- Delete the old grid last, together with `Position`, `bc_types`,
+- Build **grid-first**: grid, operators, and decomposition are built
+  and validated standalone (ROADMAP Phase 1), then the model layer is
+  built on top (Phase 2), then the existing model packages are ported
+  (nonhydro first, as the most complete consumer), keeping the old
+  `framework.grid` working throughout.
+- At cutover, `fridom.framework2` is **renamed to `fridom.framework`**
+  (dropping the "2"): `framework2.grid` becomes `framework.grid`, and
+  the old package is retired, together with `Position`, `bc_types`,
   `topo`, `is_spectral`, and `FFTPadding` call sites.
 
 ## 9. Precedents

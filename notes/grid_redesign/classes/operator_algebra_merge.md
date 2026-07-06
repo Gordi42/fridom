@@ -554,5 +554,5 @@ registry sugar note, `Dispatched`, and `ConstantBroadcast`, plus the
 
 Every merge decision (D1–D8, B1–B4, T2–T4, D3a/D3b) is recorded and
 applied to the notes. What remains is **implementation** (ROADMAP
-4.2/4.3), not design — turning these class specs into `framework.grid2`
+Phase 1), not design — turning these class specs into `framework2.grid`
 code.

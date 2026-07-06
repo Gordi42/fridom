@@ -12,7 +12,7 @@ not normative**.
 ### 4.1 Same-axis chains and axis binding
 
 ```python
-import fridom.framework as fr
+import fridom.framework2 as fr
 
 fd = fr.operators.FiniteDifference(order=2)
 li = fr.operators.LinearInterp()

@@ -2,7 +2,7 @@
 
 Part of the grid redesign notes; see [`../00_overview.md`](../00_overview.md)
 for the document map. Status: draft class design, no implementation.
-Signatures are the intended public API for `framework.grid2`; the
+Signatures are the intended public API for `framework2.grid`; the
 numbered concept sections remain the normative reference.
 
 This document owns the **TensorProductSpace and Field cluster**:
@@ -26,19 +26,19 @@ iteration 1) and `# later` (designed-for, deferred; see
 
 ## Module placement
 
-Transitional package `fridom.framework.grid2` (renamed to
-`framework.grid` once the old grid is deleted, section 8 of the
-overview). Layout:
+The code lives in `fridom.framework2.grid` (part of the new parallel
+`fridom.framework2` package), renamed to `fridom.framework.grid` at
+cutover. Layout:
 
 | Class | Module | Transitional import |
 |-------|--------|---------------------|
-| `SpaceMismatchError` | `grid2/errors.py` | `fr.grid2.SpaceMismatchError` |
-| `GridMismatchError` | `grid2/errors.py` | `fr.grid2.GridMismatchError` |
-| `TensorProductSpace` | `grid2/spaces/tensor_product.py` | `fr.grid2.TensorProductSpace` |
-| `FieldMetadata` | `grid2/fields/metadata.py` | `fr.grid2.FieldMetadata` |
-| `ScalarField` | `grid2/fields/scalar_field.py` | `fr.grid2.ScalarField` |
-| `VectorField` | `grid2/fields/vector_field.py` | `fr.grid2.VectorField` |
-| `TensorField` | `grid2/fields/tensor_field.py` | `fr.grid2.TensorField` |
+| `SpaceMismatchError` | `framework2/grid/errors.py` | `fr.grid.SpaceMismatchError` |
+| `GridMismatchError` | `framework2/grid/errors.py` | `fr.grid.GridMismatchError` |
+| `TensorProductSpace` | `framework2/grid/spaces/tensor_product.py` | `fr.grid.TensorProductSpace` |
+| `FieldMetadata` | `framework2/grid/fields/metadata.py` | `fr.grid.FieldMetadata` |
+| `ScalarField` | `framework2/grid/fields/scalar_field.py` | `fr.grid.ScalarField` |
+| `VectorField` | `framework2/grid/fields/vector_field.py` | `fr.grid.VectorField` |
+| `TensorField` | `framework2/grid/fields/tensor_field.py` | `fr.grid.TensorField` |
 | `State` | model packages (e.g. `fridom.nonhydro.state`) | `nh.State` |
 
 All `__init__.py` files follow the lazypimp convention. After the
@@ -127,9 +127,9 @@ sound inside and outside jit.
 **Prerequisite (jaxify flatten order).** Today's `fr.utils.jaxify`
 keeps dynamic attribute names in an unordered `set`, so flatten
 order depends on `PYTHONHASHSEED` — a latent multi-host bug
-(leaf-order mismatch across processes) even before grid2. This is a
+(leaf-order mismatch across processes) even before framework2.grid. This is a
 stated **prerequisite**, not an open question: jaxify must store
-dynamic attrs in declaration order (a tuple) before grid2 lands, and
+dynamic attrs in declaration order (a tuple) before framework2.grid lands, and
 `VectorField` additionally needs keyed flattening in
 component-declaration order (see its pytree note).
 
@@ -193,7 +193,7 @@ Notes:
   `.to` when the registered conversion's codomain does not equal the
   requested target factor (section 3.4); and by operator application
   to a field outside the operator's domain (cluster 03 imports the
-  same exception from `grid2/errors.py` — one exception type for one
+  same exception from `framework2/grid/errors.py` — one exception type for one
   rule).
 - Not raised for a *missing dispatch entry* (e.g. `f / g` on a
   coefficient space with no registered `"divide"`): that is a
@@ -239,7 +239,7 @@ class GridMismatchError(TypeError):
     operation: str | None     # "+", "*", "to", ...
 ```
 
-Notes: lives beside `SpaceMismatchError` in `grid2/errors.py` and is
+Notes: lives beside `SpaceMismatchError` in `framework2/grid/errors.py` and is
 checked *before* the space join. Rationale: meshes — and therefore
 interned spaces — may legally be shared across grids (same factors,
 same names, different decomposition or dispatch defaults), so the
@@ -391,7 +391,7 @@ Semantics and invariants:
   (cluster 01); this document owns the protocol's meaning.
   Consumers should type against the union
   `FunctionSpace | TensorProductSpace` (a `TypeAlias`, e.g.
-  `SpaceLike`, exported from `grid2`).
+  `SpaceLike`, exported from `framework2.grid`).
 - `factor(name)` raises `KeyError` for unknown names. It is the fixed
   anchor used by eigenvalue queries:
   `u_hat.function_space.factor("x")` (sketch 4.6).
@@ -501,7 +501,7 @@ from __future__ import annotations
 
 from functools import partial
 
-import fridom.framework as fr
+import fridom.framework2 as fr
 
 
 @partial(fr.utils.jaxify, dynamic=("_data",))
@@ -634,7 +634,7 @@ class ScalarField:
         ...
 
     # ================================================================
-    #  Selection — roadmap 1.2 / 4.3
+    #  Selection (ROADMAP Phase 1)
     # ================================================================
 
     def sel(                                                   # later
@@ -736,7 +736,7 @@ Semantics, invariants, error behavior:
   `f.diff("x")` resolves `(kind="diff",
   f.function_space.factor("x"))` in the grid's merged
   `OperatorRegistry`, reached as `grid.dispatch` (cluster 03,
-  `grid2/operators/registry.py`, owns resolution; the key shape is
+  `framework2/grid/operators/registry.py`, owns resolution; the key shape is
   fixed here). Every grid-mediated accessor is reachable from a
   field via `f.grid`.
 - **dtype is derived, never stored** (sections 2.4, 3.1): real +
@@ -824,7 +824,7 @@ Semantics, invariants, error behavior:
   fixed per `direction` by cluster 03's convention (zero at the
   start face). Only this method *sugar* is tagged `# later`;
   explicit operator application covers iteration-1 needs.
-- **`sel`/`isel`** (`# later`, roadmap 1.2 revisited by 4.3): reduce
+- **`sel`/`isel`** (`# later`): reduce
   the named factors to `ConstantSpace` — a slice at `x = a` has no
   x-extent, which is exactly what `ConstantSpace` encodes, and the
   broadcast lift makes `f - f.sel(z=0.0)` work. `sel` requires an
@@ -896,7 +896,7 @@ from __future__ import annotations
 
 from functools import partial
 
-import fridom.framework as fr
+import fridom.framework2 as fr
 
 
 @partial(fr.utils.jaxify, dynamic=("_components",))
@@ -1095,7 +1095,7 @@ from __future__ import annotations
 
 from functools import partial
 
-import fridom.framework as fr
+import fridom.framework2 as fr
 
 
 @partial(fr.utils.jaxify, dynamic=("_components",))
@@ -1152,17 +1152,17 @@ contract that the grid cluster promises to support.
 |--------|-------|
 | Kind | concrete per model package, subclass of `VectorField` |
 | Pytree | inherited from `VectorField` |
-| Iteration | 1 (nonhydro port, roadmap 4.4); constructor details deferred to Phase 2 |
+| Iteration | 1 (nonhydro port, ROADMAP Phase 1); constructor details deferred to Phase 2 |
 | Concept refs | 2.4, 2.5 (eigenmode reuse), sketch 4.9 |
 
 ```python
 """Model state vector (model package, e.g. fridom.nonhydro)."""
 from __future__ import annotations
 
-import fridom.framework as fr
+import fridom.framework2 as fr
 
 
-class State(fr.grid2.VectorField):
+class State(fr.grid.VectorField):
     """State vector of a model; physics-carrying VectorField."""
 
     # Inherited and used as-is: components, __getitem__, __iter__,
@@ -1223,7 +1223,7 @@ shared pytree section, not left open.
    keeps metadata, new quantity resets" split for bare `ScalarField`
    ops is a pragmatic default (the vector/state level is decided:
    preserved); fine-tune the exact method list during the nonhydro
-   port (roadmap 4.3/4.4).
+   port (ROADMAP Phase 1).
 3. **Migration mutation shim**: old model code mutates `z.u`; decide
    whether ports go fully functional immediately (`replace`) or a
    temporary deprecation shim on `State` properties is worth it.

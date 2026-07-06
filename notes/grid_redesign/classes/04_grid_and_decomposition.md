@@ -2,7 +2,7 @@
 
 Part of the grid redesign notes; see [`../00_overview.md`](../00_overview.md)
 for the document map. Status: draft class design, no implementation.
-Signatures are the intended public API for `framework.grid2`; the
+Signatures are the intended public API for `framework2.grid`; the
 numbered concept sections remain the normative reference.
 
 This document owns the **Grid assembly and domain-decomposition
@@ -24,14 +24,14 @@ grid.
 
 ## 1. Package layout summary
 
-Transitional home is `fridom.framework.grid2`; it is renamed to the
-canonical `framework.grid` once the old grid is deleted
-([overview §8](../00_overview.md#8-migration-strategy)). Docs 01–03
+The code lives in `fridom.framework2.grid` (part of the new parallel
+`fridom.framework2` package), renamed to `fridom.framework.grid` at
+cutover. Docs 01–03
 state their own placements; the tree below shows the whole subpackage
 so this cluster's modules have an address, with ownership per doc:
 
 ```
-fridom/framework/grid2/
+fridom/framework2/grid/
     __init__.py              # lazypimp re-exports (below)
     scalars.py               # doc 01: fr.Real / fr.Complex, Variance
     bc.py                    # doc 01: fr.BC (iteration 1)
@@ -63,37 +63,38 @@ fridom/framework/grid2/
         graph.py             #   GraphDecomposition (designed-for)
 ```
 
-Top-level re-exports (final names left, transitional names right; per
-[overview §8](../00_overview.md#8-migration-strategy) the plural
+Names contributed by `framework2.grid`. The left column is the clean
+top-level re-export (`fr.*`); the right is the subpackage-qualified path
+that reaches the same object before the re-export is wired (the plural
 collection namespaces match `fr.modules` / `fr.time_steppers`):
 
-| Final                    | Transitional                | Object |
+| Top-level (`fr.*`)       | Subpackage path             | Object |
 |--------------------------|-----------------------------|--------|
-| `fr.Grid`                | `fr.grid2.Grid`             | assembly root (this doc) |
-| `fr.grid.cartesian.Grid` | `fr.grid2.cartesian.Grid`   | convenience subclass (this doc) |
-| `fr.meshes`              | `fr.grid2.meshes`           | mesh factors (doc 01) |
-| `fr.operators`           | `fr.grid2.operators`        | free-standing operators (doc 03) |
-| `fr.Real`, `fr.Complex`  | `fr.grid2.Real`, `fr.grid2.Complex` | scalars / Körper tags (doc 01) |
-| `fr.BC`                  | `fr.grid2.BC`               | BC structure enum (doc 01, day one: `DIRICHLET`/`NEUMANN` are exercised by the iteration-1 Sine/Cosine spaces) |
-| `fr.ScalarField`, `fr.VectorField`, `fr.TensorField` | `fr.grid2.*` | field types (doc 02) |
-| `fr.TensorProductSpace`, `fr.SpaceLike` | `fr.grid2.*`  | product space + space alias (doc 02) |
-| `fr.FieldMetadata`       | `fr.grid2.FieldMetadata`    | field metadata record (doc 02) |
-| `fr.SpaceMismatchError`, `fr.GridMismatchError` | `fr.grid2.*` | error types (doc 02) |
+| `fr.Grid`                | `fr.grid.Grid`             | assembly root (this doc) |
+| — (no top-level alias)   | `fr.grid.cartesian.Grid`   | convenience subclass (this doc) |
+| `fr.meshes`              | `fr.grid.meshes`           | mesh factors (doc 01) |
+| `fr.operators`           | `fr.grid.operators`        | free-standing operators (doc 03) |
+| `fr.Real`, `fr.Complex`  | `fr.grid.Real`, `fr.grid.Complex` | scalars / Körper tags (doc 01) |
+| `fr.BC`                  | `fr.grid.BC`               | BC structure enum (doc 01, day one: `DIRICHLET`/`NEUMANN` are exercised by the iteration-1 Sine/Cosine spaces) |
+| `fr.ScalarField`, `fr.VectorField`, `fr.TensorField` | `fr.grid.*` | field types (doc 02) |
+| `fr.TensorProductSpace`, `fr.SpaceLike` | `fr.grid.*`  | product space + space alias (doc 02) |
+| `fr.FieldMetadata`       | `fr.grid.FieldMetadata`    | field metadata record (doc 02) |
+| `fr.SpaceMismatchError`, `fr.GridMismatchError` | `fr.grid.*` | error types (doc 02) |
 
 The table is exhaustive: these are all `fr.*`-level names contributed
-by `grid2`. Function spaces get **no** top-level namespace: they are
+by `framework2.grid`. Function spaces get **no** top-level namespace: they are
 produced by mesh factories (`mx.center`, `mz.galerkin(...)`). The
 decomposition subpackage is *not* re-exported at `fr.*` level — fields
 and operators reach it only through the grid
 ([§5](../04_decomposition.md#5-domain-decomposition)); it is public for
-transform/solver authors as `fr.grid2.decomposition`.
+transform/solver authors as `fr.grid.decomposition`.
 
-The transitional `grid2/__init__.py` realizes the table with the
+The transitional `framework2/grid/__init__.py` realizes the table with the
 lazypimp pattern mandated by `AGENTS.md` (at rename time the same
 entries move up to the framework `__init__`):
 
 ```python
-base = "fridom.framework.grid2"
+base = "fridom.framework2.grid"
 
 all_modules_by_origin = {
     base: ["meshes", "operators", "cartesian", "decomposition"],
@@ -115,7 +116,7 @@ all_imports_by_origin = {
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
 ```
 
-Tests mirror the package as `tests/framework/grid2/**`, one test file
+Tests mirror the package as `tests/framework2/grid/**`, one test file
 per module plus a `test_init.py` per package directory that
 parametrizes over the re-exports above (the repo-wide pattern).
 
@@ -133,7 +134,7 @@ all mathematics lives in spaces and operators, and model physics
 
 - Kind: concrete (also the base class of the cartesian convenience
   subclass; not an ABC — it is fully functional as-is).
-- Module: `fridom.framework.grid2.grid`.
+- Module: `fridom.framework2.grid.grid`.
 - Pytree: **fully static**. The grid is not a pytree container and
   registers **no** dynamic attributes; it appears only as static aux
   data in field pytrees (fields carry their grid). Identity hashing is
@@ -344,7 +345,7 @@ Semantics and invariants:
   against mixing fields of the two grids comes from doc 02's
   `GridMismatchError`, not from name bookkeeping.
 - **Registry placement and lifetime.** The `OperatorRegistry` *class*
-  is doc 03's (module `grid2/operators/registry.py`); the grid owns
+  is doc 03's (module `framework2/grid/operators/registry.py`); the grid owns
   the single **instance**, exposed as `grid.dispatch` (matching the
   module-side `self.dispatch` override dicts of sketch
   [4.2](../03_api_sketches.md#42-custom-operator-module-local-override)).
@@ -499,21 +500,21 @@ when renegotiation is legal.
    the registry holds grid-bound instances and is **grid-private**;
    sharing a registry object between grids is an error.
 
-### grid2.cartesian.Grid
+### framework2.grid.cartesian.Grid
 
 Convenience subclass building uniform `IntervalMesh` factors from
 `shape=`/`extent=`/`periodic=` — the day-one constructor
 ([§10.1](../07_iteration1_api.md#101-building-a-grid)).
 
 - Kind: final concrete subclass of `Grid`.
-- Module: `fridom.framework.grid2.cartesian.grid`.
+- Module: `fridom.framework2.grid.cartesian.grid`.
 - Pytree: as base (adds nothing).
 - Iteration: 1 (it is *the* iteration-1 public constructor).
 - Concept refs: [§2.6](../01_concepts.md#26-grid--the-assembly-object),
   sketch [4.1](../03_api_sketches.md#41-uniform-tensor-grid-staggered-derivative).
 
 ```python
-class Grid(fr.grid2.Grid):
+class Grid(fr.grid.Grid):
     """Cartesian convenience grid: uniform IntervalMesh factors."""
 
     def __init__(
@@ -545,7 +546,7 @@ Notes:
   `names` defaults to `("x", "y", "z")[:ndim]` for `ndim <= 3` and is
   required otherwise.
 - The keyword-only arguments are forwarded verbatim to
-  `fr.grid2.Grid`.
+  `fr.grid.Grid`.
 
 ### Discretizer
 
@@ -554,7 +555,7 @@ and `("assign_coeff", space)`: what `create_field` resolves and calls
 for `init=` / `init_coeff=`.
 
 - Kind: ABC (small protocol-style base).
-- Module: `fridom.framework.grid2.discretize`.
+- Module: `fridom.framework2.grid.discretize`.
 - Pytree: static (stateless strategy objects).
 - Iteration: 1 (both default implementations).
 - Concept refs:
@@ -597,7 +598,7 @@ The `grid.random` accessor: seeded, sharding-consistent random field
 generators ([§3.10](../02_rules.md#310-discretizing-continuous-functions)).
 
 - Kind: final concrete.
-- Module: `fridom.framework.grid2.random_fields`.
+- Module: `fridom.framework2.grid.random_fields`.
 - Pytree: fully static (holds only the grid reference); not a pytree —
   reached only through the static grid.
 - Iteration: 1 (`normal`, `phase`; the spectra-IC consumer of `phase`
@@ -679,7 +680,7 @@ wet region plus derive-on-demand per-space masks/fractions
 ([§3.7](../02_rules.md#37-boundaries-ii-immersed-masked-domains)).
 
 - Kind: final concrete.
-- Module: `fridom.framework.grid2.immersed_domain`.
+- Module: `fridom.framework2.grid.immersed_domain`.
 - Pytree: **fully static** — holds the init callable / static
   parameters only, no arrays and no `ScalarField`s. Fractions and
   masks are materialized on demand at trace time, exactly like
@@ -789,7 +790,7 @@ Notes:
   registry axis** and no wrapper grid type: mask-aware operators are
   ordinary dispatch entries that *consult* `grid.immersed` (fractions
   as weights in `integrate`/`flux`/`reconstruct`), with the same
-  grid-materialized-array status as `dx` (§3.7). The ROADMAP 4.4
+  grid-materialized-array status as `dx` (§3.7). The ROADMAP Phase 1
   phrasing `MaskedGrid(inner_grid)` is superseded by the notes: the
   immersed domain is an *attachment* at `grid.immersed`, not a
   decorator grid — a wrapper would fork the grid identity that spaces,
@@ -805,7 +806,7 @@ coordinate maps; single owner of the metric *derivation*
 ([§3.8](../02_rules.md#38-boundaries-iii-terrain-following-boundary-fitted)).
 
 - Kind: final concrete.
-- Module: `fridom.framework.grid2.coordinate_mapping`.
+- Module: `fridom.framework2.grid.coordinate_mapping`.
 - Pytree: **fully static** — map callables and static parameters
   only; no arrays, no `ScalarField`s, no dynamic leaves (G1).
 - Iteration: designed-for (nothing in iteration 1 may assume static
@@ -994,7 +995,7 @@ coefficient spaces of one mesh differ).
 
 - Kind: `HaloStrategy` enum; `MeshDecompositionTraits` final frozen
   dataclass.
-- Module: `fridom.framework.grid2.decomposition.traits` (the single
+- Module: `fridom.framework2.grid.decomposition.traits` (the single
   definition; doc 01 imports from here).
 - Pytree: static (hashable descriptors).
 - Iteration: 1 (`GHOST`, `TRANSPOSE`, `LOCAL`); `GRAPH` is the
@@ -1054,7 +1055,7 @@ Per-coordinate-name halo widths — the negotiated replacement of the
 global halo integer.
 
 - Kind: final frozen dataclass.
-- Module: `fridom.framework.grid2.decomposition.halo`.
+- Module: `fridom.framework2.grid.decomposition.halo`.
 - Pytree: static.
 - Iteration: 1.
 - Concept refs: [§5](../04_decomposition.md#5-domain-decomposition),
@@ -1108,7 +1109,7 @@ The shape/halo-only stand-in field and the automatic halo-accounting
 trace over the tendency.
 
 - Kind: `HaloTracer` final concrete; `trace_halo` module function.
-- Module: `fridom.framework.grid2.decomposition.halo`.
+- Module: `fridom.framework2.grid.decomposition.halo`.
 - Pytree: not a pytree participant (setup-phase only, never enters
   jit).
 - Iteration: 1 (replaces `Module.required_halo`).
@@ -1221,7 +1222,7 @@ A frozen descriptor of one concrete distribution: which coordinate
 names are sharded across which device-mesh axes, with which halo.
 
 - Kind: final frozen dataclass.
-- Module: `fridom.framework.grid2.decomposition.layout`.
+- Module: `fridom.framework2.grid.decomposition.layout`.
 - Pytree: static (hashable; part of jit cache keys via the grid).
 - Iteration: 1.
 - Concept refs: [§5](../04_decomposition.md#5-domain-decomposition).
@@ -1268,7 +1269,7 @@ point. The grid owns exactly one `Decomposition`; fields and operators
 reach it only through the grid.
 
 - Kind: ABC (`abc.ABC`); `negotiate` module function.
-- Module: `fridom.framework.grid2.decomposition.decomposition`.
+- Module: `fridom.framework2.grid.decomposition.decomposition`.
 - Pytree: static (structure only; no persistent array state).
 - Iteration: 1 (ABC + negotiation; graph backend designed-for).
 - Concept refs: [§5](../04_decomposition.md#5-domain-decomposition),
@@ -1479,7 +1480,7 @@ The jax-sharding backend for tensor-product grids — the iteration-1
 (and single-device) workhorse.
 
 - Kind: final concrete (`Decomposition` subclass).
-- Module: `fridom.framework.grid2.decomposition.tensor`.
+- Module: `fridom.framework2.grid.decomposition.tensor`.
 - Pytree: static.
 - Iteration: 1.
 - Concept refs: [§5](../04_decomposition.md#5-domain-decomposition).
@@ -1532,7 +1533,7 @@ Designed-for backend for unstructured factors (graph partitioning,
 indirect-neighbor halos).
 
 - Kind: final concrete (`Decomposition` subclass), designed-for.
-- Module: `fridom.framework.grid2.decomposition.graph`.
+- Module: `fridom.framework2.grid.decomposition.graph`.
 - Pytree: static.
 - Iteration: designed-for
   ([§6.4](../05_validation.md#64-unstructured-horizontal-x-structured-vertical)).
