@@ -42,6 +42,9 @@ an `03_operators.md` rejected-alternative, it says so explicitly.
 | B2 | `grad`/`div`/`curl`/`laplacian` have **grid-dependent block shape**, so they are `Dispatched`-family: assembly-resolved builders that emit a `Block` over the grid's axes. | operator_design §3.5 |
 | B3 | **`map` is a verb, `Block` is a noun** — keep both, with a rule for which to write. | operator_design §5.6 |
 | B4 | Nonlinear tuple-signature operators need **no new class**; the base treats block-expansion/symbols as **optional** capabilities. Tensor blocks: flatten now, defer index-aware addressing. | operator_design §3.5, §5.5 |
+| T2 | Binary composition: the **positional tuple** `P @ (B1, …, Bn)` is the one spelling; `(A1, …) @ P` is an error; no named-operand form. | operator_design §5.2 |
+| T3 | Mid-chain syncs are **numerically transparent**, so auto-insertion is *permitted in principle* — an explicit, reportable decomposition-layer optimization, not silent. | operator_design §5.3 |
+| T4 | A **`Symbol` is never a chain factor**; static diagonal *operators* are, deriving their symbol at trace time. Refines operator_design §3.7. | operator_design §5.4 |
 
 ---
 
@@ -388,12 +391,101 @@ So: positional/flattened signature now, index-aware blocks deferred.
 
 ---
 
+## Open-thread resolutions (operator_design §5.2–§5.4)
+
+Two of these are *forced* by decisions the class design already made;
+the third is reframed by one observation. None needs a new class.
+
+### T2. Binary composition uses the positional tuple form (§5.2)
+
+The pre/post rules of `operator_design` §3.8 are asymmetric because a
+binary operator has **two inputs but one output**:
+
+- **Pre-composition takes a tuple** (one operator per input):
+  `P @ (B1, B2)` is `(f, g) -> P(B1(f), B2(g))`; the sugar `P @ B` is
+  `P @ (B, B)`. It generalizes to the n-ary elementwise operators
+  (`Hadamard`, `Where`, whose `__call__` is `(f, g, *more)`):
+  `P @ (B1, B2, B3)`.
+- **Post-composition cannot take a tuple**: `A @ P` is
+  `(f, g) -> A(P(f, g))`, and there is only one output to post-compose.
+  So **`(A1, A2) @ P` is an error** — confirmed, and it already is one
+  mechanically (a tuple left-operand dispatches to `P.__rmatmul__`,
+  which rejects it).
+
+**No named-operand form** (`P.compose(left=, right=)`) is added: it
+only makes sense at arity 2, whereas the positional tuple covers the
+n-ary operators too, and it is what makes
+`Convolution = trim @ CollocationProduct @ pad_inverse` expressible
+(pad pre-composes both operands via the `P @ B` sugar). Revisit only if
+porting real flux modules shows the positional form is error-prone — it
+is pure sugar, cheap to add later.
+
+Feeds D8: the base `Operator.__matmul__` **dispatches on operand
+arity** — unary@unary -> unary composite; unary@binary -> binary
+composite (post); binary@tuple or binary@unary -> binary composite
+(pre).
+
+### T3. Mid-chain sync insertion is permitted in principle (§5.3)
+
+The observation that settles this: **a mid-chain halo sync is
+numerically transparent — bit-identical results.** Whether the chain
+accumulates halo to depth 3 and syncs once, or syncs at depth 1 /
+applies / syncs / applies, the ghost cells hold the same neighbor
+values at every read; a sync is a *copy*, not arithmetic, so there is
+no floating-point reassociation and the interior results are identical.
+
+That puts mid-chain syncs in a **different category** from what
+grid-redesign §3.11 forbids. "What you wrote is what runs" blocks
+*numerics-changing* rewrites (operation reorder, aliasing, distributing
+`@` over `+`). A sync changes neither the result nor the operator
+structure — it is a communication-scheduling detail *below* the
+operator algebra. So, unlike algebraic rewriting (categorically
+forbidden), auto-insertion is **permitted in principle**.
+
+Decision: **the grid may insert mid-chain syncs, but as an explicit,
+reportable optimization owned by the decomposition layer, not silent
+magic.** The crossover (ghost-layer width vs. communication cost) is a
+decomposition cost-model knob; the tendency author keeps the ability to
+place explicit syncs. Two scoping notes: it is **downstream of
+sync-elision** (itself designed-for — in iteration 1 every application
+already syncs, so no chain accumulates and the question is moot day
+one), and its true owner is **doc 04 / grid-redesign §5**; the merge
+note only records the principle.
+
+### T4. A `Symbol` is never a chain factor (§5.4)
+
+Forced by a class-design decision already taken: **a `Symbol` is not an
+`Operator`** (`03_operators.md` rejected the subclass — operators are
+static structure, a `Symbol` carries a dynamic `_data` leaf; it has its
+own diagonal algebra `Symbol * Symbol`, `Symbol @ Symbol`, and
+`Symbol(f)` = Hadamard). A `Symbol` therefore **cannot be a factor in
+an operator `@` chain** — the chain is static structure and a Symbol has
+a dynamic leaf.
+
+What goes in the chain is a **static diagonal operator**
+(`SpectralDerivative`, `PhaseShift`, `SincShift`, a spectral filter)
+that *derives* its Symbol from `grid.wavenumbers` at trace time and
+applies it as Hadamard inside `_apply`. The raw `Symbol` stays
+solver-facing (`op.eigenvalues(...)`, `1 / lap`, the spectral solve).
+
+So the §5.4 question ("should `S @ A` normalize?") **dissolves**: `S`
+is never on the operator side of `@`, the two `@`s (operator
+composition, Symbol diagonal composition) never mix, and there is no
+normalization rule to write. This **refines** `operator_design` §3.7's
+"a Symbol may appear as a factor in a chain" into "a diagonal
+*operator* appears as the factor; the Symbol is what its `.eigenvalues`
+returns" — a wording fix to apply when §3.7 / `03_operators.md` are next
+edited. The only excluded case is a runtime-data diagonal (a
+learned/data-driven filter) not derivable from the grid; out of scope,
+and if it ever arrives it is an explicit Hadamard step, not a chain
+factor.
+
+---
+
 ## Still open (next)
 
-- `operator_design` §5.2 (asymmetric binary composition ergonomics),
-  §5.3 (mid-chain sync insertion), §5.4 (`Symbol`-in-chain
-  normalization) — untouched by these decisions.
 - The `f.to` / interpolation forwarder spelling (D3), and whether
   `Dispatched` needs a public constructor or only the seeded verbs.
 - Executing D8: the actual rewrite of `03_operators.md`'s base
-  hierarchy, composed-operators, and registry sections.
+  hierarchy, composed-operators, and registry sections — plus the T4
+  wording fix to `operator_design` §3.7.
