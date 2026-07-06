@@ -159,10 +159,14 @@ Notes:
     `("transform", space)`, not a space property.
 - Spaces are **static, hashable, and interned**. They serve as jit
   cache keys and dispatch keys; equality checks (`f + g` legality) are
-  identity comparisons. Field arrays **and the grid's materialized
-  coordinate/metric arrays** are the dynamic pytree leaves; the
+  identity comparisons. Field arrays are the dynamic pytree leaves; the
   *structure* — spaces, operators, grids — is static
-  ([section 2.7](#27-where-coordinate-data-lives)).
+  ([section 2.7](#27-where-coordinate-data-lives)). The grid's
+  materialized coordinate/metric arrays are *transient trace-time
+  values* (recomputed on demand, never stored), and time-dependent
+  geometry data lives in module-owned state fields — the grid itself
+  carries no dynamic pytree leaves (class-design decision; see
+  [`classes/04_grid_and_decomposition.md`](classes/04_grid_and_decomposition.md)).
 
 An explicit FEEC-style "discrete de Rham complex" object is *not*
 introduced; the staggering relations remain implicit in the space
@@ -398,8 +402,10 @@ What remains of `Grid` is ergonomics and wiring:
   deliberately distinct from `get_mesh()` to avoid the near-collision,
   [section 2.1](#21-mesh--atomic-factor-of-the-domain)),
 - **two constructors, not one overloaded signature**: `fr.Grid` is the
-  model-agnostic assembly root, taking `meshes=`/`names=` (pre-built
-  meshes of any type, incl. sphere / unstructured);
+  model-agnostic assembly root, taking `meshes=` (pre-built meshes of
+  any type, incl. sphere / unstructured; coordinate names are mandatory
+  mesh-constructor arguments, so the grid only collects and validates
+  them — class-design decision superseding the earlier `names=` kwarg);
   `fr.grid.cartesian.Grid` is a convenience **subclass** taking
   `shape=`/`extent=`/`periodic=` and building the uniform `IntervalMesh`
   factors internally (no `N`/`L`). Splitting the two forms across a base
@@ -409,9 +415,10 @@ What remains of `Grid` is ergonomics and wiring:
   [section 5](04_decomposition.md#5-domain-decomposition)),
 - the **operator dispatch registry**
   ([section 3.4](02_rules.md#34-generic-operator-dispatch)),
-- the immersed domain — `grid.immersed`, an `ImmersedDomain` owning the
-  wet volume-fraction field and deriving per-space masks/fractions
-  on demand
+- the immersed domain — `grid.immersed`, an `ImmersedDomain` (a static
+  descriptor) materializing the wet volume fraction and the per-space
+  masks/fractions on demand; time-dependent geometry data is
+  module-owned state
   ([section 3.7](02_rules.md#37-boundaries-ii-immersed-masked-domains)),
 - the field factory (`grid.create_field(space, init=...)`,
   [section 3.10](02_rules.md#310-discretizing-continuous-functions)).
@@ -465,11 +472,17 @@ Rules:
   higher-order rule's *within-cell* quadrature points/weights have more
   entries than DOFs, so those stay static reference-rule data, not
   fields; only the aggregate cell measure below is a field.)
-  Recompute-on-demand is the **semantics**; whether to wrap the
-  materialization of a large stretched/mapped node array in a
-  `jax.checkpoint`-style store is an **opt-in performance knob** to
-  benchmark, invisible to the abstraction and bound by the same
-  re-decomposition-invalidation rule — never a semantic change.
+  Recompute-on-demand is the **semantics**; the baseline cost story is
+  XLA's CSE and loop-invariant code motion (adequate for `iota`-based
+  uniform nodes). For large stretched/mapped node arrays the **opt-in
+  performance knob** is to materialize once *outside* the scanned
+  region and close over the array (a real store, at the price of
+  resident memory) — `jax.checkpoint` is the opposite trade
+  (rematerialization) and does not apply. The knob is invisible to the
+  abstraction, bound by the same re-decomposition-invalidation rule —
+  never a semantic change — and mapped-mesh materialization carries a
+  compile-time benchmark item (constant-folding large traced mappings
+  is a known slow-constant-folding trigger).
 - **Operators derive spacing-dependent stencil coefficients
   dynamically, never as hardcoded constants.** An operator's
   *structure* (order, stencil width, neighbor pattern) is static and
@@ -482,8 +495,8 @@ Rules:
   that field is constant and XLA constant-folds it; no operator bakes
   `dx`/node positions into Python constants. (Whether repeated
   materializations warrant memoization is the benchmark question of the
-  `jax.checkpoint` knob above — the goal is to avoid unnecessary
-  recomputation without reintroducing stale state.)
+  materialize-outside-scan knob above — the goal is to avoid
+  unnecessary recomputation without reintroducing stale state.)
 - **The N-D meshgrid is never stored.** It is materialized transiently
   by broadcasting the 1D-per-factor `evaluation_nodes` inside the field
   factory / `discretize`
@@ -512,4 +525,9 @@ Rules:
   [section 3.8](02_rules.md#38-boundaries-iii-terrain-following-boundary-fitted))
   are ordinary dynamic fields on product spaces — the same
   representational class as the separable coordinate arrays, just
-  coupled across factors and possibly prognostic.
+  coupled across factors and possibly prognostic. As fields they are
+  **owned by modules / the model state, never stored on the grid**:
+  the grid holds only static descriptors and materializes derived
+  arrays on demand, while metric-consuming accessors take the dynamic
+  data explicitly (class-design decision; see
+  [`classes/04_grid_and_decomposition.md`](classes/04_grid_and_decomposition.md)).

@@ -9,10 +9,13 @@ for the document map. Concepts are in
 
 ## 6. Paper validation against future grid types
 
-Iteration 1 implements only the uniform FD/FV tensor grid, at feature
-parity with the current cartesian grid. The abstraction is validated
-on paper against five future grid types; each names the API pressure
-points it creates.
+Iteration 1 implements the uniform FD/FV tensor grid at feature parity
+with the current cartesian grid, plus the full coefficient-space layer
+(Fourier, DST/DCT, Chebyshev collocation incl. `ChebyshevMesh` —
+class-design promotion). The Shen/Galerkin *BC bases* of 6.2 and
+everything in 6.3–6.5 remain design-for-only. The abstraction is
+validated on paper against five future grid types; each names the API
+pressure points it creates.
 
 ### 6.1 Fourier x Fourier (pure spectral, collocated Galerkin)
 
@@ -70,7 +73,8 @@ points it creates.
      operator-eigenvalue/assembly access along one axis;
   - quadrature-based integrals differ per factor (uniform weights vs
     Clenshaw-Curtis) — `integrate` must compose per-mesh weights;
-  - Shen bases with two boundary conditions have n - 2 free modes — a
+  - Shen bases with two boundary conditions have n - 1 free modes
+    (n cells -> n + 1 Lobatto modes -> 2 constraints) — a
     shape example
     ([section 3.5](02_rules.md#35-shape-is-a-property-of-the-space)) that
     vertical solves and transforms

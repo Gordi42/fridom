@@ -99,9 +99,11 @@ cannot express at all:
   under the transitional name `framework.grid2` while the old grid
   still works, and is **renamed to the canonical `framework.grid` once
   the old grid is deleted**. The assembly root is the model-agnostic
-  `fr.Grid` (`meshes=`/`names=`), with `fr.grid.cartesian.Grid`
-  (`shape=`/`extent=`/`periodic=`) a convenience subclass — the split is
-  fixed in [section 2.6](01_concepts.md#26-grid--the-assembly-object).
+  `fr.Grid` (`meshes=`; coordinate names are mesh-constructor
+  arguments), with `fr.grid.cartesian.Grid`
+  (`shape=`/`extent=`/`periodic=`/`names=`) a convenience subclass —
+  the split is fixed in
+  [section 2.6](01_concepts.md#26-grid--the-assembly-object).
   The mesh factors live
   in `fr.meshes` and the free-standing operators in `fr.operators`
   (plural collection namespaces, matching `fr.modules`/`fr.time_steppers`);

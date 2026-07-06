@@ -17,8 +17,9 @@ import jax.numpy as jnp
 import fridom.framework as fr
 
 # convenience subclass: builds two IntervalMeshes internally. The
-# general assembly root is fr.Grid(meshes=..., names=...) (sketch 4.4);
-# fr.grid.cartesian.Grid is the cartesian convenience form.
+# general assembly root is fr.Grid(meshes=...) (sketch 4.4; coordinate
+# names live on the meshes); fr.grid.cartesian.Grid is the cartesian
+# convenience form.
 grid = fr.grid.cartesian.Grid(
     shape=(256, 256), extent=((0, 1), (0, 1)),
     periodic=True, names=("x", "y"),
@@ -88,15 +89,18 @@ u2 = t.backward(u_hat)                 # unambiguous: the coefficient
 ### 4.4 Mixed grid: uniform FV x Chebyshev-Galerkin
 
 ```python
-mx = fr.meshes.IntervalMesh(shape=256, extent=(0, Lx), periodic=True)
-mz = fr.meshes.ChebyshevMesh(shape=64, extent=(-H, 0))
+mx = fr.meshes.IntervalMesh(shape=256, extent=(0, Lx), periodic=True,
+                            name="x")
+mz = fr.meshes.ChebyshevMesh(shape=64, extent=(-H, 0), name="z")
 
 # fr.Grid is the model-agnostic assembly root: it takes pre-built
-# meshes (any mesh type, incl. sphere / unstructured). The cartesian
-# convenience form fr.grid.cartesian.Grid (sketch 4.1) is a subclass
-# that builds the uniform IntervalMesh factors from shape=/extent=.
+# meshes (any mesh type, incl. sphere / unstructured); coordinate
+# names are mesh-constructor arguments, the grid only validates
+# uniqueness. The cartesian convenience form fr.grid.cartesian.Grid
+# (sketch 4.1) is a subclass that builds the uniform IntervalMesh
+# factors from shape=/extent=/names=.
 grid = fr.Grid(
-    meshes=(mx, mz), names=("x", "z"),
+    meshes=(mx, mz),
     defaults={
         ("diff", mx.center): fr.operators.FiniteDifference(order=2),
         # mz coefficient spaces only admit the spectral derivative;
@@ -141,14 +145,19 @@ kx = fd.eigenvalues(grid, fourier_x)  # a Symbol (diagonal operator),
 # supplies its own eigenvalue symbol directly (-|k|^2):
 lap = fr.operators.Laplacian(order=2).eigenvalues(grid, u_hat.function_space)
 # equivalently, composed from the 1D symbols (what the operator does
-# internally); the per-factor symbols broadcast across the product via
-# ConstantSpace (section 3.3):
+# internally); the per-factor symbols broadcast across the product as
+# diagonal-operator extensions (Identity ⊗ D — not the field lift of
+# section 3.3; see class doc 03). Shorthand — the FD first-derivative
+# symbol retags origins, so the honest composition is `bwd @ fwd`
+# (class doc 03), not `** 2`:
 #   lap = sum(fd.eigenvalues(grid, s) ** 2
 #             for s in u_hat.function_space.factors)
 
 # spectral pressure solve: 1 / lap is the inverse diagonal operator,
 # applied (symbols are callable) as a Hadamard multiply (section 3.11);
 # the k = 0 mode is regularized by the solver
+# (`Symbol.inverse(where_zero=...)`, class doc 03; bare 1 / lap keeps
+# jax inf semantics)
 p_hat = (1 / lap)(-div_hat)
 ```
 
@@ -230,7 +239,7 @@ mx, my = grid.factors
 u = grid.create_field(mx.right * my.center, init=u_ini)
 
 # average space: per-cell quadrature (midpoint at 2nd order)
-u_bar = grid.create_field(mx.cellavg * my.cellavg, init=u_ini)
+u_bar = grid.create_field(mx.cell_avg * my.cell_avg, init=u_ini)
 
 # coefficient space: sample at the origin's nodes, then transform
 # (discretize = transform o discretize_origin, section 3.10)
@@ -349,7 +358,7 @@ Notes:
   the padded transforms do the dealiasing. The finer space is
   first-class ([section 3.5](02_rules.md#35-shape-is-a-property-of-the-space)),
   so the strict algebra applies there unchanged.
-- `Convolution(u_hat, v_hat)`
+- `Convolution(t)(u_hat, v_hat)`
   ([section 3.12](02_rules.md#312-dealiasing)) would give the same
   result in one call, but re-transforms shared operands; the
   transform-once form above is the performant idiom for a multi-term

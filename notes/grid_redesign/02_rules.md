@@ -84,9 +84,13 @@ Examples:
 
 - periodic `Center` -> `Fourier(origin=Center)`; periodic `Right` ->
   `Fourier(origin=Right)`. The two are distinct spaces related by the
-  exact phase shift `e^{i k dx/2}`. Adding `u_hat` and `w_hat` without
-  the shift is a caught error instead of a silent bug — the strict
-  algebra pays off in coefficient space too.
+  phase shift `e^{i k dx/2}` — exact on every mode except, for real
+  origins with even n, the Nyquist mode (its shifted coefficient is no
+  longer the rfft of a real field; the class design zeroes it and
+  documents the one non-exact DOF, see
+  [`classes/03_operators.md`](classes/03_operators.md)). Adding `u_hat`
+  and `w_hat` without the shift is a caught error instead of a silent
+  bug — the strict algebra pays off in coefficient space too.
 - on bounded meshes, the BC structure selects *compatible* bases (not
   a unique one): Dirichlet `Center` -> DST-II coefficients (n modes);
   Dirichlet `Inner` -> DST-I coefficients (n - 1 modes — coefficient
@@ -100,12 +104,14 @@ Examples:
   (see also section 3.9).
 - coefficient spaces of origins with **`scalars = fr.Real`**
   (section 3.1) carry the rfft-style half-spectrum layout as their
-  *shape* (section 3.5), so the Hermitian/reality constraint is
-  structural, not conventional — it is simply the reality of `fr.Real`
-  scalars made into a shape, the coefficient-space analogue of
-  "BC-constrained spaces silently project" (section 3.10). Directly
-  assigned coefficients (section 3.10) cannot violate it by
-  construction.
+  *shape* (section 3.5), so the Hermitian constraint between paired
+  modes is structural, not conventional — it is simply the reality of
+  `fr.Real` scalars made into a shape, the coefficient-space analogue
+  of "BC-constrained spaces silently project" (section 3.10). One
+  caveat: the *realness* of the self-conjugate modes (k = 0 and, for
+  even n, Nyquist) is a value constraint the shape cannot encode; the
+  field factory projects it on assignment and operators must preserve
+  it (class docs 02/04).
 - Operator codomains express what today are metadata mutations: the
   bc-flipping hack of `SpectralDiff` becomes the honest signature
   `d/dx : SineCoeff -> CosineCoeff`.
@@ -205,7 +211,7 @@ face wrapped or masked). On a bounded `IntervalMesh` with n cells:
 | `FaceAvg` (interior dual-cell avgs) | n - 1          |
 | DST-I coeffs (of Dirichlet `Inner`) | n - 1          |
 | DST-II coeffs (of Dirichlet `Center`) | n            |
-| Chebyshev-Shen basis with 2 BCs     | n - 2          |
+| Chebyshev-Shen basis with 2 BCs     | n - 1          |
 
 Rules:
 

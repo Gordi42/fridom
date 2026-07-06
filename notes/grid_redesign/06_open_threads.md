@@ -15,6 +15,10 @@ from the former thread to where its resolution now lives. The threads
 were deliberately unresolved design questions; the table records the
 outcome so the section numbering (a stable identifier) stays valid.
 
+This page predates the class-design phase: the *currently* open
+questions live in the `## Open questions` sections of the four class
+docs under [`classes/`](classes/README.md).
+
 | # | Former thread | Resolution lives in |
 |---|---------------|---------------------|
 | 1 | Immersed-domain object | [§3.7](02_rules.md#37-boundaries-ii-immersed-masked-domains) (`grid.immersed`), [§2.6](01_concepts.md#26-grid--the-assembly-object) |
