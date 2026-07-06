@@ -45,6 +45,7 @@ fridom/framework2/grid/
     operators/               # doc 03: Operator hierarchy, transforms,
                              #   Symbol (fr.operators)
         registry.py          # doc 03: OperatorRegistry
+        movement.py          # doc 03: Reshard, Sync (section 5.1)
     grid.py                  # THIS DOC: Grid (assembly root)
     discretize.py            # THIS DOC: Discretizer protocol
     random_fields.py         # THIS DOC: RandomFieldFactory
@@ -56,7 +57,7 @@ fridom/framework2/grid/
         traits.py            #   HaloStrategy, MeshDecompositionTraits
         halo.py              #   HaloSpec, HaloTracer, trace_halo,
                              #   GhostFill (designed-for)
-        layout.py            #   ArrayLayout
+        layout.py            #   Layout (space-level, section 5.1)
         decomposition.py     #   Decomposition (ABC), negotiate(),
                              #   ReshardingReport
         tensor.py            #   TensorDecomposition

@@ -72,3 +72,62 @@ The decomposition remains a lower layer that the grid *owns*; fields
 and operators reach it only through the grid, and the transform API
 must be rich enough that solvers no longer bypass it (lesson from
 `RFFTPressureSolver`).
+
+### 5.1 Layout is part of the function space
+
+Owner decisions (2026-07-06), driven by two requirements the layer
+split above cannot express: adding two fields in different shardings
+must be a caught error, and layout-changing operations are
+representation changes that belong in the type system. The forcing
+counterexample: per-axis transforms reach the *same* logical
+coefficient space in *different* pencils depending on order
+(x → y → z vs z → y → x from an x/y-sharded start), so the layout is
+not derivable from the logical space and must be carried.
+
+- **`Layout` in the space.** A `Layout` is a pure combinatorial value
+  mapping coordinate names to device-mesh axes (unmapped names are
+  device-local). It is an *optional defining attribute* of the space,
+  entering the interning key only when set (the `variance`
+  precedent): mesh factories mint layout-free "bare" spaces; the grid
+  mints laid-out variants after negotiation
+  (`space.with_layout(...)`, `space.bare`, `space.layout`). Fields
+  always live on laid-out spaces; dispatch keys and `codomain`
+  resolvers stay bare. Halo widths and stagger padding remain
+  decomposition-owned storage — *not* part of the space identity.
+- **Strict algebra extension.** The join requires layout equality;
+  the sanctioned lifts do not touch layout. The same bare space in
+  two layouts raises `SpaceMismatchError` with a reshard hint. **No
+  implicit reshard in field arithmetic, ever.** An operator
+  *application*, however, may contain reshards demanded by its own
+  declared requirements — declared, planned, static, and visible in
+  the codomain's layout.
+- **Reshard and Sync are operators.** `Reshard` is user-reachable
+  and grid-bound: identity on the bare space, codomain = bare space
+  with the target layout, kernel = `redistribute`, halo-trace rule =
+  reset accumulated depth on moved axes. `Sync` (halo exchange) is an
+  algebra node only the operator base / lowering ever inserts — never
+  user-spelled, so storage stays invisible above the decomposition.
+- **Requirements-driven lowering.** One plan-time pass over a bound
+  or registered composite inserts both node kinds from
+  `OperatorRequirements` (`.halo` → `Sync` placement, `.layout` →
+  `Reshard` insertion). Inserted `Reshard`s carry explicit
+  source → target layouts; apply time infers nothing. This is
+  *lowering* — a compiled form beside the user-built composite — not
+  algebraic rewriting of user graphs, which stays rejected.
+- **Closed layout vocabulary.** The layouts negotiated at grid
+  assembly (default + transform pencils + solver-declared) are all
+  the layouts there are. They form a small graph — nodes = layouts,
+  edges = transposes weighted by moved data volume — over which the
+  planner picks reshard targets by shortest path with lookahead.
+  Exotic layouts are declared at negotiation, not minted at runtime.
+- **Transforms plan against this.** A multi-axis transform treats
+  `axes` as a *set*: the planner reorders the 1D stages for maximum
+  speed (locally-available axes first). For real fields the order
+  fixes which factor carries the Hermitian half spectrum, so the
+  logical codomain of a multi-axis real transform is
+  schedule-determined — still deterministic per grid, since the plan
+  depends only on static negotiation results. Users needing a
+  specific half-spectrum factor compose single-axis transforms
+  (`Fourier(axes="x") @ Fourier(axes="y")` pins the order). A
+  transform chain ends in its final pencil; nothing reshards back to
+  the default layout implicitly.

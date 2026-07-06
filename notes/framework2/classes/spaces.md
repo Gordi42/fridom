@@ -89,6 +89,21 @@ class FunctionSpace(ABC):
         """Self if name is one of the mesh's names; KeyError else."""
         ...
 
+    @property
+    def layout(self) -> Layout | None:
+        """Negotiated device layout, or None for a bare space
+        (doc 02 owns the semantics; section 5.1)."""
+        ...
+
+    @property
+    def bare(self) -> FunctionSpace:
+        """The layout-free interned variant (self if bare)."""
+        ...
+
+    def with_layout(self, layout: Layout | None) -> Self:
+        """The interned variant carrying ``layout`` (grid-minted)."""
+        ...
+
     def as_complex(self) -> Self:
         """The interned fr.Complex variant of this space."""
         ...
@@ -119,7 +134,11 @@ Notes:
   entry, never a space property.
 - **Defining attributes = interning key**: `(type, mesh identity,
   node set / basis, bc, scalars, origin)` — exactly the static
-  descriptors of section 2.2. Derived coordinate quantities
+  descriptors of section 2.2 — plus, like `variance`, the `layout`
+  *when set* (section 5.1): mesh factories mint bare spaces (`layout
+  is None`, iteration-1 keys unchanged); laid-out variants are
+  grid-minted, so single-factor spaces participate in the layout
+  protocol and 1D grids work uniformly. Derived coordinate quantities
   (evaluation nodes, wavenumbers, measures) are `ScalarField`s the
   grid materializes on demand via `grid.evaluation_nodes(space)` /
   `grid.wavenumbers(space)`; nothing array-like lives here, and the
@@ -334,7 +353,11 @@ class FourierSpace(CoefficientSpace):
     """Fourier coefficients of a periodic origin."""
 
     # shape: (n // 2 + 1,) if scalars is fr.Real (Hermitian
-    # half-spectrum, rfft layout); (n,) if fr.Complex
+    # half-spectrum, rfft layout); (n,) if fr.Complex.
+    # In a multi-axis real transform only the FIRST-transformed
+    # factor keeps a real origin (half spectrum); later stages
+    # target as_complex() origins — full spectrum (section 5.1,
+    # transform planner, doc 03).
 
 
 class SineSpace(CoefficientSpace):
@@ -371,7 +394,13 @@ Notes:
   shape**. That value-level invariant is owned at the seams — the
   field factory projects assigned coefficients at the self-conjugate
   modes (doc 02), and the random draw handles those modes as special
-  indices (doc 04). `as_complex()` on a coefficient space returns
+  indices (doc 04). In products at most one factor — the
+  first-transformed axis of the planned schedule (section 5.1) —
+  carries a real origin and hence the half spectrum; later stages
+  target complexified origins (full spectrum), and the value
+  invariant becomes conjugate symmetry on the self-conjugate
+  k = 0 / Nyquist *planes* of the halved factor (same seam owners).
+  `as_complex()` on a coefficient space returns
   the coefficient space of the complexified origin (full spectrum),
   i.e. it changes the shape too — it is never a dtype flag flip.
 - The class names carry a `Space` suffix (`FourierSpace`, not
@@ -491,6 +520,15 @@ mesh construction, `bind_names` is deleted, and `fr.Grid(meshes=...)`
 only validates duplicate-free names (`Mesh` notes); the
 `ChebyshevMesh` family is restricted to `outer`/`lobatto` +
 coefficient/Galerkin spaces, no cell family (`ChebyshevMesh` notes).
+
+Former question 5 (multi-factor real Fourier transforms) is
+**closed** by the layout/transform decisions of
+[§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space):
+per-axis real transforms do not commute — the half spectrum lands on
+the first-transformed factor (real origin), later stages target
+complexified origins (full spectrum, `FourierSpace` note above), and
+the planner's schedule — free to reorder `axes` for speed — fixes the
+choice statically per grid.
 
 Still open:
 

@@ -106,6 +106,17 @@ Notes:
 - `forward`/`backward` on a `VectorField`/`State` map componentwise
   via the inherited `VectorField.map` (sketch 4.9); each component
   keeps its own per-origin coefficient spaces.
+- **The plan is a lowered composite**
+  ([§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space)):
+  binding builds one 1D kernel per axis; `axes` is a **set** — the
+  planner reorders the stages for maximum speed (owner decision:
+  locally-available axes first), and the requirements-driven lowering
+  (doc 03) inserts `Reshard` nodes with explicit endpoints, chosen by
+  shortest path over the negotiated layout graph. The codomain's
+  layout is the schedule's final pencil — nothing reshards back to
+  the default layout implicitly. Users who need a specific stage
+  order compose single-axis transforms
+  (`Fourier(axes="x") @ Fourier(axes="y")` pins it).
 - **Dealiasing is a property of the transform** (§3.12): with
   `pad=degree(p)`, `backward` lands in the finer nodal space
   (`Fourier(N) -> Center((p+1)/2 N)`, a genuine first-class space)
@@ -182,7 +193,13 @@ Notes:
   sketch 4.11): `fr.Real` origins produce the Hermitian half-spectrum
   coefficient space (rfft layout as *shape*, §3.2), `fr.Complex`
   origins the full spectrum. The `RFFTPressureSolver` bypass
-  disappears: the rfft *is* the dispatched default.
+  disappears: the rfft *is* the dispatched default. **Multi-axis real
+  fields** (§5.1): only the schedule's *first* stage is real→complex
+  — its factor keeps the real origin and the half spectrum; every
+  later stage sees complex data and targets the complexified origin
+  (`s.as_complex()`, full spectrum). Per-axis real transforms
+  therefore do not commute; the planner's stage order picks the
+  half-spectrum factor, statically per grid.
 - **Average origins are ordinary origins** (G2): `forward` from
   `CellAvg`/`FaceAvg` spaces is the (r)fft of the stored averages,
   landing on `Fourier(origin=cell_avg)`-style coefficient spaces —
@@ -193,9 +210,11 @@ Notes:
   (applied as a Hadamard); it lives on the transform because the
   retained-band bookkeeping does.
 - Distributed operation is transpose-based (jaxDecomp-style), declared
-  through `requirements` and negotiated by the grid (doc 04); the
-  transform API is deliberately rich enough that solvers no longer
-  bypass it ([§5](../04_decomposition.md#5-domain-decomposition)).
+  through `requirements`, negotiated by the grid (doc 04), and
+  realized by the lowering-inserted `Reshard` stages of the plan
+  (§5.1); the transform API is deliberately rich enough that solvers
+  no longer bypass it
+  ([§5](../04_decomposition.md#5-domain-decomposition)).
 
 ### Sine / Cosine
 

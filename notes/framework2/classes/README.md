@@ -32,13 +32,13 @@ iteration 1 does not preclude it).
 | | [`spaces.md`](spaces.md) | The `FunctionSpace` families (nodal, average, coefficient, Galerkin, `ConstantSpace`), space interning. |
 | Product spaces & fields | [`product_spaces.md`](product_spaces.md) | `TensorProductSpace`, `SpaceMismatchError`/`GridMismatchError`, the strict-algebra arithmetic surface (lifts/joins). |
 | | [`fields.md`](fields.md) | `FieldMetadata`, `ScalarField`, `VectorField`, `TensorField`, `State`; field sugar (`diff`, `to`, `integrate`, `sel`, ...). |
-| Operators | [`operators_base.md`](operators_base.md) | `Operator` hierarchy (unary/binary/separable), the operator algebra (`Composite`/`Block`/`Dispatched`/...), `Symbol`. |
+| Operators | [`operators_base.md`](operators_base.md) | `Operator` hierarchy (unary/binary/separable), the operator algebra (`Composite`/`Block`/`Dispatched`/...), `Reshard`/`Sync` + requirements-driven lowering (§5.1), `Symbol`. |
 | | [`operators_stencils.md`](operators_stencils.md) | Stencil kernels (`FiniteDifference`, interpolation/reconstruction, FV `FluxDifference`/`FVDerivative`), spectral operators. |
 | | [`operators_transforms.md`](operators_transforms.md) | `Fourier`, `Sine`/`Cosine`, `Chebyshev`, padding. |
 | | [`operators_products.md`](operators_products.md) | Pointwise/product operators (`ConstantBroadcast`, `Where`, `Convolution`, ...), reductions. |
 | | [`operators_composed.md`](operators_composed.md) | Composed vector calculus (`grad`/`div`/`curl`/`laplacian`), the `OperatorRegistry` dispatch class. |
 | Grid & decomposition | [`grid.md`](grid.md) | `Grid` + `framework2.grid.cartesian.Grid` (lifecycle), `Discretizer`, `RandomFieldFactory`, `ImmersedDomain`, `CoordinateMapping`, export (`f.xr`), the package tree. |
-| | [`decomposition.md`](decomposition.md) | Halo/storage contract, `HaloStrategy`/`MeshDecompositionTraits`/`HaloSpec`/`HaloTracer`, `ArrayLayout`, `Decomposition`/`TensorDecomposition`/`GraphDecomposition`, `negotiate`. |
+| | [`decomposition.md`](decomposition.md) | Halo/storage contract, `HaloStrategy`/`MeshDecompositionTraits`/`HaloSpec`/`HaloTracer`, `Layout` (part of the function space, §5.1), `Decomposition`/`TensorDecomposition`/`GraphDecomposition`, `negotiate`. |
 
 **Decision log (not a cluster spec):**
 

@@ -102,7 +102,11 @@ Cross-space arithmetic (`f + g` on different spaces) raises
 `SpaceMismatchError`; the only implicit exceptions are the
 `ConstantSpace` broadcast (section 3.3) and `fr.Real -> fr.Complex`
 promotion (section 3.1). Operands must also share the grid object
-(`GridMismatchError` otherwise).
+(`GridMismatchError` otherwise). The device layout is part of the
+function space (section 5.1): same bare space in two layouts is also
+a `SpaceMismatchError` — `f.reshard(...)` is the explicit fix, and
+transform outputs stay in their pencils
+(`u_hat.function_space.layout`; strip via `.bare` for comparisons).
 
 Free-standing operators compose
 ([operator design](operator_algebra/00_overview.md)):

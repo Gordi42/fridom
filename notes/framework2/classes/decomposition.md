@@ -16,10 +16,13 @@ trace over the tendency. Staggered/padded storage is owned by this
 layer and invisible above it. Fields and operators reach the
 decomposition only through the grid, and the transform surface is rich
 enough that solvers no longer bypass it (the `RFFTPressureSolver`
-lesson).
+lesson). The `Layout` is **part of the function space**
+([§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space)):
+fields carry laid-out spaces, field arithmetic never reshards, and
+`Reshard`/`Sync` (doc 03) are the only data-movement operators.
 
 The class structure: small frozen descriptors (`HaloStrategy`,
-`MeshDecompositionTraits`, `HaloSpec`, `ArrayLayout`,
+`MeshDecompositionTraits`, `HaloSpec`, `Layout`,
 `ReshardingReport`), one negotiation entry point (`negotiate`), one
 ABC (`Decomposition`) with the jax-sharding tensor backend
 (`TensorDecomposition`, iteration 1) and a named designed-for graph
@@ -41,8 +44,9 @@ base); stated here because the decomposition defines the shapes.
   constructs storage-shaped arrays.
 - **Iteration-1 sync contract.** Operator inputs have valid halos,
   and **every operator application returns a synced field**: the
-  operator *base* (doc 03) calls the sync after the kernel — kernel
-  authors never do. Under this contract un-synced chains do not
+  operator *base* (doc 03) appends the internal `Sync` node after the
+  kernel (§5.1; realized by `Decomposition.sync`) — kernel
+  authors never sync, and users never spell `Sync`. Under this contract un-synced chains do not
   exist, so the per-operator halo maximum is exact and the
   `HaloTracer` sizes the maximal **single-chain** ghost width.
   **Sync-elision** along traced chains — skipping intermediate
@@ -313,10 +317,11 @@ Notes:
   tracers and which performs **no grid validation** — component
   mapping (`.map`) and composed operators like `Divergence` trace
   through it (the tracer must mimic both field kinds).
-- **Transforms reset depth:** `layout_for`/`redistribute` is a global
-  data movement, at least as strong as a sync on the moved axes — the
-  trace rule is that a transform **resets the accumulated depth on
-  its transformed axes** to zero.
+- **Reshards reset depth:** a `redistribute` is a global data
+  movement, at least as strong as a sync on the moved axes — the
+  rule, carried as `Reshard`'s object-level halo rule (§5.1, doc 03),
+  is that it **resets the accumulated depth on the moved axes** to
+  zero.
 - **Un-jitted tracing:** the tendency callable must be traceable
   **without** jit — jit rejects pytrees with unregistered tracer
   leaves. Phase 3's top-level-jit-only architecture makes this
@@ -334,30 +339,31 @@ Notes:
   after module overrides, restricted to operators that can actually
   fire on the model's state-field spaces (§5).
 
-### ArrayLayout
+### Layout
 
 A frozen descriptor of one concrete distribution: which coordinate
-names are sharded across which device-mesh axes, with which halo.
+names are sharded across which device-mesh axes. **This is the value
+that enters the function-space interning key when set**
+([§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space);
+doc 02 owns the space-side semantics — `space.layout` / `.bare` /
+`.with_layout`).
 
 - Kind: final frozen dataclass.
-- Module: `fridom.framework2.grid.decomposition.layout`.
-- Pytree: static (hashable; part of jit cache keys via the grid).
+- Module: `fridom.framework2.grid.decomposition.layout` (imported by
+  the space clusters).
+- Pytree: static (hashable; part of jit cache keys via the spaces).
 - Iteration: 1.
-- Concept refs: [§5](../04_decomposition.md#5-domain-decomposition).
+- Concept refs: [§5](../04_decomposition.md#5-domain-decomposition),
+  [§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space).
 
 ```python
 @dataclass(frozen=True)
-class ArrayLayout:
+class Layout:
     """One assignment of coordinate names to device-mesh axes."""
 
     device_axes: tuple[tuple[str, str], ...]  # (coord name, device axis)
-    halo: HaloSpec
 
-    def __init__(
-        self,
-        device_axes: Mapping[str, str],
-        halo: HaloSpec,
-    ) -> None:
+    def __init__(self, device_axes: Mapping[str, str]) -> None:
         """Normalize the mapping to sorted tuple storage (hashable)."""
         ...
 
@@ -368,17 +374,29 @@ class ArrayLayout:
 
 Notes:
 
-- Purely combinatorial: everything array-shaped (`PartitionSpec`s,
-  local slices, storage shapes) is derived by the owning
-  `Decomposition`, which holds the `jax.sharding.Mesh`. Layouts are
-  values, so transforms can name their pencil schedule (`x-local`
-  layout, `y-local` layout) as data.
+- Purely combinatorial and **semantic-only**: halo widths and stagger
+  padding are deliberately *not* part of a `Layout` — they are
+  storage the decomposition pairs with it internally (the negotiated
+  `HaloSpec`), invisible in the space identity (§5.1: fields with the
+  same sharding must add regardless of ghost widths). Everything
+  array-shaped (`PartitionSpec`s, local slices, storage shapes) is
+  derived by the owning `Decomposition`, which holds the
+  `jax.sharding.Mesh`. Layouts are values, so transforms can name
+  their pencil schedule (`x-local` layout, `y-local` layout) as data.
 - Tuple storage with a mapping-accepting constructor, for the same
   hashability reason as `HaloSpec.widths` (the doc 02 `nc_attrs`
   pattern).
 - The default layout of a grid shards the preferred `GHOST` factors;
   transform-aware layouts (`TRANSPOSE` strategy) are the generalized
-  successors of today's main/alt shardings in `JaxDecomposition`.
+  successors of today's main/alt shardings in `JaxDecomposition`;
+  `redistribute` is `Reshard`'s kernel (§5.1) — user code reaches it
+  only through the operator.
+- **Closed vocabulary** (§5.1): the layouts negotiated at assembly
+  (default + transform pencils + solver-declared) are all the layouts
+  there are; `Reshard` targets and the transform planner's
+  shortest-path search range over this finite set. New needs are
+  declared at negotiation (via `OperatorRequirements`), not minted at
+  runtime.
 
 ### Decomposition / negotiate
 
@@ -412,8 +430,8 @@ def negotiate(
 class ReshardingReport:
     """What a renegotiation changed (returned by grid.negotiate)."""
 
-    old: ArrayLayout
-    new: ArrayLayout
+    old: Layout
+    new: Layout
     changed: bool
 
 
@@ -426,12 +444,14 @@ class Decomposition(ABC):
         ...
 
     @property
-    def default_layout(self) -> ArrayLayout:
-        """The layout fields are created and stepped in."""
+    def default_layout(self) -> Layout:
+        """The layout attached to bare spaces at field creation;
+        state fields are stepped in it. Transform outputs legally
+        stay in their pencils (section 5.1)."""
         ...
 
     @property
-    def layouts(self) -> tuple[ArrayLayout, ...]:
+    def layouts(self) -> tuple[Layout, ...]:
         """All negotiated layouts (default + transform pencils)."""
         ...
 
@@ -439,7 +459,7 @@ class Decomposition(ABC):
     def sharding(
         self,
         space: TensorProductSpace | FunctionSpace,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
     ) -> jax.sharding.Sharding:
         """The jax sharding of `space`'s storage under `layout`."""
         ...
@@ -448,7 +468,7 @@ class Decomposition(ABC):
     def local_slice(
         self,
         space: TensorProductSpace | FunctionSpace,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
     ) -> tuple[slice, ...]:
         """Global true-DOF index range of the local shard."""
         ...
@@ -457,7 +477,7 @@ class Decomposition(ABC):
     def storage_shape(
         self,
         space: TensorProductSpace | FunctionSpace,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
     ) -> tuple[int, ...]:
         """Global storage shape: true shape + halo + stagger padding."""
         ...
@@ -466,7 +486,7 @@ class Decomposition(ABC):
     def zeros(
         self,
         space: TensorProductSpace | FunctionSpace,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
     ) -> jax.Array:
         """A zero-filled, sharded, storage-shaped array for `space`."""
         ...
@@ -476,7 +496,7 @@ class Decomposition(ABC):
         self,
         arr: jax.Array,
         space: TensorProductSpace | FunctionSpace,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
     ) -> jax.Array:
         """True-shape local data -> halo/stagger-padded storage."""
         ...
@@ -486,7 +506,7 @@ class Decomposition(ABC):
         self,
         arr: jax.Array,
         space: TensorProductSpace | FunctionSpace,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
     ) -> jax.Array:
         """Padded storage -> true-shape local data (pads dropped)."""
         ...
@@ -497,7 +517,7 @@ class Decomposition(ABC):
         arr: jax.Array,
         space: TensorProductSpace | FunctionSpace,
         *,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
         fills: Mapping[str, jax.Array] | None = None,
     ) -> jax.Array:
         """Exchange halos; bounded edges per `fills` / BC-structured."""
@@ -507,7 +527,7 @@ class Decomposition(ABC):
     def layout_for(
         self,
         local_names: tuple[str, ...],
-    ) -> ArrayLayout:
+    ) -> Layout:
         """A negotiated layout in which the named factors are local."""
         ...
 
@@ -516,8 +536,8 @@ class Decomposition(ABC):
         self,
         arr: jax.Array,
         space: TensorProductSpace | FunctionSpace,
-        src: ArrayLayout,
-        dst: ArrayLayout,
+        src: Layout,
+        dst: Layout,
     ) -> jax.Array:
         """Transpose an array between two negotiated layouts."""
         ...
@@ -527,7 +547,7 @@ class Decomposition(ABC):
         self,
         arr: jax.Array,
         space: TensorProductSpace | FunctionSpace,
-        layout: ArrayLayout | None = None,
+        layout: Layout | None = None,
     ) -> jax.Array:
         """Gather the global true-shape array (I/O, diagnostics)."""
         ...
@@ -612,7 +632,7 @@ class TensorDecomposition(Decomposition):
         meshes: tuple[Mesh, ...],
         names: tuple[str, ...],
         halo: HaloSpec,
-        layouts: tuple[ArrayLayout, ...],
+        layouts: tuple[Layout, ...],
         device_ids: tuple[int, ...] | None = None,
     ) -> None:
         """Build the device mesh and shardings (called by negotiate)."""
@@ -677,4 +697,20 @@ Notes:
   `sharding` still returns a jax `Sharding` over a flat DOF axis.
 
 ---
+
+## Open questions
+
+The former open question — where the sharding layout lives — is
+**closed** (owner decisions, 2026-07-06), recorded normatively in
+[§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space)
+and folded into the cluster docs: `Layout` is an optional defining
+attribute of the function space (doc 01/02: `space.layout`, `.bare`,
+`.with_layout`; grid-minted, in the intern key only when set); the
+join requires layout equality and **field arithmetic never reshards**;
+`Reshard` is a user-facing operator and `Sync` an internal-only node
+(doc 03), both placed by requirements-driven lowering over the
+**closed** negotiated layout vocabulary; multi-axis transforms are
+planner-ordered for speed. The forcing counterexample (same logical
+coefficient space reached in different pencils depending on transform
+order) is kept in §5.1.
 

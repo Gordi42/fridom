@@ -72,7 +72,11 @@ exist; both are exact, so neither hides a numerics choice:
    2.4, never stored).
 
 **The join.** For two product spaces `A`, `B` on the same grid, the
-*join* `A ∨ B` exists iff `A` and `B` have factors on the same meshes
+*join* `A ∨ B` exists iff `A` and `B` carry the **same layout**
+(section 5.1 — the lifts never touch it; the same bare space in two
+layouts raises `SpaceMismatchError` with a reshard hint, and **no
+implicit reshard exists in field arithmetic**) and `A` and `B` have
+factors on the same meshes
 and, per mesh, the factors are identical or related by a chain of the
 two lifts. The join is the per-factor least upper bound (full factor
 beats `ConstantSpace`; complex variant beats real). Because spaces are
@@ -323,6 +327,23 @@ class TensorProductSpace:
         if any factor is complex, else ``fr.Real``."""
         ...
 
+    @property
+    def layout(self) -> Layout | None:                         # it-1
+        """Negotiated device layout, or None for a bare space
+        (section 5.1)."""
+        ...
+
+    @property
+    def bare(self) -> TensorProductSpace:                      # it-1
+        """The layout-free interned variant (self if bare)."""
+        ...
+
+    def with_layout(                                           # it-1
+        self, layout: Layout | None,
+    ) -> TensorProductSpace:
+        """The interned variant carrying ``layout`` (grid-minted)."""
+        ...
+
     # ================================================================
     #  Factor access and derived products
     # ================================================================
@@ -381,9 +402,10 @@ Semantics and invariants:
   Decision: `TensorProductSpace.of(s)` with a single factor returns
   `s` itself — the product of one thing is that thing. There is no
   1-factor wrapper, so identity never depends on whether a space went
-  through a product: on a 1D grid `f.function_space is mx.center`
-  holds. The product surface used by this document (`factors`,
-  `names`, `factor(name)`, `shape`, `scalars`, `as_complex()`) is
+  through a product: on a 1D grid `f.function_space.bare is
+  mx.center` holds. The product surface used by this document
+  (`factors`, `names`, `factor(name)`, `shape`, `scalars`,
+  `as_complex()`, `layout`, `bare`, `with_layout`) is
   therefore a shared **product protocol** that single factor spaces
   implement too (`s.factors == (s,)`, `s.factor(name)` returns `s`
   for its own names). The protocol defaults for factors (`factors`,
@@ -409,6 +431,19 @@ Semantics and invariants:
   not classes). Mixed products (`Complex(x) ⊗ Real(y)`) are
   legal intermediate states; the promotion join complexifies only the
   factors that need it.
+- **Layout is an optional defining attribute** (section 5.1): the
+  intern key is the factor-id tuple *plus the layout when set* — the
+  `variance` precedent, so bare keys are unchanged. `Layout` is a
+  pure combinatorial value (cluster 04), so laid-out spaces remain
+  grid-reference-free static keys. Mesh factories and `of`/`*` mint
+  bare spaces only; laid-out variants come from the grid seams —
+  `create_field` attaches the default layout to bare arguments, the
+  operator application path threads the domain layout, and `Reshard`
+  (cluster 03) is the explicit layout-changing operator.
+  `factor(name)` returns **bare** factors (dispatch keys never see
+  layouts); `replace` and `as_complex` preserve the layout. A
+  layout-only mismatch renders as `same space, layouts differ:
+  {x: 'p0' vs local, ...}; use .reshard(...)`.
 - Products hold **no grid reference** and no arrays (section 2.7);
   they are pure static keys. Whether a product's factors match a
   given grid's meshes is validated by `grid.create_field` (cluster

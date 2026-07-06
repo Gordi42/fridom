@@ -231,6 +231,14 @@ Notes:
   layout); the grid's halo-accounting trace
   ([§5](../04_decomposition.md#5-domain-decomposition)) reads it per
   applied factor and accumulates depth along un-synced chains.
+- **Layout threading**
+  ([§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space)):
+  `codomain` resolvers see and return **bare** spaces — operator
+  authors never touch layouts. The shared application path re-attaches
+  the domain's layout to the resolved codomain by default; the only
+  layout transitions are lowering-inserted `Reshard` nodes (below),
+  so a requirement-driven layout change is visible in the applied
+  operator's codomain.
 - `eigenvalues` and the **block expansion are optional capabilities**
   (B4): a nonlinear or nonlinear-tuple-signature operator that answers
   neither is legal (the base `eigenvalues` raises `EigenbasisError`;
@@ -288,6 +296,72 @@ class EigenbasisError(TypeError):
 Iteration 1 (the error type ships with the base class even while the
 `Symbol` machinery is designed-for, so the base `eigenvalues` has a
 defined failure mode from day one).
+
+### Reshard / Sync and requirements-driven lowering
+
+The two data-movement operators of
+[§5.1](../04_decomposition.md#51-layout-is-part-of-the-function-space),
+and the plan-time pass that places them.
+
+| | |
+|---|---|
+| Kind | concrete, final (both) |
+| Pytree | static structure (bound grid, endpoint layouts) |
+| Iteration | 1 |
+| Concept refs | §5, §5.1 |
+| Module | `framework2.grid.operators.movement` |
+
+```python
+@final
+class Reshard(UnaryOperator):
+    """Explicit layout change: identity on the bare space."""
+
+    def __init__(self, grid: Grid, target: Layout) -> None:
+        """Bind grid and target layout (grid-bound, like transforms)."""
+        ...
+
+    def codomain(self, domain: SpaceLike) -> SpaceLike:
+        """``domain.bare.with_layout(target)``; bare domains raise."""
+        ...
+
+
+@final
+class Sync(UnaryOperator):
+    """Halo-exchange node; inserted by the base/lowering only."""
+
+    def codomain(self, domain: SpaceLike) -> SpaceLike:
+        """Identity — halo validity is storage, not space identity."""
+        ...
+```
+
+Notes:
+
+- **`Reshard` is user-reachable** (`f.reshard(...)` sugar, doc 02):
+  the explicit conversion the layout-strict algebra demands, same
+  status as `PhaseShift` between origins. Kernel =
+  `Decomposition.redistribute`; `target` must be in the negotiated
+  layout vocabulary (§5.1); object-level halo rule: resets
+  accumulated trace depth on the moved axes. Identity when
+  `domain.layout == target` (elided like `Identity`).
+- **`Sync` is internal-only**: users and kernel authors never spell
+  it — a user-facing sync would leak the storage layer into the
+  semantic layer. It realizes the iteration-1 contract ("the base
+  appends a `Sync` node after every kernel", cluster 04), performs
+  the BC-structured/`("ghost_fill", space)` edge fill through the
+  grid, and is a structural no-op where the negotiated width is 0.
+- **Requirements-driven lowering** (§5.1): at bind/registration time
+  a single pass walks a composite tracking the current layout and
+  inserts both node kinds from `OperatorRequirements` — `.layout`
+  demands locality the current layout lacks → `Reshard` (target
+  chosen by shortest path with lookahead over the negotiated layout
+  graph, edges weighted by moved data volume); `.halo` → `Sync`
+  placement per the object-level halo rules. Inserted nodes carry
+  explicit endpoints; apply time infers nothing. This produces a
+  *lowered form beside* the user-built composite — it is not
+  algebraic rewriting, which stays rejected (operator_algebra §3.11).
+- **Strictness boundary** (§5.1): field arithmetic never reshards;
+  an operator application may contain requirement-driven reshards,
+  and the resulting layout is visible in its codomain.
 
 ### UnaryOperator
 

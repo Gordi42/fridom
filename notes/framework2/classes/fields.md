@@ -191,6 +191,11 @@ class ScalarField:
         """Generic per-axis conversion onto the target's space."""
         ...
 
+    def reshard(self, target: Layout | SpaceLike) -> ScalarField:  # it-1
+        """Explicit layout change: sugar over ``Reshard`` (cluster
+        03, section 5.1). Never implicit in arithmetic."""
+        ...
+
     def integrate(self, *names: str) -> ScalarField:           # it-1
         """Weighted integral; named factors reduce to ConstantSpace."""
         ...
@@ -310,7 +315,12 @@ Semantics, invariants, error behavior:
   init_coeff=..., data=...)` is the single user-facing factory
   (section 3.10, fixed anchor); it owns sharding/layout validation
   and calls `__init__`, which is the trusting constructor operators
-  use inside jit (they already hold validated shards). `__init__`
+  use inside jit (they already hold validated shards). **Fields
+  always live on laid-out spaces** (section 5.1): `create_field`
+  accepts a bare space and attaches the decomposition's default
+  layout (a laid-out space is honored as given); the layout is read
+  from `f.function_space.layout`, and bare-space comparisons go
+  through `f.function_space.bare`. `__init__`
   performs no validation and no copies. `grid.random.normal(space,
   seed)` and the coordinate accessors `grid.evaluation_nodes(space)`
   / `grid.wavenumbers(space)` return `ScalarField`s through the same
@@ -434,7 +444,10 @@ Semantics, invariants, error behavior:
   `if f:` bugs early.
 - **Storage contract** (jointly with cluster 04): the dynamic leaf
   `_data` is **storage-shaped** — halo-extended and stagger-padded
-  per the negotiated per-mesh layout (section 5) — while `.data` is
+  per the space's layout (sections 5, 5.1; the layout is part of the
+  function space, so transform outputs legally live in their pencils
+  and mixing layouts in arithmetic is a `SpaceMismatchError`) —
+  while `.data` is
   the **true-shape view** with halo and padding stripped (3.5).
   `with_data` and `grid.create_field(..., data=...)` accept
   *true-shape* arrays and route them through `decomposition.pad` and
