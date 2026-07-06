@@ -1,181 +1,124 @@
 # FRIDOM Roadmap
 
-This document outlines the planned architectural evolution of FRIDOM.
-It is organized into phases; each phase is split into tasks that are
-small enough to be developed, tested, and merged individually.
+Planned architectural evolution of FRIDOM, in phases. Each task is small
+enough to develop, test, and merge on its own.
 
 ## Guiding target (end state)
 
-- **No ModelSettings**: a `Model` is assembled directly from a grid and
-  modules; every physical parameter (`f0`, `n2`, `csqr`, ...) lives in
-  a module.
+- **No ModelSettings**: a `Model` is assembled from a grid and modules;
+  every physical parameter (`f0`, `n2`, `csqr`, ...) lives in a module.
 - **Everything is one pytree**: modules can modify anything during
-  `update` (their own parameters, other modules, grid parameters), and
-  the whole model run is a single `jax.jit` call (no Python time loop).
-- **Grid = function spaces**: fields live on function spaces (e.g.
-  `TensorProductSpace(CellSpace(), FaceSpace())`), operators map fields
-  between spaces, mesh arrays (`x`, `k`, ...) are lazy and cached, the
-  water mask is a wrapper grid class, and new grid types (stretched,
-  spherical) slot into the same abstraction.
-- **Fields are ergonomic**: initialization from callables
-  (`f(x, y, z) -> value`), dimension reduction (`g = f.sel(x=a)`).
-- **Models**: nonhydro (buoyancy optional, provided by stratification
-  modules), shallowwater, hydrostatic (real dynamics), and coupled
+  `update`, and the whole run is a single `jax.jit` call (no Python time
+  loop).
+- **Grid = function spaces**: fields live on function spaces, operators
+  map between spaces, mesh arrays are lazy, and new grid types
+  (stretched, spherical) slot into the same abstraction.
+- **Fields are ergonomic**: init from callables (`f(x, y, z) -> value`),
+  dimension reduction (`g = f.sel(x=a)`).
+- **Models**: nonhydro, shallowwater, hydrostatic, and coupled
   multi-model runs (multi-device, later multi-host).
+
+## Approach
+
+The new architecture is built in a parallel package `fridom.framework2`,
+reusing `framework.utils`; at the end it is renamed to `framework`. Build
+order is **grid-first**: the function-space grid, its operators, and the
+domain decomposition (Phase 1) are validated standalone; the model and
+time-stepping layer is then built on top of the finished grid (Phase 2);
+existing models are ported last. This designs the model once, on the
+final grid — the model's field registration, halo negotiation, and pytree
+shape all depend on grid concepts.
+
+The one cost — no end-to-end model run until Phase 2 — is covered by the
+grid layer's standalone testability and an early hand-rolled-PDE smoke
+test (1.7).
 
 ---
 
-## Phase 0 — Foundations
+## Phase 0 — Foundations (done)
 
-Low-risk work that unblocks and de-risks everything else.
+Benchmark infrastructure, domain-decomposition unification, repo
+cleanup, and removal of the experimental spectral grid — all on the
+existing `framework`.
 
-| #   | Task | Notes |
-|-----|------|-------|
-| 0.1 | **Benchmark infrastructure** **(done)** | New `benchmarks/` package: wall time, compile time, peak device memory (`jax.profiler` / device memory profiles), and comparison reports between two commits/branches. Replaces the stale `benchmark/` directory (obsolete API). Comes first so that every later refactor is measured. |
-| 0.2 | **Unify domain decomposition** **(done)** | Delete `SingleDecomposition`; make `JaxDecomposition` the only implementation and make it work for `jax.device_count() == 1`. Fill its gaps: lift the "at least 2 dims" restriction. (Spectral padding EXTEND/TRIM is removed in 0.4, not implemented.) Collapse the base-class abstraction if only one implementation remains. Outcome: one concrete `DomainDecomposition`; a single device is the degenerate case where all shardings are replicated and shard maps reduce to plain calls. Known rough edges (the first axis must divide the device count on several devices, per-call transform-wrapper rebuilds in `grid.fft`) are deferred to the Phase 4 grid rewrite, which revisits the decomposition. |
-| 0.3 | **Repo cleanup** **(done)** | Remove `src.bak/` and the stale `benchmark/` scripts. (Both were already removed together with the 0.1 benchmark work.) |
-| 0.4 | **Remove experimental spectral grid support (temporary)** **(done)** | Delete the spectral grid classes (`grid/spectral/` in framework, nonhydro, shallowwater), the `SpectralAdvection` modules, `SpectralDiff`, the `spectral_grid` flag, and the pseudo-spectral `FFTPadding.TRIM/EXTEND` machinery — dropping the `padding=` argument from `fft`/`ifft` and the `pad_trim`/`pad_extend`/`unpad_extend` domain-decomposition methods entirely. Keep all Fourier-space-on-cartesian machinery (`is_spectral`, `fft`/`ifft`, `discrete_spectral_operators`, the `*Spectral` projections, RFFT/Spectral cartesian pressure solvers, spectral-energy initial conditions); for `SpectralPressureSolver` keep the cartesian branch, dropping only its spectral-grid case. The current implementation is experimental and complicates 0.2 and Phase 4; spectral methods are reintroduced as function-space operators in Phase 4. |
+## Phase 1 — `framework2`: grid, operators, decomposition
 
-## Phase 1 — Field ergonomics
-
-Quick wins, largely independent of the architectural work.
-
-| #   | Task | Notes |
-|-----|------|-------|
-| 1.1 | **Set fields via functions** | `field.set(lambda x, y: ...)` (or a constructor argument): evaluate the callable on the mesh at the field's position/space, handling staggering automatically. |
-| 1.2 | **Dimension reduction / selection** | `g = f.sel(x=a)` returns a field with reduced `topo` (e.g. to extract boundary values). Requires making partial-domain fields first-class: resolve the `TODO(Silvano): make this work for non full domain fields` cluster in `scalar_field.py` (fft, sync, diff, interpolate, ...) and replace the `__getitem__` / `__setitem__` `NotImplementedError`. |
-| 1.3 | **Lazy grid arrays** | `x_mesh`, `k_mesh`, `x_global`, ... become cached properties computed on demand instead of eagerly in `Grid.setup()`. Small, self-contained stepping stone for the Phase 4 grid rewrite. |
-| 1.4 | **TensorStore output writer** | Remove the NetCDF (`netcdf_writer.py`) and Zarr (`zarr_writer.py`) writers and drop the `netcdf4`/`zarr` deps; replace with a single `TensorStoreWriter` that writes a zarr-format store via [tensorstore](https://google.github.io/tensorstore/) with xarray-openable metadata (dimension names/coords, consolidated metadata). TensorStore's async, chunk-wise writes also fit the Phase 3 `io_callback` model. Follow-up: partial-array output — write only a sub-region / decomposed slice of a field (connects to 0.2 decomposition and 1.2 selection). |
-
-## Phase 2 — Composition refactor
-
-The big architectural break: remove ModelSettings, move all parameters
-into modules, let modules contribute state fields and modify anything.
-No backward-compatibility shims; examples/docs/tests are updated in the
-same phase.
+The function-space core, decoupled from the model and testable
+standalone. Direct implementation of the class designs in
+[`notes/grid_redesign/classes/`](notes/grid_redesign/classes/README.md)
+(concepts in [`notes/grid_redesign/`](notes/grid_redesign/), operator
+algebra in [`notes/operator_design/`](notes/operator_design/00_overview.md));
+the `classes/README` staging section is the basis for the breakdown.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 2.1 | **Design doc: model composition** | How `Model` replaces `ModelSettingsBase` as the composition root; setup order and halo negotiation without mset; the shape of the "full model pytree"; module lifecycle; the `update` signature (likely `update(mz)` where `mz` reaches modules and grid); how tendency terms declare their time-integration treatment (explicit / implicit) and which state fields they advance, so that staged time stepping (3.6) — split by term (IMEX) and split by variable (Gauss-Seidel) — is not precluded. |
-| 2.2 | **Module field registration** | `Module` API to declare `FieldMetadata` it contributes to the state vector (replaces `mset.custom_state_fields`). State vectors are built from grid defaults plus module registrations. |
-| 2.3 | **Modules can modify anything** | Put modules and grid into the traced state so `update` can change module parameters, grid parameters, and other modules. Also removes the forced-re-setup property spaghetti (`halo`/`tendencies` setters triggering global re-setup). |
-| 2.4 | **Parameters move into modules** | `FPlaneCoriolis` / `BetaPlaneCoriolis` (own `f0`, `beta`), `ConstantStratification` (owns `n2`), shallowwater `csqr` module, Rossby-number scaling module. Migrate nonhydro and shallowwater. |
-| 2.5 | **Buoyancy de-defaulting** | Remove `b` from nonhydro's default state; stratification modules register it: `NoStratification`, `ConstantStratification`, later `TemperatureSalinity` (buoyancy implicit via an equation of state). |
-| 2.6 | **Delete ModelSettings** | Remove `ModelSettingsBase` and all per-model `ModelSettings`; direct assembly via `Model(grid=..., tendencies=..., diagnostics=..., time_stepper=...)`. Update all examples, docs, and tests. |
+| 1.1 | **Meshes, spaces, products** | The `Mesh` and `FunctionSpace` families (nodal, average, coefficient, Galerkin, `ConstantSpace`), static markers, `TensorProductSpace`, interning. Pure static structure. |
+| 1.2 | **Field core + registry + FD / interpolate** | `ScalarField` + `grid.create_field` (nodal, single device), the `OperatorRegistry`, `FiniteDifference` / `LinearInterp`, the base `Operator` hierarchy with bind-only axis naming (`op["x"]`) and `@` composition. |
+| 1.3 | **Average family, FV, algebra** | The `CellAvg`/`FaceAvg` family, FV operators (`FVDerivative = flux_diff @ Dispatched("reconstruct")`), `integrate`, the field dunders, and the operator algebra (`Composite`/`SeparableComposite`, `OperatorSum`, `ScaledOperator`, `Block`, `Dispatched`, and the `grad`/`div`/`curl`/`laplacian` factories). |
+| 1.4 | **Transforms** | `Fourier`, `Sine`/`Cosine`, `Chebyshev`, and `refined()` padding as space-mapping operators; `Symbol` eigenvalues and spectral solves. Spectral differentiation returns here as a function-space operator. |
+| 1.5 | **Domain decomposition** | `negotiate` + `MeshDecompositionTraits` + `HaloSpec`/`HaloTracer` (halo accounting by tracing operator requirements) + multi-device shard maps (class doc 04). The grid is a static pytree aux with per-coordinate halos. |
+| 1.6 | **Immersed subset + export** | `grid.immersed` (per-space boolean masks derived on demand) and `f.xr` export to xarray. |
+| 1.7 | **Standalone validation** | A hand-rolled PDE (advection / diffusion) driven by fields + operators + decomposition under a plain loop, single and multi device, plus the numerical checks in [`05_validation.md`](notes/grid_redesign/05_validation.md). The correctness gate before the model layer exists. |
 
-## Phase 3 — Single `jax.jit` for the full run
+Grid extensions specified as `designed-for` (may defer): stretched /
+coordinate-map grids, terrain-following coordinates, spherical grids with
+`RaiseIndex`/`LowerIndex`, and immersed fractions.
 
-Depends on Phase 2 (module purity + full model pytree).
+## Phase 2 — `framework2`: model, modules, time-stepping, IO
 
-> The 0.1 GPU baseline (A100) quantifies the prize: per-call dispatch
-> overhead pins every jitted call to a ~100 us floor, and model steps
-> to ~1.3 ms — nonhydro steps at 32-64^3 are overhead-dominated, and
-> only ~256^3 becomes compute-bound. A scan-based single-jit run
-> should recover roughly an order of magnitude at small and medium
-> resolutions.
+The model layer, built on the Phase 1 grid.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 3.1 | **Design/prototype (open question)** | Prototype both strategies: (a) one `lax.scan`/`while_loop` over the full run with `io_callback` for IO/diagnostics; (b) chunked scan between IO events with a thin Python driver. Benchmark with the 0.1 infrastructure (runtime, compile time, memory) and decide. Includes a strategy for NaN checking / early exit under scan (checkify, panicked flag + `while_loop`, ...). |
-| 3.2 | **Trace-friendly clock & scheduling** | Rework `Clock` / `ClockTrigger` / schedules so "every N steps / every T seconds" works under scan without Python branching on traced values. |
-| 3.3 | **Rework diagnostics/IO modules** | TensorStore writer (from 1.4), progress bar, NaN checker, restart module — adapted to the chosen strategy from 3.1. |
-| 3.4 | **Scan-based main loop** | Replace the Python loops in `model.py` (`_main_loop_steps` / `_main_loop_time`); remove the per-step jitted helpers in `adam_bashforth.py` / `runge_kutta.py`; time steppers become pure scan-body components. |
-| 3.5 | **Simplify jit machinery** | With a single jit entry point, the structural-equality / memoization layer in `utils/jax_utils.py` (a known complexity hotspot) can likely shrink substantially. |
-| 3.6 | **Staged / split time stepping** | Today the stepper integrates the single summed tendency with one scheme (`z += dt*F(z)`, all tendencies evaluated at `z^n` — a Jacobi update). Generalize this into an ordered list of *stages*: each stage operates on a declared subset of the state, is evaluated against the current partially-updated state, and uses a declared integration treatment. Two modes fall out of the same engine. **Split by term (IMEX):** explicit for some terms (e.g. advection), implicit for others (e.g. vertical diffusion, fast linear waves); implicit-capable modules expose their term not only as a tendency but as an implicit solve `z* = (1 - dt*gamma*L)^-1 rhs` (tridiagonal solves for vertical mixing, spectral solves for linear operators); IMEX steppers — multistep (CNAB/SBDF) and IMEX-RK via paired Butcher tableaus — partition the registered terms into explicit and implicit groups. **Split by variable (Gauss-Seidel):** advance fields in a declared order, each stage's tendency reading the already-updated earlier fields (e.g. `u`, then `v` with updated `u`, then `h` with updated `u,v`); requires tendency evaluation to be decomposable per field rather than the current single-pass whole-`dz` computation. The two compose (per-field stages, some implicit). Builds directly on the scan-based stepper form from 3.4 and the term/field declarations from 2.2; the pressure projection is a special case that should fit the same stage abstraction. Split-explicit subcycling (fast free-surface mode) is deferred to 5.1. |
+| 2.1 | **Design doc: model composition** | `Model` as the composition root; setup order and halo negotiation via the doc-04 machinery; the full model pytree; the `update(mz)` signature; how tendency terms declare their integration treatment and which fields they advance (so 2.5 is not precluded). |
+| 2.2 | **Field registration + parameters in modules** | `Module` API to declare `FieldMetadata` for the state; parameters move into modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallowwater `csqr`, Rossby scaling); stratification modules register `b`. |
+| 2.3 | **Modules modify anything** | Modules and grid in the traced state; `Model(grid=..., tendencies=..., diagnostics=..., time_stepper=...)` direct assembly. |
+| 2.4 | **Single `jax.jit` for the full run** | Choose between a full-run `lax.scan`/`while_loop` with `io_callback` and a chunked scan; trace-friendly `Clock`; scan-body time steppers; a NaN-check / early-exit strategy under scan. |
+| 2.5 | **Staged / split time stepping** | Generalize the stepper into ordered stages. Split by term (IMEX): explicit/implicit partition, implicit modules exposing `(1 - dt·γ·L)^-1 rhs` (tridiagonal / spectral solves), CNAB/SBDF and IMEX-RK. Split by variable (Gauss-Seidel): advance fields in order, each reading updated earlier fields. The two compose; pressure projection fits the same abstraction. |
+| 2.6 | **IO: TensorStore writer + diagnostics** | A `TensorStoreWriter` (zarr store via tensorstore, xarray-openable) fitting the `io_callback` model; progress bar, NaN checker, restart under scan. Follow-up: partial / decomposed-slice output. |
+| 2.7 | **Port nonhydro + shallowwater** | Tendencies, pressure solvers, projections/eigenvectors as function-space operators, model-side eigenmode objects (`omega`/`vec_q`/`vec_p`). Update examples, docs, tests. |
 
-## Phase 4 — Grid abstraction rewrite (function spaces)
-
-Highest-risk workstream. The design task (4.1) starts early, in
-parallel with Phases 2–3; implementation lands after Phase 3.
-
-> **Design notes.** The detailed design lives in
-> [`notes/grid_redesign/`](notes/grid_redesign/) (start at
-> [`00_overview.md`](notes/grid_redesign/00_overview.md)). The
-> class-design phase — concrete classes and public method surfaces
-> derived from those notes — lives in
-> [`notes/grid_redesign/classes/`](notes/grid_redesign/classes/README.md)
-> and is the direct blueprint for 4.2–4.4. The notes
-> map to the tasks below as:
->
-> | Task | Design notes |
-> |------|--------------|
-> | 4.1 | Whole set — core concepts ([`01_concepts.md`](notes/grid_redesign/01_concepts.md)), rules ([`02_rules.md`](notes/grid_redesign/02_rules.md)), API sketches ([`03_api_sketches.md`](notes/grid_redesign/03_api_sketches.md)); pytree/decomposition treatment in [`04_decomposition.md`](notes/grid_redesign/04_decomposition.md). |
-> | 4.2 | `Mesh`/`FunctionSpace` (concepts 2.1–2.2), coefficient spaces & dispatch & shapes & FV & discretization (rules 3.2, 3.4, 3.5, 3.9, 3.10), decomposition. |
-> | 4.3 | Strict space algebra and constant broadcast (rules 3.1, 3.3), `Field`/`VectorField` (concepts 2.4), sketches 4.1/4.3/4.8. |
-> | 4.4 | Immersed/masked domains (rule 3.7) and open thread 1 ([`06_open_threads.md`](notes/grid_redesign/06_open_threads.md)). |
-> | 4.5 | Terrain-following coordinates (rule 3.8) and open thread 10. |
-> | 4.6 | Sphere / curvilinear validation (section 6.3, [`05_validation.md`](notes/grid_redesign/05_validation.md)) and open thread 4. |
->
-> The **operator algebra** (composition `A @ B`, sums with field
-> coefficients, axis binding, vector/tensor signatures as block
-> operators) is designed in the sibling note set
-> [`notes/operator_design/`](notes/operator_design/00_overview.md);
-> it extends 4.1 and lands with the 4.2/4.3 implementations.
->
-> Model physics leaving the grid (`omega`/`vec_q`/`vec_p` -> model-side
-> eigenmode objects, concepts 2.6, open thread 8) interacts with
-> Phase 2; the transform-API richness that lets solvers stop bypassing
-> the decomposition ([`04_decomposition.md`](notes/grid_redesign/04_decomposition.md))
-> connects back to 0.2/0.4.
+## Phase 3 — Models & coupling
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 4.1 | **Design doc: function spaces** | Captured in [`notes/grid_redesign/`](notes/grid_redesign/): `FunctionSpace`, `TensorProductSpace`, bases/transforms (Fourier, DCT; Chebyshev-ready), operators `A: F_i -> F_j`, error on mixed-space arithmetic, how fields carry their space, pytree/equality treatment, interaction with the domain decomposition. Must not preclude unstructured grids. |
-| 4.2 | **Cartesian function spaces** | Implement the mesh/space families and tensor products; port FFT/DCT/Chebyshev transforms, finite differences, and interpolations as space-mapping operators. Replaces `Position` / `AxisPosition` staggering. Reintroduce spectral (Fourier) differentiation — removed in 0.4 — as a space-mapping operator here. Includes a minimal field core (`create_field`, nodal arithmetic): operators are not implementable or testable without fields — see the staging plan in [`notes/grid_redesign/classes/README.md`](notes/grid_redesign/classes/README.md). |
-| 4.3 | **Port fields** | Complete the field algebra on top of the 4.2 core (`f + g` across different spaces raises; `diff`/interp return fields on the mapped space). Port the eigenvector/projection machinery (`nonhydro/grid/cartesian/eigenvectors.py` is the biggest item). Revisit 1.2: a slice at `x = a` naturally lives on a reduced tensor-product space. |
-| 4.4 | **Immersed / masked domains** | `grid.immersed` attachment (`ImmersedDomain` static descriptor deriving per-space masks/fractions on demand; supersedes the earlier `MaskedGrid(inner_grid)` wrapper idea — see [`notes/grid_redesign/classes/04_grid_and_decomposition.md`](notes/grid_redesign/classes/04_grid_and_decomposition.md)); remove the default `WaterMask` from `GridBase`; masked operators wrap the inner operators. |
-| 4.5 | **Stretched coordinates** | Coordinate-map grid (metric terms / Jacobians) on top of the new abstraction. |
-| 4.6 | **Spherical coordinates** | Spherical grid class; lat-lon with metric terms first. Unstructured grids remain out of scope for this roadmap. |
+| 3.1 | **Hydrostatic model** | Linear tendency, hydrostatic pressure solver, advection wiring, eigenvectors. Implicit vertical mixing (and optional split-explicit free surface) build on 2.5. |
+| 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. |
+| 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. |
 
-## Phase 5 — Models & coupling
+## Cutover
 
-| #   | Task | Notes |
-|-----|------|-------|
-| 5.1 | **Hydrostatic model** | Currently a stub (empty `MainTendency`, `NotImplementedError` eigenvectors). Implement linear tendency, hydrostatic pressure solver, advection wiring, and eigenvectors — built once, directly on the Phase 2 architecture. Implicit vertical mixing (and optionally a split-explicit free surface) build on 3.6. |
-| 5.2 | **Coupled models — design** | `jax.distributed`, exchanging fields between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. Interacts with Phase 3 (exchange points inside/between scans). |
-| 5.3 | **Coupled models — implementation** | Milestone 1: same-process, multi-device coupling. Milestone 2: multi-host. |
+Once the models reach parity on `framework2`, rename it to `framework`
+and retire the old package in one swap; update imports, examples, docs.
 
 ---
 
 ## Dependency sketch
 
 ```
-0.1 benchmarks ──────────────► 3.1 (measure), all phases
-0.2 unify decomposition ─────► 3.x, 4.x, 5.3
-0.4 remove spectral ─────────► simplifies 0.2; revisited by 4.2
-1.x field ergonomics ────────► (independent; 1.2 revisited by 4.3)
-1.4 tensorstore writer ──────► 3.3 (adapt IO to scan)
-2.1 design ► 2.2 ► 2.3 ► 2.4 ► 2.5 ► 2.6 ─► 3.x, 5.1
-2.2 registration ► 3.6 staged stepping ─► 5.1 hydrostatic
-4.1 design (parallel) ► 4.2 ► 4.3 ► 4.4 ► {4.5, 4.6}
-3.x single jit ──────────────► 5.2 / 5.3 coupling
+Phase 1 (standalone):
+  1.1 ► 1.2 ► 1.3 ► 1.4 ► 1.5 ► 1.6 ► 1.7 (PDE validation, no model)
+Phase 2 (on the grid):
+  1.x ► 2.1 ► 2.2 ► 2.3 ► 2.4 ► 2.5 ► 2.6 ► 2.7 port models
+  2.2 declarations ► 2.5 staged stepping
+Phase 3: 2.x ► 3.1;  2.4 ► 3.2/3.3
+Cutover: 2.7 (+3.1) ► rename framework2 → framework
 ```
 
-## Cross-cutting rules (every task)
+## Cross-cutting rules
 
-- Ships with mirrored tests (95% branch coverage gate) and stays
-  ruff-clean.
-- Benchmarked against the previous phase with the 0.1 infrastructure
-  (runtime, compile time, memory).
-- Examples and docs updated at each phase boundary; breaking changes
-  are fine, but examples must run at every merge to main.
+- Mirrored tests (95% branch coverage gate), ruff-clean.
+- `framework2` reuses `framework.utils`; it does not import the old
+  model/grid stack.
+- Benchmarked with the 0.1 infrastructure (runtime, compile, memory).
+- The old `framework` stays runnable until the cutover; new work does not
+  go into it.
 
-## Tradeoffs and open points
+## Open points
 
-1. **Phase 3 before Phase 4**: single-jit first gives immediate
-   performance wins and informs how heavy tracing of the new grid may
-   be; it accepts some rework in 4.3 because the function-space rewrite
-   churns field internals that the scan traces. Swapping the phases is
-   defensible if the 4.1 design lands fast.
-2. **1.2 is partially reworked in 4.3** (slices become reduced
-   tensor-product spaces); done early anyway because of its immediate
-   research usefulness.
-3. **NaN checking / early exit under a fully jitted run** needs a
-   dedicated strategy; part of 3.1.
-4. Presentation items explicitly deferred: unstructured grids,
-   Chebyshev basis (4.1 must not preclude them).
-5. **Spectral grid removed temporarily (0.4)**: the current
-   pseudo-spectral grid is experimental and complicates the
-   decomposition (0.2) and grid rewrite (Phase 4); spectral methods
-   return as function-space operators once the abstraction (4.1/4.2)
-   can host them cleanly.
+- NaN checking / early exit under a fully jitted run — part of 2.4.
+- Designing the model-facing seams (`State`, module registration,
+  eigenmode objects) in Phase 1 without a model consumer; bounded by the
+  grid/model separation in the design notes.
+- Unstructured grids stay out of scope; the designed-for grid extensions
+  must not be precluded by the iteration-1 core.
