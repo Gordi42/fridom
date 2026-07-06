@@ -5,6 +5,18 @@ for the document map. Status: draft class design, no implementation.
 Signatures are the intended public API for `framework.grid2`; the
 numbered concept sections remain the normative reference.
 
+> **Pending merge.** The operator *algebra* — composition `@`, sums,
+> `c * A` scaling, `Identity`/`Zero`/`Block`, axis binding `op["x"]`,
+> tuple signatures — is designed in the sibling note set
+> [`../../operator_design/`](../../operator_design/00_overview.md)
+> (authored on `dev`). This document predates it. The decisions for
+> folding it in — algebra-derived composed operators, bind-only axis
+> naming (`op["x"]` replaces the `axis=` keyword), `SeparableComposite`
+> typing, interning — are recorded in
+> [`operator_algebra_merge.md`](operator_algebra_merge.md); the base
+> hierarchy, composed-operators, and registry sections below are
+> revised there and not yet updated here.
+
 This document owns the **Operator cluster**: the operator base
 hierarchy, the concrete stencil/nodal operators, transforms, `Symbol`,
 the binary product operators, composed operators, and the dispatch

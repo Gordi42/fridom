@@ -37,6 +37,12 @@ plus a project-owner review; the decisions from both are folded in.
 | [`03_operators.md`](03_operators.md) | `Operator` hierarchy (unary/binary/separable), stencil kernels (`FiniteDifference`, interpolation/reconstruction, FV `FluxDifference`/`DualFluxDifference`/`FaceDifference`), transforms (`Fourier`, `Sine`/`Cosine`, `Chebyshev`, padding), `Symbol` diagonal algebra, pointwise/product operators (`Where`, `ConstantBroadcast`), reductions, composed vector calculus, and the `OperatorRegistry` dispatch class. |
 | [`04_grid_and_decomposition.md`](04_grid_and_decomposition.md) | `Grid` + `grid2.cartesian.Grid` (lifecycle: seed -> negotiate -> freeze), `Discretizer`, `RandomFieldFactory`, `ImmersedDomain`, `CoordinateMapping`, `Slip`, decomposition (`HaloStrategy`, `MeshDecompositionTraits`, `HaloSpec`, `HaloTracer`/`trace_halo`, `ArrayLayout`, `Decomposition`/`TensorDecomposition`/`GraphDecomposition`, `negotiate`), the halo/storage contract, export (`f.xr`), and the canonical `grid2` package tree. |
 
+**Decision log (not a cluster spec):**
+
+| File | Contents |
+|------|----------|
+| [`operator_algebra_merge.md`](operator_algebra_merge.md) | Decisions for merging the operator algebra ([`../../operator_design/`](../../operator_design/00_overview.md), from `dev`) into [`03_operators.md`](03_operators.md): algebra-derived composed operators, bind-only axis naming, `Dispatched` as the user verb, `SeparableComposite` typing, interning, and the iteration split. Drives a scoped rewrite of `03_operators.md`; not yet folded in. |
+
 ## Shared template
 
 Each doc specifies, per class:
