@@ -88,7 +88,7 @@ Examples:
   origins with even n, the Nyquist mode (its shifted coefficient is no
   longer the rfft of a real field; the class design zeroes it and
   documents the one non-exact DOF, see
-  [`classes/03_operators.md`](classes/03_operators.md)). Adding `u_hat`
+  [`classes/operators_base.md`](classes/operators_base.md)). Adding `u_hat`
   and `w_hat` without the shift is a caught error instead of a silent
   bug — the strict algebra pays off in coefficient space too.
 - on bounded meshes, the BC structure selects *compatible* bases (not
@@ -729,7 +729,7 @@ generalizes from unary `(domain -> codomain)` to binary
 `CollocationProduct()(f, g)`, `Convolution(t)(f, g)`, or
 `Hadamard()(f, g)` — never as a class call (this keeps operators
 uniformly constructed-then-applied static structure; class-design doc
-[`classes/03_operators.md`](classes/03_operators.md)). The dispatch
+[`classes/operators_base.md`](classes/operators_base.md)). The dispatch
 registry (section 3.4) grows the
 operand: `("multiply", space)` resolves the default product for fields
 on that space.

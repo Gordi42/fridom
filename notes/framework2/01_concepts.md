@@ -166,7 +166,7 @@ Notes:
   values* (recomputed on demand, never stored), and time-dependent
   geometry data lives in module-owned state fields — the grid itself
   carries no dynamic pytree leaves (class-design decision; see
-  [`classes/04_grid_and_decomposition.md`](classes/04_grid_and_decomposition.md)).
+  [`classes/grid.md`](classes/grid.md)).
 
 An explicit FEEC-style "discrete de Rham complex" object is *not*
 introduced; the staggering relations remain implicit in the space
@@ -530,4 +530,4 @@ Rules:
   the grid holds only static descriptors and materializes derived
   arrays on demand, while metric-consuming accessors take the dynamic
   data explicitly (class-design decision; see
-  [`classes/04_grid_and_decomposition.md`](classes/04_grid_and_decomposition.md)).
+  [`classes/grid.md`](classes/grid.md)).

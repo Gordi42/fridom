@@ -7,19 +7,19 @@ Date: 2026-07-06
 This note records the decisions for merging the **operator algebra**
 ([`../operator_algebra/`](../operator_algebra/00_overview.md),
 authored on `dev`) into the **operator class design**
-([`03_operators.md`](03_operators.md), authored on
+([`operators_base.md`](operators_base.md), authored on
 `grid-redesign-classes`). The two note sets overlap in subject but sit
 at different layers: `operator_algebra` is a rules-layer note set (the
 algebra: composition `@`, sums `+`, field-coefficient scaling `c * A`,
 `Identity`/`Zero`/`Block`, axis binding `op["x"]`, tuple signatures),
-while `03_operators.md` is the class design.
+while `operators_base.md` is the class design.
 
 These decisions are the reconciliation, now applied to
-`03_operators.md` (D8). All code snippets are illustrative,
+`operators_base.md` (D8). All code snippets are illustrative,
 not normative; decision numbers `D1`…`D8` are stable identifiers.
 
 Where a decision resolves an `operator_algebra` open thread or overturns
-an `03_operators.md` rejected-alternative, it says so explicitly.
+an `operators_base.md` rejected-alternative, it says so explicitly.
 
 ---
 
@@ -34,7 +34,7 @@ an `03_operators.md` rejected-alternative, it says so explicitly.
 | D5 | `@` produces a **`SeparableComposite`** (is-a `SeparableOperator`) when operands are separable and axis-compatible, else a whole-space `Composite`. `bound_axis` is a static field; `__getitem__` is the sole binding point. | sub-question 1 |
 | D6 | Bound operators and composites are **interned** (forced by the identity-hash invariant). | operator_algebra §5.1 |
 | D7 | **Iteration split**: a small same-axis-composition slice is iteration 1; the rich algebra (blocks, tuple signatures, sums, symbol matrices) is designed-for. | timing |
-| D8 | Rewrite scope: only the base hierarchy, composed operators, and registry sections of `03_operators.md` change. | — |
+| D8 | Rewrite scope: only the base hierarchy, composed operators, and registry sections of `operators_base.md` change. | — |
 | B1 | `Block` is a **distinct algebra node** (a grid of operators), sibling to `Composite`/`OperatorSum`; whole-space, not bindable; entries are the bound scalar operators of D5; block-matmul reduces to D5 chains. | — |
 | B2 | `grad`/`div`/`curl`/`laplacian` have **grid-dependent block shape**, so they are `Dispatched`-family: assembly-resolved builders that emit a `Block` over the grid's axes. | operator_algebra §3.5 |
 | B3 | **`map` is a verb, `Block` is a noun** — keep both, with a rule for which to write. | operator_algebra §5.6 |
@@ -65,14 +65,14 @@ per-operator code — `Laplacian.eigenvalues`'s hand-rolled `bwd @ fwd`
 sum is deleted and reappears as the general block/chain symbol
 calculus (see D8). This honors `operator_algebra` §3.5's "these are
 **constructions of the dispatch defaults, not privileged objects**",
-and matches `03_operators.md`'s own framing ("generic dispatch kinds,
+and matches `operators_base.md`'s own framing ("generic dispatch kinds,
 not special slots").
 
 The named spellings survive only as **module-level factories** for
 ergonomics and as dispatch labels; `fr.operators.laplacian(order=2)`
 builds the composite above. Nothing may rely on `isinstance(op,
 Laplacian)` — the result is a `Composite`, not a distinct type. This
-overturns `03_operators.md`'s "Gradient/Divergence/Curl stretch the
+overturns `operators_base.md`'s "Gradient/Divergence/Curl stretch the
 unary `codomain` to tuples" framing and its rejected `VectorOperator`
 ABC: they are `Block`s with tuple signatures (D7), which is a different
 reason the ABC is not needed.
@@ -102,7 +102,7 @@ f.diff("x").diff("x")        # today: two dispatched applies, a sync between,
 
 Unbound application is still allowed when the operand has **exactly one
 bindable factor** (the kernel auto-resolves that axis); otherwise it
-raises, asking for an explicit bind. This is `03_operators.md`'s
+raises, asking for an explicit bind. This is `operators_base.md`'s
 existing "axis optional on effectively-1-D fields" convenience,
 re-expressed without the keyword.
 
@@ -127,7 +127,7 @@ class ScalarField:
 - **Arithmetic dunders stay on the field** (`f + g`, `f * g`, `f / g`,
   `f ** p`, `abs(f)`) — they are Python syntax the field must overload;
   they remain dispatch sugar over `("multiply", …)` etc. as
-  `03_operators.md` specifies. A fully "operators-only" field is
+  `operators_base.md` specifies. A fully "operators-only" field is
   therefore impossible anyway, which is itself the argument for keeping
   the forwarder layer uniform rather than deleting `diff`/`integrate`.
 
@@ -201,7 +201,7 @@ which is exactly `flux_diff["x"] @ reconstruct["x"]`.
 
 ## D6. Interning is forced by the identity-hash invariant
 
-`03_operators.md` and the classes README fix that operators are
+`operators_base.md` and the classes README fix that operators are
 identity-hashed (`__eq__`/`__hash__` return `self is other`). For jit
 caching to hit, two separately-constructed `fd["x"]` objects — or two
 `flux_diff @ reconstruct` chains — must therefore be **the same
@@ -236,7 +236,7 @@ default need day one):
 - `bound_axis` + `__getitem__` for the same-axis case.
 
 **Designed-for** (lands with its consumers, all already designed-for in
-`03_operators.md`):
+`operators_base.md`):
 
 - `Block` and tuple/direct-sum signatures — with `grad`/`div`/`curl`/
   `laplacian`;
@@ -252,7 +252,7 @@ consumers that were already deferred.
 
 ## D8. Rewrite scope
 
-The bulk of `03_operators.md` is untouched — the concrete separable
+The bulk of `operators_base.md` is untouched — the concrete separable
 kernels (`FiniteDifference`, interpolation, reconstruction, the flux-diff
 family), transforms, `Symbol`, the pointwise/product operators, and
 reductions all sit *below* the algebra. Three sections change:
@@ -271,12 +271,12 @@ reductions all sit *below* the algebra. Three sections change:
    hold chains/blocks; `Dispatched` resolution folds into `merge` at
    assembly, replacing `FVDerivative`'s apply-time late binding.
 
-Cross-linking: add the reciprocal link from `03_operators.md` (and
+Cross-linking: add the reciprocal link from `operators_base.md` (and
 grid-redesign §2.5) back to `../operator_algebra/`, so the class doc
 names its normative parent.
 
 Symbol note preserved through the move: the block/chain symbol calculus
-must keep the `03_operators.md` `Symbol` rule that broadcast across
+must keep the `operators_base.md` `Symbol` rule that broadcast across
 product factors is **replication-extension** (`Identity ⊗ D`), *not* a
 delta field-lift — otherwise the Laplacian symbol sum `kx² + ky²` is
 wrong off the `ky = 0` row.
@@ -454,7 +454,7 @@ note only records the principle.
 ### T4. A `Symbol` is never a chain factor (§5.4)
 
 Forced by a class-design decision already taken: **a `Symbol` is not an
-`Operator`** (`03_operators.md` rejected the subclass — operators are
+`Operator`** (`operators_base.md` rejected the subclass — operators are
 static structure, a `Symbol` carries a dynamic `_data` leaf; it has its
 own diagonal algebra `Symbol * Symbol`, `Symbol @ Symbol`, and
 `Symbol(f)` = Hadamard). A `Symbol` therefore **cannot be a factor in
@@ -473,7 +473,7 @@ composition, Symbol diagonal composition) never mix, and there is no
 normalization rule to write. This **refines** `operator_algebra` §3.7's
 "a Symbol may appear as a factor in a chain" into "a diagonal
 *operator* appears as the factor; the Symbol is what its `.eigenvalues`
-returns" — a wording fix to apply when §3.7 / `03_operators.md` are next
+returns" — a wording fix to apply when §3.7 / `operators_base.md` are next
 edited. The only excluded case is a runtime-data diagonal (a
 learned/data-driven filter) not derivable from the grid; out of scope,
 and if it ever arrives it is an explicit Hadamard step, not a chain
@@ -529,7 +529,7 @@ is safe. Ordinary use goes through the seeded verbs.
 
 ## Status
 
-**D8 executed** (prior round): `03_operators.md`'s base hierarchy,
+**D8 executed** (prior round): `operators_base.md`'s base hierarchy,
 composed operators, and registry are rewritten onto the algebra — the
 `Operator` dunders and `__getitem__`, bind-only `UnaryOperator`,
 `SeparableOperator.bound_axis`, the new "Operator algebra" section
@@ -543,7 +543,7 @@ The T4 wording fix to `operator_algebra` §3.7 is in.
 **D3a/D3b closed** (this round): `f.to` is a resolver, `["x"]` is
 axis-only, non-axis parameters are constructor args, the interpolation
 kind/verb is `interpolate`, and the `Dispatched` constructor is a public
-escape-hatch behind the seeded verbs. Applied to `03_operators.md`'s
+escape-hatch behind the seeded verbs. Applied to `operators_base.md`'s
 registry sugar note, `Dispatched`, and `ConstantBroadcast`, plus the
 `"interp"` -> `"interpolate"` rename across the class docs.
 

@@ -26,18 +26,25 @@ iteration 1 does not preclude it).
 
 ## Document map
 
-| File | Cluster (classes owned) |
-|------|-------------------------|
-| [`01_meshes_and_spaces.md`](01_meshes_and_spaces.md) | `Mesh` family (`IntervalMesh`, `MappedIntervalMesh`, `ChebyshevMesh`, `SphereMesh`, `UnstructuredMesh`, `PointMesh`), the `FunctionSpace` families (nodal, average, coefficient, Galerkin, `ConstantSpace`), static markers (`Scalars`/`fr.Real`/`fr.Complex`, `BC`/`BCStructure`, `NodeSet`, `Variance`), space interning. |
-| [`02_product_spaces_and_fields.md`](02_product_spaces_and_fields.md) | `TensorProductSpace`, `SpaceMismatchError`/`GridMismatchError`, `FieldMetadata`, `ScalarField`, `VectorField`, `TensorField`, `State`; the strict-algebra arithmetic surface, lifts/joins, field sugar (`diff`, `to`, `integrate`, `sel`, ...). |
-| [`03_operators.md`](03_operators.md) | `Operator` hierarchy (unary/binary/separable), stencil kernels (`FiniteDifference`, interpolation/reconstruction, FV `FluxDifference`/`DualFluxDifference`/`FaceDifference`), transforms (`Fourier`, `Sine`/`Cosine`, `Chebyshev`, padding), `Symbol` diagonal algebra, pointwise/product operators (`Where`, `ConstantBroadcast`), reductions, composed vector calculus, and the `OperatorRegistry` dispatch class. |
-| [`04_grid_and_decomposition.md`](04_grid_and_decomposition.md) | `Grid` + `framework2.grid.cartesian.Grid` (lifecycle: seed -> negotiate -> freeze), `Discretizer`, `RandomFieldFactory`, `ImmersedDomain`, `CoordinateMapping`, `Slip`, decomposition (`HaloStrategy`, `MeshDecompositionTraits`, `HaloSpec`, `HaloTracer`/`trace_halo`, `ArrayLayout`, `Decomposition`/`TensorDecomposition`/`GraphDecomposition`, `negotiate`), the halo/storage contract, export (`f.xr`), and the canonical `framework2.grid` package tree. |
+| Cluster | File | Classes owned |
+|---------|------|---------------|
+| Meshes & spaces | [`meshes.md`](meshes.md) | `Mesh` family (`IntervalMesh`, `MappedIntervalMesh`, `ChebyshevMesh`, `SphereMesh`, `UnstructuredMesh`, `PointMesh`), static markers (`Scalars`/`fr.Real`/`fr.Complex`, `BC`/`BCStructure`, `NodeSet`, `Variance`); module layout, cluster-wide rules. |
+| | [`spaces.md`](spaces.md) | The `FunctionSpace` families (nodal, average, coefficient, Galerkin, `ConstantSpace`), space interning. |
+| Product spaces & fields | [`product_spaces.md`](product_spaces.md) | `TensorProductSpace`, `SpaceMismatchError`/`GridMismatchError`, the strict-algebra arithmetic surface (lifts/joins). |
+| | [`fields.md`](fields.md) | `FieldMetadata`, `ScalarField`, `VectorField`, `TensorField`, `State`; field sugar (`diff`, `to`, `integrate`, `sel`, ...). |
+| Operators | [`operators_base.md`](operators_base.md) | `Operator` hierarchy (unary/binary/separable), the operator algebra (`Composite`/`Block`/`Dispatched`/...), `Symbol`. |
+| | [`operators_stencils.md`](operators_stencils.md) | Stencil kernels (`FiniteDifference`, interpolation/reconstruction, FV `FluxDifference`/`FVDerivative`), spectral operators. |
+| | [`operators_transforms.md`](operators_transforms.md) | `Fourier`, `Sine`/`Cosine`, `Chebyshev`, padding. |
+| | [`operators_products.md`](operators_products.md) | Pointwise/product operators (`ConstantBroadcast`, `Where`, `Convolution`, ...), reductions. |
+| | [`operators_composed.md`](operators_composed.md) | Composed vector calculus (`grad`/`div`/`curl`/`laplacian`), the `OperatorRegistry` dispatch class. |
+| Grid & decomposition | [`grid.md`](grid.md) | `Grid` + `framework2.grid.cartesian.Grid` (lifecycle), `Discretizer`, `RandomFieldFactory`, `ImmersedDomain`, `CoordinateMapping`, export (`f.xr`), the package tree. |
+| | [`decomposition.md`](decomposition.md) | Halo/storage contract, `HaloStrategy`/`MeshDecompositionTraits`/`HaloSpec`/`HaloTracer`, `ArrayLayout`, `Decomposition`/`TensorDecomposition`/`GraphDecomposition`, `negotiate`. |
 
 **Decision log (not a cluster spec):**
 
 | File | Contents |
 |------|----------|
-| [`operator_algebra_merge.md`](operator_algebra_merge.md) | Decisions for merging the operator algebra ([`../operator_algebra/`](../operator_algebra/00_overview.md), from `dev`) into [`03_operators.md`](03_operators.md): algebra-derived composed operators, bind-only axis naming, `Dispatched` as the user verb, `SeparableComposite` typing, interning, and the iteration split, applied to `03_operators.md` (D8). |
+| [`operator_algebra_merge.md`](operator_algebra_merge.md) | Decisions for merging the operator algebra ([`../operator_algebra/`](../operator_algebra/00_overview.md), from `dev`) into the operator class design: algebra-derived composed operators, bind-only axis naming, `Dispatched` as the user verb, `SeparableComposite` typing, interning, and the iteration split, applied (D8). |
 
 ## Shared template
 
