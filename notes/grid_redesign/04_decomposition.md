@@ -14,7 +14,7 @@ Negotiation becomes **per mesh** instead of one global halo integer:
 - each *mesh* declares shardability: a uniform axis is shardable with
   ghost-cell halos; a coefficient axis is either local-only or
   shardable via transpose-based transforms (distributed FFT, as
-  `JaxDecomposition` already does); an unstructured mesh will need
+  `DomainDecomposition` already does); an unstructured mesh will need
   graph partitioning (not supported by jaxDecomp — later),
 - each *operator* declares per-axis requirements (halo width along
   nodal axes, transform needs),
