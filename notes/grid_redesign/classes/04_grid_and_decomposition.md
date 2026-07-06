@@ -33,18 +33,20 @@ so this cluster's modules have an address, with ownership per doc:
 ```
 fridom/framework/grid2/
     __init__.py              # lazypimp re-exports (below)
-    scalars.py               # doc 01: fr.Real / fr.Complex
-    bc.py                    # doc 01: fr.BC
-    errors.py                # doc 02: SpaceMismatchError
+    scalars.py               # doc 01: fr.Real / fr.Complex, Variance
+    bc.py                    # doc 01: fr.BC (iteration 1)
+    errors.py                # doc 02: SpaceMismatchError,
+                             #   GridMismatchError
     meshes/                  # doc 01: Mesh subclasses (fr.meshes)
     spaces/                  # doc 01: FunctionSpace families,
                              #   ConstantSpace
-        tensor_product.py    # doc 02: TensorProductSpace
+        tensor_product.py    # doc 02: TensorProductSpace, SpaceLike
     fields/                  # doc 02: ScalarField, VectorField, State
     operators/               # doc 03: Operator hierarchy, transforms,
                              #   Symbol (fr.operators)
         registry.py          # doc 03: OperatorRegistry
     grid.py                  # THIS DOC: Grid (assembly root)
+    discretize.py            # THIS DOC: Discretizer protocol
     random_fields.py         # THIS DOC: RandomFieldFactory
     immersed_domain.py       # THIS DOC: ImmersedDomain, Slip
     coordinate_mapping.py    # THIS DOC: CoordinateMapping
@@ -52,9 +54,11 @@ fridom/framework/grid2/
         grid.py              # THIS DOC: cartesian convenience Grid
     decomposition/           # THIS DOC (all of it):
         traits.py            #   HaloStrategy, MeshDecompositionTraits
-        halo.py              #   HaloSpec, HaloTracer, trace_halo
+        halo.py              #   HaloSpec, HaloTracer, trace_halo,
+                             #   GhostFill (designed-for)
         layout.py            #   ArrayLayout
-        decomposition.py     #   Decomposition (ABC), negotiate()
+        decomposition.py     #   Decomposition (ABC), negotiate(),
+                             #   ReshardingReport
         tensor.py            #   TensorDecomposition
         graph.py             #   GraphDecomposition (designed-for)
 ```
@@ -70,7 +74,11 @@ collection namespaces match `fr.modules` / `fr.time_steppers`):
 | `fr.meshes`              | `fr.grid2.meshes`           | mesh factors (doc 01) |
 | `fr.operators`           | `fr.grid2.operators`        | free-standing operators (doc 03) |
 | `fr.Real`, `fr.Complex`  | `fr.grid2.Real`, `fr.grid2.Complex` | scalars / Körper tags (doc 01) |
-| `fr.BC`                  | `fr.grid2.BC`               | BC structure enum (doc 01) |
+| `fr.BC`                  | `fr.grid2.BC`               | BC structure enum (doc 01, day one: `DIRICHLET`/`NEUMANN` are exercised by the iteration-1 Sine/Cosine spaces) |
+| `fr.ScalarField`, `fr.VectorField`, `fr.TensorField` | `fr.grid2.*` | field types (doc 02) |
+| `fr.TensorProductSpace`, `fr.SpaceLike` | `fr.grid2.*`  | product space + space alias (doc 02) |
+| `fr.FieldMetadata`       | `fr.grid2.FieldMetadata`    | field metadata record (doc 02) |
+| `fr.SpaceMismatchError`, `fr.GridMismatchError` | `fr.grid2.*` | error types (doc 02) |
 
 The table is exhaustive: these are all `fr.*`-level names contributed
 by `grid2`. Function spaces get **no** top-level namespace: they are
@@ -80,26 +88,58 @@ and operators reach it only through the grid
 ([§5](../04_decomposition.md#5-domain-decomposition)); it is public for
 transform/solver authors as `fr.grid2.decomposition`.
 
+The transitional `grid2/__init__.py` realizes the table with the
+lazypimp pattern mandated by `AGENTS.md` (at rename time the same
+entries move up to the framework `__init__`):
+
+```python
+base = "fridom.framework.grid2"
+
+all_modules_by_origin = {
+    base: ["meshes", "operators", "cartesian", "decomposition"],
+}
+
+all_imports_by_origin = {
+    f"{base}.grid": ["Grid"],
+    f"{base}.scalars": ["Real", "Complex"],
+    f"{base}.bc": ["BC"],
+    f"{base}.errors": ["SpaceMismatchError", "GridMismatchError"],
+    f"{base}.spaces.tensor_product": ["TensorProductSpace",
+                                      "SpaceLike"],
+    f"{base}.fields": ["ScalarField", "VectorField", "TensorField",
+                       "FieldMetadata"],
+    f"{base}.immersed_domain": ["ImmersedDomain", "Slip"],
+    f"{base}.coordinate_mapping": ["CoordinateMapping"],
+}
+
+setup(__name__, all_modules_by_origin, all_imports_by_origin)
+```
+
+Tests mirror the package as `tests/framework/grid2/**`, one test file
+per module plus a `test_init.py` per package directory that
+parametrizes over the re-exports above (the repo-wide pattern).
+
 ---
 
 ## 2. Grid assembly
 
 ### Grid
 
-The model-agnostic assembly root: meshes + names + decomposition +
-dispatch registry + field factory + attachments. Ergonomics and wiring
-only — all mathematics lives in spaces and operators, and model physics
+The model-agnostic assembly root: meshes + decomposition + dispatch
+registry + field factory + attachments. Ergonomics and wiring only —
+all mathematics lives in spaces and operators, and model physics
 (`omega`, `vec_q`, `vec_p`) has left the grid entirely
 ([§2.6](../01_concepts.md#26-grid--the-assembly-object)).
 
 - Kind: concrete (also the base class of the cartesian convenience
   subclass; not an ABC — it is fully functional as-is).
 - Module: `fridom.framework.grid2.grid`.
-- Pytree: static structure (meshes, names, dispatch registry,
-  decomposition, random factory); dynamic children are exactly the
-  two data-carrying attachments (`_immersed`, `_mapping`), via
-  `@partial(fr.utils.jaxify, dynamic=("_immersed", "_mapping"))`.
-  Grids are compared and hashed by identity, like spaces.
+- Pytree: **fully static**. The grid is not a pytree container and
+  registers **no** dynamic attributes; it appears only as static aux
+  data in field pytrees (fields carry their grid). Identity hashing is
+  **explicit** (`__eq__` is `self is other`, `__hash__` matches) —
+  necessary because fridom's `_values_equal` in `utils/jax_utils.py`
+  deep-compares aux objects that keep the default `__eq__`.
 - Iteration: 1 (class, factory, coordinate accessors, negotiation);
   `immersed` ships iteration 1 in its boolean subset only; `mapping` /
   `metric` are designed-for.
@@ -112,22 +152,31 @@ only — all mathematics lives in spaces and operators, and model physics
   [§5](../04_decomposition.md#5-domain-decomposition).
 
 ```python
-@partial(fr.utils.jaxify, dynamic=("_immersed", "_mapping"))
 class Grid:
     """Assembly root: meshes, decomposition, dispatch, field factory."""
 
     def __init__(
         self,
         meshes: tuple[Mesh, ...],
-        names: tuple[str, ...],
         *,
-        defaults: Mapping[str | tuple[str, FunctionSpace], Operator]
-            | None = None,
+        defaults: Mapping[DispatchKey, Operator] | None = None,
         mapping: CoordinateMapping | None = None,
         immersed: ImmersedDomain | None = None,
         device_ids: tuple[int, ...] | None = None,
     ) -> None:
-        """Assemble a grid from pre-built mesh factors."""
+        """Assemble a grid from pre-built, pre-named mesh factors."""
+        ...
+
+    # ================================================================
+    #  Identity
+    # ================================================================
+
+    def __eq__(self, other: object) -> bool:
+        """Identity comparison: `self is other` (static aux object)."""
+        ...
+
+    def __hash__(self) -> int:
+        """Identity hash, consistent with `__eq__`."""
         ...
 
     # ================================================================
@@ -136,12 +185,12 @@ class Grid:
 
     @property
     def factors(self) -> tuple[Mesh, ...]:
-        """The Mesh factor objects, in names order."""
+        """The Mesh factor objects, in constructor order."""
         ...
 
     @property
     def names(self) -> tuple[str, ...]:
-        """All coordinate names, in factor order (2D meshes give several)."""
+        """All coordinate names, collected from the meshes in order."""
         ...
 
     # ================================================================
@@ -153,21 +202,15 @@ class Grid:
         """The operator dispatch registry (defaults + merged overrides)."""
         ...
 
-    def resolve(
-        self, kind: str, space: FunctionSpace,
-    ) -> Operator:
-        """Resolve the default operator for (kind, factor space)."""
-        ...
-
     def merge_overrides(
         self,
-        overrides: Mapping[str | tuple[str, FunctionSpace], Operator],
+        overrides: Mapping[DispatchKey, Operator],
     ) -> None:
-        """Merge module-local dispatch overrides (assembly phase only)."""
+        """Merge module-local dispatch overrides (pre-freeze only)."""
         ...
 
     # ================================================================
-    #  Decomposition
+    #  Decomposition and lifecycle
     # ================================================================
 
     @property
@@ -181,14 +224,20 @@ class Grid:
         state_spaces: tuple[TensorProductSpace, ...] | None = None,
         tendency: Callable[..., object] | None = None,
         halo: HaloSpec | None = None,
-    ) -> None:
-        """Renegotiate the decomposition from the merged registry."""
+    ) -> ReshardingReport:
+        """Renegotiate the decomposition (pre-freeze only)."""
+        ...
+
+    def freeze(self) -> None:
+        """End the assembly phase; further merges/negotiations raise."""
         ...
 
     def sync(
-        self, field: fr.ScalarField | fr.VectorField,
+        self,
+        field: fr.ScalarField | fr.VectorField,
+        boundary_data: Mapping[str, fr.ScalarField] | None = None,
     ) -> fr.ScalarField | fr.VectorField:
-        """Fill halos (periodic wrap / homogeneous / ghost_fill per axis)."""
+        """Fill halos (wrap / BC-structured fill / ghost_fill per axis)."""
         ...
 
     # ================================================================
@@ -204,6 +253,7 @@ class Grid:
         data: jax.Array | None = None,
         name: str | None = None,
         units: str | None = None,
+        metadata: FieldMetadata | None = None,
     ) -> fr.ScalarField:
         """Create a field on `space` (default: all-Center nodal product)."""
         ...
@@ -243,8 +293,10 @@ class Grid:
 
     def metric(
         self,
-        name: str,
         space: TensorProductSpace | FunctionSpace,
+        name: str,
+        *,
+        params: Mapping[str, fr.ScalarField] | None = None,
     ) -> fr.ScalarField:
         """A named mapping metric on the requested space (designed-for)."""
         ...
@@ -255,72 +307,99 @@ class Grid:
 
     @property
     def immersed(self) -> ImmersedDomain | None:
-        """The immersed (masked) domain, or None."""
+        """The immersed (masked) domain descriptor, or None."""
         ...
 
     @property
     def mapping(self) -> CoordinateMapping | None:
-        """The coordinate mapping (terrain-following), or None."""
+        """The coordinate-mapping descriptor, or None."""
+        ...
+
+    def with_immersed(self, immersed: ImmersedDomain) -> Grid:
+        """A new grid with the immersed descriptor (pre-freeze only)."""
         ...
 ```
 
 Semantics and invariants:
 
-- **Constructor.** `meshes` and `names` follow sketch
-  [4.4](../03_api_sketches.md#44-mixed-grid-uniform-fv-x-chebyshev-galerkin):
-  pre-built meshes of any type (sphere, unstructured included). A 2D
-  mesh contributes several coordinate names; `names` is flat across
-  contributions and must be duplicate-free (the tensor product's flat
-  namespace, [§2.3](../01_concepts.md#23-tensorproductspace-and-named-coordinates)).
-  This is one of **two constructors, never one overloaded signature**
+- **Constructor.** `meshes` follows sketch
+  [4.4](../03_api_sketches.md#44-mixed-grid-uniform-fv-x-chebyshev-galerkin)
+  (modulo the removed `names=`): pre-built meshes of any type (sphere,
+  unstructured included). This is one of **two constructors, never one
+  overloaded signature**
   ([§2.6](../01_concepts.md#26-grid--the-assembly-object)); the
   `shape=`/`extent=` form is the cartesian subclass below. `defaults=`
-  seeds the dispatch registry; `mapping=`/`immersed=` attach the
-  designed-for objects (both are declarative payloads bound and
-  materialized during grid construction — see their classes).
-  `device_ids` restricts the device set (coupled runs), as today.
-- **Name binding.** The constructor calls `mesh.bind_names(...)` on
-  each factor with its slice of `names` — doc 01's **write-once**
-  contract. A pre-bound mesh whose bound names conflict with the
-  requested ones raises at construction. Recorded consequence: **one
-  mesh instance cannot be reused in two grids under different
-  coordinate names**; build a second mesh for that. (Whether binding
-  stays a bind-time call or becomes mandatory at mesh construction is
-  doc 01's open question 2, mirrored below.)
+  seeds the dispatch registry (`DispatchKey` is doc 03's key type,
+  `str | tuple[str, SpaceLike]`); `mapping=`/`immersed=` attach the
+  static descriptors (see their classes). `device_ids` restricts the
+  device set (coupled runs), as today.
+- **Coordinate names come from the meshes.** Names are mandatory at
+  **mesh construction** (doc 01; `bind_names` is deleted), so the grid
+  takes no `names=`: `__init__` collects `mesh.names` from the factors
+  in order and validates flat uniqueness, raising on duplicates (the
+  tensor product's flat namespace,
+  [§2.3](../01_concepts.md#23-tensorproductspace-and-named-coordinates)).
+  A mesh's names are fixed for its lifetime, so reusing one mesh in
+  two grids is well-defined — always under the same names; safety
+  against mixing fields of the two grids comes from doc 02's
+  `GridMismatchError`, not from name bookkeeping.
 - **Registry placement and lifetime.** The `OperatorRegistry` *class*
   is doc 03's (module `grid2/operators/registry.py`); the grid owns
   the single **instance**, exposed as `grid.dispatch` (matching the
   module-side `self.dispatch` override dicts of sketch
   [4.2](../03_api_sketches.md#42-custom-operator-module-local-override)).
-  It is created in `__init__` from the per-mesh space-family defaults
-  plus the `defaults=` argument. `grid.merge_overrides` is a **facade**
-  over the pure registry: it calls `OperatorRegistry.merge(overrides)`
-  (which returns a new registry, doc 03) and swaps the held instance —
-  the successor of the removed `diff_module`/`interp_module` slots.
-  Precedence: `(kind, space)` entry > kind-only entry > grid default
-  ([§3.4](../02_rules.md#34-generic-operator-dispatch)). Swapping is
-  legal **only during the setup/assembly phase** (like today's module
-  lifecycle); after negotiation the held registry is final, so it can
-  serve as part of the grid's static dispatch identity. The exact call
-  site of the merge is the open question tied to the Phase 2
-  composition design (§3.4) — this class specifies the mechanism only.
+  `grid.merge_overrides` is a **facade** over the pure registry: it
+  calls `OperatorRegistry.merge(overrides)` (which returns a new
+  registry, doc 03) and swaps the held instance — the successor of the
+  removed `diff_module`/`interp_module` slots. Precedence:
+  `(kind, space)` entry > kind-only entry > grid default
+  ([§3.4](../02_rules.md#34-generic-operator-dispatch)). Seeding order
+  and the freeze discipline are in the **Grid lifecycle** subsection
+  below. A registry that holds grid-bound operator instances (resolved
+  transforms) is **grid-private and never reusable across grids**. The
+  exact call site of the merge is the open question tied to the
+  Phase 2 composition design (§3.4) — this class specifies the
+  mechanism only.
 - **Field factory.** `create_field` is the **single factory**
   ([§3.10](../02_rules.md#310-discretizing-continuous-functions)):
   `space` is positional and optional, defaulting to the all-Center
-  nodal product; `init=` (dispatch kind `("discretize", space)`,
-  keyword-matched to coordinate names) and `init_coeff=` (kind
-  `("assign_coeff", space)`, matched to wavenumber / mode-index names)
-  are **mutually exclusive**; `data=` is the direct-array companion
-  (the grid owns sharding/layout validation); with none of the three
-  the field is zeros (sketch
+  nodal product; `init=` resolves the `("discretize", space)` entry
+  (a `Discretizer`, below), `init_coeff=` the `("assign_coeff",
+  space)` entry; `data=` is the direct-array companion; with none of
+  the three the field is zeros (sketch
   [4.3](../03_api_sketches.md#43-transform-round-trip-with-per-origin-coefficient-spaces)).
-  Construction is pure and traceable — legal inside the jit loop. There
-  is no `Field.from_function`, no `f.set(...)`, and no lazy field
-  (rejected alternatives, §3.10). `name`/`units` seed the shrunken
-  field metadata ([§2.4](../01_concepts.md#24-field)); this is a
-  **deliberate minimal surface** — the full record (doc 02's
-  `FieldMetadata`, incl. nc-attrs) is set on the field after
-  construction, and the factory takes no `metadata=` kwarg.
+  Construction is pure and traceable — legal inside the jit loop.
+  There is no `Field.from_function`, no `f.set(...)`, and no lazy
+  field (rejected alternatives, §3.10). `name`/`units` are sugar for
+  the two common metadata slots; `metadata=` (doc 02's
+  `FieldMetadata`) sets the full record and is mutually exclusive
+  with the sugar.
+- **Factory validation (normative table).**
+  - `init` / `init_coeff` / `data` are pairwise exclusive
+    (`ValueError`).
+  - `init=` callables must name **exactly** the non-`ConstantSpace`
+    coordinate names of the space (checked via `inspect.signature`;
+    `TypeError` otherwise); likewise `init_coeff=` against the
+    wavenumber / mode-index names.
+  - `data=` accepts a **global true-shape** array (sharded by the
+    factory via `device_put`) or an **already correctly sharded**
+    array (accepted as-is); any other shape raises `ValueError`.
+    Storage padding and halo are applied below the factory
+    (`decomposition.pad` + `grid.sync`), per the halo/storage
+    contract in section 3.
+  - dtype is coerced to the space-derived dtype (§3.1/§3.2); only a
+    complex-to-real demotion is an error.
+  - spaces whose factors are neither grid factors nor adopted
+    refinements/boundaries of them raise `GridMismatchError`.
+- **Refined-mesh adoption (normative).** Spaces on `mesh.refined(...)`
+  results of grid factors (doc 01's `refined_from` link) are
+  **adopted**: `create_field` validation accepts them, registry
+  seeding extends to them (the same operator instances as the parent
+  rows), and negotiation derives their traits and layout from the
+  parent factor (same strategy, `min_local_size` scaled by the
+  refinement factor). This is what makes the padded-transform
+  codomains of dealiasing (§3.12, doc 03 transforms) ordinary spaces
+  on the grid.
 - **Coordinate accessors.** `evaluation_nodes` / `wavenumbers` are the
   only coordinate surface; the free-floating `grid.coordinates()` and
   the old coordinate-array `get_mesh()` are removed (§3.10, §2.1). The
@@ -339,35 +418,86 @@ Semantics and invariants:
   recomputed to the **local shard matching field layout** from static
   descriptors via sharded `linspace`/`fftfreq`-style materialization;
   the N-D meshgrid is materialized only transiently inside
-  `discretize`, never stored (§2.7). Consequently a renegotiated
-  decomposition can never leave a stale shard. Whether a large mapped
-  node array is wrapped in a `jax.checkpoint`-style store is an
-  **opt-in performance knob** to benchmark — invisible to the
-  abstraction, bound by the same re-decomposition-invalidation rule,
-  never a semantic change (§2.7).
+  `discretize`, never stored (§2.7). With the fully static grid this
+  is not an optimization stance but the **only** mode: the grid holds
+  no arrays at all, materialization happens at trace time, and XLA
+  constant-folds what is constant. Consequently a renegotiated
+  decomposition can never leave a stale shard. XLA CSE / loop-invariant
+  code motion is the cost baseline; for a large mapped node array the
+  **opt-in performance knob** is materialize-once-outside-scan and
+  close over the array — invisible to the abstraction, bound by the
+  same re-decomposition-invalidation rule, never a semantic change
+  (§2.7; mapped-mesh materialization carries a compile-time benchmark
+  item).
 - **Measures.** `measure(space)` returns the staggered `dx` field
-  proper to the space: the primal **cell width** on `Center`/`CellAvg`
-  (the FV integration weight), the dual **center-to-center spacing** on
-  `Right`/`Outer`/`FaceAvg` (the `diff` denominator) — one accessor,
-  the space decides which measure it is (§2.7, §3.9). On a uniform
-  mesh both collapse to a constant field that XLA constant-folds.
-  `name` disambiguates on products, as for `evaluation_nodes`;
-  composed volume measures are left to operators (weights compose per
-  mesh, [§3.13](../02_rules.md#313-reductions-and-integrals)).
-- **Negotiation and sync.** See section 3 below; `grid.negotiate` is
-  the setup-phase entry point that swaps in the final decomposition
-  after `merge_overrides`, and `grid.sync` is the field-level
-  halo-exchange surface (it resolves per-axis fill modes — periodic
-  wrap, homogeneous fill, `("ghost_fill", space)` dispatch — and
-  delegates raw-array work to the decomposition). Operators obtain
+  proper to the space: the primal **cell width** on `center`/
+  `cell_avg` (the FV integration weight), the dual **center-to-center
+  spacing** on `right`/`outer`/`face_avg` (the `diff` denominator) —
+  one accessor, the space decides which measure it is (§2.7, §3.9).
+  On a uniform mesh both collapse to a constant field that XLA
+  constant-folds. `name` disambiguates on products, as for
+  `evaluation_nodes`; composed volume measures are left to operators
+  (weights compose per mesh,
+  [§3.13](../02_rules.md#313-reductions-and-integrals)).
+- **Negotiation and sync.** The lifecycle subsection below is
+  normative for `negotiate`/`freeze`. `grid.sync` is the field-level
+  halo-exchange surface: it resolves per-axis fill modes — periodic
+  wrap, the **BC-structured homogeneous fill** of the space (see the
+  halo/storage contract in section 3), or the designed-for
+  `("ghost_fill", space)` dispatch fed by `boundary_data=` — and
+  delegates raw-array work to the decomposition. Operators obtain
   halo-extended storage through the grid; nothing above the grid
   touches `jax.sharding` directly.
-- **Pytree treatment.** The grid's static structure participates in
-  jit cache keys; the only dynamic leaves the grid *holds* are the
-  immersed fraction field and the mapping's parameter fields (both
-  genuinely data). Everything else the grid hands out is created on
-  demand and owned by the caller. This keeps "structure static, arrays
-  dynamic" exact (§2.2, §2.7).
+- **Pytree treatment.** The grid participates in jit cache keys only
+  as identity-hashed static aux data on fields. It holds **no**
+  dynamic leaves — the earlier dynamic-attachment design is
+  **reversed** (a grid-held `ScalarField` leaf creates the pytree
+  cycle field -> grid -> fraction field -> grid, duplicates the leaf
+  into every field's flatten, and an attachment swapped inside a
+  traced step would execute once at trace time and freeze). Every
+  array the grid hands out is created on demand and owned by the
+  caller; time-dependent geometry is module-owned state threaded
+  through the explicit-data accessor overloads (`immersed.mask(space,
+  fraction=...)`, `grid.metric(space, name, params=...)`). This keeps
+  "structure static, arrays dynamic" exact (§2.2, §2.7).
+
+### Grid lifecycle (normative)
+
+The construction/assembly/freeze sequence, fixing the initialization
+order and the mutation windows. It resolves the constructor cycle
+(`__init__` -> `Fourier(grid)` -> `grid.decomposition` ->
+`negotiate(registry)`), makes the provisional halo sound, and defines
+when renegotiation is legal.
+
+1. **`__init__` order:** validate mesh names (flat uniqueness) ->
+   intern the factors' space families -> seed the registry with
+   **grid-free** entries (stencil operators, discretizers). Rows for
+   the `("transform", ...)` kind are seeded as **lazy factories**: the
+   registry stores a callable, and the grid-bound transform instance
+   (`fr.operators.Fourier(grid, axes=...)`) is constructed on first
+   resolve — necessarily post-negotiation. This breaks the cycle:
+   nothing grid-bound exists while the registry is being seeded.
+2. **`__init__` ends with a provisional negotiation:**
+   `negotiate(state_spaces=None, tendency=None)` with halo = the
+   per-operator maximum over the default registry. This is **sound
+   under the iteration-1 contract** that every operator application
+   returns a synced field (halo/storage contract, section 3): chains
+   never accumulate, so the single-operator maximum is exact. A grid
+   is therefore fully usable interactively right after construction
+   (sketch 4.1 without any model).
+3. **Phase-2 assembly** then runs `merge_overrides(...)` ->
+   `negotiate(state_spaces=..., tendency=...)` -> `freeze()`. After
+   `freeze()`, `merge_overrides`, `negotiate`, and `with_immersed`
+   raise `RuntimeError`. Renegotiation after **any** jit trace has
+   consumed the grid is an error regardless of freeze state — traced
+   computations have baked the old layouts in. `negotiate` returns a
+   `ReshardingReport`; the model walks its state once and
+   `device_put`s each field to `decomposition.sharding(space)` — live
+   fields are re-homed exactly once, derived arrays need nothing
+   (recompute-on-demand).
+4. **Registry reuse:** once any lazy transform row has been resolved,
+   the registry holds grid-bound instances and is **grid-private**;
+   sharing a registry object between grids is an error.
 
 ### grid2.cartesian.Grid
 
@@ -393,8 +523,7 @@ class Grid(fr.grid2.Grid):
         periodic: bool | tuple[bool, ...] = True,
         names: tuple[str, ...] | None = None,
         *,
-        defaults: Mapping[str | tuple[str, FunctionSpace], Operator]
-            | None = None,
+        defaults: Mapping[DispatchKey, Operator] | None = None,
         mapping: CoordinateMapping | None = None,
         immersed: ImmersedDomain | None = None,
         device_ids: tuple[int, ...] | None = None,
@@ -406,13 +535,61 @@ class Grid(fr.grid2.Grid):
 Notes:
 
 - Builds one `fr.meshes.IntervalMesh(shape=n, extent=(a, b),
-  periodic=p)` per axis and delegates to the base constructor — **no
-  new methods or properties**; the two constructors stay split across
-  base and subclass so neither signature silently accepts the other's
-  kwarg set (§2.6). No `N`/`L` aliases.
-- `periodic` broadcasts a single bool to all axes; `names` defaults to
-  `("x", "y", "z")[:ndim]` for `ndim <= 3` and is required otherwise.
-- Everything after `names` is forwarded verbatim to `fr.grid2.Grid`.
+  periodic=p, names=(name,))` per axis and delegates to the base
+  constructor — **no new methods or properties**; the two constructors
+  stay split across base and subclass so neither signature silently
+  accepts the other's kwarg set (§2.6). No `N`/`L` aliases.
+- The subclass keeps `names=` precisely because it *constructs* the
+  meshes (names are mandatory at mesh construction); the base root
+  takes none. `periodic` broadcasts a single bool to all axes;
+  `names` defaults to `("x", "y", "z")[:ndim]` for `ndim <= 3` and is
+  required otherwise.
+- The keyword-only arguments are forwarded verbatim to
+  `fr.grid2.Grid`.
+
+### Discretizer
+
+The operator shape behind the reserved kinds `("discretize", space)`
+and `("assign_coeff", space)`: what `create_field` resolves and calls
+for `init=` / `init_coeff=`.
+
+- Kind: ABC (small protocol-style base).
+- Module: `fridom.framework.grid2.discretize`.
+- Pytree: static (stateless strategy objects).
+- Iteration: 1 (both default implementations).
+- Concept refs:
+  [§3.10](../02_rules.md#310-discretizing-continuous-functions),
+  [§3.4](../02_rules.md#34-generic-operator-dispatch).
+
+```python
+class Discretizer(ABC):
+    """Projection of a callable into a space (registry-resolved)."""
+
+    @abstractmethod
+    def discretize(
+        self,
+        grid: Grid,
+        space: TensorProductSpace,
+        fn: Callable[..., jax.Array],
+    ) -> jax.Array:
+        """Evaluate `fn` into `space`; return the local storage array."""
+        ...
+```
+
+Notes:
+
+- Registered like any operator, so the projection is swappable per
+  space (§3.10: the true L2/Galerkin projection is "a different,
+  registrable operator" — it is a different `Discretizer`).
+- Iteration-1 defaults: a collocation discretizer for
+  `("discretize", space)` — broadcast the per-factor
+  `grid.evaluation_nodes(space)` transiently, keyword-match `fn`, and
+  sample; for coefficient spaces it composes with the forward
+  transform (`discretize = transform o discretize_origin`, §3.10) —
+  and a coefficient assigner for `("assign_coeff", space)` evaluating
+  `fn` at `grid.wavenumbers(space)`.
+- Returns the raw local array; `create_field` owns field assembly,
+  padding, and sync (halo/storage contract, section 3).
 
 ### RandomFieldFactory
 
@@ -421,8 +598,8 @@ generators ([§3.10](../02_rules.md#310-discretizing-continuous-functions)).
 
 - Kind: final concrete.
 - Module: `fridom.framework.grid2.random_fields`.
-- Pytree: static (holds only the grid reference); registered with
-  `@fr.utils.jaxify` for containment in jaxified objects.
+- Pytree: fully static (holds only the grid reference); not a pytree —
+  reached only through the static grid.
 - Iteration: 1 (`normal`, `phase`; the spectra-IC consumer of `phase`
   is designed-for, the method itself is not).
 - Concept refs: §3.10,
@@ -430,7 +607,6 @@ generators ([§3.10](../02_rules.md#310-discretizing-continuous-functions)).
   [4.9](../03_api_sketches.md#49-random-spectra-initial-condition-spectral-space-construction).
 
 ```python
-@fr.utils.jaxify
 class RandomFieldFactory:
     """Seeded random fields, deterministic across device layouts."""
 
@@ -464,34 +640,51 @@ Notes:
   only, drawing directly into the shard (`decomposition.local_slice`
   supplies the global index range) — no global materialization,
   layout-independent by construction, superseding the predecessor's
-  draw-global-then-slice (§3.10).
+  draw-global-then-slice (§3.10). **Cost note:** per-DOF `fold_in`
+  (vmapped fold-in plus one-sample draws) is several times slower
+  than a single block draw; layout independence *requires* the
+  per-DOF keying, so the block draw is not an option — benchmark
+  item: per-DOF keying vs draw-global-then-slice, to quantify what
+  determinism costs at IC-construction time.
 - The draw covers the space's **true shape** (§3.5), so pad slots are
   outside the index space and random values never land in padding —
   no special rule needed
   ([§5](../04_decomposition.md#5-domain-decomposition)).
 - On a real-origin Fourier space the draw covers only the free
-  half-spectrum; the Hermitian structure follows from the shape, with
-  the real-only `k = 0`/Nyquist DOFs handled as special indices
-  (§3.10). `normal` on a `fr.Complex` space draws independent
-  real/imag parts.
+  half-spectrum, and the **self-conjugate modes** (`k = 0` and, at
+  even lengths, Nyquist) are drawn specially: `normal` draws them
+  **real with unit variance**, `phase` draws a **uniform sign ±1**
+  there (the unit-modulus reals). The Hermitian structure follows
+  from the shape (§3.10/§3.2). `normal` on a `fr.Complex` space draws
+  a complex normal (independent real/imag parts).
+- **Variance convention (explicit):** draws are **white in
+  coefficients** — unit variance per coefficient DOF — *not* unit
+  variance of the physical-space field. The two differ by the
+  transform normalization and by the sqrt(2) bookkeeping between a
+  complex mode and its two real DOFs; spectra-based ICs (sketch 4.9)
+  must apply their amplitude on top of the coefficient-white
+  convention, or spectral slopes come out wrong.
 - Pure and traceable under jit; returns ordinary `(space, array)`
   fields. `space` is mandatory (there is no obvious default and the
   accessors' explicit-space discipline applies). Extension contract:
   additional draws (e.g. uniform) must use the same per-shard
-  global-index keying; anything else silently breaks determinism
-  across device counts.
+  global-index keying and the same self-conjugate-mode handling;
+  anything else silently breaks determinism across device counts or
+  reality constraints.
 
 ### ImmersedDomain
 
-Grid-owned successor of `WaterMask`: the single wet volume-fraction
-datum plus derive-on-demand per-space masks/fractions
+Grid-owned successor of `WaterMask`: a **static descriptor** of the
+wet region plus derive-on-demand per-space masks/fractions
 ([§3.7](../02_rules.md#37-boundaries-ii-immersed-masked-domains)).
 
 - Kind: final concrete.
 - Module: `fridom.framework.grid2.immersed_domain`.
-- Pytree: dynamic leaf is the stored fraction field
-  (`@partial(fr.utils.jaxify, dynamic=("_fraction",))`); the slip
-  rule and binding are static.
+- Pytree: **fully static** — holds the init callable / static
+  parameters only, no arrays and no `ScalarField`s. Fractions and
+  masks are materialized on demand at trace time, exactly like
+  `evaluation_nodes` (G1: the earlier stored-fraction-leaf design is
+  reversed).
 - Iteration: 1 for the boolean subset (fraction in `{0, 1}`,
   `WaterMask` parity — fidelity-ladder point 1); cut-cell fractions,
   transition sets, ghost-fill and level-set generalizations are
@@ -509,23 +702,16 @@ class Slip(Enum):
     FREE_SLIP = auto()
 
 
-@partial(fr.utils.jaxify, dynamic=("_fraction",))
 class ImmersedDomain:
-    """Wet volume fraction and derived per-space masks/fractions."""
+    """Static wet-region descriptor; per-space masks derived on demand."""
 
     def __init__(
         self,
-        init: Callable[..., jax.Array] | None = None,
+        init: Callable[..., jax.Array],
         *,
-        data: jax.Array | None = None,
         slip: Slip = Slip.NO_SLIP,
     ) -> None:
-        """Declare the wet fraction (function of coords, or raw data)."""
-        ...
-
-    @property
-    def fraction_field(self) -> fr.ScalarField:
-        """The stored wet volume-fraction field on the base cell space."""
+        """Declare the wet fraction as a function of physical coords."""
         ...
 
     @property
@@ -534,9 +720,12 @@ class ImmersedDomain:
         ...
 
     def fraction(
-        self, space: TensorProductSpace | FunctionSpace,
+        self,
+        space: TensorProductSpace | FunctionSpace,
+        *,
+        fraction: fr.ScalarField | None = None,
     ) -> fr.ScalarField:
-        """Wet fraction transferred to `space` (volume or area weights)."""
+        """Wet fraction on `space` (volume or area weights)."""
         ...
 
     def mask(
@@ -544,12 +733,16 @@ class ImmersedDomain:
         space: TensorProductSpace | FunctionSpace,
         *,
         slip: Slip | None = None,
+        fraction: fr.ScalarField | None = None,
     ) -> fr.ScalarField:
         """Boolean wet mask on `space`, derived by the slip rule."""
         ...
 
     def transition(
-        self, space: TensorProductSpace | FunctionSpace,
+        self,
+        space: TensorProductSpace | FunctionSpace,
+        *,
+        fraction: fr.ScalarField | None = None,
     ) -> fr.ScalarField:
         """Wet/dry transition-set indicator on `space` (designed-for)."""
         ...
@@ -557,32 +750,41 @@ class ImmersedDomain:
 
 Notes:
 
-- **Single stored datum**: a wet volume-fraction field in `[0, 1]` on
-  the base cell space (`Center`/`CellAvg`), an ordinary full-shape
-  dynamic sharded `ScalarField`. The boolean mask is the `{0, 1}`
-  special case, so there is one representation, not two; a level-set
-  field on the same space is the future generalization (§3.7).
-- **Binding.** The constructor takes a declarative payload (`init`
-  callable of physical coordinates, or `data`) because the fraction
-  field cannot exist before the grid does; the grid discretizes it onto
-  the base cell space during grid construction (`immersed=` kwarg).
-  After binding, `fraction_field` is the dynamic pytree leaf; on
-  renegotiation it is resharded (it is data, not a derived array, so
-  the recompute-on-demand rule does not cover it — the one stored
-  array in this cluster).
+- **Single declared datum**: the wet volume fraction in `[0, 1]`,
+  declared as a callable of physical coordinates and materialized on
+  demand onto the **`cell_avg` space** — the fraction *is* a volume
+  fraction, a functional over the cell, so the average space is its
+  honest home (a `center` sample is the collocation approximation of
+  it). The boolean mask is the `{0, 1}` special case, so there is one
+  representation, not two; a level-set declaration is the future
+  generalization (§3.7).
+- **No stored arrays.** The descriptor is bound to its grid at grid
+  construction (`immersed=` kwarg) or by the pre-freeze functional
+  update `grid.with_immersed(...)`; every `fraction`/`mask`/
+  `transition` call materializes to the local shard at trace time,
+  and XLA folds the constant result (§2.7). There is no
+  binding-time discretization and nothing to reshard on
+  renegotiation.
+- **Time-dependent geometry is module-owned state.** A moving
+  boundary is a prognostic fraction field registered as module state
+  (Phase 2) and threaded through the **explicit-data overloads**:
+  `immersed.mask(space, fraction=field)` derives the per-space mask
+  from the supplied field instead of the static declaration. No
+  attachment swapping, no grid-held leaves — module updates are
+  ordinary state threading.
 - **Derived quantities are grid-mediated and derive-on-demand**,
   mirroring `grid.evaluation_nodes(space)`: `fraction(space)`,
   `mask(space)`, `transition(space)` return fields *tagged with that
   space*, computed from the base fraction by a staggering-transfer
   rule. **Structure is the combination rule**: no-slip is today's
   `face = AND(adjacent centers)`; `slip` is a parameter of the
-  derivation, not stored per-space state (the constructor value is the
-  default, the `mask(..., slip=...)` override serves mixed-physics
-  diagnostics). Fraction transfer at ladder point 2 is geometric
-  (area/volume weights), independent of slip. Memoizing derived masks
-  is a below-the-operator-layer optimization to benchmark, bound by
-  the re-decomposition-invalidation rule; the interface is
-  derive-on-demand regardless (§3.7).
+  derivation, not stored per-space state (the constructor value is
+  the default, the `mask(..., slip=...)` override serves
+  mixed-physics diagnostics). Fraction transfer at ladder point 2 is
+  geometric (area/volume weights), independent of slip. Memoizing
+  derived masks is a below-the-operator-layer optimization to
+  benchmark, bound by the re-decomposition-invalidation rule; the
+  interface is derive-on-demand regardless (§3.7).
 - **Masked-operator wrapping contract.** Mask-awareness adds **no
   registry axis** and no wrapper grid type: mask-aware operators are
   ordinary dispatch entries that *consult* `grid.immersed` (fractions
@@ -598,15 +800,14 @@ Notes:
 
 ### CoordinateMapping
 
-Grid-attached declaration of terrain-following / curvilinear
-coordinate maps; single owner of the metric data
+Grid-attached **static descriptor** of terrain-following / curvilinear
+coordinate maps; single owner of the metric *derivation*
 ([§3.8](../02_rules.md#38-boundaries-iii-terrain-following-boundary-fitted)).
 
 - Kind: final concrete.
 - Module: `fridom.framework.grid2.coordinate_mapping`.
-- Pytree: dynamic leaves are the parameter fields
-  (`@partial(fr.utils.jaxify, dynamic=("_params",))`); maps and
-  supplied-metric declarations are static.
+- Pytree: **fully static** — map callables and static parameters
+  only; no arrays, no `ScalarField`s, no dynamic leaves (G1).
 - Iteration: designed-for (nothing in iteration 1 may assume static
   metrics, [§6.5](../05_validation.md#65-terrain-following-vertical-coordinate)).
 - Concept refs: §3.8,
@@ -614,9 +815,8 @@ coordinate maps; single owner of the metric data
   §6.5.
 
 ```python
-@partial(fr.utils.jaxify, dynamic=("_params",))
 class CoordinateMapping:
-    """Coordinate transform declaration and metric-field owner."""
+    """Static coordinate-transform declaration; metrics on demand."""
 
     def __init__(
         self,
@@ -629,8 +829,8 @@ class CoordinateMapping:
         ...
 
     @property
-    def params(self) -> Mapping[str, fr.ScalarField]:
-        """The named parameter fields (H, eta, ...) — dynamic leaves."""
+    def param_names(self) -> tuple[str, ...]:
+        """The named parameters of the map (H, eta, ...)."""
         ...
 
     @property
@@ -638,14 +838,12 @@ class CoordinateMapping:
         """The metric names this mapping can supply."""
         ...
 
-    def with_params(self, **params: fr.ScalarField) -> CoordinateMapping:
-        """Functionally replace parameter fields (prognostic updates)."""
-        ...
-
     def metric(
         self,
-        name: str,
         space: TensorProductSpace | FunctionSpace,
+        name: str,
+        *,
+        params: Mapping[str, fr.ScalarField] | None = None,
     ) -> fr.ScalarField:
         """Derive the named metric on the requested staggered space."""
         ...
@@ -658,24 +856,29 @@ Notes:
   fields (`maps={"z": lambda sigma, H: sigma * H}`), from which the
   grid derives metric fields (`H_x`, `dz/dsigma`, Jacobians) by
   differentiation through registry operators; **or** user-supplied
-  metric fields directly (`metrics=`) for cases with no closed form.
-  Like `ImmersedDomain`, declarations are callables bound at grid
-  build (`mapping=` kwarg); `params` callables are discretized to
-  fields at bind.
-- `grid.metric(name, space)` delegates here; the accessor works
-  uniformly for both forms (supplied metrics are reconstructed to the
-  requested space), so **staggered consistency is guaranteed by the
-  grid, not per module** — H at u-, v-, w-points comes from one owner
-  (§3.8, §6.5).
-- **Time dependence is automatic**: prognostic parameter fields (z*,
-  `H = H_0 + eta(t)`) are dynamic pytree leaves; derived metrics are
-  recomputed from current parameter values on each query — no operator
-  may cache them (§2.3, §3.8). Updates are functional
-  (`with_params`), keeping the jax pytree discipline; the grid
-  attachment point is swapped by the owning module each step.
+  metric callables directly (`metrics=`) for cases with no closed
+  form. The descriptor is attached at grid build (`mapping=` kwarg);
+  `params` declares the *static* defaults as callables of physical
+  coordinates, materialized on demand like everything else — nothing
+  is discretized or stored at bind time.
+- `grid.metric(space, name, params=...)` delegates here (argument
+  order aligned with `grid.measure(space, name=...)`); the accessor
+  works uniformly for both forms (supplied metrics are reconstructed
+  to the requested space), so **staggered consistency is guaranteed by
+  the grid, not per module** — H at u-, v-, w-points comes from one
+  owner (§3.8, §6.5).
+- **Time-dependent geometry is module-owned state.** Prognostic
+  parameters (z*, `H = H_0 + eta(t)`) are state fields registered by
+  the owning module (Phase 2) and passed through the explicit-data
+  overload: `grid.metric(space, "dz_dsigma", params={"H": h_field})`
+  derives the metric from the supplied fields instead of the static
+  defaults. Derived metrics are recomputed from the passed values at
+  every query — no operator may cache them (§2.3, §3.8) — and module
+  updates are ordinary state threading, traced like any other field
+  arithmetic.
 - Metric-coefficient operator composites (constant-z vs constant-sigma
   derivative kinds) are dispatch entries reading `grid.metric` — doc
-  03 territory; this class only owns the data and its per-space
+  03 territory; this class only owns the declaration and its per-space
   derivation. A mesh-local 1D mapping (stretched vertical) stays mesh
   structure (`MappedIntervalMesh`, doc 01); only **cross-factor**
   mappings live here (§2.1).
@@ -697,11 +900,88 @@ enough that solvers no longer bypass it (the `RFFTPressureSolver`
 lesson).
 
 The class structure: small frozen descriptors (`HaloStrategy`,
-`MeshDecompositionTraits`, `HaloSpec`, `ArrayLayout`), one negotiation
-entry point (`negotiate`), one ABC (`Decomposition`) with the
-jax-sharding tensor backend (`TensorDecomposition`, iteration 1) and a
-named designed-for graph backend (`GraphDecomposition`), plus the
-halo-accounting tracer (`HaloTracer`, `trace_halo`).
+`MeshDecompositionTraits`, `HaloSpec`, `ArrayLayout`,
+`ReshardingReport`), one negotiation entry point (`negotiate`), one
+ABC (`Decomposition`) with the jax-sharding tensor backend
+(`TensorDecomposition`, iteration 1) and a named designed-for graph
+backend (`GraphDecomposition`), plus the halo-accounting tracer
+(`HaloTracer`, `trace_halo`) and the designed-for `GhostFill`
+protocol.
+
+### Halo and storage contract (normative)
+
+Jointly owned with doc 02 (field storage) and doc 03 (the operator
+base); stated here because the decomposition defines the shapes.
+
+- **Storage vs data.** `ScalarField._data` is **storage-shaped**:
+  halo plus stagger padding per the negotiated layout
+  (`decomposition.storage_shape(space)`). `.data` is the **true-shape
+  view** (pads and halo sliced off). `create_field` and
+  `field.with_data` accept true-shape arrays and route them through
+  `decomposition.pad` + `grid.sync`; nothing above the factory ever
+  constructs storage-shaped arrays.
+- **Iteration-1 sync contract.** Operator inputs have valid halos,
+  and **every operator application returns a synced field**: the
+  operator *base* (doc 03) calls the sync after the kernel — kernel
+  authors never do. Under this contract un-synced chains do not
+  exist, so the per-operator halo maximum is exact and the
+  `HaloTracer` sizes the maximal **single-chain** ghost width.
+  **Sync-elision** along traced chains — skipping intermediate
+  exchanges and letting depth accumulate, as the accounting semantics
+  of [§5](../04_decomposition.md#5-domain-decomposition) permit — is
+  the designed-for optimization this contract deliberately leaves on
+  the table.
+- **Halo-0 paths skip sync structurally.** Symbol application,
+  transforms, `Hadamard`, and anything else whose per-axis halo is
+  zero performs no exchange — not as an optimization but because the
+  width-0 `HaloSpec` makes the sync a no-op by construction.
+- **Kernel execution.** Stencil kernels execute per-shard under a
+  decomposition-supplied `shard_map`; pad, sync, and kernel form
+  **one shard-local region per operator application** (the pattern of
+  today's `stencil_view.py`). The shard boundary is owned by the
+  operator base plus `Decomposition` and is invisible to kernel
+  authors, who write slice-based true-shape stencils (§3.5).
+- **Bounded-edge fill is keyed to the space's BC structure.** On
+  periodic meshes the halo is filled by wrap-around. On bounded
+  meshes the ghost layer is filled per the space's `BCStructure`:
+  Dirichlet-structured spaces get the **odd (zero-value) extension**,
+  Neumann-structured spaces the **even (mirror) extension**, and
+  BC-free spaces (`outer`) a **one-sided extrapolation** consistent
+  with the resolved operator's order. Blanket zero-fill is
+  **rejected**: it is an undeclared Dirichlet choice that silently
+  turns the default bounded Laplacian into a homogeneous-Neumann
+  lookalike and corrupts `reconstruct : cell_avg -> outer` at
+  boundary faces. Reliance map for the doc 03 default rows: bounded
+  `("diff", ...)` / `("laplacian", ...)` stencils rely on the
+  odd/even extension matching the space BC; `("reconstruct",
+  cell_avg)` and `("interp", ...)` rely on the BC-consistent
+  extension at boundary faces; coefficient-space rows are halo-0 and
+  rely on no fill.
+- **Boundary data.** Iteration 1 supports **homogeneous** conditions
+  only: the physical-boundary ghost layer carries no user data, and
+  iteration-1 kernels must not depend on it beyond the structured
+  fill above. The designed-for inhomogeneous surface (§3.6) is:
+  - `create_field` accepts products whose factor meshes are
+    `m.boundary` of grid factors — trace fields;
+  - `grid.sync(field, boundary_data=Mapping[str, ScalarField] |
+    None)` threads module-owned trace fields into the exchange;
+  - a `GhostFill` protocol, registered under the reserved
+    `("ghost_fill", space)` kind and living beside the sync machinery
+    in `decomposition/halo.py`:
+
+  ```python
+  class GhostFill(Protocol):
+      """Space-keyed inhomogeneous ghost fill (designed-for)."""
+
+      def fill(
+          self,
+          grid: Grid,
+          space: TensorProductSpace,
+          boundary_data: fr.ScalarField,
+      ) -> Mapping[str, jax.Array]:
+          """Per-name ghost arrays from a trace field."""
+          ...
+  ```
 
 ### HaloStrategy / MeshDecompositionTraits
 
@@ -747,10 +1027,14 @@ Notes:
   **per space**: the nodal spaces of a uniform `IntervalMesh` declare
   `(GHOST, TRANSPOSE)`; its Fourier coefficient spaces declare
   `(LOCAL, TRANSPOSE)` (local-only or distributed FFT, §5); Chebyshev
-  spaces declare `(LOCAL,)` (recurrences couple the whole column); the
-  spaces of an unstructured mesh declare `(GRAPH,)`. This is what
-  makes `uniform(x, y) ⊗ chebyshev(z)` decomposable: shard x/y, keep z
-  on-device (§5, §6.2).
+  meshes declare **`(TRANSPOSE, LOCAL)`** — their recurrences couple
+  the whole column, but that demands a *contiguous dimension at
+  operator time*, not an unsharded factor: column operators reach a
+  pencil layout via transpose, so a tensor product of Chebyshev
+  meshes still decomposes. The spaces of an unstructured mesh declare
+  `(GRAPH,)`. On `uniform(x, y) ⊗ chebyshev(z)` negotiation still
+  picks the cheap outcome — shard x/y with ghosts, keep z local in
+  the default layout (§5, §6.2) — but nothing forces it.
 - `LOCAL` parallels `OperatorRequirements.layout = "local"` (doc 03).
   There is no separate shardable flag anywhere: doc 01 has dropped
   `mesh.shardable` / `mesh.halo_strategy`, and shardability is
@@ -838,6 +1122,7 @@ class HaloTracer:
     def __init__(
         self,
         function_space: TensorProductSpace,
+        registry: OperatorRegistry,
         depth: HaloSpec | None = None,
     ) -> None:
         """Create a tracer on `function_space` with zero depth."""
@@ -853,10 +1138,17 @@ class HaloTracer:
         """Accumulated per-name halo depth since the last sync."""
         ...
 
+    @property
+    def data(self) -> NoReturn:
+        """Raise TypeError: bypasses must declare Module.extra_halo."""
+        ...
+
     # ScalarField-mimicking surface: arithmetic (`+`, `-`, `*`, ...),
-    # `.diff`, `.to`, `.integrate`, `.data`-free — every operator
-    # application returns a new HaloTracer with grown depth and the
-    # operator's codomain space; grid.sync resets depth to zero.
+    # `.diff`, `.to`, `.integrate` — every operator application
+    # returns a new HaloTracer with grown depth and the operator's
+    # codomain space; a sync resets depth to zero. trace_halo wraps
+    # components in a VectorField/State-mimicking stand-in so
+    # composed operators (Divergence, .map) trace too.
 
 
 def trace_halo(
@@ -872,20 +1164,53 @@ Notes:
 
 - A simple max over operators is **not** enough: halo accumulates
   along un-synced composition chains (`f.diff("x").diff("x")` needs
-  `h1 + h2`); the trace is exact and author-effort-free (§5).
+  `h1 + h2`); the trace is exact and author-effort-free (§5). Under
+  the iteration-1 sync-after-every-operator contract (halo/storage
+  contract above) chains have length one and the trace reproduces the
+  per-operator max; its accumulation semantics are what the
+  designed-for sync-elision consumes.
 - Interception is **generic**: because the tracer presents the
   `ScalarField` interface, operators run unchanged. Concretely, the
   hook sits in the shared operator application path (doc 03's
   `Operator` base `__call__` / the dispatch shim behind `f.diff`):
   when the operand is a tracer, the operator's
   `requirements(domain).halo` is recorded and the codomain-space
-  tracer returned, without touching kernel code. No per-operator tracer code, and **no
-  halo bookkeeping on real fields** (field metadata stays
-  name/units/nc-attrs, §2.4).
+  tracer returned, without touching kernel code. No per-operator
+  tracer code, and **no halo bookkeeping on real fields** (field
+  metadata stays name/units/nc-attrs, §2.4). The tracer carries the
+  **registry reference** its mimicked `.diff`/`.to` surface needs for
+  dispatch.
+- **Mixed operands:** doc 02's `ScalarField` dunders return
+  `NotImplemented` when the other operand is a tracer, so the
+  tracer's reflected operations run and the trace survives
+  `field + tracer` expressions.
+- **`.data` raises** (`TypeError`): a module that drops to raw arrays
+  escapes the accounting, so the escape must be *declared* — the
+  Phase-2 module surface grows `Module.extra_halo: HaloSpec`, merged
+  into the traced result. Strictness is deliberate; a warning would
+  make the sizing silently wrong.
+- **Vector stand-in:** `trace_halo` feeds the tendency a
+  `VectorField`/`State`-mimicking wrapper whose components are
+  tracers and which performs **no grid validation** — component
+  mapping (`.map`) and composed operators like `Divergence` trace
+  through it (the tracer must mimic both field kinds).
+- **Transforms reset depth:** `layout_for`/`redistribute` is a global
+  data movement, at least as strong as a sync on the moved axes — the
+  trace rule is that a transform **resets the accumulated depth on
+  its transformed axes** to zero.
+- **Un-jitted tracing:** the tendency callable must be traceable
+  **without** jit — jit rejects pytrees with unregistered tracer
+  leaves. Phase 3's top-level-jit-only architecture makes this
+  natural: the tendency is plain Python over fields.
+- **Exactness and `("select", ...)`:** doc 03's where-kind keeps
+  upwind sign-selection inside the operator layer, which is what
+  makes the "exact and author-effort-free" claim true for the shipped
+  advection modules — their branches are dispatch entries, not raw
+  `jnp.where` on `.data`.
 - The trace also yields sync placement information (where depth would
   exceed the chosen ghost width, a sync must be inserted); iteration 1
-  sizes ghost layers from the maximum depth and keeps today's
-  sync-after-every-operator-group placement.
+  sizes ghost layers from the maximum depth and keeps the
+  sync-after-every-operator placement.
 - Scope: the accounting runs over the registry **as merged**, i.e.
   after module overrides, restricted to operators that can actually
   fire on the model's state-field spaces (§5).
@@ -964,7 +1289,15 @@ def negotiate(
     ...
 
 
-@fr.utils.jaxify
+@dataclass(frozen=True)
+class ReshardingReport:
+    """What a renegotiation changed (returned by grid.negotiate)."""
+
+    old: ArrayLayout
+    new: ArrayLayout
+    changed: bool
+
+
 class Decomposition(ABC):
     """Distribution of a grid's DOFs across devices (grid-owned)."""
 
@@ -1048,7 +1381,7 @@ class Decomposition(ABC):
         layout: ArrayLayout | None = None,
         fills: Mapping[str, jax.Array] | None = None,
     ) -> jax.Array:
-        """Exchange halos; fill bounded edges per `fills` (else zeros)."""
+        """Exchange halos; bounded edges per `fills` / BC-structured."""
         ...
 
     @abstractmethod
@@ -1088,14 +1421,17 @@ Notes:
   and `op.requirements(domain)` — `.halo` and `.layout` — of every
   registry operator that can fire on the given `state_spaces` (doc 03
   seam). Halo comes from `trace_halo` when a `tendency` is supplied;
-  otherwise from the per-operator maximum (documented as insufficient
-  for un-synced composition chains — the trace is the supported path)
-  or from the explicit `halo=` override. The backend is chosen from
-  the traits (`GHOST`/`TRANSPOSE`/`LOCAL` -> `TensorDecomposition`;
-  any `GRAPH` factor -> `GraphDecomposition`). This replaces the old rebuild-on-halo-mismatch
-  logic (§5); `grid.negotiate` re-runs it at assembly, and
-  recompute-on-demand (§2.7) guarantees no derived array survives a
-  renegotiation.
+  otherwise from the per-operator maximum over the registry — the
+  provisional-negotiation path of the Grid lifecycle, **sound under
+  the iteration-1 sync-after-every-operator contract** (halo/storage
+  contract above) — or from the explicit `halo=` override. The
+  backend is chosen from the traits (`GHOST`/`TRANSPOSE`/`LOCAL` ->
+  `TensorDecomposition`; any `GRAPH` factor -> `GraphDecomposition`).
+  This replaces the old rebuild-on-halo-mismatch logic (§5);
+  `grid.negotiate` re-runs it at assembly (pre-freeze only, returning
+  the `ReshardingReport` the model uses to re-`device_put` its state
+  once), and recompute-on-demand (§2.7) guarantees no derived array
+  survives a renegotiation.
 - **Solver/transform API (the bypass fix).** The lesson from
   `RFFTPressureSolver` (rfft, axis subsets, custom dct against the raw
   decomposition) becomes supported surface: a grid-bound transform
@@ -1103,9 +1439,10 @@ Notes:
   as a sequence of (`layout_for(names)`, apply local 1D kernels,
   `redistribute`) steps — any per-axis kernel runs device-local in a
   pencil layout, and the decomposition contributes only layouts and
-  transposes. Day one that kernel set is Fourier-only (rfft/fft); doc
-  03's DST/DCT transforms and the banded vertical solves of §6.2 are
-  designed-for consumers of the same schedule surface. The old
+  transposes. **All coefficient spaces and transforms are iteration
+  1**: rfft/fft, the DST/DCT family, and the Chebyshev transform are
+  day-one consumers of this transpose machinery (the banded vertical
+  solves of §6.2 use the same pencils). The old
   `parallel_forward_transform` wrapper pair disappears; nothing above
   the grid constructs shardings by hand.
 - **`jax.sharding` use.** Backends express layouts as
@@ -1121,15 +1458,20 @@ Notes:
   (§3.5, §5). `local_slice` is expressed in **global true-DOF
   indices** — the anchor for the random factory's per-shard keying and
   for materializing coordinate shards.
-- **Fill modes.** `sync`'s `fills` carries per-name boundary values
-  for bounded axes: `None` means periodic wrap (periodic mesh) or
-  homogeneous fill (bounded mesh); a supplied array is the ghost-fill
-  data resolved by `grid.sync` through the `("ghost_fill", space)`
-  dispatch entry (§3.5, §3.6). The decomposition itself never touches
-  the registry — the grid resolves, the decomposition moves bytes.
+- **Fill modes.** `sync`'s `fills` carries per-name ghost values for
+  bounded axes: `None` means periodic wrap (periodic mesh) or the
+  space's **BC-structured homogeneous fill** (bounded mesh — odd /
+  even / one-sided per the halo/storage contract above, never blanket
+  zeros); a supplied array is inhomogeneous ghost-fill data resolved
+  by `grid.sync` through the designed-for `("ghost_fill", space)`
+  entry (§3.5, §3.6). The decomposition itself never touches the
+  registry — the grid resolves, the decomposition moves bytes.
 - Reductions need no dedicated methods: operators `unpad` to true
   shape and use `jnp` reductions on sharded arrays under jit
-  (§3.13); `gather` covers host-side I/O.
+  (§3.13); `gather` covers host-side I/O. **`ConstantSpace` factors
+  are replicated in every layout**, and reductions produce
+  replicated outputs — the collective sum's output sharding is the
+  replicated one, which is exactly what the §3.3 broadcast needs.
 
 ### TensorDecomposition
 
@@ -1143,7 +1485,6 @@ The jax-sharding backend for tensor-product grids — the iteration-1
 - Concept refs: [§5](../04_decomposition.md#5-domain-decomposition).
 
 ```python
-@fr.utils.jaxify
 class TensorDecomposition(Decomposition):
     """jax.sharding-based decomposition of tensor-product grids."""
 
@@ -1168,7 +1509,12 @@ Notes:
   same class with a one-device mesh (no separate
   `SingleDecomposition`: `jax.sharding` degrades gracefully, and one
   code path means the multi-device tests cover the single-device
-  semantics by construction).
+  semantics by construction). One sanctioned special case: `sync`
+  **branches statically on `n_devices == 1`** and skips the
+  `ppermute` self-loop entirely (a Python-level branch on static
+  structure, measurable at FRIDOM's overhead-dominated problem
+  sizes); trait and layout structure are unchanged by the
+  short-circuit.
 - Iteration 1 may realize a 1-D device mesh sharding the first
   `GHOST`-capable factor plus one transpose pencil — the direct
   generalization of today's main/alt shardings — but the *interface*
@@ -1193,7 +1539,6 @@ indirect-neighbor halos).
 - Concept refs: §5, §6.4.
 
 ```python
-@fr.utils.jaxify
 class GraphDecomposition(Decomposition):
     """Graph-partitioned decomposition for unstructured mesh factors."""
 
@@ -1214,36 +1559,48 @@ Notes:
 
 ---
 
+## 4. Export (`f.xr`)
+
+This cluster owns the xarray-export rules that doc 01/02 point to
+(doc 01's "doc 04 territory" pointer lands here). `f.xr` is the field
+accessor (doc 02 surface); its semantics are:
+
+- **Axis-position labels are xgcm-style**, derived from the node set
+  per factor: `center` / `right` (and `left`) / `outer` / `inner` map
+  one-to-one to xgcm staggered-coordinate positions (§2.2's naming
+  payoff).
+- **Average spaces export coordinate *labels*, not positions**:
+  `cell_avg` fields are labeled with the cell-center coordinates,
+  `face_avg` fields with the face coordinates — export metadata only,
+  since averages have no mathematical position (doc 01's note,
+  §2.2). The label carries an attribute marking the DOFs as cell
+  means so round-trips do not silently reinterpret them as samples.
+- **Data path:** coordinates come from
+  `grid.evaluation_nodes(space)`; values are gathered to host via
+  `decomposition.gather` (true shape — halo and padding never leave
+  the decomposition layer).
+- **Not exported in iteration 1:** complex-scalar fields and
+  coefficient-space fields (`fr.Complex` storage, wavenumber/mode
+  indexing); index-coordinate export for spectra is a later
+  iteration. `f.xr` on such fields raises with a pointer to `.data`.
+
+---
+
 ## Open questions
 
 - **Merge call site** (inherited from
   [§3.4](../02_rules.md#34-generic-operator-dispatch), stays open):
-  which Phase 2 assembly hook calls `grid.merge_overrides` and
-  `grid.negotiate`. This cluster fixes the mechanism and the
-  setup-phase-only mutation window, not the caller.
-- **Name-binding lifecycle** (doc 01's open question 2, mirrored here
-  because `Grid.__init__` is the bind call site): whether
-  `mesh.bind_names(...)` stays a bind-time call made by the grid or
-  names become mandatory at mesh construction. Either way the
-  write-once contract and the no-reuse-across-grids restriction above
-  stand.
+  which Phase 2 assembly hook calls `grid.merge_overrides`,
+  `grid.negotiate`, and `grid.freeze`. This cluster fixes the
+  mechanism and the pre-freeze mutation window, not the caller.
 - **Per-space refinement of `OperatorRequirements.layout`** (doc 03's
-  open question 3, answered on this side as a negotiation detail):
+  open question 2, answered on this side as a negotiation detail):
   a `SpectralDerivative`-style operator is `layout="local"` only along
   its own coefficient factor. `negotiate` therefore interprets
   `.layout` per `(operator, factor space)` pair when scoping demands —
   whether doc 03 refines the declared surface to match, or negotiation
   keeps doing the per-space projection itself, is settled at
   implementation time.
-- **Halo fallback without a tendency**: when `negotiate` gets no
-  `tendency` to trace, is the per-operator max acceptable (with a
-  documented un-synced-chain caveat), or should the grid refuse and
-  require `halo=` explicitly?
-- **Renegotiation vs live fields**: fields created before
-  `grid.negotiate` hold arrays in the old layout. Derived arrays are
-  covered by recompute-on-demand; for field data, is implicit
-  resharding on next use acceptable, or should `negotiate` return a
-  report the model uses to `device_put` its state once?
 - **Product-space `measure` composition**: whether
   `measure(space, name=None)` on a multi-factor product should also
   offer the composed volume measure (the per-factor product), or
@@ -1253,8 +1610,3 @@ Notes:
   structured-only; the generalization (per-DOF global index array) can
   either widen the ABC signature now or be added as a parallel method
   when `GraphDecomposition` lands.
-- **Tracer coverage of non-registry code paths**: `trace_halo` sees
-  everything routed through dispatch and operator `__call__`; a module
-  that drops to `.data` escapes the accounting. Whether the tracer
-  should hard-error on `.data` access (forcing honesty) or warn is an
-  implementation-time call.
