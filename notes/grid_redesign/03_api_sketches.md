@@ -285,7 +285,7 @@ def scale(f):
     # coefficient-wise (Hadamard) product, *not* the physical product
     # `*`: scaling a spectrum by amplitude and phase is elementwise in
     # coefficients (section 3.11).
-    return fr.operators.Hadamard(f, a, r)
+    return fr.operators.Hadamard()(f, a, r)
 
 z_hat = q.map(scale)               # State-wide functional map
 

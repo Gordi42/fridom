@@ -719,9 +719,13 @@ quadrature order) is a numerics choice, so — like interpolation
 **Products are binary operators.** The operator signature
 ([section 2.5](01_concepts.md#25-operator--typed-maps-between-spaces))
 generalizes from unary `(domain -> codomain)` to binary
-`(domain_a, domain_b) -> codomain`; operators are callable, so a
-product is spelled `CollocationProduct(f, g)`, `Convolution(f, g)`, or
-`Hadamard(f, g)`. The dispatch registry (section 3.4) grows the
+`(domain_a, domain_b) -> codomain`; operators are callable
+*instances*, constructed then applied, so a product is spelled
+`CollocationProduct()(f, g)`, `Convolution(t)(f, g)`, or
+`Hadamard()(f, g)` — never as a class call (this keeps operators
+uniformly constructed-then-applied static structure; class-design doc
+[`classes/03_operators.md`](classes/03_operators.md)). The dispatch
+registry (section 3.4) grows the
 operand: `("multiply", space)` resolves the default product for fields
 on that space.
 
@@ -766,7 +770,7 @@ space — and models filtering, eigenvalue application, and
 amplitude/phase scaling of a spectrum (sketch
 [4.9](03_api_sketches.md#49-random-spectra-initial-condition-spectral-space-construction)).
 Because it has no representation-independent meaning, it is always
-named explicitly (`Hadamard(f, a)`) and never spelled `*`. The two
+named explicitly (`Hadamard()(f, a)`) and never spelled `*`. The two
 products coincide on nodal spaces — where the DOFs are local and
 elementwise multiply *is* the collocation product — and diverge only on
 coefficient and average spaces, where a single output DOF depends on
