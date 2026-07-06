@@ -105,7 +105,7 @@ promotion (section 3.1). Operands must also share the grid object
 (`GridMismatchError` otherwise).
 
 Free-standing operators compose
-([operator design](../operator_design/00_overview.md)):
+([operator design](operator_algebra/00_overview.md)):
 
 ```python
 fd = fr.operators.FiniteDifference(order=2)

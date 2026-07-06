@@ -5,11 +5,11 @@ Author: Silvano Rosenau (with AI-assisted brainstorming)
 Date: 2026-07-06
 
 This note records the decisions for merging the **operator algebra**
-([`../../operator_design/`](../../operator_design/00_overview.md),
+([`../operator_algebra/`](../operator_algebra/00_overview.md),
 authored on `dev`) into the **operator class design**
 ([`03_operators.md`](03_operators.md), authored on
 `grid-redesign-classes`). The two note sets overlap in subject but sit
-at different layers: `operator_design` is a rules-layer note set (the
+at different layers: `operator_algebra` is a rules-layer note set (the
 algebra: composition `@`, sums `+`, field-coefficient scaling `c * A`,
 `Identity`/`Zero`/`Block`, axis binding `op["x"]`, tuple signatures),
 while `03_operators.md` is the class design.
@@ -18,7 +18,7 @@ These decisions are the reconciliation, now applied to
 `03_operators.md` (D8). All code snippets are illustrative,
 not normative; decision numbers `D1`…`D8` are stable identifiers.
 
-Where a decision resolves an `operator_design` open thread or overturns
+Where a decision resolves an `operator_algebra` open thread or overturns
 an `03_operators.md` rejected-alternative, it says so explicitly.
 
 ---
@@ -32,16 +32,16 @@ an `03_operators.md` rejected-alternative, it says so explicitly.
 | D3 | Field methods (`f.diff`, `f.integrate`, `f.to`) become **thin forwarders** to operators; transforms keep `.forward`/`.backward`; arithmetic dunders stay on the field. | drift seam |
 | D4 | `Dispatched(kind)` is **one object** serving both the internal chain placeholder and the user-facing verb; resolution happens *when the grid becomes known*. | conflict C2 |
 | D5 | `@` produces a **`SeparableComposite`** (is-a `SeparableOperator`) when operands are separable and axis-compatible, else a whole-space `Composite`. `bound_axis` is a static field; `__getitem__` is the sole binding point. | sub-question 1 |
-| D6 | Bound operators and composites are **interned** (forced by the identity-hash invariant). | operator_design §5.1 |
+| D6 | Bound operators and composites are **interned** (forced by the identity-hash invariant). | operator_algebra §5.1 |
 | D7 | **Iteration split**: a small same-axis-composition slice is iteration 1; the rich algebra (blocks, tuple signatures, sums, symbol matrices) is designed-for. | timing |
 | D8 | Rewrite scope: only the base hierarchy, composed operators, and registry sections of `03_operators.md` change. | — |
 | B1 | `Block` is a **distinct algebra node** (a grid of operators), sibling to `Composite`/`OperatorSum`; whole-space, not bindable; entries are the bound scalar operators of D5; block-matmul reduces to D5 chains. | — |
-| B2 | `grad`/`div`/`curl`/`laplacian` have **grid-dependent block shape**, so they are `Dispatched`-family: assembly-resolved builders that emit a `Block` over the grid's axes. | operator_design §3.5 |
-| B3 | **`map` is a verb, `Block` is a noun** — keep both, with a rule for which to write. | operator_design §5.6 |
-| B4 | Nonlinear tuple-signature operators need **no new class**; the base treats block-expansion/symbols as **optional** capabilities. Tensor blocks: flatten now, defer index-aware addressing. | operator_design §3.5, §5.5 |
-| T2 | Binary composition: the **positional tuple** `P @ (B1, …, Bn)` is the one spelling; `(A1, …) @ P` is an error; no named-operand form. | operator_design §5.2 |
-| T3 | Mid-chain syncs are **numerically transparent**, so auto-insertion is *permitted in principle* — an explicit, reportable decomposition-layer optimization, not silent. | operator_design §5.3 |
-| T4 | A **`Symbol` is never a chain factor**; static diagonal *operators* are, deriving their symbol at trace time. Refines operator_design §3.7. | operator_design §5.4 |
+| B2 | `grad`/`div`/`curl`/`laplacian` have **grid-dependent block shape**, so they are `Dispatched`-family: assembly-resolved builders that emit a `Block` over the grid's axes. | operator_algebra §3.5 |
+| B3 | **`map` is a verb, `Block` is a noun** — keep both, with a rule for which to write. | operator_algebra §5.6 |
+| B4 | Nonlinear tuple-signature operators need **no new class**; the base treats block-expansion/symbols as **optional** capabilities. Tensor blocks: flatten now, defer index-aware addressing. | operator_algebra §3.5, §5.5 |
+| T2 | Binary composition: the **positional tuple** `P @ (B1, …, Bn)` is the one spelling; `(A1, …) @ P` is an error; no named-operand form. | operator_algebra §5.2 |
+| T3 | Mid-chain syncs are **numerically transparent**, so auto-insertion is *permitted in principle* — an explicit, reportable decomposition-layer optimization, not silent. | operator_algebra §5.3 |
+| T4 | A **`Symbol` is never a chain factor**; static diagonal *operators* are, deriving their symbol at trace time. Refines operator_algebra §3.7. | operator_algebra §5.4 |
 | D3a | `f.to` stays a **multi-kind resolver** (field method); `["x"]` is **axis-only**; non-axis parameters (targets, orders) are constructor args. `interpolate` is the composable single-kind verb. | D3 residual |
 | D3b | Standard verbs (`diff`/`integrate`/`interpolate`) are **seeded** on `fr.operators`; `Dispatched(kind)` stays a **public extension escape-hatch**. | D3 residual |
 
@@ -63,7 +63,7 @@ laplacian = div @ grad                               # (1 x n) @ (n x 1) = 1 x 1
 Halo (§3.6) and symbols (§3.7) come from the chain/block, not from
 per-operator code — `Laplacian.eigenvalues`'s hand-rolled `bwd @ fwd`
 sum is deleted and reappears as the general block/chain symbol
-calculus (see D8). This honors `operator_design` §3.5's "these are
+calculus (see D8). This honors `operator_algebra` §3.5's "these are
 **constructions of the dispatch defaults, not privileged objects**",
 and matches `03_operators.md`'s own framing ("generic dispatch kinds,
 not special slots").
@@ -81,7 +81,7 @@ reason the ABC is not needed.
 
 An axis is named **only** by binding: `op["x"](f)`. The call-site
 `axis=` keyword is dropped everywhere — a stricter stance than
-`operator_design` §2.3, which keeps `fd(f, axis="x")` as sugar.
+`operator_algebra` §2.3, which keeps `fd(f, axis="x")` as sugar.
 
 - `UnaryOperator.__call__` loses its `axis: str | None` parameter and
   all "passed axis where forbidden / omitted where required"
@@ -136,7 +136,7 @@ registry" seam: the sugar is now an alias, not a parallel path.
 
 ## D4. `Dispatched` is one object, resolved when the grid is known
 
-`Dispatched(kind)` (`operator_design` §3.10) serves two roles with one
+`Dispatched(kind)` (`operator_algebra` §3.10) serves two roles with one
 object:
 
 - as a **chain factor** inside a registered default
@@ -210,12 +210,12 @@ construct through an **intern cache** keyed on static structure (class,
 order, bound axes, factor identities, coefficient *placement* — not
 values).
 
-This **resolves `operator_design` §5.1** ("intern composites, or is
+This **resolves `operator_algebra` §5.1** ("intern composites, or is
 structural equality enough? Leaning: structural equality first") in
 favor of interning: the class-design invariant removes the choice —
 identity-hashing demands a canonical interned instance per structure.
 
-The other `operator_design` open threads remain open: §5.2 (asymmetric
+The other `operator_algebra` open threads remain open: §5.2 (asymmetric
 binary composition ergonomics), §5.3 (mid-chain sync insertion), §5.4
 (`Symbol`-in-chain normalization), §5.5 (tensor flattening vs indexed
 blocks), §5.6 (`VectorField.map` vs diagonal `Block`).
@@ -272,7 +272,7 @@ reductions all sit *below* the algebra. Three sections change:
    assembly, replacing `FVDerivative`'s apply-time late binding.
 
 Cross-linking: add the reciprocal link from `03_operators.md` (and
-grid-redesign §2.5) back to `../../operator_design/`, so the class doc
+grid-redesign §2.5) back to `../operator_algebra/`, so the class doc
 names its normative parent.
 
 Symbol note preserved through the move: the block/chain symbol calculus
@@ -305,7 +305,7 @@ so sketch 4.6's Laplacian "broadcast sum" is *derived*, and its symbol
 
 `Block` is a **grid of operators**, a sibling of `Composite` (chain)
 and `OperatorSum` (term list) under the three structural node kinds of
-`operator_design` §3.11. It is whole-space and tuple-signatured
+`operator_algebra` §3.11. It is whole-space and tuple-signatured
 (§3.1): applied to a `VectorField` as `D(f)_i = sum_j D_ij(f_j)`, with
 `Zero` for structural zeros and `Identity` on the diagonal where
 needed. It is **not bindable** (inherits the raising `__getitem__` of
@@ -361,7 +361,7 @@ diagonal blocks are rare — most blocks are non-diagonal (grad column,
 div row, curl matrix) — and appear mainly to lift a scalar operator
 into a vector-operator expression. Smell test: building
 `Block(diag(op, op))` just to apply it once to a vector means you
-wanted `map`. This resolves `operator_design` §5.6.
+wanted `map`. This resolves `operator_algebra` §5.6.
 
 ### B4. Nonlinear tuple operators need no new class
 
@@ -377,27 +377,27 @@ and symbols as optional capabilities, not mandatory** — a
 tuple-signature operator that answers neither is legal (the base
 `eigenvalues` already raises `EigenbasisError`, and there is no
 mandatory block method). This must be stated so nobody assumes every
-tuple-signature operator is a `Block`. This closes `operator_design`
+tuple-signature operator is a `Block`. This closes `operator_algebra`
 §3.5's "opaque" case.
 
 **Tensor blocks (§5.5): flatten now, defer.** The `TensorField` spec
-already uses `(i, j)` keys with `map`; `operator_design` §3.1 flattens
+already uses `(i, j)` keys with `map`; `operator_algebra` §3.1 flattens
 multi-indices into the positional tuple and keeps the index structure
 as metadata. Index-aware `Block` addressing (a `Block` keyed by
 multi-index) earns its keep only when the first tensor consumer
-(strain -> stress) is ported — matching `operator_design`'s own timing.
+(strain -> stress) is ported — matching `operator_algebra`'s own timing.
 So: positional/flattened signature now, index-aware blocks deferred.
 
 ---
 
-## Open-thread resolutions (operator_design §5.2–§5.4)
+## Open-thread resolutions (operator_algebra §5.2–§5.4)
 
 Two of these are *forced* by decisions the class design already made;
 the third is reframed by one observation. None needs a new class.
 
 ### T2. Binary composition uses the positional tuple form (§5.2)
 
-The pre/post rules of `operator_design` §3.8 are asymmetric because a
+The pre/post rules of `operator_algebra` §3.8 are asymmetric because a
 binary operator has **two inputs but one output**:
 
 - **Pre-composition takes a tuple** (one operator per input):
@@ -470,7 +470,7 @@ solver-facing (`op.eigenvalues(...)`, `1 / lap`, the spectral solve).
 So the §5.4 question ("should `S @ A` normalize?") **dissolves**: `S`
 is never on the operator side of `@`, the two `@`s (operator
 composition, Symbol diagonal composition) never mix, and there is no
-normalization rule to write. This **refines** `operator_design` §3.7's
+normalization rule to write. This **refines** `operator_algebra` §3.7's
 "a Symbol may appear as a factor in a chain" into "a diagonal
 *operator* appears as the factor; the Symbol is what its `.eigenvalues`
 returns" — a wording fix to apply when §3.7 / `03_operators.md` are next
@@ -538,7 +538,7 @@ composed operators, and registry are rewritten onto the algebra — the
 `FVDerivative`/`Gradient`/`Divergence`/`Curl`/`Laplacian` factories,
 and the registry's `Dispatched`-at-merge resolution. The bind-only
 `_apply(self, f)` pass is applied to every operator in the document.
-The T4 wording fix to `operator_design` §3.7 is in.
+The T4 wording fix to `operator_algebra` §3.7 is in.
 
 **D3a/D3b closed** (this round): `f.to` is a resolver, `["x"]` is
 axis-only, non-axis parameters are constructor args, the interpolation

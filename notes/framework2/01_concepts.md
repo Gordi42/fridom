@@ -279,8 +279,8 @@ Operators form an **algebra** — composition `C = A @ B`, sums with
 scalar/field coefficients, axis binding `op["x"]`, and tuple
 (direct-sum) signatures for vector/tensor-valued maps with `@` as
 block-matrix multiplication — designed in the sibling note set
-[`../operator_design/`](../operator_design/00_overview.md)
-([section 3](../operator_design/02_algebra.md) there); composites are
+[`operator_algebra/`](operator_algebra/00_overview.md)
+([section 3](operator_algebra/02_algebra.md) there); composites are
 ordinary operators (registrable, halo-accountable, symbol-bearing).
 
 Operators are **callable**: applying one to its operands is

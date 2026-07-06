@@ -37,7 +37,7 @@ iteration 1 does not preclude it).
 
 | File | Contents |
 |------|----------|
-| [`operator_algebra_merge.md`](operator_algebra_merge.md) | Decisions for merging the operator algebra ([`../../operator_design/`](../../operator_design/00_overview.md), from `dev`) into [`03_operators.md`](03_operators.md): algebra-derived composed operators, bind-only axis naming, `Dispatched` as the user verb, `SeparableComposite` typing, interning, and the iteration split, applied to `03_operators.md` (D8). |
+| [`operator_algebra_merge.md`](operator_algebra_merge.md) | Decisions for merging the operator algebra ([`../operator_algebra/`](../operator_algebra/00_overview.md), from `dev`) into [`03_operators.md`](03_operators.md): algebra-derived composed operators, bind-only axis naming, `Dispatched` as the user verb, `SeparableComposite` typing, interning, and the iteration split, applied to `03_operators.md` (D8). |
 
 ## Shared template
 

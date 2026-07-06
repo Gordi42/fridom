@@ -43,7 +43,7 @@ left as plain "section X.Y".
 The **operator algebra** — composition `A @ B`, sums and coefficient
 scaling, axis binding `op["x"]`, and vector/tensor-valued signatures
 (block operators) — is designed in the sibling note set
-[`../operator_design/`](../operator_design/00_overview.md); it builds
+[`operator_algebra/`](operator_algebra/00_overview.md); it builds
 on the operator concept fixed here
 ([section 2.5](01_concepts.md#25-operator--typed-maps-between-spaces)).
 

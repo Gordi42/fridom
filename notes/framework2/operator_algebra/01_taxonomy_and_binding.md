@@ -28,7 +28,7 @@ itself an ordinary operator.
 ### 2.2 Static structure, dynamic coefficients
 
 The pytree treatment follows grid-redesign
-[section 2.7](../grid_redesign/01_concepts.md#27-where-coordinate-data-lives)
+[section 2.7](../01_concepts.md#27-where-coordinate-data-lives)
 unchanged:
 
 - An operator's **structure** — its class, order, stencil pattern,
@@ -50,7 +50,7 @@ structures are equal — the same rule as for spaces.
 
 A separable 1D kernel is axis-agnostic; today's application form
 names the axis at the call site (`fd(f, axis="x")`, grid-redesign
-[section 2.5](../grid_redesign/01_concepts.md#25-operator--typed-maps-between-spaces)).
+[section 2.5](../01_concepts.md#25-operator--typed-maps-between-spaces)).
 Composition needs a way to fix the axis *before* application — a
 mixed derivative `d^2/dx dy` composes two kernels acting on
 *different* axes, which the call-site keyword cannot express.
@@ -61,7 +61,7 @@ of `fd` —
 - **Semantics**: the extension of the 1D kernel to product spaces by
   identity on all other factors — the `(mesh-x operator) ⊗ identity`
   reading of grid-redesign
-  [section 2.3](../grid_redesign/01_concepts.md#23-tensorproductspace-and-named-coordinates)
+  [section 2.3](../01_concepts.md#23-tensorproductspace-and-named-coordinates)
   made into an object.
 - **Application**: bound operators are callable without the keyword:
   `fd["x"](f)`. The unbound call `fd(f, axis="x")` remains sugar for
@@ -91,11 +91,11 @@ halo requirement of `fd["x"]` is `fd`'s 1D halo on the x mesh and zero
 elsewhere; its eigenvalue symbol on a product coefficient space is the
 1D symbol broadcast across the other factors via `ConstantSpace`
 (grid-redesign
-[section 3.3](../grid_redesign/02_rules.md#33-constantspace-replaces-topo-with-automatic-broadcast),
+[section 3.3](../02_rules.md#33-constantspace-replaces-topo-with-automatic-broadcast),
 sketch
-[4.6](../grid_redesign/03_api_sketches.md#46-operator-eigenvalues-for-exact-spectral-solvers)).
+[4.6](../03_api_sketches.md#46-operator-eigenvalues-for-exact-spectral-solvers)).
 
 `Symbol`s are never bound: they are already tagged with their
 coefficient factor space and broadcast across the product by
 `ConstantSpace` (grid-redesign
-[section 3.11](../grid_redesign/02_rules.md#311-field-operations-linear-ops-and-the-product-problem)).
+[section 3.11](../02_rules.md#311-field-operations-linear-ops-and-the-product-problem)).

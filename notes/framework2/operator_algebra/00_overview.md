@@ -12,12 +12,12 @@ the machinery the grid redesign already fixed — halo accounting,
 `Symbol` eigenvalues, and the dispatch registry.
 
 It is a sibling of the grid redesign notes
-([`../grid_redesign/00_overview.md`](../grid_redesign/00_overview.md))
+([`../00_overview.md`](../00_overview.md))
 and shares their conventions: all code snippets are **illustrative,
 not normative**; section and sketch numbers are stable identifiers.
 The operator *concept* — free-standing, typed maps between function
 spaces — is fixed in grid-redesign
-[section 2.5](../grid_redesign/01_concepts.md#25-operator--typed-maps-between-spaces)
+[section 2.5](../01_concepts.md#25-operator--typed-maps-between-spaces)
 and is not re-litigated here; this set adds the algebra on top of it.
 
 ---
@@ -44,18 +44,18 @@ Four normative places already *are* compositions:
 
 1. **The FV derivative** factors into exact + approximate
    (grid-redesign
-   [section 3.9](../grid_redesign/02_rules.md#39-finite-volume-semantics-the-average-family-and-the-fv-derivative)):
+   [section 3.9](../02_rules.md#39-finite-volume-semantics-the-average-family-and-the-fv-derivative)):
    `diff = flux_diff o reconstruct`.
 2. **`Convolution`** is *defined* as a composite (grid-redesign
-   [section 3.12](../grid_redesign/02_rules.md#312-dealiasing)):
+   [section 3.12](../02_rules.md#312-dealiasing)):
    `trim_transform o CollocationProduct o pad_inverse_transform`.
 3. **`grad`/`div`/`laplacian` dispatch defaults** on separable grids
    are "a composition over `diff`/`interpolate`" (grid-redesign
-   [section 3.4](../grid_redesign/02_rules.md#34-generic-operator-dispatch)).
+   [section 3.4](../02_rules.md#34-generic-operator-dispatch)).
 4. **Halo accounting** is specified precisely for "un-synced
    composition chains" (`f.diff("x").diff("x")` needs
    `halo_1 + halo_2`, grid-redesign
-   [section 5](../grid_redesign/04_decomposition.md#5-domain-decomposition)) —
+   [section 5](../04_decomposition.md#5-domain-decomposition)) —
    a rule about composites with no object to attach itself to.
 
 This note set gives these an explicit, uniform spelling — `@` for
@@ -69,7 +69,7 @@ The unary signature `(domain_space -> codomain_space)` covers scalar
 fields only, yet the most important derived operators are not
 scalar-to-scalar: `grad` maps a scalar field to a *vector* field whose
 components live on **different** staggered spaces (the C-grid point of
-grid-redesign [section 2.4](../grid_redesign/01_concepts.md#24-field)),
+grid-redesign [section 2.4](../01_concepts.md#24-field)),
 `div` maps that vector field back, `curl` maps vectors to vectors, and
 a strain-rate or stress operator produces a *tensor* field. Section
 [3.1](02_algebra.md#31-signatures-space-tuples-direct-sums) generalizes
@@ -83,7 +83,7 @@ identity rather than a convention.
 ### 1.3 Sums with field coefficients are required, not optional
 
 Terrain-following coordinates (grid-redesign
-[section 3.8](../grid_redesign/02_rules.md#38-boundaries-iii-terrain-following-boundary-fitted))
+[section 3.8](../02_rules.md#38-boundaries-iii-terrain-following-boundary-fitted))
 demand that physical-space operators be expressible as **sums of
 separable operators with field coefficients**:
 
@@ -94,7 +94,7 @@ d/dx|_z  =  d/dx|_sigma  -  (sigma H_x / H) d/dsigma
 Without `A + B` and `field * A` in the algebra, that rule has no
 spelling. The same linear structure gives the separable Laplacian
 (sum of per-axis second derivatives, grid-redesign sketch
-[4.6](../grid_redesign/03_api_sketches.md#46-operator-eigenvalues-for-exact-spectral-solvers))
+[4.6](../03_api_sketches.md#46-operator-eigenvalues-for-exact-spectral-solvers))
 and the metric-aware operators on spheres.
 
 ### 1.4 What this is *not*
@@ -105,8 +105,8 @@ terms — with no automatic simplification, distribution, or scheduling
 ([section 3.11](02_algebra.md#311-no-expression-graphs-rejected-alternatives)).
 The grid redesign already rejected deferred fields and automatic
 transform scheduling (grid-redesign sections
-[3.10](../grid_redesign/02_rules.md#310-discretizing-continuous-functions),
-[3.12](../grid_redesign/02_rules.md#312-dealiasing)); the operator
+[3.10](../02_rules.md#310-discretizing-continuous-functions),
+[3.12](../02_rules.md#312-dealiasing)); the operator
 algebra follows the same line.
 
 ## Precedents

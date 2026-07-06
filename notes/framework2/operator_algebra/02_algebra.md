@@ -14,13 +14,13 @@ taxonomy and axis binding.
 An operator's domain and codomain are **ordered tuples of product
 spaces** — finite direct sums `S_1 ⊕ S_2 ⊕ ... ⊕ S_n`. The scalar
 signature of grid-redesign
-[section 2.5](../grid_redesign/01_concepts.md#25-operator--typed-maps-between-spaces)
+[section 2.5](../01_concepts.md#25-operator--typed-maps-between-spaces)
 is the length-1 case; nothing changes for scalar operators.
 
 - **A `VectorField` supplies the tuple.** A vector field is a
   collection of scalar fields on *different but related* spaces
   (grid-redesign
-  [section 2.4](../grid_redesign/01_concepts.md#24-field)); its
+  [section 2.4](../01_concepts.md#24-field)); its
   ordered component-space tuple *is* the operand type. So on a C-grid:
 
   ```
@@ -75,7 +75,7 @@ C = A @ B          # C(f) == A(B(f))
 - **Associative and flat**: `A @ (B @ C) == (A @ B) @ C`; a composite
   normalizes to a single flat factor chain (no nested composites),
   mirroring the flat `TensorProductSpace` (grid-redesign
-  [section 2.3](../grid_redesign/01_concepts.md#23-tensorproductspace-and-named-coordinates)).
+  [section 2.3](../01_concepts.md#23-tensorproductspace-and-named-coordinates)).
   The flat chain is what halo accounting (section 3.6) and symbols
   (section 3.7) walk.
 - **Not commutative**, obviously; and no reordering is ever performed
@@ -103,7 +103,7 @@ Two trivial operators complete the algebra:
   (`A @ Identity == A`). It is what an unbound axis contributes in the
   `⊗ identity` extension (section 2.3) and what operators along a
   `ConstantSpace` axis reduce to (grid-redesign
-  [section 3.3](../grid_redesign/02_rules.md#33-constantspace-replaces-topo-with-automatic-broadcast)).
+  [section 3.3](../02_rules.md#33-constantspace-replaces-topo-with-automatic-broadcast)).
 - **`Zero`** — the neutral element of `+` and absorbing element of
   `@` (`Zero @ A == A @ Zero == Zero`, `A + Zero == A`). Sums drop
   zero terms on normalization. Its consumer is the block-operator
@@ -137,7 +137,7 @@ D = c * A            # c a ScalarField: coefficient field
   tuple codomains); the `ConstantSpace` broadcast applies, making
   plain scalars the constant special case. The multiplication is the
   physical product `*` of grid-redesign
-  [section 3.11](../grid_redesign/02_rules.md#311-field-operations-linear-ops-and-the-product-problem),
+  [section 3.11](../02_rules.md#311-field-operations-linear-ops-and-the-product-problem),
   dispatched per space. Input-side scaling is spelled explicitly as
   a chain: `A @ (c * Identity)`.
 - **This is the §3.8 machinery.** Terrain-following derivatives are
@@ -147,10 +147,10 @@ D = c * A            # c a ScalarField: coefficient field
   with the metric coefficient a dynamic pytree leaf (section 2.2)
   read through `grid.metric` — time-dependent metrics trace through
   with no special casing (grid-redesign
-  [section 3.8](../grid_redesign/02_rules.md#38-boundaries-iii-terrain-following-boundary-fitted)).
+  [section 3.8](../02_rules.md#38-boundaries-iii-terrain-following-boundary-fitted)).
 - **The `*`/`@` disambiguation table grows three rows** (extending
   grid-redesign
-  [section 2.5](../grid_redesign/01_concepts.md#25-operator--typed-maps-between-spaces)):
+  [section 2.5](../01_concepts.md#25-operator--typed-maps-between-spaces)):
 
   | Spelling                    | Meaning                                  |
   |-----------------------------|-------------------------------------------|
@@ -187,7 +187,7 @@ D(f)_i = sum_j D_ij(f_j)
   (`1 x n`), `curl` a matrix with `Zero` blocks in 3D. These are
   *constructions of the dispatch defaults*, not privileged objects
   (grid-redesign
-  [section 3.4](../grid_redesign/02_rules.md#34-generic-operator-dispatch):
+  [section 3.4](../02_rules.md#34-generic-operator-dispatch):
   the default entry *is* an operator object).
 - **The block expansion is metadata, not a rewrite.** A chain
   `div @ grad` stays a two-factor chain as written; its block
@@ -204,7 +204,7 @@ D(f)_i = sum_j D_ij(f_j)
 
 The per-axis halo of an algebraic operator follows two rules, matching
 grid-redesign
-[section 5](../grid_redesign/04_decomposition.md#5-domain-decomposition):
+[section 5](../04_decomposition.md#5-domain-decomposition):
 
 - **Composition sums**: an un-synced chain reads through the stacked
   stencils, so `halo(A @ B) = halo(A) + halo(B)` per axis. A composite
@@ -230,7 +230,7 @@ mid-chain syncs to cap the accumulated width is an open thread
 ### 3.7 Symbols of composites
 
 The eigenvalue machinery of grid-redesign
-[section 2.5](../grid_redesign/01_concepts.md#25-operator--typed-maps-between-spaces)
+[section 2.5](../01_concepts.md#25-operator--typed-maps-between-spaces)
 extends compositionally. First, one clarification the composition
 rules force: a `Symbol` is a **mode-diagonal map between coefficient
 spaces** — domain and codomain share mode indexing but may differ in
@@ -247,7 +247,7 @@ With that:
   coefficient space of *its own* domain — the chain of coefficient
   spaces follows the chain of nodal spaces through the per-origin
   coefficient spaces of grid-redesign
-  [section 3.2](../grid_redesign/02_rules.md#32-coefficient-representations-are-separate-spaces),
+  [section 3.2](../02_rules.md#32-coefficient-representations-are-separate-spaces),
   so origin bookkeeping is carried by the factor symbols and the
   product is well-typed end to end.
 - **Sums add**: same domain/codomain coefficient spaces required.
@@ -266,7 +266,7 @@ With that:
   section 2.5's rule, applied factor-wise). Nonlinear factors never
   do.
 - **The FV exactness check becomes executable** (grid-redesign
-  [section 3.9](../grid_redesign/02_rules.md#39-finite-volume-semantics-the-average-family-and-the-fv-derivative)):
+  [section 3.9](../02_rules.md#39-finite-volume-semantics-the-average-family-and-the-fv-derivative)):
   the symbol of `flux_diff @ reconstruct` at second order is
   `i k sinc(k dx / 2)` — the product of the factor symbols — and can
   be asserted in tests against the composed operator (sketch
@@ -288,7 +288,7 @@ resolved; class-design `operator_algebra_merge.md` T4).
 
 Binary operators (`CollocationProduct`, `Convolution`, `Hadamard`;
 grid-redesign
-[section 3.11](../grid_redesign/02_rules.md#311-field-operations-linear-ops-and-the-product-problem))
+[section 3.11](../02_rules.md#311-field-operations-linear-ops-and-the-product-problem))
 join the algebra with two rules:
 
 - **Post-composition wraps the result**: `A @ P` for binary `P` is the
@@ -300,7 +300,7 @@ join the algebra with two rules:
   symmetric case.
 
 Under these rules the `Convolution` definition of grid-redesign
-[section 3.12](../grid_redesign/02_rules.md#312-dealiasing) is a
+[section 3.12](../02_rules.md#312-dealiasing) is a
 literal expression of the algebra:
 
 ```python
@@ -334,7 +334,7 @@ chains containing them are eagerly type-checked at composition time
 ### 3.10 Dispatch integration
 
 Composites and the dispatch registry (grid-redesign
-[section 3.4](../grid_redesign/02_rules.md#34-generic-operator-dispatch))
+[section 3.4](../02_rules.md#34-generic-operator-dispatch))
 interlock in both directions:
 
 - **Composites are registrable.** A dispatch default *is* an operator
@@ -345,7 +345,7 @@ interlock in both directions:
 - **Kind placeholders resolve at assembly time.** The FV `diff`
   default must pick up a module's `reconstruct` override
   (grid-redesign sketch
-  [4.2](../grid_redesign/03_api_sketches.md#42-custom-operator-module-local-override))
+  [4.2](../03_api_sketches.md#42-custom-operator-module-local-override))
   without runtime late binding. A chain factor may therefore be a
   **kind placeholder**, `fr.operators.Dispatched("reconstruct")`,
   which is resolved against the *merged* registry (grid defaults +
@@ -374,8 +374,8 @@ chain, a flat term list, a block grid. Rejected, deliberately:
 - **Lazy operator/field expression graphs** (Dedalus/shenfun style):
   already rejected once for fields and transform scheduling
   (grid-redesign sections
-  [3.10](../grid_redesign/02_rules.md#310-discretizing-continuous-functions),
-  [3.12](../grid_redesign/02_rules.md#312-dealiasing)); the operator
+  [3.10](../02_rules.md#310-discretizing-continuous-functions),
+  [3.12](../02_rules.md#312-dealiasing)); the operator
   algebra does not reintroduce them through the back door. A chain is
   applied factor by factor when called, eagerly, under jit.
 - **A canonical matrix/assembled form**: operators stay matrix-free;

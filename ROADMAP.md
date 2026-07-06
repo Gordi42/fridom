@@ -45,9 +45,9 @@ existing `framework`.
 
 The function-space core, decoupled from the model and testable
 standalone. Direct implementation of the class designs in
-[`notes/grid_redesign/classes/`](notes/grid_redesign/classes/README.md)
-(concepts in [`notes/grid_redesign/`](notes/grid_redesign/), operator
-algebra in [`notes/operator_design/`](notes/operator_design/00_overview.md));
+[`notes/framework2/classes/`](notes/framework2/classes/README.md)
+(concepts in [`notes/framework2/`](notes/framework2/), operator
+algebra in [`notes/framework2/operator_algebra/`](notes/framework2/operator_algebra/00_overview.md));
 the `classes/README` staging section is the basis for the breakdown.
 
 | #   | Task | Notes |
@@ -58,7 +58,7 @@ the `classes/README` staging section is the basis for the breakdown.
 | 1.4 | **Transforms** | `Fourier`, `Sine`/`Cosine`, `Chebyshev`, and `refined()` padding as space-mapping operators; `Symbol` eigenvalues and spectral solves. Spectral differentiation returns here as a function-space operator. |
 | 1.5 | **Domain decomposition** | `negotiate` + `MeshDecompositionTraits` + `HaloSpec`/`HaloTracer` (halo accounting by tracing operator requirements) + multi-device shard maps (class doc 04). The grid is a static pytree aux with per-coordinate halos. |
 | 1.6 | **Immersed subset + export** | `grid.immersed` (per-space boolean masks derived on demand) and `f.xr` export to xarray. |
-| 1.7 | **Standalone validation** | A hand-rolled PDE (advection / diffusion) driven by fields + operators + decomposition under a plain loop, single and multi device, plus the numerical checks in [`05_validation.md`](notes/grid_redesign/05_validation.md). The correctness gate before the model layer exists. |
+| 1.7 | **Standalone validation** | A hand-rolled PDE (advection / diffusion) driven by fields + operators + decomposition under a plain loop, single and multi device, plus the numerical checks in [`05_validation.md`](notes/framework2/05_validation.md). The correctness gate before the model layer exists. |
 
 Grid extensions specified as `designed-for` (may defer): stretched /
 coordinate-map grids, terrain-following coordinates, spherical grids with

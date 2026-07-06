@@ -9,7 +9,7 @@ numbered concept sections remain the normative reference.
 > composition `@`, sums, `c * A` scaling, `Identity`/`Zero`/`Block`,
 > axis binding `op["x"]`, tuple signatures — is designed in the sibling
 > note set
-> [`../../operator_design/`](../../operator_design/00_overview.md); it is
+> [`../operator_algebra/`](../operator_algebra/00_overview.md); it is
 > applied to the **base hierarchy**
 > ([Operator algebra](#operator-algebra), bind-only `__call__`,
 > `bound_axis`), the **composed operators** (algebra-derived factories),
@@ -117,7 +117,7 @@ On top of these sit the **algebra objects**
 ([Operator algebra](#operator-algebra) below): the composites, sums,
 blocks, scalings, and placeholders that `@` / `+` / `*` / `Block(...)`
 / `Dispatched(...)` build — the derived sixth operator kind of
-operator_design §2.1, ordinary operators themselves. Two decisions
+operator_algebra §2.1, ordinary operators themselves. Two decisions
 shape the base surface directly. **Axis naming is bind-only** (D2):
 `op["x"]` is the sole way to name an axis — there is no `axis=` call
 keyword — so "can this operator name an axis?" is a matter of type
@@ -224,7 +224,7 @@ Notes:
   `SeparableComposite`, `+`/`-` an `OperatorSum`, scalar/field `*` a
   `ScaledOperator`, `Block([...])` a block matrix, `Dispatched(kind)` a
   registry placeholder. They are **shallow eager structures** — no
-  expression graphs, no algebraic rewriting (operator_design §3.11);
+  expression graphs, no algebraic rewriting (operator_algebra §3.11);
   the only normalizations are chain-flattening, `Identity` elision, and
   `Zero`-dropping.
 - `requirements` defaults to `OperatorRequirements()` (halo 0, any
@@ -247,7 +247,7 @@ Notes:
   values), because the cluster's identity-hash invariant
   (`__eq__`/`__hash__` return `self is other`, README) requires
   structurally-equal operators to be the same object for jit caching.
-  This resolves operator_design §5.1 toward interning.
+  This resolves operator_algebra §5.1 toward interning.
 
 ### OperatorRequirements
 
@@ -395,7 +395,7 @@ and `fr.Real -> fr.Complex` promotion
 `SpaceMismatchError`.
 
 **Binary operators join the `@` algebra with two rules** (T2,
-operator_design §3.8), asymmetric because a binary has *two inputs but
+operator_algebra §3.8), asymmetric because a binary has *two inputs but
 one output*:
 
 - **Post-composition wraps the single output**: `A @ P` for binary `P`
@@ -517,7 +517,7 @@ Notes:
 
 ## Operator algebra
 
-The **derived operators** (operator_design §2.1): the objects `@`, `+`,
+The **derived operators** (operator_algebra §2.1): the objects `@`, `+`,
 `*`, `Block(...)`, and `Dispatched(...)` build. They are ordinary
 operators — callable, registrable, halo-accountable, symbol-bearing
 where linear — and shallow eager structures with no expression graphs
@@ -530,7 +530,7 @@ FV derivative needs them); `Zero`, `OperatorSum`, `ScaledOperator`,
 **Pytree amendment.** `ScaledOperator` with a *field* coefficient is the
 cluster's **second dynamic-leaf carrier** (the coefficient field),
 alongside `Symbol`: its static part is the algebraic structure, the
-coefficient is the leaf (operator_design §2.2). Every other algebra
+coefficient is the leaf (operator_algebra §2.2). Every other algebra
 object is fully static.
 
 ### Identity / Zero
@@ -2519,7 +2519,7 @@ def Laplacian(order: int = 2) -> Operator:
 Notes:
 
 - **These build the dispatch defaults; they are not privileged types**
-  (D1, operator_design §3.5). The block *expansion* — the per-axis
+  (D1, operator_algebra §3.5). The block *expansion* — the per-axis
   entries the halo (per block-row, §3.6) and the symbol matrix (§3.7)
   walk — is computed **on demand, never materialized** as a rewritten
   operator (§3.11). This **replaces the rejected `VectorOperator` ABC
