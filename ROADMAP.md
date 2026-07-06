@@ -87,9 +87,29 @@ Depends on Phase 2 (module purity + full model pytree).
 Highest-risk workstream. The design task (4.1) starts early, in
 parallel with Phases 2–3; implementation lands after Phase 3.
 
+> **Design notes.** The detailed design lives in
+> [`notes/grid_redesign/`](notes/grid_redesign/) (start at
+> [`00_overview.md`](notes/grid_redesign/00_overview.md)). The notes
+> map to the tasks below as:
+>
+> | Task | Design notes |
+> |------|--------------|
+> | 4.1 | Whole set — core concepts ([`01_concepts.md`](notes/grid_redesign/01_concepts.md)), rules ([`02_rules.md`](notes/grid_redesign/02_rules.md)), API sketches ([`03_api_sketches.md`](notes/grid_redesign/03_api_sketches.md)); pytree/decomposition treatment in [`04_decomposition.md`](notes/grid_redesign/04_decomposition.md). |
+> | 4.2 | `Mesh`/`FunctionSpace` (concepts 2.1–2.2), coefficient spaces & dispatch & shapes & FV & discretization (rules 3.2, 3.4, 3.5, 3.9, 3.10), decomposition. |
+> | 4.3 | Strict space algebra and constant broadcast (rules 3.1, 3.3), `Field`/`VectorField` (concepts 2.4), sketches 4.1/4.3/4.8. |
+> | 4.4 | Immersed/masked domains (rule 3.7) and open thread 1 ([`06_open_threads.md`](notes/grid_redesign/06_open_threads.md)). |
+> | 4.5 | Terrain-following coordinates (rule 3.8) and open thread 10. |
+> | 4.6 | Sphere / curvilinear validation (section 6.3, [`05_validation.md`](notes/grid_redesign/05_validation.md)) and open thread 4. |
+>
+> Model physics leaving the grid (`omega`/`vec_q`/`vec_p` -> model-side
+> eigenmode objects, concepts 2.6, open thread 8) interacts with
+> Phase 2; the transform-API richness that lets solvers stop bypassing
+> the decomposition ([`04_decomposition.md`](notes/grid_redesign/04_decomposition.md))
+> connects back to 0.2/0.4.
+
 | #   | Task | Notes |
 |-----|------|-------|
-| 4.1 | **Design doc: function spaces** | `FunctionSpace`, `TensorProductSpace`, bases/transforms (Fourier, DCT; Chebyshev-ready), operators `A: F_i -> F_j`, error on mixed-space arithmetic, how fields carry their space, pytree/equality treatment, interaction with the domain decomposition. Must not preclude unstructured grids. |
+| 4.1 | **Design doc: function spaces** | Captured in [`notes/grid_redesign/`](notes/grid_redesign/): `FunctionSpace`, `TensorProductSpace`, bases/transforms (Fourier, DCT; Chebyshev-ready), operators `A: F_i -> F_j`, error on mixed-space arithmetic, how fields carry their space, pytree/equality treatment, interaction with the domain decomposition. Must not preclude unstructured grids. |
 | 4.2 | **Cartesian function spaces** | Implement Cell/Face spaces and tensor products; port FFT/DCT, finite differences, and interpolations as space-mapping operators. Replaces `Position` / `AxisPosition` staggering. Reintroduce spectral (Fourier) differentiation — removed in 0.4 — as a space-mapping operator here. |
 | 4.3 | **Port fields** | `ScalarField.function_space`; `f + g` across different spaces raises; `diff`/interp return fields on the mapped space. Port the eigenvector/projection machinery (`nonhydro/grid/cartesian/eigenvectors.py` is the biggest item). Revisit 1.2: a slice at `x = a` naturally lives on a reduced tensor-product space. |
 | 4.4 | **Water mask as wrapper grid** | `MaskedGrid(inner_grid)` grid class; remove the default `WaterMask` from `GridBase`; masks derived per function space; masked operators wrap the inner operators. |
