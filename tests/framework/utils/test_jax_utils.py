@@ -3,6 +3,7 @@ import weakref
 from functools import partial
 from types import MethodType
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -287,6 +288,55 @@ def test_jaxify_roundtrip():
     assert restored.power == obj.power
 
 
+def test_jaxify_flatten_order_is_declaration_order():
+    # flatten order must be deterministic (independent of
+    # PYTHONHASHSEED) and follow the declaration order of the
+    # dynamic attributes; a set-backed implementation breaks both
+    @partial(fr.utils.jaxify, dynamic=("zulu", "alpha", "mike"))
+    class Ordered:
+        def __init__(self):
+            self.zulu = jnp.array(0.0)
+            self.alpha = jnp.array(1.0)
+            self.mike = jnp.array(2.0)
+
+    assert Ordered.dynamic_jax_attrs == ("zulu", "alpha", "mike")
+
+    obj = Ordered()
+    children, _ = obj.tree_flatten()
+    assert [float(c) for c in children] == [0.0, 1.0, 2.0]
+
+    leaves = jax.tree_util.tree_leaves(obj)
+    assert [float(leaf) for leaf in leaves] == [0.0, 1.0, 2.0]
+
+    # the roundtrip restores every attribute in place
+    restored = jax.tree_util.tree_unflatten(
+        jax.tree_util.tree_structure(obj), children)
+    assert float(restored.zulu) == 0.0
+    assert float(restored.alpha) == 1.0
+    assert float(restored.mike) == 2.0
+
+
+def test_jaxify_subclass_extends_dynamic_attrs_in_order():
+    @partial(fr.utils.jaxify, dynamic=("whiskey", "delta"))
+    class Base:
+        pass
+
+    # inherited attributes come first, then the newly declared ones
+    @partial(fr.utils.jaxify, dynamic=("zeta", "beta"))
+    class Sub(Base):
+        pass
+
+    assert Base.dynamic_jax_attrs == ("whiskey", "delta")
+    assert Sub.dynamic_jax_attrs == ("whiskey", "delta", "zeta", "beta")
+
+    # re-declaring an inherited attribute must not duplicate it
+    @partial(fr.utils.jaxify, dynamic=("delta",))
+    class SubDup(Base):
+        pass
+
+    assert SubDup.dynamic_jax_attrs == ("whiskey", "delta")
+
+
 def test_jaxify_keeps_custom_hash():
     @fr.utils.jaxify
     class MyClass:
@@ -303,7 +353,7 @@ def test_unflatten_without_dynamic_attrs():
     obj = jax_utils._tree_unflatten.__func__(
         Plain, _AuxData({"a": 1}), ())
     assert obj.a == 1
-    assert Plain.dynamic_jax_attrs == set()
+    assert Plain.dynamic_jax_attrs == ()
 
 
 # ================================================================

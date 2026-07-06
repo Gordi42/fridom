@@ -253,8 +253,15 @@ class _AuxData:
 
 
 def _merge_dynamic_attrs(
-        cls: type, dynamic: tuple[str] | None) -> set[str]:
-    """Validate `dynamic` and merge it with inherited dynamic attributes."""
+        cls: type, dynamic: tuple[str] | None) -> tuple[str, ...]:
+    """Validate `dynamic` and merge it with inherited dynamic attributes.
+
+    The merged attributes preserve declaration order (inherited
+    attributes first, then the newly declared ones): the pytree
+    flatten order of jaxified objects must be deterministic across
+    processes, so an unordered container (whose iteration order
+    depends on ``PYTHONHASHSEED``) must never be used here.
+    """
     # make sure dynamic is either a tuple or None:
     if not isinstance(dynamic, (tuple, type(None))):
         fr.log.error("dynamic must be a tuple or None, not %s", type(dynamic))
@@ -262,14 +269,11 @@ def _merge_dynamic_attrs(
         fr.log.error("use dynamic=('attr',) instead of dynamic=('attr').")
         raise TypeError
 
-    dynamic = list(dynamic or [])
-
-    # merge with the (possibly inherited) dynamic attributes
-    if hasattr(cls, "dynamic_jax_attrs"):
-        dynamic += list(cls.dynamic_jax_attrs)
-
-    # remove duplicates
-    return set(dynamic)
+    # inherited dynamic attributes first (they were declared first),
+    # then the new ones, removing duplicates while keeping order
+    merged = list(getattr(cls, "dynamic_jax_attrs", ()))
+    merged += [attr for attr in (dynamic or ()) if attr not in merged]
+    return tuple(merged)
 
 def _tree_flatten(self: T) -> tuple[tuple, _AuxData]:
     """Flatten a jaxified object into (children, aux_data)."""
@@ -294,7 +298,7 @@ def _tree_unflatten(cls: type[T], aux_data: _AuxData, children: tuple) -> T:
         fr.log.error(
             "The class %s does not have the dynamic_jax_attrs "
             "attribute.", cls)
-        cls.dynamic_jax_attrs = set()
+        cls.dynamic_jax_attrs = ()
     # set static attributes
     for key, value in aux_data.data.items():
         setattr(obj, key, value)
