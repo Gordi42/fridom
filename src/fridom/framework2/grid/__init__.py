@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .bc import BC
     from .errors import GridMismatchError, SpaceMismatchError
     from .scalars import Complex, Real
+    from .spaces.tensor_product import SpaceLike, TensorProductSpace
 
 # ================================================================
 #  Setup lazy loading
@@ -46,6 +47,8 @@ all_imports_by_origin = {
     f"{base}.scalars": ["Real", "Complex"],
     f"{base}.bc": ["BC"],
     f"{base}.errors": ["SpaceMismatchError", "GridMismatchError"],
+    f"{base}.spaces.tensor_product": ["TensorProductSpace",
+                                      "SpaceLike"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
