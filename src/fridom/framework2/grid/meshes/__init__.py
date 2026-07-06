@@ -27,6 +27,13 @@ if TYPE_CHECKING:  # pragma: no cover
         unstructured,
     )
 
+    # import all classes
+    from .chebyshev import ChebyshevMesh
+    from .interval import IntervalMesh
+    from .mesh import Mesh
+    from .point import PointMesh
+    from .structured_1d import StructuredMesh1D
+
 # ================================================================
 #  Setup lazy loading
 # ================================================================
@@ -45,6 +52,12 @@ all_modules_by_origin = {
     ],
 }
 
-all_imports_by_origin = {}
+all_imports_by_origin = {
+    f"{base}.mesh": ["Mesh"],
+    f"{base}.structured_1d": ["StructuredMesh1D"],
+    f"{base}.interval": ["IntervalMesh"],
+    f"{base}.point": ["PointMesh"],
+    f"{base}.chebyshev": ["ChebyshevMesh"],
+}
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
