@@ -34,6 +34,7 @@ The redesign notes are organized as follows (read roughly in order):
 | [`05_validation.md`](05_validation.md) | Paper validation against five future grid types (section 6). |
 | [`06_open_threads.md`](06_open_threads.md) | Open threads (section 7) — all resolved; a stub mapping each former thread to the section that now carries the decision. |
 | [`07_iteration1_api.md`](07_iteration1_api.md) | Iteration-1 public API cheat sheet (section 10): the small surface a day-one user actually types. |
+| [`classes/`](classes/README.md) | Class designs (second design phase): concrete classes and their full public method surfaces for `framework.grid2`, one file per cluster (meshes/spaces, product spaces/fields, operators, grid/decomposition). |
 
 Section and sketch numbers are stable identifiers across the files;
 cross-references between files are linked, references within a file are

@@ -90,7 +90,11 @@ parallel with Phases 2–3; implementation lands after Phase 3.
 
 > **Design notes.** The detailed design lives in
 > [`notes/grid_redesign/`](notes/grid_redesign/) (start at
-> [`00_overview.md`](notes/grid_redesign/00_overview.md)). The notes
+> [`00_overview.md`](notes/grid_redesign/00_overview.md)). The
+> class-design phase — concrete classes and public method surfaces
+> derived from those notes — lives in
+> [`notes/grid_redesign/classes/`](notes/grid_redesign/classes/README.md)
+> and is the direct blueprint for 4.2–4.4. The notes
 > map to the tasks below as:
 >
 > | Task | Design notes |
