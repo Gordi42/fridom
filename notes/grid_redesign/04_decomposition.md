@@ -35,7 +35,11 @@ model's state-field spaces. A simple max over operators is **not**
 enough, because halo accumulates along **un-synced composition chains**:
 `f.diff("x").diff("x")` with no intervening exchange needs
 `halo_1 + halo_2`, not `max`. The grid therefore runs an **automatic
-halo-accounting trace** over the tendency.
+halo-accounting trace** over the tendency. (Composite operators of the
+operator algebra carry these numbers as object-level rules — chains
+sum, sums/blocks max — so a registered composite advertises its total
+demand without a trace;
+[operator design section 3.6](../operator_design/02_algebra.md#36-halo-accounting).)
 
 **The trace uses a tracer field type**, analogous to a jax tracer: a
 lightweight stand-in that carries only a space (hence shape) and an

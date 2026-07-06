@@ -102,6 +102,12 @@ parallel with Phases 2–3; implementation lands after Phase 3.
 > | 4.5 | Terrain-following coordinates (rule 3.8) and open thread 10. |
 > | 4.6 | Sphere / curvilinear validation (section 6.3, [`05_validation.md`](notes/grid_redesign/05_validation.md)) and open thread 4. |
 >
+> The **operator algebra** (composition `A @ B`, sums with field
+> coefficients, axis binding, vector/tensor signatures as block
+> operators) is designed in the sibling note set
+> [`notes/operator_design/`](notes/operator_design/00_overview.md);
+> it extends 4.1 and lands with the 4.2/4.3 implementations.
+>
 > Model physics leaving the grid (`omega`/`vec_q`/`vec_p` -> model-side
 > eigenmode objects, concepts 2.6, open thread 8) interacts with
 > Phase 2; the transform-API richness that lets solvers stop bypassing

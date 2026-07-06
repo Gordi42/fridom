@@ -271,6 +271,14 @@ signature, not grid methods and not module-owned slots:
   `WenoReconstruction(order=5)`, `Fourier()`,
   `PhaseShift()`, `SpectralDerivative()`.
 
+Operators form an **algebra** — composition `C = A @ B`, sums with
+scalar/field coefficients, axis binding `op["x"]`, and tuple
+(direct-sum) signatures for vector/tensor-valued maps with `@` as
+block-matrix multiplication — designed in the sibling note set
+[`../operator_design/`](../operator_design/00_overview.md)
+([section 3](../operator_design/02_algebra.md) there); composites are
+ordinary operators (registrable, halo-accountable, symbol-bearing).
+
 Operators are **callable**: applying one to its operands is
 `op(field, axis=...)` (unary) or `op(f, g)` (binary). The `axis`
 keyword is **optional**: a separable 1D kernel applied to a multi-axis

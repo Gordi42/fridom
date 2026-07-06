@@ -92,6 +92,16 @@ Cross-space arithmetic (`f + g` on different spaces) raises
 `ConstantSpace` broadcast (section 3.3) and `fr.Real -> fr.Complex`
 promotion (section 3.1).
 
+Free-standing operators compose
+([operator design](../operator_design/00_overview.md)):
+
+```python
+fd = fr.operators.FiniteDifference(order=2)
+d2 = fd @ fd             # composition: (A @ B)(f) == A(B(f))
+dxdy = fd["x"] @ fd["y"] # op["x"] binds the axis (mixed-axis chains)
+lap = fd["x"] @ fd["x"] + fd["y"] @ fd["y"]   # sums, scalar/field coeffs
+```
+
 ### 10.5 Transforms and coordinates
 
 ```python

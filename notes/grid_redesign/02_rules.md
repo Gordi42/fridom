@@ -160,7 +160,10 @@ structurally.
   [4.6](03_api_sketches.md#46-operator-eigenvalues-for-exact-spectral-solvers))
   and the `"laplacian"` kind resolved by dispatch are the same thing —
   the object is what the registry holds — so "not a special slot" means
-  it has no privileged plumbing, not that no object exists,
+  it has no privileged plumbing, not that no object exists. Registered
+  objects may be composites/sums/blocks of the operator algebra, with
+  kind placeholders resolved at assembly time
+  ([operator design section 3.10](../operator_design/02_algebra.md#310-dispatch-integration)),
 - arbitrary kinds are allowed (`"grad"`, `"div"`, `"laplacian"`,
   `"interp"`, `"reconstruct"`, `"filter"`, `"transform"`,
   `"integrate"`, `"discretize"`, `"assign_coeff"`, ...).
@@ -515,6 +518,10 @@ flux_diff   : Outer(n+1) -> CellAvg(n)   # EXACT: discrete Gauss
 diff = flux_diff o reconstruct
 ```
 
+(spelled `flux_diff @ reconstruct` in the operator algebra, where the
+composed symbol verifies the exactness identity below —
+[operator design sections 3.2/3.7](../operator_design/02_algebra.md#32-composition-c--a--b))
+
 Consequences:
 
 - **Conservation is visible in the type**: summing the output of
@@ -815,7 +822,12 @@ section 3.11) is therefore *defined* as the composite
 Convolution = trim_transform o CollocationProduct o pad_inverse_transform
 ```
 
-reading its pad factor from the padded transforms. The default factor
+reading its pad factor from the padded transforms. (In the operator
+algebra this is a literal composite — `t.forward @ CollocationProduct()
+@ tp.backward`, with binary pre-composition applying `tp.backward` to
+each operand;
+[operator design section 3.8](../operator_design/02_algebra.md#38-binary-operators-in-chains).)
+The default factor
 is a grid-level dispatch entry (section 3.4); modules override it
 locally (the successor of today's `SpectralAdvection(padding=...)`).
 
