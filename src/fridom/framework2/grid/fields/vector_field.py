@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Iterator
 
     import jax
+    import xarray as xr
 
     from fridom.framework2.grid.grid import Grid
 
@@ -367,10 +368,21 @@ class VectorField:
         return self
 
     @property
-    def xr(self) -> object:
-        """Export to an xarray Dataset (Wave-4 export cluster)."""
-        raise NotImplementedError(
-            "xarray export arrives with the Wave-4 export cluster")
+    def xr(self) -> xr.Dataset:
+        """
+        Export to an ``xarray.Dataset`` of the components' exports.
+
+        Returns
+        -------
+        xr.Dataset
+            One data variable per component, keyed by component
+            name (label/gather rules:
+            ``fridom.framework2.grid.export``).
+        """
+        from fridom.framework2.grid.export import (  # noqa: PLC0415 — deferred: keeps optional xarray off the field-core import path
+            vector_to_dataset,
+        )
+        return vector_to_dataset(self)
 
     def __repr__(self) -> str:
         """Names and component spaces summary."""

@@ -56,6 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
     import jax
+    import xarray as xr
 
     from fridom.framework2.grid.decomposition.layout import Layout
     from fridom.framework2.grid.grid import Grid
@@ -548,10 +549,26 @@ class ScalarField:
         return self
 
     @property
-    def xr(self) -> object:
-        """Export to xarray (label/gather rules: export cluster)."""
-        raise NotImplementedError(
-            "xarray export arrives with the Wave-4 export cluster")
+    def xr(self) -> xr.DataArray:
+        """
+        Export to an ``xarray.DataArray``.
+
+        Description
+        -----------
+        Thin field-side entry point; the coordinate-label rules
+        (xgcm staggered dim naming, average-space cell labels,
+        wavenumber coords) and the ``decomposition.gather`` data
+        path live in ``fridom.framework2.grid.export``.
+
+        Returns
+        -------
+        xr.DataArray
+            Global true-shape data with labeled coordinates.
+        """
+        from fridom.framework2.grid.export import (  # noqa: PLC0415 — deferred: keeps optional xarray off the field-core import path
+            scalar_to_dataarray,
+        )
+        return scalar_to_dataarray(self)
 
     def __repr__(self) -> str:
         """Name, space, shape, dtype summary."""
