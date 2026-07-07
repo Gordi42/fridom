@@ -98,6 +98,60 @@ def fourier_wavenumbers(factor: FourierSpace) -> jax.Array:
     return (TWO_PI / length) * modes
 
 
+def trig_wavenumbers(
+    factor: SineSpace | CosineSpace,
+) -> jax.Array:
+    """
+    Physical wavenumbers of a sine/cosine factor, in mode order.
+
+    Description
+    -----------
+    ``pi k / L`` for the mode tables of ``operators.trig``: sine
+    modes ``k = 1..shape`` (DST-II of ``Center`` origins and DST-I
+    of ``Inner`` origins both start at ``k = 1``), cosine modes
+    ``k = 0..shape-1`` (DCT-II).
+
+    Parameters
+    ----------
+    factor : SineSpace | CosineSpace
+        The (bare) trigonometric coefficient factor.
+
+    Returns
+    -------
+    jax.Array
+        The wavenumbers along the factor's axis.
+    """
+    n = factor.shape[0]
+    if isinstance(factor, SineSpace):
+        modes = jnp.arange(1, n + 1, dtype=dtype_real())
+    else:
+        modes = jnp.arange(n, dtype=dtype_real())
+    return (jnp.pi / _length(factor)) * modes
+
+
+def chebyshev_modes(factor: ChebyshevSpace) -> jax.Array:
+    """
+    Intrinsic mode indices of a Chebyshev factor.
+
+    Description
+    -----------
+    The Chebyshev basis is not wavenumber-indexed; per rules section
+    3.10 ``grid.wavenumbers`` returns the space's own mode indices
+    ``k = 0..n``.
+
+    Parameters
+    ----------
+    factor : ChebyshevSpace
+        The (bare) Chebyshev coefficient factor.
+
+    Returns
+    -------
+    jax.Array
+        The mode indices along the factor's axis.
+    """
+    return jnp.arange(factor.shape[0], dtype=dtype_real())
+
+
 def _length(factor: FunctionSpace) -> float:
     """Physical interval length of the factor's mesh."""
     extent = factor.mesh.extent

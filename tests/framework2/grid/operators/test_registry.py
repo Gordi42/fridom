@@ -1,14 +1,18 @@
 """Tests for OperatorRegistry: registration, resolution, merging."""
+from fractions import Fraction
+
 import pytest
 
 from fridom.framework2.grid.decomposition.layout import Layout
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.operators.base import (
     Dispatched,
+    OperatorRequirements,
     SeparableComposite,
 )
 from fridom.framework2.grid.operators.registry import (
     DispatchError,
+    LazyEntry,
     OperatorRegistry,
 )
 
@@ -272,3 +276,104 @@ def test_merge_resolves_scaled_and_sum_entries(mx, a, b):
     })
     merged = reg.merge({})
     assert merged[("diff", mx.center)] is (2.0 * b + a)
+
+
+# ================================================================
+#  Lazy entries (transform rows; grid lifecycle step 1)
+# ================================================================
+def test_lazy_entry_materializes_once_on_resolve(mx, a):
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return a
+
+    row = LazyEntry(factory)
+    reg = OperatorRegistry({("transform", mx.center): row,
+                            ("transform", mx.right): row})
+    # items() reports the entry without materializing
+    assert dict(reg.items())[("transform", mx.center)] is row
+    assert not calls
+    assert row.requirements(mx.center).halo == 0
+    resolved = reg.resolve("transform", mx.center)
+    assert resolved is a
+    # memoized: every key sharing the entry gets the same instance
+    assert reg.resolve("transform", mx.right) is a
+    assert reg[("transform", mx.center)] is a
+    assert len(calls) == 1
+
+
+def test_lazy_entry_declared_requirements(mx):
+    row = LazyEntry(lambda: None, requirements=OperatorRequirements(
+        halo=0, layout="transpose"))
+    assert row.requirements(mx.center).layout == "transpose"
+
+
+def test_lazy_entry_validates(mx):
+    with pytest.raises(TypeError, match="factory"):
+        LazyEntry("not callable")
+    row = LazyEntry(lambda: "not an operator")
+    reg = OperatorRegistry({("transform", mx.center): row})
+    with pytest.raises(TypeError, match="operators"):
+        reg.resolve("transform", mx.center)
+
+
+def test_lazy_product_resolution_shares_the_instance(mx, my, a):
+    row = LazyEntry(lambda: a)
+    reg = OperatorRegistry({("multiply", mx.center): row,
+                            ("multiply", my.center): row})
+    # form 2: both factors materialize the identical instance
+    assert reg.resolve("multiply", mx.center * my.center) is a
+
+
+# ================================================================
+#  Refined-mesh adoption (grid.md normative adoption paragraph)
+# ================================================================
+def test_refined_mesh_adopts_parent_rows(mx, a):
+    reg = OperatorRegistry({
+        ("multiply", mx.center): a,
+        ("multiply", mx.cell_avg): a,
+        ("multiply", mx.center.as_complex()): a,
+    })
+    fine = mx.refined(Fraction(3, 2))
+    # the same operator instances as the parent rows
+    assert reg.resolve("multiply", fine.center) is a
+    assert reg.resolve("multiply", fine.cell_avg) is a
+    assert reg.resolve("multiply", fine.center.as_complex()) is a
+    # nested refinement walks the whole chain
+    finer = fine.refined(2)
+    assert reg.resolve("multiply", finer.center) is a
+    # missing parent rows still raise
+    with pytest.raises(DispatchError, match="no operator"):
+        reg.resolve("divide", fine.center)
+
+
+def test_refined_adoption_covers_averages(mx, a):
+    reg = OperatorRegistry({("multiply", mx.cell_avg): a,
+                            ("multiply", mx.face_avg): a})
+    fine = mx.refined(2)
+    assert reg.resolve("multiply", fine.face_avg) is a
+
+
+def test_refined_adoption_stops_at_coefficient_factors(mx, a):
+    reg = OperatorRegistry({
+        ("multiply", mx.fourier(origin=mx.center)): a})
+    fine = mx.refined(2)
+    # coefficient rows are minted by their own transforms, never
+    # adopted along the refinement chain
+    with pytest.raises(DispatchError, match="no operator"):
+        reg.resolve("multiply", fine.fourier(origin=fine.center))
+
+
+def test_refined_adoption_covers_products(mx, my, a):
+    reg = OperatorRegistry({("multiply", mx.center): a,
+                            ("multiply", my.center): a})
+    fine = mx.refined(2)
+    assert reg.resolve("multiply", fine.center * my.center) is a
+
+
+def test_exact_key_beats_adoption(mx, a, b):
+    fine = mx.refined(2)
+    reg = OperatorRegistry({("multiply", mx.center): a,
+                            ("multiply", fine.center): b})
+    assert reg.resolve("multiply", fine.center) is b

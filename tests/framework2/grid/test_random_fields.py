@@ -87,6 +87,30 @@ def test_normal_hermitian_on_real_origin_fourier(mx):
     assert float(jnp.abs(f.data[1:-1].imag).min()) > 0.0
 
 
+def test_normal_hermitian_product_with_nodal_factor(mx, my):
+    # the half-spectrum factor is the sole complex carrier: the
+    # flat real-draw rule applies on the whole k = 0/Nyquist planes
+    grid = Grid((mx, my))
+    space = mx.fourier(origin=mx.center) * my.center
+    f = grid.random.normal(space, seed=3)
+    assert jnp.abs(f.data[0].imag).max() == 0.0
+    assert jnp.abs(f.data[-1].imag).max() == 0.0
+    assert float(jnp.abs(f.data[1:-1].imag).min()) > 0.0
+
+
+def test_normal_multi_axis_spectra_have_no_flat_real_plane():
+    # shared guard with the field factory (flat_hermitian_applies):
+    # with a second complex-carrying factor the invariant is the
+    # conjugate pairing, so no plane of forced-real draws applies
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    mp = IntervalMesh(4, (0.0, 2.0), name="p")
+    grid = Grid((mx, mp))
+    space = (mx.fourier(origin=mx.center)
+             * mp.fourier(origin=mp.center.as_complex()))
+    f = grid.random.normal(space, seed=4)
+    assert float(jnp.abs(f.data[0].imag).min()) > 0.0
+
+
 def test_normal_no_nyquist_on_odd_origin():
     mesh = IntervalMesh(9, (0.0, 1.0), name="x")
     grid = Grid((mesh,))

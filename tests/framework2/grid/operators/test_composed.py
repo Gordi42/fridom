@@ -7,9 +7,9 @@ from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.base import (
-    Composite,
     Identity,
     OperatorSum,
+    SeparableComposite,
     Zero,
 )
 from fridom.framework2.grid.operators.composed import (
@@ -145,7 +145,11 @@ def test_laplacian_expands_to_a_sum_of_chains(p, grid2):
     entry = block.rows[0][0]
     assert isinstance(entry, OperatorSum)
     assert len(entry.terms) == 2
-    assert all(isinstance(term, Composite) for term in entry.terms)
+    # per-axis second derivatives are the D5 SeparableComposites,
+    # bound to their axis (operator_algebra_merge.md B1)
+    assert all(isinstance(term, SeparableComposite)
+               for term in entry.terms)
+    assert {term.bound_axis for term in entry.terms} == {"x", "y"}
     # per-axis second derivatives: summed chain halo of 2
     assert block.requirements(p.function_space.bare).halo == 2
 
@@ -286,9 +290,9 @@ def test_block_matmul_absorbs_structural_zeros():
                         output_names=("a", "b"))
     product = left @ right
     # zero chains drop from the entry sums; fully cancelled
-    # entries stay structural zeros
+    # entries stay structural zeros; identity chains normalize
     assert isinstance(product.rows[0][0], Zero)
-    assert isinstance(product.rows[0][1], Composite)
+    assert isinstance(product.rows[0][1], Identity)
 
 
 def test_block_application_arity(grid2, mx, my):

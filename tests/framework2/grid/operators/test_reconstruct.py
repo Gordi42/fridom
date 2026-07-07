@@ -176,11 +176,10 @@ def test_metadata_is_kept(recon, mx):
 
 
 def test_reconstruct_needs_the_negotiated_halo(recon, mx):
-    # pinned to one device: the halo-0 reach check is asserted in
-    # the single-shard storage frame (blocked frames carry a stagger
-    # slot that masks it -- flagged for the wave-3 integration pass)
-    bare = Grid((mx,), dispatch=OperatorRegistry({}),
-                device_ids=(0,))  # halo 0
+    # the reach check is frame-independent (per-block stencil reach,
+    # never storage bounds), so it raises identically on the
+    # single-shard frame and on blocked multi-device frames
+    bare = Grid((mx,), dispatch=OperatorRegistry({}))  # halo 0
     f = bare.create_field(mx.cell_avg)
     with pytest.raises(ValueError, match="halo width 0"):
         recon["x"](f)

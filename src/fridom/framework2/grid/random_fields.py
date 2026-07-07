@@ -23,6 +23,7 @@ from fridom.framework.utils import dtype_real
 from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.grid.fields.storage import (
     factor_axes,
+    flat_hermitian_applies,
     self_conjugate_axis_indices,
     storage_dtype,
     store,
@@ -191,8 +192,15 @@ def _self_conjugate_mask(
     -----------
     A DOF is self-conjugate when its index is a self-conjugate mode
     (k = 0 / Nyquist) along **every** real-origin Fourier axis; the
-    draw must be real there (Hermitian value invariant, 3.2).
+    draw must be real there (Hermitian value invariant, 3.2). The
+    flat real-draw rule shares ``flat_hermitian_applies`` with the
+    field factory: on multi-axis coefficient spaces the invariant is
+    the conjugate *pairing*, which a plane of forced-real draws
+    would corrupt — no mask applies there (the pairing draw is
+    designed-for with the spectra ICs).
     """
+    if not flat_hermitian_applies(space):
+        return None
     mask = None
     ndim = len(space.shape)
     for factor, axis in factor_axes(space):

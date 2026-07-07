@@ -37,7 +37,6 @@ from fridom.framework2.grid.operators.transform import (
     axis_slice,
     axis_zeros,
 )
-from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.coefficient import FourierSpace
 from fridom.framework2.grid.spaces.nodal import NodeSet
 
@@ -131,24 +130,17 @@ class Fourier(Transform):
 
         Description
         -----------
-        The flat projection (exactly-real values at the
-        self-conjugate modes of the half-spectrum factor) is exact
-        only when that factor is the codomain's **sole**
-        complex-carrying factor: with further coefficient/complex
-        factors present the invariant is the conjugate *pairing*
-        ``c[0, ky] == conj(c[0, -ky])``, which the kernels satisfy by
-        construction (the schedule is an rfftn) and which a flat
-        imag-zeroing would corrupt. The same caveat applies to the
-        field factory's projection on raw data (reported at the
-        wave merge).
+        Delegates to ``storage.hermitian_project``, whose
+        ``flat_hermitian_applies`` guard makes the flat projection
+        fire only when the half-spectrum factor is the codomain's
+        sole complex-carrying factor: with further
+        coefficient/complex factors present the invariant is the
+        conjugate *pairing* ``c[0, ky] == conj(c[0, -ky])``, which
+        the kernels satisfy by construction (the schedule is an
+        rfftn) and which a flat imag-zeroing would corrupt. The
+        field factory and the random factory share the same guard.
         """
-        complex_factors = sum(
-            1 for factor in codomain.factors
-            if (isinstance(factor, FourierSpace)
-                or factor.scalars is Scalars.COMPLEX))
-        if complex_factors == 1:
-            return hermitian_project(data, codomain)
-        return data
+        return hermitian_project(data, codomain)
 
     def _forward_kernel(self, data: jax.Array,
                         stage: TransformStage) -> jax.Array:

@@ -10,6 +10,7 @@ from fridom.framework2.grid.decomposition.tensor import (
 )
 from fridom.framework2.grid.fields.storage import (
     factor_axes,
+    flat_hermitian_applies,
     hermitian_project,
     self_conjugate_axis_indices,
     storage_dtype,
@@ -96,6 +97,37 @@ def test_hermitian_project_noop_on_complex_origin_fourier(mx):
     space = mx.fourier(origin=mx.center.as_complex())
     data = jnp.full(space.shape, 1.0 + 1.0j)
     assert hermitian_project(data, space) is data
+
+
+def test_flat_hermitian_guard(mx, my):
+    mp = IntervalMesh(4, (0.0, 2.0), name="p")  # periodic
+    half_x = mx.fourier(origin=mx.center)
+    full_p = mp.fourier(origin=mp.center.as_complex())
+    assert flat_hermitian_applies(half_x)
+    assert flat_hermitian_applies(half_x * my.center)
+    assert not flat_hermitian_applies(mx.center * my.center)
+    assert not flat_hermitian_applies(full_p)  # no half factor
+    # half + a second complex-carrying factor: pairing, not flat
+    assert not flat_hermitian_applies(half_x * full_p)
+    assert not flat_hermitian_applies(
+        half_x * my.center.as_complex())
+
+
+def test_hermitian_project_preserves_multi_axis_spectra(mx):
+    # regression (wave-3 merge): on Fourier(x, half) x Fourier(p,
+    # full) the invariant is the conjugate *pairing* on the k=0 and
+    # Nyquist planes of the halved axis; flat imag-zeroing would
+    # corrupt a perfectly valid rfftn spectrum. Valid data must pass
+    # through unmodified.
+    mp = IntervalMesh(4, (0.0, 2.0), name="p")
+    space = (mx.fourier(origin=mx.center)
+             * mp.fourier(origin=mp.center.as_complex()))
+    values = jnp.arange(32.0).reshape(8, 4)
+    spectrum = jnp.fft.fft(
+        jnp.fft.rfft(values, axis=0, norm="forward"),
+        axis=1, norm="forward")
+    assert spectrum.shape == space.shape
+    assert hermitian_project(spectrum, space) is spectrum
 
 
 def test_store_roundtrips_through_unpad(mx, my):

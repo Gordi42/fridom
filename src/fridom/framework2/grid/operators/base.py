@@ -887,7 +887,16 @@ class SeparableComposite(SeparableOperator):
         return _chain_eigenvalues(self._factors, grid, space)
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
-        """Run each factor's kernel on ``axis``, right-to-left."""
+        """
+        Run each factor's kernel on ``axis``, right-to-left.
+
+        Description
+        -----------
+        Each stage is applied through its **bound** variant (D5:
+        binding distributes over the chain), so kernels that resolve
+        their codomain from ``self.bound_axis`` (the staggering
+        family) stay unambiguous on multi-axis operands.
+        """
         for op in reversed(self._factors):
             if isinstance(op, Dispatched):
                 from fridom.framework2.grid.operators.registry import (  # noqa: PLC0415
@@ -897,7 +906,7 @@ class SeparableComposite(SeparableOperator):
                     f"unresolved Dispatched({op.kind!r}) in the "
                     "chain; resolve it against a registry (merge) "
                     "before application")
-            f = op._apply_factor(f, axis)  # noqa: SLF001 — hook seam
+            f = op[axis]._apply_factor(f, axis)  # noqa: SLF001 — hook seam
         return f
 
 

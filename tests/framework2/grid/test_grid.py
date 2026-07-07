@@ -4,7 +4,10 @@ import pytest
 
 from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.errors import GridMismatchError
+from fridom.framework2.grid.errors import (
+    GridMismatchError,
+    SpaceMismatchError,
+)
 from fridom.framework2.grid.fields.metadata import FieldMetadata
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
@@ -118,9 +121,49 @@ def test_seeded_registry_covers_the_default_rows(grid, mx, my):
     with pytest.raises(DispatchError, match="abs"):
         registry.resolve("abs", mx.cell_avg)  # nodal-only by design
     with pytest.raises(DispatchError, match="diff"):
-        registry.resolve("diff", mx.fourier(origin=mx.center))
-    with pytest.raises(DispatchError, match="diff"):
         registry.resolve("diff", my.right)  # no bounded Right row
+
+
+def test_seeded_registry_covers_the_spectral_rows(grid, mx, my):
+    registry = grid.dispatch
+    spectral = registry.resolve("diff", mx.fourier(origin=mx.center))
+    assert type(spectral).__name__ == "SpectralDerivative"
+    assert spectral is registry.resolve(
+        "diff", mx.fourier(origin=mx.cell_avg))
+    dirichlet = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    assert spectral is registry.resolve("diff", my.sine(dirichlet))
+    # one-directional origin shifts to Center (wave-3B modules)
+    shift = registry.resolve(
+        "interpolate", mx.fourier(origin=mx.right))
+    assert type(shift).__name__ == "PhaseShift"
+    assert shift.to is NodeSet.CENTER
+    sinc = registry.resolve(
+        "interpolate", mx.fourier(origin=mx.cell_avg))
+    assert type(sinc).__name__ == "SincShift"
+    with pytest.raises(DispatchError, match="interpolate"):
+        # center origins need no shift; no row by design
+        registry.resolve("interpolate", mx.fourier(origin=mx.center))
+
+
+def test_seeded_registry_covers_the_transform_rows(grid, mx, my):
+    registry = grid.dispatch
+    fourier = registry.resolve("transform", mx.center)
+    assert type(fourier).__name__ == "Fourier"
+    assert fourier.grid is grid
+    assert fourier.axes == ("x",)  # periodic family axes only
+    # one shared lazy instance across the family's rows
+    assert fourier is registry.resolve("transform", mx.cell_avg)
+    assert fourier is registry.resolve(
+        "transform", mx.right.as_complex())
+    dirichlet = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    sine = registry.resolve("transform", dirichlet)
+    assert type(sine).__name__ == "Sine"
+    assert sine.axes == ("y",)
+    neumann = my.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    assert type(registry.resolve(
+        "transform", neumann)).__name__ == "Cosine"
+    with pytest.raises(DispatchError, match="transform"):
+        registry.resolve("transform", my.center)  # BC-free bounded
 
 
 # ================================================================
@@ -231,9 +274,15 @@ def test_default_space_needs_center_family():
 # ================================================================
 #  create_field — argument validation and metadata sugar
 # ================================================================
-def test_init_and_data_are_exclusive(grid):
-    with pytest.raises(ValueError, match="mutually exclusive"):
+def test_init_data_and_init_coeff_are_pairwise_exclusive(grid):
+    with pytest.raises(ValueError, match="pairwise"):
         grid.create_field(init=lambda x, y: x + y,
+                          data=jnp.zeros((8, 4)))
+    with pytest.raises(ValueError, match="pairwise"):
+        grid.create_field(init=lambda x, y: x + y,
+                          init_coeff=lambda kx, ky: kx + ky)
+    with pytest.raises(ValueError, match="pairwise"):
+        grid.create_field(init_coeff=lambda kx, ky: kx + ky,
                           data=jnp.zeros((8, 4)))
 
 
@@ -330,10 +379,94 @@ def test_init_signature_validated(grid):
         grid.create_field(init=lambda x, y, z: x + y + z)
 
 
-def test_init_on_coefficient_space_not_wired_yet(grid1d, mx):
-    with pytest.raises(NotImplementedError, match="transform"):
-        grid1d.create_field(mx.fourier(origin=mx.center),
-                            init=lambda x: x)
+def test_init_on_coefficient_space_composes_the_transform(grid1d,
+                                                          mx):
+    # discretize = transform o discretize-on-origin (rules 3.10)
+    coeff = mx.fourier(origin=mx.center)
+    f = grid1d.create_field(
+        coeff, init=lambda x: jnp.sin(2 * jnp.pi * x), name="f")
+    assert f.function_space.bare is coeff
+    assert f.name == "f"
+    # index-based amplitude convention with the Center half-cell
+    # inter-origin phase: c_1 = -i/2 * e^{i pi / 8}
+    expected = jnp.zeros(coeff.shape, complex).at[1].set(
+        -0.5j * jnp.exp(1j * jnp.pi / 8))
+    assert jnp.allclose(f.data, expected, atol=1e-14)
+
+
+def test_init_on_complex_full_spectrum_space(grid1d, mx):
+    coeff = mx.fourier(origin=mx.center.as_complex())
+    f = grid1d.create_field(
+        coeff, init=lambda x: jnp.exp(2j * jnp.pi * x))
+    assert f.function_space.bare is coeff
+    # a single mode 1 with the Center half-cell phase e^{i pi / 8}
+    expected = jnp.zeros(8, complex).at[1].set(
+        jnp.exp(1j * jnp.pi / 8))
+    assert jnp.allclose(f.data, expected, atol=1e-14)
+
+
+def test_init_on_multi_axis_coefficient_space(mx):
+    mp = IntervalMesh(4, (0.0, 2.0), name="p")
+    grid = Grid((mx, mp))
+    space = (mx.fourier(origin=mx.center)
+             * mp.fourier(origin=mp.center.as_complex()))
+
+    def init(x, p):
+        return jnp.sin(2 * jnp.pi * x) * (1.0 + jnp.cos(jnp.pi * p))
+
+    f = grid.create_field(space, init=init)
+    assert f.function_space.bare is space
+    t = grid.dispatch.resolve("transform", mx.center * mp.center)
+    reference = t.forward(grid.create_field(
+        mx.center * mp.center, init=init))
+    assert jnp.allclose(f.data, reference.data)
+
+
+def test_init_on_mixed_coefficient_nodal_space(grid, mx, my):
+    # only the coefficient factor's axis is transformed; the nodal
+    # factor stays collocated
+    space = mx.fourier(origin=mx.center) * my.center
+
+    def init(x, y):
+        return jnp.sin(2 * jnp.pi * x) * (1.0 + y)
+
+    f = grid.create_field(space, init=init)
+    assert f.function_space.bare is space
+    t = grid.dispatch.resolve("transform", mx.center)
+    reference = t.forward(grid.create_field(
+        mx.center * my.center, init=init))
+    assert jnp.allclose(f.data, reference.data)
+
+
+def test_init_on_unreachable_coefficient_mix_raises(mx):
+    # both axes requested as half spectra: the rfftn schedule puts
+    # the half spectrum on the first-listed axis only
+    mp = IntervalMesh(4, (0.0, 2.0), name="p")
+    grid = Grid((mx, mp))
+    both_half = (mx.fourier(origin=mx.center)
+                 * mp.fourier(origin=mp.center))
+    with pytest.raises(SpaceMismatchError, match="half spectrum"):
+        grid.create_field(both_half,
+                          init=lambda x, p: jnp.sin(x) + p)
+
+
+def test_init_coeff_skips_constant_factors(grid, mx, my):
+    space = mx.fourier(origin=mx.center) * my.constant
+    f = grid.create_field(space, init_coeff=lambda kx: kx + 1.0)
+    k = grid.wavenumbers(space, name="x")
+    assert jnp.allclose(f.data, k.data + 1.0)
+
+
+def test_init_coeff_assigns_at_the_wavenumbers(grid1d, mx):
+    coeff = mx.fourier(origin=mx.center)
+    f = grid1d.create_field(coeff,
+                            init_coeff=lambda kx: jnp.exp(-kx))
+    k = grid1d.wavenumbers(coeff).data
+    assert jnp.allclose(f.data, jnp.exp(-k))
+    with pytest.raises(TypeError, match="wavenumber names"):
+        grid1d.create_field(coeff, init_coeff=lambda x: x)
+    with pytest.raises(TypeError, match="coefficient space"):
+        grid1d.create_field(mx.center, init_coeff=lambda kx: kx)
 
 
 # ================================================================
@@ -432,9 +565,44 @@ def test_nodes_on_non_interval_mesh_not_implemented():
         grid.evaluation_nodes(cheb.outer)
 
 
-def test_wavenumbers_not_wired_yet(grid1d, mx):
-    with pytest.raises(NotImplementedError, match="transform"):
-        grid1d.wavenumbers(mx.fourier(origin=mx.center))
+def test_wavenumbers_fourier(grid1d, mx):
+    coeff = mx.fourier(origin=mx.center)
+    k = grid1d.wavenumbers(coeff)
+    assert k.function_space.bare is coeff
+    assert k.name == "kx"
+    assert jnp.allclose(k.data.real, 2 * jnp.pi * jnp.arange(5))
+    full = grid1d.wavenumbers(
+        mx.fourier(origin=mx.center.as_complex()))
+    assert jnp.allclose(full.data.real,
+                        2 * jnp.pi * jnp.fft.fftfreq(8, 1.0 / 8))
+
+
+def test_wavenumbers_trig_and_product(grid, mx, my):
+    dirichlet = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    sine = my.sine(dirichlet)
+    space = mx.center * sine
+    k = grid.wavenumbers(space, name="y")
+    # sine modes k = 1..n on L = 2: pi k / L; x replaced by constant
+    assert jnp.allclose(
+        k.data, (jnp.pi / 2.0) * jnp.arange(1, 5).reshape(1, 4))
+    assert k.function_space.bare.factor("y") is sine
+    neumann = my.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    cos = grid.wavenumbers(my.cosine(neumann))
+    assert jnp.allclose(cos.data, (jnp.pi / 2.0) * jnp.arange(4))
+
+
+def test_wavenumbers_chebyshev_mode_indices():
+    mz = ChebyshevMesh(8, (0.0, 1.0), name="z")
+    grid = Grid((mz,))
+    modes = grid.wavenumbers(mz.chebyshev(mz.lobatto))
+    assert jnp.allclose(modes.data, jnp.arange(9))
+
+
+def test_wavenumbers_rejects_non_coefficient_factors(grid1d, mx):
+    with pytest.raises(ValueError, match="no wavenumbers"):
+        grid1d.wavenumbers(mx.center)
+    with pytest.raises(ValueError, match="constant"):
+        grid1d.wavenumbers(mx.constant, name="x")
 
 
 def test_registry_halo_derivation_skips_unusable_entries(mx):

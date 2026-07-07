@@ -32,7 +32,6 @@ from typing import TYPE_CHECKING, Literal, final
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.operators.base import (
-    Composite,
     FieldLike,
     Operator,
     OperatorRequirements,
@@ -57,18 +56,15 @@ _CURL_3D = 3
 
 def _entry_chain(outer: Operator, inner: Operator) -> Operator:
     """
-    Compose two block entries into a whole-space chain.
+    Compose two block entries through the operator algebra.
 
     Description
     -----------
-    Deliberately a ``Composite`` (each factor applied bound, through
-    its full ``__call__``), not the ``SeparableComposite`` that
-    plain ``@`` would build: the Wave-2 staggering kernels
-    (read-only for this cluster) resolve their codomain from their
-    own binding rather than the chain-passed axis, which breaks the
-    stored-unbound separable chain on multi-axis operands. Halo
-    accounting stays sound — ``Composite`` sums factor halos — and
-    every factor application syncs (iteration-1 contract).
+    Plain ``@`` per the class doc (B1): same-axis bound entries
+    (the grad/div/laplacian case) yield the per-axis
+    ``SeparableComposite``, whose summed halo the chain consumes
+    kernel by kernel without intermediate syncs; anything else
+    falls back to the whole-space ``Composite`` the algebra builds.
 
     Parameters
     ----------
@@ -84,7 +80,7 @@ def _entry_chain(outer: Operator, inner: Operator) -> Operator:
     """
     if isinstance(outer, Zero) or isinstance(inner, Zero):
         return Zero()
-    return Composite((outer, inner))
+    return outer @ inner
 
 
 def _bindable_names(space: SpaceLike) -> tuple[str, ...]:

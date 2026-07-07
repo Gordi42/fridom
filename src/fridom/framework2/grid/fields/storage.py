@@ -111,6 +111,45 @@ def self_conjugate_axis_indices(
     return tuple(indices)
 
 
+def flat_hermitian_applies(space: SpaceLike) -> bool:
+    """
+    Whether the flat self-conjugate projection is exact on ``space``.
+
+    Description
+    -----------
+    The flat projection (exactly-real values at the self-conjugate
+    modes of a real-origin Fourier factor) is exact only when that
+    half-spectrum factor is the space's **sole** complex-carrying
+    factor. With further coefficient/complex factors present the
+    invariant is the conjugate *pairing* across the full-spectrum
+    axes on the ``k = 0``/Nyquist planes of the halved axis
+    (``c[0, ky] == conj(c[0, -ky])``), which flat imag-zeroing would
+    corrupt — a valid multi-axis rfftn spectrum must pass through
+    unmodified.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (product) function space.
+
+    Returns
+    -------
+    bool
+        True iff exactly one factor carries complex storage and it
+        is a real-origin Fourier factor.
+    """
+    complex_factors = 0
+    half_factors = 0
+    for factor in space.factors:
+        if isinstance(factor, FourierSpace):
+            complex_factors += 1
+            if factor.scalars is Scalars.REAL:
+                half_factors += 1
+        elif factor.scalars is Scalars.COMPLEX:
+            complex_factors += 1
+    return half_factors == 1 and complex_factors == 1
+
+
 def hermitian_project(
     data: jax.Array, space: SpaceLike,
 ) -> jax.Array:
@@ -119,10 +158,15 @@ def hermitian_project(
 
     Description
     -----------
-    Applied per real-origin Fourier factor on construction from raw
-    data (``create_field(..., data=...)``); real-linear operators
-    preserve the invariant automatically. A no-op on spaces without
-    real-origin Fourier factors.
+    Applied on construction from raw data (``create_field(...,
+    data=...)`` / ``init_coeff=``); real-linear operators preserve
+    the invariant automatically. The flat projection is exact only
+    when the half-spectrum factor is the sole complex-carrying
+    factor (``flat_hermitian_applies``); on multi-axis coefficient
+    spaces the invariant is the conjugate pairing, which this
+    projection must not touch — the data passes through unmodified
+    (validity is the caller's contract there). A no-op on spaces
+    without real-origin Fourier factors.
 
     Parameters
     ----------
@@ -136,10 +180,12 @@ def hermitian_project(
     jax.Array
         The projected array (``data`` itself when nothing applies).
     """
+    if not flat_hermitian_applies(space):
+        return data
     for factor, axis in factor_axes(space):
+        # under the guard the sole complex-carrying factor is the
+        # (real-origin) Fourier factor
         if not isinstance(factor, FourierSpace):
-            continue
-        if factor.scalars is not Scalars.REAL:
             continue
         mask_1d = jnp.zeros(factor.shape[0], dtype=bool)
         mask_1d = mask_1d.at[

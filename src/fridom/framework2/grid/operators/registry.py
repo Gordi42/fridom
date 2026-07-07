@@ -11,8 +11,18 @@ other kind (rules 3.4). Its *placement* — the grid owns one as
 seam; this module provides the mechanism only. A missing entry is a
 ``DispatchError`` (a registry error), deliberately distinct from
 ``SpaceMismatchError`` (a space error).
+
+Two lifecycle refinements land with the grid wiring (grid lifecycle,
+operators_composed.md "Transform rows are lazy factories" and the
+refined-mesh adoption paragraph): registry values may be
+``LazyEntry`` factories — the stored callable builds the grid-bound
+operator (a transform) on first ``resolve``, post-negotiation — and
+factor lookups fall back along the mesh ``refined_from`` chain, so
+spaces on adopted refined meshes resolve the parent mesh's rows with
+the same operator instances.
 """
-# Wave 2: OperatorRegistry, DispatchError
+# Wave 2: OperatorRegistry, DispatchError -- Wave 3D: LazyEntry,
+#    refined-mesh adoption
 from __future__ import annotations
 
 import functools
@@ -23,19 +33,23 @@ from fridom.framework2.grid.operators.base import (
     Composite,
     Dispatched,
     Operator,
+    OperatorRequirements,
     OperatorSum,
     ScaledOperator,
     SeparableComposite,
     resolve_codomain,
 )
+from fridom.framework2.grid.scalars import Scalars
+from fridom.framework2.grid.spaces.average import CellAvg, FaceAvg
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.function_space import FunctionSpace
+from fridom.framework2.grid.spaces.nodal import NodalSpace
 from fridom.framework2.grid.spaces.tensor_product import (
     TensorProductSpace,
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Callable, Iterator, Mapping
 
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
@@ -58,6 +72,77 @@ class DispatchError(KeyError):
     *not* a space error — operator application to a field outside a
     registered operator's domain raises ``SpaceMismatchError``.
     """
+
+
+@final
+class LazyEntry:
+
+    """
+    A lazy registry default: builds its operator on first resolve.
+
+    Description
+    -----------
+    The mechanism behind the lazily-seeded ``("transform", ...)``
+    rows (grid lifecycle step 1): the registry stores this callable
+    wrapper, and the grid-bound transform instance is constructed on
+    the first ``resolve`` — necessarily post-negotiation, which
+    breaks the ``Grid.__init__ -> Fourier(grid) ->
+    grid.decomposition`` construction cycle. Construction is
+    memoized on the entry, so every key sharing one ``LazyEntry``
+    materializes the identical instance (the form-2 product
+    resolution requires it). ``items()`` consumers (the halo trace)
+    read the *declared* requirements off the entry without
+    materializing.
+
+    Parameters
+    ----------
+    factory : Callable[[], Operator]
+        Zero-argument factory building the operator.
+    requirements : OperatorRequirements | None, optional
+        The declared per-factor requirements reported before
+        materialization (default: None, the zero record).
+    """
+
+    def __init__(
+        self,
+        factory: Callable[[], Operator],
+        requirements: OperatorRequirements | None = None,
+    ) -> None:
+        """Store the factory and the declared requirements."""
+        if not callable(factory):
+            raise TypeError(
+                f"lazy entries wrap a zero-argument factory, got "
+                f"{factory!r}")
+        self._factory: Callable[[], Operator] = factory
+        self._requirements: OperatorRequirements = (
+            OperatorRequirements() if requirements is None
+            else requirements)
+        self._instance: Operator | None = None
+
+    def materialize(self) -> Operator:
+        """Build (once) and return the wrapped operator."""
+        if self._instance is None:
+            self._instance = _check_operator(self._factory())
+        return self._instance
+
+    def requirements(
+        self,
+        domain: SpaceLike,  # noqa: ARG002 — declared, not resolved
+    ) -> OperatorRequirements:
+        """
+        Report the declared requirements (no materialization).
+
+        Parameters
+        ----------
+        domain : SpaceLike
+            The factor space the halo trace sizes on.
+
+        Returns
+        -------
+        OperatorRequirements
+            The declared per-factor requirements record.
+        """
+        return self._requirements
 
 
 @final
@@ -93,7 +178,7 @@ class OperatorRegistry:
         entries: dict[DispatchKey, Operator] = {}
         if defaults is not None:
             for key, op in defaults.items():
-                entries[_normalize_key(key)] = _check_operator(op)
+                entries[_normalize_key(key)] = _check_entry(op)
         #: layered entry dicts, outermost (highest precedence) first
         self._layers: tuple[dict[DispatchKey, Operator], ...] = (
             entries,)
@@ -129,7 +214,7 @@ class OperatorRegistry:
         nkey = _normalize_key(key)
         for layer in self._layers:
             if nkey in layer:
-                return layer[nkey]
+                return _materialize(layer[nkey])
         raise DispatchError(f"no exact entry for key {key!r}")
 
     def __setitem__(self, key: DispatchKey, op: Operator) -> None:
@@ -141,9 +226,9 @@ class OperatorRegistry:
         key : DispatchKey
             The kind or (kind, space) key.
         op : Operator
-            The operator to register.
+            The operator (or ``LazyEntry``) to register.
         """
-        self._layers[0][_normalize_key(key)] = _check_operator(op)
+        self._layers[0][_normalize_key(key)] = _check_entry(op)
 
     def __contains__(self, key: DispatchKey) -> bool:
         """Whether an exact entry exists for the key."""
@@ -229,7 +314,7 @@ class OperatorRegistry:
         """
         top: dict[DispatchKey, Operator] = {}
         for key, op in overrides.items():
-            top[_normalize_key(key)] = _check_operator(op)
+            top[_normalize_key(key)] = _check_entry(op)
         merged = OperatorRegistry()
         merged._layers = (top, *self._layers)
         for key, op in tuple(merged.items()):
@@ -244,14 +329,27 @@ class OperatorRegistry:
     def _lookup_factor(
         self, kind: str, factor: SpaceLike,
     ) -> Operator | None:
-        """Layer-major lookup: (kind, factor) beats kind-only."""
+        """
+        Layer-major lookup: (kind, factor) beats kind-only.
+
+        Description
+        -----------
+        Space keys walk the factor's refined-mesh **adoption chain**
+        (grid.md's normative adoption paragraph): a space on a
+        ``mesh.refined(...)`` descendant of a seeded mesh resolves
+        the parent's row — the same operator instance — so the
+        refined meshes minted by padded transforms after grid
+        construction get their product/stencil rows without
+        re-seeding.
+        """
         for layer in self._layers:
-            entry = layer.get((kind, factor))
-            if entry is not None:
-                return entry
+            for candidate in _adoption_chain(factor):
+                entry = layer.get((kind, candidate))
+                if entry is not None:
+                    return _materialize(entry)
             entry = layer.get(kind)
             if entry is not None:
-                return entry
+                return _materialize(entry)
         return None
 
     def _resolve_product(
@@ -283,7 +381,7 @@ class OperatorRegistry:
         for layer in self._layers:
             entry = layer.get((kind, product))
             if entry is not None:
-                return entry
+                return _materialize(entry)
         factors = tuple(f for f in product.factors
                         if not isinstance(f, ConstantSpace))
         if factors:
@@ -300,7 +398,7 @@ class OperatorRegistry:
         for layer in self._layers:
             entry = layer.get(kind)
             if entry is not None:
-                return entry
+                return _materialize(entry)
         raise DispatchError(
             f"no operator registered for kind {kind!r} on "
             f"{product!r}")
@@ -323,11 +421,58 @@ def _normalize_key(key: DispatchKey) -> DispatchKey:
 
 
 def _check_operator(op: Operator) -> Operator:
-    """Validate a registry value."""
+    """Validate a (materialized) operator value."""
     if not isinstance(op, Operator):
         raise TypeError(
             f"registry entries are operators, got {op!r}")
     return op
+
+
+def _check_entry(op: Operator | LazyEntry) -> Operator | LazyEntry:
+    """Validate a registry value (operator or lazy factory)."""
+    if isinstance(op, LazyEntry):
+        return op
+    return _check_operator(op)
+
+
+def _materialize(entry: Operator | LazyEntry) -> Operator:
+    """Build a lazy entry (memoized); pass operators through."""
+    if isinstance(entry, LazyEntry):
+        return entry.materialize()
+    return entry
+
+
+def _adoption_chain(factor: SpaceLike) -> Iterator[SpaceLike]:
+    """
+    Yield the factor, then its parent-mesh siblings (adoption).
+
+    Description
+    -----------
+    Walks doc 01's ``refined_from`` link: for each refinement parent
+    the *same* space family is interned on the parent mesh (nodal
+    node set + BC structure, cell/face averages; scalars carried
+    over). Families without a parent sibling (coefficient factors,
+    constants) end the walk — refined coefficient rows are minted by
+    their own transforms.
+    """
+    yield factor
+    current = factor
+    while True:
+        parent = getattr(current.mesh, "refined_from", None)
+        if parent is None:
+            return
+        if isinstance(current, NodalSpace):
+            sibling = parent.nodal(current.node_set, bc=current.bc)
+        elif isinstance(current, CellAvg):
+            sibling = parent.cell_avg
+        elif isinstance(current, FaceAvg):
+            sibling = parent.face_avg
+        else:
+            return
+        if current.scalars is Scalars.COMPLEX:
+            sibling = sibling.as_complex()
+        yield sibling
+        current = sibling
 
 
 # ================================================================

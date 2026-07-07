@@ -153,6 +153,27 @@ def test_result_metadata_is_default(fd, mx):
     assert fd["x"](f).name == "unnamed"  # new quantity
 
 
+def test_separable_chain_applies_on_multi_axis_fields(fd, mx):
+    # regression (wave-3A): the SeparableComposite applies its
+    # stored-unbound factors *bound* to the resolved axis, so the
+    # staggering kernels' codomain resolution stays unambiguous on
+    # >= 2-D operands (operator_algebra_merge.md D5 bound variants)
+    my2 = IntervalMesh(8, (0.0, 1.0), name="y")
+    grid = Grid((mx, my2))
+    f = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x)
+        * jnp.cos(2 * jnp.pi * y))
+    chain = (fd @ fd)["x"](f)
+    bound_chain = (fd["x"] @ fd["x"])(f)
+    sequential = f.diff("x").diff("x")
+    assert chain.function_space.bare is (
+        sequential.function_space.bare)
+    # a mid-chain sync is numerically transparent (T3): the fused
+    # chain and the synced sequential path agree bitwise
+    assert jnp.array_equal(chain.data, sequential.data)
+    assert jnp.array_equal(bound_chain.data, sequential.data)
+
+
 def test_order_6_needs_a_wider_halo_than_negotiated(mx):
     # provisional halo 2 (the seeded order-2 registry's widest
     # entry is the two-factor FV-derivative chain)

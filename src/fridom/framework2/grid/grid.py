@@ -29,7 +29,6 @@ from fridom.framework2.grid.decomposition.decomposition import (
     ReshardingReport,
     negotiate,
 )
-from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import (
     GridMismatchError,
     SpaceMismatchError,
@@ -43,6 +42,8 @@ from fridom.framework2.grid.fields.storage import (
     store,
 )
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.base import OperatorRequirements
+from fridom.framework2.grid.operators.chebyshev import Chebyshev
 from fridom.framework2.grid.operators.composed import (
     Curl,
     Divergence,
@@ -58,6 +59,7 @@ from fridom.framework2.grid.operators.flux_diff import (
     FluxDifference,
     FVDerivative,
 )
+from fridom.framework2.grid.operators.fourier import Fourier
 from fridom.framework2.grid.operators.integrate import Integral
 from fridom.framework2.grid.operators.interp import LinearInterp
 from fridom.framework2.grid.operators.products import (
@@ -69,14 +71,33 @@ from fridom.framework2.grid.operators.products import (
 from fridom.framework2.grid.operators.reconstruct import (
     LinearReconstruction,
 )
-from fridom.framework2.grid.operators.registry import OperatorRegistry
+from fridom.framework2.grid.operators.registry import (
+    LazyEntry,
+    OperatorRegistry,
+)
+from fridom.framework2.grid.operators.spectral import (
+    PhaseShift,
+    SincShift,
+    SpectralDerivative,
+    chebyshev_modes,
+    fourier_wavenumbers,
+    trig_wavenumbers,
+)
+from fridom.framework2.grid.operators.trig import Cosine, Sine
 from fridom.framework2.grid.random_fields import RandomFieldFactory
+from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.average import (
     AverageSpace,
     CellAvg,
     FaceAvg,
 )
-from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
+from fridom.framework2.grid.spaces.coefficient import (
+    ChebyshevSpace,
+    CoefficientSpace,
+    CosineSpace,
+    FourierSpace,
+    SineSpace,
+)
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 from fridom.framework2.grid.spaces.tensor_product import (
@@ -91,9 +112,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.decomposition.decomposition import (
         Decomposition,
     )
+    from fridom.framework2.grid.decomposition.halo import HaloSpec
     from fridom.framework2.grid.meshes.mesh import Mesh
     from fridom.framework2.grid.operators.base import Operator
     from fridom.framework2.grid.operators.registry import DispatchKey
+    from fridom.framework2.grid.operators.transform import Transform
     from fridom.framework2.grid.spaces.function_space import (
         FunctionSpace,
     )
@@ -154,7 +177,7 @@ class Grid:
         self._meshes: tuple[Mesh, ...] = meshes
         self._names: tuple[str, ...] = tuple(names)
         self._dispatch: object = (
-            _default_registry(meshes) if dispatch is None
+            _default_registry(self, meshes) if dispatch is None
             else dispatch)
         self._device_ids: tuple[int, ...] | None = device_ids
         self._frozen: bool = False
@@ -302,6 +325,7 @@ class Grid:
         space: SpaceLike | None = None,
         *,
         init: Callable[..., jax.Array] | None = None,
+        init_coeff: Callable[..., jax.Array] | None = None,
         data: jax.Array | None = None,
         name: str | None = None,
         units: str | None = None,
@@ -315,11 +339,16 @@ class Grid:
         The single field factory (rules section 3.10). ``init=``
         discretizes a function of physical coordinates
         (keyword-matched to coordinate names, collocation default);
-        ``data=`` takes a true-shape array (validated, dtype-coerced,
-        Hermitian-projected on real-origin Fourier factors); with
-        neither the field is zeros. Bare spaces get the
-        decomposition's default layout attached; laid-out spaces are
-        honored as given.
+        on coefficient spaces it composes with the forward transform
+        (discretize = transform o discretize-on-origin).
+        ``init_coeff=`` assigns coefficients directly, evaluated at
+        ``grid.wavenumbers(space)`` and keyword-matched to the
+        wavenumber names (``k<coordinate>``). ``data=`` takes a
+        true-shape array (validated, dtype-coerced,
+        Hermitian-projected on sole real-origin Fourier factors);
+        with none of the three the field is zeros. Bare spaces get
+        the decomposition's default layout attached; laid-out spaces
+        are honored as given.
 
         Parameters
         ----------
@@ -329,9 +358,12 @@ class Grid:
         init : Callable[..., jax.Array] | None, optional
             Function of the physical coordinates, matched by
             coordinate name (default: None).
+        init_coeff : Callable[..., jax.Array] | None, optional
+            Function of the wavenumbers/mode indices, matched by
+            ``k<coordinate>`` name (default: None).
         data : jax.Array | None, optional
-            True-shape array companion, mutually exclusive with
-            ``init`` (default: None).
+            True-shape array companion; ``init`` / ``init_coeff`` /
+            ``data`` are pairwise exclusive (default: None).
         name : str | None, optional
             Metadata name sugar (default: None).
         units : str | None, optional
@@ -345,9 +377,11 @@ class Grid:
         ScalarField
             The new field (padded, synced, on the laid-out space).
         """
-        if init is not None and data is not None:
+        if sum(arg is not None
+               for arg in (init, init_coeff, data)) > 1:
             raise ValueError(
-                "init= and data= are mutually exclusive")
+                "init=, init_coeff= and data= are pairwise "
+                "exclusive")
         if metadata is not None and (name is not None
                                      or units is not None):
             raise ValueError(
@@ -360,6 +394,10 @@ class Grid:
                 units=units if units is not None else "n/a")
         space = (self._default_space() if space is None
                  else self._laid_out(space))
+        if init is not None and any(
+                isinstance(factor, CoefficientSpace)
+                for factor in space.factors):
+            return self._transform_discretize(space, init, metadata)
         dtype = storage_dtype(space)
         if data is not None:
             arr = jnp.asarray(data)
@@ -376,6 +414,10 @@ class Grid:
             arr = hermitian_project(arr.astype(dtype), space)
         elif init is not None:
             arr = self._discretize(space, init).astype(dtype)
+        elif init_coeff is not None:
+            arr = hermitian_project(
+                self._assign_coeff(space, init_coeff).astype(dtype),
+                space)
         else:
             arr = jnp.zeros(space.shape, dtype)
         stored = store(self._decomposition, space, arr)
@@ -419,16 +461,7 @@ class Grid:
             The per-factor node coordinates as a field.
         """
         space = self._laid_out(space)
-        candidates = tuple(
-            coord for factor in space.factors
-            if not isinstance(factor, ConstantSpace)
-            for coord in factor.names)
-        if name is None:
-            if len(candidates) != 1:
-                raise ValueError(
-                    "the coordinate is ambiguous on this space; "
-                    f"pass name= (one of {candidates})")
-            name = candidates[0]
+        name = _pick_factor_name(space, name)
         factor = space.factor(name)
         if isinstance(factor, ConstantSpace):
             # a value error (bad name choice), not a type error
@@ -458,10 +491,60 @@ class Grid:
         space: SpaceLike,
         name: str | None = None,
     ) -> ScalarField:
-        """Wavenumbers (or mode indices) of a coefficient space."""
-        raise NotImplementedError(
-            "wavenumbers arrives with the transform cluster "
-            "(Wave-2 operators merge)")
+        """
+        Wavenumbers (or mode indices) of a coefficient space.
+
+        Description
+        -----------
+        The coefficient-side coordinate accessor (rules section
+        3.10): physical wavenumbers for the wavenumber-indexed bases
+        (Fourier ``2 pi m / L`` in storage layout, sine/cosine
+        ``pi k / L`` in mode order) and the intrinsic mode indices
+        for bases that are not (Chebyshev). Delegates to the
+        ``operators.spectral`` helpers. The result is tagged with
+        the querying space, all other factors replaced by their
+        ``ConstantSpace`` (section 3.3), named ``k<name>``.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying space (mandatory; no default form).
+        name : str | None, optional
+            The coordinate whose wavenumbers to materialize; may be
+            omitted when unambiguous (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The per-factor wavenumbers as a field.
+        """
+        space = self._laid_out(space)
+        name = _pick_factor_name(space, name)
+        factor = space.factor(name)
+        if isinstance(factor, ConstantSpace):
+            # a value error (bad name choice), not a type error
+            raise ValueError(  # noqa: TRY004
+                f"factor {factor!r} is constant along {name!r}; "
+                "constant factors carry no wavenumbers")
+        if not isinstance(factor, CoefficientSpace):
+            raise ValueError(  # noqa: TRY004 — value, not type
+                f"factor {factor!r} carries no wavenumbers; "
+                "physical coordinates live on "
+                "grid.evaluation_nodes(space)")
+        values = _wavenumber_vector(factor)
+        bare_factors = tuple(
+            f if f is factor else f.mesh.constant
+            for f in space.factors)
+        result: SpaceLike = (
+            bare_factors[0] if len(bare_factors) == 1
+            else TensorProductSpace.of(*bare_factors))
+        # `space` went through _laid_out, so its layout is never None
+        result = result.with_layout(space.layout)
+        data = values.reshape(result.shape).astype(
+            storage_dtype(result))
+        stored = store(self._decomposition, result, data)
+        return ScalarField(self, result, stored,
+                           FieldMetadata.create(name=f"k{name}"))
 
     def measure(
         self,
@@ -499,16 +582,7 @@ class Grid:
             The per-factor measure weights as a field.
         """
         space = self._laid_out(space)
-        candidates = tuple(
-            coord for factor in space.factors
-            if not isinstance(factor, ConstantSpace)
-            for coord in factor.names)
-        if name is None:
-            if len(candidates) != 1:
-                raise ValueError(
-                    "the coordinate is ambiguous on this space; "
-                    f"pass name= (one of {candidates})")
-            name = candidates[0]
+        name = _pick_factor_name(space, name)
         factor = space.factor(name)
         if isinstance(factor, ConstantSpace):
             # a value error (bad name choice), not a type error
@@ -590,12 +664,6 @@ class Grid:
         for factor in space.factors:
             if isinstance(factor, ConstantSpace):
                 continue
-            if isinstance(factor, CoefficientSpace):
-                raise NotImplementedError(
-                    "init= on coefficient spaces composes with the "
-                    "forward transform (discretize = transform o "
-                    "discretize_origin); it arrives with the "
-                    "Wave-2 operators merge")
             required.extend(factor.names)
         params = tuple(inspect.signature(init).parameters)
         if set(params) != set(required):
@@ -614,6 +682,194 @@ class Grid:
                 shape)
         values = jnp.asarray(init(**coords))
         return jnp.broadcast_to(values, space.shape)
+
+    def _transform_discretize(
+        self,
+        space: SpaceLike,
+        init: Callable[..., jax.Array],
+        metadata: FieldMetadata | None,
+    ) -> ScalarField:
+        """
+        ``init=`` on coefficient spaces (rules section 3.10).
+
+        Description
+        -----------
+        discretize = transform o discretize-on-origin: the field is
+        collocated on the coefficient factors' origin spaces and
+        pushed forward through the per-family transforms (explicit
+        per-axes construction, operators_composed.md). When the
+        requested space carries a Hermitian half-spectrum factor the
+        represented function is real, so the collocation runs on the
+        real origins (the rfftn schedule then reproduces the
+        requested factor mix); a requested mix the planner cannot
+        produce raises ``SpaceMismatchError``.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The laid-out target space (>= 1 coefficient factor).
+        init : Callable[..., jax.Array]
+            Function of the physical coordinates.
+        metadata : FieldMetadata | None
+            Annotation metadata of the result.
+
+        Returns
+        -------
+        ScalarField
+            The coefficient-space field.
+        """
+        bare = space.bare
+        half = any(
+            isinstance(factor, FourierSpace)
+            and factor.scalars is Scalars.REAL
+            for factor in bare.factors)
+        groups: dict[type[Transform], list[str]] = {}
+        origin_factors: list[FunctionSpace] = []
+        for factor in bare.factors:
+            if isinstance(factor, CoefficientSpace):
+                groups.setdefault(
+                    _transform_family(factor), []).extend(
+                    factor.names)
+                origin = factor.origin
+                if half:
+                    origin = origin.as_real()
+                origin_factors.append(origin)
+            else:
+                origin_factors.append(factor)
+        origin_space: SpaceLike = (
+            origin_factors[0] if len(origin_factors) == 1
+            else TensorProductSpace.of(*origin_factors))
+        # `space` went through _laid_out, so its layout is never None
+        origin_space = origin_space.with_layout(space.layout)
+        field = self.create_field(origin_space, init=init,
+                                  metadata=metadata)
+        for family, axes in groups.items():
+            field = family(self, axes=tuple(axes)).forward(field)
+        if field.function_space.bare is not bare:
+            raise SpaceMismatchError(
+                "init= on a coefficient space composes with the "
+                "forward transform, which lands on "
+                f"{field.function_space.bare!r}, not the requested "
+                f"{bare!r} (multi-axis real transforms put the half "
+                "spectrum on the first-listed axis)",
+                left=field.function_space.bare, right=bare,
+                operation="create_field")
+        return field
+
+    def _assign_coeff(
+        self,
+        space: SpaceLike,
+        init_coeff: Callable[..., jax.Array],
+    ) -> jax.Array:
+        """
+        Inline default of the ``("assign_coeff", space)`` row.
+
+        Description
+        -----------
+        Assignment of coefficients, not projection (rules section
+        3.10): keyword-match ``init_coeff`` against the wavenumber
+        names ``k<coordinate>``, broadcast the per-factor
+        wavenumber/mode vectors transiently, and evaluate.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The (laid-out) coefficient target space.
+        init_coeff : Callable[..., jax.Array]
+            Function of the wavenumbers/mode indices.
+
+        Returns
+        -------
+        jax.Array
+            The true-shape coefficient array.
+        """
+        required: list[str] = []
+        for factor in space.factors:
+            if isinstance(factor, ConstantSpace):
+                continue
+            if not isinstance(factor, CoefficientSpace):
+                raise TypeError(
+                    "init_coeff= assigns coefficients: every "
+                    "non-constant factor must be a coefficient "
+                    f"space, got {factor!r} (mixed spaces take "
+                    "data=)")
+            required.append(f"k{factor.names[0]}")
+        params = tuple(inspect.signature(init_coeff).parameters)
+        if set(params) != set(required):
+            raise TypeError(
+                "init_coeff= callables must name exactly the "
+                f"wavenumber names {tuple(required)}, got {params}")
+        coords: dict[str, jax.Array] = {}
+        ndim = len(space.shape)
+        for factor, axis in factor_axes(space):
+            if isinstance(factor, ConstantSpace):
+                continue
+            shape = [1] * ndim
+            shape[axis] = factor.shape[0]
+            coords[f"k{factor.names[0]}"] = _wavenumber_vector(
+                factor).reshape(shape)
+        values = jnp.asarray(init_coeff(**coords))
+        return jnp.broadcast_to(values, space.shape)
+
+
+def _pick_factor_name(space: SpaceLike, name: str | None) -> str:
+    """
+    Resolve the coordinate name of a per-factor accessor query.
+
+    Description
+    -----------
+    Shared by ``evaluation_nodes`` / ``wavenumbers`` / ``measure``:
+    ``name`` may be omitted exactly when the space contributes one
+    non-``ConstantSpace`` coordinate.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (laid-out) querying space.
+    name : str | None
+        The requested coordinate, or None for the unambiguous case.
+
+    Returns
+    -------
+    str
+        The resolved coordinate name.
+    """
+    if name is not None:
+        return name
+    candidates = tuple(
+        coord for factor in space.factors
+        if not isinstance(factor, ConstantSpace)
+        for coord in factor.names)
+    if len(candidates) != 1:
+        raise ValueError(
+            "the coordinate is ambiguous on this space; "
+            f"pass name= (one of {candidates})")
+    return candidates[0]
+
+
+def _wavenumber_vector(factor: CoefficientSpace) -> jax.Array:
+    """
+    Materialize the 1D wavenumber/mode vector of one factor.
+
+    Parameters
+    ----------
+    factor : CoefficientSpace
+        The bare coefficient factor space.
+
+    Returns
+    -------
+    jax.Array
+        The wavenumbers (or mode indices), matching
+        ``factor.shape``.
+    """
+    if isinstance(factor, FourierSpace):
+        return fourier_wavenumbers(factor)
+    if isinstance(factor, SineSpace | CosineSpace):
+        return trig_wavenumbers(factor)
+    if isinstance(factor, ChebyshevSpace):
+        return chebyshev_modes(factor)
+    raise NotImplementedError(
+        f"wavenumbers of {factor!r} are not defined in iteration 1")
 
 
 # ================================================================
@@ -786,6 +1042,31 @@ def _measure_geometry(
 _NODAL_FACTORIES = ("center", "left", "right", "outer", "inner")
 _AVERAGE_FACTORIES = ("cell_avg", "face_avg")
 
+# coefficient-space family -> transform class (explicit per-axes
+# construction is the sanctioned non-registry path)
+_TRANSFORM_FAMILY: tuple[tuple[type[CoefficientSpace],
+                               type[Transform]], ...] = (
+    (FourierSpace, Fourier),
+    (SineSpace, Sine),
+    (CosineSpace, Cosine),
+    (ChebyshevSpace, Chebyshev),
+)
+
+# declared requirements of the lazily-seeded transform rows (the
+# halo trace reads them off the LazyEntry without materializing)
+_TRANSFORM_REQUIREMENTS = OperatorRequirements(
+    halo=0, layout="transpose")
+
+
+def _transform_family(factor: CoefficientSpace) -> type[Transform]:
+    """Map a coefficient factor to its transform class."""
+    for space_cls, transform_cls in _TRANSFORM_FAMILY:
+        if isinstance(factor, space_cls):
+            return transform_cls
+    raise NotImplementedError(
+        f"no transform family is defined for {factor!r} in "
+        "iteration 1")
+
 
 def _family_spaces(
     mesh: Mesh, attrs: tuple[str, ...],
@@ -800,14 +1081,15 @@ def _family_spaces(
     return tuple(spaces)
 
 
-def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
+def _default_registry(
+    grid: Grid, meshes: tuple[Mesh, ...],
+) -> OperatorRegistry:
     """
     Seed the default iteration-1 ``OperatorRegistry``.
 
     Description
     -----------
-    Grid-free entries only (grid lifecycle step 1), one row per
-    factor space instance of the meshes' space families
+    One row per factor space instance of the meshes' space families
     (operators_composed.md default entry table, iteration-1 subset):
     ``("diff", nodal)`` -> ``FiniteDifference(order=2)`` and
     ``("interpolate", nodal)`` -> ``LinearInterp()`` wherever the
@@ -827,12 +1109,23 @@ def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
     *and* average factors (one shared instance per kind — the
     registry's form-2 product resolution requires it) and ``abs`` on
     nodal factors only, each seeded for the real space and its
-    complex variant; and the kind-only ``"grad"``/``"div"``/
-    ``"curl"``/``"laplacian"`` builder rows. Coefficient and
-    constant factors deliberately get no rows.
+    complex variant; the kind-only ``"grad"``/``"div"``/``"curl"``/
+    ``"laplacian"`` builder rows; the coefficient-space rows —
+    ``("diff", coefficient)`` -> ``SpectralDerivative()`` and the
+    one-directional ``("interpolate", Fourier(origin != Center))``
+    -> ``PhaseShift(to=CENTER)`` / average-origin -> ``SincShift(
+    to=CENTER)`` shifts; and the **lazily seeded**
+    ``("transform", space)`` rows — one grid-closing ``LazyEntry``
+    per family, constructed on first resolve, post-negotiation
+    (grid lifecycle step 1). ``ConstantSpace`` factors deliberately
+    get no rows.
 
     Parameters
     ----------
+    grid : Grid
+        The grid under construction (captured by the lazy
+        transform factories only; nothing grid-bound is built
+        during seeding).
     meshes : tuple[Mesh, ...]
         The grid's mesh factors.
 
@@ -870,6 +1163,7 @@ def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
         for space in nodal:
             for variant in (space, space.as_complex()):
                 entries[("abs", variant)] = abs_op
+    _seed_transform_rows(grid, meshes, entries)
     entries["grad"] = Gradient()
     entries["div"] = Divergence()
     entries["curl"] = Curl()
@@ -879,6 +1173,162 @@ def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
     # override set): day-one `f.diff` on average spaces needs a
     # concrete chain, and merge_overrides is not implemented yet
     return OperatorRegistry(entries).merge({})
+
+
+def _probe(factory: Callable[[], object]) -> object | None:
+    """Call a space factory; None where the family is absent."""
+    try:
+        return factory()
+    except (AttributeError, TypeError, ValueError,
+            NotImplementedError):
+        return None
+
+
+def _seed_transform_rows(
+    grid: Grid,
+    meshes: tuple[Mesh, ...],
+    entries: dict[DispatchKey, Operator],
+) -> None:
+    """
+    Seed the transform and coefficient-space rows.
+
+    Description
+    -----------
+    Per transform family, collect the origin spaces its meshes
+    ground (Fourier: nodal + average families of periodic meshes,
+    real and complex; Sine/Cosine: Dirichlet/Neumann-structured
+    origins of bounded meshes; Chebyshev: the Gauss-Lobatto space)
+    and seed one shared ``LazyEntry`` under every ``("transform",
+    origin)`` key — the grid-bound instance (all family axes) is
+    constructed on first resolve, post-negotiation. The families'
+    coefficient spaces get the ``("diff", ...)`` ->
+    ``SpectralDerivative`` rows (probed: the I-type sine pair has
+    no iteration-1 derivative) and the one-directional
+    ``("interpolate", ...)`` origin shifts to Center.
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid under construction (captured by the factories).
+    meshes : tuple[Mesh, ...]
+        The grid's mesh factors.
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    """
+    spectral = SpectralDerivative()
+    phase_shift = PhaseShift(to=NodeSet.CENTER)
+    sinc_shift = SincShift(to=NodeSet.CENTER)
+    families: dict[type[Transform],
+                   tuple[list[FunctionSpace], list[str]]] = {}
+    for mesh in meshes:
+        for family, origin in _transform_origins(mesh):
+            origins, axes = families.setdefault(family, ([], []))
+            for name in mesh.names:
+                if name not in axes:
+                    axes.append(name)
+            for variant in (origin, origin.as_complex()):
+                origins.append(variant)
+                coeff = _probe(
+                    lambda v=variant, m=mesh:
+                    _coefficient_space(m, v))
+                if coeff is not None:
+                    _seed_coefficient_rows(entries, coeff, spectral,
+                                           phase_shift, sinc_shift)
+    for family, (origins, axes) in families.items():
+        row = LazyEntry(
+            lambda f=family, a=tuple(axes): f(grid, axes=a),
+            requirements=_TRANSFORM_REQUIREMENTS)
+        for origin in origins:
+            entries[("transform", origin)] = row
+
+
+def _transform_origins(
+    mesh: Mesh,
+) -> tuple[tuple[type[Transform], FunctionSpace], ...]:
+    """
+    Collect the (family, origin) pairs one mesh grounds.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        One grid mesh factor.
+
+    Returns
+    -------
+    tuple[tuple[type[Transform], FunctionSpace], ...]
+        The transform family and (real) origin space pairs.
+    """
+    pairs: list[tuple[type[Transform], FunctionSpace]] = []
+    if getattr(mesh, "periodic", False):
+        for attr in _NODAL_FACTORIES + _AVERAGE_FACTORIES:
+            origin = _probe(lambda a=attr, m=mesh: getattr(m, a))
+            if origin is None or _probe(
+                    lambda o=origin, m=mesh:
+                    m.fourier(origin=o)) is None:
+                continue  # family or Fourier signature absent
+            pairs.append((Fourier, origin))
+        return tuple(pairs)
+    candidates = (
+        (Sine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)),
+        (Sine, lambda m: m.nodal(NodeSet.INNER, bc=BC.DIRICHLET)),
+        (Cosine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.NEUMANN)),
+    )
+    for family, factory in candidates:
+        origin = _probe(lambda f=factory, m=mesh: f(m))
+        if origin is not None:
+            pairs.append((family, origin))
+    if hasattr(mesh, "chebyshev"):
+        lobatto = _probe(lambda m=mesh: m.outer)
+        if lobatto is not None:
+            pairs.append((Chebyshev, lobatto))
+    return tuple(pairs)
+
+
+def _coefficient_space(
+    mesh: Mesh, origin: FunctionSpace,
+) -> CoefficientSpace:
+    """Build the family coefficient space of one origin."""
+    if getattr(mesh, "periodic", False):
+        return mesh.fourier(origin=origin)
+    if hasattr(mesh, "chebyshev"):
+        return mesh.chebyshev(origin)
+    components = origin.bc.components
+    if all(kind is BC.DIRICHLET for kind in components):
+        return mesh.sine(origin)
+    return mesh.cosine(origin)
+
+
+def _seed_coefficient_rows(
+    entries: dict[DispatchKey, Operator],
+    coeff: CoefficientSpace,
+    spectral: Operator,
+    phase_shift: Operator,
+    sinc_shift: Operator,
+) -> None:
+    """
+    Seed the rows of one coefficient space.
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    coeff : CoefficientSpace
+        The interned coefficient space.
+    spectral : Operator
+        The shared ``SpectralDerivative`` instance.
+    phase_shift : Operator
+        The shared ``PhaseShift(to=CENTER)`` instance.
+    sinc_shift : Operator
+        The shared ``SincShift(to=CENTER)`` instance.
+    """
+    _seed_signature_rows(entries, (coeff,), (spectral,))
+    if not isinstance(coeff, FourierSpace):
+        return
+    origin = coeff.origin
+    if isinstance(origin, AverageSpace):
+        entries[("interpolate", coeff)] = sinc_shift
+    elif origin.node_set is not NodeSet.CENTER:
+        entries[("interpolate", coeff)] = phase_shift
 
 
 def _seed_signature_rows(
@@ -940,47 +1390,3 @@ def _seed_reconstruct_rows(
         entries[("reconstruct", space)] = reconstruct
         if isinstance(codomain, AverageSpace):
             entries[("average", space)] = reconstruct
-
-
-def _registry_halo(
-    names: tuple[str, ...], dispatch: object,
-) -> HaloSpec:
-    """
-    Derive the provisional halo from a dispatch registry.
-
-    Description
-    -----------
-    The per-operator maximum of ``requirements(space).halo`` over
-    the registry's space-keyed entries, per coordinate name (grid
-    lifecycle step 2) — exact under the iteration-1
-    sync-after-every-operator contract. A duck-typed registry
-    without an ``items`` surface contributes nothing (zero halo).
-
-    Parameters
-    ----------
-    names : tuple[str, ...]
-        The grid's coordinate names.
-    dispatch : object
-        The (duck-typed) operator registry.
-
-    Returns
-    -------
-    HaloSpec
-        The per-name provisional ghost widths.
-    """
-    widths = dict.fromkeys(names, 0)
-    items = getattr(dispatch, "items", None)
-    if not callable(items):
-        return HaloSpec(widths)
-    for key, op in items():
-        if not isinstance(key, tuple):
-            continue  # kind-only entries carry no space to size on
-        space = key[1]
-        requirements = getattr(op, "requirements", None)
-        if requirements is None:
-            continue
-        halo = requirements(space).halo
-        for name in space.names:
-            if name in widths:
-                widths[name] = max(widths[name], halo)
-    return HaloSpec(widths)
