@@ -19,18 +19,25 @@ allocation (step 8, all owners) and ``update_parameters`` (changed
 owners only, host-writable entries skipped — CS-2).
 """
 # Wave 3 A: ParameterBinding(Table), Params, RematerializationTable
+# Wave 4 A: assemble() (the nine-step pipeline, steps 1-7 + 9),
+#    AssemblyArtifacts, AssemblyRecord, Fingerprint
 from __future__ import annotations
 
+import hashlib
 import numbers
 from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Literal, NamedTuple
+from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 
 import jax.numpy as jnp
 
 from fridom.framework.utils import jaxify
+from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.fields.scalar_field import ScalarField
+from fridom.framework2.grid.fields.vector_field import VectorField
+from fridom.framework2.model.composer import TendencyComposer
+from fridom.framework2.model.context import StepContext
 from fridom.framework2.model.declarations import (
     Lifecycle,
     _leads_with_self,
@@ -40,6 +47,8 @@ from fridom.framework2.model.errors import (
     MissingParameterError,
     ParameterCollisionError,
 )
+from fridom.framework2.model.field_table import FieldRecord, FieldTable
+from fridom.framework2.model.module import BindParameterView
 from fridom.framework2.model.parameters import (
     REQUIRED,
     USE_PROVIDED,
@@ -48,18 +57,42 @@ from fridom.framework2.model.parameters import (
     ParameterReference,
 )
 from fridom.framework2.model.params import TIME_STEP, ParamName
-from fridom.framework2.model.time_dependent import resolve_at
+from fridom.framework2.model.report import (
+    RUN_START_PLACEHOLDER,
+    AssemblyReport,
+)
+from fridom.framework2.model.roles import ADVECTED
+from fridom.framework2.model.schedule import (
+    Schedule,
+    apply_replace,
+    evaluate_entry,
+)
+from fridom.framework2.model.space_patterns import (
+    SpacePattern,
+    SpaceRule,
+)
+from fridom.framework2.model.stages import StageKind
+from fridom.framework2.model.terms import TendencyTerm, Treatment
+from fridom.framework2.model.time_dependent import (
+    TimeDependent,
+    resolve_at,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Iterator
 
     import jax
 
+    from fridom.framework2.grid.decomposition.decomposition import (
+        ReshardingReport,
+    )
     from fridom.framework2.grid.grid import Grid
     from fridom.framework2.grid.spaces.tensor_product import (
+        SpaceLike,
         TensorProductSpace,
     )
     from fridom.framework2.model.declarations import FieldDeclaration
+    from fridom.framework2.model.stages import Stage
 
 # used as "attribute absent" marker (None is a legal leaf value)
 _MISSING = object()
@@ -983,7 +1016,1143 @@ def _materialize_entry(
 
 
 # ================================================================
-#  Wave 4: the nine-step pipeline function, AssemblyRecord, and
-#  Fingerprint land here (model.md sections 2, "AssemblyRecord",
-#  and "AssemblyReport (+ Fingerprint)").
+#  Wave 4: the nine-step assembly pipeline (steps 1-7 + 9; step 8,
+#  carry allocation, is wave 4.2), AssemblyRecord, Fingerprint,
+#  AssemblyArtifacts (model.md sections 2, "AssemblyRecord",
+#  "AssemblyReport (+ Fingerprint)").
 # ================================================================
+
+
+# ================================================================
+#  Small assembly-time views
+# ================================================================
+class _StateSpaceMapping:
+
+    """
+    Name-keyed state spaces handed to ``grid.negotiate``.
+
+    Description
+    -----------
+    The halo trace needs a NAME-KEYED tracer state (attribution and
+    the per-field negotiation key on component names — the Phase-2
+    reconciliation amendment), so ``trace_halo`` consumes ``items()``.
+    The grid's bookkeeping paths, however, iterate the state spaces
+    directly (``for s in state_spaces``); this view therefore
+    iterates its VALUES, satisfying both consumers without touching
+    grid code.
+
+    Parameters
+    ----------
+    spaces : Mapping[str, SpaceLike]
+        The resolved bare spaces, keyed by declared field name.
+    """
+
+    __slots__ = ("_spaces",)
+
+    def __init__(self, spaces: Mapping[str, SpaceLike]) -> None:
+        """Freeze the name -> space mapping (declaration order)."""
+        self._spaces: dict[str, SpaceLike] = dict(spaces)
+
+    def items(self) -> Iterable[tuple[str, SpaceLike]]:
+        """Return the (name, space) pairs (the halo-trace side)."""
+        return self._spaces.items()
+
+    def keys(self) -> Iterable[str]:
+        """Return the declared field names."""
+        return self._spaces.keys()
+
+    def values(self) -> Iterable[SpaceLike]:
+        """Return the resolved bare spaces."""
+        return self._spaces.values()
+
+    def __getitem__(self, name: str) -> SpaceLike:
+        """Return the space of one declared field."""
+        return self._spaces[name]
+
+    def __iter__(self) -> Iterator[SpaceLike]:
+        """Iterate the SPACES (grid bookkeeping iterates directly)."""
+        return iter(self._spaces.values())
+
+    def __len__(self) -> int:
+        """Return the number of declared fields."""
+        return len(self._spaces)
+
+    def __repr__(self) -> str:
+        """Compact name-keyed summary."""
+        return f"_StateSpaceMapping({sorted(self._spaces)!r})"
+
+
+class _BindTable:
+
+    """
+    The bind-time table handed to ``Module.bind`` (step 4).
+
+    Description
+    -----------
+    The resolved `FieldTable` query surface plus the ``parameters``
+    attribute: a `BindParameterView` over the binding table's live
+    leaves — bare reads of `TimeDependent` values raise
+    ``TimeDependentParameterError`` unless spelled ``at_time(0.0)``
+    (the bind/in-step split, D2.1). Everything else delegates to the
+    frozen field table, including ``grid`` (which exposes the
+    registry AS MERGED — step 3 runs before step 4, load-bearing).
+
+    Parameters
+    ----------
+    table : FieldTable
+        The resolved, frozen field table (step 1).
+    parameters : BindParameterView
+        The gated bind-time parameter view (step 2 values).
+    """
+
+    __slots__ = ("_table", "parameters")
+
+    def __init__(
+        self,
+        table: FieldTable,
+        parameters: BindParameterView,
+    ) -> None:
+        """Pair the frozen table with the gated parameter view."""
+        self._table = table
+        self.parameters = parameters
+
+    def __getattr__(self, name: str) -> object:
+        """Delegate everything else to the field table."""
+        return getattr(self._table, name)
+
+    def __getitem__(self, name: str) -> FieldRecord:
+        """Return the resolved row of one declared field."""
+        return self._table[name]
+
+    def __contains__(self, name: str) -> bool:
+        """Whether ``name`` is a declared field."""
+        return name in self._table
+
+    def __iter__(self) -> Iterator[FieldRecord]:
+        """Iterate the resolved rows, declaration order."""
+        return iter(self._table)
+
+    def __len__(self) -> int:
+        """Return the number of declared fields."""
+        return len(self._table)
+
+    def __repr__(self) -> str:
+        """Bind-table summary referencing the field table."""
+        return f"<bind table over {self._table!r}>"
+
+
+# ================================================================
+#  Fingerprint (the restart fingerprint; 02_rules scope)
+# ================================================================
+@dataclass(frozen=True)
+class Fingerprint:
+
+    """
+    The restart fingerprint: digest + diffable source record.
+
+    Description
+    -----------
+    Hashes STRUCTURE, never leaves (02_rules): field declarations
+    (names / declared patterns / bare interned spaces / lifecycles —
+    never ``Layout`` or device topology), the module tuple (types +
+    order), per-term treatments, stepper statics, and parameter
+    *specs* (a Ramp's shape is structure, its endpoints are leaves).
+    IC/state differences are deliberately invisible. The ``source``
+    rows make mismatches human-diffable — ``SnapshotMismatchError``
+    prints :meth:`diff`, never a silent reuse.
+
+    Parameters
+    ----------
+    digest : str
+        The structure-only hex digest.
+    source : tuple[tuple[str, str], ...]
+        The (key, token) rows the digest was computed over.
+    """
+
+    digest: str
+    source: tuple[tuple[str, str], ...]
+
+    def diff(self, other: Fingerprint) -> str:
+        """
+        Return the human-readable structural diff.
+
+        Description
+        -----------
+        One line per differing row, in the style
+        ``"stepper statics differ: cnab2 -> sbdf2"``; rows present
+        on only one side are reported as such.
+
+        Parameters
+        ----------
+        other : Fingerprint
+            The fingerprint to compare against.
+
+        Returns
+        -------
+        str
+            The diff lines, or ``"fingerprints match"``.
+        """
+        mine = dict(self.source)
+        theirs = dict(other.source)
+        lines = []
+        for key, token in self.source:
+            if key not in theirs:
+                lines.append(f"{key} only here: {token}")
+            elif theirs[key] != token:
+                lines.append(f"{key} differ: {token} -> "
+                             f"{theirs[key]}")
+        lines.extend(
+            f"{key} only in other: {token}"
+            for key, token in other.source if key not in mine)
+        if not lines:
+            return "fingerprints match"
+        return "\n".join(lines)
+
+
+# ================================================================
+#  AssemblyRecord (the hashable static; the shared jit-cache key)
+# ================================================================
+#: composed step bodies, memoized by STRUCTURAL record equality —
+#: identical re-assemblies (sweep members) share one entry, so the
+#: composed callable itself never enters a jit closure
+_STEP_FUNCTIONS: Final[dict[AssemblyRecord, Callable]] = {}
+
+
+@dataclass(frozen=True, eq=False)
+class AssemblyRecord:
+
+    """
+    Everything static the traced step depends on (jit-cache key).
+
+    Description
+    -----------
+    The hashable static bundle keying the shared ``step_chunk``
+    entry: ``__eq__``/``__hash__`` are STRUCTURAL (grid identity +
+    the component tables' fingerprint tokens), so identical
+    re-assemblies compare equal and sweep members share the compiled
+    chunk. ``name`` is excluded from equality and hash. Construction
+    runs the unhashable-static lint (an unhashable static would
+    silently poison the jit cache).
+
+    Parameters
+    ----------
+    grid : Grid
+        Identity-hashed static (cache sharing requires the same
+        grid object).
+    field_table : FieldTable
+        The resolved field table (step 1).
+    binding_table : ParameterBindingTable
+        The frozen binding table (step 2).
+    remat_table : RematerializationTable
+        The retained AUXILIARY defaults (step 5).
+    schedule : Schedule
+        The static kind-ordered schedule (step 5).
+    stepper_statics : tuple
+        The stepper's static identity (type + non-leaf attributes;
+        ``dt`` and every provided leaf excluded).
+    state_type : type
+        The State vocabulary class (``VectorField`` fallback).
+    extra_halo : HaloSpec | None
+        The merged module ``extra_halo`` declarations.
+    term_filter_token : str | None
+        Variant provenance (the canonical filter token).
+    module_types : tuple[str, ...]
+        Module class names, tuple order (spec concretization: a
+        term-free, field-free module must still distinguish
+        records).
+    parameter_specs : tuple[tuple[str, str], ...]
+        Per-name value SPECS (scalar vs Ramp shape — structure per
+        02_rules; spec concretization: carried on the record so the
+        fingerprint stays a pure derivation).
+    name : str | None
+        Report/log attribution; excluded from ``__eq__``/``__hash__``
+        (default: None).
+    """
+
+    grid: Grid
+    field_table: FieldTable
+    binding_table: ParameterBindingTable
+    remat_table: RematerializationTable
+    schedule: Schedule
+    stepper_statics: tuple
+    state_type: type
+    extra_halo: HaloSpec | None
+    term_filter_token: str | None
+    module_types: tuple[str, ...] = ()
+    parameter_specs: tuple[tuple[str, str], ...] = ()
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        """Run the unhashable-static lint (names the offender)."""
+        _lint_hashable("stepper statics", self.stepper_statics)
+        _lint_hashable("state_type", self.state_type)
+        _lint_hashable("extra_halo", self.extra_halo)
+        _lint_hashable("term_filter_token", self.term_filter_token)
+        _lint_hashable("module_types", self.module_types)
+        _lint_hashable("parameter_specs", self.parameter_specs)
+
+    # ================================================================
+    #  Structural identity
+    # ================================================================
+    def _token(self) -> tuple:
+        """Return the structural token (grid handled separately)."""
+        return (
+            self.module_types,
+            self.field_table.fingerprint_token(),
+            self.binding_table.fingerprint_token(),
+            self.remat_table.fingerprint_token(),
+            self.schedule,
+            self.stepper_statics,
+            self.state_type,
+            self.extra_halo,
+            self.term_filter_token,
+            self.parameter_specs,
+        )
+
+    def __eq__(self, other: object) -> bool:
+        """Structural equality: grid identity + component tokens."""
+        if not isinstance(other, AssemblyRecord):
+            return NotImplemented
+        return (self.grid is other.grid
+                and self._token() == other._token())
+
+    def __hash__(self) -> int:
+        """Structural hash, matching ``__eq__`` (name excluded)."""
+        return hash((id(self.grid), self._token()))
+
+    # ================================================================
+    #  Derived products
+    # ================================================================
+    def step_fn(self) -> Callable:
+        """
+        Return the composed step body, memoized keyed by ``self``.
+
+        Description
+        -----------
+        The composed callable never enters a jit closure (a
+        per-assembly closure would silently defeat the shared jit
+        cache): ``assemble()`` seeds the memo under the record's
+        STRUCTURAL key, so identical re-assemblies retrieve the one
+        existing body.
+
+        Returns
+        -------
+        Callable
+            The composed step body ``(state, modules, ctx) ->
+            (state, TendencySums)``.
+
+        Raises
+        ------
+        AssemblyError
+            If no step body is memoized under this record (records
+            are produced by ``assemble()``, never rebuilt by hand).
+        """
+        try:
+            return _STEP_FUNCTIONS[self]
+        except KeyError:
+            raise AssemblyError(
+                "no composed step is memoized under this assembly "
+                "record; records (and their step bodies) are "
+                "produced by assemble(), never rebuilt by hand",
+            ) from None
+
+    def fingerprint(self) -> Fingerprint:
+        """
+        Compute the restart fingerprint (a pure record derivation).
+
+        Returns
+        -------
+        Fingerprint
+            The structure-only digest plus its diffable source.
+        """
+        rows: list[tuple[str, str]] = [
+            ("modules", " -> ".join(self.module_types) or "none"),
+        ]
+        rows.extend(
+            (f"field {name}", f"{pattern} on {space} [{lifecycle}]")
+            for name, pattern, space, lifecycle
+            in self.field_table.fingerprint_token())
+        specs = dict(self.parameter_specs)
+        rows.extend(
+            (f"parameter {name}",
+             f"slot={slot} attr={attr or '-'} "
+             f"spec={specs.get(name, const_spec or '-')}")
+            for name, slot, attr, const_spec
+            in self.binding_table.fingerprint_token())
+        for entry in self.schedule.entries:
+            if entry.is_term:
+                rows.append((f"term {entry.key}",
+                             entry.treatment.name))
+            else:
+                rows.append((f"stage {entry.key}",
+                             f"{entry.kind.name} "
+                             f"(order={entry.order})"))
+        rows.append(("stepper statics", repr(self.stepper_statics)))
+        rows.append(("state type", self.state_type.__qualname__))
+        if self.term_filter_token is not None:
+            rows.append(("term filter", self.term_filter_token))
+        source = tuple(rows)
+        digest = hashlib.sha256(
+            repr(source).encode("utf-8")).hexdigest()
+        return Fingerprint(digest=digest, source=source)
+
+
+def _lint_hashable(label: str, value: object) -> None:
+    """
+    Raise the unhashable-static lint, naming the offender.
+
+    Parameters
+    ----------
+    label : str
+        Attribution of the static being probed.
+    value : object
+        The static value.
+
+    Raises
+    ------
+    AssemblyError
+        If ``value`` (or a nested tuple item) is unhashable; the
+        message names the innermost offending entry.
+    """
+    try:
+        hash(value)
+    except TypeError:
+        if isinstance(value, tuple):
+            for index, item in enumerate(value):
+                sub = f"{label}[{index}]"
+                probe = item
+                if (isinstance(item, tuple)
+                        and len(item) == 2  # noqa: PLR2004
+                        and isinstance(item[0], str)):
+                    sub, probe = f"{label} {item[0]!r}", item[1]
+                _lint_hashable(sub, probe)
+        raise AssemblyError(
+            f"assembly-record static {label} is unhashable "
+            f"({type(value).__name__}: {value!r}); the record keys "
+            "the shared jitted step, so every static must hash — "
+            "declare array-valued attributes as dynamic leaves, or "
+            "intern the object") from None
+
+
+# ================================================================
+#  AssemblyArtifacts (the wave-4.2 seam contract)
+# ================================================================
+@dataclass(frozen=True)
+class AssemblyArtifacts:
+
+    """
+    What ``assemble()`` returns; what ``Model.__init__`` consumes.
+
+    Description
+    -----------
+    A frozen host bundle. The ATTRIBUTE NAMES are the wave-4.2 seam
+    contract — ``Model.__init__`` consumes exactly these names; do
+    not rename.
+
+    Parameters
+    ----------
+    field_table : FieldTable
+        The resolved field table (step 1).
+    binding_table : ParameterBindingTable
+        The frozen binding table (step 2).
+    remat_table : RematerializationTable
+        The retained AUXILIARY defaults (step 5).
+    composer : TendencyComposer
+        The composer (its ``compose()`` product is also memoized on
+        the record's ``step_fn`` seam).
+    schedule : Schedule
+        The static kind-ordered schedule.
+    record : AssemblyRecord
+        The hashable static bundle (jit-cache key).
+    fingerprint : Fingerprint
+        The restart fingerprint.
+    report : AssemblyReport
+        The printable assembly report.
+    resharding : ReshardingReport
+        The step-7 negotiation report (the model re-homes pre-built
+        leaves with it).
+    """
+
+    field_table: FieldTable
+    binding_table: ParameterBindingTable
+    remat_table: RematerializationTable
+    composer: TendencyComposer
+    schedule: Schedule
+    record: AssemblyRecord
+    fingerprint: Fingerprint
+    report: AssemblyReport
+    resharding: ReshardingReport
+
+
+# ================================================================
+#  assemble() — the nine-step pipeline (steps 1-7 + 9)
+# ================================================================
+def assemble(
+    *,
+    grid: Grid,
+    modules: tuple,
+    time_stepper: object,
+    state_type: type | None = None,
+    name: str | None = None,
+    term_filter: Callable | None = None,
+) -> AssemblyArtifacts:
+    """
+    Run the nine-step assembly pipeline (model.md section 6.2).
+
+    Description
+    -----------
+    Pure and deterministic in its inputs. The steps, in normative
+    order: (1) collect declarations/references, resolve patterns
+    through the grid's ``("declared_space", mesh)`` resolver rows,
+    build the `FieldTable`; (2) build the `ParameterBindingTable`
+    (the stepper joins as the ``fr.params.TIME_STEP`` provider);
+    (3) the dispatch merge — resolve pattern keys through the step-1
+    resolvers, ``grid.merge_overrides`` exactly once; (4)
+    ``bind(table)`` in module order (the merged registry visible;
+    bare time-dependent parameter reads gated); (5) collect terms +
+    stages into the `TendencyComposer` (static checks live there),
+    the re-materialization table, and the merged ``extra_halo``;
+    (6) the composer dry run; (7) ``grid.negotiate(state_spaces=...,
+    tendency=..., halo=...)`` + ``grid.freeze()`` — or, on an
+    already-frozen grid, the verify path; (8) carry allocation is
+    NOT run here (wave 4.2); (9) build the `AssemblyRecord`, the
+    `Fingerprint`, and the `AssemblyReport`.
+
+    Parameters
+    ----------
+    grid : Grid
+        The assembly root (frozen after step 7).
+    modules : tuple
+        The module tuple (``fr.Module`` instances; duck-typed
+        capability reads).
+    time_stepper : object
+        The time stepper — REQUIRED, no default exists.
+    state_type : type | None, optional
+        The State vocabulary class; None reads the module-supplied
+        one (>1 provider is an error) and falls back to
+        ``VectorField`` (default: None).
+    name : str | None, optional
+        Report/log attribution (default: None).
+    term_filter : Callable | None, optional
+        Variant term predicate ``(key, term) -> bool`` (2.8
+        mechanics; declarations/stages never filtered)
+        (default: None).
+
+    Returns
+    -------
+    AssemblyArtifacts
+        The frozen artifact bundle (the wave-4.2 seam).
+
+    Raises
+    ------
+    AssemblyError
+        And its subclasses, per the model-layer error registry.
+    GridFrozenError
+        Step 7 verify path: genuinely larger demands on a frozen
+        grid ("assemble the most demanding model first").
+    """
+    modules = tuple(modules)
+    frozen_before = grid.fingerprint is not None
+
+    # -- step 1: fields ------------------------------------------
+    declarations = _collect_declarations(modules)
+    table = FieldTable(
+        (FieldRecord.from_declaration(
+            declaration, owner=slot,
+            owner_type=type(modules[slot]).__qualname__, grid=grid)
+         for slot, declaration in declarations),
+        grid=grid)
+    for slot, module in enumerate(modules):
+        for reference in getattr(module, "field_references", ()):
+            table.require(reference,
+                          module=_module_label(slot, module))
+    state_type = _resolve_state_type(modules, state_type)
+
+    # -- step 2: parameters --------------------------------------
+    binding_table = ParameterBindingTable.build(modules,
+                                                time_stepper)
+
+    # -- step 3: dispatch merge (before bind/dry-run/negotiate) --
+    overrides = _collect_dispatch_overrides(modules, grid)
+    if overrides:
+        grid.merge_overrides(overrides)
+    elif not frozen_before:
+        # the exactly-once merge moment of a first, override-free
+        # model (bakes Dispatched holes against the defaults)
+        grid.merge_overrides({})
+
+    # -- step 4: bind, module order ------------------------------
+    bind_table = _BindTable(table, BindParameterView({
+        str(entry.name): _read_leaf(entry, modules, time_stepper)
+        for entry in binding_table}))
+    for module in modules:
+        bind = getattr(module, "bind", None)
+        if callable(bind):
+            bind(bind_table)
+
+    # -- step 5: terms + stages, remat table, extra halo ---------
+    terms = _collect_terms(modules)
+    stages = _collect_stages(modules)
+    remat_table = _build_remat_table(declarations, table)
+    extra_halo = _merged_extra_halo(modules)
+    composer = TendencyComposer(
+        field_table=table, modules=modules, terms=terms,
+        stages=stages, time_stepper=time_stepper,
+        binding_table=binding_table, term_filter=term_filter)
+    schedule = composer.schedule
+
+    # -- step 6: dry run -----------------------------------------
+    composer.dry_run()
+
+    # -- step 7: negotiate + freeze (or the verify path) ---------
+    resharding = _negotiate(grid, table, schedule, modules,
+                            time_stepper, binding_table, extra_halo)
+    grid.freeze()
+
+    # -- step 8: carry allocation is wave 4.2 (not run here) -----
+
+    # -- step 9: record, fingerprint, report ---------------------
+    record = AssemblyRecord(
+        grid=grid,
+        field_table=table,
+        binding_table=binding_table,
+        remat_table=remat_table,
+        schedule=schedule,
+        stepper_statics=_stepper_statics(time_stepper,
+                                         binding_table),
+        state_type=state_type,
+        extra_halo=extra_halo,
+        term_filter_token=_term_filter_token(term_filter),
+        module_types=tuple(type(module).__qualname__
+                           for module in modules),
+        parameter_specs=_parameter_specs(binding_table, modules,
+                                         time_stepper),
+        name=name)
+    _STEP_FUNCTIONS.setdefault(record, composer.compose())
+    fingerprint = record.fingerprint()
+    report = _build_report(
+        grid=grid, table=table, binding_table=binding_table,
+        modules=modules, time_stepper=time_stepper,
+        schedule=schedule, overrides=overrides,
+        frozen_before=frozen_before, resharding=resharding,
+        fingerprint=fingerprint, terms=terms,
+        term_filter=term_filter, name=name)
+    return AssemblyArtifacts(
+        field_table=table, binding_table=binding_table,
+        remat_table=remat_table, composer=composer,
+        schedule=schedule, record=record, fingerprint=fingerprint,
+        report=report, resharding=resharding)
+
+
+# ================================================================
+#  Step 1 helpers (fields, state type)
+# ================================================================
+def _collect_declarations(
+    modules: tuple,
+) -> tuple[tuple[int, FieldDeclaration], ...]:
+    """Collect (slot, declaration) pairs, module tuple order."""
+    return tuple(
+        (slot, declaration)
+        for slot, module in enumerate(modules)
+        for declaration in getattr(module, "field_declarations",
+                                   ()))
+
+
+def _resolve_state_type(
+    modules: tuple,
+    state_type: type | None,
+) -> type:
+    """
+    Resolve the State vocabulary class (D1.3 commitment 4).
+
+    Description
+    -----------
+    The explicit ``Model(state_type=...)`` kwarg wins; otherwise the
+    single module-supplied class; more than one distinct provider is
+    an assembly error; the fallback is plain ``VectorField`` (a bare
+    generic model loses nothing but sugar).
+    """
+    if state_type is not None:
+        return state_type
+    provided: list[tuple[str, type]] = []
+    for slot, module in enumerate(modules):
+        supplied = getattr(module, "state_type", None)
+        if supplied is not None:
+            provided.append((_module_label(slot, module), supplied))
+    types = {cls for _, cls in provided}
+    if len(types) > 1:
+        owners = ", ".join(label for label, _ in provided)
+        raise AssemblyError(
+            f"more than one module supplies a state_type ({owners});"
+            " exactly one dynamical core publishes the vocabulary "
+            "class — pass Model(state_type=...) to override")
+    if provided:
+        return provided[0][1]
+    return VectorField
+
+
+# ================================================================
+#  Step 3 helpers (dispatch merge)
+# ================================================================
+def _collect_dispatch_overrides(
+    modules: tuple,
+    grid: Grid,
+) -> dict[str, dict]:
+    """
+    Collect per-module dispatch overrides, pattern keys resolved.
+
+    Description
+    -----------
+    Builds the per-module form ``{module label: {key: op}}`` that
+    ``grid.merge_overrides`` consumes (same resolved key from two
+    modules raises ``DispatchCollisionError`` naming both).
+    ``(kind, SpacePattern)`` keys are resolved through the step-1
+    ``("declared_space", mesh)`` resolvers into ``(kind, space)``;
+    a ``SpaceRule`` key is rejected (rules are identity-hashed
+    behavior, never dispatch keys).
+    """
+    collected: dict[str, dict] = {}
+    for slot, module in enumerate(modules):
+        entries = getattr(module, "dispatch", None)
+        if not entries:
+            continue
+        label = _module_label(slot, module)
+        collected[label] = {
+            _resolve_dispatch_key(key, grid, label): op
+            for key, op in entries.items()}
+    return collected
+
+
+def _resolve_dispatch_key(
+    key: object,
+    grid: Grid,
+    label: str,
+) -> object:
+    """Resolve one override key's pattern component (if any)."""
+    if isinstance(key, tuple) and len(key) == 2:  # noqa: PLR2004
+        kind, space = key
+        if isinstance(space, SpaceRule):
+            raise AssemblyError(
+                f"{label}: dispatch key {key!r} carries a SpaceRule;"
+                " rules are identity-hashed behavior and never "
+                "dispatch keys — use a SpacePattern or the resolved "
+                "space")
+        if isinstance(space, SpacePattern):
+            return (kind, space.resolve(grid))
+    return key
+
+
+# ================================================================
+#  Step 5 helpers (collection)
+# ================================================================
+def _collect_terms(
+    modules: tuple,
+) -> tuple[tuple[int, TendencyTerm], ...]:
+    """Collect (slot, term) pairs: module order, then declaration."""
+    pairs: list[tuple[int, TendencyTerm]] = []
+    for slot, module in enumerate(modules):
+        collect = getattr(module, "tendency_terms", None)
+        if callable(collect):
+            pairs.extend((slot, term) for term in collect())
+    return tuple(pairs)
+
+
+def _collect_stages(
+    modules: tuple,
+) -> tuple[tuple[int, Stage], ...]:
+    """Collect (slot, stage) pairs: module order, then declaration."""
+    pairs: list[tuple[int, Stage]] = []
+    for slot, module in enumerate(modules):
+        collect = getattr(module, "collected_stages", None)
+        if callable(collect):
+            pairs.extend((slot, stage) for stage in collect())
+    return tuple(pairs)
+
+
+def _build_remat_table(
+    declarations: tuple[tuple[int, FieldDeclaration], ...],
+    table: FieldTable,
+) -> RematerializationTable:
+    """Retain the AUXILIARY declaration defaults (the D1.1 soften)."""
+    return RematerializationTable(tuple(
+        RematerializationEntry.from_declaration(
+            declaration, owner=slot,
+            space=table[declaration.name].space)
+        for slot, declaration in declarations
+        if declaration.lifecycle is Lifecycle.AUXILIARY))
+
+
+def _merged_extra_halo(modules: tuple) -> HaloSpec | None:
+    """Merge (max) the modules' declared ``extra_halo`` specs."""
+    merged: HaloSpec | None = None
+    for module in modules:
+        spec = getattr(module, "extra_halo", None)
+        if spec is None:
+            continue
+        merged = spec if merged is None else merged.merge_max(spec)
+    return merged
+
+
+# ================================================================
+#  Step 7 helpers (negotiate + freeze / the verify path)
+# ================================================================
+def _negotiate(
+    grid: Grid,
+    table: FieldTable,
+    schedule: Schedule,
+    modules: tuple,
+    time_stepper: object,
+    binding_table: ParameterBindingTable,
+    extra_halo: HaloSpec | None,
+) -> ReshardingReport:
+    """
+    Run assembly step 7 (or the frozen-grid verify path).
+
+    Description
+    -----------
+    ``grid.negotiate`` receives the NAME-KEYED state spaces (the
+    tracer state must carry component names — attribution and the
+    FieldTable cross-checks key on them), the composed body adapted
+    to the tracer calling convention, and the merged ``extra_halo``
+    (combined ``merge_max`` with the trace by the grid). A field-free
+    composition negotiates with an explicit zero-or-extra halo (no
+    tendency to trace, and the unscoped registry maximum must not
+    leak into the demand).
+    """
+    spaces = {record.name: record.space for record in table}
+    if not spaces:
+        halo = (HaloSpec.zero(grid.names) if extra_halo is None
+                else extra_halo)
+        return grid.negotiate(halo=halo)
+    exempt = frozenset(
+        slot for slot, module in enumerate(modules)
+        if getattr(module, "extra_halo", None) is not None)
+    tendency = _tracer_tendency(
+        schedule, modules, exempt,
+        _tracer_params(binding_table, modules, time_stepper))
+    return grid.negotiate(
+        state_spaces=_StateSpaceMapping(spaces),
+        tendency=tendency, halo=extra_halo)
+
+
+def _tracer_params(
+    binding_table: ParameterBindingTable,
+    modules: tuple,
+    time_stepper: object,
+) -> dict[str, object]:
+    """
+    Evaluate the bound parameters at t=0 for the halo trace.
+
+    Description
+    -----------
+    The tracer state understands plain Python scalars (its
+    arithmetic treats everything else as a field operand), so leaf
+    values are demoted to scalars where possible; non-scalar leaves
+    pass through unchanged.
+    """
+    resolved = binding_table.eval_params(modules, time_stepper, 0.0)
+    return {name: _as_scalar(resolved[name]) for name in resolved}
+
+
+def _as_scalar(value: object) -> object:
+    """Demote a 0-d numeric leaf to a Python scalar (best effort)."""
+    if isinstance(value, int | float | complex):
+        return value
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        try:
+            return complex(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return value
+
+
+def _tracer_tendency(
+    schedule: Schedule,
+    modules: tuple,
+    exempt: frozenset[int],
+    params: Mapping[str, object],
+) -> Callable[[object], object]:
+    """
+    Adapt the composed body to the halo tracer's calling convention.
+
+    Description
+    -----------
+    ``trace_halo`` calls ``tendency(state)`` with a name-keyed
+    ``VectorTracer``; the composed body takes ``(state, modules,
+    ctx)``. This adapter closes over the assembly modules and a
+    tracer-safe context (scalar clock/params — ``StepContext`` is
+    all-scalar by design, so the tracer needs zero ctx mimicry) and
+    mirrors the composed body's schedule walk: SELF_UPDATE ->
+    DIAGNOSE -> EXPLICIT terms -> CONSTRAINT. Hooks of ``exempt``
+    (``extra_halo``-declaring) modules are skipped — their declared
+    spec substitutes (V-N2), and the second dry-run mode over real
+    zero fields already validated them.
+    """
+    def tendency(state: object) -> object:
+        """Walk the schedule once over the tracer state."""
+        ctx = StepContext(params=params, clock=0.0, dt=1.0,
+                          stage_dt=1.0)
+        for kind in (StageKind.SELF_UPDATE, StageKind.DIAGNOSE):
+            state = _trace_stage_kind(schedule, kind, modules,
+                                      exempt, state, ctx)
+        for entry in schedule.kind_entries(None):
+            if (entry.slot in exempt
+                    or entry.treatment is not Treatment.EXPLICIT):
+                continue
+            evaluate_entry(entry, modules[entry.slot], state, ctx)
+        return _trace_stage_kind(schedule, StageKind.CONSTRAINT,
+                                 modules, exempt, state, ctx)
+
+    return tendency
+
+
+def _trace_stage_kind(
+    schedule: Schedule,
+    kind: StageKind,
+    modules: tuple,
+    exempt: frozenset[int],
+    state: object,
+    ctx: StepContext,
+) -> object:
+    """Trace one stage kind (replace-applied), skipping exempts."""
+    for entry in schedule.kind_entries(kind):
+        if entry.slot in exempt:
+            continue
+        result = evaluate_entry(entry, modules[entry.slot], state,
+                                ctx)
+        state = apply_replace(entry, state, result)
+    return state
+
+
+# ================================================================
+#  Step 9 helpers (record + fingerprint inputs)
+# ================================================================
+def _stepper_statics(
+    time_stepper: object,
+    binding_table: ParameterBindingTable,
+) -> tuple:
+    """
+    Derive the stepper's static identity (dt and leaves excluded).
+
+    Description
+    -----------
+    Type name plus every instance attribute that is neither a
+    declared dynamic leaf (``dynamic_jax_attrs``), nor a provided
+    parameter attribute (the binding table's stepper rows — this is
+    what excludes ``dt``), nor an equality-exempt host observer.
+    Hashability is enforced by the record's unhashable-static lint.
+    """
+    provided = {entry.attr for entry in binding_table
+                if entry.slot == "stepper"}
+    dynamic = set(getattr(time_stepper, "dynamic_jax_attrs", ())
+                  or ())
+    ignored = set(getattr(time_stepper, "_eq_ignored_attrs", ())
+                  or ())
+    excluded = provided | dynamic | ignored
+    statics = tuple(
+        (attr, value)
+        for attr, value in sorted(vars(time_stepper).items())
+        if attr not in excluded)
+    return (type(time_stepper).__qualname__, statics)
+
+
+def _parameter_specs(
+    binding_table: ParameterBindingTable,
+    modules: tuple,
+    time_stepper: object,
+) -> tuple[tuple[str, str], ...]:
+    """
+    Derive per-name value SPECS (02_rules: shape, never leaves).
+
+    Description
+    -----------
+    A scalar <-> Ramp swap is structure (a treedef change); a Ramp's
+    curve is its static shape, its endpoints are leaves and stay
+    invisible.
+    """
+    return tuple(
+        (str(entry.name),
+         _value_spec(_read_leaf(entry, modules, time_stepper)))
+        for entry in binding_table)
+
+
+def _value_spec(value: object) -> str:
+    """Spell one live leaf's structural spec."""
+    if isinstance(value, TimeDependent):
+        curve = getattr(value, "_curve_spec", None)
+        shape = (getattr(curve, "__name__", str(curve))
+                 if curve is not None else "")
+        return (f"{type(value).__name__}({shape})" if shape
+                else type(value).__name__)
+    return type(value).__name__
+
+
+def _term_filter_token(term_filter: Callable | None) -> str | None:
+    """
+    Derive the canonical variant-filter token (fingerprint join).
+
+    Description
+    -----------
+    Spec concretization: a predicate exposing ``token`` (the 2.8
+    term-predicate algebra) contributes it verbatim; otherwise the
+    qualified name stands in.
+    """
+    if term_filter is None:
+        return None
+    token = getattr(term_filter, "token", None)
+    if token is not None:
+        return str(token)
+    return getattr(term_filter, "__qualname__",
+                   type(term_filter).__qualname__)
+
+
+# ================================================================
+#  Step 9 helpers (the report sections)
+# ================================================================
+def _build_report(
+    *,
+    grid: Grid,
+    table: FieldTable,
+    binding_table: ParameterBindingTable,
+    modules: tuple,
+    time_stepper: object,
+    schedule: Schedule,
+    overrides: dict[str, dict],
+    frozen_before: bool,
+    resharding: ReshardingReport,
+    fingerprint: Fingerprint,
+    terms: tuple[tuple[int, TendencyTerm], ...],
+    term_filter: Callable | None,
+    name: str | None,
+) -> AssemblyReport:
+    """Compose the eight report sections (model.md section 3)."""
+    return AssemblyReport({
+        "header": _header_section(grid, time_stepper, modules,
+                                  fingerprint, name),
+        "fields": _fields_section(table),
+        "parameters": _parameters_section(binding_table, modules),
+        "dispatch": _dispatch_section(overrides, frozen_before),
+        "schedule": schedule.describe(),
+        "halo": _halo_section(grid, resharding),
+        "lint": _lint_section(table, terms, term_filter),
+        "run_start": RUN_START_PLACEHOLDER,
+    })
+
+
+def _header_section(
+    grid: Grid,
+    time_stepper: object,
+    modules: tuple,
+    fingerprint: Fingerprint,
+    name: str | None,
+) -> str:
+    """Header: name / grid / stepper / modules / digest."""
+    title = "model assembly" + (f" {name!r}" if name else "")
+    meshes = " * ".join(repr(mesh) for mesh in grid.factors)
+    module_names = ", ".join(
+        type(module).__qualname__ for module in modules) or "none"
+    return "\n".join((
+        title,
+        f"grid: {meshes}",
+        f"time stepper: {type(time_stepper).__qualname__}",
+        f"modules: {module_names}",
+        f"fingerprint: {fingerprint.digest}",
+    ))
+
+
+def _fields_section(table: FieldTable) -> str:
+    """Fields: name -> owner -> pattern -> space -> lifecycle."""
+    lines = []
+    for record in table:
+        roles = ", ".join(sorted(repr(role)
+                                 for role in record.roles)) or "-"
+        lines.append(
+            f"{record.name}: {record.pattern!r} -> {record.space!r}"
+            f" [{record.lifecycle.name}] owner="
+            f"{record.owner_type} (modules[{record.owner}]) "
+            f"roles: {roles}")
+    if not lines:
+        lines.append("no declared fields (legal, CS-13)")
+    writable = ", ".join(table.host_writable) or "none"
+    lines.append(f"host-writable: {writable}")
+    return "\n".join(lines)
+
+
+def _parameters_section(
+    binding_table: ParameterBindingTable,
+    modules: tuple,
+) -> str:
+    """Parameters: the binding table; identity defaults listed."""
+    lines = []
+    identity: list[str] = []
+    for entry in binding_table:
+        name = str(entry.name)
+        if entry.slot is None:
+            lines.append(
+                f"{name} = {entry.value!r} (identity default)")
+            identity.append(name)
+        elif entry.slot == "stepper":
+            lines.append(f"{name} <- the time stepper "
+                         f".{entry.attr}")
+        else:
+            owner = type(modules[entry.slot]).__qualname__
+            lines.append(f"{name} <- modules[{entry.slot}] "
+                         f"({owner}).{entry.attr}")
+    if not lines:
+        lines.append("no bound parameters")
+    defaults = ", ".join(identity) or "none"
+    lines.append(f"identity defaults in effect: {defaults}")
+    return "\n".join(lines)
+
+
+def _dispatch_section(
+    overrides: dict[str, dict],
+    frozen_before: bool,
+) -> str:
+    """Dispatch: merged overrides (or the verify-path outcome)."""
+    lines = []
+    if frozen_before:
+        lines.append("frozen grid: verify path (no merge ran)")
+    for label, entries in overrides.items():
+        lines.extend(f"{label}: {key!r}" for key in entries)
+    if not overrides:
+        lines.append("no module dispatch overrides")
+    return "\n".join(lines)
+
+
+def _halo_section(grid: Grid, resharding: ReshardingReport) -> str:
+    """Halo/layout: the negotiated widths and layout outcome."""
+    record = grid.fingerprint
+    widths = (dict(record.halo.widths) if record is not None
+              else "not negotiated")
+    return "\n".join((
+        f"negotiated halo: {widths}",
+        f"default layout: {resharding.new!r}",
+        f"layout changed by negotiation: {resharding.changed}",
+    ))
+
+
+def _lint_section(
+    table: FieldTable,
+    terms: tuple[tuple[int, TendencyTerm], ...],
+    term_filter: Callable | None,
+) -> str:
+    """Lint: aggregated warnings (untransported ADVECTED, filter)."""
+    lines = []
+    advected = set(table.select(ADVECTED))
+    transported: set[str] = set()
+    for _, term in terms:
+        transported.update(term.transports)
+    untransported = sorted(advected - transported)
+    if untransported:
+        lines.append(
+            "ADVECTED but transported by no term: "
+            + ", ".join(untransported))
+    if term_filter is not None:
+        lines.append(
+            "variant term filter active: the coverage lint is "
+            "downgraded to a warning")
+    if not lines:
+        lines.append("none")
+    return "\n".join(lines)

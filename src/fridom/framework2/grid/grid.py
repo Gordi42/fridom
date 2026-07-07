@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
-from fridom.framework2.grid.bc import BC
+from fridom.framework2.grid.bc import BC, BCStructure
 from fridom.framework2.grid.decomposition.decomposition import (
     ReshardingReport,
     _registry_halo,
@@ -52,7 +52,11 @@ from fridom.framework2.grid.fields.storage import (
     storage_dtype,
     store,
 )
+from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.meshes.structured_1d import (
+    StructuredMesh1D,
+)
 from fridom.framework2.grid.operators.base import OperatorRequirements
 from fridom.framework2.grid.operators.chebyshev import Chebyshev
 from fridom.framework2.grid.operators.composed import (
@@ -117,6 +121,12 @@ from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 from fridom.framework2.grid.spaces.tensor_product import (
     TensorProductSpace,
 )
+
+# the declaration-tag vocabulary of the ("declared_space", mesh)
+# resolver rows (model D1.2); the model layer resolves declared
+# patterns through the rows seeded below, so the grid must speak the
+# tag enum (an acknowledged upward import of pure vocabulary)
+from fridom.framework2.model.space_patterns import Dof
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -1574,6 +1584,9 @@ def _default_registry(
         for space in nodal:
             for variant in (space, space.as_complex()):
                 entries[("abs", variant)] = abs_op
+        resolver = _declared_space_resolver(mesh)
+        if resolver is not None:
+            entries[("declared_space", mesh)] = resolver
     _seed_transform_rows(grid, meshes, entries)
     entries["grad"] = Gradient()
     entries["div"] = Divergence()
@@ -1584,6 +1597,69 @@ def _default_registry(
     # override set): day-one `f.diff` on average spaces needs a
     # concrete chain even before any grid.merge_overrides call
     return OperatorRegistry(entries).merge({})
+
+
+def _declared_space_resolver(
+    mesh: Mesh,
+) -> Callable[[Dof, BC | BCStructure | None], FunctionSpace] | None:
+    """
+    Build the default ``("declared_space", mesh)`` resolver row.
+
+    Description
+    -----------
+    Seeded per mesh factor at grid construction (model D1.2), so
+    declared space patterns (``Collocated()`` / ``Staggered(...)`` /
+    ``Profile(...)``) resolve on a bare grid without manual seeding.
+    The default mapping over each mesh's space vocabulary:
+    ``Dof.COLLOCATED`` -> the center/nodal family (``ChebyshevMesh``,
+    whose restricted family carries no cell centers, uses its
+    outer/Lobatto family instead); ``Dof.STAGGERED`` -> the
+    face/right family (an error on ``ChebyshevMesh`` — no face
+    spaces exist there). ``Dof.CONSTANT`` never reaches a resolver:
+    patterns route it to ``mesh.constant`` directly. Meshes without
+    a nodal factory (``PointMesh``) get no default row and keep the
+    hinted ``DispatchError``.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh factor to build the resolver for.
+
+    Returns
+    -------
+    Callable | None
+        The ``(tag, bc) -> factor space`` resolver, or None when
+        the mesh type has no default mapping.
+    """
+    if isinstance(mesh, ChebyshevMesh):
+        node_sets: dict[Dof, NodeSet | None] = {
+            Dof.COLLOCATED: NodeSet.OUTER,
+            Dof.STAGGERED: None,
+        }
+    elif isinstance(mesh, StructuredMesh1D):
+        node_sets = {
+            Dof.COLLOCATED: NodeSet.CENTER,
+            Dof.STAGGERED: NodeSet.RIGHT,
+        }
+    else:
+        return None
+
+    def resolver(
+        tag: Dof,
+        bc: BC | BCStructure | None,
+    ) -> FunctionSpace:
+        """Resolve one (tag, bc) pair to this mesh's factor space."""
+        node_set = node_sets.get(tag)
+        if node_set is None:
+            raise ValueError(
+                f"the default ('declared_space', {mesh!r}) resolver "
+                f"row maps no {getattr(tag, 'name', tag)!s} "
+                "representation on this mesh's space family; seed a "
+                "custom grid-level resolver row for it")
+        return mesh.nodal(node_set,
+                          bc=BC.NONE if bc is None else bc)
+
+    return resolver
 
 
 def _probe(factory: Callable[[], object]) -> object | None:
