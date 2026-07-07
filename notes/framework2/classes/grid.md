@@ -903,10 +903,11 @@ accessor (doc 02 surface); its semantics are:
   `grid.evaluation_nodes(space)`; values are gathered to host via
   `decomposition.gather` (true shape — halo and padding never leave
   the decomposition layer).
-- **Not exported in iteration 1:** complex-scalar fields and
-  coefficient-space fields (`fr.Complex` storage, wavenumber/mode
-  indexing); index-coordinate export for spectra is a later
-  iteration. `f.xr` on such fields raises with a pointer to `.data`.
+- **Coefficient-space export shipped in iteration 1** (amended at
+  implementation, 2026-07-07 — originally deferred): dims `k<name>`
+  with real wavenumber coords from `grid.wavenumbers` (`mode_index`
+  for Chebyshev), a `representation` coordinate attribute, complex
+  values passed through to xarray.
 
 ---
 
