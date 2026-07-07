@@ -27,6 +27,7 @@ dependencies = [
   "scipy",
   "netCDF4",
   "zarr",
+  "tensorstore",
   "tqdm",
   "dill",
   "IPython",
