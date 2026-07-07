@@ -66,24 +66,32 @@ coordinate-map grids, terrain-following coordinates, spherical grids with
 
 ## Phase 2 — `framework2`: model, modules, time-stepping, IO
 
-The model layer, built on the Phase 1 grid.
+The model layer, built on the Phase 1 grid. **The design is complete
+(2026-07-08)**: five resolved decisions (field registration,
+parameter ownership, staged/split stepping, composition/run-loop/IO,
+and the state-transform algebra) in
+[`notes/framework2/model/`](notes/framework2/model/00_overview.md) —
+task 2.1's design doc, grown into the full note set covering
+2.1–2.6 plus the transforms. The rows below are now implementation
+tasks against that design.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 2.1 | **Design doc: model composition** | `Model` as the composition root; setup order and halo negotiation via the doc-04 machinery; the full model pytree; the `update(mz)` signature; how tendency terms declare their integration treatment and which fields they advance (so 2.5 is not precluded); resolves the per-step sync-amplification question ([decomposition open questions](notes/framework2/classes/decomposition.md#open-questions)) — n tendency modules must not mean n syncs — and consumes the [Phase-1 validation findings](notes/framework2/phase1_findings.md) (jit ulp-invariance contract, metadata-in-treedef scan issue, API-gap backlog). |
+| 2.1 | **Design doc: model composition** — *done (2026-07-08)* | Resolved as decisions D1–D5 in `notes/framework2/model/` (concepts, rules, full designs for stepping/run-loop/transforms, API sketches, research archive, class specs in `notes/framework2/model/classes/`). Remaining reconciliation against the landed Phase-1 code: the per-step sync-amplification question ([decomposition open questions](notes/framework2/classes/decomposition.md#open-questions)) — n tendency modules must not mean n syncs — and the [Phase-1 validation findings](notes/framework2/phase1_findings.md) (jit ulp-invariance contract, metadata-in-treedef scan issue, API-gap backlog). |
 | 2.2 | **Field registration + parameters in modules** | `Module` API to declare `FieldMetadata` for the state; parameters move into modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallowwater `csqr`, Rossby scaling); stratification modules register `b`. |
 | 2.3 | **Modules modify anything** | Modules and grid in the traced state; `Model(grid=..., tendencies=..., diagnostics=..., time_stepper=...)` direct assembly. |
 | 2.4 | **Single `jax.jit` for the full run** | Choose between a full-run `lax.scan`/`while_loop` with `io_callback` and a chunked scan; trace-friendly `Clock`; scan-body time steppers; a NaN-check / early-exit strategy under scan. |
 | 2.5 | **Staged / split time stepping** | Generalize the stepper into ordered stages. Split by term (IMEX): explicit/implicit partition, implicit modules exposing `(1 - dt·γ·L)^-1 rhs` (tridiagonal / spectral solves), CNAB/SBDF and IMEX-RK. Split by variable (Gauss-Seidel): advance fields in order, each reading updated earlier fields. The two compose; pressure projection fits the same abstraction. |
 | 2.6 | **IO: TensorStore writer + diagnostics** | A `TensorStoreWriter` (zarr store via tensorstore, xarray-openable) fitting the `io_callback` model; progress bar, NaN checker, restart under scan. Follow-up: partial / decomposed-slice output. |
-| 2.7 | **Port nonhydro + shallowwater** | Tendencies, pressure solvers, projections/eigenvectors as function-space operators, model-side eigenmode objects (`omega`/`vec_q`/`vec_p`). Update examples, docs, tests. |
+| 2.7 | **Port nonhydro + shallowwater** | Tendencies, pressure solvers as function-space operators, model-side eigenmode objects (`Eigenmodes` / `from_model`). Update examples, docs, tests. |
+| 2.8 | **State transforms** (design: `notes/framework2/model/08_state_transforms.md`) | `fr.StateTransform` + the algebra (`@`, arithmetic, `FixedPoint`, `Shift`), `model.variant(term_filter=...)` + term predicates + `fr.closures.ClosureBase`, and the ported family: Vortical/Wave/Divergence projections, `Propagator`, `TimeAverage`, `OptimalBalance`. NNMD deferred to its own future rewrite (no model propagator). |
 
 ## Phase 3 — Models & coupling
 
 | #   | Task | Notes |
 |-----|------|-------|
 | 3.1 | **Hydrostatic model** | Linear tendency, hydrostatic pressure solver, advection wiring, eigenvectors. Implicit vertical mixing (and optional split-explicit free surface) build on 2.5. |
-| 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. |
+| 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. **Pre-designed** in [`notes/framework2/model/09_coupling_designfor.md`](notes/framework2/model/09_coupling_designfor.md) (precedent survey + adversarial A–O walk + architecture; the class specs carry its CS-1..18 constraints so 3.2 stays a pure addition). |
 | 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. |
 
 ## Cutover
@@ -101,6 +109,7 @@ Phase 1 (standalone):
 Phase 2 (on the grid):
   1.x ► 2.1 ► 2.2 ► 2.3 ► 2.4 ► 2.5 ► 2.6 ► 2.7 port models
   2.2 declarations ► 2.5 staged stepping
+  2.4 + 2.5 (+ eigenmodes from 2.7) ► 2.8 state transforms
 Phase 3: 2.x ► 3.1;  2.4 ► 3.2/3.3
 Cutover: 2.7 (+3.1) ► rename framework2 → framework
 ```

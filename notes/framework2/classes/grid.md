@@ -913,11 +913,46 @@ accessor (doc 02 surface); its semantics are:
 
 ## Open questions
 
-- **Merge call site** (inherited from
-  [§3.4](../02_rules.md#34-generic-operator-dispatch), stays open):
-  which Phase 2 assembly hook calls `grid.merge_overrides`,
-  `grid.negotiate`, and `grid.freeze`. This cluster fixes the
-  mechanism and the pre-freeze mutation window, not the caller.
+- **Merge call site** — *resolved by the Phase-2 model design (D4,
+  `notes/framework2/model/04_run_loop_io.md` §6.2)*:
+  `grid.merge_overrides` is called **exactly once per grid, by
+  `fr.Model` assembly step 3** — after field-declaration collection
+  (whose `("declared_space", mesh)` resolution the override keys
+  reuse) and before the module `bind` hooks, the composer's
+  validation dry run, and `negotiate` — so both the dry run and the
+  halo-accounting trace resolve dispatch against the registry *as
+  merged* ([§5](../04_decomposition.md)). There is no
+  `Module.setup(...)`; module overrides are a constructor-frozen
+  `Module.dispatch` mapping keyed by `kind` or
+  `(kind, SpacePattern)`, model-resolved to interned spaces; values
+  may be lazy factories (the transform-row seeding mechanism)
+  exposing `OperatorRequirements` unbound; two modules on one
+  resolved key is an assembly error naming both;
+  `("declared_space", ...)` entries are never module-mergeable
+  (model D1.2). A grid used without a model keeps its provisional
+  registry and negotiation.
+  **Frozen-grid verify path** (model D4): at `freeze()` the grid
+  records a negotiation fingerprint (state-space set, merged
+  override keys, `HaloSpec`, layout vocabulary); a subsequent model
+  assembly on the frozen grid skips merge/negotiate/freeze and
+  *verifies* its demands against the record. **Verification is
+  demand-satisfaction (⊆ / ≤), not equality** (model D5): identical
+  composition passes trivially, and a model or variant demanding a
+  *subset* (e.g. a term-filtered variant — fewer terms, fewer
+  operators, smaller-or-equal halo, same state spaces) passes by
+  construction, inheriting the recorded layouts/halos; only *larger*
+  demands raise `GridFrozenError` ("assemble the most demanding
+  model first"). **Satisfiability relaxation** (model validation
+  sign-off): a demanded state space that is *new* but carries zero
+  halo/layout/override demands (the ConstantSpace-broadcast family
+  — e.g. `Profile("y")` on a grid whose record only holds
+  `Profile()`) is **adopted into the record** rather than refused;
+  adoption never reopens negotiation. Module-*type* sweeps that
+  genuinely change demands use a fresh grid per composition (free
+  at the jit-cache level — different module tuples are different
+  assembly records regardless). One-grid-many-models is the sanctioned
+  sweep idiom (fields carry the grid as an identity-hashed static,
+  so grid reuse is what makes shared-jit-cache sweeps possible).
 - **Per-space refinement of `OperatorRequirements.layout`** (doc 03's
   open question 2, answered on this side as a negotiation detail):
   a `SpectralDerivative`-style operator is `layout="local"` only along

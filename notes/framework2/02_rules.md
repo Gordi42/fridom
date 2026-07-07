@@ -148,11 +148,14 @@ structurally.
   space-specific entry wins over the kind-only entry, which in turn wins
   over the grid default. Halo is then a per-mesh quantity the grid
   derives from the merged registry, not a module-owned integer
-  ([section 5](04_decomposition.md#5-domain-decomposition)). (The exact
-  hook that performs the merge — a `Module.setup(...)` method or another
-  assembly step — is **an open question tied to the Phase 2 composition
-  design** (ROADMAP 2.1/2.3), which removes `ModelSettings`; the notes
-  describe only the merge *mechanism*, not its call site.)
+  ([section 5](04_decomposition.md#5-domain-decomposition)). (The merge
+  call site is **resolved by the Phase-2 model design**: `fr.Model`
+  assembly calls `grid.merge_overrides` exactly once, at assembly
+  step 3 — before the module bind hooks, the validation dry run, and
+  `negotiate`, so halo accounting sees the registry *as merged*;
+  there is no `Module.setup(...)`. See
+  `notes/framework2/model/04_run_loop_io.md` §6.2 and the amended
+  "Merge call site" entry in `classes/grid.md`.)
 - `grad` / `div` / `laplacian` are generic **dispatch kinds**, not
   special slots: their default entry on separable grids is a
   composition over `diff`/`interpolate`, but on non-separable meshes they

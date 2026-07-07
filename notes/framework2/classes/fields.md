@@ -118,7 +118,11 @@ class ScalarField:
 
     @property
     def data(self) -> jax.Array:                               # it-1
-        """Raw local array at true shape (halo/padding stripped)."""
+        """Raw local array at true shape (halo/padding stripped).
+        Read-only: the setter is an explicit raising stub guiding to
+        ``with_data`` / ``grid.create_field`` (Phase-2 amendment,
+        model design D1.5 — a teaching error for the old
+        ``f.arr += ...`` mutation habit, not a bare AttributeError)."""
         ...
 
     @property
@@ -558,6 +562,13 @@ class VectorField:
         """Functional update of named components."""
         ...
 
+    def add(self, **contributions: ScalarField) -> Self:       # it-1
+        """Functional accumulate: ``replace(**{k: self[k] + v})``;
+        unknown name -> MissingComponentError listing components.
+        (Phase-2 amendment, model design D1.5: the composer's
+        primitive for summing tendency-contribution dicts.)"""
+        ...
+
     # ================================================================
     #  Arithmetic (componentwise delegation; join rule per component)
     # ================================================================
@@ -778,8 +789,13 @@ class State(fr.grid.VectorField):
     #     properties/methods written in the field algebra of this
     #     document — explicit .to conversions, dispatched products,
     #     integrate — never against CENTER/FACE assumptions (6.2);
-    #   - physics parameters come from model settings/parameter
-    #     objects, never from the grid (2.6).
+    #   - physics parameters are module-owned, never grid-owned
+    #     (2.6): scalar parameters resolve through the Phase-2
+    #     parameter table (provides/requires, model design D2),
+    #     spatially-varying ones are AUXILIARY state components —
+    #     State itself holds no parameters and no module
+    #     back-reference (Phase-2 amendment; supersedes the earlier
+    #     "model settings/parameter objects" phrasing).
     ...
 ```
 
@@ -820,6 +836,11 @@ shared pytree section, not left open.
    ops is a pragmatic default (the vector/state level is decided:
    preserved); fine-tune the exact method list during the nonhydro
    port (ROADMAP Phase 1).
-3. **Migration mutation shim**: old model code mutates `z.u`; decide
-   whether ports go fully functional immediately (`replace`) or a
-   temporary deprecation shim on `State` properties is worth it.
+3. **Migration mutation shim** — *resolved by the Phase-2 model
+   design (D1.5, `notes/framework2/model/01_concepts.md`)*: ports go
+   fully functional immediately; the shims are raising teaching
+   errors only (`ImmutableStateError` from property setters and
+   `__setitem__`, plus the raising `data` setter above) — a
+   "temporarily working" mutation shim is rejected as silently wrong
+   under jit and unable to catch the dominant `f.arr += ...`
+   pattern anyway.
