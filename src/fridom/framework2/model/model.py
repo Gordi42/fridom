@@ -786,7 +786,13 @@ class Model:
         self._chunk_size = chunk_size
         # -- step 8: allocate the carry ---------------------------
         state = self._allocate_state(modules)
-        template = self._artifacts.composer.tendency_template()
+        # built once: a constant zero PROGNOSTIC vector, reused by
+        # every re-warm (a fresh build would pay the grid's
+        # pad-and-sync store path per update_parameters call —
+        # a per-call retrace under multi-device)
+        self._tendency_template = (
+            self._artifacts.composer.tendency_template())
+        template = self._tendency_template
         stepper_state: StepperState = (
             time_stepper.init(template) if template is not None
             else ())
@@ -1145,7 +1151,7 @@ class Model:
 
     def _fresh_stepper_state(self) -> StepperState:
         """Return a fresh ``stepper.init`` product (the re-warm)."""
-        template = self._artifacts.composer.tendency_template()
+        template = self._tendency_template
         return (self._stepper.init(template)
                 if template is not None else ())
 

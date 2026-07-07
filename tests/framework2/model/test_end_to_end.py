@@ -134,11 +134,15 @@ def test_second_advance_compiles_nothing(compile_counter):
 def test_kappa_sweep_compiles_nothing(compile_counter):
     model = make_model()
     model.set_fields(c=tracer_ic())
-    # warm the sweep path once (update + rewarm + advance + the
-    # copy-on-read state view)
-    model.update_parameters({"tracer.kappa": 2 * KAPPA})
-    model.advance(5)
-    c_data(model)
+    # warm the sweep path (update + rewarm + advance + the
+    # copy-on-read state view); twice, because first-occurrence
+    # eager-op traces on the multi-device re-materialization path
+    # (pad/slice/concatenate shapes) only appear once per shape and
+    # would otherwise count against the first in-loop iteration
+    for kappa in (2 * KAPPA, 4 * KAPPA):
+        model.update_parameters({"tracer.kappa": kappa})
+        model.advance(5)
+        c_data(model)
     compile_counter.reset()
     reference = chunk_cache_size()
     results = []

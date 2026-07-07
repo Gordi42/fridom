@@ -116,6 +116,15 @@ dev `040f5ad`) — nothing gates 2.2 anymore. Item 8 is ROADMAP task
    empty stub; known from
    [`phase1_findings.md`](phase1_findings.md).
 
+10a. **Eager field creation re-traces per call under multi-device**
+    — perf, surfaced by wave 4.2 (2026-07-08). Each
+    `grid.create_field` (the `store = pad + sync` path) traces two
+    small programs anew on every call when more than one device is
+    present — the sync closure is apparently not shared across
+    calls. The model layer works around it by caching its constant
+    tendency template; a grid-side fix belongs with the 1.8 sync
+    rework (which replaces this code path anyway).
+
 10. **Teaching shims + small gaps** — ergonomics.
     `ImmutableStateError` on `.data` assignment
     ([`classes/fields.md`](classes/fields.md) D1.5),
