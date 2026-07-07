@@ -57,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
+    from fridom.framework2.grid.decomposition.layout import Layout
     from fridom.framework2.grid.grid import Grid
     from fridom.framework2.grid.spaces.function_space import (
         FunctionSpace,
@@ -337,11 +338,35 @@ class ScalarField:
             result = op(result)
         return result
 
-    def reshard(self, target: object) -> ScalarField:
-        """Explicit layout change (never implicit in arithmetic)."""
-        raise NotImplementedError(
-            "reshard is sugar over the Reshard movement operator; "
-            "multi-device layouts arrive in Wave 3")
+    def reshard(self, target: Layout) -> ScalarField:
+        """
+        Explicit layout change (never implicit in arithmetic).
+
+        Description
+        -----------
+        Thin sugar over the grid-bound ``Reshard`` movement operator
+        (section 5.1): the target must be in the negotiated layout
+        vocabulary; a matching layout elides the application
+        (identity).
+
+        Parameters
+        ----------
+        target : Layout
+            The target layout (member of
+            ``grid.decomposition.layouts``).
+
+        Returns
+        -------
+        ScalarField
+            The field in the target layout (``self`` when already
+            there).
+        """
+        if self._function_space.layout == target:
+            return self  # identity elision
+        from fridom.framework2.grid.operators.movement import (  # noqa: PLC0415 — keep the movement import off the field-core import path
+            Reshard,
+        )
+        return Reshard(self._grid, target)(self)
 
     def integrate(self, *names: str) -> ScalarField:
         """

@@ -187,7 +187,10 @@ def apply_staggered(
     axis_index = bare.names.index(axis)
     storage = f._data  # noqa: SLF001 — documented storage seam
     decomposition = f.grid.decomposition
-    out_shape = decomposition.storage_shape(codomain)
+    # the codomain storage lives in the operand's layout (the base
+    # re-attaches it); resolving the bare codomain would pick the
+    # default layout instead of the operand's pencil
+    out_shape = decomposition.storage_shape(codomain, space.layout)
     s_out = out_shape[axis_index]
     n_out = codomain_factor.shape[0]
     try:
@@ -195,16 +198,20 @@ def apply_staggered(
     except KeyError:
         width = 0
 
-    full = kernel(storage, axis_index)
-    length = full.shape[axis_index]
-    lo = max(0, m0)
-    hi = min(s_out, m0 + length)
-    if lo > width or hi < width + n_out:
+    # per-side stencil reach beyond the true region; the halo must
+    # cover it (frame-independent: equivalent to the storage-bounds
+    # check on one shard, and the per-block condition on many)
+    reach_right = (n_out - domain_factor.shape[0]) + size - 1 - m0
+    if m0 > width or reach_right > width:
         raise ValueError(
             f"the negotiated halo width {width} along {axis!r} is "
             f"too small for the {size}-point stencil of "
             f"{type(op).__name__}; renegotiate with a registry that "
             "declares the wider requirement")
+    full = kernel(storage, axis_index)
+    length = full.shape[axis_index]
+    lo = max(0, m0)
+    hi = min(s_out, m0 + length)
     index: list[slice] = [slice(None)] * full.ndim
     index[axis_index] = slice(lo - m0, hi - m0)
     piece = full[tuple(index)]

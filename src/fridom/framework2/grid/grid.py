@@ -8,13 +8,14 @@ decomposition + dispatch + field factory: ergonomics and wiring only,
 all mathematics lives in spaces and operators. Iteration-1 subset:
 ``__init__`` seeds the default ``OperatorRegistry`` with the
 grid-free iteration-1 rows (overridable via ``dispatch=``) and ends
-with the provisional negotiation — the halo is the per-operator
-maximum over the seeded registry, sound under the
-sync-after-every-operator contract — building the single-device
-decomposition directly (``negotiate``/``freeze``/``merge_overrides``
-are Wave-3 stubs).
+with the provisional negotiation (grid lifecycle step 2) — the halo
+is the per-operator maximum over the seeded registry, sound under
+the sync-after-every-operator contract. Phase-2 assembly re-runs
+``negotiate(state_spaces=..., tendency=...)`` and ends with
+``freeze()``; ``merge_overrides`` stays a stub until the
+operator-registry merge lands.
 """
-# Wave 2: Grid
+# Wave 2: Grid -- Wave 3: negotiate/freeze lifecycle
 from __future__ import annotations
 
 import inspect
@@ -24,10 +25,9 @@ import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
 from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.decomposition.tensor import (
-    TensorDecomposition,
+from fridom.framework2.grid.decomposition.decomposition import (
+    ReshardingReport,
+    negotiate,
 )
 from fridom.framework2.grid.errors import (
     GridMismatchError,
@@ -87,6 +87,10 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
+    from fridom.framework2.grid.decomposition.decomposition import (
+        Decomposition,
+    )
+    from fridom.framework2.grid.decomposition.halo import HaloSpec
     from fridom.framework2.grid.meshes.mesh import Mesh
     from fridom.framework2.grid.operators.base import Operator
     from fridom.framework2.grid.operators.registry import DispatchKey
@@ -106,9 +110,9 @@ class Grid:
     Fully static: not a pytree container, appears only as
     identity-hashed static aux data in field pytrees. Coordinate
     names come from the meshes (mandatory at mesh construction);
-    the constructor validates flat uniqueness and builds the
-    single-device decomposition with zero halo and the trivial
-    layout (negotiation arrives in Wave 3).
+    the constructor validates flat uniqueness and ends with the
+    provisional negotiation (grid lifecycle step 2), so a grid is
+    fully usable interactively right after construction.
 
     Parameters
     ----------
@@ -119,8 +123,9 @@ class Grid:
         ``OperatorRegistry``); None seeds the default iteration-1
         registry from the meshes' space families (default: None).
     device_ids : tuple[int, ...] | None, optional
-        Indices into ``jax.devices()``; None selects the first
-        device (default: None).
+        Indices into ``jax.devices()``; None lets negotiation use
+        every available device, falling back to one when nothing is
+        shardable (default: None).
     """
 
     def __init__(
@@ -151,16 +156,13 @@ class Grid:
         self._dispatch: object = (
             _default_registry(meshes) if dispatch is None
             else dispatch)
+        self._device_ids: tuple[int, ...] | None = device_ids
+        self._frozen: bool = False
         # provisional negotiation: halo = per-operator maximum over
         # the registry (grid lifecycle step 2; exact under the
         # iteration-1 sync-after-every-operator contract)
-        self._decomposition: TensorDecomposition = TensorDecomposition(
-            meshes=meshes,
-            names=self._names,
-            halo=_registry_halo(self._names, self._dispatch),
-            layouts=(Layout({}),),
-            device_ids=device_ids,
-        )
+        self._decomposition: Decomposition = negotiate(
+            self, self._dispatch, device_ids=device_ids)
         self._random: RandomFieldFactory = RandomFieldFactory(self)
 
     # ================================================================
@@ -208,20 +210,59 @@ class Grid:
     #  Decomposition and lifecycle
     # ================================================================
     @property
-    def decomposition(self) -> TensorDecomposition:
-        """The (single-device, provisionally negotiated) decomposition."""
+    def decomposition(self) -> Decomposition:
+        """The negotiated domain decomposition (grid-owned)."""
         return self._decomposition
 
-    def negotiate(self, **kwargs: object) -> object:
-        """Renegotiate the decomposition (pre-freeze only)."""
-        raise NotImplementedError(
-            "negotiate arrives in Wave 3 (multi-device layouts and "
-            "the halo-accounting trace)")
+    def negotiate(
+        self,
+        *,
+        state_spaces: tuple[SpaceLike, ...] | None = None,
+        tendency: Callable[..., object] | None = None,
+        halo: HaloSpec | None = None,
+    ) -> ReshardingReport:
+        """
+        Renegotiate the decomposition (pre-freeze only).
+
+        Description
+        -----------
+        Re-runs the mesh-traits x operator-demands negotiation
+        (Phase-2 assembly, grid lifecycle step 3): the halo comes
+        from the traced `tendency` when supplied, else the
+        per-operator registry maximum scoped to `state_spaces`, else
+        the explicit `halo=` override. Returns the report the model
+        uses to re-``device_put`` its live state once; derived
+        arrays need nothing (recompute-on-demand).
+
+        Parameters
+        ----------
+        state_spaces : tuple[SpaceLike, ...] | None, optional
+            The model's state-field spaces (default: None).
+        tendency : Callable[..., object] | None, optional
+            The tendency to halo-trace (default: None).
+        halo : HaloSpec | None, optional
+            Explicit per-name halo override (default: None).
+
+        Returns
+        -------
+        ReshardingReport
+            Old/new default layout and whether they differ.
+        """
+        if self._frozen:
+            raise RuntimeError(
+                "the grid is frozen; negotiate is legal in the "
+                "assembly phase only (grid lifecycle)")
+        old = self._decomposition.default_layout
+        self._decomposition = negotiate(
+            self, self._dispatch,
+            state_spaces=state_spaces, tendency=tendency, halo=halo,
+            device_ids=self._device_ids)
+        new = self._decomposition.default_layout
+        return ReshardingReport(old=old, new=new, changed=old != new)
 
     def freeze(self) -> None:
-        """End the assembly phase; further merges/negotiations raise."""
-        raise NotImplementedError(
-            "the assembly lifecycle (freeze) arrives in Wave 3")
+        """End the assembly phase; further negotiations raise."""
+        self._frozen = True
 
     def sync(
         self,
@@ -229,7 +270,7 @@ class Grid:
         boundary_data: Mapping[str, ScalarField] | None = None,
     ) -> ScalarField:
         """
-        Fill the field's halos (identity on a single device).
+        Fill the field's halos (wrap / BC fill / shard exchange).
 
         Parameters
         ----------
@@ -738,8 +779,8 @@ def _measure_geometry(
 
 
 # ================================================================
-#  Default registry seeding (grid lifecycle step 1) and the
-#  provisional halo (step 2)
+#  Default registry seeding (grid lifecycle step 1; the provisional
+#  halo of step 2 lives in decomposition.negotiate)
 # ================================================================
 # mesh factory attributes of the seeded space families
 _NODAL_FACTORIES = ("center", "left", "right", "outer", "inner")

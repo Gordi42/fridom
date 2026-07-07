@@ -554,10 +554,17 @@ def test_diff_forwards_to_the_seeded_verb(grid1d, mx):
 
 
 def test_deferred_methods_raise(f):
-    with pytest.raises(NotImplementedError, match="Reshard"):
-        f.reshard(None)
+    # integrate/mean/reshard landed in wave 3; only export is still deferred
     with pytest.raises(NotImplementedError, match="export"):
         _ = f.xr
+
+
+def test_reshard_forwards_to_the_movement_operator(f):
+    # matching layout: identity elision (no operator application)
+    assert f.reshard(f.function_space.layout) is f
+    # a foreign layout is outside the closed negotiated vocabulary
+    with pytest.raises(ValueError, match="vocabulary"):
+        f.reshard(None)
 
 
 # ================================================================

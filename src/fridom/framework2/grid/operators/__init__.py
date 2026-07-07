@@ -65,6 +65,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .integrate import Integral
     from .interp import LinearInterp
+    from .movement import Reshard, Sync
     from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .verbs import diff, integrate, interpolate
@@ -141,6 +142,7 @@ all_imports_by_origin = {
         "Curl",
         "Laplacian",
     ],
+    f"{base}.movement": ["Reshard", "Sync"],
     f"{base}.verbs": ["diff", "interpolate", "integrate"],
 }
 

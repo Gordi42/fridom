@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework2.grid.bc import BC
+from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import GridMismatchError
 from fridom.framework2.grid.fields.metadata import FieldMetadata
 from fridom.framework2.grid.grid import Grid
@@ -82,12 +83,13 @@ def test_dispatch_defaults_to_seeded_registry_and_is_settable(mx):
     assert Grid((mx,), dispatch=custom).dispatch is custom
 
 
-def test_decomposition_is_single_device_provisional_halo(
-        grid, mx, my):
+def test_decomposition_is_single_device_provisional_halo(mx, my):
     # provisional negotiation: halo = per-operator max over the
     # seeded registry; the widest entry is the two-factor
-    # FV-derivative chain (reconstruct + flux_diff, width 1 each)
-    dec = grid.decomposition
+    # FV-derivative chain (reconstruct + flux_diff, width 1 each).
+    # Pinned to one device: the assertions read the single-shard
+    # storage frame.
+    dec = Grid((mx, my), device_ids=(0,)).decomposition
     assert dec.halo["x"] == 2
     assert dec.halo["y"] == 2
     space = mx.center * my.center
@@ -122,15 +124,46 @@ def test_seeded_registry_covers_the_default_rows(grid, mx, my):
 
 
 # ================================================================
-#  Lifecycle stubs (Wave 3)
+#  Lifecycle (negotiate / freeze; merge_overrides is a later stub)
 # ================================================================
-def test_lifecycle_stubs_raise(grid):
+def test_merge_overrides_stub_raises(grid):
     with pytest.raises(NotImplementedError, match="registry"):
         grid.merge_overrides({})
-    with pytest.raises(NotImplementedError, match="Wave 3"):
+
+
+def test_negotiate_returns_a_resharding_report(grid):
+    report = grid.negotiate()
+    assert report.old == report.new
+    assert report.changed is False
+    assert report.new is grid.decomposition.default_layout
+
+
+def test_negotiate_honors_an_explicit_halo(grid):
+    grid.negotiate(halo=HaloSpec({"x": 3}))
+    assert grid.decomposition.halo["x"] == 3
+    assert grid.decomposition.halo["y"] == 0
+
+
+def test_negotiate_traces_a_tendency(grid):
+    space = grid.create_field().function_space
+
+    def tendency(state):
+        return state.diff("x")
+
+    grid.negotiate(state_spaces=(space,), tendency=tendency)
+    assert grid.decomposition.halo["x"] == 1
+    assert grid.decomposition.halo["y"] == 0
+
+
+def test_negotiate_tendency_requires_state_spaces(grid):
+    with pytest.raises(ValueError, match="state_spaces"):
+        grid.negotiate(tendency=lambda state: state)
+
+
+def test_freeze_ends_the_assembly_phase(grid):
+    grid.freeze()
+    with pytest.raises(RuntimeError, match="frozen"):
         grid.negotiate()
-    with pytest.raises(NotImplementedError, match="Wave 3"):
-        grid.freeze()
 
 
 def test_sync_is_identity_on_one_device(grid):

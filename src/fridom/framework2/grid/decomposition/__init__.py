@@ -27,13 +27,14 @@ if TYPE_CHECKING:  # pragma: no cover
         traits,
     )
 
-    # import all classes
+    # import all classes and functions
     from .decomposition import (
         Decomposition,
         ReshardingReport,
         SpaceLike,
+        negotiate,
     )
-    from .halo import HaloSpec
+    from .halo import HaloSpec, HaloTracer, trace_halo
     from .layout import Layout
     from .tensor import TensorDecomposition
     from .traits import HaloStrategy, MeshDecompositionTraits
@@ -56,12 +57,13 @@ all_modules_by_origin = {
 
 all_imports_by_origin = {
     f"{base}.traits": ["HaloStrategy", "MeshDecompositionTraits"],
-    f"{base}.halo": ["HaloSpec"],
+    f"{base}.halo": ["HaloSpec", "HaloTracer", "trace_halo"],
     f"{base}.layout": ["Layout"],
     f"{base}.decomposition": [
         "Decomposition",
         "ReshardingReport",
         "SpaceLike",
+        "negotiate",
     ],
     f"{base}.tensor": ["TensorDecomposition"],
 }

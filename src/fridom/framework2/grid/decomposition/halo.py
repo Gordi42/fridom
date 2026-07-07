@@ -1,5 +1,5 @@
 """
-Halo machinery: negotiated ghost-layer widths.
+Halo machinery: negotiated ghost-layer widths and the halo trace.
 
 Description
 -----------
@@ -8,17 +8,33 @@ Owning class doc: ``notes/framework2/classes/decomposition.md``.
 integer: per-coordinate-name ghost widths, keyed by name because
 names are the stable addressing scheme of the flat product. It is a
 static, hashable value that enters jit cache keys through the
-decomposition.
+decomposition. ``HaloTracer`` and ``trace_halo`` are the automatic
+halo-accounting trace: a data-free ``ScalarField`` stand-in dry-runs
+the tendency, generically intercepted at the shared operator
+application path (setup phase only, never inside jit).
 """
 # Wave 1: HaloSpec -- Wave 3: HaloTracer, trace_halo
 #    (GhostFill is designed-for)
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
+
+from fridom.framework2.grid.operators.base import (
+    Composite,
+    Dispatched,
+    SeparableOperator,
+    _resolve_axis,
+    resolve_codomain,
+)
+from fridom.framework2.grid.spaces.constant import ConstantSpace
+from fridom.framework2.grid.spaces.tensor_product import join
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Mapping
+    from collections.abc import Callable, Iterator, Mapping
+
+    from fridom.framework2.grid.operators.base import Operator
+    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
 
 @dataclass(frozen=True, init=False)
@@ -150,3 +166,523 @@ class HaloSpec:
         for name, width in other.widths:
             merged[name] = max(merged.get(name, 0), width)
         return HaloSpec(merged)
+
+
+# ================================================================
+#  Halo-accounting trace (HaloTracer, trace_halo)
+# ================================================================
+# Python scalars entering tracer arithmetic (mirrors ScalarField)
+_SCALAR_TYPES = int | float | complex
+
+
+class _TraceRecorder:
+
+    """Accumulates the maximal observed halo depth of one trace."""
+
+    def __init__(self) -> None:
+        self.spec: HaloSpec = HaloSpec({})
+
+    def observe(self, depth: HaloSpec) -> None:
+        """Merge one observed accumulated depth into the maximum."""
+        self.spec = self.spec.merge_max(depth)
+
+
+class _TracerGrid:
+
+    """
+    Minimal grid stand-in a ``HaloTracer`` presents as ``.grid``.
+
+    Description
+    -----------
+    Exposes exactly the registry (as ``dispatch``) so the seeded
+    ``Dispatched`` verbs resolve against tracers; everything else a
+    real grid offers is deliberately absent (tracers never reach the
+    decomposition).
+    """
+
+    def __init__(self, dispatch: object) -> None:
+        self.dispatch = dispatch
+
+
+def _laid_out_like(space: SpaceLike, reference: SpaceLike) -> SpaceLike:
+    """Mimic the application path's layout re-attachment."""
+    if space.layout is not None:
+        return space  # layout-transition operator (Reshard)
+    if reference.layout is not None:
+        return space.with_layout(reference.layout)
+    return space
+
+
+class HaloTracer:
+
+    """
+    Data-free ``ScalarField`` stand-in carrying space + halo depth.
+
+    Description
+    -----------
+    Presents the iteration-1 ``ScalarField`` surface (arithmetic,
+    ``.diff``, ``.to``, ``.grid``/``.function_space``) so operators
+    run unchanged; the shared application path intercepts tracer
+    operands through the ``_trace_apply`` / ``_trace_apply_nary``
+    hooks, records ``requirements(domain).halo`` and returns the
+    codomain-space tracer without touching kernel code. ``.data``
+    raises ``TypeError``: a module that drops to raw arrays escapes
+    the accounting, so the escape must be declared
+    (``Module.extra_halo``, Phase 2). Under the iteration-1
+    sync-after-every-operator contract each application's grown depth
+    is recorded and then reset (the base's post-kernel sync); the
+    accumulation rules (``grow``/``merge_max``) are what the
+    designed-for sync-elision consumes.
+
+    Parameters
+    ----------
+    function_space : SpaceLike
+        The space this tracer pretends to live on.
+    registry : object
+        The (duck-typed) operator registry used by the mimicked
+        dispatch surface (``.diff``, ``.to``, products).
+    depth : HaloSpec | None, optional
+        Accumulated per-name depth; None means zero on every name
+        (default: None).
+    """
+
+    def __init__(
+        self,
+        function_space: SpaceLike,
+        registry: object,
+        depth: HaloSpec | None = None,
+        *,
+        recorder: _TraceRecorder | None = None,
+    ) -> None:
+        """Create a tracer on `function_space` (zero default depth)."""
+        self._space = function_space
+        self._registry = registry
+        self._depth = (HaloSpec.zero(tuple(function_space.names))
+                       if depth is None else depth)
+        self._recorder = recorder
+
+    # ================================================================
+    #  Properties (the mimicked field surface)
+    # ================================================================
+    @property
+    def function_space(self) -> SpaceLike:
+        """The space this tracer pretends to live on."""
+        return self._space
+
+    @property
+    def depth(self) -> HaloSpec:
+        """Accumulated per-name halo depth since the last sync."""
+        return self._depth
+
+    @property
+    def data(self) -> NoReturn:
+        """Raise TypeError: bypasses must declare Module.extra_halo."""
+        raise TypeError(
+            "HaloTracer has no data: dropping to raw arrays escapes "
+            "the halo accounting — declare the bypass via "
+            "Module.extra_halo instead")
+
+    @property
+    def grid(self) -> _TracerGrid:
+        """Registry-bearing grid stand-in (verb dispatch only)."""
+        return _TracerGrid(self._registry)
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Global true DOF shape, ``function_space.shape``."""
+        return self._space.shape
+
+    def __repr__(self) -> str:
+        """Space and accumulated depth summary."""
+        return (f"HaloTracer(space={self._space!r}, "
+                f"depth={self._depth.widths})")
+
+    # ================================================================
+    #  Trace plumbing
+    # ================================================================
+    def _child(self, space: SpaceLike, depth: HaloSpec) -> HaloTracer:
+        """Build the successor tracer (registry/recorder shared)."""
+        return HaloTracer(space, self._registry, depth,
+                          recorder=self._recorder)
+
+    def _record(self, depth: HaloSpec) -> None:
+        """Report one accumulated depth to the trace recorder."""
+        if self._recorder is not None:
+            self._recorder.observe(depth)
+
+    def _grown(self, op: Operator) -> HaloSpec:
+        """
+        Compute the depth after `op`.
+
+        Description
+        -----------
+        Per-axis for separable kernels; every bindable axis for
+        whole-space operators (conservative).
+        """
+        space = self._space.bare
+        if isinstance(op, SeparableOperator):
+            axis = _resolve_axis(op, space)
+            factor = (space if not hasattr(space, "factor")
+                      else space.factor(axis))
+            if isinstance(factor, ConstantSpace):
+                return self._depth  # identity application
+            return self._depth.grow(axis, op.requirements(factor).halo)
+        halo = op.requirements(space).halo
+        depth = self._depth
+        if halo:
+            for factor in space.factors:
+                if isinstance(factor, ConstantSpace):
+                    continue
+                for name in factor.names:
+                    depth = depth.grow(name, halo)
+        return depth
+
+    def _trace_apply(self, op: Operator) -> HaloTracer:
+        """
+        Unary interception hook of the shared application path.
+
+        Description
+        -----------
+        Reshard-style operators declare ``_trace_reset_names``: a
+        redistribute is at least as strong as a sync on the moved
+        axes, so their accumulated depth resets (doc 04 section 5.1).
+        ``Composite`` chains re-enter the hook factor by factor
+        (each factor application syncs, so the accounting stays
+        exact per axis). Everything else records the grown depth and
+        returns the codomain tracer with the post-sync zero depth.
+        """
+        if isinstance(op, Composite):
+            result: HaloTracer = self
+            for factor in reversed(op.factors):
+                result = factor(result)
+            return result
+        reset = getattr(op, "_trace_reset_names", None)
+        if reset is not None:
+            widths = dict(self._depth.widths)
+            for name in reset(self._space):
+                widths[name] = 0
+            codomain = _laid_out_like(
+                resolve_codomain(op, self._space), self._space)
+            return self._child(codomain, HaloSpec(widths))
+        grown = self._grown(op)
+        self._record(grown)
+        codomain = _laid_out_like(
+            resolve_codomain(op, self._space), self._space)
+        # iteration-1 contract: the base syncs after every operator
+        return self._child(codomain,
+                           HaloSpec.zero(tuple(codomain.names)))
+
+    def _trace_apply_nary(
+        self, op: Operator, operands: tuple[object, ...],
+    ) -> HaloTracer:
+        """
+        N-ary interception hook (binary/elementwise operators).
+
+        Description
+        -----------
+        Depths of the tracer operands max-merge (parallel branches);
+        real-field operands are synced and contribute zero.
+        """
+        depth = HaloSpec({})
+        spaces = []
+        for operand in operands:
+            if isinstance(operand, HaloTracer):
+                depth = depth.merge_max(operand._depth)  # noqa: SLF001
+            spaces.append(operand.function_space)
+        codomain = op.codomain(*(space.bare for space in spaces))
+        halo = op.requirements(codomain).halo
+        if halo:
+            for factor in codomain.factors:
+                if isinstance(factor, ConstantSpace):
+                    continue
+                for name in factor.names:
+                    depth = depth.merge_max(
+                        HaloSpec({name: 0})).grow(name, halo)
+        self._record(depth)
+        codomain = _laid_out_like(codomain, self._space)
+        return self._child(codomain,
+                           HaloSpec.zero(tuple(codomain.names)))
+
+    # ================================================================
+    #  Dispatch sugar (mirrors ScalarField's thin forwarders)
+    # ================================================================
+    def diff(self, name: str) -> HaloTracer:
+        """Default derivative along ``name`` (traced generically)."""
+        return Dispatched("diff")[name](self)
+
+    def to(self, target: object) -> HaloTracer:
+        """Convert per axis onto the target's space (traced)."""
+        from fridom.framework2.grid.fields.scalar_field import (  # noqa: PLC0415 — fields import the operator base
+            _conversion_kind,
+            _target_space,
+        )
+        space = _target_space(self._space, target)
+        src_bare = self._space.bare
+        dst_bare = space.bare
+        if dst_bare is src_bare:
+            return self
+        result: HaloTracer = self
+        for name in dst_bare.names:
+            src = result.function_space.bare.factor(name)
+            dst = dst_bare.factor(name)
+            if src is dst:
+                continue
+            op = self._registry.resolve(
+                _conversion_kind(src, dst), src)[name]
+            result = op(result)
+        return result
+
+    def integrate(self, *names: str) -> HaloTracer:
+        """Weighted integral; mirrors the ScalarField stub."""
+        raise NotImplementedError(
+            "f.integrate forwards to the seeded 'integrate' verb "
+            "once the Integral operator rows land in Wave 3")
+
+    # ================================================================
+    #  Arithmetic (mixed-operand reflected ops survive by design:
+    #  ScalarField dunders return NotImplemented on tracers)
+    # ================================================================
+    def _linear(self, other: object) -> HaloTracer:
+        """Join spaces, max-merge depths (for +/-)."""
+        if isinstance(other, HaloTracer):
+            joined = join(self._space.bare, other._space.bare)  # noqa: SLF001
+            depth = self._depth.merge_max(other._depth)  # noqa: SLF001
+        elif isinstance(other, _SCALAR_TYPES):
+            return self
+        else:
+            space = getattr(other, "function_space", None)
+            if space is None:
+                return NotImplemented
+            joined = join(self._space.bare, space.bare)
+            depth = self._depth
+        return self._child(_laid_out_like(joined, self._space), depth)
+
+    def _dispatch_product(
+        self, other: object, kind: str, *, reflected: bool = False,
+    ) -> HaloTracer:
+        """Resolve a product kind on the join and trace through it."""
+        if isinstance(other, HaloTracer):
+            other_space = other._space  # noqa: SLF001
+        elif isinstance(other, _SCALAR_TYPES):
+            other_space = self._space
+            other = self._child(
+                self._space,
+                HaloSpec.zero(tuple(self._space.names)))
+        else:
+            other_space = getattr(other, "function_space", None)
+            if other_space is None:
+                return NotImplemented
+        joined = join(self._space.bare, other_space.bare)
+        op = self._registry.resolve(kind, joined)
+        return op(other, self) if reflected else op(self, other)
+
+    def __add__(self, other: object) -> HaloTracer:
+        """Linear; join rule, depths max-merge."""
+        return self._linear(other)
+
+    __radd__ = __add__
+    __sub__ = __add__
+    __rsub__ = __add__
+
+    def __neg__(self) -> HaloTracer:
+        """Negation: space and depth unchanged."""
+        return self
+
+    def __pos__(self) -> HaloTracer:
+        """Identity."""
+        return self
+
+    def __mul__(self, other: object) -> HaloTracer:
+        """Scalar: linear scaling. Field/tracer: dispatched product."""
+        if isinstance(other, _SCALAR_TYPES):
+            return self
+        return self._dispatch_product(other, "multiply")
+
+    def __rmul__(self, other: object) -> HaloTracer:
+        """Reflected multiply (field * tracer)."""
+        if isinstance(other, _SCALAR_TYPES):
+            return self
+        return self._dispatch_product(other, "multiply",
+                                      reflected=True)
+
+    def __truediv__(self, other: object) -> HaloTracer:
+        """Scalar: linear scaling. Field/tracer: dispatched divide."""
+        if isinstance(other, _SCALAR_TYPES):
+            return self
+        return self._dispatch_product(other, "divide")
+
+    def __rtruediv__(self, other: object) -> HaloTracer:
+        """Reflected divide (scalar or field over the tracer)."""
+        return self._dispatch_product(other, "divide", reflected=True)
+
+    def __pow__(self, exponent: float) -> HaloTracer:
+        """Physical power through the ("power", space) row."""
+        if not isinstance(exponent, int | float):
+            return NotImplemented
+        return self._dispatch_product(exponent, "power")
+
+    def __abs__(self) -> HaloTracer:
+        """Pointwise modulus through the ("abs", space) row."""
+        op = self._registry.resolve("abs", self._space.bare)
+        return op(self)
+
+
+class VectorTracer:
+
+    """
+    ``VectorField``/State-mimicking stand-in over tracer components.
+
+    Description
+    -----------
+    Performs **no grid validation** — component mapping (``.map``)
+    and composed operators trace through it. Built by ``trace_halo``;
+    arithmetic and functional updates mirror the ``VectorField``
+    surface componentwise.
+
+    Parameters
+    ----------
+    components : Mapping[str, HaloTracer] | Iterable[HaloTracer]
+        The component tracers; unnamed iterables are keyed
+        positionally (``c0``, ``c1``, ...).
+    """
+
+    def __init__(
+        self,
+        components: Mapping[str, HaloTracer] | tuple[HaloTracer, ...],
+    ) -> None:
+        """Normalize the components to a name-keyed mapping."""
+        if hasattr(components, "items"):
+            self._components = dict(components.items())
+        else:
+            self._components = {
+                f"c{i}": tracer
+                for i, tracer in enumerate(components)}
+
+    @property
+    def components(self) -> Mapping[str, HaloTracer]:
+        """Read-only name -> tracer view, in declaration order."""
+        return dict(self._components)
+
+    @property
+    def component_names(self) -> tuple[str, ...]:
+        """Component names in declaration order."""
+        return tuple(self._components)
+
+    def __getitem__(self, key: str | int) -> HaloTracer:
+        """Component by name or positional index."""
+        if isinstance(key, int):
+            return tuple(self._components.values())[key]
+        return self._components[key]
+
+    def __iter__(self) -> Iterator[HaloTracer]:
+        """Iterate over component tracers in declaration order."""
+        return iter(self._components.values())
+
+    def __len__(self) -> int:
+        """Return the number of components."""
+        return len(self._components)
+
+    def __contains__(self, name: str) -> bool:
+        """Whether a component of that name exists."""
+        return name in self._components
+
+    def map(
+        self, fn: Callable[[HaloTracer], HaloTracer],
+    ) -> VectorTracer:
+        """Apply ``fn`` to each component on its own space."""
+        return VectorTracer({name: fn(tracer)
+                             for name, tracer in
+                             self._components.items()})
+
+    def replace(self, **components: HaloTracer) -> VectorTracer:
+        """Functional update of named components."""
+        merged = dict(self._components)
+        for name, tracer in components.items():
+            if name not in merged:
+                raise KeyError(name)
+            merged[name] = tracer
+        return VectorTracer(merged)
+
+    def _combine(self, other: object) -> VectorTracer:
+        """Componentwise linear combination (depths max-merge)."""
+        if isinstance(other, VectorTracer):
+            return VectorTracer({
+                name: tracer + other[name]
+                for name, tracer in self._components.items()})
+        return VectorTracer({name: tracer + other
+                             for name, tracer in
+                             self._components.items()})
+
+    def __add__(self, other: object) -> VectorTracer:
+        """Componentwise addition."""
+        return self._combine(other)
+
+    __radd__ = __add__
+    __sub__ = __add__
+    __rsub__ = __add__
+
+    def __neg__(self) -> VectorTracer:
+        """Negation: componentwise (spaces and depths unchanged)."""
+        return self
+
+    def __pos__(self) -> VectorTracer:
+        """Identity."""
+        return self
+
+    def __mul__(self, other: object) -> VectorTracer:
+        """Componentwise scaling/product."""
+        return VectorTracer({name: tracer * other
+                             for name, tracer in
+                             self._components.items()})
+
+    __rmul__ = __mul__
+
+    def __truediv__(self, other: object) -> VectorTracer:
+        """Componentwise division."""
+        return VectorTracer({name: tracer / other
+                             for name, tracer in
+                             self._components.items()})
+
+
+def trace_halo(
+    tendency: Callable[..., object],
+    state_spaces: tuple[SpaceLike, ...],
+    registry: object,
+) -> HaloSpec:
+    """
+    Dry-run the tendency on tracers; return the max accumulated depth.
+
+    Description
+    -----------
+    Feeds the tendency a ``VectorTracer`` whose components are
+    ``HaloTracer``s on `state_spaces` (a lone space is passed as its
+    bare tracer). The tendency must be traceable **without** jit —
+    plain Python over fields. The accounting runs over `registry` as
+    merged, so overrides are honored; under the iteration-1
+    sync-after-every-operator contract the result reproduces the
+    per-operator maximum, while the tracer's grow/merge rules carry
+    the designed-for sync-elision semantics.
+
+    Parameters
+    ----------
+    tendency : Callable[..., object]
+        The tendency callable (takes the state stand-in).
+    state_spaces : tuple[SpaceLike, ...]
+        The spaces of the model's state fields.
+    registry : object
+        The (duck-typed) operator registry, as merged.
+
+    Returns
+    -------
+    HaloSpec
+        The maximal accumulated per-name depth over the trace.
+    """
+    if not state_spaces:
+        raise ValueError("trace_halo needs at least one state space")
+    recorder = _TraceRecorder()
+    tracers = tuple(
+        HaloTracer(space, registry, recorder=recorder)
+        for space in state_spaces)
+    state = tracers[0] if len(tracers) == 1 else VectorTracer(tracers)
+    tendency(state)
+    return recorder.spec
