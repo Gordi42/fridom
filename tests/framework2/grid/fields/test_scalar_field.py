@@ -553,10 +553,13 @@ def test_diff_forwards_to_the_seeded_verb(grid1d, mx):
     assert d.metadata == FieldMetadata()  # new quantity
 
 
-def test_deferred_methods_raise(f):
-    # integrate/mean/reshard landed in wave 3; only export is still deferred
-    with pytest.raises(NotImplementedError, match="export"):
-        _ = f.xr
+def test_xr_is_the_export_entry_point(f):
+    # thin forwarder to the export module (label rules are tested in
+    # tests/framework2/grid/test_export.py)
+    da = f.xr
+    assert da.name == "f"
+    assert da.dims == ("x", "y")
+    assert jnp.array_equal(jnp.asarray(da.values), f.data)
 
 
 def test_reshard_forwards_to_the_movement_operator(f):

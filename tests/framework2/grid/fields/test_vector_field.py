@@ -283,6 +283,8 @@ def test_block_until_ready(vec):
     assert vec.block_until_ready() is vec
 
 
-def test_xr_is_designed_for(vec):
-    with pytest.raises(NotImplementedError, match="export"):
-        _ = vec.xr
+def test_xr_is_the_export_entry_point(vec):
+    # thin forwarder to the export module (label rules are tested in
+    # tests/framework2/grid/test_export.py)
+    ds = vec.xr
+    assert sorted(ds.data_vars) == ["u", "v"]

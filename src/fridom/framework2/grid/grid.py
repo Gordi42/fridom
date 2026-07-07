@@ -113,6 +113,7 @@ if TYPE_CHECKING:  # pragma: no cover
         Decomposition,
     )
     from fridom.framework2.grid.decomposition.halo import HaloSpec
+    from fridom.framework2.grid.immersed_domain import ImmersedDomain
     from fridom.framework2.grid.meshes.mesh import Mesh
     from fridom.framework2.grid.operators.base import Operator
     from fridom.framework2.grid.operators.registry import DispatchKey
@@ -145,6 +146,9 @@ class Grid:
         The operator dispatch registry (duck-typed
         ``OperatorRegistry``); None seeds the default iteration-1
         registry from the meshes' space families (default: None).
+    immersed : ImmersedDomain | None, optional
+        The immersed (masked) domain descriptor to attach; the grid
+        binds it on attachment (default: None).
     device_ids : tuple[int, ...] | None, optional
         Indices into ``jax.devices()``; None lets negotiation use
         every available device, falling back to one when nothing is
@@ -156,6 +160,7 @@ class Grid:
         meshes: tuple[Mesh, ...],
         *,
         dispatch: object | None = None,
+        immersed: ImmersedDomain | None = None,
         device_ids: tuple[int, ...] | None = None,
     ) -> None:
         """Assemble a grid from pre-built, pre-named mesh factors."""
@@ -181,6 +186,9 @@ class Grid:
             else dispatch)
         self._device_ids: tuple[int, ...] | None = device_ids
         self._frozen: bool = False
+        self._immersed: ImmersedDomain | None = None
+        if immersed is not None:
+            self._attach_immersed(immersed)
         # provisional negotiation: halo = per-operator maximum over
         # the registry (grid lifecycle step 2; exact under the
         # iteration-1 sync-after-every-operator contract)
@@ -606,6 +614,48 @@ class Grid:
         stored = store(self._decomposition, result, data)
         return ScalarField(self, result, stored,
                            FieldMetadata.create(name=f"d{name}"))
+
+    # ================================================================
+    #  Attachments
+    # ================================================================
+    @property
+    def immersed(self) -> ImmersedDomain | None:
+        """The immersed (masked) domain descriptor, or None."""
+        return self._immersed
+
+    def with_immersed(self, immersed: ImmersedDomain) -> Grid:
+        """
+        Attach the immersed descriptor (pre-freeze only).
+
+        Description
+        -----------
+        Binds the static descriptor to this grid and returns the
+        grid, so already-created fields keep their grid identity
+        (the descriptor holds no arrays — there is nothing to
+        reshard or invalidate). After ``freeze()`` this raises
+        ``RuntimeError`` (grid lifecycle step 3).
+
+        Parameters
+        ----------
+        immersed : ImmersedDomain
+            The wet-region descriptor to attach.
+
+        Returns
+        -------
+        Grid
+            This grid, carrying the descriptor.
+        """
+        if self._frozen:
+            raise RuntimeError(
+                "the grid is frozen; with_immersed is legal in the "
+                "assembly phase only (grid lifecycle)")
+        self._attach_immersed(immersed)
+        return self
+
+    def _attach_immersed(self, immersed: ImmersedDomain) -> None:
+        """Bind and store the immersed descriptor."""
+        immersed._bind(self)  # noqa: SLF001 — attachment seam
+        self._immersed = immersed
 
     # ================================================================
     #  Internal helpers
