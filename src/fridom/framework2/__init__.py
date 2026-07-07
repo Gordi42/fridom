@@ -26,14 +26,65 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import grid, io, model, ops, transforms
+    from .model import implicit, params, roles
+
+    # import all classes (the fr.* surface, grown wave by wave)
+    from .model.context import StepContext
+    from .model.declarations import (
+        FieldDeclaration,
+        FieldReference,
+        Lifecycle,
+    )
+    from .model.parameters import (
+        USE_PROVIDED,
+        Param,
+        ParameterDeclaration,
+        ParameterReference,
+    )
+    from .model.space_patterns import (
+        Collocated,
+        Dof,
+        Profile,
+        SpacePattern,
+        SpaceRule,
+        Staggered,
+    )
+    from .model.stages import Stage, StageKind, self_update
+    from .model.terms import (
+        EXPLICIT,
+        IMPLICIT,
+        TendencyTerm,
+        Treatment,
+        term,
+    )
+    from .model.time_dependent import Ramp, TimeDependent, resolve_at
 
 # ================================================================
 #  Setup lazy loading
 # ================================================================
+base = "fridom.framework2"
+
 all_modules_by_origin = {
-    "fridom.framework2": ["grid", "model", "transforms", "io", "ops"],
+    base: ["grid", "model", "transforms", "io", "ops"],
+    # module namespaces re-homed to the top level (fr.roles, ...)
+    f"{base}.model": ["roles", "params", "implicit"],
 }
 
-all_imports_by_origin = {}
+all_imports_by_origin = {
+    f"{base}.model.declarations": [
+        "FieldDeclaration", "Lifecycle", "FieldReference"],
+    f"{base}.model.space_patterns": [
+        "Dof", "SpacePattern", "Collocated", "Staggered", "Profile",
+        "SpaceRule"],
+    f"{base}.model.parameters": [
+        "ParameterDeclaration", "ParameterReference", "Param",
+        "USE_PROVIDED"],
+    f"{base}.model.time_dependent": [
+        "TimeDependent", "Ramp", "resolve_at"],
+    f"{base}.model.terms": [
+        "TendencyTerm", "term", "Treatment", "EXPLICIT", "IMPLICIT"],
+    f"{base}.model.stages": ["Stage", "StageKind", "self_update"],
+    f"{base}.model.context": ["StepContext"],
+}
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

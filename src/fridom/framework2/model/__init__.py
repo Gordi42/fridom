@@ -28,7 +28,19 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
-    from . import time_steppers
+    from . import (
+        context,
+        declarations,
+        implicit,
+        parameters,
+        params,
+        roles,
+        space_patterns,
+        stages,
+        terms,
+        time_dependent,
+        time_steppers,
+    )
 
 # ================================================================
 #  Setup lazy loading
@@ -36,7 +48,19 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.framework2.model"
 
 all_modules_by_origin = {
-    base: ["time_steppers"],
+    base: [
+        "time_steppers",
+        "declarations",
+        "space_patterns",
+        "roles",
+        "parameters",
+        "params",
+        "time_dependent",
+        "terms",
+        "implicit",
+        "stages",
+        "context",
+    ],
 }
 
 all_imports_by_origin = {}
