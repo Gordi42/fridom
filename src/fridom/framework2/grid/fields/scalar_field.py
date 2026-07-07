@@ -6,7 +6,11 @@ Description
 Owning class doc: ``notes/framework2/classes/fields.md``. The single
 concrete field type: a jaxified pytree whose only leaf is the
 storage-shaped ``_data`` array; grid (identity-hashed), space
-(interned), and metadata are static aux data. Binary arithmetic
+(interned), and metadata are static aux data — metadata in the
+annotation-exempt category (2026-07-08 amendment): it survives
+flatten/unflatten but is excluded from aux equality, so treedefs,
+jit caching, and scan carries are metadata-insensitive, and jitted
+functions return trace-time metadata. Binary arithmetic
 implements the strict algebra (rules sections 3.1, 3.3, 3.11): grid
 identity first, then the Wave-1 join with the two sanctioned lifts
 (constant broadcast, real -> complex promotion).
@@ -71,7 +75,7 @@ _SCALAR_TYPES = int | float | complex
 _DEFAULT_METADATA = FieldMetadata()
 
 
-@partial(jaxify, dynamic=("_data",))
+@partial(jaxify, dynamic=("_data",), annotation=("_metadata",))
 class ScalarField:
 
     """

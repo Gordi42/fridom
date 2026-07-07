@@ -236,17 +236,34 @@ class _AuxData:
     wrapper provides a tolerant, structural equality so that equivalent
     objects (e.g. from two identical model setups) hit the same jit
     cache entry instead of triggering a recompilation.
+
+    Attributes named in `annotations` (the class's opt-in
+    `annotation` category, see `jaxify`) are carried in the aux data
+    — they survive flatten/unflatten — but are *excluded from the
+    equality*: two objects differing only in annotation attributes
+    produce equal pytree structures (no retrace, scan-carry stable).
     """
 
-    __slots__ = ("data",)
+    __slots__ = ("annotations", "data")
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict,
+                 annotations: frozenset = frozenset()) -> None:
         self.data = data
+        self.annotations = annotations
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, _AuxData):
             return NotImplemented
-        return _values_equal(self.data, other.data)
+        if self.annotations != other.annotations:
+            return False
+        if not self.annotations:
+            return _values_equal(self.data, other.data)
+        if self.data.keys() != other.data.keys():
+            return False
+        return all(
+            _values_equal(value, other.data[key])
+            for key, value in self.data.items()
+            if key not in self.annotations)
 
     def __hash__(self) -> int:
         return hash(frozenset(self.data.keys()))
@@ -275,15 +292,38 @@ def _merge_dynamic_attrs(
     merged += [attr for attr in (dynamic or ()) if attr not in merged]
     return tuple(merged)
 
+def _merge_annotation_attrs(
+        cls: type, annotation: tuple[str] | None) -> frozenset:
+    """Validate `annotation` and merge it with inherited ones.
+
+    Annotation attributes are excluded from the aux-data equality
+    (not from the aux data itself), so no ordering is required; the
+    merged set is a plain frozenset of attribute names.
+    """
+    # make sure annotation is either a tuple or None:
+    if not isinstance(annotation, (tuple, type(None))):
+        fr.log.error(
+            "annotation must be a tuple or None, not %s",
+            type(annotation))
+        fr.log.error("In case you only have one annotation attribute,")
+        fr.log.error("use annotation=('attr',) instead of "
+                     "annotation=('attr').")
+        raise TypeError
+
+    inherited = getattr(cls, "annotation_jax_attrs", frozenset())
+    return frozenset(inherited) | frozenset(annotation or ())
+
 def _tree_flatten(self: T) -> tuple[tuple, _AuxData]:
     """Flatten a jaxified object into (children, aux_data)."""
     # Store all attributes that are marked as dynamic
     children = tuple(
         getattr(self, attr) for attr in self.dynamic_jax_attrs)
 
-    # Store all other attributes as aux_data
+    # Store all other attributes as aux_data; attributes in the
+    # annotation category are carried but exempt from aux equality
     aux_data = _AuxData({key: att for key, att in self.__dict__.items()
-                         if key not in self.dynamic_jax_attrs})
+                         if key not in self.dynamic_jax_attrs},
+                        annotations=self.annotation_jax_attrs)
 
     return (children, aux_data)
 
@@ -307,7 +347,8 @@ def _tree_unflatten(cls: type[T], aux_data: _AuxData, children: tuple) -> T:
         setattr(obj, attr, children[i])
     return obj
 
-def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
+def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None,
+           annotation: tuple[str] | None = None) -> T:
     """
     Add JAX pytree support to a class (for jit compilation).
 
@@ -319,6 +360,14 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     By default, all attributes of an object are considered static, i.e., they
     they will not be traced by jax. Attributes that should be dynamic must
     be marked specified with the `dynamic` argument.
+    Static attributes named in the `annotation` argument form the
+    annotation category: they stay in the static aux data (they
+    survive flatten/unflatten) but are excluded from the aux-data
+    equality, so two objects differing only in annotation attributes
+    have equal pytree structures — jit caching, `lax.scan` carries,
+    and `vmap` are insensitive to them, and objects returned from
+    jitted functions carry trace-time annotation values. This is
+    opt-in per class; classes that do not declare it are unaffected.
     Subclasses of a jaxified class are automatically registered as pytrees
     as well; they only need to apply this decorator themselves when they
     want to mark additional attributes as dynamic.
@@ -347,6 +396,10 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
     dynamic : tuple[str] | None, optional
         A tuple of attribute names that should be considered dynamic (default:
         None).
+    annotation : tuple[str] | None, optional
+        A tuple of static attribute names that are exempt from the
+        aux-data equality (pure annotation, e.g. field metadata;
+        default: None).
 
     Examples
     --------
@@ -383,8 +436,9 @@ def jaxify(cls: Generic[T], dynamic: tuple[str] | None = None) -> T:
             def raise_to_power(self):
                 return self.arr**self.power
     """
-    # set the merged dynamic attributes on the class
+    # set the merged dynamic and annotation attributes on the class
     cls.dynamic_jax_attrs = _merge_dynamic_attrs(cls, dynamic)
+    cls.annotation_jax_attrs = _merge_annotation_attrs(cls, annotation)
 
     # set the flatten/unflatten methods on the class
     cls.tree_unflatten = _tree_unflatten

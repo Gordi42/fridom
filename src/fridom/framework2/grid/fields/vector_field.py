@@ -193,9 +193,11 @@ class VectorField:
         Description
         -----------
         ``fn`` receives each component field and must return a
-        ``ScalarField``; the result keeps names and order. ``map``
-        never inspects spaces — per-component space changes (e.g.
-        transforms) land in the returned collection.
+        ``ScalarField``; the result keeps names and order, and the
+        incumbent component's metadata is re-attached to each result
+        (2026-07-08 amendment). ``map`` never inspects spaces —
+        per-component space changes (e.g. transforms) land in the
+        returned collection.
 
         Parameters
         ----------
@@ -207,13 +209,23 @@ class VectorField:
         Self
             The mapped collection.
         """
-        mapped = tuple(fn(field) for field in self._fields)
+        mapped = tuple(
+            _keep_metadata(fn(field), field)
+            for field in self._fields)
         return type(self)(
             dict(zip(self._names, mapped, strict=True)))
 
     def replace(self, **components: ScalarField) -> Self:
         """
         Return the collection with named components updated.
+
+        Description
+        -----------
+        The incumbent component's metadata is re-attached to each
+        incoming field, keyed by component name (2026-07-08
+        amendment) — component annotation stays authoritative even
+        when the replacement was built by default-metadata scalar
+        arithmetic. Untouched components pass through unchanged.
 
         Parameters
         ----------
@@ -232,7 +244,47 @@ class VectorField:
                 f"no components named {unknown}; components are "
                 f"{self._names}")
         updated = {
-            name: components.get(name, field)
+            name: (_keep_metadata(components[name], field)
+                   if name in components else field)
+            for name, field in zip(self._names, self._fields,
+                                   strict=True)}
+        return type(self)(updated)
+
+    def add(self, **contributions: ScalarField) -> Self:
+        """
+        Functional accumulate of named contributions.
+
+        Description
+        -----------
+        Each keyword names an existing component; that component is
+        replaced by ``self[name] + contribution`` through the
+        metadata-preserving path (the incumbent component's metadata
+        is re-attached, 2026-07-08 amendment). Every other component
+        passes through unchanged (the same object). The result keeps
+        the vector's component order, never the keyword order. This
+        is the composer's primitive for summing tendency-contribution
+        dicts (model design D1.5).
+
+        Parameters
+        ----------
+        **contributions : ScalarField
+            Per-component addends; each pair follows the ScalarField
+            join rule on its own space.
+
+        Returns
+        -------
+        Self
+            The accumulated collection; ``self`` is unchanged.
+        """
+        unknown = tuple(name for name in contributions
+                        if name not in self._names)
+        if unknown:
+            raise KeyError(
+                f"no components named {unknown}; components are "
+                f"{self._names}")
+        updated = {
+            name: (_keep_metadata(field + contributions[name], field)
+                   if name in contributions else field)
             for name, field in zip(self._names, self._fields,
                                    strict=True)}
         return type(self)(updated)
@@ -402,10 +454,11 @@ def _keep_metadata(
     Description
     -----------
     Bare ``ScalarField`` arithmetic returns default metadata (new
-    quantity); componentwise ops keep each component's metadata
-    because component names are structural (they key the pytree) —
-    dropping them would change the treedef of ``z + dt * dz`` and
-    break ``lax.scan``/``jit`` round trips.
+    quantity); componentwise ops and the functional surface
+    (``map``/``replace``/``add``) re-attach each incumbent
+    component's metadata by key (2026-07-08 amendment). Under the
+    annotation-exempt aux rule this is no longer load-bearing for
+    the treedef — it keeps component annotation authoritative.
 
     Parameters
     ----------

@@ -610,11 +610,15 @@ def test_treedef_changes_when_space_changes(grid, mx, my):
             != jax.tree_util.tree_structure(b))
 
 
-def test_treedef_changes_when_metadata_changes(grid):
+def test_treedef_is_metadata_insensitive(grid):
+    # the annotation-exempt equality (fields.md amendment,
+    # 2026-07-08): metadata is carried in the aux but exempt from
+    # treedef equality, so scan carries and jit caches survive
+    # metadata changes
     a = grid.create_field(name="a")
     b = a.with_metadata(name="b")
     assert (jax.tree_util.tree_structure(a)
-            != jax.tree_util.tree_structure(b))
+            == jax.tree_util.tree_structure(b))
 
 
 def test_jit_function_over_fields(grid, f, g):
