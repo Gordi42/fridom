@@ -139,18 +139,12 @@ def test_rejects_non_callable_kappa():
 
 
 # ================================================================
-#  Kernels (pending: land with the 2.5 IMEX reference consumer)
+#  Kernels
 # ================================================================
-def test_apply_kernel_is_pending():
-    operator = VerticalDiffusion("z", ("u",), kappa_2)
-    with pytest.raises(NotImplementedError, match="IMEX reference"):
-        operator.apply(None, None, None)
-
-
-def test_solve_kernel_is_pending():
-    operator = VerticalDiffusion("z", ("u",), kappa_2)
-    with pytest.raises(NotImplementedError, match="IMEX reference"):
-        operator.solve(None, {}, 0.5, None)
+# The apply/solve tridiagonal kernels landed at wave 5 (ROADMAP 2.5);
+# their numerical oracles (exact 1D decay, the stiff-kappa column,
+# apply/solve against a dense numpy reference) live in
+# ``tests/framework2/model/test_implicit_kernel.py``.
 
 
 # ================================================================

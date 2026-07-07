@@ -414,6 +414,11 @@ class Schedule:
         Static merge groups of implicit operators, each a tuple of
         ``(key, slot, operator)`` constituents (wave-5 solve seam)
         (default: ()).
+    implicit_merged : tuple, optional
+        The per-group ``(merged_operator, slot)`` pairs — each group
+        collapsed through ``merged_with`` by the composer; the wave-5
+        solve surface (``BoundSchedule.implicit``) binds them
+        (default: ()).
     binding_table : object | None, optional
         The parameter binding table; ``context()`` calls its
         ``eval_params(modules, stepper, t)`` (default: None).
@@ -428,6 +433,7 @@ class Schedule:
         *,
         prognostic: tuple[str, ...],
         implicit_groups: tuple = (),
+        implicit_merged: tuple = (),
         binding_table: object | None = None,
         time_stepper: object | None = None,
     ) -> None:
@@ -436,6 +442,7 @@ class Schedule:
             sorted(entries, key=lambda entry: entry.sort_key))
         self._prognostic: tuple[str, ...] = tuple(prognostic)
         self._implicit_groups: tuple = tuple(implicit_groups)
+        self._implicit_merged: tuple = tuple(implicit_merged)
         self._binding_table = binding_table
         self._time_stepper = time_stepper
 
@@ -456,6 +463,11 @@ class Schedule:
     def implicit_groups(self) -> tuple:
         """Static implicit-operator merge groups (wave-5 seam)."""
         return self._implicit_groups
+
+    @property
+    def implicit_merged(self) -> tuple:
+        """Per-group ``(merged_operator, slot)`` pairs (wave-5)."""
+        return self._implicit_merged
 
     @property
     def binding_table(self) -> object | None:
@@ -788,16 +800,17 @@ class BoundSchedule:
         self, state: VectorField, ctx: StepContext,
     ) -> VectorField:
         """
-        Run the S3' module-owned ADVANCE stages — wave 5 (2.5).
+        Run the S3' module-owned ADVANCE stages (kind order).
 
         Description
         -----------
-        Not built in wave 3: the by-variable ADVANCE group
-        (barotropic subcycle et al., Gauss-Seidel by the read rule)
-        lands with the treatment-partitioned stepping in wave 5.
-        The schedule already carries ADVANCE entries — kind order,
-        write gates, and ``advances`` claims are validated by the
-        composer dry run today.
+        The by-variable ADVANCE group (barotropic subcycle et al.):
+        each stage writes its declared advanced subset plus own AUX,
+        in schedule order, so a later stage's reads see the earlier
+        stage's writes (Gauss-Seidel by the design-03 section-5.2
+        read rule — the same sequential ``replace`` walk every other
+        stage kind uses). The ctx carries the per-treatment tendency
+        sums (the increment-form barotropic forcing reads them).
 
         Parameters
         ----------
@@ -806,39 +819,38 @@ class BoundSchedule:
         ctx : StepContext
             The post-advance context (carries sums).
 
-        Raises
-        ------
-        NotImplementedError
-            Always, in this wave.
+        Returns
+        -------
+        VectorField
+            The state with the ADVANCE writes applied.
         """
-        raise NotImplementedError(
-            "BoundSchedule.advance_stages lands at wave 5 (ROADMAP "
-            "2.5) with the treatment-partitioned stepping; ADVANCE "
-            "entries are already scheduled and dry-run validated")
+        return self._run_stages(StageKind.ADVANCE, state, ctx)
 
     @property
-    def implicit(self) -> tuple:
+    def implicit(self) -> tuple[BoundImplicitOperator, ...]:
         """
-        The merged per-field implicit operators — wave 5 (2.5).
+        The merged per-field implicit operators, bound to slots.
 
         Description
         -----------
-        Not built in wave 3: merging (kappa-summed framework
-        families plus at most one non-mergeable custom operator per
-        field) and the bound ``apply``/``solve`` surface land with
-        ``IMEXMultistep``. The static merge *groups* — collision
-        checked at composer construction — are already carried on
-        ``Schedule.implicit_groups``.
+        One :class:`BoundImplicitOperator` per merge group of
+        ``Schedule.implicit_merged`` (kappa-summed framework families
+        plus at most one non-mergeable custom operator per field —
+        the composer collapsed each group through ``merged_with``).
+        Each is closed over its constituent module slot, exposing the
+        stepper-facing ``fields`` / ``apply(state, ctx)`` /
+        ``solve(rhs, dt_gamma, ctx)`` surface. An empty tuple means
+        no IMPLICIT terms (the IMEX driver degenerates to its
+        explicit member — a legal composition).
 
-        Raises
-        ------
-        NotImplementedError
-            Always, in this wave.
+        Returns
+        -------
+        tuple[BoundImplicitOperator, ...]
+            The bound merged operators, group order.
         """
-        raise NotImplementedError(
-            "BoundSchedule.implicit lands at wave 5 (ROADMAP 2.5) "
-            "with IMEXMultistep; the static merge groups are "
-            "carried on Schedule.implicit_groups")
+        return tuple(
+            BoundImplicitOperator(operator, self._modules[slot])
+            for operator, slot in self._schedule.implicit_merged)
 
     # ================================================================
     #  Internals
@@ -863,9 +875,115 @@ class BoundSchedule:
 
 
 # ================================================================
+#  BoundImplicitOperator — the per-step bound solve surface
+# ================================================================
+class BoundImplicitOperator:
+
+    """
+    A merged implicit operator closed over its live module slot.
+
+    Description
+    -----------
+    The per-step binding of one ``Schedule.implicit_merged`` entry:
+    the merged (kappa-summed) operator paired with the carry's live
+    owning module, exposing the minimal stepper-facing surface —
+    ``fields`` (the advanced PROGNOSTIC subset), ``apply(state, ctx)``
+    (the forward ``L @ state``), and ``solve(rhs, dt_gamma, ctx)``
+    (the ``(1 - dt_gamma * L)^{-1}`` solve). ``dt_gamma`` stays an
+    explicit stepper-supplied positional (never read from ``ctx``).
+
+    Ephemeral, built per step by ``BoundSchedule.implicit`` — the
+    unbound operator meets its live module leaf here (the D2 aliasing
+    rule, as for every other scheduled hook).
+
+    Parameters
+    ----------
+    operator : ImplicitOperator
+        The merged operator (one per merge group).
+    module : object
+        The live owning module (``carry.modules[slot]``).
+    """
+
+    def __init__(self, operator: object, module: object) -> None:
+        """Bind the operator to its live module slot."""
+        self._operator = operator
+        self._module = module
+
+    @property
+    def fields(self) -> tuple[str, ...]:
+        """The advanced PROGNOSTIC subset (one solve per field)."""
+        return self._operator.fields
+
+    @property
+    def operator(self) -> object:
+        """The underlying merged (unbound) operator."""
+        return self._operator
+
+    def apply(
+        self, state: VectorField, ctx: StepContext,
+    ) -> Mapping[str, ScalarField]:
+        """
+        Forward ``L @ state`` over ``fields`` (the CNAB rhs term).
+
+        Parameters
+        ----------
+        state : VectorField
+            The full assembled state vector.
+        ctx : StepContext
+            The per-substage context.
+
+        Returns
+        -------
+        Mapping[str, ScalarField]
+            Increments keyed by the advanced PROGNOSTIC names.
+        """
+        return self._operator.apply(self._module, state, ctx)
+
+    def solve(
+        self,
+        rhs: Mapping[str, ScalarField],
+        dt_gamma: Any,
+        ctx: StepContext,
+    ) -> Mapping[str, ScalarField]:
+        """
+        Solve ``(1 - dt_gamma * L) x = rhs``; keys exactly ``fields``.
+
+        Parameters
+        ----------
+        rhs : Mapping[str, ScalarField]
+            Right-hand sides keyed by the advanced names.
+        dt_gamma : Any
+            The traced scalar gamma*dt of the current scheme stage.
+        ctx : StepContext
+            The per-substage context.
+
+        Returns
+        -------
+        Mapping[str, ScalarField]
+            The solved fields, keyed exactly by ``fields``.
+        """
+        return self._operator.solve(self._module, rhs, dt_gamma, ctx)
+
+    def __repr__(self) -> str:
+        """Compact host-side summary."""
+        return (f"BoundImplicitOperator({self._operator!r}, "
+                f"module={type(self._module).__name__})")
+
+
+# ================================================================
 #  TendencySums — the frozen per-treatment sums
 # ================================================================
-@partial(jaxify, dynamic=("explicit",))
+# the ordered static representation of the treatment partition (W2:
+# Treatment enum members are not sortable — key the partition by the
+# member NAME in a fixed order instead of by the member itself)
+_TENDENCY_SUM_FIELDS: Final[tuple[str, ...]] = ("explicit", "implicit")
+_TREATMENT_TO_FIELD: Final[dict[str, str]] = {
+    "EXPLICIT": "explicit",
+    "IMPLICIT": "implicit",
+}
+
+
+@partial(jaxify, dynamic=("explicit", "implicit"))
 class TendencySums:
 
     """
@@ -874,12 +992,16 @@ class TendencySums:
     Description
     -----------
     The contribution-dict partition, consumed at accumulation time:
-    PROGNOSTIC-only vectors, one per treatment. Wave 3 populates
-    the EXPLICIT sum (plain attribute access, per spec);
-    ``__getitem__`` by ``Treatment`` — including the conditional
-    IMPLICIT entry of forward-apply schemes — lands at wave 5
-    (2.5). Handed to post-TENDENCY stages through
-    ``StepContext.tendency_sums``.
+    PROGNOSTIC-only vectors, one per treatment. The EXPLICIT sum is
+    always populated (``None`` only when the composition declares no
+    PROGNOSTIC fields); the IMPLICIT sum is the summed forward-apply
+    ``L @ X`` contribution, present iff the driving scheme computed
+    the forward applies this step (CNAB2 fills it; the SBDF and
+    explicit paths leave it ``None``). ``__getitem__`` keys by
+    ``Treatment`` through a fixed name ordering (W2: the enum members
+    are not sortable, so the partition uses an ordered static
+    representation keyed by ``Treatment.name``). Handed to
+    post-TENDENCY stages through ``StepContext.tendency_sums``.
 
     Parameters
     ----------
@@ -887,19 +1009,29 @@ class TendencySums:
         The summed EXPLICIT contribution (unprojected);
         ``None`` iff the composition declares no PROGNOSTIC
         fields (CS-13).
+    implicit : VectorField | None, optional
+        The summed IMPLICIT forward-apply contribution
+        (``sum_op L @ X``), or ``None`` when the driving scheme
+        computed no forward applies this step (default: None).
     """
 
     explicit: VectorField | None
+    implicit: VectorField | None
 
-    def __init__(self, explicit: VectorField | None) -> None:
+    def __init__(
+        self,
+        explicit: VectorField | None,
+        implicit: VectorField | None = None,
+    ) -> None:
         """Freeze the sums; see the class docstring."""
         self.explicit = explicit
+        self.implicit = implicit
 
     def __setattr__(self, name: str, value: object) -> None:
         """Set a sums field exactly once (frozen thereafter)."""
         # write-once: __init__ and pytree unflattening set fresh
         # attributes; everything else raises
-        if name == "explicit" and name not in self.__dict__:
+        if name in _TENDENCY_SUM_FIELDS and name not in self.__dict__:
             object.__setattr__(self, name, value)
             return
         raise AttributeError(
@@ -913,33 +1045,48 @@ class TendencySums:
 
     def __getitem__(self, treatment: Treatment) -> VectorField:
         """
-        Sum by treatment — wave 5 (2.5).
+        Return the summed contribution of one treatment.
 
         Description
         -----------
-        Not built in wave 3: the treatment-keyed lookup (with the
-        IMPLICIT entry present iff the driving scheme computed the
-        forward applies this step) lands with the treatment
-        partition. Use plain attribute access (``sums.explicit``)
-        today.
+        The IMPLICIT entry exists iff the driving scheme computed the
+        forward applies this step (CNAB2); otherwise a ``KeyError`` —
+        the increment-form barotropic default makes the split-explicit
+        ADVANCE stage independent of it (V-H4).
 
         Parameters
         ----------
         treatment : Treatment
-            The requested treatment.
+            The requested treatment (keyed by ``.name``).
+
+        Returns
+        -------
+        VectorField
+            The summed PROGNOSTIC-only contribution.
 
         Raises
         ------
-        NotImplementedError
-            Always, in this wave.
+        KeyError
+            On an unknown treatment, or on an IMPLICIT lookup when
+            the scheme computed no forward applies this step.
         """
-        raise NotImplementedError(
-            "TendencySums[treatment] lands at wave 5 (ROADMAP 2.5) "
-            "with the treatment partition; use the .explicit "
-            "attribute")
+        key = getattr(treatment, "name", treatment)
+        field = _TREATMENT_TO_FIELD.get(key)
+        if field is None:
+            raise KeyError(
+                f"unknown treatment {treatment!r}; the tendency "
+                f"partition keys on {tuple(_TREATMENT_TO_FIELD)}")
+        value = getattr(self, field)
+        if value is None:
+            raise KeyError(
+                f"no {key} tendency sum this step; the driving "
+                "scheme computed no forward applies (only CNAB2 "
+                "populates the IMPLICIT entry — V-H4)")
+        return value
 
     def __repr__(self) -> str:
         """Compact host-side summary."""
         names = (self.explicit.component_names
                  if self.explicit is not None else ())
-        return f"TendencySums(explicit over {names!r})"
+        implicit = "" if self.implicit is None else ", +implicit"
+        return f"TendencySums(explicit over {names!r}{implicit})"

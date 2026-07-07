@@ -321,28 +321,34 @@ def test_stage_groups_work_under_jit(field_table):
 
 
 # ================================================================
-#  Wave-5 stubs
+#  Wave-5 seams (landed 2.5)
 # ================================================================
-def test_advance_stages_is_wave5_stub(field_table):
+def test_advance_stages_runs_the_advance_group(field_table):
+    # the default composition declares no ADVANCE stages, so the
+    # group is an identity pass-through (the sequential replace walk)
     bound = make_composer(field_table).schedule.bind(
         (Core(), Forcing()))
-    with pytest.raises(NotImplementedError, match=r"2\.5"):
-        bound.advance_stages(make_state(field_table), make_ctx())
+    state = make_state(field_table).replace(
+        u=make_state(field_table)["u"] + 3.0)
+    out = bound.advance_stages(state, make_ctx())
+    assert jnp.allclose(out["u"].data, 3.0)
 
 
-def test_implicit_is_wave5_stub(field_table):
+def test_implicit_is_empty_without_implicit_terms(field_table):
     bound = make_composer(field_table).schedule.bind(
         (Core(), Forcing()))
-    with pytest.raises(NotImplementedError, match=r"2\.5"):
-        _ = bound.implicit
+    assert bound.implicit == ()
 
 
-def test_tendency_sums_getitem_is_wave5_stub(field_table):
+def test_tendency_sums_getitem_by_treatment(field_table):
     bound = make_composer(field_table).schedule.bind(
         (Core(), Forcing()))
     sums = bound.tendency(make_state(field_table), make_ctx())
-    with pytest.raises(NotImplementedError, match=r"2\.5"):
-        _ = sums[Treatment.EXPLICIT]
+    assert sums[Treatment.EXPLICIT] is sums.explicit
+    # the IMPLICIT entry is absent unless the scheme computed the
+    # forward applies this step (V-H4)
+    with pytest.raises(KeyError):
+        _ = sums[Treatment.IMPLICIT]
 
 
 # ================================================================

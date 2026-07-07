@@ -412,20 +412,21 @@ def test_constraint_stages_run_after_the_advance(field_table, u0):
     assert np.allclose(np.asarray(state["u"].data), expected)
 
 
-def test_advance_stages_still_gate_on_wave5(field_table, u0):
-    # compositions WITH module-owned ADVANCE stages hit the wave-3
-    # BoundSchedule stub; compositions without them skip the group
-    stepper = AdamBashforth(0.25, order=1)
+def test_advance_stages_run_after_the_advance(field_table, u0):
+    # the module-owned ADVANCE group runs after the primary advance
+    # (landed 2.5); Subcycler.sub is the identity, so the state is
+    # the plain AB1 update
+    dt = 0.25
+    stepper = AdamBashforth(dt, order=1)
     modules = (Decay(), Subcycler())
     schedule = build_schedule(
         field_table, modules, ((0, term_of(Decay.du)),), stepper,
         stages=((1, Stage(kind=StageKind.ADVANCE, fn=Subcycler.sub,
                           name="sub", advances=("u",))),))
     state = make_state(field_table, u0)
-    stepper_state = stepper.init(state)
-    with pytest.raises(NotImplementedError, match=r"2\.5"):
-        stepper.step(stepper_state, state, schedule.bind(modules),
-                     Clock())
+    _, state, _ = run_eager(stepper, schedule, modules, state, 1)
+    expected = u0 + dt * (np.zeros_like(u0) + u0 * (-LAM))
+    assert np.allclose(np.asarray(state["u"].data), expected)
 
 
 # ================================================================

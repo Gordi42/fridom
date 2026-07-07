@@ -17,13 +17,20 @@ D2 aliasing rule applied to coefficients).
 """
 # Wave 2 C: ImplicitOperator, VerticalDiffusion
 #    (SpectralDiagonal is designed-for)
+# Wave 5 B: the VerticalDiffusion apply/solve tridiagonal kernel
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+import jax.numpy as jnp
+
+from fridom.framework.utils import dtype_real
+
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Hashable
+
+    import jax
 
     from fridom.framework2.grid.fields.scalar_field import ScalarField
 
@@ -270,14 +277,22 @@ class VerticalDiffusion:
         self, module: Any, state: Any, ctx: Any,
     ) -> dict[str, ScalarField]:
         """
-        Evaluate ``L @ state`` (kernel pending, see Raises).
+        Evaluate the forward ``L @ state`` per field (``L = k d2/dz2``).
 
         Description
         -----------
-        The forward evaluation via the dispatched second-derivative
-        operator — a grid-bound registry Operator, negotiated like
-        transforms and intercepted generically by the halo tracer
-        (no ``.data`` bypasses, no ``extra_halo`` needed).
+        The CNAB right-hand-side term. Per field the second-derivative
+        stencil along ``axis`` is applied to the true-shape column
+        (``ScalarField.data`` — halo/padding stripped) with Neumann
+        (zero-flux) boundary rows, then scaled by the live kappa read
+        from the unbound callable at stage time (Ramp-correct). The
+        result re-enters via ``with_data`` (re-pad + halo-invalidate;
+        synced at its next ghost-consuming application), so no manual
+        halo/``extra_halo`` bookkeeping is needed. Iteration-1 scope:
+        the solve axis must not be distributed across devices (a
+        tridiagonal is serial along it) and kappa is constant in the
+        column (a scalar); a face-averaged variable-kappa conservative
+        form is the follow-up.
 
         Parameters
         ----------
@@ -292,33 +307,39 @@ class VerticalDiffusion:
         -------
         dict[str, ScalarField]
             ``{field: L @ state[field]}`` over `fields`.
-
-        Raises
-        ------
-        NotImplementedError
-            Always, in this wave: the numerical kernel requires the
-            assembly-wired dispatch registry and lands with the 2.5
-            IMEX reference consumer (exact 1D decay + stiff-kappa
-            column tests).
         """
-        raise NotImplementedError(
-            "VerticalDiffusion.apply: the numerical kernel lands "
-            "with the 2.5 IMEX reference consumer (it needs the "
-            "assembly-wired second-derivative operator)")
+        result: dict[str, ScalarField] = {}
+        for name in self.fields:
+            field = state[name]
+            operator, axis_index = _diffusion_operator(
+                field, self.axis,
+                self.kappa(module, state, ctx, name))
+            data = jnp.asarray(field.data)
+            applied = _apply_along_axis(operator, data, axis_index)
+            result[name] = field.with_data(applied)
+        return result
 
     def solve(
         self, module: Any, rhs: dict[str, ScalarField],
         dt_gamma: Any, ctx: Any,
     ) -> dict[str, ScalarField]:
         """
-        Solve one tridiagonal per field (kernel pending, see Raises).
+        Solve ``(1 - dt_gamma * L) x = rhs``, one tridiagonal / field.
 
         Description
         -----------
-        One Thomas solve per field with boundary rows from the
-        field's declared space BCs; flux BCs are explicit forcing.
-        No assembly-time factorization caching in iteration 1
-        (``dt_gamma`` and kappa are traced).
+        The linear implicit solve per field along ``axis`` with the
+        Neumann (zero-flux) boundary rows of the declared column; flux
+        BCs would be explicit forcing (not built). ``dt_gamma`` is the
+        stepper-supplied traced positional (CN ``dt/2``, SBDF2
+        ``2dt/3``) — never read from ``ctx``, so warm-up gamma
+        switching and adaptive dt never retrace; kappa is read live.
+        Iteration-1 solves the dense ``(1 - dt_gamma * L)`` system
+        (``jnp.linalg.solve`` batched over the off-axis columns) — a
+        Thomas/``tridiagonal_solve`` kernel is the production
+        optimization; both respect the true-shape ``data`` /
+        ``with_data`` halo contract (the solve axis stays
+        device-local).
 
         Parameters
         ----------
@@ -336,19 +357,21 @@ class VerticalDiffusion:
         -------
         dict[str, ScalarField]
             The solved fields, keyed exactly by `fields`.
-
-        Raises
-        ------
-        NotImplementedError
-            Always, in this wave: the numerical kernel requires the
-            declared-space boundary rows and lands with the 2.5 IMEX
-            reference consumer (exact 1D decay + stiff-kappa column
-            tests).
         """
-        raise NotImplementedError(
-            "VerticalDiffusion.solve: the numerical kernel lands "
-            "with the 2.5 IMEX reference consumer (it needs the "
-            "declared-space boundary rows)")
+        result: dict[str, ScalarField] = {}
+        real = dtype_real()
+        for name in self.fields:
+            field = rhs[name]
+            operator, axis_index = _diffusion_operator(
+                field, self.axis,
+                self.kappa(module, field, ctx, name))
+            size = operator.shape[0]
+            system = (jnp.eye(size, dtype=real)
+                      - jnp.asarray(dt_gamma, dtype=real) * operator)
+            data = jnp.asarray(field.data)
+            solved = _solve_along_axis(system, data, axis_index)
+            result[name] = field.with_data(solved)
+        return result
 
     def merge_key(self) -> Hashable:
         """
@@ -404,3 +427,91 @@ class VerticalDiffusion:
             fields=merged_fields,
             kappa=_summed_kappa((self, other)),
         )
+
+
+# ================================================================
+#  The tridiagonal kernel (true-shape ``data``; single-device axis)
+# ================================================================
+def _diffusion_operator(
+    field: ScalarField, axis: str, kappa_value: Any,
+) -> tuple[jax.Array, int]:
+    """
+    Build ``L = kappa * d2/dz2`` along ``axis`` (Neumann rows).
+
+    Description
+    -----------
+    The dense ``(N, N)`` second-difference matrix on the field's
+    true-shape column with zero-flux (Neumann) boundary rows —
+    ``-1`` on the two corner diagonals instead of ``-2`` — divided by
+    ``dz^2`` (uniform spacing from the axis evaluation nodes) and
+    scaled by the constant column ``kappa``. Returns the matrix and
+    the storage-frame axis index of ``axis``.
+
+    Parameters
+    ----------
+    field : ScalarField
+        The column field (true shape via ``.data``).
+    axis : str
+        The solve coordinate.
+    kappa_value : Any
+        The live scalar coefficient (a field-valued kappa is the
+        variable-coefficient follow-up — not built in iteration 1).
+
+    Returns
+    -------
+    tuple[jax.Array, int]
+        The ``(N, N)`` operator matrix and the axis index.
+
+    Raises
+    ------
+    ValueError
+        If ``axis`` is not a coordinate of the field's space.
+    NotImplementedError
+        If ``kappa_value`` is field-valued (variable coefficient).
+    """
+    space = field.function_space
+    names = space.bare.names
+    if axis not in names:
+        raise ValueError(
+            f"VerticalDiffusion axis {axis!r} is not a coordinate of "
+            f"the field space {names}")
+    axis_index = names.index(axis)
+    size = int(field.shape[axis_index])
+    if hasattr(kappa_value, "function_space"):
+        raise NotImplementedError(
+            "VerticalDiffusion supports a constant (scalar) column "
+            "kappa in iteration 1; a face-averaged variable-kappa "
+            "conservative form is the follow-up")
+    real = dtype_real()
+    kappa = jnp.asarray(kappa_value, dtype=real)
+    coords = field.grid.evaluation_nodes(space, axis)
+    line = jnp.reshape(jnp.asarray(coords.data), (-1,)).astype(real)
+    dz = line[1] - line[0]
+    main = jnp.full((size,), -2.0, dtype=real)
+    main = main.at[0].set(-1.0).at[size - 1].set(-1.0)
+    off = jnp.ones((size - 1,), dtype=real)
+    d2 = (jnp.diag(main) + jnp.diag(off, 1) + jnp.diag(off, -1)
+          ) / (dz * dz)
+    return kappa * d2, axis_index
+
+
+def _apply_along_axis(
+    operator: jax.Array, data: jax.Array, axis_index: int,
+) -> jax.Array:
+    """Apply the ``(N, N)`` operator along one axis (batched)."""
+    moved = jnp.moveaxis(data, axis_index, -1)
+    shape = moved.shape
+    flat = moved.reshape(-1, shape[-1])
+    out = flat @ operator.T
+    return jnp.moveaxis(out.reshape(shape), -1, axis_index)
+
+
+def _solve_along_axis(
+    system: jax.Array, data: jax.Array, axis_index: int,
+) -> jax.Array:
+    """Solve ``system @ x = data`` along one axis (batched columns)."""
+    moved = jnp.moveaxis(data, axis_index, -1)
+    shape = moved.shape
+    flat = moved.reshape(-1, shape[-1])
+    solved = jnp.linalg.solve(system, flat.T).T
+    return jnp.moveaxis(solved.reshape(shape), -1, axis_index)

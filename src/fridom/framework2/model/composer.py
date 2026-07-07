@@ -151,10 +151,12 @@ class TendencyComposer:
             stages, own_aux, own_diag)
         _static_advance_overlap(stage_entries)
         groups = _implicit_groups(term_entries)
+        merged = _merge_groups(groups)
         self._schedule = Schedule(
             term_entries + stage_entries,
             prognostic=self._prognostic,
             implicit_groups=groups,
+            implicit_merged=merged,
             binding_table=binding_table,
             time_stepper=time_stepper,
         )
@@ -277,7 +279,7 @@ class TendencyComposer:
     # ================================================================
     #  Dry run (assembly step 6)
     # ================================================================
-    def dry_run(self) -> None:
+    def dry_run(self, *, params: Any = None) -> None:
         """
         Validate every term/stage over real zero-valued fields.
 
@@ -293,6 +295,20 @@ class TendencyComposer:
         sets feed the same-kind overlap lint and the PROGNOSTIC
         coverage lint.
 
+        ``params`` carries the assembly-time evaluated parameters
+        (assembly passes ``binding_table.eval_params(modules,
+        stepper, 0.0)``): a term reading ``ctx.params["stepper.dt"]``
+        now resolves instead of dying on an empty mapping, and an
+        unbound-name read surfaces (attributed) through the
+        ``TermEvaluationError`` chain rather than a bare
+        ``KeyError(...)`` on ``{}``.
+
+        Parameters
+        ----------
+        params : Any, optional
+            The evaluated ``name -> leaf`` parameter mapping; an
+            empty mapping when omitted (default: None).
+
         Raises
         ------
         AssemblyError
@@ -302,14 +318,15 @@ class TendencyComposer:
         """
         schedule = self._schedule
         state = self._zero_state()
-        ctx = StepContext(params={}, clock=jnp.asarray(0.0),
+        param_map: Any = {} if params is None else params
+        ctx = StepContext(params=param_map, clock=jnp.asarray(0.0),
                           dt=jnp.asarray(1.0),
                           stage_dt=jnp.asarray(1.0))
         writes: dict[ScheduleEntry, frozenset[str]] = {}
         for kind in _PRE_TENDENCY:
             state = self._dry_stages(kind, state, ctx, writes)
         sums = self._dry_terms(state, ctx, writes)
-        ctx = StepContext(params={}, clock=jnp.asarray(0.0),
+        ctx = StepContext(params=param_map, clock=jnp.asarray(0.0),
                           dt=jnp.asarray(1.0),
                           stage_dt=jnp.asarray(1.0),
                           tendency_sums=sums)
@@ -644,6 +661,44 @@ def _implicit_groups(
             groups.setdefault(("family", merge_key), []).append(
                 (entry.key, entry.slot, op))
     return tuple(tuple(group) for group in groups.values())
+
+
+def _merge_groups(groups: tuple) -> tuple:
+    """
+    Collapse each implicit merge group to one operator (merged_with).
+
+    Description
+    -----------
+    The merge INVOCATION deferred from ``_implicit_groups`` (which
+    only groups): each group's constituents are combined left-to-right
+    through ``merged_with`` — mergeable framework families kappa-sum
+    exactly (``(1 - dt_gamma * (L1 + L2))``), and singleton groups
+    (one term, or a non-mergeable custom operator) pass through
+    untouched. The merged operator inherits the FIRST constituent's
+    module slot; framework families read their coefficients through
+    ``ctx.params`` / owner leaves, so a family spanning several slots
+    stays correct under the single bound module (the ``_summed_kappa``
+    uniform-first-argument contract).
+
+    Parameters
+    ----------
+    groups : tuple
+        The static merge groups, each a tuple of ``(key, slot,
+        operator)`` constituents.
+
+    Returns
+    -------
+    tuple
+        Per-group ``(merged_operator, slot)`` pairs.
+    """
+    merged = []
+    for group in groups:
+        (_key, slot, operator), *rest = group
+        combined = operator
+        for _other_key, _other_slot, other in rest:
+            combined = combined.merged_with(other)
+        merged.append((combined, slot))
+    return tuple(merged)
 
 
 def _static_advance_overlap(

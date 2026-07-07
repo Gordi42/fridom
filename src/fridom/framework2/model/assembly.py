@@ -1602,7 +1602,11 @@ def assemble(
     schedule = composer.schedule
 
     # -- step 6: dry run -----------------------------------------
-    composer.dry_run()
+    # pass the assembly-time evaluated params so a term reading
+    # ctx.params[...] resolves (an unbound name surfaces attributed
+    # through the TermEvaluationError chain, not on an empty {})
+    composer.dry_run(
+        params=binding_table.eval_params(modules, time_stepper, 0.0))
 
     # -- step 7: negotiate + freeze (or the verify path) ---------
     resharding = _negotiate(grid, table, schedule, modules,
