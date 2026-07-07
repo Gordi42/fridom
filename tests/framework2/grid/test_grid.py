@@ -621,3 +621,27 @@ def test_registry_halo_derivation_skips_unusable_entries(mx):
 
     grid = Grid((mx,), dispatch=DuckRegistry())
     assert grid.decomposition.halo["x"] == 0
+
+
+# ================================================================
+#  Neumann shape decision follow-ups (owner decision 2026-07-07)
+# ================================================================
+def test_neumann_outer_coordinates_and_measure_keep_all_nodes(my):
+    grid = Grid((my,), device_ids=(0,))
+    space = my.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    nodes = grid.evaluation_nodes(space)
+    assert nodes.function_space.bare is space
+    assert nodes.data.shape == space.shape == (5,)  # n + 1, no drop
+    weights = grid.measure(space, name="y")
+    assert weights.data.shape == (5,)
+    # trapezoid: half cells at both walls, total = extent length
+    assert float(weights.data.sum()) == pytest.approx(2.0)
+
+
+def test_neumann_outer_seeds_the_dct1_transform_row(my):
+    grid = Grid((my,), device_ids=(0,))
+    outer_neumann = my.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    cosine = grid.dispatch.resolve("transform", outer_neumann)
+    assert type(cosine).__name__ == "Cosine"
+    spectral = grid.dispatch.resolve("diff", my.cosine(outer_neumann))
+    assert type(spectral).__name__ == "SpectralDerivative"

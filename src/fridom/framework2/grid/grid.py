@@ -944,15 +944,17 @@ def _node_vector(factor: FunctionSpace) -> jax.Array:
     count = n + count_offset
     nodes = x_min + (jnp.arange(count, dtype=dtype_real())
                      + offset) * dx
-    # drop BC-constrained boundary DOFs (left, then right), exactly
-    # like the space shapes drop them
+    # drop Dirichlet-constrained boundary DOFs (left, then right),
+    # exactly like the space shapes drop them
     start, stop = 0, count
     components = factor.bc.components
     if components:
         left, right = components
-        if membership[0] and left is not BC.NONE:
+        # only Dirichlet eliminates a boundary value DOF (owner
+        # decision 2026-07-07, spaces.md shape note)
+        if membership[0] and left is BC.DIRICHLET:
             start += 1
-        if membership[1] and right is not BC.NONE:
+        if membership[1] and right is BC.DIRICHLET:
             stop -= 1
     return nodes[start:stop]
 
@@ -999,9 +1001,11 @@ def _measure_vector(factor: FunctionSpace) -> jax.Array:
     components = factor.bc.components
     if components:
         left, right = components
-        if membership[0] and left is not BC.NONE:
+        # only Dirichlet eliminates a boundary value DOF (owner
+        # decision 2026-07-07, spaces.md shape note)
+        if membership[0] and left is BC.DIRICHLET:
             start += 1
-        if membership[1] and right is not BC.NONE:
+        if membership[1] and right is BC.DIRICHLET:
             stop -= 1
     return weights[start:stop]
 
@@ -1202,9 +1206,10 @@ def _seed_transform_rows(
     origin)`` key — the grid-bound instance (all family axes) is
     constructed on first resolve, post-negotiation. The families'
     coefficient spaces get the ``("diff", ...)`` ->
-    ``SpectralDerivative`` rows (probed: the I-type sine pair has
-    no iteration-1 derivative) and the one-directional
-    ``("interpolate", ...)`` origin shifts to Center.
+    ``SpectralDerivative`` rows (probed per signature; the I-type
+    pair is covered since the Neumann shape decision) and the
+    one-directional ``("interpolate", ...)`` origin shifts to
+    Center.
 
     Parameters
     ----------
@@ -1272,6 +1277,7 @@ def _transform_origins(
         (Sine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)),
         (Sine, lambda m: m.nodal(NodeSet.INNER, bc=BC.DIRICHLET)),
         (Cosine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.NEUMANN)),
+        (Cosine, lambda m: m.nodal(NodeSet.OUTER, bc=BC.NEUMANN)),
     )
     for family, factory in candidates:
         origin = _probe(lambda f=factory, m=mesh: f(m))
