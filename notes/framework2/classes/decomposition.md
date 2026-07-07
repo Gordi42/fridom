@@ -714,3 +714,29 @@ planner-ordered for speed. The forcing counterexample (same logical
 coefficient space reached in different pencils depending on transform
 order) is kept in §5.1.
 
+- **Per-step sync amplification across tendency modules**
+  (owner-flagged, 2026-07-07; important — investigate with the
+  Phase-2 model-composition design, ROADMAP 2.1). Under the
+  iteration-1 sync-after-every-operator contract, n tendency modules
+  each computing a tendency for the same field (advection, Coriolis,
+  ...) pay n syncs per step where at most one is needed — tendency
+  summation is pointwise, so nothing reads ghost cells between each
+  module's last operator and the state update; strictly, the *summed
+  tendency* needs valid halos only where the next step's operators
+  consume it. This cost is unaffordable at scale (each sync is a
+  communication round). Candidate resolutions to investigate:
+  1. **Drop auto-sync** — user/model-controlled sync placement.
+     Maximum control, but moves the halo-validity invariant onto
+     users; the contract's rationale (silent wrongness impossible)
+     currently rejects this.
+  2. **Tendencies are operators** — each module contributes an
+     operator term; the model composes one fused tendency operator
+     (an `OperatorSum` of per-module chains), and the
+     requirements-driven lowering places a single `Sync` at the end
+     (or none, deferring to the state update). The existing
+     halo-accounting rules (chains sum, parallel terms max) and the
+     designed-for sync-elision machinery already fit exactly this
+     shape; this generalizes elision from chains to the whole step.
+  Not resolved here; the decision belongs to 2.1 and must be made
+  before the module `update` signature is fixed.
+

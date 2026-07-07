@@ -70,7 +70,7 @@ The model layer, built on the Phase 1 grid.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 2.1 | **Design doc: model composition** | `Model` as the composition root; setup order and halo negotiation via the doc-04 machinery; the full model pytree; the `update(mz)` signature; how tendency terms declare their integration treatment and which fields they advance (so 2.5 is not precluded). |
+| 2.1 | **Design doc: model composition** | `Model` as the composition root; setup order and halo negotiation via the doc-04 machinery; the full model pytree; the `update(mz)` signature; how tendency terms declare their integration treatment and which fields they advance (so 2.5 is not precluded); resolves the per-step sync-amplification question ([decomposition open questions](notes/framework2/classes/decomposition.md#open-questions)) — n tendency modules must not mean n syncs. |
 | 2.2 | **Field registration + parameters in modules** | `Module` API to declare `FieldMetadata` for the state; parameters move into modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallowwater `csqr`, Rossby scaling); stratification modules register `b`. |
 | 2.3 | **Modules modify anything** | Modules and grid in the traced state; `Model(grid=..., tendencies=..., diagnostics=..., time_stepper=...)` direct assembly. |
 | 2.4 | **Single `jax.jit` for the full run** | Choose between a full-run `lax.scan`/`while_loop` with `io_callback` and a chunked scan; trace-friendly `Clock`; scan-body time steppers; a NaN-check / early-exit strategy under scan. |
