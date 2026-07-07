@@ -38,6 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FieldReference,
         Lifecycle,
     )
+    from .model.model import Model
     from .model.module import Module
     from .model.parameters import (
         USE_PROVIDED,
@@ -98,6 +99,7 @@ all_imports_by_origin = {
     f"{base}.model.stages": ["Stage", "StageKind", "self_update"],
     f"{base}.model.context": ["StepContext"],
     f"{base}.model.module": ["Module"],
+    f"{base}.model.model": ["Model"],
     f"{base}.model.clock": ["Clock"],
     f"{base}.model.results": [
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
