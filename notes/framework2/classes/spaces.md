@@ -545,7 +545,9 @@ choice statically per grid.
 Still open:
 
 1. **Robin / mixed BCs** (stays open, owner directive; do not resolve
-   yet). Constraints for the eventual decision: a float BC parameter
+   yet — a resolution is *proposed* as decision R3 of
+   [`../boundary_plan.md`](../boundary_plan.md), which supersedes
+   this directive only when signed). Constraints for the eventual decision: a float BC parameter
    in the static interning key means a **full recompile per parameter
    value** under the Phase-3 single jit, and it **forecloses
    autodiff through — and module updates of — BC parameters**. The
@@ -582,7 +584,9 @@ Still open:
    migration cost in
    [`../bc_free_boundaries.md`](../bc_free_boundaries.md); decide
    together with the Robin/mixed question above (both hinge on what
-   BC structure the space key carries vs what stays dynamic).
+   BC structure the space key carries vs what stays dynamic) — the
+   joint resolution is proposed in
+   [`../boundary_plan.md`](../boundary_plan.md) (R1-R4).
 4. **Dedicated unstructured space classes.** Vertex/edge/cell spaces
    are speced as `NodalSpace` instances with new `NodeSet` tags;
    whether dispatch ergonomics want dedicated classes (`Vertex`,

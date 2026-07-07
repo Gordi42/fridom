@@ -129,3 +129,6 @@ items do not gate 2.2.
     chain elision (mirror fills commute). Not blocking; decide
     before 2.2+ registers boundary-aware modules on bounded meshes.
     Subsumes the "BC-nodal operator rows" API-gap entry above.
+    **Resolution proposed** in
+    [`boundary_plan.md`](boundary_plan.md) (R1-R4, staged plan;
+    awaiting owner sign-off).

@@ -116,4 +116,6 @@ slots become unreadable).
 Non-blocking: task 1.8's claim reset confines the extrapolation to
 single-consumption uses, where it is second-order correct. The
 decision should land before ROADMAP 2.2+ registers boundary-aware
-modules on bounded meshes.
+modules on bounded meshes. **Resolution proposed** (with the
+Robin/mixed question, one principle for both) in
+[`boundary_plan.md`](boundary_plan.md) — decisions R1/R2 there.
