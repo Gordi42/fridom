@@ -110,6 +110,16 @@ def test_dct_ii_of_neumann_center(bounded):
     assert space.shape == (N,)
 
 
+def test_dct_i_of_neumann_outer(bounded):
+    # Neumann never reduces the origin shape: n + 1 nodes make the
+    # DCT-I shape-honest (n + 1 cosine modes k = 0..n)
+    origin = bounded.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    assert origin.shape == (N + 1,)
+    space = bounded.cosine(origin=origin)
+    assert type(space) is CosineSpace
+    assert space.shape == (N + 1,)
+
+
 def test_chebyshev_shape():
     mesh = ChebyshevMesh(N, (0, 1), name="z")
     space = mesh.chebyshev(origin=mesh.lobatto)

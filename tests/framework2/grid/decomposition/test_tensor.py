@@ -380,11 +380,47 @@ def test_cell_avg_fill_uses_the_offset_geometry(bounded):
         out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
 
 
-def test_neumann_fill_on_face_lattice_not_grounded(bounded):
+def test_neumann_fill_on_vacant_boundary_not_grounded(bounded):
+    # Inner Neumann: the boundary lattice node is a ghost slot, not
+    # a DOF — the even extension carries no datum for it
     space = bounded.nodal(NodeSet.INNER, bc=BC.NEUMANN)
     decomp = _mesh_decomp(bounded, 1)
     with pytest.raises(NotImplementedError, match="Neumann"):
         _filled(decomp, space, [1.0, 2.0, 3.0])
+
+
+def test_neumann_outer_keeps_nodes_and_mirrors_about_them(bounded):
+    # Neumann never drops the boundary DOF (owner decision
+    # 2026-07-07): the even extension reflects about the boundary
+    # node, which is excluded from the reflection
+    space = bounded.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    assert space.shape == (5,)  # all n + 1 nodes kept
+    decomp = _mesh_decomp(bounded, 2)
+    out = _filled(decomp, space, [1.0, 2.0, 3.0, 4.0, 5.0])
+    assert jnp.array_equal(
+        out,
+        jnp.array([3.0, 2.0, 1.0, 2.0, 3.0, 4.0, 5.0, 4.0, 3.0]))
+
+
+def test_neumann_outer_fill_is_fd_consistent_at_the_wall(bounded):
+    # symmetric analytic profile cos(pi x) on [0, 1]: derivative
+    # zero at both walls, so the centered FD through the fill must
+    # vanish at the boundary nodes and stay second-order accurate
+    # one node in
+    space = bounded.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    decomp = _mesh_decomp(bounded, 1)
+    dx = 0.25
+    x = jnp.linspace(0.0, 1.0, 5)
+    out = _filled(decomp, space, jnp.cos(jnp.pi * x))
+    # centered difference at the wall nodes (storage index 1 and 5)
+    left_slope = (out[2] - out[0]) / (2 * dx)
+    right_slope = (out[6] - out[4]) / (2 * dx)
+    assert left_slope == 0.0
+    assert right_slope == 0.0
+    # one node in: matches -pi sin(pi dx) to second order
+    slope_in = (out[3] - out[1]) / (2 * dx)
+    exact = -jnp.pi * jnp.sin(jnp.pi * dx)
+    assert jnp.abs(slope_in - exact) < 0.5 * dx**2 * jnp.pi**3
 
 
 def test_dirichlet_outer_drops_and_fills_like_inner(bounded):

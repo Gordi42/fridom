@@ -34,6 +34,10 @@ def _neumann_center(mesh):
     return mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
 
 
+def _neumann_outer(mesh):
+    return mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+
+
 def _sine_matrix(x, modes):
     """Synthesis oracle: column k-1 is sin(k pi x / L), L = 1."""
     k = np.arange(1, modes + 1)
@@ -179,6 +183,61 @@ def test_dct2_round_trip(bounded):
 
 
 # ================================================================
+#  DCT-I (Neumann Outer origin, n + 1 modes k = 0..n)
+# ================================================================
+@pytest.mark.parametrize("k0", [0, 3, N],
+                         ids=["constant", "mid", "top"])
+def test_dct1_single_modes_give_delta_coefficients(bounded, k0):
+    grid, mesh = bounded
+    space = _neumann_outer(mesh)
+    x = jnp.linspace(0.0, 1.0, N + 1)  # the n + 1 face nodes
+    f = grid.create_field(space, data=jnp.cos(k0 * jnp.pi * x))
+    coeff = Cosine(grid).forward(f)
+    assert coeff.function_space.bare is mesh.cosine(space)
+    assert coeff.shape == (N + 1,)
+    expected = jnp.zeros(N + 1).at[k0].set(1.0)
+    assert jnp.allclose(coeff.data, expected, atol=1e-14)
+
+
+def test_dct1_backward_matches_the_synthesis_matrix(bounded):
+    grid, mesh = bounded
+    space = _neumann_outer(mesh)
+    x = jnp.linspace(0.0, 1.0, N + 1)
+    rng = np.random.default_rng(3)
+    a = rng.standard_normal(N + 1)
+    coeff = grid.create_field(mesh.cosine(space),
+                              data=jnp.asarray(a))
+    back = Cosine(grid).backward(coeff)
+    assert back.function_space.bare is space
+    assert jnp.allclose(back.data, _cosine_matrix(x, N + 1) @ a,
+                        atol=1e-13)
+
+
+def test_dct1_round_trip(bounded):
+    grid, mesh = bounded
+    space = _neumann_outer(mesh)
+    f = grid.random.normal(space, seed=14)
+    op = Cosine(grid)
+    back = op.backward(op.forward(f))
+    assert back.function_space is f.function_space
+    assert jnp.allclose(back.data, f.data, atol=1e-13)
+
+
+def test_dct1_complex_data(bounded):
+    grid, mesh = bounded
+    space = _neumann_outer(mesh).as_complex()
+    x = jnp.linspace(0.0, 1.0, N + 1)
+    data = (1 + 2j) * jnp.cos(2 * jnp.pi * x)
+    f = grid.create_field(space, data=data)
+    op = Cosine(grid)
+    coeff = op.forward(f)
+    assert jnp.issubdtype(coeff.dtype, jnp.complexfloating)
+    expected = jnp.zeros(N + 1, dtype=complex).at[2].set(1 + 2j)
+    assert jnp.allclose(coeff.data, expected, atol=1e-14)
+    assert jnp.allclose(op.backward(coeff).data, data, atol=1e-14)
+
+
+# ================================================================
 #  Origin scope (iteration 1)
 # ================================================================
 def test_sine_rejects_outer_dirichlet_origins(bounded):
@@ -189,9 +248,9 @@ def test_sine_rejects_outer_dirichlet_origins(bounded):
         Sine(grid).forward(f)
 
 
-def test_cosine_rejects_the_dct1_family(bounded):
+def test_cosine_rejects_inner_neumann_origins(bounded):
     grid, mesh = bounded
-    space = mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    space = mesh.nodal(NodeSet.INNER, bc=BC.NEUMANN)
     with pytest.raises(SpaceMismatchError, match="DCT"):
         Cosine(grid).codomain(space)
 
@@ -266,3 +325,26 @@ def test_padded_cosine_pad_trim_round_trip(bounded):
     round_trip = padded.forward(fine)
     assert round_trip.function_space is coeff.function_space
     assert jnp.allclose(round_trip.data, a, atol=1e-13)
+
+
+def test_padded_dct1_backward_and_exact_trim(bounded):
+    grid, mesh = bounded
+    space = _neumann_outer(mesh)
+    x = jnp.linspace(0.0, 1.0, N + 1)
+    f = grid.create_field(space, data=jnp.cos(2 * jnp.pi * x))
+    plain = Cosine(grid)
+    padded = Cosine(grid, pad=degree(2))
+    coeff = plain.forward(f)
+
+    fine = padded.backward(coeff)
+    fine_mesh = mesh.refined(Fraction(3, 2))
+    fine_space = fine_mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    assert fine.function_space.bare is fine_space
+    assert fine.shape == (13,)
+    x_fine = jnp.linspace(0.0, 1.0, 13)
+    assert jnp.allclose(fine.data, jnp.cos(2 * jnp.pi * x_fine),
+                        atol=1e-14)
+
+    trimmed = padded.forward(fine)
+    assert trimmed.function_space is coeff.function_space
+    assert jnp.allclose(trimmed.data, coeff.data, atol=1e-14)

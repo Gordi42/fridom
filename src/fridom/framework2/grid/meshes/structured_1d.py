@@ -293,7 +293,7 @@ class StructuredMesh1D(Mesh):
         ``bc=BC.NONE``. BC-structured variants are the origins of
         the iteration-1 Sine/Cosine spaces (Dirichlet ``Center`` →
         DST-II, Dirichlet ``Inner`` → DST-I, Neumann ``Center`` →
-        DCT-II).
+        DCT-II, Neumann ``Outer`` → DCT-I).
 
         Parameters
         ----------

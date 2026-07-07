@@ -109,7 +109,8 @@ def trig_wavenumbers(
     ``pi k / L`` for the mode tables of ``operators.trig``: sine
     modes ``k = 1..shape`` (DST-II of ``Center`` origins and DST-I
     of ``Inner`` origins both start at ``k = 1``), cosine modes
-    ``k = 0..shape-1`` (DCT-II).
+    ``k = 0..shape-1`` (DCT-II of ``Center`` and DCT-I of ``Outer``
+    origins both start at ``k = 0``).
 
     Parameters
     ----------
@@ -182,10 +183,10 @@ def _diagonal_result(f: FieldLike, axis: str,
     return type(f)(f.grid, space, stored, metadata)
 
 
-def _bc_flipped_origin(origin: FunctionSpace,
-                       kind: BC) -> FunctionSpace:
-    """Return the nodal space with every BC component set to `kind`."""
-    flipped = origin.mesh.nodal(origin.node_set, bc=kind)
+def _paired_origin(origin: FunctionSpace, node_set: NodeSet,
+                   kind: BC) -> FunctionSpace:
+    """Return the bc-flipped partner origin of a trig pair."""
+    flipped = origin.mesh.nodal(node_set, bc=kind)
     if origin.scalars is Scalars.COMPLEX:
         flipped = flipped.as_complex()  # pragma: no cover
     return flipped
@@ -206,12 +207,17 @@ class SpectralDerivative(SeparableOperator):
     diagonal ``i k`` multiply (origin preserved — spectral
     differentiation does not stagger; the sign-ambiguous Nyquist mode
     of even-length spectra is annihilated), the sine/cosine bc-flip
-    with the II-type index maps (``d/dx: Sine -> Cosine`` maps sine
-    mode k to cosine mode k, annihilates the top sine mode, never
-    populates cosine ``k = 0``; the reverse annihilates the
-    constant), and the Chebyshev coefficient recurrence.
-    ``eigenvalues`` inherits the raising base until ``Symbol`` lands
-    (designed-for).
+    with the explicit index maps, and the Chebyshev coefficient
+    recurrence. The trig index maps (operators_stencils.md): on the
+    II-type pair (``Center`` origins) ``d/dx: Sine -> Cosine`` maps
+    sine mode k to cosine mode k, annihilates the top sine mode, and
+    never populates cosine ``k = 0``; the reverse annihilates the
+    constant. On the I-type pair (``Inner`` Dirichlet <-> ``Outer``
+    Neumann) ``d/dx: Sine -> Cosine`` lands in cosine ``k = 1..n-1``
+    (neither ``k = 0`` nor ``k = n`` is populated); the reverse
+    annihilates the constant ``k = 0`` **and** the Nyquist cosine
+    ``k = n``. ``eigenvalues`` inherits the raising base until
+    ``Symbol`` lands (designed-for).
     """
 
     dispatch_kind: ClassVar[str | None] = "diff"
@@ -234,19 +240,27 @@ class SpectralDerivative(SeparableOperator):
             return domain
         if isinstance(domain, SineSpace | CosineSpace):
             origin = domain.origin
-            if not (isinstance(origin, NodalSpace)
-                    and origin.node_set is NodeSet.CENTER):
-                raise SpaceMismatchError(
-                    f"no diff signature on {domain!r}: the I-type "
-                    "sine/cosine pair is blocked by the DCT-I shape "
-                    "inconsistency (see operators.trig); iteration "
-                    "1 covers the II-type (Center-origin) pair",
-                    left=domain, operation="diff")
+            node_set = (origin.node_set
+                        if isinstance(origin, NodalSpace) else None)
             if isinstance(domain, SineSpace):
-                flipped = _bc_flipped_origin(origin, BC.NEUMANN)
-                return domain.mesh.cosine(flipped)
-            flipped = _bc_flipped_origin(origin, BC.DIRICHLET)
-            return domain.mesh.sine(flipped)
+                if node_set is NodeSet.CENTER:  # II-type pair
+                    return domain.mesh.cosine(_paired_origin(
+                        origin, NodeSet.CENTER, BC.NEUMANN))
+                if node_set is NodeSet.INNER:  # I-type pair
+                    return domain.mesh.cosine(_paired_origin(
+                        origin, NodeSet.OUTER, BC.NEUMANN))
+            else:
+                if node_set is NodeSet.CENTER:  # II-type pair
+                    return domain.mesh.sine(_paired_origin(
+                        origin, NodeSet.CENTER, BC.DIRICHLET))
+                if node_set is NodeSet.OUTER:  # I-type pair
+                    return domain.mesh.sine(_paired_origin(
+                        origin, NodeSet.INNER, BC.DIRICHLET))
+            raise SpaceMismatchError(
+                f"no diff signature on {domain!r}: the sine/cosine "
+                "derivative covers the II-type (Center origin) and "
+                "I-type (Inner Dirichlet <-> Outer Neumann) pairs",
+                left=domain, operation="diff")
         raise SpaceMismatchError(
             f"no diff signature on {domain!r}: SpectralDerivative "
             "covers coefficient spaces (nodal spaces dispatch to "
@@ -296,9 +310,15 @@ class SpectralDerivative(SeparableOperator):
             k = _zero_nyquist(fourier_wavenumbers(factor), factor)
             out = data * axis_vector(1j * k, data.ndim, index)
         elif isinstance(factor, SineSpace):
-            out = _sine_to_cosine(data, index, _length(factor))
+            if factor.origin.node_set is NodeSet.CENTER:
+                out = _sine_to_cosine(data, index, _length(factor))
+            else:
+                out = _sine1_to_cosine1(data, index, _length(factor))
         elif isinstance(factor, CosineSpace):
-            out = _cosine_to_sine(data, index, _length(factor))
+            if factor.origin.node_set is NodeSet.CENTER:
+                out = _cosine_to_sine(data, index, _length(factor))
+            else:
+                out = _cosine1_to_sine1(data, index, _length(factor))
         else:
             out = _chebyshev_derivative(data, index,
                                         _length(factor))
@@ -323,6 +343,34 @@ def _cosine_to_sine(a: jax.Array, axis: int,
     scaled = (axis_slice(a, axis, 1, n)
               * axis_vector(-jnp.pi * k / length, a.ndim, axis))
     return axis_concat((scaled, axis_zeros(scaled, axis, 1)), axis)
+
+
+def _sine1_to_cosine1(b: jax.Array, axis: int,
+                      length: float) -> jax.Array:
+    """d/dx of DST-I coefficients: sine k -> cosine k, k = 1..n-1.
+
+    Index map: sine index ``j`` holds mode ``k = j + 1``, cosine
+    index ``j`` holds ``k = j``; neither cosine ``k = 0`` nor the
+    Nyquist ``k = n`` is populated.
+    """
+    p = b.shape[axis]  # n - 1 modes
+    k = jnp.arange(1, p + 1, dtype=dtype_real())
+    scaled = b * axis_vector(jnp.pi * k / length, b.ndim, axis)
+    zero = axis_zeros(scaled, axis, 1)
+    return axis_concat((zero, scaled, zero), axis)
+
+
+def _cosine1_to_sine1(a: jax.Array, axis: int,
+                      length: float) -> jax.Array:
+    """d/dx of DCT-I coefficients: cosine k -> sine k, k = 1..n-1.
+
+    Annihilates the constant ``k = 0`` and the Nyquist cosine
+    ``k = n`` (its sine image vanishes at the interior faces).
+    """
+    m = a.shape[axis]  # n + 1 modes
+    k = jnp.arange(1, m - 1, dtype=dtype_real())
+    return (axis_slice(a, axis, 1, m - 1)
+            * axis_vector(-jnp.pi * k / length, a.ndim, axis))
 
 
 def _chebyshev_derivative(a: jax.Array, axis: int,

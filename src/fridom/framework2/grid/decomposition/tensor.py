@@ -640,8 +640,9 @@ _BOUNDARY_DISTANCE: dict[NodeSet, tuple[float, float]] = {
 }
 
 # whether the (left, right) boundary DOF is a member of the node set
-# (a constrained member DOF is dropped from the space's shape, which
-# moves the nearest true DOF one cell inward)
+# (a Dirichlet-constrained member DOF is dropped from the space's
+# shape, which moves the nearest true DOF one cell inward; Neumann
+# never drops — spaces.md shape note, owner decision 2026-07-07)
 _BOUNDARY_MEMBERSHIP: dict[NodeSet, tuple[bool, bool]] = {
     NodeSet.CENTER: (False, False),
     NodeSet.LEFT: (True, False),
@@ -704,8 +705,9 @@ def _boundary_geometry(
                 f"no bounded halo fill for {factor!r}")
         distance = _BOUNDARY_DISTANCE[node_set][side]
         if (_BOUNDARY_MEMBERSHIP[node_set][side]
-                and kind is not BC.NONE):
-            # the constrained boundary DOF is dropped from the space
+                and kind is BC.DIRICHLET):
+            # the Dirichlet-constrained boundary DOF is dropped from
+            # the space (Neumann keeps it: it stays a true DOF)
             distance += 1.0
         return kind, distance
     if isinstance(factor, CellAvg):
@@ -785,11 +787,18 @@ def _bounded_ghosts(
                   for k in range(1, width + 1)]
     elif kind is BC.NEUMANN and distance == _OFFSET:
         ghosts = [dof(k) for k in range(1, width + 1)]
+    elif kind is BC.NEUMANN and distance == _MEMBER:
+        # the boundary node is a true DOF (Neumann keeps it): the
+        # even/mirror extension reflects about that node, which is
+        # excluded from the reflection — ghost slot k mirrors the
+        # interior node k cells inside, i.e. dof(k + 1)
+        # (decomposition.md even-extension contract)
+        ghosts = [dof(k + 1) for k in range(1, width + 1)]
     else:
         raise NotImplementedError(
-            "the Neumann (even) fill is grounded for "
-            "boundary-offset node sets only in iteration 1; got "
-            f"{factor!r} with a lattice node on the boundary")
+            "the Neumann (even) fill is grounded for node sets whose "
+            "nearest DOF is boundary-offset or on the boundary; got "
+            f"{factor!r} with a vacant lattice node on the boundary")
     if side == 0:
         ghosts.reverse()
     return jnp.concatenate(ghosts, axis=axis)
@@ -917,7 +926,9 @@ def _exchange_block(
 
     # ---- physical boundaries: BC-structured local fill ------------
     if not periodic:
-        depth = max(width, 2)  # extrapolation needs two DOFs
+        # extrapolation needs two DOFs; the boundary-member Neumann
+        # mirror reaches one node past the width (dof(width + 1))
+        depth = max(width + 1, 2)
         lead = _take(block, axis, slice(width, width + depth))
         left_fill = _bounded_ghosts(lead, axis, depth, width,
                                     factor, 0)

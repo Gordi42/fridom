@@ -186,6 +186,8 @@ def test_blocked_ghosts_match_the_single_device_fill():
             NodeSet.CENTER, bc=BC.DIRICHLET),
         "neumann center": lambda m: m.nodal(
             NodeSet.CENTER, bc=BC.NEUMANN),
+        "neumann outer": lambda m: m.nodal(
+            NodeSet.OUTER, bc=BC.NEUMANN),
     }
     for label, pick in spaces.items():
         periodic = label.startswith("periodic")

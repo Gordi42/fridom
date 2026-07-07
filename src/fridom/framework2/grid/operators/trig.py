@@ -12,7 +12,11 @@ follows from the origin space (rules sections 3.2/3.5) —
 - Dirichlet ``Inner``: DST-I, n - 1 modes ``k = 1..n-1``
   (index ``j = k - 1``);
 - Neumann ``Center``: DCT-II, n modes ``k = 0..n-1`` (index
-  ``j = k``).
+  ``j = k``);
+- Neumann ``Outer``: DCT-I, n + 1 modes ``k = 0..n`` (index
+  ``j = k``) — Neumann never reduces the origin shape (owner
+  decision 2026-07-07), so the n + 1 boundary-inclusive nodes make
+  the DCT-I shape-honest.
 
 Coefficients follow the **amplitude (synthesis) convention**: for the
 mesh interval of length L,
@@ -28,12 +32,6 @@ padded variants are plain zero-embeddings at the mode tail. The
 kernels evaluate the DST/DCT through length-2n complex FFTs of the
 odd/even extensions (correct for complex data too; the optimization
 pass is Wave 4).
-
-The DCT-I family (Neumann ``Inner``/``Outer`` origins) is **not**
-implemented: the class-doc mode table expects ``n + 1`` cosine modes,
-but the merged shape rule drops Neumann-constrained boundary DOFs
-(``Outer`` Neumann has shape ``n - 1``), so no shape-honest DCT-I
-codomain exists yet — reported as an open doc inconsistency.
 """
 # Wave 3: Sine, Cosine
 from __future__ import annotations
@@ -148,13 +146,14 @@ class Sine(Transform):
 class Cosine(Transform):
 
     """
-    DCT transform; type selected by the origin node set.
+    DCT transform; type (I/II) selected by the origin node set.
 
     Description
     -----------
     Grid-bound (see ``Transform``). Neumann ``Center`` origins take
-    the DCT-II (n modes ``k = 0..n-1``). The DCT-I family is not
-    implemented in iteration 1 (module docstring).
+    the DCT-II (n modes ``k = 0..n-1``), Neumann ``Outer`` origins
+    the DCT-I (n + 1 modes ``k = 0..n``); coefficient counts equal
+    space shapes by construction.
 
     Parameters
     ----------
@@ -176,10 +175,9 @@ class Cosine(Transform):
     ) -> FunctionSpace:
         """Per-origin cosine factor: ``mesh.cosine(origin)``."""
         _validated_origin(
-            origin, (NodeSet.CENTER,), "DCT",
-            "Neumann Center (DCT-II) origins (the DCT-I mode table "
-            "is inconsistent with the Neumann shape rule; see the "
-            "module docstring)")
+            origin, (NodeSet.CENTER, NodeSet.OUTER), "DCT",
+            "Neumann Center (DCT-II) and Neumann Outer (DCT-I) "
+            "origins")
         try:
             return origin.mesh.cosine(origin)
         except (AttributeError, TypeError, ValueError) as exc:
@@ -192,7 +190,10 @@ class Cosine(Transform):
         """Analyze one axis; trim to the coarse modes if padded."""
         axis = stage.index
         modes = stage.coeff.shape[0]
-        a = _dct2_forward(data, axis)
+        if stage.coeff.origin.node_set is NodeSet.CENTER:
+            a = _dct2_forward(data, axis)
+        else:
+            a = _dct1_forward(data, axis)
         if a.shape[axis] == modes:
             return a
         return axis_slice(a, axis, 0, modes)
@@ -203,7 +204,9 @@ class Cosine(Transform):
         axis = stage.index
         points = stage.nodal.shape[0]
         data = embed_tail(data, axis, points)
-        return _dct2_backward(data, axis)
+        if stage.coeff.origin.node_set is NodeSet.CENTER:
+            return _dct2_backward(data, axis)
+        return _dct1_backward(data, axis)
 
 
 # ================================================================
@@ -222,10 +225,16 @@ class Cosine(Transform):
 # DST-I, n - 1 on-lattice samples v_1..v_{n-1}:
 #   w = [0, v, 0, -flip(v)], W_k = -2i S_k,
 #   b_k = (2/n) S_k, no phases.
+# DCT-I, n + 1 on-lattice samples v_0..v_n:
+#   u = [v_0..v_n, v_{n-1}..v_1] (even about both boundaries,
+#   length 2n), U_k = v_0 + (-1)^k v_n
+#   + 2 sum_{j=1}^{n-1} v_j cos(pi j k / n) — real, no phases;
+#   a_0 = U_0 / (2n), a_n = U_n / (2n), a_k = U_k / n else.
 # Mirror halves follow from the extension symmetry:
 #   DST-II: U_{2n-k} = -e^{-i pi k / n} U_k;
 #   DCT-II: U_{2n-k} = +e^{-i pi k / n} U_k;  U_n = 0 for DCT-II,
-#   U_0 = 0 for DST-II; DST-I: W_{2n-k} = -W_k, W_0 = W_n = 0.
+#   U_0 = 0 for DST-II; DST-I: W_{2n-k} = -W_k, W_0 = W_n = 0;
+#   DCT-I: U_{2n-k} = U_k (k = 0 and k = n self-mirrored).
 def _dst2_forward(v: jax.Array, axis: int) -> jax.Array:
     """DST-II analysis: n half-offset samples -> modes 1..n."""
     n = v.shape[axis]
@@ -282,6 +291,32 @@ def _dct2_backward(a: jax.Array, axis: int) -> jax.Array:
          jnp.flip(mirror, axis)), axis)
     u = jnp.fft.ifft(spectrum, axis=axis)
     return axis_slice(u, axis, 0, p)
+
+
+def _dct1_forward(v: jax.Array, axis: int) -> jax.Array:
+    """DCT-I analysis: n + 1 on-lattice samples -> modes 0..n."""
+    m = v.shape[axis]
+    n = m - 1
+    interior = axis_slice(v, axis, 1, n)
+    u = axis_concat((v, jnp.flip(interior, axis)), axis)
+    big = jnp.fft.fft(u, axis=axis)
+    k = jnp.arange(m)
+    weight = jnp.where((k == 0) | (k == n), 0.5 / n, 1.0 / n)
+    return (axis_slice(big, axis, 0, m)
+            * axis_vector(weight, v.ndim, axis))
+
+
+def _dct1_backward(a: jax.Array, axis: int) -> jax.Array:
+    """DCT-I synthesis: modes 0..p -> p + 1 on-lattice samples."""
+    m = a.shape[axis]
+    n = m - 1
+    k = jnp.arange(m)
+    weight = jnp.where((k == 0) | (k == n), 2.0 * n, float(n))
+    head = a * axis_vector(weight, a.ndim, axis)
+    mirror = jnp.flip(axis_slice(head, axis, 1, n), axis)
+    spectrum = axis_concat((head, mirror), axis)
+    u = jnp.fft.ifft(spectrum, axis=axis)
+    return axis_slice(u, axis, 0, m)
 
 
 def _dst1_forward(v: jax.Array, axis: int) -> jax.Array:

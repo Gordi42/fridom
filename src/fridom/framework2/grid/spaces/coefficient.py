@@ -156,7 +156,16 @@ class SineSpace(CoefficientSpace):
 
 class CosineSpace(CoefficientSpace):
 
-    """DCT coefficients of a Neumann-structured bounded origin."""
+    """
+    DCT coefficients of a Neumann-structured bounded origin.
+
+    Description
+    -----------
+    One coefficient per origin DOF: DCT-II of Neumann ``Center``
+    has shape (n,), DCT-I of Neumann ``Outer`` has (n + 1,) —
+    Neumann never reduces the origin shape (owner decision
+    2026-07-07, ``NodalSpace`` shape note).
+    """
 
     _repr_label = "Cosine"
 

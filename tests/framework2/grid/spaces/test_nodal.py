@@ -108,12 +108,14 @@ def test_shape_table_bounded(bounded, factory, expected):
 
 
 # ================================================================
-#  BC-constrained shapes: a constraint drops a DOF only when the
-#  constrained boundary DOF is a member of the node set
+#  BC-constrained shapes: only a Dirichlet constraint drops a DOF,
+#  and only when the constrained boundary DOF is a member of the
+#  node set (owner decision 2026-07-07: Neumann never reduces)
 # ================================================================
 BOTH = (BC.DIRICHLET, BC.DIRICHLET)
 LEFT_ONLY = (BC.DIRICHLET, BC.NONE)
 RIGHT_ONLY = (BC.NONE, BC.DIRICHLET)
+NEUMANN_BOTH = (BC.NEUMANN, BC.NEUMANN)
 
 
 @pytest.mark.parametrize(("node_set", "bc", "expected"), [
@@ -131,9 +133,20 @@ RIGHT_ONLY = (BC.NONE, BC.DIRICHLET)
     # Right contains the right boundary face only
     pytest.param(NodeSet.RIGHT, LEFT_ONLY, (N,), id="right-left"),
     pytest.param(NodeSet.RIGHT, RIGHT_ONLY, (N - 1,), id="right-right"),
-    # the rule is per non-NONE component, not Dirichlet-specific
-    pytest.param(NodeSet.OUTER, (BC.NEUMANN, BC.NEUMANN), (N - 1,),
+    # Neumann never drops: it constrains a derivative combination,
+    # not a nodal DOF — Outer keeps all n + 1 nodes (the
+    # shape-honest DCT-I origin)
+    pytest.param(NodeSet.OUTER, NEUMANN_BOTH, (N + 1,),
                  id="outer-neumann"),
+    pytest.param(NodeSet.LEFT, (BC.NEUMANN, BC.NONE), (N,),
+                 id="left-neumann"),
+    pytest.param(NodeSet.RIGHT, (BC.NONE, BC.NEUMANN), (N,),
+                 id="right-neumann"),
+    pytest.param(NodeSet.CENTER, NEUMANN_BOTH, (N,),
+                 id="center-neumann"),
+    # mixed structure: only the Dirichlet component drops
+    pytest.param(NodeSet.OUTER, (BC.DIRICHLET, BC.NEUMANN), (N,),
+                 id="outer-mixed"),
 ])
 def test_bc_constrained_shapes(bounded, node_set, bc, expected):
     assert bounded.nodal(node_set, bc=bc).shape == expected

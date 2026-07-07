@@ -84,11 +84,13 @@ def test_nodal_domains_raise(periodic):
         SpectralDerivative().codomain(mesh.center)
 
 
-def test_i_type_pair_is_blocked(bounded):
+def test_i_type_pair_signatures(bounded):
     _, mesh = bounded
     inner = mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
-    with pytest.raises(SpaceMismatchError, match="I-type"):
-        SpectralDerivative().codomain(mesh.sine(inner))
+    outer = mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    d = SpectralDerivative()
+    assert d.codomain(mesh.sine(inner)) is mesh.cosine(outer)
+    assert d.codomain(mesh.cosine(outer)) is mesh.sine(inner)
 
 
 def test_requirements_and_dispatch_kind(periodic):
@@ -193,6 +195,61 @@ def test_cosine_derivative_index_map(bounded):
     deriv = Sine(grid).backward(SpectralDerivative()(coeff))
     exact = -3 * jnp.pi * jnp.sin(3 * jnp.pi * x)
     assert jnp.max(jnp.abs(deriv.data - exact)) < 1e-12
+
+
+def test_i_type_sine_derivative_is_spectrally_exact(bounded):
+    grid, mesh = bounded
+    n = mesh.n_cells
+    inner = mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    x = grid.evaluation_nodes(inner).data
+    f = grid.create_field(
+        inner,
+        data=jnp.sin(2 * jnp.pi * x) + 3 * jnp.sin(jnp.pi * x))
+    coeff = Sine(grid).forward(f)
+    deriv = SpectralDerivative()(coeff)
+    # lands on the DCT-I family: n + 1 modes, k = 0 and k = n empty
+    assert deriv.function_space.bare is mesh.cosine(
+        mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN))
+    assert deriv.data.shape == (n + 1,)
+    assert deriv.data[0] == 0.0
+    assert deriv.data[n] == 0.0
+    back = Cosine(grid).backward(deriv)
+    x_outer = jnp.linspace(0.0, 1.0, n + 1)
+    exact = (2 * jnp.pi * jnp.cos(2 * jnp.pi * x_outer)
+             + 3 * jnp.pi * jnp.cos(jnp.pi * x_outer))
+    assert jnp.max(jnp.abs(back.data - exact)) < 1e-12
+
+
+def test_i_type_cosine_derivative_is_spectrally_exact(bounded):
+    grid, mesh = bounded
+    n = mesh.n_cells
+    outer = mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    x_outer = jnp.linspace(0.0, 1.0, n + 1)
+    f = grid.create_field(
+        outer,
+        data=0.5 + jnp.cos(3 * jnp.pi * x_outer))
+    coeff = Cosine(grid).forward(f)
+    deriv = SpectralDerivative()(coeff)
+    assert deriv.function_space.bare is mesh.sine(
+        mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    assert deriv.data.shape == (n - 1,)
+    back = Sine(grid).backward(deriv)
+    inner = mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    x = grid.evaluation_nodes(inner).data
+    exact = -3 * jnp.pi * jnp.sin(3 * jnp.pi * x)
+    assert jnp.max(jnp.abs(back.data - exact)) < 1e-12
+
+
+def test_i_type_cosine_annihilations(bounded):
+    grid, mesh = bounded
+    n = mesh.n_cells
+    outer = mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    # the constant k = 0 and the Nyquist cosine k = n both map to
+    # zero (the Nyquist sine image vanishes at the interior faces)
+    ends = jnp.zeros(n + 1).at[0].set(1.0).at[n].set(2.0)
+    coeff = grid.create_field(mesh.cosine(outer), data=ends)
+    deriv = SpectralDerivative()(coeff)
+    assert jnp.max(jnp.abs(deriv.data)) < 1e-14
 
 
 def test_chebyshev_derivative_is_exact_with_extent_scaling():

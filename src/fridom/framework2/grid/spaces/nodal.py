@@ -52,8 +52,9 @@ _COUNT_OFFSET: dict[NodeSet, int] = {
 }
 
 # whether the (left, right) boundary DOF is a member of the node set
-# on a bounded mesh; BC constraints drop a DOF only when the
-# constrained boundary DOF is in the set (spaces.md shape note)
+# on a bounded mesh; only a Dirichlet constraint drops a DOF, and
+# only when the constrained boundary DOF is in the set (spaces.md
+# shape note, owner decision 2026-07-07)
 _BOUNDARY_MEMBERSHIP: dict[NodeSet, tuple[bool, bool]] = {
     NodeSet.CENTER: (False, False),
     NodeSet.LEFT: (True, False),
@@ -88,8 +89,13 @@ class NodalSpace(FunctionSpace):
     def shape(self) -> tuple[int, ...]:
         """DOF count of the node set.
 
-        The node-set base count, reduced by one per constrained
-        boundary component whose DOF is in the set.
+        The node-set base count, reduced by one per
+        Dirichlet-constrained boundary component whose DOF is in the
+        set: a Dirichlet condition eliminates a boundary *value*
+        DOF. Neumann structure never reduces the shape — it
+        constrains a derivative combination, not a nodal DOF (owner
+        decision 2026-07-07; Neumann ``Outer`` keeps all n + 1
+        nodes, the shape-honest DCT-I origin).
         """
         node_set = self._node_set
         base = self._mesh.n_cells + _COUNT_OFFSET[node_set]
@@ -97,7 +103,7 @@ class NodalSpace(FunctionSpace):
         drop = sum(
             1 for kind, present in
             zip(self._bc.components, membership, strict=False)
-            if present and kind is not BC.NONE)
+            if present and kind is BC.DIRICHLET)
         return (base - drop,)
 
 
