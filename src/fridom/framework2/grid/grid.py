@@ -10,15 +10,20 @@ all mathematics lives in spaces and operators. Iteration-1 subset:
 grid-free iteration-1 rows (overridable via ``dispatch=``) and ends
 with the provisional negotiation (grid lifecycle step 2) — the halo
 is the per-operator maximum over the seeded registry, sound under
-the sync-after-every-operator contract. Phase-2 assembly re-runs
-``negotiate(state_spaces=..., tendency=...)`` and ends with
-``freeze()``; ``merge_overrides`` stays a stub until the
-operator-registry merge lands.
+the sync-after-every-operator contract. Phase-2 assembly runs
+``merge_overrides(...)`` -> ``negotiate(state_spaces=...,
+tendency=...)`` -> ``freeze()``; ``freeze()`` records the
+negotiation fingerprint, after which mutators raise
+``GridFrozenError`` and ``negotiate`` switches to the
+demand-satisfaction verify path (model D4/D5).
 """
-# Wave 2: Grid -- Wave 3: negotiate/freeze lifecycle
+# Wave 2: Grid -- Wave 3: negotiate/freeze lifecycle -- Phase 2:
+#    merge_overrides facade, freeze fingerprint + verify path
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -27,9 +32,15 @@ from fridom.framework.utils import dtype_real
 from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.decomposition.decomposition import (
     ReshardingReport,
+    _registry_halo,
     negotiate,
 )
+from fridom.framework2.grid.decomposition.halo import (
+    HaloSpec,
+    trace_halo,
+)
 from fridom.framework2.grid.errors import (
+    GridFrozenError,
     GridMismatchError,
     SpaceMismatchError,
 )
@@ -72,8 +83,10 @@ from fridom.framework2.grid.operators.reconstruct import (
     LinearReconstruction,
 )
 from fridom.framework2.grid.operators.registry import (
+    DispatchCollisionError,
     LazyEntry,
     OperatorRegistry,
+    check_override_key,
 )
 from fridom.framework2.grid.operators.select import Where
 from fridom.framework2.grid.operators.spectral import (
@@ -106,14 +119,14 @@ from fridom.framework2.grid.spaces.tensor_product import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
     import jax
 
     from fridom.framework2.grid.decomposition.decomposition import (
         Decomposition,
     )
-    from fridom.framework2.grid.decomposition.halo import HaloSpec
+    from fridom.framework2.grid.decomposition.layout import Layout
     from fridom.framework2.grid.immersed_domain import ImmersedDomain
     from fridom.framework2.grid.meshes.mesh import Mesh
     from fridom.framework2.grid.operators.base import Operator
@@ -123,6 +136,40 @@ if TYPE_CHECKING:  # pragma: no cover
         FunctionSpace,
     )
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
+
+
+@dataclass(frozen=True)
+class NegotiationFingerprint:
+
+    """
+    The negotiation record ``freeze()`` seals (model D4).
+
+    Description
+    -----------
+    What a subsequent model assembly on the frozen grid verifies its
+    demands against (grid.md "Frozen-grid verify path"): the
+    verification is demand satisfaction (subset / less-or-equal,
+    model D5), never equality, and adopting a new
+    ConstantSpace-broadcast state space extends ``state_spaces``
+    without reopening negotiation.
+
+    Parameters
+    ----------
+    state_spaces : frozenset[SpaceLike]
+        The bare state spaces of the last pre-freeze negotiation
+        (plus post-freeze broadcast adoptions).
+    override_keys : frozenset[DispatchKey]
+        The normalized dispatch keys merged via ``merge_overrides``.
+    halo : HaloSpec
+        The negotiated per-name ghost widths.
+    layouts : tuple[Layout, ...]
+        The negotiated layout vocabulary.
+    """
+
+    state_spaces: frozenset[SpaceLike]
+    override_keys: frozenset[DispatchKey]
+    halo: HaloSpec
+    layouts: tuple[Layout, ...]
 
 
 class Grid:
@@ -187,6 +234,11 @@ class Grid:
             else dispatch)
         self._device_ids: tuple[int, ...] | None = device_ids
         self._frozen: bool = False
+        # negotiation-fingerprint bookkeeping (grid lifecycle;
+        # sealed by freeze())
+        self._state_spaces: frozenset[SpaceLike] = frozenset()
+        self._override_keys: set[DispatchKey] = set()
+        self._fingerprint: NegotiationFingerprint | None = None
         self._immersed: ImmersedDomain | None = None
         if immersed is not None:
             self._attach_immersed(immersed)
@@ -231,12 +283,50 @@ class Grid:
         return self._dispatch
 
     def merge_overrides(
-        self, overrides: Mapping[object, object],
+        self,
+        overrides: Mapping[DispatchKey, Operator]
+            | Mapping[str, Mapping[DispatchKey, Operator]],
     ) -> None:
-        """Merge module-local dispatch overrides (pre-freeze only)."""
-        raise NotImplementedError(
-            "merge_overrides arrives with the operator-registry "
-            "merge (the grid then swaps its held registry instance)")
+        """
+        Merge module-local dispatch overrides (pre-freeze only).
+
+        Description
+        -----------
+        The facade over the pure registry (grid.md "Merge call
+        site"): calls ``OperatorRegistry.merge`` — which returns a
+        new registry — and swaps the held instance; model assembly
+        step 3 calls it exactly once per grid. `overrides` is one
+        flat override mapping, or the per-module form
+        ``{module_name: {key: operator}}``: there the same resolved
+        key contributed by two modules raises
+        ``DispatchCollisionError`` naming both (module order never
+        silently selects an operator). ``("declared_space", ...)``
+        resolver rows are never module-mergeable and are rejected
+        in either form (model D1.2).
+
+        Parameters
+        ----------
+        overrides : Mapping
+            Module override entries, flat or keyed by module name.
+
+        Raises
+        ------
+        GridFrozenError
+            If the grid is frozen (grid lifecycle step 3).
+        DispatchCollisionError
+            If two modules contribute the same resolved key.
+        ValueError
+            If an override adds or shadows a resolver row.
+        """
+        if self._frozen:
+            raise GridFrozenError(
+                "the grid is frozen; merge_overrides is legal in "
+                "the assembly phase only (grid lifecycle)")
+        flat = _flatten_overrides(overrides)
+        merged = self._dispatch.merge(flat)
+        self._override_keys |= {
+            check_override_key(key) for key in flat}
+        self._dispatch = merged
 
     # ================================================================
     #  Decomposition and lifecycle
@@ -254,17 +344,25 @@ class Grid:
         halo: HaloSpec | None = None,
     ) -> ReshardingReport:
         """
-        Renegotiate the decomposition (pre-freeze only).
+        Renegotiate the decomposition (verify-only once frozen).
 
         Description
         -----------
         Re-runs the mesh-traits x operator-demands negotiation
-        (Phase-2 assembly, grid lifecycle step 3): the halo comes
-        from the traced `tendency` when supplied, else the
-        per-operator registry maximum scoped to `state_spaces`, else
-        the explicit `halo=` override. Returns the report the model
-        uses to re-``device_put`` its live state once; derived
-        arrays need nothing (recompute-on-demand).
+        (Phase-2 assembly, grid lifecycle step 3). The negotiated
+        halo follows the merge_max rule: the traced `tendency`
+        demand when supplied (else the per-operator registry maximum
+        scoped to `state_spaces`) merged per-coordinate max with the
+        `halo=` extra spec — `halo=` widens the trace, it is never
+        an exclusive override. Returns the report the model uses to
+        re-``device_put`` its live state once; derived arrays need
+        nothing (recompute-on-demand).
+
+        On a **frozen** grid nothing is renegotiated: the demands
+        are *verified* against the recorded fingerprint — demand
+        satisfaction (subset / less-or-equal, model D5), with new
+        ConstantSpace-broadcast state spaces adopted into the record
+        — and the unchanged-layout report is returned.
 
         Parameters
         ----------
@@ -273,28 +371,177 @@ class Grid:
         tendency : Callable[..., object] | None, optional
             The tendency to halo-trace (default: None).
         halo : HaloSpec | None, optional
-            Explicit per-name halo override (default: None).
+            Extra per-name halo demand, merged per-coordinate max
+            into the traced demand (default: None).
 
         Returns
         -------
         ReshardingReport
             Old/new default layout and whether they differ.
+
+        Raises
+        ------
+        GridFrozenError
+            On a frozen grid, if the demands exceed the recorded
+            negotiation fingerprint (diff-style message; "assemble
+            the most demanding model first").
         """
         if self._frozen:
-            raise RuntimeError(
-                "the grid is frozen; negotiate is legal in the "
-                "assembly phase only (grid lifecycle)")
+            return self._verify_frozen(
+                state_spaces=state_spaces, tendency=tendency,
+                halo=halo)
         old = self._decomposition.default_layout
         self._decomposition = negotiate(
             self, self._dispatch,
             state_spaces=state_spaces, tendency=tendency, halo=halo,
             device_ids=self._device_ids)
+        self._state_spaces = (
+            frozenset() if state_spaces is None
+            else frozenset(s.bare for s in state_spaces))
         new = self._decomposition.default_layout
         return ReshardingReport(old=old, new=new, changed=old != new)
 
     def freeze(self) -> None:
-        """End the assembly phase; further negotiations raise."""
+        """
+        End the assembly phase; record the negotiation fingerprint.
+
+        Description
+        -----------
+        Seals the grid (grid lifecycle step 3): the state-space set,
+        the merged override keys, the negotiated ``HaloSpec``, and
+        the layout vocabulary are recorded as the
+        ``NegotiationFingerprint`` that post-freeze ``negotiate``
+        calls verify against. After ``freeze()``,
+        ``merge_overrides`` and ``with_immersed`` raise
+        ``GridFrozenError``. Idempotent: freezing a frozen grid
+        keeps the existing record (including broadcast adoptions).
+        """
+        if self._frozen:
+            return
+        self._fingerprint = NegotiationFingerprint(
+            state_spaces=self._state_spaces,
+            override_keys=frozenset(self._override_keys),
+            halo=self._decomposition.halo,
+            layouts=self._decomposition.layouts)
         self._frozen = True
+
+    @property
+    def fingerprint(self) -> NegotiationFingerprint | None:
+        """The frozen negotiation record; None before ``freeze()``."""
+        return self._fingerprint
+
+    def _verify_frozen(
+        self,
+        *,
+        state_spaces: tuple[SpaceLike, ...] | None,
+        tendency: Callable[..., object] | None,
+        halo: HaloSpec | None,
+    ) -> ReshardingReport:
+        """
+        Verify demands against the fingerprint (model D4/D5).
+
+        Description
+        -----------
+        The frozen-grid path of ``negotiate``: demand satisfaction
+        (subset / less-or-equal), never equality. A demanded state
+        space missing from the record is adopted when it belongs to
+        the ConstantSpace-broadcast family (zero halo demand by
+        construction); all violations are collected into one
+        diff-style ``GridFrozenError``.
+
+        Parameters
+        ----------
+        state_spaces : tuple[SpaceLike, ...] | None
+            The demanding model's state-field spaces.
+        tendency : Callable[..., object] | None
+            The tendency whose traced demand is verified.
+        halo : HaloSpec | None
+            Extra per-name halo demand (merge_max rule).
+
+        Returns
+        -------
+        ReshardingReport
+            The unchanged-layout report (nothing is renegotiated).
+        """
+        record = self._fingerprint
+        if record is None:  # pragma: no cover — freeze always sets
+            raise GridFrozenError(
+                "the grid is frozen but carries no negotiation "
+                "fingerprint")
+        demand = self._demanded_halo(state_spaces, tendency, halo)
+        problems = _halo_violations(demand, record.halo)
+        adopted: list[SpaceLike] = []
+        for space in state_spaces or ():
+            layout = space.layout
+            if layout is not None and layout not in record.layouts:
+                problems.append(
+                    f"layout of {space!r} is not in the frozen "
+                    "layout vocabulary")
+            bare = space.bare
+            if bare in record.state_spaces or bare in adopted:
+                continue
+            if _constant_broadcast(bare):
+                adopted.append(bare)
+                continue
+            problems.append(
+                f"state space {bare!r} is not in the frozen record "
+                "(and is not ConstantSpace-broadcast adoptable)")
+        if problems:
+            raise GridFrozenError(
+                "the frozen grid cannot satisfy the demanded "
+                "negotiation (assemble the most demanding model "
+                "first):\n  " + "\n  ".join(problems))
+        if adopted:
+            self._fingerprint = replace(
+                record,
+                state_spaces=record.state_spaces | set(adopted))
+        layout = self._decomposition.default_layout
+        return ReshardingReport(old=layout, new=layout,
+                                changed=False)
+
+    def _demanded_halo(
+        self,
+        state_spaces: tuple[SpaceLike, ...] | None,
+        tendency: Callable[..., object] | None,
+        halo: HaloSpec | None,
+    ) -> HaloSpec:
+        """
+        Resolve the demanded halo under the merge_max rule.
+
+        Description
+        -----------
+        The verify-side twin of the negotiation's halo resolution:
+        the traced `tendency` demand when supplied (else the
+        per-operator registry maximum scoped to `state_spaces`),
+        merged per-coordinate max with the `halo=` extra spec.
+
+        Parameters
+        ----------
+        state_spaces : tuple[SpaceLike, ...] | None
+            The demanding model's state-field spaces.
+        tendency : Callable[..., object] | None
+            The tendency to halo-trace.
+        halo : HaloSpec | None
+            Extra per-name halo demand.
+
+        Returns
+        -------
+        HaloSpec
+            The demanded per-name ghost widths.
+        """
+        if tendency is not None:
+            if state_spaces is None:
+                raise ValueError(
+                    "tracing a tendency needs state_spaces= to "
+                    "build the tracer state")
+            demand = HaloSpec.zero(self._names).merge_max(
+                trace_halo(tendency, state_spaces, self._dispatch))
+        else:
+            demand = _registry_halo(self._names, self._dispatch,
+                                    state_spaces)
+        if halo is not None:
+            demand = demand.merge_max(halo)
+        return demand
 
     def sync(
         self,
@@ -634,7 +881,7 @@ class Grid:
         grid, so already-created fields keep their grid identity
         (the descriptor holds no arrays — there is nothing to
         reshard or invalidate). After ``freeze()`` this raises
-        ``RuntimeError`` (grid lifecycle step 3).
+        ``GridFrozenError`` (grid lifecycle step 3).
 
         Parameters
         ----------
@@ -647,7 +894,7 @@ class Grid:
             This grid, carrying the descriptor.
         """
         if self._frozen:
-            raise RuntimeError(
+            raise GridFrozenError(
                 "the grid is frozen; with_immersed is legal in the "
                 "assembly phase only (grid lifecycle)")
         self._attach_immersed(immersed)
@@ -861,6 +1108,113 @@ class Grid:
                 factor).reshape(shape)
         values = jnp.asarray(init_coeff(**coords))
         return jnp.broadcast_to(values, space.shape)
+
+
+def _flatten_overrides(
+    overrides: Mapping[DispatchKey, Operator]
+        | Mapping[str, Mapping[DispatchKey, Operator]],
+) -> Mapping[DispatchKey, Operator]:
+    """
+    Flatten per-module overrides; detect resolved-key collisions.
+
+    Description
+    -----------
+    ``grid.merge_overrides`` accepts one flat override mapping or
+    the per-module form ``{module_name: {key: operator}}`` (values
+    are mappings exactly when the form is per-module: operators are
+    never mappings). Flattening normalizes each key through the
+    merge-call-site guard and raises ``DispatchCollisionError``
+    naming both modules on the first resolved key contributed twice.
+
+    Parameters
+    ----------
+    overrides : Mapping
+        Module override entries, flat or keyed by module name.
+
+    Returns
+    -------
+    Mapping[DispatchKey, Operator]
+        The flat (normalized-key) override mapping.
+    """
+    if not overrides or not all(
+            isinstance(entries, Mapping)
+            for entries in overrides.values()):
+        return overrides
+    flat: dict[DispatchKey, Operator] = {}
+    owners: dict[DispatchKey, str] = {}
+    for module, entries in overrides.items():
+        for key, op in entries.items():
+            nkey = check_override_key(key)
+            other = owners.get(nkey)
+            if other is not None:
+                raise DispatchCollisionError(
+                    f"modules {other!r} and {module!r} both "
+                    f"override the resolved dispatch key {nkey!r}; "
+                    "module order never silently selects an "
+                    "operator")
+            owners[nkey] = module
+            flat[nkey] = op
+    return flat
+
+
+def _halo_violations(demand: HaloSpec, frozen: HaloSpec) -> list[str]:
+    """
+    Diff a demanded halo against the frozen record (verify path).
+
+    Description
+    -----------
+    The less-or-equal check of the frozen-grid verification: a name
+    missing from the frozen spec counts as width 0.
+
+    Parameters
+    ----------
+    demand : HaloSpec
+        The demanded per-name ghost widths (merge_max rule).
+    frozen : HaloSpec
+        The fingerprint's negotiated ghost widths.
+
+    Returns
+    -------
+    list[str]
+        One diff line per name whose demand exceeds the record.
+    """
+    problems: list[str] = []
+    for name, width in demand.widths:
+        try:
+            frozen_width = frozen[name]
+        except KeyError:
+            frozen_width = 0
+        if width > frozen_width:
+            problems.append(
+                f"halo[{name!r}]: demanded {width} > frozen "
+                f"{frozen_width}")
+    return problems
+
+
+def _constant_broadcast(space: SpaceLike) -> bool:
+    """
+    Whether a space is in the ConstantSpace-broadcast family.
+
+    Description
+    -----------
+    The satisfiability relaxation of the frozen-grid verify path
+    (grid.md, model validation sign-off): a state space constant
+    along at least one coordinate broadcasts over the recorded
+    negotiation and carries zero halo demand on its constant
+    factors, so it is adopted into the record instead of refused.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The bare demanded state space.
+
+    Returns
+    -------
+    bool
+        True if at least one factor is a ``ConstantSpace``.
+    """
+    return any(isinstance(factor, ConstantSpace)
+               for factor in space.factors)
 
 
 def _pick_factor_name(space: SpaceLike, name: str | None) -> str:
@@ -1158,7 +1512,7 @@ def _default_registry(
     ``("diff", CellAvg)`` -> the ``FVDerivative()`` chain, whose
     ``Dispatched("reconstruct")`` hole is baked by the trailing
     ``merge({})`` (the iteration-1 assembly moment; module override
-    merging arrives with ``grid.merge_overrides``);
+    merging happens later through ``grid.merge_overrides``);
     ``("integrate", nodal/average)`` -> one shared ``Integral()``;
     the elementwise ``multiply``/``divide``/``power``/``select``
     rows on nodal *and* average factors (one shared instance per
@@ -1228,7 +1582,7 @@ def _default_registry(
     # bake the Dispatched("reconstruct") hole of the FV-derivative
     # chain against the seeded defaults (D4's merge moment, empty
     # override set): day-one `f.diff` on average spaces needs a
-    # concrete chain, and merge_overrides is not implemented yet
+    # concrete chain even before any grid.merge_overrides call
     return OperatorRegistry(entries).merge({})
 
 

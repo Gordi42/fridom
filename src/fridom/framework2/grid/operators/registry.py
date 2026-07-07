@@ -20,15 +20,26 @@ operator (a transform) on first ``resolve``, post-negotiation — and
 factor lookups fall back along the mesh ``refined_from`` chain, so
 spaces on adopted refined meshes resolve the parent mesh's rows with
 the same operator instances.
+
+Besides the operator layers the registry holds a **resolver table**:
+mesh-keyed rows (``("declared_space", mesh)``, model D1.2) mapping a
+declaration tag to a factor space. They share the exact-lookup
+mapping surface (``reg[("declared_space", mesh)]``) but are
+structurally separate — resolver values are plain callables, never
+enter ``resolve``/``items`` dispatch, and are grid-level only:
+``merge`` rejects any override touching them (never
+module-mergeable).
 """
 # Wave 2: OperatorRegistry, DispatchError -- Wave 3D: LazyEntry,
-#    refined-mesh adoption
+#    refined-mesh adoption -- Phase 2: resolver table,
+#    DispatchCollisionError
 from __future__ import annotations
 
 import functools
 from typing import TYPE_CHECKING, TypeAlias, final
 
 import fridom.framework as fr
+from fridom.framework2.grid.meshes.mesh import Mesh
 from fridom.framework2.grid.operators.base import (
     Composite,
     Dispatched,
@@ -58,6 +69,14 @@ if TYPE_CHECKING:  # pragma: no cover
 #: and compare by identity)
 DispatchKey: TypeAlias = "str | tuple[str, SpaceLike]"
 
+#: resolver-table key: mesh-keyed rows (``("declared_space", mesh)``,
+#: model D1.2) mapping a declaration tag to a factor space; grid-level
+#: only, never module-mergeable
+ResolverKey: TypeAlias = "tuple[str, Mesh]"
+
+#: the reserved resolver kind of model D1.2 (grid-level only)
+_DECLARED_SPACE = "declared_space"
+
 
 class DispatchError(KeyError):
 
@@ -71,6 +90,28 @@ class DispatchError(KeyError):
     ``Dispatched`` kind, or a cyclic placeholder resolution. It is
     *not* a space error — operator application to a field outside a
     registered operator's domain raises ``SpaceMismatchError``.
+    """
+
+
+class DispatchCollisionError(ValueError):
+
+    """
+    Raised when two modules contribute the same resolved key.
+
+    Description
+    -----------
+    The assembly-step-3 collision (model assembly): module order
+    never silently selects an operator, so the merge call site
+    (``grid.merge_overrides``, per-module form) raises on the first
+    resolved dispatch key contributed by two modules — the message
+    names both. Re-exported by the model layer alongside its other
+    assembly errors.
+
+    Parameters
+    ----------
+    msg : str
+        The error message, naming both contributing modules and the
+        colliding resolved key.
     """
 
 
@@ -160,14 +201,18 @@ class OperatorRegistry:
     precedence override ``(kind, space)`` > override kind-only >
     default ``(kind, space)`` > default kind-only; product spaces
     walk the three key forms (exact product key, per-factor fallback,
-    kind-only). ``__setitem__`` is setup-time mutation only; after
-    assembly the registry is treated as frozen structure (the freeze
-    point is enforced by the grid, not this container).
+    kind-only). Mesh-keyed rows (``("declared_space", mesh)``) go to
+    the separate resolver table: exact lookup only, callable values,
+    grid-level only (``merge`` rejects them). ``__setitem__`` is
+    setup-time mutation only; after assembly the registry is treated
+    as frozen structure (the freeze point is enforced by the grid,
+    not this container).
 
     Parameters
     ----------
-    defaults : Mapping[DispatchKey, Operator] | None, optional
-        The default entry table (default: None, empty).
+    defaults : Mapping[DispatchKey | ResolverKey, object] | None, optional
+        The default entry table; mesh-keyed items seed the resolver
+        table (default: None, empty).
     """
 
     def __init__(
@@ -176,9 +221,14 @@ class OperatorRegistry:
     ) -> None:
         """Create a registry from a default entry table."""
         entries: dict[DispatchKey, Operator] = {}
+        #: mesh-keyed resolver rows (model D1.2); grid-level only
+        self._resolvers: dict[ResolverKey, Callable[..., object]] = {}
         if defaults is not None:
             for key, op in defaults.items():
-                entries[_normalize_key(key)] = _check_entry(op)
+                if _is_resolver_key(key):
+                    self._resolvers[key] = _check_resolver(op)
+                else:
+                    entries[_normalize_key(key)] = _check_entry(op)
         #: layered entry dicts, outermost (highest precedence) first
         self._layers: tuple[dict[DispatchKey, Operator], ...] = (
             entries,)
@@ -197,41 +247,58 @@ class OperatorRegistry:
     # ================================================================
     #  Mapping surface
     # ================================================================
-    def __getitem__(self, key: DispatchKey) -> Operator:
+    def __getitem__(self, key: DispatchKey | ResolverKey) -> object:
         """
         Exact-entry lookup (no precedence fallback).
 
         Parameters
         ----------
-        key : DispatchKey
-            The kind or (kind, space) key.
+        key : DispatchKey | ResolverKey
+            The kind, (kind, space), or (kind, mesh) key.
 
         Returns
         -------
-        Operator
-            The outermost layer's exact entry for the key.
+        object
+            The outermost layer's exact entry for the key (an
+            ``Operator``), or the resolver callable of a mesh key.
         """
+        if _is_resolver_key(key):
+            try:
+                return self._resolvers[key]
+            except KeyError:
+                raise DispatchError(
+                    f"no resolver registered for key {key!r}",
+                ) from None
         nkey = _normalize_key(key)
         for layer in self._layers:
             if nkey in layer:
                 return _materialize(layer[nkey])
         raise DispatchError(f"no exact entry for key {key!r}")
 
-    def __setitem__(self, key: DispatchKey, op: Operator) -> None:
+    def __setitem__(
+        self, key: DispatchKey | ResolverKey, op: object,
+    ) -> None:
         """
         Register/override an entry (setup-time only, pre-trace).
 
         Parameters
         ----------
-        key : DispatchKey
-            The kind or (kind, space) key.
-        op : Operator
-            The operator (or ``LazyEntry``) to register.
+        key : DispatchKey | ResolverKey
+            The kind, (kind, space), or (kind, mesh) key; mesh keys
+            register in the resolver table.
+        op : object
+            The operator (or ``LazyEntry``) to register; a plain
+            resolver callable for mesh keys.
         """
+        if _is_resolver_key(key):
+            self._resolvers[key] = _check_resolver(op)
+            return
         self._layers[0][_normalize_key(key)] = _check_entry(op)
 
-    def __contains__(self, key: DispatchKey) -> bool:
+    def __contains__(self, key: DispatchKey | ResolverKey) -> bool:
         """Whether an exact entry exists for the key."""
+        if _is_resolver_key(key):
+            return key in self._resolvers
         nkey = _normalize_key(key)
         return any(nkey in layer for layer in self._layers)
 
@@ -242,7 +309,9 @@ class OperatorRegistry:
         Description
         -----------
         Keys are deduplicated with layer precedence: an override
-        shadows the default entry under the same key.
+        shadows the default entry under the same key. Resolver rows
+        are deliberately absent: they map declaration tags to
+        spaces, not operators, and contribute nothing to the trace.
 
         Yields
         ------
@@ -300,7 +369,11 @@ class OperatorRegistry:
         precedence and stored concrete (D4) — after the merge, no
         per-application registry lookup happens inside chains.
         Kind-only entries keep their holes: they resolve at
-        application, when the operand space is known.
+        application, when the operand space is known. Resolver rows
+        (``("declared_space", ...)``, model D1.2) are grid-level
+        only: an override adding or shadowing one raises
+        ``ValueError``; the held resolver table is carried into the
+        merged registry unchanged.
 
         Parameters
         ----------
@@ -314,9 +387,11 @@ class OperatorRegistry:
         """
         top: dict[DispatchKey, Operator] = {}
         for key, op in overrides.items():
-            top[_normalize_key(key)] = _check_entry(op)
+            nkey = check_override_key(key)  # keys first: resolver
+            top[nkey] = _check_entry(op)  # rows fail as keys
         merged = OperatorRegistry()
         merged._layers = (top, *self._layers)
+        merged._resolvers = dict(self._resolvers)
         for key, op in tuple(merged.items()):
             if isinstance(key, tuple) and _contains_hole(op):
                 top[key] = _resolve_entry(
@@ -418,6 +493,60 @@ def _normalize_key(key: DispatchKey) -> DispatchKey:
         return (key[0], key[1].bare)
     raise TypeError(
         f"dispatch keys are a kind or (kind, space), got {key!r}")
+
+
+def _is_resolver_key(key: object) -> bool:
+    """Whether a key addresses the mesh-keyed resolver table."""
+    return (isinstance(key, tuple) and len(key) == 2  # noqa: PLR2004
+            and isinstance(key[0], str)
+            and isinstance(key[1], Mesh))
+
+
+def _check_resolver(value: object) -> Callable[..., object]:
+    """Validate a resolver-table value (a plain callable)."""
+    if not callable(value):
+        raise TypeError(
+            "resolver rows map declaration tags to spaces through "
+            f"a callable, got {value!r}")
+    return value
+
+
+def check_override_key(key: DispatchKey) -> DispatchKey:
+    """
+    Normalize a module-override key; reject resolver rows.
+
+    Description
+    -----------
+    The merge-call-site guard shared by ``OperatorRegistry.merge``
+    and the ``grid.merge_overrides`` facade (grid.md "Merge call
+    site" resolution): ``("declared_space", ...)`` rows — in any
+    spelling: mesh-keyed, space-keyed, or kind-only — are grid-level
+    only and never module-mergeable (model D1.2).
+
+    Parameters
+    ----------
+    key : DispatchKey
+        The override key as contributed by a module.
+
+    Returns
+    -------
+    DispatchKey
+        The normalized key (layouts stripped off space keys).
+
+    Raises
+    ------
+    ValueError
+        If the key adds or shadows a resolver row.
+    """
+    kind = key[0] if isinstance(key, tuple) and key else key
+    if _is_resolver_key(key) or kind == _DECLARED_SPACE:
+        raise ValueError(
+            f"override key {key!r} touches the "
+            "('declared_space', ...) resolver rows; those are "
+            "grid-level only and never module-mergeable (a module "
+            "changing how every other module's declarations "
+            "resolve is cross-module action at a distance)")
+    return _normalize_key(key)
 
 
 def _check_operator(op: Operator) -> Operator:

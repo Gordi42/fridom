@@ -5,6 +5,7 @@ import pytest
 from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import (
+    GridFrozenError,
     GridMismatchError,
     SpaceMismatchError,
 )
@@ -169,8 +170,10 @@ def test_seeded_registry_covers_the_transform_rows(grid, mx, my):
 # ================================================================
 #  Lifecycle (negotiate / freeze; merge_overrides is a later stub)
 # ================================================================
-def test_merge_overrides_stub_raises(grid):
-    with pytest.raises(NotImplementedError, match="registry"):
+def test_merge_overrides_is_pre_freeze_only(grid):
+    grid.merge_overrides({})
+    grid.freeze()
+    with pytest.raises(GridFrozenError, match="frozen"):
         grid.merge_overrides({})
 
 
@@ -205,8 +208,12 @@ def test_negotiate_tendency_requires_state_spaces(grid):
 
 def test_freeze_ends_the_assembly_phase(grid):
     grid.freeze()
-    with pytest.raises(RuntimeError, match="frozen"):
-        grid.negotiate()
+    # satisfiable demands verify against the frozen record ...
+    report = grid.negotiate()
+    assert report.changed is False
+    # ... larger demands (and mutators) raise GridFrozenError
+    with pytest.raises(GridFrozenError, match="frozen"):
+        grid.negotiate(halo=HaloSpec({"x": 99}))
 
 
 def test_sync_is_identity_on_one_device(grid):
