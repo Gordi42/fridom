@@ -39,10 +39,11 @@ def test_interpolate_verb(grid, mx):
     assert jnp.allclose(h.data, expected)
 
 
-def test_integrate_verb_has_no_rows_yet(grid):
-    f = grid.create_field()
-    with pytest.raises(DispatchError, match="integrate"):
-        verbs.integrate["x"](f)
+def test_integrate_verb_resolves_the_seeded_rows(grid, mx):
+    f = grid.create_field(data=jnp.full(8, 2.0))
+    total = verbs.integrate["x"](f)
+    assert total.function_space.bare is mx.constant
+    assert jnp.allclose(total.data, 2.0)  # int over [0, 1]
 
 
 def test_custom_kind_is_a_clean_dispatch_error(grid):

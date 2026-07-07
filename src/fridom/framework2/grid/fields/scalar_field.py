@@ -344,16 +344,78 @@ class ScalarField:
             "multi-device layouts arrive in Wave 3")
 
     def integrate(self, *names: str) -> ScalarField:
-        """Weighted integral; named factors reduce to ConstantSpace."""
-        raise NotImplementedError(
-            "f.integrate forwards to the seeded 'integrate' verb "
-            "once the Integral operator rows land in Wave 3")
+        """
+        Weighted integral; named factors reduce to ConstantSpace.
+
+        Description
+        -----------
+        Thin forwarder to the seeded verb (D3): per name,
+        ``fr.operators.integrate[name](self)`` resolves
+        ``("integrate", factor)`` against ``grid.dispatch`` (rules
+        section 3.13). No names integrates every factor; reductions
+        along ``ConstantSpace`` factors are the identity; the result
+        broadcasts back via ``ConstantSpace`` (section 3.3), so
+        ``f - f.integrate("x")`` stays in the strict algebra.
+
+        Parameters
+        ----------
+        *names : str
+            The coordinate names to reduce (default: all).
+
+        Returns
+        -------
+        ScalarField
+            The integral on the reduced space (default metadata).
+        """
+        space = self._function_space.bare
+        result = self
+        for name in _reduction_names(space, names):
+            factor = space.factor(name)
+            if isinstance(factor, ConstantSpace):
+                continue  # identity reduction (section 3.13)
+            if isinstance(factor, CoefficientSpace):
+                raise DispatchError(
+                    "no ('integrate', coefficient factor) dispatch "
+                    f"entry for {factor!r}: transform back first "
+                    "(the zero-mode extraction is designed-for)")
+            result = Dispatched("integrate")[name](result)
+        return result
 
     def mean(self, *names: str) -> ScalarField:
-        """Integral divided by the integrated measure (sugar)."""
-        raise NotImplementedError(
-            "f.mean is sugar over f.integrate; the Integral "
-            "operator rows land in Wave 3")
+        """
+        Integral divided by the integrated measure (sugar).
+
+        Description
+        -----------
+        ``f.integrate(*names)`` scaled by the reciprocal of the
+        total measure of the reduced factors (the per-name sums of
+        ``grid.measure``), so the mean of a constant is that
+        constant on every space family.
+
+        Parameters
+        ----------
+        *names : str
+            The coordinate names to average over (default: all).
+
+        Returns
+        -------
+        ScalarField
+            The mean on the reduced space (default metadata).
+        """
+        space = self._function_space.bare
+        selected = _reduction_names(space, names)
+        integral = self.integrate(*selected)
+        total = None
+        for name in selected:
+            factor = space.factor(name)
+            if isinstance(factor, ConstantSpace):
+                continue
+            weight = self._grid.measure(space, name=name)
+            length = weight.data.sum()
+            total = length if total is None else total * length
+        if total is None:
+            return integral  # all-constant: identity
+        return integral.with_data(integral.data / total)
 
     # ================================================================
     #  Arithmetic — sections 3.1, 3.3, 3.11 (join rule)
@@ -476,6 +538,41 @@ class ScalarField:
 # ================================================================
 #  Shared arithmetic plumbing
 # ================================================================
+def _reduction_names(
+    space: SpaceLike, names: tuple[str, ...],
+) -> tuple[str, ...]:
+    """
+    Normalize a reduction's name selection (integrate/mean sugar).
+
+    Description
+    -----------
+    No names selects every factor; explicit names are validated
+    against the space and deduplicated preserving order (repeated
+    reductions along one name are the identity anyway).
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (bare) operand space.
+    names : tuple[str, ...]
+        The user-selected coordinate names (possibly empty).
+
+    Returns
+    -------
+    tuple[str, ...]
+        The validated, deduplicated selection.
+    """
+    if not names:
+        return space.names
+    unknown = tuple(name for name in names
+                    if name not in space.names)
+    if unknown:
+        raise ValueError(
+            f"no factors named {unknown}; this space's names are "
+            f"{space.names}")
+    return tuple(dict.fromkeys(names))
+
+
 def _wrap(grid: Grid, space: SpaceLike,
           true_data: jax.Array) -> ScalarField:
     """Build a default-metadata result field from true-shape data."""

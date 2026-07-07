@@ -55,8 +55,17 @@ if TYPE_CHECKING:  # pragma: no cover
         Zero,
         resolve_codomain,
     )
+    from .composed import Curl, Divergence, Gradient, Laplacian
     from .finite_difference import FiniteDifference
+    from .flux_diff import (
+        DualFluxDifference,
+        FaceDifference,
+        FluxDifference,
+        FVDerivative,
+    )
+    from .integrate import Integral
     from .interp import LinearInterp
+    from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .verbs import diff, integrate, interpolate
 
@@ -116,6 +125,22 @@ all_imports_by_origin = {
     ],
     f"{base}.finite_difference": ["FiniteDifference"],
     f"{base}.interp": ["LinearInterp"],
+    f"{base}.reconstruct": ["LinearReconstruction"],
+    f"{base}.flux_diff": [
+        "FluxDifference",
+        "DualFluxDifference",
+        "FaceDifference",
+        "FVDerivative",
+    ],
+    # the class import "Integral" and the D3b verb "integrate"
+    # coexist: only the verb owns the ``fr.operators.integrate`` slot
+    f"{base}.integrate": ["Integral"],
+    f"{base}.composed": [
+        "Gradient",
+        "Divergence",
+        "Curl",
+        "Laplacian",
+    ],
     f"{base}.verbs": ["diff", "interpolate", "integrate"],
 }
 

@@ -31,7 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all classes
     from .bc import BC
     from .errors import GridMismatchError, SpaceMismatchError
-    from .fields import FieldMetadata, ScalarField
+    from .fields import FieldMetadata, ScalarField, VectorField
     from .grid import Grid
     from .scalars import Complex, Real
     from .spaces.tensor_product import SpaceLike, TensorProductSpace
@@ -52,7 +52,8 @@ all_imports_by_origin = {
     f"{base}.errors": ["SpaceMismatchError", "GridMismatchError"],
     f"{base}.spaces.tensor_product": ["TensorProductSpace",
                                       "SpaceLike"],
-    f"{base}.fields": ["ScalarField", "FieldMetadata"],
+    f"{base}.fields": ["ScalarField", "FieldMetadata",
+                       "VectorField"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

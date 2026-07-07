@@ -11,6 +11,7 @@ from fridom.framework2.grid.fields.metadata import FieldMetadata
 from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.registry import OperatorRegistry
 from fridom.framework2.grid.scalars import Scalars
 
 
@@ -538,10 +539,11 @@ def test_to_transform_target_raises_space_error(grid1d, mx):
         a.to(mx.fourier(origin=mx.center))
 
 
-def test_to_unregistered_kind_raises_dispatch_error(grid1d, mx):
-    a = grid1d.create_field(mx.cell_avg)
+def test_to_unregistered_kind_raises_dispatch_error(mx):
+    bare = Grid((mx,), dispatch=OperatorRegistry({}))
+    a = bare.create_field(mx.cell_avg)
     with pytest.raises(KeyError, match="reconstruct"):
-        a.to(mx.right)  # average -> nodal rows land in Wave 3
+        a.to(mx.right)  # empty registry: no reconstruct rows
 
 
 def test_diff_forwards_to_the_seeded_verb(grid1d, mx):
@@ -552,10 +554,6 @@ def test_diff_forwards_to_the_seeded_verb(grid1d, mx):
 
 
 def test_deferred_methods_raise(f):
-    with pytest.raises(NotImplementedError, match="Wave 3"):
-        f.integrate("x")
-    with pytest.raises(NotImplementedError, match="Wave 3"):
-        f.mean()
     with pytest.raises(NotImplementedError, match="Reshard"):
         f.reshard(None)
     with pytest.raises(NotImplementedError, match="export"):
@@ -654,10 +652,13 @@ def test_to_codomain_disagreement_raises():
         a.to(my.outer)
 
 
-def test_to_nodal_to_average_kind_is_unregistered(grid1d, mx):
-    a = grid1d.create_field(mx.center)
-    with pytest.raises(KeyError, match="average"):
-        a.to(mx.cell_avg)
+def test_to_nodal_to_average_resolves_the_average_rows(grid1d, mx):
+    a = grid1d.create_field(mx.right)
+    assert a.to(mx.cell_avg).function_space.bare is mx.cell_avg
+    # the registered Center row lands on FaceAvg, not CellAvg
+    b = grid1d.create_field(mx.center)
+    with pytest.raises(SpaceMismatchError, match="lands on"):
+        b.to(mx.cell_avg)
 
 
 def test_to_between_coefficient_origins_is_unregistered(grid1d, mx):
