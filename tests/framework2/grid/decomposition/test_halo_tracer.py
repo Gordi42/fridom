@@ -103,12 +103,13 @@ def test_trace_of_a_single_diff_is_the_operator_halo(grid, space):
     assert widths(spec) == {"x": 1, "y": 0}
 
 
-def test_unsynced_chains_reproduce_the_per_operator_max(grid, space):
-    # iteration-1 contract: the base syncs after every application,
-    # so a chain accumulates no depth (max, not sum)
+def test_chains_accumulate_on_periodic_axes(grid, space):
+    # consumption-side contract (task 1.8): kernel claims keep
+    # periodic chains valid, so the sync-free width demand is the
+    # chain sum — one entry exchange covers both diffs
     spec = trace_halo(lambda f: f.diff("x").diff("x"),
                       (space,), grid.dispatch)
-    assert widths(spec) == {"x": 1, "y": 0}
+    assert widths(spec) == {"x": 2, "y": 0}
 
 
 def test_parallel_terms_max_merge(grid, space):
@@ -230,11 +231,11 @@ def test_separable_op_on_a_constant_factor_is_identity(grid, my, mx):
     tracer = HaloTracer(space, grid.dispatch,
                         HaloSpec({"x": 0, "y": 1}))
     result = FiniteDifference()["x"](tracer)
-    # identity along the constant factor: the codomain is unchanged
-    # and no per-axis demand is recorded (the post-op sync still
-    # resets the returned depth, as for every application)
+    # identity along the constant factor: the codomain is unchanged,
+    # no per-axis demand is recorded, and the depth carries over
+    # (the runtime returns the operand field unchanged)
     assert result.function_space is space
-    assert widths(result.depth) == {"x": 0, "y": 0}
+    assert widths(result.depth) == {"x": 0, "y": 1}
 
 
 def test_whole_space_op_grows_every_bindable_axis(grid, space):
@@ -274,9 +275,14 @@ def test_to_on_the_same_space_returns_self(grid, space):
     assert tracer.to(space.bare) is tracer
 
 
-def test_scalar_multiply_keeps_the_tracer(grid, space):
-    tracer = HaloTracer(space, grid.dispatch)
-    assert (tracer * 2.0) is tracer
+def test_scalar_multiply_resets_the_depth(grid, space):
+    # runtime mirror: scalar scaling re-stores (zero validity), so
+    # the traced depth resets — a free re-sync point
+    tracer = HaloTracer(space, grid.dispatch, HaloSpec({"x": 1,
+                                                        "y": 0}))
+    scaled = tracer * 2.0
+    assert scaled.function_space is space
+    assert widths(scaled.depth) == {"x": 0, "y": 0}
 
 
 def test_unsupported_operands_fall_through(grid, space):

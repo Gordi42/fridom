@@ -479,10 +479,11 @@ when renegotiation is legal.
    nothing grid-bound exists while the registry is being seeded.
 2. **`__init__` ends with a provisional negotiation:**
    `negotiate(state_spaces=None, tendency=None)` with halo = the
-   per-operator maximum over the default registry. This is **sound
-   under the iteration-1 contract** that every operator application
-   returns a synced field (halo/storage contract, section 3): chains
-   never accumulate, so the single-operator maximum is exact. A grid
+   per-operator maximum over the default registry. Under the
+   consumption-side contract (task 1.8) this is the exact
+   per-application **floor**: any width at or above it is correct
+   (chains that exhaust it re-sync mid-chain), wider traced widths
+   only save exchanges. A grid
    is therefore fully usable interactively right after construction
    (sketch 4.1 without any model).
 3. **Phase-2 assembly** then runs `merge_overrides(...)` ->

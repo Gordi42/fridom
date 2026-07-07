@@ -345,9 +345,11 @@ Notes:
   `domain.layout == target` (elided like `Identity`).
 - **`Sync` is internal-only**: users and kernel authors never spell
   it — a user-facing sync would leak the storage layer into the
-  semantic layer. It realizes the iteration-1 contract ("the base
-  appends a `Sync` node after every kernel", cluster 04), performs
-  the BC-structured/`("ghost_fill", space)` edge fill through the
+  semantic layer. It realizes the consumption-side contract (task
+  1.8, cluster 04): the base inserts it **before** a kernel whose
+  operand's halo validity is below the application's requirement
+  (and memoizes the result onto the operand). It performs the
+  BC-structured/`("ghost_fill", space)` edge fill through the
   grid, and is a structural no-op where the negotiated width is 0.
 - **Requirements-driven lowering** (§5.1): at bind/registration time
   a single pass walks a composite tracking the current layout and
@@ -576,10 +578,12 @@ Notes:
   per-shard under a decomposition-supplied `shard_map`, provided by
   the base `_apply` and the decomposition layer — kernel authors
   never see it. Pad, halo sync, and kernel form **one shard-local
-  region per application**. The iteration-1 sync contract: operator
-  inputs have valid halos, and **every operator application returns a
-  synced field**; sync-elision along traced chains is designed-for;
-  halo-0 operators skip the sync structurally. Storage is
+  region per application**. The consumption-side sync contract (task
+  1.8, cluster 04): the base makes operand halos valid *before* the
+  kernel exactly when the application's requirement exceeds the
+  operand's claimed validity; kernel results carry their
+  construction seam's validity claim, so periodic chains elide
+  exchanges; halo-0 applications never sync. Storage is
   halo-extended: `_data` is storage-shaped, `.data` the true-shape
   view (docs 02/04).
 - Spacing enters through the grid-owned measure fields

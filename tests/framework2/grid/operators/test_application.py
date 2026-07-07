@@ -11,6 +11,7 @@ from fridom.framework2.grid.operators.base import (
     BinaryOperator,
     Dispatched,
     Identity,
+    OperatorRequirements,
     Zero,
 )
 from fridom.framework2.grid.operators.registry import (
@@ -116,7 +117,9 @@ def test_whole_space_composite_applies_factorwise(
     result = (a["x"] @ b["y"])(field_2d)
     assert result.function_space is (mx.right * my.right)
     assert jnp.array_equal(result.data, field_2d.data + 11.0)
-    # inner applications sync too (iteration-1 contract)
+    # the outer composite checks its summed requirement, then each
+    # factor application re-checks — FakeGrid grants no validity on
+    # sync, so all three consumption checks trigger
     assert len(grid.sync_log) == 3
 
 
@@ -168,12 +171,28 @@ class Pointwise(BinaryOperator):
         return f.with_data(f.data * g.data)
 
 
+class NeighborAware(Pointwise):
+
+    """A halo-consuming binary test operator (halo 1)."""
+
+    def requirements(self, domain):  # noqa: ARG002
+        return OperatorRequirements(halo=1)
+
+
 def test_binary_application(grid, mx, field_1d):
     result = Pointwise()(field_1d, field_1d)
     assert result.function_space is mx.center
     assert jnp.array_equal(result.data, field_1d.data ** 2)
     # pointwise (halo 0): nothing to consume, so nothing syncs
     assert grid.sync_log == []
+
+
+def test_binary_application_syncs_each_needy_operand(
+        grid, field_1d, field_cls, mx):
+    other = field_cls(grid, mx.center, jnp.ones(8))
+    NeighborAware()(field_1d, other)
+    # both operands claim zero validity and the op consumes 1
+    assert grid.sync_log == [field_1d, other]
 
 
 def test_binary_space_mismatch_raises(grid, mx, field_1d, field_cls):

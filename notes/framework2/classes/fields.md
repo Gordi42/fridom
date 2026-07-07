@@ -151,7 +151,7 @@ class ScalarField:
 
     def with_data(self, data: jax.Array) -> ScalarField:       # it-1
         """Same grid/space/metadata, new true-shape array (routed
-        through decomposition.pad + grid.sync)."""
+        through decomposition.pad; task-1.8 validity zero)."""
         ...
 
     def with_metadata(self, **changes: object) -> ScalarField: # it-1
@@ -478,14 +478,16 @@ Semantics, invariants, error behavior:
   while `.data` is
   the **true-shape view** with halo and padding stripped (3.5).
   `with_data` and `grid.create_field(..., data=...)` accept
-  *true-shape* arrays and route them through `decomposition.pad` and
-  `grid.sync`, so stored halos are always valid. Iteration-1 halo
-  contract (owned by cluster 04, cross-ref): operator inputs may
-  assume valid halos, and **every operator application returns a
-  synced field**; eliding redundant syncs along traced operator
-  chains is the designed-for optimization. Sync machinery,
-  halo-extended layout, and the tracer-field dry run are specified
-  in cluster 04.
+  *true-shape* arrays and route them through `decomposition.pad`
+  (zero-filled ghost slots). Consumption-side halo contract (task
+  1.8; owned by cluster 04, cross-ref): fields carry an internal
+  per-name ghost validity (`halo_valid`, static aux in the treedef);
+  constructed fields claim zero, the operator base syncs an operand
+  exactly when an application needs more validity than it claims
+  (memoized onto the operand), and kernel results carry their
+  construction seam's claim. An operator never reads an invalid
+  halo. Sync machinery, halo-extended layout, and the tracer-field
+  dry run are specified in cluster 04.
 - **`.xr` export is specified in cluster 04's "Export" subsection**
   (coordinate-label rules, xgcm staggered-dim naming, wavenumber
   coords, the multi-device gather path); the `xr` property here is

@@ -518,6 +518,9 @@ def negotiate(
 
     layouts: tuple[Layout, ...] = (Layout({}),)
     if len(ids) > 1:
+        spec = _cap_for_sharding(
+            meshes, spec,
+            _registry_halo(names, registry, state_spaces), len(ids))
         shardable = _shardable_names(meshes, spec, len(ids))
         if shardable:
             layouts = (*(Layout({name: _DEVICE_AXIS})
@@ -547,17 +550,34 @@ def _negotiated_halo(
     tendency: Callable[..., object] | None,
     halo: HaloSpec | None,
 ) -> HaloSpec:
-    """Resolve the halo source: explicit > traced > registry max."""
-    if halo is not None:
-        return HaloSpec.zero(names).merge_max(halo)
+    """
+    Resolve the negotiated halo widths.
+
+    Description
+    -----------
+    ``tendency=`` and ``halo=`` **combine** as the pointwise maximum
+    (phase-2 reconciliation, work item 1): the trace covers the
+    composed step and ``halo=`` is the extra demand of declared
+    bypasses (``Module.extra_halo``), so shadowing either would
+    under-provision. With neither given, the provisional registry
+    maximum applies (per-application; exact as a *floor* under the
+    consumption-side contract, task 1.8 — any width >= every single
+    application is correct, wider only saves exchanges).
+    """
+    spec: HaloSpec | None = None
     if tendency is not None:
         if state_spaces is None:
             raise ValueError(
                 "tracing a tendency needs state_spaces= to build "
                 "the tracer state")
         traced = trace_halo(tendency, state_spaces, registry)
-        return HaloSpec.zero(names).merge_max(traced)
-    return _registry_halo(names, registry, state_spaces)
+        spec = HaloSpec.zero(names).merge_max(traced)
+    if halo is not None:
+        spec = (HaloSpec.zero(names) if spec is None
+                else spec).merge_max(halo)
+    if spec is None:
+        spec = _registry_halo(names, registry, state_spaces)
+    return spec
 
 
 def _registry_halo(
@@ -619,6 +639,61 @@ def _registry_halo(
             if name in widths:
                 widths[name] = max(widths[name], halo)
     return HaloSpec(widths)
+
+
+def _cap_for_sharding(
+    meshes: tuple[object, ...],
+    spec: HaloSpec,
+    floor: HaloSpec,
+    devices: int,
+) -> HaloSpec:
+    """
+    Cap traced widths so width alone never blocks sharding.
+
+    Description
+    -----------
+    Under the consumption-side contract (task 1.8) correctness is
+    width-independent above the per-application floor: a chain that
+    exhausts a capped width simply syncs again mid-chain. So a
+    traced sync-free demand that would fail the per-shard
+    ``width + 1`` extent check is lowered to ``cells_per_shard - 1``
+    — trading exchanges for shardability — but never below `floor`
+    (the registry's per-application maximum; a floor that does not
+    fit keeps its width and fails negotiation exactly as before).
+
+    Parameters
+    ----------
+    meshes : tuple[object, ...]
+        The grid's mesh factors.
+    spec : HaloSpec
+        The resolved (possibly traced) width demand.
+    floor : HaloSpec
+        The per-application width floor (registry maximum).
+    devices : int
+        The device count of the 1-D realization.
+
+    Returns
+    -------
+    HaloSpec
+        The capped spec (`spec` itself when nothing caps).
+    """
+    capped = dict(spec.widths)
+    changed = False
+    for mesh in meshes:
+        n_cells = getattr(mesh, "n_cells", None)
+        if not n_cells or n_cells % devices:
+            continue
+        cap = n_cells // devices - 1
+        for name in mesh.names:
+            width = capped.get(name, 0)
+            try:
+                low = floor[name]
+            except KeyError:
+                low = 0
+            if width > cap >= low:
+                capped[name] = max(cap, low)
+                changed = True
+    return HaloSpec(capped) if changed else spec
 
 
 def _shardable_names(

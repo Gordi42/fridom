@@ -15,17 +15,12 @@ items do not gate 2.2.
 
 ## Work items
 
-1. **`negotiate` combined-halo semantics** — 2.2-blocking,
-   correctness. `tendency=` and `halo=` must combine as
-   trace(tendency) `merge_max` extra_halo, not shadow: today
-   `_negotiated_halo` treats `halo=` as an exclusive override and
-   silently discards the trace
-   (`decomposition/decomposition.py:542-560`), so a step-7 call with
-   any `extra_halo` would under-provision every traced module. The
-   `Grid.negotiate` docstring states a third, different precedence
-   (`grid.py:262-267`) — fix it to the merge_max rule too. Design
-   ref: model assembly step 7
-   ([`model/classes/model.md`](model/classes/model.md)).
+1. **`negotiate` combined-halo semantics** — **DONE (2026-07-07,
+   with task 1.8)**. `tendency=` and `halo=` combine as merge_max in
+   `_negotiated_halo`; the `Grid.negotiate` docstring states the
+   same rule; regression test in
+   `tests/framework2/grid/decomposition/test_negotiate.py`
+   (`test_tendency_and_halo_combine_as_merge_max`).
 
 2. **`merge_overrides` facade** — 2.2-blocking, small. The facade is
    a `NotImplementedError` stub, but `OperatorRegistry.merge`
@@ -68,10 +63,9 @@ items do not gate 2.2.
 6. **`VectorField.add` + metadata re-attachment in
    `replace`/`map`/`add`** — 2.2-blocking. `add()` is unimplemented;
    `replace`/`map` insert fresh components without re-attaching
-   metadata. Also flag for the perf pass: `add` is the hottest sync
-   site of the composed step (one exchange per term per component
-   under the current store-syncs contract) — it deserves a
-   storage-frame path when designed. Design ref:
+   metadata. *(The perf flag this item carried is discharged by task
+   1.8: `store` no longer syncs, so tendency accumulation is
+   exchange-free with no storage-frame special-casing.)* Design ref:
    [`classes/fields.md`](classes/fields.md) amendment (2026-07-08).
 
 7. **Annotation-exempt metadata equality in jaxify** — 2.2-blocking,
@@ -82,8 +76,12 @@ items do not gate 2.2.
    amendment (2026-07-08);
    [`phase1_findings.md`](phase1_findings.md) finding 2 (widened).
 
-8. **Sync-strategy redo** — perf, high value; **DECIDED (owner
-   sign-off, 2026-07-08; ROADMAP task 1.8)**, no longer a candidate.
+8. **Sync-strategy redo** — **DONE (2026-07-07; ROADMAP task 1.8,
+   branch `framework2-sync-redo`)**. Implemented as decided, with
+   three implementation findings recorded in the decision record
+   (memoized consumption syncs, periodicity-gated kernel claims,
+   width-independence + shardability cap); stage log in
+   [`sync_redo_plan.md`](sync_redo_plan.md). Originally:
    Consumption-side sync with trace-time halo-validity depth: fields
    carry a valid-halo-depth as a static trace-time attribute;
    operator application syncs iff input depth < requirement; `store`
@@ -93,7 +91,7 @@ items do not gate 2.2.
    (results-neutral swap); should land before performance-sensitive
    multi-device work (2.7 benchmarks, 3.3). Subsumes item 6's
    storage-frame-`add` flag: once `store` stops syncing, tendency
-   accumulation is sync-free with no special-casing. Today every operator application syncs via
+   accumulation is sync-free with no special-casing. Before 1.8, every operator application synced via
    `_finalize` (`operators/base.py:1317-1365`), every field `+`/`-`
    pays `store = pad + sync` (`fields/storage.py:201-213`,
    `scalar_field.py:711-736`), pointwise products on sharded nodal

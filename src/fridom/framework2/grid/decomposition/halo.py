@@ -309,11 +309,13 @@ class HaloTracer:
     codomain-space tracer without touching kernel code. ``.data``
     raises ``TypeError``: a module that drops to raw arrays escapes
     the accounting, so the escape must be declared
-    (``Module.extra_halo``, Phase 2). Under the iteration-1
-    sync-after-every-operator contract each application's grown depth
-    is recorded and then reset (the base's post-kernel sync); the
-    accumulation rules (``grow``/``merge_max``) are what the
-    designed-for sync-elision consumes.
+    (``Module.extra_halo``, Phase 2). The trace mirrors the
+    consumption-side runtime (task 1.8): each application records
+    its accumulated depth — the recorder's maximum is the step's
+    *sync-free* width demand — and the tracer's depth then follows
+    the kernels' validity claims (accumulate along periodic stencil
+    chains, reset at bounded stencils, arithmetic, and every other
+    re-store, which are free re-sync points at any width).
 
     Parameters
     ----------
@@ -427,10 +429,15 @@ class HaloTracer:
         Reshard-style operators declare ``_trace_reset_names``: a
         redistribute is at least as strong as a sync on the moved
         axes, so their accumulated depth resets (doc 04 section 5.1).
-        ``Composite`` chains re-enter the hook factor by factor
-        (each factor application syncs, so the accounting stays
-        exact per axis). Everything else records the grown depth and
-        returns the codomain tracer with the post-sync zero depth.
+        ``Composite`` chains re-enter the hook factor by factor.
+        Everything else records the grown depth — the recorder's
+        maximum is the *sync-free* width demand of the step (task
+        1.8) — and returns the codomain tracer carrying the depth
+        the runtime kernel claims leave behind: accumulated on
+        periodic axes (the kernel keeps ghost slots valid, chains
+        elide), reset on a bounded applied axis (the kernel's output
+        ghosts are not the BC-consistent fill, the runtime re-syncs
+        there at any width, so no width demand accrues).
         """
         if isinstance(op, Composite):
             result: HaloTracer = self
@@ -449,9 +456,37 @@ class HaloTracer:
         self._record(grown)
         codomain = _laid_out_like(
             resolve_codomain(op, self._space), self._space)
-        # iteration-1 contract: the base syncs after every operator
-        return self._child(codomain,
-                           HaloSpec.zero(tuple(codomain.names)))
+        return self._child(codomain, self._claimed(op, grown))
+
+    def _claimed(
+        self, op: Operator, grown: HaloSpec,
+    ) -> HaloSpec:
+        """
+        Return the depth the kernel's validity claim leaves behind.
+
+        Description
+        -----------
+        Mirrors the stage-B construction-seam claims with depths
+        measured from a (virtual) entry sync: consume-claiming
+        kernels keep the accumulated depth; a bounded applied axis
+        claims zero validity, which is a *free* re-sync point (the
+        runtime refills there at any width), so its depth resets.
+        Whole-space applications keep the conservative grown depth.
+        """
+        space = self._space.bare
+        if not isinstance(op, SeparableOperator):
+            return grown
+        axis = _resolve_axis(op, space)
+        factor = (space if not hasattr(space, "factor")
+                  else space.factor(axis))
+        if isinstance(factor, ConstantSpace):
+            return grown
+        if getattr(factor.mesh, "periodic", False):
+            return grown
+        widths = dict(grown.widths)
+        if axis in widths and grown[axis] != self._depth[axis]:
+            widths[axis] = 0  # the stencil consumed a bounded axis
+        return HaloSpec(widths)
 
     def _trace_apply_nary(
         self, op: Operator, operands: tuple[object, ...],
@@ -462,7 +497,10 @@ class HaloTracer:
         Description
         -----------
         Depths of the tracer operands max-merge (parallel branches);
-        real-field operands are synced and contribute zero.
+        real-field operands contribute zero. The codomain tracer
+        keeps the merged depth (task 1.8): the storage-frame
+        elementwise kernels claim the pointwise minimum of their
+        operands' validity, which is the maximum of their depths.
         """
         depth = HaloSpec({})
         spaces = []
@@ -482,7 +520,7 @@ class HaloTracer:
         self._record(depth)
         codomain = _laid_out_like(codomain, self._space)
         return self._child(codomain,
-                           HaloSpec.zero(tuple(codomain.names)))
+                           depth.over(tuple(codomain.names)))
 
     # ================================================================
     #  Dispatch sugar (mirrors ScalarField's thin forwarders)
@@ -524,19 +562,34 @@ class HaloTracer:
     #  ScalarField dunders return NotImplemented on tracers)
     # ================================================================
     def _linear(self, other: object) -> HaloTracer:
-        """Join spaces, max-merge depths (for +/-)."""
+        """
+        Join spaces; the result's depth resets (for +/-).
+
+        Description
+        -----------
+        Runtime mirror (task 1.8): field ``+``/``-`` combines on
+        true-shape views and re-stores, so the result claims zero
+        ghost validity — a free re-sync point at any width. The
+        traced depth resets accordingly (no width demand accrues
+        through arithmetic).
+        """
         if isinstance(other, HaloTracer):
             joined = join(self._space.bare, other._space.bare)  # noqa: SLF001
-            depth = self._depth.merge_max(other._depth)  # noqa: SLF001
         elif isinstance(other, _SCALAR_TYPES):
-            return self
+            joined = self._space.bare
         else:
             space = getattr(other, "function_space", None)
             if space is None:
                 return NotImplemented
             joined = join(self._space.bare, space.bare)
-            depth = self._depth
-        return self._child(_laid_out_like(joined, self._space), depth)
+        return self._child(
+            _laid_out_like(joined, self._space),
+            HaloSpec.zero(tuple(joined.names)))
+
+    def _reset_child(self) -> HaloTracer:
+        """Return a same-space, zero-depth child (runtime re-store)."""
+        return self._child(
+            self._space, HaloSpec.zero(tuple(self._space.names)))
 
     def _dispatch_product(
         self, other: object, kind: str, *, reflected: bool = False,
@@ -566,30 +619,30 @@ class HaloTracer:
     __rsub__ = __add__
 
     def __neg__(self) -> HaloTracer:
-        """Negation: space and depth unchanged."""
-        return self
+        """Negation re-stores at runtime: depth resets (task 1.8)."""
+        return self._reset_child()
 
     def __pos__(self) -> HaloTracer:
         """Identity."""
         return self
 
     def __mul__(self, other: object) -> HaloTracer:
-        """Scalar: linear scaling. Field/tracer: dispatched product."""
+        """Scalar: re-stored (depth resets). Field/tracer: product."""
         if isinstance(other, _SCALAR_TYPES):
-            return self
+            return self._reset_child()
         return self._dispatch_product(other, "multiply")
 
     def __rmul__(self, other: object) -> HaloTracer:
         """Reflected multiply (field * tracer)."""
         if isinstance(other, _SCALAR_TYPES):
-            return self
+            return self._reset_child()
         return self._dispatch_product(other, "multiply",
                                       reflected=True)
 
     def __truediv__(self, other: object) -> HaloTracer:
-        """Scalar: linear scaling. Field/tracer: dispatched divide."""
+        """Scalar: re-stored (depth resets). Field/tracer: divide."""
         if isinstance(other, _SCALAR_TYPES):
-            return self
+            return self._reset_child()
         return self._dispatch_product(other, "divide")
 
     def __rtruediv__(self, other: object) -> HaloTracer:

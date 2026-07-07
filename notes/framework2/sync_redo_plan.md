@@ -1,5 +1,20 @@
 # Task 1.8 implementation plan — consumption-side sync
 
+**Status: IMPLEMENTED (2026-07-07), all four stages landed on
+`framework2-sync-redo`.** Stage log: A+B in one behavior-neutral
+commit (plumbing + kernel claims), C the placement flip, D the
+tracer/negotiation update with this docs pass. Implementation
+findings that refined the plan: (1) the per-op claim table collapsed
+into **construction-seam stamping** (the seams know the operand
+validity and exact reach — no dispatch table); (2) kernel claims are
+**periodicity-gated** — `d − r` only where stencils commute with the
+ghost fill; bounded axes claim zero (the failing `d²` tests on
+bounded meshes proved extrapolation fills do not commute with
+differencing); (3) the tracer mirrors the runtime *exactly*,
+including depth resets at arithmetic/re-store points. Measured:
+framework2 suite 55s → 44s, forced-4 23:47 → 4:02, exchange counts
+per the §5 gate, eager-vs-jit at the known ~2-ulp level.
+
 Implements the signed decision (owner sign-off 2026-07-08): replace
 the iteration-1 sync-after-every-operator placement with
 **consumption-side sync with trace-time halo-validity tracking**.

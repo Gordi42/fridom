@@ -259,12 +259,16 @@ class Grid:
         Description
         -----------
         Re-runs the mesh-traits x operator-demands negotiation
-        (Phase-2 assembly, grid lifecycle step 3): the halo comes
-        from the traced `tendency` when supplied, else the
-        per-operator registry maximum scoped to `state_spaces`, else
-        the explicit `halo=` override. Returns the report the model
-        uses to re-``device_put`` its live state once; derived
-        arrays need nothing (recompute-on-demand).
+        (Phase-2 assembly, grid lifecycle step 3): the halo is the
+        pointwise maximum of the traced `tendency` demand and the
+        explicit `halo=` extra (declared bypasses) — they combine,
+        neither shadows; with neither given, the per-operator
+        registry maximum scoped to `state_spaces` applies. Traced
+        widths may be capped for shardability (task 1.8: correctness
+        is width-independent above the per-application floor).
+        Returns the report the model uses to re-``device_put`` its
+        live state once; derived arrays need nothing
+        (recompute-on-demand).
 
         Parameters
         ----------

@@ -107,6 +107,33 @@ def test_a_representative_tendency_pays_one_exchange_per_component(
     assert sync_log[0] is f
 
 
+def test_traced_negotiation_buys_chain_elision(sync_log):
+    # width-independence (task 1.8): under the registry width (2) a
+    # triple chain pays a mid-chain re-sync; negotiating against the
+    # traced step widens to its sync-free demand (3) and the same
+    # chain pays one exchange — both are correct, width only tunes
+    # the exchange count
+    def chain(u):
+        return u.diff("x").diff("x").diff("x")
+
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    my = IntervalMesh(16, (0.0, 2.0), name="y")
+    narrow = Grid((mx, my))
+    assert narrow.decomposition.halo["x"] == 2
+    _ = chain(narrow.create_field(init=lambda x, y: x + y))
+    assert len(sync_log) == 2
+
+    sync_log.clear()
+    mx2 = IntervalMesh(16, (0.0, 1.0), name="x")
+    my2 = IntervalMesh(16, (0.0, 2.0), name="y")
+    wide = Grid((mx2, my2))
+    space = wide.create_field().function_space
+    wide.negotiate(state_spaces=(space,), tendency=chain)
+    assert wide.decomposition.halo["x"] == 3
+    _ = chain(wide.create_field(init=lambda x, y: x + y))
+    assert len(sync_log) == 1
+
+
 def test_the_memoized_sync_is_ghost_only(grid, f):
     # the write-back must never touch true-shape data
     before = f.data
