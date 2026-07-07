@@ -415,10 +415,24 @@ Semantics, invariants, error behavior:
   (`decomposition.gather`, rank 0 writes) happens *inside* the it-1
   sink, so decomposed-slice output is a **sink swap** keyed by
   `local_slice` in global true-DOF indices — an internal seam, not a
-  public kwarg in it-1. Behind the seam for 2.6: TensorStoreWriter
-  backend, decomposed-slice writes, async writes (serialize per
-  store), file splitting (`split=fr.every(...)`), `sel=` subsetting
-  (meanwhile: composition on the callable).
+  public kwarg in it-1. Behind the seam for 2.6: decomposed-slice
+  writes, async writes (serialize per store), file splitting
+  (`split=fr.every(...)`), `sel=` subsetting (meanwhile: composition
+  on the callable).
+- **Sink engine — tensorstore, amended (owner directive, wave 5,
+  2026-07-08)**: the it-1 Writer sink is **tensorstore**, not the
+  `zarr` Python package (the earlier plan had zarr as the it-1 sink
+  and tensorstore designed-for behind the seam — that is reversed).
+  The Writer never imports `zarr`; it writes a zarr **v2** store via
+  tensorstore's zarr driver, emitting `.zgroup`/`.zattrs` JSON
+  (`_ARRAY_DIMENSIONS` + the CF/xgcm attrs above) itself, since
+  tensorstore does not write `.zattrs`. The store still opens with
+  `xarray.open_zarr` with no post-processing — xarray's *read* path
+  pulls `zarr` under the hood, which is why `zarr` stays a
+  dependency for now; dropping it from `pyproject` entirely is a
+  cutover-time question (the old framework's writer also still uses
+  it). Async writes become natural on this backend but stay
+  designed-for.
 - **`mode` / resume semantics**: `"w-"` create-and-fail-if-exists,
   `"w"` overwrite, `"a"` append. The `"w-"` *default* is a
   spec-level choice (failing loudly beats silently clobbering a

@@ -100,7 +100,11 @@ class StepContext:
         stage_dt: Any,
         tendency_sums: Mapping[Treatment, Any] | None = None,
     ) -> None:
-        self.params = dict(params)
+        # a mutable dict is copied for isolation from later source
+        # mutation; a frozen Params mapping (the in-trace path) is
+        # kept as-is so its hinted MissingParameterError __getitem__
+        # survives — copying to a plain dict would drop the hint
+        self.params = dict(params) if isinstance(params, dict) else params
         self.clock = clock
         self.dt = jnp.asarray(dt)
         self.stage_dt = jnp.asarray(stage_dt)

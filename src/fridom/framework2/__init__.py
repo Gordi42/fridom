@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     # import all classes (the fr.* surface, grown wave by wave)
     from .io.triggers import at, every
-    from .model import implicit, params, roles
+    from .model import implicit, params, roles, time_steppers
     from .model.clock import Clock
     from .model.context import StepContext
     from .model.declarations import (
@@ -79,7 +79,7 @@ base = "fridom.framework2"
 all_modules_by_origin = {
     base: ["grid", "model", "transforms", "io", "ops"],
     # module namespaces re-homed to the top level (fr.roles, ...)
-    f"{base}.model": ["roles", "params", "implicit"],
+    f"{base}.model": ["roles", "params", "implicit", "time_steppers"],
     f"{base}.io": ["slurm"],
 }
 

@@ -83,7 +83,10 @@ if TYPE_CHECKING:  # pragma: no cover
         AssemblyRecord,
         Fingerprint,
     )
-    from fridom.framework2.model.field_table import FieldRecord
+    from fridom.framework2.model.field_table import (
+        FieldRecord,
+        FieldTable,
+    )
     from fridom.framework2.model.parameters import ParameterDeclaration
     from fridom.framework2.model.report import AssemblyReport
     from fridom.framework2.model.time_steppers.base import (
@@ -995,6 +998,11 @@ class Model:
     def fingerprint(self) -> Fingerprint:
         """The restart fingerprint (structure, never leaves)."""
         return self._artifacts.fingerprint
+
+    @property
+    def field_table(self) -> FieldTable:
+        """The resolved field table (names, spaces, lifecycles)."""
+        return self._artifacts.field_table
 
     @property
     def chunk_size(self) -> int:

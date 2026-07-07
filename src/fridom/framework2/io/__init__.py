@@ -33,7 +33,9 @@ if TYPE_CHECKING:  # pragma: no cover
         OutputStream,
         SnapshotMismatchError,
     )
+    from .timeseries import TimeSeries
     from .triggers import at, every, lower_trigger
+    from .writer import Writer
 
 base = "fridom.framework2.io"
 
@@ -50,6 +52,8 @@ all_imports_by_origin = {
         "write_snapshot", "read_manifest", "read_leaves",
         "find_latest", "rotate", "check_fingerprint", "check_dt"],
     f"{base}.slurm": ["resubmit"],
+    f"{base}.writer": ["Writer"],
+    f"{base}.timeseries": ["TimeSeries"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
