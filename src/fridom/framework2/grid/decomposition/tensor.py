@@ -4,19 +4,39 @@ The jax-sharding decomposition of tensor-product grids.
 Description
 -----------
 Owning class doc: ``notes/framework2/classes/decomposition.md``.
-Iteration 1 covers the **single-device** case: one code path with a
+One code path for any device count: single-device runs use a
 one-device ``jax.make_mesh`` (no separate ``SingleDecomposition``;
-``jax.sharding`` degrades gracefully). ``sync`` performs the local
-halo fill — periodic wrap on periodic mesh factors, the
-**BC-structured homogeneous fill** on bounded ones (odd extension
-for Dirichlet-structured spaces, even/mirror for Neumann-structured,
-one-sided extrapolation for BC-free; blanket zero-fill is rejected
-by the halo/storage contract). Multi-device layouts, the
-``shard_map`` + ``ppermute`` halo exchange, and negotiation arrive
-in Wave 3.
+``jax.sharding`` degrades gracefully). The iteration-1 multi-device
+realization is a **1-D device mesh**: every negotiated layout shards
+at most one coordinate name over one device axis (the first
+GHOST-capable factor in the default layout, transpose pencils via
+``layout_for``).
+
+Storage blocking (multi-device): a sharded ("blocked") axis stores
+``n_shards`` uniform blocks of ``cells_per_shard + 1 + 2 * width``
+slots — per-shard true data behind a leading ghost region, with the
+trailing side absorbing ghosts plus the stagger padding that makes
+staggered pairs (n vs n + 1 DOFs) shard to one uniform storage shape
+(the sanctioned mitigation of ``04_decomposition.md`` section 5).
+Blocks are aligned by **cells**, so every space of a mesh places its
+per-shard first true DOF at global DOF index ``s * cells_per_shard``
+and staggered domain/codomain pairs share one block frame.
+``ConstantSpace`` and coefficient factors are never blocked: they are
+replicated (constants) or device-local (coefficients, iteration-1
+LOCAL preference) in every layout.
+
+``sync`` fills every ghost slot: periodic wrap on periodic mesh
+factors, the **BC-structured homogeneous fill** on bounded ones (odd
+extension for Dirichlet-structured spaces, even/mirror for
+Neumann-structured, one-sided extrapolation for BC-free; blanket
+zero-fill is rejected by the halo/storage contract). On one shard
+this is the local fill; across shards it is a ``jax.shard_map`` +
+``jax.lax.ppermute`` halo exchange with the local fill as the
+boundary-edge path.
 """
 # Wave 1: trivial single-device TensorDecomposition --
-#    Wave 2C: single-device halo fill -- Wave 3: multi-device
+#    Wave 2C: single-device halo fill --
+#    Wave 3: multi-device (blocking, ppermute exchange, redistribute)
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -53,21 +73,21 @@ class TensorDecomposition(Decomposition):
 
     Description
     -----------
-    Normally constructed by ``negotiate`` (Wave 3); the constructor
-    is also the plain single-device path a grid calls directly. It
-    implements every ``Decomposition`` abstract method and adds no
-    public surface — solver code programs against the ABC.
+    Normally constructed by ``negotiate``; the constructor is also
+    the plain single-device path a grid calls directly. It implements
+    every ``Decomposition`` abstract method and adds no public
+    surface — solver code programs against the ABC.
 
-    One sanctioned special case: ``sync`` branches statically on
-    ``n_devices == 1`` and skips the exchange entirely (a
-    Python-level branch on static structure); trait and layout
-    structure are unchanged by the short-circuit.
+    One sanctioned special case: ``sync`` branches statically on the
+    per-axis shard count and skips the ``ppermute`` exchange entirely
+    on unsharded axes (a Python-level branch on static structure);
+    trait and layout structure are unchanged by the short-circuit.
 
     Parameters
     ----------
     meshes : tuple[object, ...]
-        The grid's mesh factors (opaque here in iteration 1; the
-        BC-structured bounded-edge fill of Wave 3 consumes them).
+        The grid's mesh factors (consumed through their ``periodic``
+        / ``n_cells`` descriptors by the halo fill and the blocking).
     names : tuple[str, ...]
         The grid's coordinate names, concatenated across meshes.
     halo : HaloSpec
@@ -75,11 +95,11 @@ class TensorDecomposition(Decomposition):
     layouts : tuple[Layout, ...]
         The closed layout vocabulary; the first entry is the default
         layout. Every coordinate name a layout shards must be one of
-        `names`.
+        `names`. With more than one device, all layouts must share
+        one device-mesh axis (the iteration-1 1-D device mesh).
     device_ids : tuple[int, ...] | None, optional
         Indices into ``jax.devices()``; None selects the first
-        device (default: None). Iteration 1 supports exactly one
-        device.
+        device (default: None).
     """
 
     def __init__(
@@ -114,20 +134,18 @@ class TensorDecomposition(Decomposition):
         self,
         device_ids: tuple[int, ...] | None,
     ) -> jax.sharding.Mesh:
-        """Build the one-device ``jax.sharding.Mesh``."""
+        """Build the (iteration-1: 1-D) ``jax.sharding.Mesh``."""
         devices = jax.devices()
         if device_ids is None:
             selected = (devices[0],)
         else:
+            if len(set(device_ids)) != len(device_ids):
+                raise ValueError(
+                    f"duplicate device ids: {tuple(device_ids)}")
             selected = tuple(devices[i] for i in device_ids)
-        if len(selected) != 1:
-            raise NotImplementedError(
-                "multi-device TensorDecomposition arrives with "
-                "negotiate() in Wave 3; iteration 1 is single-device")
 
         # one named axis per device-mesh axis referenced by the
-        # layouts (all of size 1 on the one-device mesh); a
-        # placeholder axis when no layout shards anything.
+        # layouts; a placeholder axis when no layout shards anything.
         axis_names: list[str] = []
         for layout in self._layouts:
             for _, axis in layout.device_axes:
@@ -135,8 +153,23 @@ class TensorDecomposition(Decomposition):
                     axis_names.append(axis)
         if not axis_names:
             axis_names = ["devices"]
+        # Auto axis types: global jnp operations on sharded storage
+        # stay legal (the partitioner chooses); only the sync's
+        # shard_map region is explicitly manual.
+        if len(selected) == 1:
+            # single device: every axis has size 1 (degenerate mesh)
+            return jax.make_mesh(
+                (1,) * len(axis_names), tuple(axis_names),
+                devices=selected,
+                axis_types=(jax.sharding.AxisType.Auto,)
+                * len(axis_names))
+        if len(axis_names) != 1:
+            raise NotImplementedError(
+                "iteration 1 realizes a 1-D device mesh: all layouts "
+                f"must share one device axis, got {tuple(axis_names)}")
         return jax.make_mesh(
-            (1,) * len(axis_names), tuple(axis_names), devices=selected)
+            (len(selected),), tuple(axis_names), devices=selected,
+            axis_types=(jax.sharding.AxisType.Auto,))
 
     # ================================================================
     #  Negotiated structure
@@ -206,12 +239,76 @@ class TensorDecomposition(Decomposition):
         except KeyError:
             return 0
 
-    def _n_shards(self, name: str, layout: Layout) -> int:
-        """Return the number of shards along `name` under `layout`."""
+    def _n_shards(self, name: str, factor: object,
+                  layout: Layout) -> int:
+        """
+        Return the number of shards of one factor axis in `layout`.
+
+        Description
+        -----------
+        1 unless the name is layout-mapped to a multi-device axis
+        and the factor is ghost-shardable: ``ConstantSpace`` factors
+        are replicated in every layout and coefficient factors stay
+        device-local (iteration-1 LOCAL preference), so both are
+        never blocked.
+        """
         axis = dict(layout.device_axes).get(name)
         if axis is None:
             return 1
-        return self._device_mesh.shape[axis]
+        if isinstance(factor, ConstantSpace | CoefficientSpace):
+            return 1
+        return int(self._device_mesh.shape[axis])
+
+    @staticmethod
+    def _cells_per_shard(factor: object, shards: int) -> int:
+        """Cells per shard of a blocked factor axis (must divide)."""
+        n_cells = getattr(factor.mesh, "n_cells", None)
+        if n_cells is None or n_cells % shards:
+            raise ValueError(
+                f"cannot block {factor!r} over {shards} devices: the "
+                "mesh cell count must exist and divide evenly "
+                "(negotiation is expected to preclude this)")
+        return n_cells // shards
+
+    @staticmethod
+    def _block_bounds(n: int, shards: int,
+                      cells: int) -> tuple[int, ...]:
+        """
+        Global true-DOF block boundaries of a blocked axis.
+
+        Description
+        -----------
+        Shard ``s`` owns DOFs ``[bounds[s], bounds[s + 1])``: blocks
+        are aligned by cells (``s * cells``), so staggered pairs
+        share one frame; the last shard absorbs the staggered
+        surplus/deficit (n vs cells * shards).
+        """
+        bounds = [min(s * cells, n) for s in range(shards)]
+        bounds.append(n)
+        return tuple(bounds)
+
+    def _axis_storage(
+        self, name: str, n: int, factor: object, layout: Layout,
+    ) -> tuple[int, int, int, int]:
+        """
+        Storage geometry of one factor axis under `layout`.
+
+        Returns
+        -------
+        tuple[int, int, int, int]
+            ``(shards, width, block, total)``: shard count, ghost
+            width, per-shard block length, global storage length.
+            An unblocked axis is one block of ``n + 2 * width``.
+        """
+        width = self._width(name, factor)
+        shards = self._n_shards(name, factor, layout)
+        if shards == 1:
+            return 1, width, n + 2 * width, n + 2 * width
+        cells = self._cells_per_shard(factor, shards)
+        # capacity cells + 1 covers the staggered n + 1 spaces so
+        # every space of the mesh shares one uniform block length
+        block = cells + 1 + 2 * width
+        return shards, width, block, shards * block
 
     # ================================================================
     #  Shapes and shardings
@@ -225,18 +322,32 @@ class TensorDecomposition(Decomposition):
         """Return the sharding of `space`'s storage under `layout`."""
         layout = self._resolve_layout(space, layout)
         axes = dict(layout.device_axes)
-        spec = jax.sharding.PartitionSpec(
-            *(axes.get(name) for name in space.names))
-        return jax.sharding.NamedSharding(self._device_mesh, spec)
+        spec = []
+        for name, _, factor in self._axis_entries(space):
+            if isinstance(factor, ConstantSpace | CoefficientSpace):
+                spec.append(None)
+            else:
+                spec.append(axes.get(name))
+        return jax.sharding.NamedSharding(
+            self._device_mesh, jax.sharding.PartitionSpec(*spec))
 
     def local_slice(
         self,
         space: SpaceLike,
         layout: Layout | None = None,
     ) -> tuple[slice, ...]:
-        """Return the global true-DOF index range of the shard."""
+        """
+        Return the global true-DOF index range of the local shard.
+
+        Description
+        -----------
+        Single-controller jax addresses the global array from every
+        process, so the "local" shard is the whole true extent for
+        any device count (a multi-host backend would return the
+        per-host range). Per-DOF keying over these indices is
+        therefore device-count invariant by construction.
+        """
         self._resolve_layout(space, layout)
-        # single device: the local shard is the whole true extent.
         return tuple(slice(0, n) for n in space.shape)
 
     def storage_shape(
@@ -246,16 +357,9 @@ class TensorDecomposition(Decomposition):
     ) -> tuple[int, ...]:
         """Return the global storage shape (true + halo + padding)."""
         layout = self._resolve_layout(space, layout)
-        shape = []
-        for name, n, factor in self._axis_entries(space):
-            shards = self._n_shards(name, layout)
-            # per-shard true extent, padded up so staggered pairs
-            # (n vs n + 1) shard to a uniform storage shape; on one
-            # shard this reduces to n + 2 * width.
-            local = -(-n // shards)
-            shape.append(
-                shards * (local + 2 * self._width(name, factor)))
-        return tuple(shape)
+        return tuple(
+            self._axis_storage(name, n, factor, layout)[3]
+            for name, n, factor in self._axis_entries(space))
 
     # ================================================================
     #  Storage construction and views
@@ -283,16 +387,67 @@ class TensorDecomposition(Decomposition):
             raise ValueError(
                 f"pad expects a true-shape array {space.shape}, "
                 f"got {tuple(arr.shape)}")
-        storage = self.storage_shape(space, layout)
         widths = []
-        for (name, n, factor), stored in zip(
-                self._axis_entries(space), storage, strict=True):
-            w = self._width(name, factor)
-            # trailing side absorbs the stagger padding (zero on a
-            # one-shard axis).
-            widths.append((w, stored - n - w))
+        blocked = []
+        for axis, (name, n, factor) in enumerate(
+                self._axis_entries(space)):
+            shards, width, block, _ = self._axis_storage(
+                name, n, factor, layout)
+            if shards == 1:
+                # trailing side absorbs the stagger padding (zero on
+                # a one-shard axis)
+                widths.append((width, block - n - width))
+            else:
+                widths.append((0, 0))
+                blocked.append((axis, n, factor, shards, width, block))
         padded = jnp.pad(arr, widths)
+        for axis, n, factor, shards, width, block in blocked:
+            padded = self._scatter_axis(
+                padded, axis, n, factor, shards, width, block)
         return jax.device_put(padded, self.sharding(space, layout))
+
+    def _scatter_axis(
+        self,
+        arr: jax.Array,
+        axis: int,
+        n: int,
+        factor: object,
+        shards: int,
+        width: int,
+        block: int,
+    ) -> jax.Array:
+        """Map a true axis to a blocked one (ghost slots zeroed)."""
+        cells = self._cells_per_shard(factor, shards)
+        bounds = self._block_bounds(n, shards, cells)
+        pieces = []
+        for s in range(shards):
+            piece = _take(arr, axis, slice(bounds[s], bounds[s + 1]))
+            pads = [(0, 0)] * arr.ndim
+            pads[axis] = (width,
+                          block - width - (bounds[s + 1] - bounds[s]))
+            pieces.append(jnp.pad(piece, pads))
+        return jnp.concatenate(pieces, axis=axis)
+
+    def _gather_axis(
+        self,
+        arr: jax.Array,
+        axis: int,
+        n: int,
+        factor: object,
+        shards: int,
+        width: int,
+        block: int,
+    ) -> jax.Array:
+        """Blocked storage axis -> true axis (pads dropped)."""
+        cells = self._cells_per_shard(factor, shards)
+        bounds = self._block_bounds(n, shards, cells)
+        pieces = []
+        for s in range(shards):
+            start = s * block + width
+            pieces.append(_take(
+                arr, axis,
+                slice(start, start + bounds[s + 1] - bounds[s])))
+        return jnp.concatenate(pieces, axis=axis)
 
     def unpad(
         self,
@@ -307,11 +462,18 @@ class TensorDecomposition(Decomposition):
             raise ValueError(
                 f"unpad expects a storage-shaped array {storage}, "
                 f"got {tuple(arr.shape)}")
-        slices = tuple(
-            slice(self._width(name, factor),
-                  self._width(name, factor) + n)
-            for name, n, factor in self._axis_entries(space))
-        return arr[slices]
+        slices = []
+        for axis, (name, n, factor) in enumerate(
+                self._axis_entries(space)):
+            shards, width, block, _ = self._axis_storage(
+                name, n, factor, layout)
+            if shards == 1:
+                slices.append(slice(width, width + n))
+            else:
+                arr = self._gather_axis(
+                    arr, axis, n, factor, shards, width, block)
+                slices.append(slice(0, n))
+        return arr[tuple(slices)]
 
     # ================================================================
     #  Data movement
@@ -330,28 +492,73 @@ class TensorDecomposition(Decomposition):
 
         Description
         -----------
-        Single-device iteration 1: no cross-shard exchange happens
-        (the sanctioned static branch skips the ``shard_map`` +
-        ``ppermute`` region entirely), but every ghost slot is
-        filled locally — periodic wrap on periodic mesh factors, the
-        BC-structured homogeneous fill on bounded ones. Width-0 axes
-        are skipped structurally; an all-width-0 space is returned
-        unchanged.
+        Unsharded axes are filled locally (the sanctioned static
+        branch skips the exchange entirely) — periodic wrap on
+        periodic mesh factors, the BC-structured homogeneous fill on
+        bounded ones. Sharded axes exchange interior shard edges via
+        ``jax.shard_map`` + ``jax.lax.ppermute``, with the same local
+        fill as the physical-boundary edge path. Width-0 axes are
+        skipped structurally; an all-width-0 space is returned
+        unchanged. Local fills run first so the exchanged edges carry
+        valid corner ghosts.
         """
-        self._resolve_layout(space, layout)
+        layout = self._resolve_layout(space, layout)
         if fills is not None:
             raise NotImplementedError(
                 "inhomogeneous ghost fill is designed-for; "
                 "iteration 1 is homogeneous only")
-        if self._device_mesh.size != 1:
-            raise NotImplementedError(  # pragma: no cover
-                "the multi-device halo exchange arrives in Wave 3")
+        exchanged = []
         for axis, (name, n, factor) in enumerate(
                 self._axis_entries(space)):
             width = self._width(name, factor)
-            if width:
+            if not width:
+                continue
+            if self._n_shards(name, factor, layout) == 1:
                 arr = _fill_axis(arr, axis, n, width, factor)
+            else:
+                exchanged.append((axis, name, n, factor, width))
+        for axis, name, n, factor, width in exchanged:
+            arr = self._exchange_axis(
+                arr, axis, name, n, factor, width, layout)
         return arr
+
+    def _exchange_axis(
+        self,
+        arr: jax.Array,
+        axis: int,
+        name: str,
+        n: int,
+        factor: object,
+        width: int,
+        layout: Layout,
+    ) -> jax.Array:
+        """
+        Halo exchange along one sharded axis (multi-device).
+
+        Description
+        -----------
+        A ``jax.shard_map`` region over the 1-D device mesh: interior
+        shard edges exchange via ``jax.lax.ppermute`` (a ring on
+        periodic meshes, a chain on bounded ones); the physical
+        boundary blocks of a bounded mesh apply the BC-structured
+        local fill, computed SPMD on every shard and masked in by
+        ``jax.lax.axis_index``.
+        """
+        axis_name = dict(layout.device_axes)[name]
+        shards = int(self._device_mesh.shape[axis_name])
+        cells = self._cells_per_shard(factor, shards)
+        spec = [None] * arr.ndim
+        spec[axis] = axis_name
+        pspec = jax.sharding.PartitionSpec(*spec)
+
+        def exchange(block: jax.Array) -> jax.Array:
+            return _exchange_block(
+                block, axis, n, width, factor,
+                shards=shards, cells=cells, axis_name=axis_name)
+
+        return jax.shard_map(
+            exchange, mesh=self._device_mesh,
+            in_specs=pspec, out_specs=pspec)(arr)
 
     def layout_for(
         self,
@@ -365,6 +572,14 @@ class TensorDecomposition(Decomposition):
             f"no negotiated layout keeps {local_names} device-local; "
             f"the vocabulary is {self._layouts}")
 
+    def _blocking(
+        self, space: SpaceLike, layout: Layout,
+    ) -> tuple[tuple[int, int, int], ...]:
+        """Return the static blocking signature (redistribute)."""
+        return tuple(
+            self._axis_storage(name, n, factor, layout)[:3]
+            for name, n, factor in self._axis_entries(space))
+
     def redistribute(
         self,
         arr: jax.Array,
@@ -372,7 +587,18 @@ class TensorDecomposition(Decomposition):
         src: Layout,
         dst: Layout,
     ) -> jax.Array:
-        """Transpose an array between two negotiated layouts."""
+        """
+        Transpose an array between two negotiated layouts.
+
+        Description
+        -----------
+        When the two layouts block the storage identically, this is
+        a resharding ``jax.device_put`` (XLA lowers it to
+        all-to-all). Otherwise the array is re-blocked through the
+        true shape — ghost slots of the result are zero until the
+        next sync (``Reshard``'s post-kernel sync refills them; raw
+        consumers are the width-0 transform pencils).
+        """
         src = self._resolve_layout(space, src)
         dst = self._resolve_layout(space, dst)
         src_storage = self.storage_shape(space, src)
@@ -380,12 +606,10 @@ class TensorDecomposition(Decomposition):
             raise ValueError(
                 f"redistribute expects a storage-shaped array "
                 f"{src_storage} under src, got {tuple(arr.shape)}")
-        if self.storage_shape(space, dst) != src_storage:
-            raise NotImplementedError(  # pragma: no cover
-                "repadding between layouts with different storage "
-                "shapes arrives in Wave 3")
-        # a resharding device_put; XLA lowers it to all-to-all.
-        return jax.device_put(arr, self.sharding(space, dst))
+        if self._blocking(space, src) == self._blocking(space, dst):
+            # a resharding device_put; XLA lowers it to all-to-all.
+            return jax.device_put(arr, self.sharding(space, dst))
+        return self.pad(self.unpad(arr, space, src), space, dst)
 
     def gather(
         self,
@@ -395,12 +619,15 @@ class TensorDecomposition(Decomposition):
     ) -> jax.Array:
         """Gather the global true-shape array (I/O, diagnostics)."""
         layout = self._resolve_layout(space, layout)
-        # single device: dropping the pads yields the global array.
-        return self.unpad(arr, space, layout)
+        true = self.unpad(arr, space, layout)
+        replicated = jax.sharding.NamedSharding(
+            self._device_mesh,
+            jax.sharding.PartitionSpec(*([None] * true.ndim)))
+        return jax.device_put(true, replicated)
 
 
 # ================================================================
-#  Single-device halo fill (halo/storage contract)
+#  Single-shard halo fill (halo/storage contract)
 # ================================================================
 # distance (in cell widths) from the (left, right) boundary to the
 # nearest node of the set, before BC drops
@@ -434,6 +661,14 @@ def _take(arr: jax.Array, axis: int, index: slice) -> jax.Array:
     slices: list[slice] = [slice(None)] * arr.ndim
     slices[axis] = index
     return arr[tuple(slices)]
+
+
+def _set(arr: jax.Array, axis: int, index: slice,
+         values: jax.Array) -> jax.Array:
+    """Write ``values`` into ``arr`` at ``index`` along ``axis``."""
+    slices: list[slice] = [slice(None)] * arr.ndim
+    slices[axis] = index
+    return arr.at[tuple(slices)].set(values)
 
 
 def _boundary_geometry(
@@ -568,13 +803,13 @@ def _fill_axis(
     factor: FunctionSpace,
 ) -> jax.Array:
     """
-    Fill the ghost slots of one storage axis (single device).
+    Fill the ghost slots of one storage axis (single shard).
 
     Description
     -----------
     Periodic mesh factors wrap; bounded ones get the BC-structured
     fill per side. The trailing storage side also absorbs the
-    stagger padding, which on a single device equals the ghost
+    stagger padding, which on a single shard equals the ghost
     width, so every non-true slot is (re)written.
 
     Parameters
@@ -604,3 +839,95 @@ def _fill_axis(
         left = _bounded_ghosts(true, axis, n, width, factor, 0)
         right = _bounded_ghosts(true, axis, n, trail, factor, 1)
     return jnp.concatenate([left, true, right], axis=axis)
+
+
+# ================================================================
+#  Multi-device halo exchange (one shard_map region per axis)
+# ================================================================
+def _exchange_block(
+    block: jax.Array,
+    axis: int,
+    n: int,
+    width: int,
+    factor: FunctionSpace,
+    *,
+    shards: int,
+    cells: int,
+    axis_name: str,
+) -> jax.Array:
+    """
+    Per-shard body of the sharded-axis halo exchange.
+
+    Description
+    -----------
+    Runs SPMD under ``jax.shard_map``. The local block along ``axis``
+    is ``[width ghosts | t true DOFs | trailing ghosts + stagger
+    padding]`` with ``t`` shard-dependent (the last shard absorbs the
+    staggered surplus/deficit, located via ``jax.lax.axis_index``).
+    Interior edges: every shard sends its first/last ``width`` true
+    values to its neighbors via ``jax.lax.ppermute``. Physical
+    boundaries of a bounded mesh: the BC-structured fill is computed
+    from an edge buffer on every shard (static shapes; the buffer may
+    reach into the already-exchanged left ghosts on a short last
+    shard) and masked onto the boundary shards.
+
+    Parameters
+    ----------
+    block : jax.Array
+        The local shard of the storage array.
+    axis : int
+        The storage axis being exchanged.
+    n : int
+        The global true DOF count along ``axis``.
+    width : int
+        The negotiated ghost width along ``axis``.
+    factor : FunctionSpace
+        The factor space owning the axis.
+    shards : int
+        The device count along the mesh axis.
+    cells : int
+        Mesh cells per shard (blocks are cell-aligned).
+    axis_name : str
+        The device-mesh axis name.
+
+    Returns
+    -------
+    jax.Array
+        The local block with valid ghost slots.
+    """
+    s = jax.lax.axis_index(axis_name)
+    # per-shard true count: cells except on the last (staggered) shard
+    t = jnp.where(s == shards - 1, n - (shards - 1) * cells, cells)
+    periodic = bool(factor.mesh.periodic)
+
+    # ---- interior edges: ppermute exchange ------------------------
+    left_send = _take(block, axis, slice(width, 2 * width))
+    right_send = jax.lax.dynamic_slice_in_dim(block, t, width, axis)
+    if periodic:
+        fwd = [(i, (i + 1) % shards) for i in range(shards)]
+        bwd = [(i, (i - 1) % shards) for i in range(shards)]
+    else:
+        fwd = [(i, i + 1) for i in range(shards - 1)]
+        bwd = [(i, i - 1) for i in range(1, shards)]
+    from_left = jax.lax.ppermute(right_send, axis_name, fwd)
+    from_right = jax.lax.ppermute(left_send, axis_name, bwd)
+    block = _set(block, axis, slice(0, width), from_left)
+    block = jax.lax.dynamic_update_slice_in_dim(
+        block, from_right, width + t, axis)
+
+    # ---- physical boundaries: BC-structured local fill ------------
+    if not periodic:
+        depth = max(width, 2)  # extrapolation needs two DOFs
+        lead = _take(block, axis, slice(width, width + depth))
+        left_fill = _bounded_ghosts(lead, axis, depth, width,
+                                    factor, 0)
+        with_left = _set(block, axis, slice(0, width), left_fill)
+        block = jnp.where(s == 0, with_left, block)
+        trail_buf = jax.lax.dynamic_slice_in_dim(
+            block, width + t - depth, depth, axis)
+        right_fill = _bounded_ghosts(trail_buf, axis, depth, width,
+                                     factor, 1)
+        with_right = jax.lax.dynamic_update_slice_in_dim(
+            block, right_fill, width + t, axis)
+        block = jnp.where(s == shards - 1, with_right, block)
+    return block

@@ -105,7 +105,9 @@ def test_bounded_diff_exercises_the_bc_structured_fill():
 
 def test_dirichlet_structured_storage_gets_the_odd_extension():
     mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
-    grid = Grid((mesh,))
+    # one device pinned: the assertions index the single-shard
+    # storage frame (the blocked variant lives in test_multi_device)
+    grid = Grid((mesh,), device_ids=(0,))
     space = mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
     f = grid.create_field(space,
                           init=lambda y: jnp.sin(jnp.pi * y))

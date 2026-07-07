@@ -410,9 +410,9 @@ class UnaryOperator(Operator, ABC):
 
         Description
         -----------
-        Wave 3 inserts the ``HaloTracer`` interception here (doc 04):
-        tracer operands record ``requirements(domain).halo`` and
-        return the codomain tracer without touching data.
+        ``HaloTracer`` operands are intercepted generically (doc 04):
+        the tracer records ``requirements(domain).halo`` and returns
+        the codomain tracer without touching kernel code.
 
         Parameters
         ----------
@@ -425,6 +425,10 @@ class UnaryOperator(Operator, ABC):
             The synced result field on the resolved codomain, with
             the domain's layout re-attached.
         """
+        # HaloTracer interception hook (decomposition doc, Wave 3)
+        trace = getattr(f, "_trace_apply", None)
+        if trace is not None:
+            return trace(self)
         codomain = resolve_codomain(self, f.function_space)
         result = self._apply(f)
         return _finalize(f, result, codomain)
@@ -512,6 +516,11 @@ class BinaryOperator(Operator, ABC):
             The synced result field.
         """
         operands = (f, g, *more)
+        # HaloTracer interception hook (decomposition doc, Wave 3)
+        for operand in operands:
+            trace = getattr(operand, "_trace_apply_nary", None)
+            if trace is not None:
+                return trace(self, operands)
         for other in operands[1:]:
             if other.grid is not f.grid:
                 raise GridMismatchError(
@@ -1306,9 +1315,11 @@ def _finalize(
     -----------
     The tail of the shared application path: the kernel built
     ``result`` on the bare codomain; this re-attaches the operand's
-    layout through the field's plumbing constructor and syncs the
-    result through the operand's grid (iteration-1 contract: every
-    operator application returns a synced field).
+    layout through the field's plumbing constructor and appends the
+    internal ``Sync`` node (iteration-1 contract: every operator
+    application returns a synced field). A codomain that already
+    carries a layout is a layout-transition operator (``Reshard``)
+    and is kept as resolved.
 
     Parameters
     ----------
@@ -1317,7 +1328,7 @@ def _finalize(
     result : FieldLike
         The kernel result field.
     codomain : SpaceLike
-        The resolved bare codomain.
+        The resolved codomain (bare, unless layout-transitioning).
 
     Returns
     -------
@@ -1325,8 +1336,12 @@ def _finalize(
         The synced result on the laid-out codomain.
     """
     layout = operand.function_space.layout
-    expected = (codomain if layout is None
-                else codomain.with_layout(layout))
+    if codomain.layout is not None:
+        expected = codomain  # layout transition (Reshard)
+    elif layout is not None:
+        expected = codomain.with_layout(layout)
+    else:
+        expected = codomain
     space = result.function_space
     if space is not expected:
         if space.bare is not expected.bare:
@@ -1338,7 +1353,15 @@ def _finalize(
             result.grid, expected,
             result._data,  # noqa: SLF001 — plumbing-constructor seam
             result.metadata)
-    return operand.grid.sync(result)
+    return _sync_node()(result)
+
+
+def _sync_node() -> Operator:
+    """Return the ``Sync`` singleton (lazy: movement imports base)."""
+    from fridom.framework2.grid.operators.movement import (  # noqa: PLC0415 — import cycle seam
+        Sync,
+    )
+    return Sync()
 
 
 def _merge_layout(

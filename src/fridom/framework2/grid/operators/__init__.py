@@ -57,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .finite_difference import FiniteDifference
     from .interp import LinearInterp
+    from .movement import Reshard, Sync
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .verbs import diff, integrate, interpolate
 
@@ -116,6 +117,7 @@ all_imports_by_origin = {
     ],
     f"{base}.finite_difference": ["FiniteDifference"],
     f"{base}.interp": ["LinearInterp"],
+    f"{base}.movement": ["Reshard", "Sync"],
     f"{base}.verbs": ["diff", "interpolate", "integrate"],
 }
 

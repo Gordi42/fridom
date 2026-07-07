@@ -103,8 +103,8 @@ def test_layout_with_unknown_name_rejected():
         make_decomp(layouts=(Layout({"z": "pz"}),))
 
 
-def test_multiple_devices_not_implemented():
-    with pytest.raises(NotImplementedError, match="Wave 3"):
+def test_duplicate_device_ids_rejected():
+    with pytest.raises(ValueError, match="duplicate device ids"):
         TensorDecomposition(
             meshes=(object(),),
             names=("x",),
