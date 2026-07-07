@@ -133,6 +133,7 @@ def apply_fv_staggered(
     size: int,
     kernel: Callable[[Array, int], Array],
     metadata: FieldMetadata | None,
+    align: int | None = None,
 ) -> FieldLike:
     """
     Run an aligned ``size``-point kernel along ``axis`` (FV family).
@@ -146,6 +147,11 @@ def apply_fv_staggered(
     the bare codomain via the plumbing constructor. Edge slots the
     kernel cannot compute are zero-filled and repaired by the
     post-application sync.
+
+    The default alignment is the window midpoint (the even-size
+    staggered family); a **biased** kernel whose output does not sit
+    on the midpoint (odd-size WENO) passes its window cell index
+    explicitly via ``align``.
 
     Parameters
     ----------
@@ -162,6 +168,10 @@ def apply_fv_staggered(
         stencil output (length shrinks by ``size - 1``).
     metadata : FieldMetadata | None
         Metadata of the result (None resets to the default record).
+    align : int | None, optional
+        Explicit window alignment ``m0``: kernel output ``t`` fills
+        output slot ``t + m0``. None derives it from the midpoint
+        staggering calculus (default: None).
 
     Returns
     -------
@@ -173,14 +183,17 @@ def apply_fv_staggered(
     domain_factor = bare.factor(axis)
     codomain = factor_codomain(op, space, axis)
     codomain_factor = codomain.factor(axis)
-    delta = (fv_node_offset(codomain_factor)
-             - fv_node_offset(domain_factor))
-    i0 = delta - (size - 1) / 2
-    if i0 != int(i0):  # pragma: no cover — even-size family only
-        raise ValueError(
-            f"misaligned staggering: offset {delta} with stencil "
-            f"size {size} does not land on the lattice")
-    m0 = -int(i0)
+    if align is None:
+        delta = (fv_node_offset(codomain_factor)
+                 - fv_node_offset(domain_factor))
+        i0 = delta - (size - 1) / 2
+        if i0 != int(i0):  # pragma: no cover — even-size family only
+            raise ValueError(
+                f"misaligned staggering: offset {delta} with stencil "
+                f"size {size} does not land on the lattice")
+        m0 = -int(i0)
+    else:
+        m0 = align
 
     axis_index = bare.names.index(axis)
     storage = f._data  # noqa: SLF001 — documented storage seam

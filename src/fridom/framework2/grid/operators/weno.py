@@ -42,15 +42,15 @@ from fractions import Fraction
 from functools import cache
 from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, final
 
-import jax.numpy as jnp
-
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.operators.base import (
     FieldLike,
     OperatorRequirements,
     SeparableOperator,
 )
-from fridom.framework2.grid.operators.reconstruct import factor_codomain
+from fridom.framework2.grid.operators.reconstruct import (
+    apply_fv_staggered,
+)
 from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.average import CellAvg
 
@@ -633,9 +633,8 @@ class WenoReconstruction(SeparableOperator):
         1`` and lands on the right face of window cell ``order //
         2`` (left bias) or ``order // 2 - 1`` (right bias), so it
         fills output slot ``k = t + m0`` with ``m0 = order // 2``
-        (left) / ``order // 2 - 1`` (right). Edge slots the kernel
-        cannot compute are zero-filled and repaired by the
-        post-application sync.
+        (left) / ``order // 2 - 1`` (right) — passed to the shared
+        ``apply_fv_staggered`` tail as its explicit ``align``.
 
         Parameters
         ----------
@@ -649,45 +648,12 @@ class WenoReconstruction(SeparableOperator):
         FieldLike
             The reconstructed field (metadata kept: same quantity).
         """
-        space = f.function_space
-        bare = space.bare
-        codomain = factor_codomain(self, space, axis)
         size = self._order
         m0 = size // 2 if self._bias == "left" else size // 2 - 1
 
-        axis_index = bare.names.index(axis)
-        storage = f._data  # noqa: SLF001 — documented storage seam
-        decomposition = f.grid.decomposition
-        # the codomain storage lives in the operand's layout (the
-        # base re-attaches it)
-        out_shape = decomposition.storage_shape(codomain, space.layout)
-        s_out = out_shape[axis_index]
-        n_out = codomain.factor(axis).shape[0]
-        try:
-            width = decomposition.halo[axis]
-        except KeyError:
-            width = 0
+        def kernel(arr: Array, axis_index: int) -> Array:
+            return weno_reconstruct(arr, axis_index, order=size,
+                                    bias=self._bias)
 
-        # per-side stencil reach beyond the true region, frame-
-        # independent (see reconstruct.apply_fv_staggered): the
-        # negotiated halo must cover it on every shard
-        reach_right = (n_out - bare.factor(axis).shape[0]
-                       + size - 1 - m0)
-        if m0 > width or reach_right > width:
-            raise ValueError(
-                f"the negotiated halo width {width} along {axis!r} "
-                f"is too small for the {size}-point stencil of "
-                f"{type(self).__name__}; renegotiate with a registry "
-                "that declares the wider requirement")
-        full = weno_reconstruct(storage, axis_index,
-                                order=self._order, bias=self._bias)
-        length = full.shape[axis_index]
-        lo = max(0, m0)
-        hi = min(s_out, m0 + length)
-        index: list[slice] = [slice(None)] * full.ndim
-        index[axis_index] = slice(lo - m0, hi - m0)
-        piece = full[tuple(index)]
-        pads = [(0, 0)] * full.ndim
-        pads[axis_index] = (lo, s_out - hi)
-        data = jnp.pad(piece, pads)
-        return type(f)(f.grid, codomain, data, f.metadata)
+        return apply_fv_staggered(self, f, axis, size, kernel,
+                                  metadata=f.metadata, align=m0)

@@ -714,7 +714,20 @@ def _linear_combine(
     operation: str,
     data_op: Callable[[jax.Array, jax.Array], jax.Array],
 ) -> ScalarField:
-    """Grid check, join, lift, elementwise combine (for +/-)."""
+    """
+    Grid check, join, lift, elementwise combine (for +/-).
+
+    Description
+    -----------
+    The combine runs on the **true-shape** views deliberately: the
+    Wave-4B optimization pass measured the storage-frame variant
+    (combine on ``_data``, then sync) and reverted it — a lone add
+    gets ~25% faster, but in composed chains the missing true-shape
+    materialization boundary makes XLA re-fuse the upstream stencil
+    into every downstream halo-fill concatenate piece (~60% more HLO
+    and +40-65% wall time on a representative tendency at 1024^2 on
+    cpu). See ``benchmarks/framework2/RESULTS.md``.
+    """
     _check_grids(a, b, operation)
     joined = join(a.function_space, b.function_space,
                   operation=operation)

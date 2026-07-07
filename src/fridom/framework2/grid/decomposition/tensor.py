@@ -118,6 +118,18 @@ class TensorDecomposition(Decomposition):
         self._validate_layouts()
         self._device_mesh: jax.sharding.Mesh = self._build_device_mesh(
             device_ids)
+        # per-(space, layout) caches of the derived static structure
+        # (spaces are interned and layouts are hashable values, so
+        # structurally-equal queries hit the same entry): the axis
+        # geometry drives pad/unpad/sync/storage_shape on every
+        # operator application — computing it once per key removes
+        # the repeated per-factor Python loops from the hot path.
+        self._geometry_cache: dict[
+            tuple[object, Layout],
+            tuple[tuple[str, int, object, int, int, int, int], ...],
+        ] = {}
+        self._sharding_cache: dict[
+            tuple[object, Layout], jax.sharding.Sharding] = {}
 
     def _validate_layouts(self) -> None:
         """Check the layout vocabulary against the grid names."""
@@ -287,6 +299,43 @@ class TensorDecomposition(Decomposition):
         bounds.append(n)
         return tuple(bounds)
 
+    def _geometry(
+        self, space: SpaceLike, layout: Layout,
+    ) -> tuple[tuple[str, int, object, int, int, int, int], ...]:
+        """
+        Return the cached axis geometry of `space` under `layout`.
+
+        Description
+        -----------
+        One record per storage axis:
+        ``(name, n, factor, shards, width, block, total)`` — the
+        ``_axis_entries`` pairing joined with ``_axis_storage``.
+        Cached on the interned ``(space, layout)`` key, so the
+        per-factor Python loops run once per static structure
+        instead of once per operator application.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The (product) space.
+        layout : Layout
+            The resolved layout (a member of ``self.layouts``).
+
+        Returns
+        -------
+        tuple[tuple[str, int, object, int, int, int, int], ...]
+            The per-axis geometry records.
+        """
+        key = (space, layout)
+        cached = self._geometry_cache.get(key)
+        if cached is None:
+            cached = tuple(
+                (name, n, factor,
+                 *self._axis_storage(name, n, factor, layout))
+                for name, n, factor in self._axis_entries(space))
+            self._geometry_cache[key] = cached
+        return cached
+
     def _axis_storage(
         self, name: str, n: int, factor: object, layout: Layout,
     ) -> tuple[int, int, int, int]:
@@ -321,6 +370,10 @@ class TensorDecomposition(Decomposition):
     ) -> jax.sharding.Sharding:
         """Return the sharding of `space`'s storage under `layout`."""
         layout = self._resolve_layout(space, layout)
+        key = (space, layout)
+        cached = self._sharding_cache.get(key)
+        if cached is not None:
+            return cached
         axes = dict(layout.device_axes)
         spec = []
         for name, _, factor in self._axis_entries(space):
@@ -328,8 +381,10 @@ class TensorDecomposition(Decomposition):
                 spec.append(None)
             else:
                 spec.append(axes.get(name))
-        return jax.sharding.NamedSharding(
+        sharding = jax.sharding.NamedSharding(
             self._device_mesh, jax.sharding.PartitionSpec(*spec))
+        self._sharding_cache[key] = sharding
+        return sharding
 
     def local_slice(
         self,
@@ -358,8 +413,7 @@ class TensorDecomposition(Decomposition):
         """Return the global storage shape (true + halo + padding)."""
         layout = self._resolve_layout(space, layout)
         return tuple(
-            self._axis_storage(name, n, factor, layout)[3]
-            for name, n, factor in self._axis_entries(space))
+            total for *_, total in self._geometry(space, layout))
 
     # ================================================================
     #  Storage construction and views
@@ -389,10 +443,8 @@ class TensorDecomposition(Decomposition):
                 f"got {tuple(arr.shape)}")
         widths = []
         blocked = []
-        for axis, (name, n, factor) in enumerate(
-                self._axis_entries(space)):
-            shards, width, block, _ = self._axis_storage(
-                name, n, factor, layout)
+        for axis, (_name, n, factor, shards, width, block,
+                   _) in enumerate(self._geometry(space, layout)):
             if shards == 1:
                 # trailing side absorbs the stagger padding (zero on
                 # a one-shard axis)
@@ -463,10 +515,8 @@ class TensorDecomposition(Decomposition):
                 f"unpad expects a storage-shaped array {storage}, "
                 f"got {tuple(arr.shape)}")
         slices = []
-        for axis, (name, n, factor) in enumerate(
-                self._axis_entries(space)):
-            shards, width, block, _ = self._axis_storage(
-                name, n, factor, layout)
+        for axis, (_name, n, factor, shards, width, block,
+                   _) in enumerate(self._geometry(space, layout)):
             if shards == 1:
                 slices.append(slice(width, width + n))
             else:
@@ -508,12 +558,11 @@ class TensorDecomposition(Decomposition):
                 "inhomogeneous ghost fill is designed-for; "
                 "iteration 1 is homogeneous only")
         exchanged = []
-        for axis, (name, n, factor) in enumerate(
-                self._axis_entries(space)):
-            width = self._width(name, factor)
+        for axis, (name, n, factor, shards, width, _,
+                   _) in enumerate(self._geometry(space, layout)):
             if not width:
                 continue
-            if self._n_shards(name, factor, layout) == 1:
+            if shards == 1:
                 arr = _fill_axis(arr, axis, n, width, factor)
             else:
                 exchanged.append((axis, name, n, factor, width))
@@ -577,8 +626,9 @@ class TensorDecomposition(Decomposition):
     ) -> tuple[tuple[int, int, int], ...]:
         """Return the static blocking signature (redistribute)."""
         return tuple(
-            self._axis_storage(name, n, factor, layout)[:3]
-            for name, n, factor in self._axis_entries(space))
+            (shards, width, block)
+            for _, _, _, shards, width, block, _
+            in self._geometry(space, layout))
 
     def redistribute(
         self,
