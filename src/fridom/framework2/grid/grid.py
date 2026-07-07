@@ -75,6 +75,7 @@ from fridom.framework2.grid.operators.registry import (
     LazyEntry,
     OperatorRegistry,
 )
+from fridom.framework2.grid.operators.select import Where
 from fridom.framework2.grid.operators.spectral import (
     PhaseShift,
     SincShift,
@@ -1109,11 +1110,11 @@ def _default_registry(
     ``merge({})`` (the iteration-1 assembly moment; module override
     merging arrives with ``grid.merge_overrides``);
     ``("integrate", nodal/average)`` -> one shared ``Integral()``;
-    the elementwise ``multiply``/``divide``/``power`` rows on nodal
-    *and* average factors (one shared instance per kind — the
-    registry's form-2 product resolution requires it) and ``abs`` on
-    nodal factors only, each seeded for the real space and its
-    complex variant; the kind-only ``"grad"``/``"div"``/``"curl"``/
+    the elementwise ``multiply``/``divide``/``power``/``select``
+    rows on nodal *and* average factors (one shared instance per
+    kind — the registry's form-2 product resolution requires it),
+    ``abs`` on nodal factors only, each seeded for the real space
+    and its complex variant; the kind-only ``"grad"``/``"div"``/``"curl"``/
     ``"laplacian"`` builder rows; the coefficient-space rows —
     ``("diff", coefficient)`` -> ``SpectralDerivative()`` and the
     one-directional ``("interpolate", Fourier(origin != Center))``
@@ -1149,6 +1150,7 @@ def _default_registry(
     divide = Divide()
     power = Power()
     abs_op = Abs()
+    select = Where()
     entries: dict[DispatchKey, Operator] = {}
     for mesh in meshes:
         nodal = _family_spaces(mesh, _NODAL_FACTORIES)
@@ -1164,6 +1166,7 @@ def _default_registry(
                 entries[("multiply", variant)] = multiply
                 entries[("divide", variant)] = divide
                 entries[("power", variant)] = power
+                entries[("select", variant)] = select
         for space in nodal:
             for variant in (space, space.as_complex()):
                 entries[("abs", variant)] = abs_op

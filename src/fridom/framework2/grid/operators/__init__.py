@@ -30,11 +30,13 @@ if TYPE_CHECKING:  # pragma: no cover
         products,
         reconstruct,
         registry,
+        select,
         spectral,
         symbol,
         transform,
         trig,
         verbs,
+        weno,
     )
 
     # import all classes and objects
@@ -68,7 +70,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from .movement import Reshard, Sync
     from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
+    from .select import Where
     from .verbs import diff, integrate, interpolate
+    from .weno import WenoReconstruction
 
 # ================================================================
 #  Setup lazy loading
@@ -83,6 +87,8 @@ all_modules_by_origin = {
         "finite_difference",
         "interp",
         "reconstruct",
+        "weno",
+        "select",
         "flux_diff",
         "spectral",
         "transform",
@@ -127,6 +133,8 @@ all_imports_by_origin = {
     f"{base}.finite_difference": ["FiniteDifference"],
     f"{base}.interp": ["LinearInterp"],
     f"{base}.reconstruct": ["LinearReconstruction"],
+    f"{base}.weno": ["WenoReconstruction"],
+    f"{base}.select": ["Where"],
     f"{base}.flux_diff": [
         "FluxDifference",
         "DualFluxDifference",

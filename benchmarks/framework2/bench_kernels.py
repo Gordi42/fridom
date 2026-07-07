@@ -23,6 +23,7 @@ import jax.numpy as jnp
 
 from fridom.benchmarking import benchmark_case
 from fridom.framework2.grid.operators import stencil_kernels as sk
+from fridom.framework2.grid.operators.weno import weno_reconstruct
 
 # 4096 provides a compute-bound regime on gpu, where the smaller
 # sizes are dominated by per-call and kernel-launch overhead
@@ -74,3 +75,31 @@ def bench_linear_interp(n):
         return sk.linear_interp(arr, axis=0)
 
     return run, (arr,), {"points": float(n * n)}
+
+
+@benchmark_case(params={"n": SIZES, "order": [3, 5]}, reps=50)
+def bench_weno_reconstruct(n, order):
+    """Biased WENO reconstruction along the first axis (n x n out)."""
+    arr = _make_input(n + order - 1, n)
+
+    def run(arr):
+        return weno_reconstruct(arr, axis=0, order=order, bias="left")
+
+    return run, (arr,), {"points": float(n * n)}
+
+
+@benchmark_case(params={"n": SIZES}, reps=50)
+def bench_weno_upwind_pair(n):
+    """Order-5 upwind path: both biased kernels + the sign select."""
+    order = 5
+    arr = _make_input(n + order - 1, n)
+    sign = jnp.sign(_make_input(n, n))
+
+    def run(arr, sign):
+        left = weno_reconstruct(arr, axis=0, order=order,
+                                bias="left")
+        right = weno_reconstruct(arr, axis=0, order=order,
+                                 bias="right")
+        return jnp.where(sign > 0, left, right)
+
+    return run, (arr, sign), {"points": float(n * n)}
