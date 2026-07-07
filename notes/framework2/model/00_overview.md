@@ -31,6 +31,7 @@ signatures are expected to change during implementation.
 | [`08_state_transforms.md`](08_state_transforms.md) | The state-transform algebra (section 10): composable `State -> State` transforms, model variants, the ported projection family (decision D5). |
 | [`09_coupling_designfor.md`](09_coupling_designfor.md) | Coupled models, design-for constraints (section 11): precedent survey + adversarial A–O walk + architecture pre-design → the class-spec constraint list CS-1..18. Not the 3.2 design. |
 | [`classes/`](classes/README.md) | The class-specification phase: six cluster files (declarations, module, model, time_steppers, transforms, io_ops) turning D1–D5 + CS-1..18 into concrete class surfaces — the bridge to ROADMAP 2.2–2.8. |
+| [`implementation_plan.md`](implementation_plan.md) | How 2.2–2.8 is executed with parallel subagents: waves, exclusive file ownership, gates — the Phase-2 analogue of [`../implementation_plan.md`](../implementation_plan.md). |
 | [`research/`](research/README.md) | Per-decision research reports (option analyses, precedent research) — inputs to the decisions, not normative text. |
 
 Section numbers are stable identifiers across the files, continuing
