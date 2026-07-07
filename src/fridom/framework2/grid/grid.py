@@ -315,7 +315,8 @@ class Grid:
         Returns
         -------
         ScalarField
-            The synced field (metadata preserved).
+            The synced field (metadata preserved); its halo validity
+            is stamped to the negotiated widths (task 1.8).
         """
         if boundary_data is not None:
             raise NotImplementedError(
@@ -324,7 +325,10 @@ class Grid:
         space = field.function_space
         synced = self._decomposition.sync(
             field._data, space)  # noqa: SLF001 — storage seam
-        return ScalarField(self, space, synced, field.metadata)
+        return ScalarField(
+            self, space, synced, field.metadata,
+            halo_valid=self._decomposition.halo.over(
+                tuple(space.names)))
 
     # ================================================================
     #  Field factory

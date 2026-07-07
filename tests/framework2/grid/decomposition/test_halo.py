@@ -108,3 +108,25 @@ def test_accumulation_rules_compose():
     chain = HaloSpec.zero(("x", "y")).grow("x", 2).grow("x", 1)
     branch = HaloSpec({"x": 1, "y": 2})
     assert chain.merge_max(branch) == HaloSpec({"x": 3, "y": 2})
+
+
+def test_merge_min_pointwise():
+    # halo-validity combination: claim only what every operand has
+    a = HaloSpec({"x": 3, "y": 1})
+    b = HaloSpec({"x": 1, "y": 2})
+    assert a.merge_min(b) == HaloSpec({"x": 1, "y": 1})
+    assert b.merge_min(a) == HaloSpec({"x": 1, "y": 1})
+
+
+def test_merge_min_union_of_names():
+    # a name missing from one spec counts as width 0
+    a = HaloSpec({"x": 2, "y": 3})
+    b = HaloSpec({"y": 1})
+    assert a.merge_min(b) == HaloSpec({"x": 0, "y": 1})
+
+
+def test_over_restricts_and_fills_missing_with_zero():
+    spec = HaloSpec({"x": 2, "y": 1})
+    assert spec.over(("x",)) == HaloSpec({"x": 2})
+    assert spec.over(("x", "z")) == HaloSpec({"x": 2, "z": 0})
+    assert spec.over(()) == HaloSpec({})

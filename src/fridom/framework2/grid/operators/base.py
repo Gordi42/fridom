@@ -1361,7 +1361,8 @@ def _finalize(
         result = type(result)(
             result.grid, expected,
             result._data,  # noqa: SLF001 — plumbing-constructor seam
-            result.metadata)
+            result.metadata,
+            halo_valid=result.halo_valid)
     return _sync_node()(result)
 
 

@@ -160,8 +160,14 @@ class Reshard(UnaryOperator):
         data = decomposition.redistribute(
             f._data,  # noqa: SLF001 — documented storage seam
             space, space.layout, self._target)
+        # halo-validity claim (task 1.8, stage B): re-blocking leaves
+        # the moved axes' ghost slots stale, unmoved axes carry over
+        valid = f.halo_valid
+        for name in self._trace_reset_names(space):
+            if name in dict(valid.widths):
+                valid = valid.consume(name, valid[name])
         return type(f)(f.grid, space.bare.with_layout(self._target),
-                       data, f.metadata)
+                       data, f.metadata, halo_valid=valid)
 
 
 @final

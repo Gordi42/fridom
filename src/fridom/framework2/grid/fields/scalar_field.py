@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from fridom.framework.utils import jaxify
+from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import (
     GridMismatchError,
     SpaceMismatchError,
@@ -95,6 +96,11 @@ class ScalarField:
     metadata : FieldMetadata | None, optional
         Annotation metadata; None means the default record
         (default: None).
+    halo_valid : HaloSpec | None, optional
+        Per-name count of currently valid ghost layers (task 1.8
+        halo-validity bookkeeping; internal, static aux data). None
+        means zero on every name — claiming fewer valid layers than
+        the storage holds is always sound (default: None).
     """
 
     def __init__(
@@ -103,6 +109,7 @@ class ScalarField:
         function_space: SpaceLike,
         data: jax.Array,
         metadata: FieldMetadata | None = None,
+        halo_valid: HaloSpec | None = None,
     ) -> None:
         """Trusting constructor; see the class docstring."""
         self._grid = grid
@@ -110,6 +117,9 @@ class ScalarField:
         self._data = data
         self._metadata = (_DEFAULT_METADATA if metadata is None
                           else metadata)
+        self._halo_valid = (
+            HaloSpec.zero(tuple(function_space.names))
+            if halo_valid is None else halo_valid)
 
     # ================================================================
     #  Identity (fields have no value equality; section "no
@@ -168,6 +178,21 @@ class ScalarField:
         """Derived storage dtype (from space scalars + basis; 3.1)."""
         return self._data.dtype
 
+    @property
+    def halo_valid(self) -> HaloSpec:
+        """
+        Per-name count of currently valid ghost layers.
+
+        Description
+        -----------
+        Internal halo-validity bookkeeping (task 1.8): trace-time
+        static aux data, zero runtime cost under jit. Consumers
+        (operator applications) sync exactly when the validity is
+        below their per-axis requirement; validity participates in
+        the pytree treedef, so jit caches key on it.
+        """
+        return self._halo_valid
+
     # ================================================================
     #  Functional updates
     # ================================================================
@@ -211,7 +236,8 @@ class ScalarField:
         """
         return ScalarField(self._grid, self._function_space,
                            self._data,
-                           self._metadata.replace(**changes))
+                           self._metadata.replace(**changes),
+                           halo_valid=self._halo_valid)
 
     # ================================================================
     #  Scalars (Körper) surface — section 3.1
@@ -240,9 +266,12 @@ class ScalarField:
     def imag(self) -> ScalarField:
         """The imaginary part, an ``fr.Real`` field (zero if real)."""
         if self._function_space.scalars is Scalars.REAL:
+            # zeros are the exact imag values everywhere, ghosts
+            # included: the operand's valid layers carry over
             return ScalarField(self._grid, self._function_space,
                                jnp.zeros_like(self._data),
-                               self._metadata)
+                               self._metadata,
+                               halo_valid=self._halo_valid)
         _require_no_coefficient(self._function_space, "imag")
         space = _real_space(self._function_space)
         stored = store(self._grid.decomposition, space,
@@ -254,8 +283,10 @@ class ScalarField:
         if self._function_space.scalars is Scalars.REAL:
             return self
         _require_no_coefficient(self._function_space, "conj")
+        # pointwise on the storage frame: valid ghosts stay valid
         return ScalarField(self._grid, self._function_space,
-                           jnp.conj(self._data), self._metadata)
+                           jnp.conj(self._data), self._metadata,
+                           halo_valid=self._halo_valid)
 
     # ================================================================
     #  Dispatch sugar — section 3.4 (thin forwarders, D3/D3a)

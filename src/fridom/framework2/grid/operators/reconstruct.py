@@ -232,7 +232,12 @@ def apply_fv_staggered(
     pads = [(0, 0)] * full.ndim
     pads[axis_index] = (lo, s_out - hi)
     data = jnp.pad(piece, pads)
-    return type(f)(f.grid, codomain, data, metadata)
+    # halo-validity claim (task 1.8, stage B): the kernel computed
+    # every output ghost slot its window reaches, so the result keeps
+    # the operand's valid layers minus the per-side maximum reach
+    valid = f.halo_valid.consume(axis, max(m0, reach_right, 0))
+    return type(f)(f.grid, codomain, data, metadata,
+                   halo_valid=valid)
 
 
 # ================================================================

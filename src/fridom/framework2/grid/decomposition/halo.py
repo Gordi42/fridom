@@ -141,6 +141,36 @@ class HaloSpec:
         merged[name] = self[name] + by
         return HaloSpec(merged)
 
+    def consume(self, name: str, by: int) -> HaloSpec:
+        """
+        Return a new spec with `name` lowered by `by` (floor 0).
+
+        Description
+        -----------
+        The *validity* counterpart of ``grow`` (task 1.8): a stencil
+        application of reach ``by`` along ``name`` leaves ``by``
+        fewer valid ghost layers on its result. Names other than
+        `name` carry over.
+
+        Parameters
+        ----------
+        name : str
+            A coordinate name covered by this spec.
+        by : int
+            The consumed depth; must be >= 0.
+
+        Returns
+        -------
+        HaloSpec
+            The lowered spec; `self` is unchanged.
+        """
+        if by < 0:
+            raise ValueError(
+                f"consume amount must be >= 0, got {by}")
+        merged = dict(self.widths)
+        merged[name] = max(self[name] - by, 0)
+        return HaloSpec(merged)
+
     def merge_max(self, other: HaloSpec) -> HaloSpec:
         """
         Return the pointwise maximum of two specs.
@@ -166,6 +196,57 @@ class HaloSpec:
         for name, width in other.widths:
             merged[name] = max(merged.get(name, 0), width)
         return HaloSpec(merged)
+
+    def over(self, names: tuple[str, ...]) -> HaloSpec:
+        """
+        Return the spec restricted to exactly `names`.
+
+        Description
+        -----------
+        Names missing from this spec count as width 0. Used to stamp
+        a field's halo validity from the decomposition-wide
+        negotiated widths (task 1.8): validity specs canonically
+        cover exactly the field's space names.
+
+        Parameters
+        ----------
+        names : tuple[str, ...]
+            The coordinate names the result covers.
+
+        Returns
+        -------
+        HaloSpec
+            The restricted spec over `names`.
+        """
+        widths = dict(self.widths)
+        return HaloSpec({name: widths.get(name, 0) for name in names})
+
+    def merge_min(self, other: HaloSpec) -> HaloSpec:
+        """
+        Return the pointwise minimum of two specs.
+
+        Description
+        -----------
+        The combination rule of halo *validity* (task 1.8): a field
+        built from several operands can only claim ghost layers every
+        operand had. The result covers the union of the two name
+        sets; a name missing from one spec counts as width 0.
+
+        Parameters
+        ----------
+        other : HaloSpec
+            The spec to merge with.
+
+        Returns
+        -------
+        HaloSpec
+            The pointwise-minimum spec over the union of names.
+        """
+        mine = dict(self.widths)
+        theirs = dict(other.widths)
+        return HaloSpec({
+            name: min(mine.get(name, 0), theirs.get(name, 0))
+            for name in mine.keys() | theirs.keys()})
 
 
 # ================================================================

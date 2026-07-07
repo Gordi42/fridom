@@ -115,5 +115,9 @@ class Where(BinaryOperator):
             cond._data,  # noqa: SLF001 — storage seam
             a._data,  # noqa: SLF001 — storage seam
             b._data)  # noqa: SLF001 — storage seam
+        # pointwise on aligned storage frames (task 1.8, stage B):
+        # the result claims what every operand's ghosts had
+        valid = cond.halo_valid.merge_min(
+            a.halo_valid).merge_min(b.halo_valid)
         return type(a)(a.grid, a.function_space.bare, data,
-                       a.metadata)
+                       a.metadata, halo_valid=valid)

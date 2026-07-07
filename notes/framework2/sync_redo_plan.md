@@ -156,6 +156,27 @@ hook or default) with conservative zero where uncertifiable, and the
 `pad` zero-fill check. Files: `operators/staggering.py` +
 per-family modules; no behavior change yet.
 
+*Audit result (2026-07-07).* Two claim kinds suffice, as an operator
+method `op` can resolve per domain: **consume** (`valid_out =
+min(operand valids) − r` on the consumed axes, carry-over elsewhere)
+and **reset** (zero — the safe default for every unclassified op).
+Certified *consume*: the `apply_staggered` family (FD, interp — the
+tail computes every reachable output ghost slot and zero-pads only
+beyond reach, `staggering.py:211-221`), the `apply_aligned` FV
+family (reconstruct, WENO, and the `_windowed_diff` flux ops:
+`DualFluxDifference`, `FaceDifference`, `FluxDifference` on
+Outer/Right domains), and the storage-frame elementwise ops with
+r = 0 (`CollocationProduct`, `Divide`, `Power`, `Abs`, `Where` —
+aligned frames in, aligned frames out). Must claim *reset*: anything
+rebuilt through `store` from true-shape data — transforms,
+`spectral`, `integrate`, and `FluxDifference` on the Inner domain
+(`flux_diff.py:222-233`, exact zero boundary fluxes) — plus the
+default. `Reshard` gets its own rule (carry-over, moved axes zero);
+`Sync` stamps the negotiated widths (landed in stage A). Invalid
+ghost slots may hold NaN (e.g. `Divide` on garbage ghosts) — safe:
+claimed-valid slots only ever combine valid inputs, and syncs
+overwrite ghosts wholesale.
+
 **C. Placement flip (the one behavioral commit).** Consumption check
 in both `__call__` templates + composite chain-sum + `OperatorSum`
 hoist; `_finalize` and `store` stop syncing; memoization write-back
