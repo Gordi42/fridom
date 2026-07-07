@@ -681,10 +681,17 @@ def test_to_between_coefficient_origins_is_unregistered(grid1d, mx):
         a.to(mx.fourier(origin=mx.right))
 
 
-def test_to_from_constant_factor_has_no_conversion(grid, mx, my):
-    profile = grid.create_field(mx.constant * my.center)
-    with pytest.raises(SpaceMismatchError, match=r"no \.to conversion"):
-        profile.to(mx.center * my.center)
+def test_to_from_constant_factor_broadcasts(grid, mx, my):
+    # GAP A fix: `.to` from a ConstantSpace factor is the sanctioned
+    # constant broadcast (rules 3.3), equal to the implicit lift in a
+    # product, and materializes the full field.
+    profile = grid.create_field(mx.constant * my.center,
+                                init=lambda y: 1.0 + y)
+    lifted = profile.to(mx.center * my.center)
+    assert lifted.function_space.bare is (mx.center * my.center)
+    full = grid.create_field(mx.center * my.center,
+                             init=lambda x, y: 1.0 + y)
+    assert jnp.allclose(lifted.data, full.data)
 
 
 def test_real_on_lone_complex_factor(grid1d, mx):

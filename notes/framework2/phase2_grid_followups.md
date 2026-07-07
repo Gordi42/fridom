@@ -138,6 +138,71 @@ is signed and implemented on a separate branch, not yet in dev.
     `.item()`, Chebyshev geometry accessors) remains open and is not
     repeated here.
 
+12. **Carry-resident AUXILIARY fields break jitted `scan` treedef
+    stability** — **correctness, 2.2-blocking for real models**;
+    surfaced INDEPENDENTLY by both wave-6 model ports (nonhydro +
+    shallowwater, 2026-07-08). **RESOLVED (2026-07-08)** by the
+    grid-layer root-cause fix: the ghost-cache seam now records the
+    memoized exchange in an external identity-keyed
+    `WeakKeyDictionary` (`operators/base.py` `_SYNC_CACHE`) instead
+    of mutating `f._data`/`f._halo_valid` in place, so a
+    carry-resident field's treedef is never mutated. One exchange
+    per component per step is preserved (exchange-count gate
+    unchanged); validity stays treedef-participating (the unsafe
+    exemption was rejected — it keys the sync-placement cache).
+    Research: three paths explored (treedef-exemption proven unsafe
+    by counterexample; model-layer flooring viable but containment;
+    grid-layer cache chosen as root-cause). Details below. `ScalarField._halo_valid` is a plain
+    **static** attribute (jaxify `dynamic=("_data",)`,
+    `annotation=("_metadata",)` — `_halo_valid` is neither), so it
+    participates in treedef equality. The consumption-side sync's
+    ghost-cache seam mutates it **in place**
+    (`operators/base.py` `_memoize_sync`: `f._halo_valid =
+    synced.halo_valid`). A PROGNOSTIC field is rebuilt to zero-halo
+    each step so its treedef is stable; a **carry-resident
+    AUXILIARY field read by a stencil** (e.g. a beta-plane
+    `f(y)`, a stratification `N²(z)`, bathymetry) has its
+    `_halo_valid` mutated but is never rebuilt → the `lax.scan`
+    output carry's treedef differs from the input → "carry
+    input/output pytree structure differ". Existing tests never
+    caught it (`TracerDiffusion` has no stenciled AUX field).
+    Consequence: **`BetaPlaneCoriolis` assembles but cannot
+    `advance`** on nonhydro; both ports had to route static
+    parameters through the scalar+`extra_halo`+`.data` path or
+    pre-sync AUX fields to full halo. **Fix is NOT the naive
+    treedef-exemption** (adding `_halo_valid` to the `annotation=`
+    category like `_metadata`): unlike metadata, `halo_valid` drives
+    sync PLACEMENT, so excluding it from the jit-cache key could
+    reuse a body compiled for a different halo state. Two safe
+    directions, owner's call: (a) model-layer — `step_chunk`
+    canonicalizes AUXILIARY carry fields' `_halo_valid` to their
+    input state at the end of each step; (b) grid-layer — the
+    ghost-cache seam must not let an in-place mutation escape into
+    the returned field a caller keeps. **Belongs to the task-1.8
+    sync owner** (its mechanism) coordinated with the model layer.
+
+13. **`ConstantSpace`/`Profile()` cannot broadcast in a tendency
+    term** — correctness/ergonomics; both wave-6 ports (2026-07-08).
+    **RESOLVED (2026-07-08)**: the `HaloTracer` product path now
+    lifts a `ConstantSpace`/`Profile()` operand onto the nodal join
+    the same way the eager `ScalarField` product does (shared
+    `_lift_field`), and a `ConstantSpace→nodal` `.to` broadcast
+    branch was added to both eager and traced paths. Halo-0,
+    results-neutral; a `Profile("y")` Coriolis `f(y)` now broadcasts
+    natively in a term (assembles + advances). Details below.
+    In the halo trace, `constant_field * nodal_field` raises
+    `SpaceMismatchError`: the eager `ScalarField` path lifts a
+    `ConstantSpace` operand via `join`, but `HaloTracer`'s product
+    dispatch applies the operator to un-lifted operands, and `.to`
+    from `ConstantSpace`→nodal is undefined. This blocks the notes'
+    **R2 "1-DOF `fr.Profile()` field broadcast in the consumer
+    line"** (D1.5), so a beta-plane `f(y)` or a `Profile("z")`
+    stratification must be declared on a full `Collocated()` space
+    (wasteful, and it interacts with item 12). Fix: lift
+    `ConstantSpace` operands in the `HaloTracer`/coefficient-space
+    product path the same way the eager path does; add the
+    `ConstantSpace`→nodal `.to` broadcast row.
+
 11. **BC-free bounded spaces: exterior values untouchable** —
     owner-flagged design question (2026-07-07), full note in
     [`bc_free_boundaries.md`](bc_free_boundaries.md). Replace the

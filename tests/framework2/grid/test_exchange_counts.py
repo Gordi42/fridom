@@ -134,12 +134,17 @@ def test_traced_negotiation_buys_chain_elision(sync_log):
     assert len(sync_log) == 1
 
 
-def test_the_memoized_sync_is_ghost_only(grid, f):
-    # the write-back must never touch true-shape data
+def test_the_memoized_sync_is_ghost_only(grid, sync_log, f):
+    # the memoized exchange must never touch true-shape data AND must
+    # never mutate the operand's treedef (halo_valid stays zero); the
+    # memoization benefit lives in the external identity cache
     before = f.data
     _ = f.diff("x")
     assert (f.data == before).all()
-    assert f.halo_valid == grid.decomposition.halo.over(("x", "y"))
+    assert f.halo_valid == grid.decomposition.halo.zero(("x", "y"))
+    # a second consumer of the same object still shares the exchange
+    _ = f.diff("x")
+    assert len(sync_log) == 1
 
 
 def test_closure_captured_fields_do_not_swallow_tracers(f):

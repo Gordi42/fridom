@@ -56,14 +56,14 @@ def test_sync_delegates_to_the_grid(f):
 
 def test_the_base_syncs_at_consumption(f):
     # consumption-side contract (task 1.8): the diff syncs its
-    # *operand* (memoized onto the field object), and the result's
-    # ghost slots are kernel-computed — valid to the claimed depth,
-    # wrap-consistent there on this periodic mesh
+    # operand (the exchange is memoized in the external identity
+    # cache, NOT written onto the treedef-participating operand), and
+    # the result's ghost slots are kernel-computed — valid to the
+    # claimed depth, wrap-consistent there on this periodic mesh
     w = f.grid.decomposition.halo["x"]
     assert f.halo_valid["x"] == 0
     d = f.diff("x")
-    assert f.halo_valid["x"] == w  # operand synced and memoized
-    assert jnp.array_equal(f._data[:w], f._data[-2 * w:-w])
+    assert f.halo_valid["x"] == 0  # operand treedef stable (direction a)
     valid = d.halo_valid["x"]
     assert valid == w - 1
     if valid:  # the claimed layers wrap like a synced field's

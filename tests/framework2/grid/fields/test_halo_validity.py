@@ -68,8 +68,9 @@ def test_operator_results_carry_the_kernel_claim(grid, f):
     w = grid.decomposition.halo
     assert d.halo_valid["x"] == w["x"] - 1
     assert d.halo_valid["y"] == w["y"]
-    # the triggered sync was memoized onto the operand
-    assert f.halo_valid == w.over(("x", "y"))
+    # the triggered sync is memoized in the external identity cache,
+    # never onto the treedef-participating operand (direction a)
+    assert f.halo_valid == HaloSpec.zero(("x", "y"))
 
 
 # ================================================================

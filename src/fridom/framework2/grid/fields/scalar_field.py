@@ -361,6 +361,9 @@ class ScalarField:
             dst = dst_bare.factor(name)
             if src is dst:
                 continue
+            if isinstance(src, ConstantSpace):
+                result = _broadcast_factor(result, name, dst)
+                continue
             kind = _conversion_kind(src, dst)
             op = self._grid.dispatch.resolve(kind, src)[name]
             resolved = resolve_codomain(
@@ -838,6 +841,51 @@ def _dispatched_product(
     _check_lift(b.function_space, joined)
     op = a.grid.dispatch.resolve(kind, joined.bare)
     return op(_lift_field(a, joined), _lift_field(b, joined))
+
+
+def _broadcast_factor(
+    f: ScalarField, name: str, dst: FunctionSpace,
+) -> ScalarField:
+    """
+    Sanctioned constant broadcast (3.3): a ConstantSpace factor -> dst.
+
+    Description
+    -----------
+    The ``.to`` realization of the constant-broadcast lift. It reuses
+    the eager join-broadcast (``_lift_field``), so an explicit
+    ``profile.to(nodal)`` and the implicit lift inside ``profile * f``
+    produce the identical field. Halo 0 — a broadcast reads the single
+    DOF and adds no ghost demand. Broadcasting into a coefficient factor
+    is the zero-mode update, a ``DispatchError`` in iteration 1.
+
+    Parameters
+    ----------
+    f : ScalarField
+        The field carrying a ``ConstantSpace`` factor at ``name``.
+    name : str
+        The coordinate name of the constant factor to broadcast.
+    dst : FunctionSpace
+        The requested (bare) target factor.
+
+    Returns
+    -------
+    ScalarField
+        ``f`` broadcast onto the factor-replaced space.
+    """
+    if isinstance(dst, CoefficientSpace):
+        raise DispatchError(
+            "no ('broadcast', ConstantSpace -> "
+            f"{dst!r}) dispatch entry: broadcasting a constant into a "
+            "coefficient space is the zero-mode update, not implemented "
+            "in iteration 1")
+    space = f.function_space
+    if isinstance(space, TensorProductSpace):
+        target: SpaceLike = space.replace(**{name: dst})
+    elif space.layout is not None:
+        target = dst.with_layout(space.layout)
+    else:
+        target = dst
+    return _lift_field(f, target)
 
 
 def _conversion_kind(

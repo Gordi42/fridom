@@ -28,7 +28,10 @@ from fridom.framework2.grid.operators.base import (
     resolve_codomain,
 )
 from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.spaces.tensor_product import join
+from fridom.framework2.grid.spaces.tensor_product import (
+    TensorProductSpace,
+    join,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterator, Mapping
@@ -546,10 +549,35 @@ class HaloTracer:
             dst = dst_bare.factor(name)
             if src is dst:
                 continue
+            if isinstance(src, ConstantSpace):
+                result = result._broadcast_factor(name, dst)
+                continue
             op = self._registry.resolve(
                 _conversion_kind(src, dst), src)[name]
             result = op(result)
         return result
+
+    def _broadcast_factor(
+        self, name: str, dst: SpaceLike,
+    ) -> HaloTracer:
+        """
+        Traced constant broadcast of one factor (``.to`` broadcast row).
+
+        Description
+        -----------
+        The trace-side twin of the eager ``_broadcast_factor``: replace
+        the ``ConstantSpace`` factor ``name`` with ``dst`` and carry the
+        depth over. A constant broadcast is halo 0, so no ghost demand
+        accrues and nothing is recorded.
+        """
+        bare = self._space.bare
+        if isinstance(bare, TensorProductSpace):
+            target = bare.replace(**{name: dst})
+        else:
+            target = dst
+        target = _laid_out_like(target, self._space)
+        return self._child(
+            target, self._depth.over(tuple(target.names)))
 
     def integrate(self, *names: str) -> HaloTracer:
         """Weighted integral; mirrors the ScalarField stub."""
@@ -594,7 +622,19 @@ class HaloTracer:
     def _dispatch_product(
         self, other: object, kind: str, *, reflected: bool = False,
     ) -> HaloTracer:
-        """Resolve a product kind on the join and trace through it."""
+        """
+        Resolve a product kind on the join and trace through it.
+
+        Description
+        -----------
+        Mirrors the eager dunder (scalar_field ``_dispatched_product``):
+        both operands are lifted onto the join *before* dispatch, so the
+        product operator's codomain resolver sees the pre-lifted common
+        space — a ``ConstantSpace`` operand (an ``fr.Profile()`` field)
+        broadcasts to the full factor exactly as it does eagerly. The
+        lift is a constant broadcast: halo 0 (it reads the single DOF and
+        adds no ghost demand), so the traced depth carries over unchanged.
+        """
         if isinstance(other, HaloTracer):
             other_space = other._space  # noqa: SLF001
         elif isinstance(other, _SCALAR_TYPES):
@@ -606,9 +646,39 @@ class HaloTracer:
             other_space = getattr(other, "function_space", None)
             if other_space is None:
                 return NotImplemented
-        joined = join(self._space.bare, other_space.bare)
+        joined = _laid_out_like(
+            join(self._space.bare, other_space.bare), self._space)
         op = self._registry.resolve(kind, joined)
-        return op(other, self) if reflected else op(self, other)
+        left = self._broadcast_to(self, joined)
+        right = self._broadcast_to(other, joined)
+        return op(right, left) if reflected else op(left, right)
+
+    def _broadcast_to(
+        self, operand: object, joined: SpaceLike,
+    ) -> object:
+        """
+        Lift a tracer/field operand onto ``joined`` (constant broadcast).
+
+        Description
+        -----------
+        The trace-side twin of the eager ``_lift_field``: the sanctioned
+        constant broadcast (rules 3.3) changes only the space (a
+        ``ConstantSpace`` factor becomes the full factor), never the
+        ghost demand. Tracer operands carry their depth over unchanged
+        (halo 0); a real captured field operand (an ``fr.Profile()``
+        constant) reuses the eager broadcast so eager and traced agree.
+        """
+        space = operand.function_space
+        if space is joined:
+            return operand
+        if isinstance(operand, HaloTracer):
+            return operand._child(  # noqa: SLF001
+                joined,
+                operand._depth.over(tuple(joined.names)))  # noqa: SLF001
+        from fridom.framework2.grid.fields.scalar_field import (  # noqa: PLC0415 — trace-side reuse of the eager broadcast
+            _lift_field,
+        )
+        return _lift_field(operand, joined)
 
     def __add__(self, other: object) -> HaloTracer:
         """Linear; join rule, depths max-merge."""

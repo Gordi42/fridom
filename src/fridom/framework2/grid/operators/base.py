@@ -28,7 +28,9 @@ fields through the plumbing constructor
 #    ScaledOperator, Block, Dispatched
 from __future__ import annotations
 
+import contextlib
 import copy
+import weakref
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import partial
@@ -1461,32 +1463,57 @@ def _ensure_valid(
     if all(valid.get(name, 0) >= depth
            for name, depth in required.items()):
         return f
+    cached = _sync_cache_get(f)
+    if cached is not None:
+        cvalid = dict(cached.halo_valid.widths)
+        if all(cvalid.get(name, 0) >= depth
+               for name, depth in required.items()):
+            return cached
     synced = _sync_node()(f)
     if synced is not f:
         _memoize_sync(f, synced)
     return synced
 
 
+#: identity-keyed synced-ghost cache: the memoized exchange lives
+#: here, NOT on the operand's own attributes, so a carry-resident
+#: field's treedef (``halo_valid`` is treedef-participating static
+#: aux) is never mutated. WeakKeyDictionary auto-evicts per-trace
+#: field objects once the trace ends.
+_SYNC_CACHE: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _sync_cache_get(f: FieldLike) -> FieldLike | None:
+    """Return a previously-memoized synced view of ``f``, if any."""
+    try:
+        return _SYNC_CACHE.get(f)
+    except TypeError:
+        return None
+
+
 def _memoize_sync(f: FieldLike, synced: FieldLike) -> None:
     """
-    Write the synced ghosts back onto the operand object.
+    Store the synced view in the identity-keyed cache (no mutation).
 
     Description
     -----------
-    In-place rewrite of ghost slots only — true-shape data is
-    bitwise untouched, so the swap is semantically invisible; it
-    exists so repeated consumers (n tendency modules reading one
-    state component) share one exchange. Guard: a *concrete* field
-    consumed inside someone else's trace (closure capture) must not
-    swallow a tracer — those consumers simply re-sync.
+    The memoized exchange is recorded in an external identity-keyed
+    cache instead of being written back onto ``f``'s own ``_data`` /
+    ``_halo_valid`` attributes. Repeated consumers of the same object
+    still pay one exchange (they hit the cache), but the operand's
+    pytree treedef (``halo_valid`` is treedef-participating static
+    aux) is never mutated, so a carry-resident field passed unchanged
+    through ``lax.scan`` keeps a stable treedef. Guard: a *concrete*
+    field consumed inside someone else's trace must not cache a
+    tracer.
     """
     old = f._data  # noqa: SLF001 — documented storage seam
     new = synced._data  # noqa: SLF001 — documented storage seam
     if (not isinstance(old, jax.core.Tracer)
             and isinstance(new, jax.core.Tracer)):
         return
-    f._data = new  # noqa: SLF001 — documented ghost-cache seam
-    f._halo_valid = synced.halo_valid  # noqa: SLF001 — ghost-cache seam
+    with contextlib.suppress(TypeError):
+        _SYNC_CACHE[f] = synced
 
 
 def _sync_node() -> Operator:
