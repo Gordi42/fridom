@@ -646,7 +646,7 @@ class VectorTracer:
 
 def trace_halo(
     tendency: Callable[..., object],
-    state_spaces: tuple[SpaceLike, ...],
+    state_spaces: Mapping[str, SpaceLike] | tuple[SpaceLike, ...],
     registry: object,
 ) -> HaloSpec:
     """
@@ -655,10 +655,14 @@ def trace_halo(
     Description
     -----------
     Feeds the tendency a ``VectorTracer`` whose components are
-    ``HaloTracer``s on `state_spaces` (a lone space is passed as its
-    bare tracer). The tendency must be traceable **without** jit —
-    plain Python over fields. The accounting runs over `registry` as
-    merged, so overrides are honored; under the iteration-1
+    ``HaloTracer``s on `state_spaces`. A name-keyed mapping
+    propagates its names into the components, so traced demands and
+    error messages are name-addressed (the model layer's
+    name-addressed tendencies); a positional sequence keys them
+    ``c0``, ``c1``, ..., and a lone positional space is passed as
+    its bare tracer. The tendency must be traceable **without** jit
+    — plain Python over fields. The accounting runs over `registry`
+    as merged, so overrides are honored; under the iteration-1
     sync-after-every-operator contract the result reproduces the
     per-operator maximum, while the tracer's grow/merge rules carry
     the designed-for sync-elision semantics.
@@ -667,8 +671,9 @@ def trace_halo(
     ----------
     tendency : Callable[..., object]
         The tendency callable (takes the state stand-in).
-    state_spaces : tuple[SpaceLike, ...]
-        The spaces of the model's state fields.
+    state_spaces : Mapping[str, SpaceLike] | tuple[SpaceLike, ...]
+        The spaces of the model's state fields, name-keyed or
+        positional.
     registry : object
         The (duck-typed) operator registry, as merged.
 
@@ -680,9 +685,15 @@ def trace_halo(
     if not state_spaces:
         raise ValueError("trace_halo needs at least one state space")
     recorder = _TraceRecorder()
-    tracers = tuple(
-        HaloTracer(space, registry, recorder=recorder)
-        for space in state_spaces)
-    state = tracers[0] if len(tracers) == 1 else VectorTracer(tracers)
+    if hasattr(state_spaces, "items"):
+        state: HaloTracer | VectorTracer = VectorTracer({
+            name: HaloTracer(space, registry, recorder=recorder)
+            for name, space in state_spaces.items()})
+    else:
+        tracers = tuple(
+            HaloTracer(space, registry, recorder=recorder)
+            for space in state_spaces)
+        state = (tracers[0] if len(tracers) == 1
+                 else VectorTracer(tracers))
     tendency(state)
     return recorder.spec

@@ -452,7 +452,9 @@ def negotiate(
     grid: object,
     registry: object,
     *,
-    state_spaces: tuple[SpaceLike, ...] | None = None,
+    state_spaces: (
+        Mapping[str, SpaceLike] | tuple[SpaceLike, ...] | None
+    ) = None,
     tendency: Callable[..., object] | None = None,
     halo: HaloSpec | None = None,
     device_ids: tuple[int, ...] | None = None,
@@ -465,10 +467,13 @@ def negotiate(
     Collects, per factor space in play, the mesh's declared
     ``mesh.decomposition_traits(space)`` and the registry operators'
     ``requirements`` (scoped to `state_spaces` when given). The halo
-    comes from ``trace_halo`` when a `tendency` is supplied, else
-    from the per-operator maximum over the registry (the provisional
-    path — exact under the iteration-1 sync-after-every-operator
-    contract), else from the explicit `halo=` override.
+    comes from ``trace_halo`` when a `tendency` is supplied, merged
+    with the extra `halo=` spec via per-coordinate max
+    (``merge_max`` — modules exempted from the trace declare their
+    demands there); from the explicit `halo=` alone when no tendency
+    is given; else from the per-operator maximum over the registry
+    (the provisional path — exact under the iteration-1
+    sync-after-every-operator contract).
 
     Iteration-1 layout realization: a 1-D device mesh over all
     requested devices; the default layout shards the first
@@ -485,14 +490,17 @@ def negotiate(
         The grid being negotiated (supplies ``names``/``factors``).
     registry : object
         The (duck-typed) operator dispatch registry.
-    state_spaces : tuple[SpaceLike, ...] | None, optional
+    state_spaces : Mapping[str, SpaceLike] | tuple[SpaceLike, ...], optional
         The model's state-field spaces; scopes the operator demands
-        and feeds the trace (default: None).
+        and feeds the trace. A name-keyed mapping propagates its
+        names into the tracer components (default: None).
     tendency : Callable[..., object] | None, optional
         The tendency to halo-trace over `state_spaces`
         (default: None).
     halo : HaloSpec | None, optional
-        Explicit per-name halo override (default: None).
+        Extra per-name halo demands. With a `tendency` they are
+        ``merge_max``-combined with the trace; alone they are the
+        explicit override (default: None).
     device_ids : tuple[int, ...] | None, optional
         Indices into ``jax.devices()``; None uses all available
         devices (default: None).
@@ -543,27 +551,44 @@ def _negotiated_halo(
     names: tuple[str, ...],
     registry: object,
     *,
-    state_spaces: tuple[SpaceLike, ...] | None,
+    state_spaces: (
+        Mapping[str, SpaceLike] | tuple[SpaceLike, ...] | None
+    ),
     tendency: Callable[..., object] | None,
     halo: HaloSpec | None,
 ) -> HaloSpec:
-    """Resolve the halo source: explicit > traced > registry max."""
-    if halo is not None:
-        return HaloSpec.zero(names).merge_max(halo)
+    """
+    Resolve the halo source.
+
+    Description
+    -----------
+    With a `tendency`, the result is trace(tendency) ``merge_max``
+    the extra `halo=` spec (per-coordinate max): the extra spec
+    carries the demands of modules exempted from the trace, so it
+    widens the traced widths instead of replacing them. `halo=`
+    alone keeps its exclusive-override meaning; with neither, the
+    per-operator registry maximum applies.
+    """
     if tendency is not None:
         if state_spaces is None:
             raise ValueError(
                 "tracing a tendency needs state_spaces= to build "
                 "the tracer state")
         traced = trace_halo(tendency, state_spaces, registry)
+        if halo is not None:
+            traced = traced.merge_max(halo)
         return HaloSpec.zero(names).merge_max(traced)
+    if halo is not None:
+        return HaloSpec.zero(names).merge_max(halo)
     return _registry_halo(names, registry, state_spaces)
 
 
 def _registry_halo(
     names: tuple[str, ...],
     registry: object,
-    state_spaces: tuple[SpaceLike, ...] | None = None,
+    state_spaces: (
+        Mapping[str, SpaceLike] | tuple[SpaceLike, ...] | None
+    ) = None,
 ) -> HaloSpec:
     """
     Derive the provisional halo from a dispatch registry.
@@ -585,8 +610,9 @@ def _registry_halo(
         The grid's coordinate names.
     registry : object
         The (duck-typed) operator registry.
-    state_spaces : tuple[SpaceLike, ...] | None, optional
-        The state-field spaces scoping the demands (default: None).
+    state_spaces : Mapping[str, SpaceLike] | tuple[SpaceLike, ...], optional
+        The state-field spaces scoping the demands; a name-keyed
+        mapping scopes by its values (default: None).
 
     Returns
     -------
@@ -599,9 +625,12 @@ def _registry_halo(
         return HaloSpec(widths)
     scope_meshes = None
     if state_spaces is not None:
+        spaces = (tuple(state_spaces.values())
+                  if hasattr(state_spaces, "values")
+                  else tuple(state_spaces))
         scope_meshes = {
             id(factor.mesh)
-            for space in state_spaces
+            for space in spaces
             for factor in space.factors}
     for key, op in items():
         if not isinstance(key, tuple):
