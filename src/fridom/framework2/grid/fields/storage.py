@@ -204,13 +204,16 @@ def store(
     true_data: jax.Array,
 ) -> jax.Array:
     """
-    Route a true-shape array into synced, storage-shaped form.
+    Route a true-shape array into storage-shaped form.
 
     Description
     -----------
     The single write path of the storage contract (fields doc):
-    ``decomposition.pad`` applies halo and stagger padding, the halo
-    sync fills the ghost slots, so stored halos are always valid.
+    ``decomposition.pad`` applies halo and stagger padding
+    (zero-filled ghost slots). No sync — under the consumption-side
+    contract (task 1.8) store-constructed fields claim zero ghost
+    validity and are exchanged at their first consumption that
+    needs ghosts, not on every construction.
 
     Parameters
     ----------
@@ -224,7 +227,6 @@ def store(
     Returns
     -------
     jax.Array
-        The synced storage-shaped array.
+        The storage-shaped array (ghost slots zero, claimed invalid).
     """
-    padded = decomposition.pad(true_data, space)
-    return decomposition.sync(padded, space)
+    return decomposition.pad(true_data, space)

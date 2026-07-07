@@ -60,11 +60,16 @@ def test_grid_sync_stamps_the_negotiated_widths(grid, f):
         ("x", "y"))
 
 
-def test_operator_results_carry_the_post_sync_stamp(grid, f):
-    # iteration-1 contract (still live in stage A): the base syncs
-    # after every kernel, so results carry full validity
+def test_operator_results_carry_the_kernel_claim(grid, f):
+    # consumption-side contract (stage C): the application syncs the
+    # operand (widths), the kernel consumes its reach on the applied
+    # axis, and the result keeps the remainder
     d = f.diff("x")
-    assert d.halo_valid == grid.decomposition.halo.over(("x", "y"))
+    w = grid.decomposition.halo
+    assert d.halo_valid["x"] == w["x"] - 1
+    assert d.halo_valid["y"] == w["y"]
+    # the triggered sync was memoized onto the operand
+    assert f.halo_valid == w.over(("x", "y"))
 
 
 # ================================================================

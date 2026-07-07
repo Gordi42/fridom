@@ -28,10 +28,19 @@ def test_apply_1d(mx, field_1d, stagger):
     assert jnp.array_equal(result.data, field_1d.data + 1.0)
 
 
-def test_every_application_returns_a_synced_field(
+def test_application_syncs_the_operand_iff_validity_is_below_need(
         grid, field_1d, stagger):
+    # consumption-side contract (task 1.8): the base syncs the
+    # *operand* before the kernel when its ghost validity is below
+    # the application's requirement — never the result
     result = stagger(field_1d)
-    assert grid.sync_log[-1] is result
+    assert grid.sync_log == [field_1d]
+    assert result not in grid.sync_log
+
+
+def test_halo_0_application_never_syncs(grid, field_1d, stagger_cls):
+    stagger_cls(halo=0)(field_1d)
+    assert grid.sync_log == []
 
 
 def test_apply_bound_on_product(mx, my, field_2d, stagger):
@@ -163,7 +172,8 @@ def test_binary_application(grid, mx, field_1d):
     result = Pointwise()(field_1d, field_1d)
     assert result.function_space is mx.center
     assert jnp.array_equal(result.data, field_1d.data ** 2)
-    assert grid.sync_log[-1] is result
+    # pointwise (halo 0): nothing to consume, so nothing syncs
+    assert grid.sync_log == []
 
 
 def test_binary_space_mismatch_raises(grid, mx, field_1d, field_cls):

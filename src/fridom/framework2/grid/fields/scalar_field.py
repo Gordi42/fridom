@@ -202,8 +202,9 @@ class ScalarField:
 
         Description
         -----------
-        The array is routed through ``decomposition.pad`` and the
-        halo sync, so stored halos are always valid.
+        The array is routed through ``decomposition.pad``; the
+        result claims zero ghost validity and is synced at its
+        first ghost-consuming application (task 1.8).
 
         Parameters
         ----------

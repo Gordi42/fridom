@@ -18,8 +18,9 @@ consumed through the documented duck surface of
 ``notes/framework2/classes/fields.md`` only (see ``FieldLike``): the
 shared application path reads ``f.function_space``, ``f.grid``
 (``grid.sync``, ``grid.dispatch``), ``f.data`` / ``f._data``,
-``f.metadata``, ``f.with_data``, and rebuilds fields through the
-plumbing constructor ``type(f)(grid, space, data, metadata)``.
+``f.metadata``, ``f.halo_valid``, ``f.with_data``, and rebuilds
+fields through the plumbing constructor
+``type(f)(grid, space, data, metadata, halo_valid=...)``.
 """
 # Wave 2: Operator, UnaryOperator, BinaryOperator,
 #    SeparableOperator, OperatorRequirements, EigenbasisError,
@@ -32,6 +33,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, TypeAlias, final
+
+import jax
 
 import fridom.framework as fr
 from fridom.framework2.grid.errors import (
@@ -53,9 +56,9 @@ if TYPE_CHECKING:  # pragma: no cover
 #: (fields.md) the operator layer is allowed to consume —
 #: ``function_space``, ``grid`` (with ``sync`` and ``dispatch``),
 #: ``data`` / ``_data`` (true-shape view / storage-shaped array),
-#: ``metadata``, ``with_data``, field arithmetic dunders, and the
-#: trusting plumbing constructor
-#: ``type(f)(grid, function_space, data, metadata)``.
+#: ``metadata``, ``halo_valid``, ``with_data``, field arithmetic
+#: dunders, and the trusting plumbing constructor
+#: ``type(f)(grid, function_space, data, metadata, halo_valid=...)``.
 FieldLike: TypeAlias = object
 
 # Module-level weak intern table for bound variants and algebra
@@ -406,13 +409,16 @@ class UnaryOperator(Operator, ABC):
     @final
     def __call__(self, f: FieldLike) -> FieldLike:
         """
-        Template: validate, delegate to ``_apply``, re-attach, sync.
+        Template: validate, ensure validity, delegate, re-attach.
 
         Description
         -----------
         ``HaloTracer`` operands are intercepted generically (doc 04):
         the tracer records ``requirements(domain).halo`` and returns
-        the codomain tracer without touching kernel code.
+        the codomain tracer without touching kernel code. Real
+        operands pass the consumption-side sync check (task 1.8):
+        the operand is synced iff its ghost validity is below this
+        application's per-axis requirement.
 
         Parameters
         ----------
@@ -422,14 +428,16 @@ class UnaryOperator(Operator, ABC):
         Returns
         -------
         FieldLike
-            The synced result field on the resolved codomain, with
-            the domain's layout re-attached.
+            The result field on the resolved codomain, with the
+            domain's layout re-attached and the kernel's
+            halo-validity claim stamped.
         """
         # HaloTracer interception hook (decomposition doc, Wave 3)
         trace = getattr(f, "_trace_apply", None)
         if trace is not None:
             return trace(self)
         codomain = resolve_codomain(self, f.function_space)
+        f = _ensure_valid(f, _required_halo(self, f.function_space))
         result = self._apply(f)
         return _finalize(f, result, codomain)
 
@@ -532,6 +540,18 @@ class BinaryOperator(Operator, ABC):
                 operation=type(self).__name__)
         codomain = self.codomain(
             *(o.function_space.bare for o in operands))
+        # consumption-side sync check (task 1.8): every operand,
+        # against the whole-space requirement (the n-ary twin of
+        # HaloTracer._trace_apply_nary)
+        halo = self.requirements(codomain).halo
+        if halo:
+            required = {name: halo
+                        for factor in codomain.factors
+                        if not isinstance(factor, ConstantSpace)
+                        for name in factor.names}
+            operands = tuple(_ensure_valid(o, required)
+                             for o in operands)
+        f, g, *more = operands
         result = self._apply(f, g, *more)
         return _finalize(f, result, codomain)
 
@@ -1318,17 +1338,19 @@ def _finalize(
     operand: FieldLike, result: FieldLike, codomain: SpaceLike,
 ) -> FieldLike:
     """
-    Re-attach the domain layout and sync the kernel result.
+    Re-attach the domain layout to the kernel result.
 
     Description
     -----------
     The tail of the shared application path: the kernel built
     ``result`` on the bare codomain; this re-attaches the operand's
-    layout through the field's plumbing constructor and appends the
-    internal ``Sync`` node (iteration-1 contract: every operator
-    application returns a synced field). A codomain that already
-    carries a layout is a layout-transition operator (``Reshard``)
-    and is kept as resolved.
+    layout through the field's plumbing constructor (the kernel's
+    halo-validity claim is kept). A codomain that already carries a
+    layout is a layout-transition operator (``Reshard``) and is kept
+    as resolved. Under the consumption-side sync contract (task 1.8)
+    no sync is appended here: the operand was made valid *before*
+    the kernel ran (``_ensure_valid``), and the result's ghost
+    validity is whatever its construction seam certified.
 
     Parameters
     ----------
@@ -1342,7 +1364,7 @@ def _finalize(
     Returns
     -------
     FieldLike
-        The synced result on the laid-out codomain.
+        The result on the laid-out codomain.
     """
     layout = operand.function_space.layout
     if codomain.layout is not None:
@@ -1363,7 +1385,108 @@ def _finalize(
             result._data,  # noqa: SLF001 — plumbing-constructor seam
             result.metadata,
             halo_valid=result.halo_valid)
-    return _sync_node()(result)
+    return result
+
+
+def _required_halo(op: Operator, space: SpaceLike) -> dict[str, int]:
+    """
+    Per-name ghost depth one application of ``op`` consumes.
+
+    Description
+    -----------
+    The runtime twin of ``HaloTracer._grown`` (task 1.8): per-axis
+    for separable kernels (their sole applied factor), every
+    bindable axis for whole-space operators (conservative).
+
+    Parameters
+    ----------
+    op : Operator
+        The operator being applied.
+    space : SpaceLike
+        The operand's (laid-out) function space.
+
+    Returns
+    -------
+    dict[str, int]
+        Positive per-name depths; empty for halo-0 applications.
+    """
+    bare = space.bare
+    if isinstance(op, SeparableOperator):
+        axis = _resolve_axis(op, bare)
+        factor = (bare if not hasattr(bare, "factor")
+                  else bare.factor(axis))
+        if isinstance(factor, ConstantSpace):
+            return {}
+        halo = op.requirements(factor).halo
+        return {axis: halo} if halo else {}
+    halo = op.requirements(bare).halo
+    if not halo:
+        return {}
+    return {name: halo
+            for factor in bare.factors
+            if not isinstance(factor, ConstantSpace)
+            for name in factor.names}
+
+
+def _ensure_valid(
+    f: FieldLike, required: dict[str, int],
+) -> FieldLike:
+    """
+    Sync the operand iff its ghost validity is below ``required``.
+
+    Description
+    -----------
+    The consumption-side sync placement (task 1.8): a trace-time
+    check of static Python attributes — zero runtime cost under jit.
+    A triggered sync fills every axis to the negotiated widths, and
+    the synced storage is written back onto the operand object
+    (ghost slots only, semantically invisible), so further consumers
+    of the same field find it valid: n readers pay one exchange.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    required : dict[str, int]
+        Per-name depths this application consumes.
+
+    Returns
+    -------
+    FieldLike
+        ``f`` itself when already valid, else the synced field.
+    """
+    if not required:
+        return f
+    valid = dict(f.halo_valid.widths)
+    if all(valid.get(name, 0) >= depth
+           for name, depth in required.items()):
+        return f
+    synced = _sync_node()(f)
+    if synced is not f:
+        _memoize_sync(f, synced)
+    return synced
+
+
+def _memoize_sync(f: FieldLike, synced: FieldLike) -> None:
+    """
+    Write the synced ghosts back onto the operand object.
+
+    Description
+    -----------
+    In-place rewrite of ghost slots only — true-shape data is
+    bitwise untouched, so the swap is semantically invisible; it
+    exists so repeated consumers (n tendency modules reading one
+    state component) share one exchange. Guard: a *concrete* field
+    consumed inside someone else's trace (closure capture) must not
+    swallow a tracer — those consumers simply re-sync.
+    """
+    old = f._data  # noqa: SLF001 — documented storage seam
+    new = synced._data  # noqa: SLF001 — documented storage seam
+    if (not isinstance(old, jax.core.Tracer)
+            and isinstance(new, jax.core.Tracer)):
+        return
+    f._data = new  # noqa: SLF001 — documented ghost-cache seam
+    f._halo_valid = synced.halo_valid  # noqa: SLF001 — ghost-cache seam
 
 
 def _sync_node() -> Operator:

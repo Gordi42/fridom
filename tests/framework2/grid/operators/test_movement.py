@@ -54,12 +54,21 @@ def test_sync_delegates_to_the_grid(f):
     assert jnp.array_equal(synced._data[:w], synced._data[-2 * w:-w])
 
 
-def test_the_base_appends_sync_after_every_kernel(f):
-    # a diff result must come back with valid (wrapped) halos
+def test_the_base_syncs_at_consumption(f):
+    # consumption-side contract (task 1.8): the diff syncs its
+    # *operand* (memoized onto the field object), and the result's
+    # ghost slots are kernel-computed — valid to the claimed depth,
+    # wrap-consistent there on this periodic mesh
+    w = f.grid.decomposition.halo["x"]
+    assert f.halo_valid["x"] == 0
     d = f.diff("x")
-    w = d.grid.decomposition.halo["x"]
-    assert jnp.array_equal(d._data[:w], d._data[-2 * w:-w])
-    assert jnp.array_equal(d._data[-w:], d._data[w:2 * w])
+    assert f.halo_valid["x"] == w  # operand synced and memoized
+    assert jnp.array_equal(f._data[:w], f._data[-2 * w:-w])
+    valid = d.halo_valid["x"]
+    assert valid == w - 1
+    if valid:  # the claimed layers wrap like a synced field's
+        assert jnp.array_equal(
+            d._data[w - valid:w], d._data[-w - valid:-w])
 
 
 # ================================================================

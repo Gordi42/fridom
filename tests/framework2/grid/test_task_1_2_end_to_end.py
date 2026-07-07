@@ -111,6 +111,10 @@ def test_dirichlet_structured_storage_gets_the_odd_extension():
     space = mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
     f = grid.create_field(space,
                           init=lambda y: jnp.sin(jnp.pi * y))
+    # consumption-side contract (task 1.8): created fields claim
+    # zero ghost validity; the BC-structured fill appears with the
+    # sync (forced explicitly here to inspect the storage frame)
+    f = grid.sync(f)
     storage = np.asarray(f._data)
     data = np.asarray(f.data)
     width = grid.decomposition.halo["y"]

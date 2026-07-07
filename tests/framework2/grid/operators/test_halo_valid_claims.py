@@ -99,9 +99,11 @@ def test_divide_claims_the_operand_minimum(grid, synced):
 
 
 # ================================================================
-#  The public surface still stamps the post-sync widths (stage A/B
-#  are behavior-neutral; the placement flip is stage C)
+#  The public surface returns the kernel claim (stage C: the
+#  pre-kernel sync fills the operand, the kernel consumes its reach)
 # ================================================================
-def test_public_application_still_returns_full_validity(grid, fresh):
+def test_public_application_returns_the_kernel_claim(grid, fresh):
     d = fresh.diff("x")
-    assert d.halo_valid == grid.decomposition.halo.over(("x", "y"))
+    w = grid.decomposition.halo
+    assert d.halo_valid["x"] == w["x"] - 1
+    assert d.halo_valid["y"] == w["y"]

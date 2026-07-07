@@ -76,11 +76,15 @@ def test_axis_missing_from_the_halo_spec_counts_as_width_zero(mx):
             return field
 
     class FieldStandIn:
-        def __init__(self, grid, function_space, data, metadata=None):
+        def __init__(self, grid, function_space, data, metadata=None,
+                     halo_valid=None):
             self.grid = grid
             self.function_space = function_space
             self._data = data
             self.metadata = metadata
+            self.halo_valid = (
+                HaloSpec.zero(tuple(function_space.names))
+                if halo_valid is None else halo_valid)
 
     field = FieldStandIn(GridStandIn(), mx.center, jnp.arange(8.0))
     with pytest.raises(ValueError, match="halo width 0"):
