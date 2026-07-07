@@ -43,9 +43,10 @@ def test_explicit_halo_wins_and_missing_names_are_zero(grid):
 
 def test_registry_maximum_is_the_provisional_default(grid):
     decomp = negotiate(grid, grid.dispatch, device_ids=(0,))
-    # FiniteDifference/LinearInterp declare halo 1 on both meshes
-    assert decomp.halo["x"] == 1
-    assert decomp.halo["y"] == 1
+    # the widest seeded entry is the FV-derivative chain
+    # (reconstruct + flux_diff, width 1 each, summed)
+    assert decomp.halo["x"] == 2
+    assert decomp.halo["y"] == 2
 
 
 def test_traced_tendency_overrides_the_registry_maximum(grid):
@@ -66,11 +67,12 @@ def test_tendency_without_state_spaces_raises(grid):
 
 
 def test_registry_halo_scopes_to_state_space_meshes(grid, my):
-    # scoping to a y-only state silences the x-mesh demands
+    # scoping to a y-only state silences the x-mesh demands (the y
+    # width is 2: the FV-derivative chain is the widest seeded entry)
     spec = _registry_halo(("x", "y"), grid.dispatch,
                           state_spaces=(my.center,))
     assert spec["x"] == 0
-    assert spec["y"] == 1
+    assert spec["y"] == 2
 
 
 def test_registry_halo_without_items_surface_is_zero():
@@ -131,8 +133,12 @@ def test_auto_selection_falls_back_to_one_device():
 #  Multi-device negotiation (forced-devices suite)
 # ================================================================
 @pytest.mark.multi_device
-def test_default_layout_shards_the_first_ghost_factor(grid):
-    decomp = grid.decomposition
+def test_default_layout_shards_the_first_ghost_factor():
+    # 16 cells: shardable across 4 devices under the halo-2
+    # constraint (cells/shard >= halo + 1) of the seeded registry
+    mx16 = IntervalMesh(16, (0.0, 1.0), name="x")
+    my16 = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+    decomp = Grid((mx16, my16)).decomposition
     default = decomp.default_layout
     assert dict(default.device_axes) == {"x": "devices"}
     # pencil for the y factor plus the replicated fallback

@@ -30,8 +30,8 @@ from fridom.framework2.grid.spaces.nodal import NodeSet
 
 
 def build_grid(device_ids):
-    mx = IntervalMesh(8, (0.0, 1.0), name="x")  # periodic
-    my = IntervalMesh(8, (0.0, 2.0), periodic=False, name="y")
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")  # periodic
+    my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
     return Grid((mx, my), device_ids=device_ids)
 
 
@@ -189,7 +189,7 @@ def test_blocked_ghosts_match_the_single_device_fill():
     }
     for label, pick in spaces.items():
         periodic = label.startswith("periodic")
-        mesh = IntervalMesh(8, (0.0, 1.0), periodic=periodic,
+        mesh = IntervalMesh(16, (0.0, 1.0), periodic=periodic,
                             name="x")
         grid_many = Grid((mesh,))
         space = pick(mesh)
@@ -197,7 +197,7 @@ def test_blocked_ghosts_match_the_single_device_fill():
         stored = np.asarray(
             grid_many.create_field(space, data=values)._data)
 
-        mesh_one = IntervalMesh(8, (0.0, 1.0), periodic=periodic,
+        mesh_one = IntervalMesh(16, (0.0, 1.0), periodic=periodic,
                                 name="x")
         grid_one = Grid((mesh_one,), device_ids=(0,))
         extended = np.asarray(
@@ -205,7 +205,7 @@ def test_blocked_ghosts_match_the_single_device_fill():
 
         n = space.shape[0]
         width = grid_many.decomposition.halo["x"]
-        cells = 8 // devices
+        cells = 16 // devices
         block = cells + 1 + 2 * width
         bounds = [min(s * cells, n) for s in range(devices)] + [n]
         for s in range(devices):
@@ -225,7 +225,7 @@ def test_blocked_ghosts_match_the_single_device_fill():
 
 @pytest.mark.multi_device
 def test_coefficient_and_constant_factors_stay_replicated():
-    mx = IntervalMesh(8, (0.0, 1.0), name="x")
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
     grid = Grid((mx,))
     decomp = grid.decomposition
     assert dict(decomp.default_layout.device_axes) == {

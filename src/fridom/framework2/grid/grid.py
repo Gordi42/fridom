@@ -29,6 +29,7 @@ from fridom.framework2.grid.decomposition.decomposition import (
     ReshardingReport,
     negotiate,
 )
+from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import (
     GridMismatchError,
     SpaceMismatchError,
@@ -90,7 +91,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.decomposition.decomposition import (
         Decomposition,
     )
-    from fridom.framework2.grid.decomposition.halo import HaloSpec
     from fridom.framework2.grid.meshes.mesh import Mesh
     from fridom.framework2.grid.operators.base import Operator
     from fridom.framework2.grid.operators.registry import DispatchKey

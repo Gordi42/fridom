@@ -48,15 +48,18 @@ def test_sync_delegates_to_the_grid(f):
     synced = Sync()(f)
     assert synced.function_space is f.function_space
     assert jnp.array_equal(synced.data, f.data)
-    # the ghost slots are (re)filled: periodic wrap
-    assert jnp.array_equal(synced._data[0], synced._data[-2])
+    # the ghost slots are (re)filled: periodic wrap (width-aware —
+    # the seeded registry's widest chain sets the negotiated width)
+    w = f.grid.decomposition.halo["x"]
+    assert jnp.array_equal(synced._data[:w], synced._data[-2 * w:-w])
 
 
 def test_the_base_appends_sync_after_every_kernel(f):
     # a diff result must come back with valid (wrapped) halos
     d = f.diff("x")
-    assert jnp.array_equal(d._data[0], d._data[-2])
-    assert jnp.array_equal(d._data[-1], d._data[1])
+    w = d.grid.decomposition.halo["x"]
+    assert jnp.array_equal(d._data[:w], d._data[-2 * w:-w])
+    assert jnp.array_equal(d._data[-w:], d._data[w:2 * w])
 
 
 # ================================================================
