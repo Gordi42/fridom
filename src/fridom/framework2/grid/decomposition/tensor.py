@@ -54,7 +54,7 @@ from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from fridom.framework2.grid.decomposition.decomposition import (
         SpaceLike,
@@ -608,6 +608,74 @@ class TensorDecomposition(Decomposition):
         return jax.shard_map(
             exchange, mesh=self._device_mesh,
             in_specs=pspec, out_specs=pspec)(arr)
+
+    def patch_physical_ends(
+        self,
+        out_arr: jax.Array,
+        in_arr: jax.Array,
+        out_space: SpaceLike,
+        in_space: SpaceLike,
+        axis: str,
+        patch: Callable[..., jax.Array],
+        *,
+        layout: Layout | None = None,
+    ) -> jax.Array:
+        """
+        Overwrite the physical-wall ends of a reconstructed axis.
+
+        Description
+        -----------
+        See ``Decomposition.patch_physical_ends``. ``shards == 1`` is a
+        static branch: the callback runs directly on both walls of the
+        single block with ``t = n`` (bitwise-identical to the
+        undistributed operator). ``shards >= 2`` runs one
+        ``jax.shard_map`` co-sharding ``in_arr`` and ``out_arr`` on the
+        axis's device-mesh axis; ``s = jax.lax.axis_index`` locates the
+        shard, the last shard absorbs the staggered true-count deficit
+        (the ``_exchange_block`` idiom), both wall patches are computed
+        on every shard, and each is masked onto its boundary shard.
+        """
+        layout = self._resolve_layout(out_space, layout)
+        out_axis = out_space.names.index(axis)
+        in_axis = in_space.names.index(axis)
+        _, n_out, _, shards, width_out, _, _ = self._geometry(
+            out_space, layout)[out_axis]
+        _, n_in, factor, _, width_in, _, _ = self._geometry(
+            in_space, layout)[in_axis]
+
+        if shards == 1:
+            out_arr = patch(in_arr, out_arr, 0, width_in, n_in,
+                            width_out, n_out)
+            return patch(in_arr, out_arr, 1, width_in, n_in,
+                         width_out, n_out)
+
+        axis_name = dict(layout.device_axes)[axis]
+        cells = self._cells_per_shard(factor, shards)
+        in_spec = [None] * in_arr.ndim
+        in_spec[in_axis] = axis_name
+        out_spec = [None] * out_arr.ndim
+        out_spec[out_axis] = axis_name
+        in_pspec = jax.sharding.PartitionSpec(*in_spec)
+        out_pspec = jax.sharding.PartitionSpec(*out_spec)
+
+        def body(in_block: jax.Array,
+                 out_block: jax.Array) -> jax.Array:
+            s = jax.lax.axis_index(axis_name)
+            t_in = jnp.where(s == shards - 1,
+                             n_in - (shards - 1) * cells, cells)
+            t_out = jnp.where(s == shards - 1,
+                              n_out - (shards - 1) * cells, cells)
+            left = patch(in_block, out_block, 0, width_in, t_in,
+                         width_out, t_out)
+            right = patch(in_block, out_block, 1, width_in, t_in,
+                          width_out, t_out)
+            out_block = jnp.where(s == 0, left, out_block)
+            return jnp.where(s == shards - 1, right, out_block)
+
+        return jax.shard_map(
+            body, mesh=self._device_mesh,
+            in_specs=(in_pspec, out_pspec), out_specs=out_pspec)(
+                in_arr, out_arr)
 
     def layout_for(
         self,

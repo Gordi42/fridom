@@ -28,12 +28,14 @@ from fridom.framework2.grid.operators.base import (
     BinaryOperator,
     FieldLike,
 )
+from fridom.framework2.grid.operators.interned import interned
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
 
 @final
+@interned
 class Where(BinaryOperator):
 
     """
@@ -53,6 +55,10 @@ class Where(BinaryOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "select"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(
         self,

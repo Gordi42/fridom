@@ -32,6 +32,7 @@ from fridom.framework2.grid.operators.base import (
     OperatorRequirements,
     SeparableOperator,
 )
+from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.transform import (
     axis_concat,
     axis_slice,
@@ -196,6 +197,7 @@ def _paired_origin(origin: FunctionSpace, node_set: NodeSet,
 #  SpectralDerivative
 # ================================================================
 @final
+@interned
 class SpectralDerivative(SeparableOperator):
 
     """
@@ -221,6 +223,10 @@ class SpectralDerivative(SeparableOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "diff"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """
@@ -410,6 +416,7 @@ def _chebyshev_derivative(a: jax.Array, axis: int,
 #  PhaseShift
 # ================================================================
 @final
+@interned
 class PhaseShift(SeparableOperator):
 
     """
@@ -440,6 +447,10 @@ class PhaseShift(SeparableOperator):
                 "PhaseShift targets the periodic nodal node sets "
                 f"(CENTER/LEFT/RIGHT), got {to!r}")
         self._to: NodeSet = to
+
+    def _intern_key(self) -> tuple:
+        """Structural key: the target origin node set (D6)."""
+        return (self._to,)
 
     @property
     def to(self) -> NodeSet:
@@ -501,6 +512,7 @@ class PhaseShift(SeparableOperator):
 #  SincShift
 # ================================================================
 @final
+@interned
 class SincShift(SeparableOperator):
 
     """
@@ -534,6 +546,10 @@ class SincShift(SeparableOperator):
                 "SincShift targets the periodic nodal node sets "
                 f"(CENTER/LEFT/RIGHT), got {to!r}")
         self._to: NodeSet = to
+
+    def _intern_key(self) -> tuple:
+        """Structural key: the target origin node set (D6)."""
+        return (self._to,)
 
     @property
     def to(self) -> NodeSet:

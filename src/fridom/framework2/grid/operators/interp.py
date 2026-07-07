@@ -23,6 +23,7 @@ from fridom.framework2.grid.operators.base import (
     OperatorRequirements,
     SeparableOperator,
 )
+from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.staggering import apply_staggered
 from fridom.framework2.grid.operators.stencil_kernels import (
     linear_interp,
@@ -39,6 +40,7 @@ _INTERP_SIZE = 2
 
 
 @final
+@interned
 class LinearInterp(SeparableOperator):
 
     """
@@ -68,6 +70,10 @@ class LinearInterp(SeparableOperator):
                 f"target must be a NodeSet member or None, got "
                 f"{target!r}")
         self._target: NodeSet | None = target
+
+    def _intern_key(self) -> tuple:
+        """Structural key: the explicit target node set (D6)."""
+        return (self._target,)
 
     @property
     def target(self) -> NodeSet | None:

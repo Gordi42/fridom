@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, final
 
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.operators.base import (
+    _ALGEBRA_TABLE,
     FieldLike,
     OperatorRequirements,
     SeparableOperator,
@@ -57,6 +58,7 @@ from fridom.framework2.grid.spaces.average import CellAvg
 if TYPE_CHECKING:  # pragma: no cover
     from jax import Array
 
+    from fridom.framework2.grid.operators.fallback import Fallback
     from fridom.framework2.grid.spaces.function_space import (
         FunctionSpace,
     )
@@ -68,6 +70,12 @@ WENO_EPS = 1e-10
 #: formal orders grounded in iteration 1 (the r = 2, 3 stencil
 #: families of the reference smoothness-indicator tables)
 _SUPPORTED_ORDERS = (3, 5)
+
+#: constructor ``boundary`` variants (decision R2 parity): "none" is
+#: the periodic-only kernel (today's exact behavior); "graded" mints
+#: the bounded-legal graded ``Fallback``. The one-sided-stencil
+#: variant ("one_sided", R2) is designed-for and not yet a mode here.
+_BOUNDARY_MODES = ("none", "graded")
 
 #: optimal ("linear") stencil weights d_m per stencil size r, indexed
 #: by the candidate number m (0 = leftmost candidate of the
@@ -505,10 +513,31 @@ class WenoReconstruction(SeparableOperator):
     Upwinding is a *pair* of biased instances selected by flux sign
     through the ``("select", ...)`` kind (``operators.select.Where``).
     Iteration 1 is periodic-only (parity with the old stack's
-    ``weno_interpolation.py``); bounded-axis boundary biasing is
-    designed-for, so a bounded registration is a space error, never a
-    silent fallback. Nonlinear, hence no ``eigenvalues`` (the raising
-    base is correct and automatic).
+    ``weno_interpolation.py``); the bare kernel's bounded-axis
+    boundary biasing is designed-for, so a bounded registration is a
+    space error, never a silent fallback. Nonlinear, hence no
+    ``eigenvalues`` (the raising base is correct and automatic).
+
+    The ``boundary`` knob (decision R2 parity) is a constructor
+    variant, not per-application state: ``boundary="none"`` (default)
+    is the periodic-only kernel above; ``boundary="graded"`` does
+    **not** build a ``WenoReconstruction`` at all — it mints and
+    returns the bounded-legal graded :class:`~.fallback.Fallback`
+    (``CellAvg -> Inner``) via :func:`~.fallback.graded_reconstruction`,
+    retiring the periodic-only restriction by construction. The
+    "one_sided" variant (R2) is designed-for.
+
+    Registration / override usage (sketch 4.2): an advection module
+    installs the wide graded row under the ``"reconstruct"`` kind by
+    merging the constructor variant, e.g.
+
+    .. code-block:: python
+
+        grid.dispatch.merge({
+            ("reconstruct", mesh.cell_avg):
+                WenoReconstruction(5, boundary="graded")})
+
+    so bounded and periodic axes both resolve a legal reconstruction.
 
     Parameters
     ----------
@@ -518,19 +547,105 @@ class WenoReconstruction(SeparableOperator):
     bias : Literal["left", "right"], optional
         The upwind bias side of the reconstruction
         (default: "left").
+    boundary : Literal["none", "graded"], optional
+        Construction variant (default: "none"). "none" is the
+        periodic-only kernel; "graded" returns the bounded-legal
+        graded ``Fallback`` (a different class — ``__init__`` is then
+        skipped).
     """
 
     dispatch_kind: ClassVar[str | None] = "reconstruct"
+
+    def __new__(
+        cls,
+        order: int = 5,
+        bias: Literal["left", "right"] = "left",
+        boundary: Literal["none", "graded"] = "none",
+    ) -> WenoReconstruction | Fallback:
+        """
+        Dispatch the ``boundary`` variant (R2 parity, sketch 4.2).
+
+        Description
+        -----------
+        ``boundary="none"`` (default) returns the interned plain kernel
+        for ``(order, bias)`` (D6 self-intern) — today's exact
+        periodic-only kernel, unchanged in behavior. ``boundary="graded"``
+        returns the graded :class:`~.fallback.Fallback` built by
+        :func:`~.fallback.graded_reconstruction`; because the leaf rungs
+        now self-intern, that ``Fallback`` coalesces on its own structure,
+        so the graded spelling is already a stable interned handle (no
+        separate memo needed). Since it is a different class, Python skips
+        ``__init__`` for it. The ``copy.copy`` seam of ``_rebind`` never
+        reaches this path: ``__copy__`` takes precedence and returns a
+        fresh mutable clone, so the plain path can intern unconditionally.
+
+        Parameters
+        ----------
+        order : int, optional
+            The odd formal order (default: 5).
+        bias : Literal["left", "right"], optional
+            The upwind bias side (default: "left").
+        boundary : Literal["none", "graded"], optional
+            The construction variant (default: "none").
+
+        Returns
+        -------
+        WenoReconstruction | Fallback
+            A plain kernel for "none", the graded ``Fallback`` for
+            "graded".
+
+        Raises
+        ------
+        ValueError
+            On an unknown ``boundary`` mode, or an invalid
+            ``order``/``bias``.
+        """
+        if boundary not in _BOUNDARY_MODES:
+            raise ValueError(
+                f"boundary must be one of {_BOUNDARY_MODES}: 'none' "
+                "is the periodic-only kernel, 'graded' mints a "
+                "bounded-legal Fallback ('one_sided' is designed-for)"
+                f", got {boundary!r}")
+        _validate(order, bias)
+        if boundary == "graded":
+            from fridom.framework2.grid.operators.fallback import (  # noqa: PLC0415 — import-cycle seam (fallback imports weno)
+                graded_reconstruction,
+            )
+            return graded_reconstruction(order, bias)
+
+        def build() -> WenoReconstruction:
+            obj = super(WenoReconstruction, cls).__new__(cls)
+            obj._order = order
+            obj._bias = bias
+            return obj
+
+        return _ALGEBRA_TABLE.intern((cls, order, bias), build)
 
     def __init__(
         self,
         order: int = 5,
         bias: Literal["left", "right"] = "left",
+        boundary: Literal["none", "graded"] = "none",
     ) -> None:
-        """Create a WENO kernel of the given odd order and bias."""
-        _validate(order, bias)
-        self._order: int = order
-        self._bias: Literal["left", "right"] = bias
+        """No-op: attributes are set in the interning ``__new__``.
+
+        Only ``boundary="none"`` reaches ``__init__`` on a
+        ``WenoReconstruction`` at all (the "graded" variant returns a
+        ``Fallback`` from ``__new__``); it must not re-validate or
+        clobber the interned singleton's attributes.
+        """
+
+    def __copy__(self) -> WenoReconstruction:
+        """Fresh shallow clone bypassing interning (the ``_rebind`` seam).
+
+        ``SeparableOperator._rebind`` does ``copy.copy(base)`` then
+        mutates the clone's ``bound_axis``; without this the copy would
+        reconstruct via the interning ``__new__`` and hand back the
+        shared unbound singleton, which ``_rebind`` would then corrupt.
+        """
+        new = object.__new__(type(self))
+        new.__dict__.update(self.__dict__)
+        return new
 
     # ------------------------------------------------------------
     #  Properties

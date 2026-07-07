@@ -21,6 +21,7 @@ from fridom.framework2.grid.operators.base import (
     OperatorRequirements,
     SeparableOperator,
 )
+from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.staggering import (
     apply_staggered,
     uniform_spacing,
@@ -41,6 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 @final
+@interned
 class FiniteDifference(SeparableOperator):
 
     """
@@ -67,6 +69,10 @@ class FiniteDifference(SeparableOperator):
         """Create an FD kernel of the given even order."""
         staggered_diff_weights(order)  # validates even, >= 2
         self._order: int = order
+
+    def _intern_key(self) -> tuple:
+        """Structural key: the stencil order (D6)."""
+        return (self._order,)
 
     @property
     def order(self) -> int:

@@ -360,6 +360,74 @@ class Decomposition(ABC):
         ...
 
     @abstractmethod
+    def patch_physical_ends(
+        self,
+        out_arr: jax.Array,
+        in_arr: jax.Array,
+        out_space: SpaceLike,
+        in_space: SpaceLike,
+        axis: str,
+        patch: Callable[..., jax.Array],
+        *,
+        layout: Layout | None = None,
+    ) -> jax.Array:
+        """
+        Overwrite the two physical-wall ends of a reconstructed axis.
+
+        Description
+        -----------
+        The shard-position-aware seam a graded reconstruction uses to
+        patch its wall rows: the operator stays shard-blind and hands
+        in a **pure, shard-blind** local-block callback; this method
+        owns the (single-block vs ``shard_map`` + ``axis_index``-mask)
+        dispatch, mirroring ``sync``'s exchange. ``in_arr`` is the
+        input storage (e.g. ``CellAvg``) and ``out_arr`` the
+        reconstructed output storage (e.g. ``Inner``); the two block
+        identically along ``axis`` (the uniform stagger frame), so one
+        ``shard_map`` co-shards both on the axis's device-mesh axis.
+
+        The callback
+
+            ``patch(in_block, out_block, side, width_in, t_in,
+                    width_out, t_out) -> out_block``
+
+        receives one ``[width | true | trail]`` block of each array,
+        ``side`` (0 = left wall, 1 = right wall), the leading ghost
+        widths, and the **local** true counts ``t_in`` / ``t_out``
+        (Python ints on a single shard, traced scalars under
+        ``shard_map`` — so the callback must index off ``t`` with
+        ``lax.dynamic_slice`` rather than Python slicing). It overwrites
+        the ``K`` wall faces of ``out_block`` from ``in_block``'s
+        wall-side interior cells and returns the whole block. It is
+        evaluated for **both** walls on every shard (static shapes) and
+        masked onto the two boundary shards.
+
+        Parameters
+        ----------
+        out_arr : jax.Array
+            The reconstructed output storage to patch in place.
+        in_arr : jax.Array
+            The input storage the rung stencils read from.
+        out_space : SpaceLike
+            The output (product) space (sizes ``out_arr``).
+        in_space : SpaceLike
+            The input (product) space (sizes ``in_arr``).
+        axis : str
+            The reconstructed coordinate name.
+        patch : Callable
+            The pure local-block wall-patch callback (see above).
+        layout : Layout | None, optional
+            A negotiated layout; None resolves as in ``sharding``
+            (default: None).
+
+        Returns
+        -------
+        jax.Array
+            ``out_arr`` with its two physical-wall ends overwritten.
+        """
+        ...
+
+    @abstractmethod
     def layout_for(
         self,
         local_names: tuple[str, ...],

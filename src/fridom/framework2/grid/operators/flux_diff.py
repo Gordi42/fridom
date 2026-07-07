@@ -34,6 +34,7 @@ from fridom.framework2.grid.operators.base import (
     OperatorRequirements,
     SeparableOperator,
 )
+from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.reconstruct import (
     apply_fv_staggered,
     factor_codomain,
@@ -109,6 +110,7 @@ def _windowed_diff(
 
 
 @final
+@interned
 class FluxDifference(SeparableOperator):
 
     """
@@ -129,6 +131,10 @@ class FluxDifference(SeparableOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "flux_diff"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """
@@ -234,6 +240,7 @@ class FluxDifference(SeparableOperator):
 
 
 @final
+@interned
 class DualFluxDifference(SeparableOperator):
 
     """
@@ -251,6 +258,10 @@ class DualFluxDifference(SeparableOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "flux_diff"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """
@@ -322,6 +333,7 @@ class DualFluxDifference(SeparableOperator):
 
 
 @final
+@interned
 class FaceDifference(SeparableOperator):
 
     """
@@ -338,6 +350,10 @@ class FaceDifference(SeparableOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "face_diff"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """

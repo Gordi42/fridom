@@ -40,7 +40,8 @@ def test_abstract_surface_matches_class_doc():
     expected = {
         "halo", "default_layout", "layouts", "sharding",
         "local_slice", "storage_shape", "zeros", "pad", "unpad",
-        "sync", "layout_for", "redistribute", "gather",
+        "sync", "patch_physical_ends", "layout_for", "redistribute",
+        "gather",
     }
     assert set(Decomposition.__abstractmethods__) == expected
 

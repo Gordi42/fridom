@@ -34,6 +34,7 @@ from fridom.framework2.grid.operators.base import (
     OperatorRequirements,
     SeparableOperator,
 )
+from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.staggering import (
     first_node_offset,
 )
@@ -252,6 +253,7 @@ def apply_fv_staggered(
 #  LinearReconstruction
 # ================================================================
 @final
+@interned
 class LinearReconstruction(SeparableOperator):
 
     """
@@ -283,6 +285,10 @@ class LinearReconstruction(SeparableOperator):
                 f"target must be a NodeSet member or None, got "
                 f"{target!r}")
         self._target: NodeSet | None = target
+
+    def _intern_key(self) -> tuple:
+        """Structural key: the explicit target node set (D6)."""
+        return (self._target,)
 
     @property
     def target(self) -> NodeSet | None:

@@ -28,6 +28,7 @@ from fridom.framework2.grid.operators.base import (
     FieldLike,
     UnaryOperator,
 )
+from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.spaces.tensor_product import (
     TensorProductSpace,
 )
@@ -69,6 +70,7 @@ def _elementwise(
 
 
 @final
+@interned
 class CollocationProduct(BinaryOperator):
 
     """
@@ -85,6 +87,10 @@ class CollocationProduct(BinaryOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "multiply"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(
         self, domain_a: SpaceLike, domain_b: SpaceLike,
@@ -129,6 +135,7 @@ class CollocationProduct(BinaryOperator):
 
 
 @final
+@interned
 class Divide(BinaryOperator):
 
     """
@@ -143,6 +150,10 @@ class Divide(BinaryOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "divide"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(
         self, domain_a: SpaceLike, domain_b: SpaceLike,
@@ -187,6 +198,7 @@ class Divide(BinaryOperator):
 
 
 @final
+@interned
 class Power(BinaryOperator):
 
     """
@@ -201,6 +213,10 @@ class Power(BinaryOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "power"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(
         self, domain_a: SpaceLike, domain_b: SpaceLike,
@@ -245,6 +261,7 @@ class Power(BinaryOperator):
 
 
 @final
+@interned
 class Abs(UnaryOperator):
 
     """
@@ -259,6 +276,10 @@ class Abs(UnaryOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "abs"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(self, domain: SpaceLike) -> SpaceLike:
         """

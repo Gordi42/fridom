@@ -27,6 +27,7 @@ from fridom.framework2.grid.operators.base import (
     SeparableOperator,
     resolve_codomain,
 )
+from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.average import AverageSpace
 from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
@@ -40,6 +41,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 @final
+@interned
 class Integral(SeparableOperator):
 
     """
@@ -57,6 +59,10 @@ class Integral(SeparableOperator):
     """
 
     dispatch_kind: ClassVar[str | None] = "integrate"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: no constructor state (D6)."""
+        return ()
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """

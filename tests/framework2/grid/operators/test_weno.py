@@ -1,4 +1,5 @@
 """Tests for fridom.framework2.grid.operators.weno."""
+import copy
 from fractions import Fraction
 
 import jax
@@ -12,6 +13,10 @@ from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators import weno as wk
 from fridom.framework2.grid.operators.base import EigenbasisError
+from fridom.framework2.grid.operators.fallback import (
+    Fallback,
+    graded_reconstruction,
+)
 from fridom.framework2.grid.operators.reconstruct import (
     LinearReconstruction,
 )
@@ -129,6 +134,98 @@ def test_codomain_rejects_bounded_axes(my):
     # never a silent fallback
     with pytest.raises(SpaceMismatchError, match="designed-for"):
         WenoReconstruction().codomain(my.cell_avg)
+
+
+# ================================================================
+#  The boundary="graded" constructor knob (F2, R2 parity)
+# ================================================================
+def test_graded_boundary_returns_bounded_legal_fallback(my, mx):
+    # boundary="graded" mints the graded Fallback (a different class),
+    # bounded-legal: CellAvg -> Inner resolves and does NOT raise
+    op = WenoReconstruction(5, boundary="graded")
+    assert isinstance(op, Fallback)
+    assert op.codomain(my.cell_avg) is my.inner
+    assert op.codomain(mx.cell_avg) is mx.right  # periodic still Right
+    assert op.interior.order == 5
+    assert op.interior.bias == "left"
+    assert [rung.order for rung in op.boundary] == [3, 1]
+
+
+def test_graded_boundary_is_interned():
+    # the constructor spelling is a stable interned handle
+    a = WenoReconstruction(5, boundary="graded")
+    b = WenoReconstruction(5, boundary="graded")
+    assert a is b
+    # ... and (now the leaf rungs self-intern, so graded_reconstruction's
+    # Fallback coalesces on its own) the knob IS the factory object: the
+    # memo the knob used to carry is gone, identity holds by construction
+    assert a is graded_reconstruction(5)
+
+
+@pytest.mark.parametrize("bias", ["left", "right"])
+def test_graded_boundary_routes_both_biases(bias):
+    op = WenoReconstruction(5, bias=bias, boundary="graded")
+    assert isinstance(op, Fallback)
+    assert op.interior.bias == bias
+    assert all(rung.bias == bias for rung in op.boundary)
+    # distinct interned handle per bias
+    assert op is WenoReconstruction(5, bias=bias, boundary="graded")
+
+
+def test_graded_boundary_validates_order_and_bias():
+    with pytest.raises(ValueError, match="iteration 1"):
+        WenoReconstruction(7, boundary="graded")
+    with pytest.raises(ValueError, match="bias"):
+        WenoReconstruction(5, bias="up", boundary="graded")
+
+
+def test_boundary_none_is_the_plain_kernel_unchanged(my, mx):
+    # default and explicit "none" are the plain periodic-only kernel:
+    # same class, still a space error on a bounded axis
+    for op in (WenoReconstruction(5), WenoReconstruction(5, boundary="none")):
+        assert isinstance(op, WenoReconstruction)
+        assert not isinstance(op, Fallback)
+        assert op.order == 5
+        with pytest.raises(SpaceMismatchError, match="designed-for"):
+            op.codomain(my.cell_avg)
+        assert op.codomain(mx.cell_avg) is mx.right
+
+
+def test_unknown_boundary_is_rejected():
+    with pytest.raises(ValueError, match="boundary must be one of"):
+        WenoReconstruction(5, boundary="wat")
+
+
+# ================================================================
+#  Plain-path self-interning (D6) + binding safety
+# ================================================================
+def test_plain_kernel_self_interns_on_structure():
+    # structurally-equal plain kernels are the same object (D6)
+    assert WenoReconstruction(5) is WenoReconstruction(5)
+    assert WenoReconstruction(3, "right") is WenoReconstruction(3, "right")
+    # distinct structure => distinct objects
+    assert WenoReconstruction(5) is not WenoReconstruction(3)
+    assert WenoReconstruction(5, "left") is not WenoReconstruction(5, "right")
+
+
+def test_binding_does_not_mutate_the_unbound_singleton():
+    base = WenoReconstruction(5)
+    bound = base["x"]
+    # the unbound singleton is untouched by binding (the _rebind
+    # copy.copy hazard: __copy__ hands _rebind a fresh clone)
+    assert base.bound_axis is None
+    assert bound.bound_axis == "x"
+    # binding is itself interned on (base, axis)
+    assert bound is WenoReconstruction(5)["x"]
+    assert bound.unbound is base
+
+
+def test_copy_bypasses_interning():
+    base = WenoReconstruction(5)
+    clone = copy.copy(base)
+    assert clone is not base
+    assert clone.order == 5
+    assert clone.bias == "left"
 
 
 # ================================================================
