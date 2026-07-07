@@ -18,10 +18,11 @@ from .conftest import (
 def test_csqr_is_a_state_field_not_a_scalar():
     model = make_model(csqr=1.5)
     c = model.state["csqr"]
-    # a full centre field carrying the phase speed everywhere
+    # a one-DOF Profile() field (constant depth) that broadcasts to the
+    # nodal join in the tendency terms — still a field, not a scalar
     assert isinstance(c, fr.grid.ScalarField)
     assert c.function_space.bare is (
-        fr.Collocated().resolve(model.grid))
+        fr.Profile().resolve(model.grid))
     np.testing.assert_allclose(np.asarray(c.data), 1.5)
 
 
@@ -34,15 +35,15 @@ def test_advection_changes_the_solution_vs_linear():
     grid = make_grid()
     nonlin = make_model(grid, rossby_number=0.5, advection=True)
     linear = make_model(grid, rossby_number=0.5, advection=False)
-    nonlin.set_fields(h=gaussian_bump(amp=0.2),
+    nonlin.set_fields(p=gaussian_bump(amp=0.2),
                       u=lambda x, y: 0.2 * np.sin(2 * np.pi * y) + 0.0 * x)
-    linear.set_fields(h=gaussian_bump(amp=0.2),
+    linear.set_fields(p=gaussian_bump(amp=0.2),
                       u=lambda x, y: 0.2 * np.sin(2 * np.pi * y) + 0.0 * x)
     nonlin.advance(40)
     linear.advance(40)
     # the nonlinear advection leaves a measurable imprint
-    diff = np.abs(np.asarray(nonlin.state["h"].data)
-                  - np.asarray(linear.state["h"].data)).max()
+    diff = np.abs(np.asarray(nonlin.state["p"].data)
+                  - np.asarray(linear.state["p"].data)).max()
     assert diff > 1e-4
 
 
@@ -51,17 +52,17 @@ def test_advection_changes_the_solution_vs_linear():
 # ================================================================
 def test_mass_exact_under_full_dynamics():
     model = make_model(rossby_number=0.5)
-    model.set_fields(h=gaussian_bump(amp=0.15),
+    model.set_fields(p=gaussian_bump(amp=0.15),
                      v=lambda x, y: 0.1 * np.cos(2 * np.pi * x) + 0.0 * y)
-    mass0 = float(model.state["h"].integrate().data.ravel()[0])
+    mass0 = float(model.state["p"].integrate().data.ravel()[0])
     model.advance(50)
-    mass1 = float(model.state["h"].integrate().data.ravel()[0])
+    mass1 = float(model.state["p"].integrate().data.ravel()[0])
     assert abs(mass1 - mass0) < 1e-12
 
 
 def test_energy_bounded_with_a_balanced_start():
     model = make_model(rossby_number=0.3, dt=2e-3)
-    model.set_fields(h=gaussian_bump(amp=0.08),
+    model.set_fields(p=gaussian_bump(amp=0.08),
                      u=lambda x, y: 0.05 * np.sin(2 * np.pi * y) + 0.0 * x,
                      v=lambda x, y: 0.05 * np.sin(2 * np.pi * x) + 0.0 * y)
     e0 = total_energy(model)
@@ -74,7 +75,7 @@ def test_energy_bounded_with_a_balanced_start():
 
 def test_potential_enstrophy_stays_bounded():
     model = make_model(rossby_number=0.4, dt=2e-3)
-    model.set_fields(h=gaussian_bump(amp=0.1),
+    model.set_fields(p=gaussian_bump(amp=0.1),
                      u=lambda x, y: 0.1 * np.sin(2 * np.pi * y) + 0.0 * x)
 
     def enstrophy(m):

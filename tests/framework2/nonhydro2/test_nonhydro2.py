@@ -11,6 +11,7 @@ import jax
 import numpy as np
 import pytest
 
+import fridom.framework2 as fr
 import fridom.nonhydro2 as nh
 from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.grid import Grid
@@ -25,12 +26,12 @@ from fridom.framework2.model.roles import ADVECTED, TRACER, Velocity
 from fridom.framework2.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.advection import CenteredAdvection
-from fridom.nonhydro2.modules.core import DynamicalCore
-from fridom.nonhydro2.modules.coriolis import (
+from fridom.framework2.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
 )
+from fridom.nonhydro2.modules.advection import CenteredAdvection
+from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -203,6 +204,35 @@ def test_fplane_provides_coriolis_f0_betaplane_does_not():
     assert CORIOLIS_F0 not in bp.parameters
     with pytest.raises(ValueError, match="constant"):
         nh.eigenmodes.from_model(bp)
+
+
+def test_betaplane_advances_with_a_profile_f_of_y():
+    # the shared fr.modules beta-plane carries the rotation term as
+    # pure field arithmetic (no extra_halo raw-.data bypass); prove it
+    # assembles AND advances treedef-stably on a real Profile("y") f(y)
+    cor = BetaPlaneCoriolis(f0=1.0, beta=0.5)
+    assert cor.extra_halo is None
+    model = nh.Model(grid=make_grid(), dt=DT, advection=False,
+                     coriolis=cor)
+    # the auxiliary Coriolis field genuinely varies in y
+    fc = np.asarray(model.state["f_coriolis"].data)
+    assert fc.std() > 0.0
+    _, y, z = grid_coords()
+    model.set_fields(u=0.01 * np.sin(y), b=0.01 * np.cos(z))
+    before = jax.tree_util.tree_structure(model._carry)
+    model.advance(4)
+    assert jax.tree_util.tree_structure(model._carry) == before
+    assert np.isfinite(np.asarray(model.state["u"].data)).all()
+
+
+def test_coriolis_is_the_shared_framework_module():
+    assert nh.FPlaneCoriolis is fr.modules.FPlaneCoriolis
+    assert nh.BetaPlaneCoriolis is fr.modules.BetaPlaneCoriolis
+    model = nh.Model(grid=make_grid(), dt=DT)
+    coriolis_modules = [
+        m for m in model._carry.modules
+        if isinstance(m, fr.modules.FPlaneCoriolis)]
+    assert len(coriolis_modules) == 1
 
 
 def test_velocity_roles_and_pressure_is_role_free():

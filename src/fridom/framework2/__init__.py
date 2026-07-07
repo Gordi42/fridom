@@ -25,7 +25,7 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
-    from . import grid, io, model, ops, transforms
+    from . import grid, io, model, modules, ops, transforms
     from .io import slurm
 
     # import all classes (the fr.* surface, grown wave by wave)
@@ -77,7 +77,7 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.framework2"
 
 all_modules_by_origin = {
-    base: ["grid", "model", "transforms", "io", "ops"],
+    base: ["grid", "model", "modules", "transforms", "io", "ops"],
     # module namespaces re-homed to the top level (fr.roles, ...)
     f"{base}.model": ["roles", "params", "implicit", "time_steppers"],
     f"{base}.io": ["slurm"],

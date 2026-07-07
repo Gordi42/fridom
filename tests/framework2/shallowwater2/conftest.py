@@ -32,30 +32,30 @@ def make_model(grid=None, *, csqr=1.0, rossby_number=0.2, f0=1.0,
 
 
 def gaussian_bump(amp=0.1, sigma=0.12):
-    """Return a centred Gaussian height perturbation (rest velocities)."""
-    def h(x, y):
+    """Return a centred Gaussian pressure perturbation (rest velocities)."""
+    def p(x, y):
         return amp * np.exp(
             -((x - 0.5) ** 2 + (y - 0.5) ** 2) / (2 * sigma ** 2))
-    return h
+    return p
 
 
 def total_energy(model):
     """Compute a centre-sampled total-energy proxy of the state.
 
-    ``E = integral[ 0.5 Ro^2 h_full (u^2 + v^2) + 0.5 h_full^2 ]``
-    with ``h_full = c^2 + Ro h`` — the old model's ekin + epot,
+    ``E = integral[ 0.5 Ro^2 p_full (u^2 + v^2) + 0.5 p_full^2 ]``
+    with ``p_full = c^2 + Ro p`` — the old model's ekin + epot,
     evaluated on cell centres.
     """
     state = model.state
     ro = float(model.parameters[fr.params.SCALING_ROSSBY])
     c = state["csqr"]
-    h = state["h"]
-    centre = h.function_space
+    p = state["p"]
+    centre = p.function_space
     u_c = state["u"].to(centre)
     v_c = state["v"].to(centre)
-    h_full = c + ro * h
-    ekin = 0.5 * ro ** 2 * h_full * (u_c * u_c + v_c * v_c)
-    epot = 0.5 * (h_full * h_full)
+    p_full = c.to(centre) + ro * p
+    ekin = 0.5 * ro ** 2 * p_full * (u_c * u_c + v_c * v_c)
+    epot = 0.5 * (p_full * p_full)
     return float((ekin + epot).integrate().data.ravel()[0])
 
 

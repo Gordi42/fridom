@@ -4,12 +4,13 @@ Shared field helper for the shallow-water modules.
 Description
 -----------
 One helper, :func:`scale`, that multiplies a field by a possibly
-*traced* scalar (a ``ctx.params`` value such as the Rossby number).
-The interpolation of the Coriolis / ``csqr`` fields is done with the
-plain ``.to(space)`` operator (both fields are declared on the
-collocated centre space, so ``.to`` is a nodal interpolation the halo
-tracer follows) — see the note in :mod:`.modules.coriolis` on why
-those fields are not on the one-DOF ``fr.Profile()``.
+*traced* scalar (a ``ctx.params`` value such as the Rossby number) —
+the residual traced-scalar-times-field escape the field-algebra
+dunders cannot express (they accept only Python scalars). The
+Coriolis / ``csqr`` fields are declared on the one-DOF
+``fr.Profile()`` and broadcast to the nodal join with the plain
+``.to(space)`` operator (the GAP-A ConstantSpace/Profile lift makes
+that trace cleanly), so they need no such escape.
 """
 from __future__ import annotations
 

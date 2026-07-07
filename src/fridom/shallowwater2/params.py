@@ -27,4 +27,4 @@ CSQR: Final[ParamName] = ParamName(
     "shallowwater.csqr",
     units="m^2/s^2",
     hint="provided by the shallow-water core, e.g. "
-         "sw.modules.ShallowWaterCore(csqr=...)")
+         "sw.modules.DynamicalCore(csqr=...)")

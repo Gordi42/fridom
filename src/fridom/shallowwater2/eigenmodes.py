@@ -113,13 +113,13 @@ class Eigenmodes:
     # ================================================================
     def q(self, s: int) -> State:
         """Return the eigenvector State for mode ``s`` (coeff space)."""
-        qu, qv, qh = self._q_arrays(s)
-        return self._state(qu, qv, qh)
+        qu, qv, qp = self._q_arrays(s)
+        return self._state(qu, qv, qp)
 
     def p(self, s: int) -> State:
         """Return the projection-vector State for mode ``s``."""
-        pu, pv, ph = self._p_arrays(s)
-        return self._state(pu, pv, ph)
+        pu, pv, pp = self._p_arrays(s)
+        return self._state(pu, pv, pp)
 
     def projector(self, s: int) -> Callable[[State], State]:
         r"""
@@ -133,62 +133,62 @@ class Eigenmodes:
         coefficient space. Idempotent by biorthonormality
         (:math:`\boldsymbol{p}^s{}^* \cdot \boldsymbol{q}^s = 1`).
         """
-        qu, qv, qh = self._q_arrays(s)
-        pu, pv, ph = self._p_arrays(s)
+        qu, qv, qp = self._q_arrays(s)
+        pu, pv, pp = self._p_arrays(s)
 
         def project(z: State) -> State:
             """Project ``z`` onto mode ``s`` (pointwise per mode)."""
             coeff = (jnp.conj(pu) * z["u"].data
                      + jnp.conj(pv) * z["v"].data
-                     + jnp.conj(ph) * z["h"].data)
-            return self._state(qu * coeff, qv * coeff, qh * coeff)
+                     + jnp.conj(pp) * z["p"].data)
+            return self._state(qu * coeff, qv * coeff, qp * coeff)
 
         return project
 
     # ================================================================
     #  Internals
     # ================================================================
-    def _state(self, u_arr, v_arr, h_arr) -> State:  # noqa: ANN001
+    def _state(self, u_arr, v_arr, p_arr) -> State:  # noqa: ANN001
         """Wrap three coefficient arrays into a State."""
         return State({
             "u": self._template.with_data(u_arr).with_metadata(
                 name="u"),
             "v": self._template.with_data(v_arr).with_metadata(
                 name="v"),
-            "h": self._template.with_data(h_arr).with_metadata(
-                name="h")})
+            "p": self._template.with_data(p_arr).with_metadata(
+                name="p")})
 
     def _q_arrays(
         self, s: int,
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """Continuous eigenvector arrays (u, v, h) for mode ``s``."""
+        """Continuous eigenvector arrays (u, v, p) for mode ``s``."""
         kx, ky, f = self._kx, self._ky, self.f0
         om = self.omega(s, kx, ky)
         qu = om * kx - 1j * f * ky
         qv = om * ky + 1j * f * kx
-        qh = f ** 2 - om ** 2
+        qp = f ** 2 - om ** 2
         # inertial modes at k = 0
-        qu0, qv0, qh0 = -1j * s, s ** 2 * 1.0, 1.0 - s ** 2
+        qu0, qv0, qp0 = -1j * s, s ** 2 * 1.0, 1.0 - s ** 2
         nonzero = (kx ** 2 + ky ** 2) != 0
         qu = jnp.where(nonzero, qu, qu0)
         qv = jnp.where(nonzero, qv, qv0)
-        qh = jnp.where(nonzero, qh, qh0)
-        return qu, qv, qh
+        qp = jnp.where(nonzero, qp, qp0)
+        return qu, qv, qp
 
     def _p_arrays(
         self, s: int,
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """Projection-vector arrays: q with h/c^2, then normalized."""
-        qu, qv, qh = self._q_arrays(s)
+        """Projection-vector arrays: q with p/c^2, then normalized."""
+        qu, qv, qp = self._q_arrays(s)
         nonzero = (self._kx ** 2 + self._ky ** 2) != 0
-        zh = jnp.where(nonzero & (self.csqr != 0),
-                       qh / (self.csqr if self.csqr != 0 else 1.0),
-                       qh)
+        zp = jnp.where(nonzero & (self.csqr != 0),
+                       qp / (self.csqr if self.csqr != 0 else 1.0),
+                       qp)
         norm = jnp.abs(jnp.conj(qu) * qu + jnp.conj(qv) * qv
-                       + jnp.conj(qh) * zh)
+                       + jnp.conj(qp) * zp)
         good = norm > _NORM_FLOOR
         scale = jnp.where(good, 1.0 / jnp.where(good, norm, 1.0), 0.0)
-        return qu * scale, qv * scale, zh * scale
+        return qu * scale, qv * scale, zp * scale
 
 
 def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
@@ -230,7 +230,7 @@ def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
          "sw.modules.FPlaneCoriolis"),
         (sw_params.CSQR,
          "a constant squared phase speed; assemble with a "
-         "constant-depth ShallowWaterCore"),
+         "constant-depth DynamicalCore"),
     ):
         if name not in view:
             raise ValueError(

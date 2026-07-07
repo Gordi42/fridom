@@ -7,7 +7,7 @@ A top-level parallel package (renamed onto ``fridom.shallowwater`` at
 cutover) that consumes ``fridom.framework2`` and provides the
 shallow-water vocabulary and physics:
 
-- :class:`~fridom.shallowwater2.state.State` — the ``u``/``v``/``h``
+- :class:`~fridom.shallowwater2.state.State` — the ``u``/``v``/``p``
   vocabulary class;
 - :mod:`~fridom.shallowwater2.modules` — the core, Coriolis, and
   Sadourny advection modules;

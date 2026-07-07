@@ -203,6 +203,25 @@ is signed and implemented on a separate branch, not yet in dev.
     product path the same way the eager path does; add the
     `ConstantSpace`→nodal `.to` broadcast row.
 
+14. **Field arithmetic rejects a traced scalar operand** —
+    ergonomics/robustness; surfaced by the wave-6 cleanup
+    (2026-07-08). The `ScalarField` arithmetic dunders accept only
+    Python scalars, not a traced `ctx.params[...]` value, so any
+    term multiplying a field by a traced parameter scalar (Rossby
+    scaling `Ro·adv`, `b/dsqr`, `-N²·w`) must drop to
+    `field.with_data(scalar * field.data)` — a raw-`.data` escape
+    that then forces an `extra_halo` declaration. This is why the
+    wave-6 Coriolis unification routes `f` through a *field*
+    (`f_coriolis`) rather than a scalar param, and why the
+    nonhydro `ConstantStratification`/`CenteredAdvection` and the
+    shallowwater `SadournyAdvection` still carry `extra_halo`
+    bypasses. Fix: let the field arithmetic dunders (and the
+    `HaloTracer` twins) accept a 0-d `jax.Array`/traced scalar
+    operand (broadcast, halo-0) — the scalar analogue of the GAP-13
+    `ConstantSpace` broadcast. Not blocking (the bypasses work);
+    removes the last routine `extra_halo` raw-`.data` escapes from
+    model terms.
+
 11. **BC-free bounded spaces: exterior values untouchable** —
     owner-flagged design question (2026-07-07), full note in
     [`bc_free_boundaries.md`](bc_free_boundaries.md). Replace the

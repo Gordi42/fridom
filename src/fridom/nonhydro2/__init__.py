@@ -15,11 +15,15 @@ from typing import TYPE_CHECKING
 from lazypimp import setup
 
 if TYPE_CHECKING:  # pragma: no cover
+    from fridom.framework2.modules import (
+        BetaPlaneCoriolis,
+        FPlaneCoriolis,
+    )
+
     from . import diagnostics, eigenmodes, modules, params
     from .model import Model
     from .modules.advection import CenteredAdvection
     from .modules.core import DynamicalCore
-    from .modules.coriolis import BetaPlaneCoriolis, FPlaneCoriolis
     from .modules.stratification import ConstantStratification
     from .state import State
 
@@ -33,7 +37,8 @@ all_imports_by_origin = {
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["DynamicalCore"],
-    f"{base}.modules.coriolis": [
+    # the Coriolis family is the shared framework module library
+    "fridom.framework2.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis"],
     f"{base}.modules.stratification": ["ConstantStratification"],
     f"{base}.modules.advection": ["CenteredAdvection"],

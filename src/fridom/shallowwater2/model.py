@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom.framework2 as fr
-from fridom.shallowwater2.modules.core import ShallowWaterCore
-from fridom.shallowwater2.modules.coriolis import FPlaneCoriolis
+from fridom.framework2.modules.coriolis import FPlaneCoriolis
+from fridom.shallowwater2.modules.core import DynamicalCore
 from fridom.shallowwater2.modules.sadourny import SadournyAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -73,7 +73,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     fr.Model
         The assembled model.
     """
-    core = ShallowWaterCore(csqr=csqr, rossby_number=rossby_number)
+    core = DynamicalCore(csqr=csqr, rossby_number=rossby_number)
     cor = FPlaneCoriolis(f0=1.0) if coriolis is None else coriolis
     modules: tuple[fr.Module, ...] = (core, cor)
     if advection:

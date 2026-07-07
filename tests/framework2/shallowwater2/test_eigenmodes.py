@@ -42,7 +42,7 @@ def test_projection_vectors_are_biorthonormal():
         # p^s* . q^s == 1 on every non-trivial wavenumber
         inner = (np.conj(p["u"].data) * q["u"].data
                  + np.conj(p["v"].data) * q["v"].data
-                 + np.conj(p["h"].data) * q["h"].data)
+                 + np.conj(p["p"].data) * q["p"].data)
         inner = np.asarray(inner)
         nonzero = np.abs(inner) > 1e-8
         np.testing.assert_allclose(inner[nonzero], 1.0, atol=1e-6)
@@ -54,14 +54,14 @@ def test_projectors_are_idempotent_and_partition_unity():
     projectors = {s: em.projector(s) for s in (0, 1, -1)}
     # P_1 is idempotent on its own eigenvector
     p1 = projectors[1](q1)
-    for c in ("u", "v", "h"):
+    for c in ("u", "v", "p"):
         np.testing.assert_allclose(
             np.asarray(p1[c].data), np.asarray(q1[c].data),
             atol=1e-8)
     # the other modes annihilate q1
     for s in (0, -1):
         out = projectors[s](q1)
-        for c in ("u", "v", "h"):
+        for c in ("u", "v", "p"):
             assert float(np.abs(out[c].data).max()) < 1e-6
 
 

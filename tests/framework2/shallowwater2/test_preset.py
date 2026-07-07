@@ -20,8 +20,8 @@ def test_preset_equals_explicit_assembly_treedef():
                       time_stepper=stepper)
     explicit = fr.Model(
         grid=grid,
-        modules=(sw.modules.ShallowWaterCore(csqr=1.0,
-                                             rossby_number=0.2),
+        modules=(sw.modules.DynamicalCore(csqr=1.0,
+                                          rossby_number=0.2),
                  sw.modules.FPlaneCoriolis(f0=1.0),
                  sw.modules.SadournyAdvection()),
         time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
@@ -37,14 +37,14 @@ def test_preset_is_a_plain_model_not_a_subclass():
 
 
 # ================================================================
-#  The State vocabulary class (u, v, h)
+#  The State vocabulary class (u, v, p)
 # ================================================================
 def test_core_supplies_the_state_vocabulary():
     model = sw.Model(grid=make_grid(),
                      time_stepper=fr.time_steppers.AdamBashforth(
                          5e-3, order=3))
     assert isinstance(model.state, State)
-    assert model.state.component_names[:3] == ("u", "v", "h")
+    assert model.state.component_names[:3] == ("u", "v", "p")
 
 
 def test_vocabulary_accessors_return_components():
@@ -54,7 +54,7 @@ def test_vocabulary_accessors_return_components():
     state = model.state
     assert state.u is state["u"]
     assert state.v is state["v"]
-    assert state.h is state["h"]
+    assert state.p is state["p"]
 
 
 def test_missing_component_accessor_raises_hinted():
@@ -62,4 +62,4 @@ def test_missing_component_accessor_raises_hinted():
     only_u = State({"u": grid.create_field(
         fr.Staggered("x").resolve(grid))})
     with pytest.raises(MissingComponentError, match="core"):
-        _ = only_u.h
+        _ = only_u.p

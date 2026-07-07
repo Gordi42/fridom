@@ -17,9 +17,9 @@ from fridom.framework2.model.model import Model as _Model
 from fridom.framework2.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
+from fridom.framework2.modules.coriolis import FPlaneCoriolis
 from fridom.nonhydro2.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import DynamicalCore
-from fridom.nonhydro2.modules.coriolis import FPlaneCoriolis
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
