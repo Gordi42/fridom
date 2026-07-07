@@ -150,3 +150,48 @@ the application path beats the old stack's diff+sync; the remaining
 gap on chained tendencies is the sync-after-every-operator contract,
 whose chain-level elision is the designed-for feature explicitly out
 of scope for this pass.
+
+---
+
+# Sync-strategy redo (task 1.8, 2026-07-07)
+
+Consumption-side sync with halo-validity tracking replaced the
+iteration-1 sync-after-every-operator placement (branch
+`framework2-sync-redo`; plan and mechanism in
+`notes/framework2/sync_redo_plan.md`). This closes the "remaining
+gap on chained tendencies" the conclusion above left open — the
+chain-level elision is now the shipped contract, generalized to the
+whole composed step.
+
+Comparison: `results/final.json` (pre-1.8, `dfb57113+`) vs
+`results/post-syncredo.json` (`11ef4377+`), same machine, exclusive
+run. 48 cases: 28 faster, 9 within noise, 11 slower.
+
+| case (n=4096 rows shown) | pre-1.8 | post-1.8 | d wall |
+|---|---|---|---|
+| bench_tendency | 327.16 ms | 203.45 ms | **-37.8%** (n=1024: -52.3%) |
+| bench_add | 108.88 ms | 40.03 ms | **-63.2%** (memory -100%) |
+| bench_mul | 82.10 ms | 39.98 ms | **-51.3%** (memory -100%) |
+| bench_weno_pair_field | 271.16 ms | 136.62 ms | **-49.6%** (memory -66%) |
+| bench_fv_diff | 116.66 ms | 94.40 ms | -19.1% |
+| bench_fft_roundtrip | 862.43 ms | 687.34 ms | -20.3% |
+| bench_sync | 77.92 ms | 73.17 ms | -6.1% |
+| bench_diff | 72.04 ms | 97.49 ms | **+35.3%** (see below) |
+
+Reading:
+
+- The composed cases carry the point: per-arithmetic syncs are gone
+  (`add`/`mul` no longer allocate or exchange at all — the -100%
+  memory), and the representative tendency drops 38-52%.
+- `bench_diff` (+34-43% across sizes) is the one real regression: an
+  *isolated first consumption* now pays its entry sync serially
+  before the kernel (a full-buffer materialization on the critical
+  path) where the old contract fused the sync into the kernel
+  output. In a composed step this entry sync is paid once and
+  amortized across every consumer (memoization) and chained op —
+  which is exactly what `bench_tendency` measures. Accepted as the
+  microbench artifact of the contract.
+- Multi-device (not in this table): the forced-4 framework2 suite
+  wall time dropped 23:47 -> 4:02 on this machine.
+- Small-n WENO scatter (+47%/-34% at n=256) is the documented
+  +/-10-30% noise floor at small sizes.

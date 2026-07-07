@@ -3,6 +3,7 @@ import jax
 import pytest
 
 from fridom.framework2.grid.decomposition.decomposition import (
+    _cap_for_sharding,
     _registry_halo,
     _shardable_names,
     negotiate,
@@ -64,6 +65,80 @@ def test_traced_tendency_overrides_the_registry_maximum(grid):
 def test_tendency_without_state_spaces_raises(grid):
     with pytest.raises(ValueError, match="state_spaces"):
         negotiate(grid, grid.dispatch, tendency=lambda state: state)
+
+
+def test_tendency_and_halo_combine_as_merge_max(grid):
+    # work item 1 (phase-2 reconciliation): extra_halo bypass demand
+    # merges with the trace, neither shadows the other
+    space = grid.create_field().function_space
+
+    def tendency(state):
+        return state.diff("y")
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency,
+                       halo=HaloSpec({"x": 3}), device_ids=(0,))
+    assert decomp.halo["x"] == 3
+    assert decomp.halo["y"] == 1
+
+
+def test_traced_chains_accumulate_the_sync_free_demand(grid):
+    # task 1.8: the trace records the sync-free width of the step —
+    # a triple diff chain on the periodic axis demands 3
+    space = grid.create_field().function_space
+
+    def tendency(state):
+        return state.diff("x").diff("x").diff("x")
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency, device_ids=(0,))
+    assert decomp.halo["x"] == 3
+    assert decomp.halo["y"] == 0
+
+
+def test_traced_bounded_chains_demand_the_per_application_max(grid):
+    # bounded axes re-sync at every stencil (kernel claims reset
+    # there), so the sync-free demand is the per-application max
+    space = grid.create_field().function_space
+
+    def tendency(state):
+        return state.diff("y").diff("y")
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency, device_ids=(0,))
+    assert decomp.halo["y"] == 1
+
+
+def test_arithmetic_resets_the_traced_demand(grid):
+    # +/- re-store (zero validity), so depth never accumulates
+    # through them: two single-diff segments, not one depth-2 chain
+    space = grid.create_field().function_space
+
+    def tendency(state):
+        return (2.0 * state.diff("x").to(space.bare)).diff("x")
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency, device_ids=(0,))
+    assert decomp.halo["x"] == 2  # interp consumes 1, diff adds 1
+
+
+def test_cap_for_sharding_lowers_wide_traces_to_the_shard_extent(
+        mx):
+    # 8 cells over 4 devices: cells/shard = 2, cap = 1
+    spec = HaloSpec({"x": 5})
+    floor = HaloSpec({"x": 1})
+    capped = _cap_for_sharding((mx,), spec, floor, 4)
+    assert capped["x"] == 1
+    # a floor that does not fit keeps its width (fails as before)
+    wide_floor = HaloSpec({"x": 3})
+    kept = _cap_for_sharding((mx,), HaloSpec({"x": 5}), wide_floor, 4)
+    assert kept["x"] == 5
+    # nothing to cap: the spec object passes through
+    assert _cap_for_sharding((mx,), floor, floor, 4) is floor
+    # non-divisible cell counts are skipped (no cap derivable)
+    assert _cap_for_sharding((mx,), spec, floor, 3) is spec
+    # a floor that never saw the name counts as zero
+    assert _cap_for_sharding((mx,), spec, HaloSpec({}), 4)["x"] == 1
 
 
 def test_registry_halo_scopes_to_state_space_meshes(grid, my):

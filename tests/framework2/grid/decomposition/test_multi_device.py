@@ -196,14 +196,16 @@ def test_blocked_ghosts_match_the_single_device_fill():
         grid_many = Grid((mesh,))
         space = pick(mesh)
         values = jnp.arange(1.0, space.shape[0] + 1.0)
-        stored = np.asarray(
-            grid_many.create_field(space, data=values)._data)
+        # consumption-side contract (task 1.8): created fields carry
+        # unfilled ghosts; sync explicitly to inspect the fills
+        stored = np.asarray(grid_many.sync(
+            grid_many.create_field(space, data=values))._data)
 
         mesh_one = IntervalMesh(16, (0.0, 1.0), periodic=periodic,
                                 name="x")
         grid_one = Grid((mesh_one,), device_ids=(0,))
-        extended = np.asarray(
-            grid_one.create_field(pick(mesh_one), data=values)._data)
+        extended = np.asarray(grid_one.sync(
+            grid_one.create_field(pick(mesh_one), data=values))._data)
 
         n = space.shape[0]
         width = grid_many.decomposition.halo["x"]

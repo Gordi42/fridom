@@ -359,14 +359,16 @@ class Grid:
         Description
         -----------
         Re-runs the mesh-traits x operator-demands negotiation
-        (Phase-2 assembly, grid lifecycle step 3). The negotiated
-        halo follows the merge_max rule: the traced `tendency`
-        demand when supplied (else the per-operator registry maximum
-        scoped to `state_spaces`) merged per-coordinate max with the
-        `halo=` extra spec — `halo=` widens the trace, it is never
-        an exclusive override. Returns the report the model uses to
-        re-``device_put`` its live state once; derived arrays need
-        nothing (recompute-on-demand).
+        (Phase-2 assembly, grid lifecycle step 3): the halo is the
+        pointwise maximum of the traced `tendency` demand and the
+        explicit `halo=` extra (declared bypasses) — they combine,
+        neither shadows; with neither given, the per-operator
+        registry maximum scoped to `state_spaces` applies. Traced
+        widths may be capped for shardability (task 1.8: correctness
+        is width-independent above the per-application floor).
+        Returns the report the model uses to re-``device_put`` its
+        live state once; derived arrays need nothing
+        (recompute-on-demand).
 
         On a **frozen** grid nothing is renegotiated: the demands
         are *verified* against the recorded fingerprint — demand
@@ -572,7 +574,8 @@ class Grid:
         Returns
         -------
         ScalarField
-            The synced field (metadata preserved).
+            The synced field (metadata preserved); its halo validity
+            is stamped to the negotiated widths (task 1.8).
         """
         if boundary_data is not None:
             raise NotImplementedError(
@@ -581,7 +584,10 @@ class Grid:
         space = field.function_space
         synced = self._decomposition.sync(
             field._data, space)  # noqa: SLF001 — storage seam
-        return ScalarField(self, space, synced, field.metadata)
+        return ScalarField(
+            self, space, synced, field.metadata,
+            halo_valid=self._decomposition.halo.over(
+                tuple(space.names)))
 
     # ================================================================
     #  Field factory

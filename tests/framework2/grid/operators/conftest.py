@@ -11,6 +11,7 @@ wave merge.
 import jax.numpy as jnp
 import pytest
 
+from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.base import (
@@ -109,16 +110,23 @@ class FakeField:
     """Frozen stand-in for the fields.md iteration-1 field surface.
 
     Halo width is zero, so the storage-shaped ``_data`` and the
-    true-shape ``data`` view coincide.
+    true-shape ``data`` view coincide (and the halo-validity claim
+    is the all-zero spec).
     """
 
-    __slots__ = ("_data", "function_space", "grid", "metadata")
+    __slots__ = ("_data", "function_space", "grid", "halo_valid",
+                 "metadata")
 
-    def __init__(self, grid, function_space, data, metadata=None):
+    def __init__(self, grid, function_space, data, metadata=None,
+                 halo_valid=None):
         object.__setattr__(self, "grid", grid)
         object.__setattr__(self, "function_space", function_space)
         object.__setattr__(self, "_data", jnp.asarray(data))
         object.__setattr__(self, "metadata", metadata)
+        object.__setattr__(
+            self, "halo_valid",
+            HaloSpec.zero(tuple(function_space.names))
+            if halo_valid is None else halo_valid)
 
     def __setattr__(self, name, value):
         raise AttributeError("FakeField is frozen")

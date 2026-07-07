@@ -160,8 +160,14 @@ class Reshard(UnaryOperator):
         data = decomposition.redistribute(
             f._data,  # noqa: SLF001 — documented storage seam
             space, space.layout, self._target)
+        # halo-validity claim (task 1.8, stage B): re-blocking leaves
+        # the moved axes' ghost slots stale, unmoved axes carry over
+        valid = f.halo_valid
+        for name in self._trace_reset_names(space):
+            if name in dict(valid.widths):
+                valid = valid.consume(name, valid[name])
         return type(f)(f.grid, space.bare.with_layout(self._target),
-                       data, f.metadata)
+                       data, f.metadata, halo_valid=valid)
 
 
 @final
@@ -173,13 +179,15 @@ class Sync(Operator):
     Description
     -----------
     Internal-only (a user-facing sync would leak the storage layer
-    into the semantic layer): it realizes the iteration-1 contract —
-    the operator base appends this node after every kernel — by
-    delegating to ``grid.sync``, which resolves the per-axis fill
-    modes (periodic wrap / BC-structured fill / designed-for
-    ``ghost_fill``) and is a structural no-op where the negotiated
-    width is 0. Identity on the space: halo validity is storage, not
-    space identity. A singleton.
+    into the semantic layer): it realizes the consumption-side
+    contract (task 1.8) — the operator base inserts this node
+    *before* a kernel whose operand's ghost validity is below the
+    application's requirement — by delegating to ``grid.sync``,
+    which resolves the per-axis fill modes (periodic wrap /
+    BC-structured fill / designed-for ``ghost_fill``) and is a
+    structural no-op where the negotiated width is 0. Identity on
+    the space: halo validity is storage bookkeeping, not space
+    identity. A singleton.
     """
 
     _instance: ClassVar[Sync | None] = None

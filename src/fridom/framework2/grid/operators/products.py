@@ -49,9 +49,23 @@ def _common_space(
     return domain_a
 
 
-def _elementwise(f: FieldLike, data: object) -> FieldLike:
-    """Build a default-metadata result on ``f``'s bare space."""
-    return type(f)(f.grid, f.function_space.bare, data, None)
+def _elementwise(
+    f: FieldLike, data: object, *others: FieldLike,
+) -> FieldLike:
+    """
+    Build a default-metadata result on ``f``'s bare space.
+
+    Description
+    -----------
+    Pointwise on aligned storage frames, so valid ghost slots stay
+    valid: the result claims the pointwise minimum of the operands'
+    halo validity (task 1.8, stage B).
+    """
+    valid = f.halo_valid
+    for other in others:
+        valid = valid.merge_min(other.halo_valid)
+    return type(f)(f.grid, f.function_space.bare, data, None,
+                   halo_valid=valid)
 
 
 @final
@@ -110,7 +124,8 @@ class CollocationProduct(BinaryOperator):
         """
         return _elementwise(
             f,
-            f._data * g._data)  # noqa: SLF001 — storage seam
+            f._data * g._data,  # noqa: SLF001 — storage seam
+            g)
 
 
 @final
@@ -167,7 +182,8 @@ class Divide(BinaryOperator):
         """
         return _elementwise(
             f,
-            f._data / g._data)  # noqa: SLF001 — storage seam
+            f._data / g._data,  # noqa: SLF001 — storage seam
+            g)
 
 
 @final
@@ -224,7 +240,8 @@ class Power(BinaryOperator):
         """
         return _elementwise(
             f,
-            f._data ** p._data)  # noqa: SLF001 — storage seam
+            f._data ** p._data,  # noqa: SLF001 — storage seam
+            p)
 
 
 @final
@@ -277,7 +294,8 @@ class Abs(UnaryOperator):
             The modulus field on the real space (default metadata).
         """
         codomain = self.codomain(f.function_space.bare)
+        # pointwise on the storage frame: valid ghosts stay valid
         return type(f)(
             f.grid, codomain,
             jnp.abs(f._data),  # noqa: SLF001 — storage seam
-            None)
+            None, halo_valid=f.halo_valid)

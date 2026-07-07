@@ -40,27 +40,32 @@ base); stated here because the decomposition defines the shapes.
   (`decomposition.storage_shape(space)`). `.data` is the **true-shape
   view** (pads and halo sliced off). `create_field` and
   `field.with_data` accept true-shape arrays and route them through
-  `decomposition.pad` + `grid.sync`; nothing above the factory ever
-  constructs storage-shaped arrays.
-- **Iteration-1 sync contract.** Operator inputs have valid halos,
-  and **every operator application returns a synced field**: the
-  operator *base* (doc 03) appends the internal `Sync` node after the
-  kernel (§5.1; realized by `Decomposition.sync`) — kernel
-  authors never sync, and users never spell `Sync`. Under this contract un-synced chains do not
-  exist, so the per-operator halo maximum is exact and the
-  `HaloTracer` sizes the maximal **single-chain** ghost width.
-  **Sync-elision** along traced chains — skipping intermediate
-  exchanges and letting depth accumulate, as the accounting semantics
-  of [§5](../04_decomposition.md#5-domain-decomposition) permit — is
-  the designed-for optimization this contract deliberately leaves on
-  the table. **Amended (2026-07-08): the placement strategy is
-  decided to be replaced** — consumption-side sync with trace-time
-  halo-validity tracking (see the per-step sync-amplification entry
-  under Open questions, and ROADMAP task 1.8). The contract's
-  *observable* guarantee is permanent — an operator never reads an
-  invalid halo, and true-shape results are unchanged; what goes is
-  the unconditional per-application placement. This bullet describes
-  the shipped iteration-1 behavior until 1.8 lands.
+  `decomposition.pad` (zero-filled ghost slots, claimed invalid);
+  nothing above the factory ever constructs storage-shaped arrays.
+- **Consumption-side sync contract (task 1.8, shipped).** Fields
+  carry a per-name **halo validity** (`f.halo_valid`, a `HaloSpec`;
+  static aux data participating in the pytree treedef). The operator
+  *base* (doc 03) syncs the operand **before** a kernel iff its
+  validity is below the application's per-axis requirement — kernel
+  authors never sync, and users never spell `Sync`. `store` is
+  pad-only: constructed fields (creation, arithmetic, transforms)
+  claim zero validity and are exchanged at their first
+  ghost-consuming application. A triggered sync is **memoized** onto
+  the operand object (ghost slots only, semantically invisible;
+  guarded so a concrete field consumed inside someone else's trace
+  never swallows a tracer), so n consumers of one state component
+  pay one exchange. Kernel results carry their construction seam's
+  **validity claim**: the staggered/aligned window tails claim
+  `valid_in − reach` on a *periodic* applied axis (stencils commute
+  with the wrap fill — chains elide), zero on a *bounded* applied
+  axis (stenciling the BC-structured/extrapolated input fill is not
+  the BC-consistent fill of the output), and the storage-frame
+  elementwise ops claim the pointwise operand minimum. **Correctness
+  is width-independent** above the per-application floor: a chain
+  that exhausts a capped width simply syncs again mid-chain — the
+  negotiated width only tunes the exchange count. The observable
+  iteration-1 guarantee is preserved: an operator never reads an
+  invalid halo, and true-shape results are unchanged.
 - **Halo-0 paths skip sync structurally.** Symbol application,
   transforms, `Hadamard`, and anything else whose per-axis halo is
   zero performs no exchange — not as an optimization but because the
@@ -295,10 +300,11 @@ Notes:
 - A simple max over operators is **not** enough: halo accumulates
   along un-synced composition chains (`f.diff("x").diff("x")` needs
   `h1 + h2`); the trace is exact and author-effort-free (§5). Under
-  the iteration-1 sync-after-every-operator contract (halo/storage
-  contract above) chains have length one and the trace reproduces the
-  per-operator max; its accumulation semantics are what the
-  designed-for sync-elision consumes.
+  the consumption-side contract (task 1.8) the recorded maximum is
+  the step's **sync-free width demand**: the tracer's depth follows
+  the kernels' validity claims — accumulate along periodic stencil
+  chains, reset at bounded stencils, arithmetic, and every other
+  re-store (free re-sync points at any width).
 - Interception is **generic**: because the tracer presents the
   `ScalarField` interface, operators run unchanged. Concretely, the
   hook sits in the shared operator application path (doc 03's
@@ -306,8 +312,10 @@ Notes:
   when the operand is a tracer, the operator's
   `requirements(domain).halo` is recorded and the codomain-space
   tracer returned, without touching kernel code. No per-operator
-  tracer code, and **no halo bookkeeping on real fields** (field
-  metadata stays name/units/nc-attrs, §2.4). The tracer carries the
+  tracer code. (Real fields do carry the internal `halo_valid`
+  bookkeeping of task 1.8 — invisible static aux, not the
+  user-facing metadata this rule protects, which stays
+  name/units/nc-attrs, §2.4.) The tracer carries the
   **registry reference** its mimicked `.diff`/`.to` surface needs for
   dispatch.
 - **Mixed operands:** doc 02's `ScalarField` dunders return
@@ -338,10 +346,12 @@ Notes:
   makes the "exact and author-effort-free" claim true for the shipped
   advection modules — their branches are dispatch entries, not raw
   `jnp.where` on `.data`.
-- The trace also yields sync placement information (where depth would
-  exceed the chosen ghost width, a sync must be inserted); iteration 1
-  sizes ghost layers from the maximum depth and keeps the
-  sync-after-every-operator placement.
+- The trace sizes ghost layers from the maximum depth; the runtime
+  places syncs by the same arithmetic at consumption time (task
+  1.8), so trace and execution agree by construction. Negotiation
+  may **cap** the traced width for shardability — correctness is
+  width-independent above the per-application floor, a capped chain
+  simply re-syncs mid-chain.
 - Scope: the accounting runs over the registry **as merged**, i.e.
   after module overrides, restricted to operators that can actually
   fire on the model's state-field spaces (§5).
@@ -566,11 +576,14 @@ Notes:
   declared `mesh.decomposition_traits(space)` (doc 01 seam, per-space)
   and `op.requirements(domain)` — `.halo` and `.layout` — of every
   registry operator that can fire on the given `state_spaces` (doc 03
-  seam). Halo comes from `trace_halo` when a `tendency` is supplied;
-  otherwise from the per-operator maximum over the registry — the
-  provisional-negotiation path of the Grid lifecycle, **sound under
-  the iteration-1 sync-after-every-operator contract** (halo/storage
-  contract above) — or from the explicit `halo=` override. The
+  seam). Halo is the pointwise maximum of the `trace_halo` demand
+  (when a `tendency` is supplied) and the explicit `halo=` extra
+  (declared bypasses) — they **combine**, neither shadows; with
+  neither given, the per-operator registry maximum applies, which
+  under the consumption-side contract (task 1.8) is the exact
+  per-application **floor** (any width above it is correct; wider
+  only saves exchanges, and traced widths may be capped for
+  shardability). The
   backend is chosen from the traits (`GHOST`/`TRANSPOSE`/`LOCAL` ->
   `TensorDecomposition`; any `GRAPH` factor -> `GraphDecomposition`).
   This replaces the old rebuild-on-halo-mismatch logic (§5);
@@ -768,34 +781,37 @@ order) is kept in §5.1.
   op's requirement, pointwise products on sharded nodal spaces
   exchange too, despite being halo-0 operations.
 
-  **Decided (owner sign-off, 2026-07-08): the sync strategy is
-  redone.** The iteration-1 sync-after-every-operator placement is
-  replaced by **consumption-side sync with trace-time halo-validity
-  tracking** (the mechanism below, proposed by the Phase-2
-  reconciliation and signed as-is); implementation is ROADMAP task
-  1.8. Until 1.8 lands, the shipped iteration-1 contract stays the
-  executable behavior — the swap is results-neutral, so nothing
-  built meanwhile needs revisiting. Each field carries a valid-halo-depth as
-  a static Python attribute — trace-time only, zero runtime cost
-  under jit, and existing identically on the eager path. Operator
-  application syncs **iff** the input's valid depth < the op's
-  requirement; `store` stops syncing (fresh results are depth 0); a
-  stencil op with requirement r on an input of depth d yields output
-  of depth d − r, computed locally without exchange. Consequences:
-  the negotiated width (traced chains-sum / parallel-max) guarantees
-  roughly **one exchange per state component per step**;
-  `SeparableComposite`'s elision generalizes to the whole composed
-  step automatically; the per-arithmetic syncs vanish; the "silent
-  wrongness impossible" rationale is preserved because the check is
-  mechanical at every consumption site; and elision is
-  **results-neutral by construction** — syncs only rewrite ghost
-  cells, never true-shape data. This revises the "no halo bookkeeping
-  on real fields" rule of the `HaloTracer` notes above — but the
-  bookkeeping is internal and invisible, not the user-facing kind
-  that rule rejects. The Phase-2 assembly seam already feeds it:
-  assembly step 7 hands `grid.negotiate(tendency=composed_step)` the
-  *whole* step, so the halo trace sees every operator application in
-  program order. Work item:
+  **Decided (owner sign-off, 2026-07-08) and IMPLEMENTED
+  (2026-07-07, task 1.8; plan and stage log in
+  [`../sync_redo_plan.md`](../sync_redo_plan.md)).** The iteration-1
+  sync-after-every-operator placement is replaced by
+  **consumption-side sync with trace-time halo-validity tracking**
+  — the shipped mechanism is the "Consumption-side sync contract"
+  bullet of the halo/storage contract above. Each field carries a
+  valid-halo `HaloSpec` as static aux — trace-time only, zero
+  runtime cost under jit. Operator application syncs **iff** the
+  input's validity < the op's requirement; `store` is pad-only;
+  kernel claims propagate `d − r` locally without exchange. The
+  implementation refined the signed mechanism in three
+  owner-relevant ways: (1) **memoization** — the pure consumption
+  rule alone would re-sync per consumer (each sees the same
+  validity-zero object), so a triggered sync writes the ghosts back
+  onto the operand (tracer-guarded); this is what delivers one
+  exchange per component per step. (2) **Periodicity gating** — the
+  `d − r` kernel claim is exact only where stencils commute with the
+  ghost fill (periodic wrap, interior shard edges); on bounded axes
+  the output ghosts are not the BC-consistent fill, so claims reset
+  there and bounded chains re-sync per stencil (structured
+  mirror-fill commutation is a possible later refinement). (3)
+  **Width-independence** — correctness holds for any width above
+  the per-application floor, so negotiation caps traced widths for
+  shardability and a capped chain re-syncs mid-chain. Measured:
+  arithmetic and pointwise products exchange 0×, the representative
+  2-component tendency pays 1 exchange per component, forced-4 suite
+  wall time 23:47 → 4:02. The "silent wrongness impossible"
+  rationale is preserved (the check is mechanical at every
+  consumption site); results-neutrality was verified by the
+  untouched PDE-validation and bitwise 1-vs-4 gates. Work item:
   [`../phase2_grid_followups.md`](../phase2_grid_followups.md) item 8;
   roadmap: task 1.8.
 
