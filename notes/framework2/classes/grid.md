@@ -495,6 +495,24 @@ when renegotiation is legal.
    `device_put`s each field to `decomposition.sharding(space)` — live
    fields are re-homed exactly once, derived arrays need nothing
    (recompute-on-demand).
+   **Amendment (2026-07-08, Phase-2 reconciliation):** this
+   report-driven walk is narrower than it reads. `ReshardingReport`
+   is `(old, new, changed)` over **layouts only**
+   (`decomposition/decomposition.py:77-100`), so a **halo-only**
+   renegotiation reads `changed=False` — yet a halo change alters
+   **storage** shapes, because padding applies on every axis,
+   including unsharded ones (`decomposition/tensor.py:449-451`).
+   Fields created under the old negotiation are then stranded: the
+   old geometry is gone from the grid after the swap, and sync/unpad
+   reject their arrays by shape (`decomposition/tensor.py:505-515`)
+   — the root cause of the WENO manual-negotiate finding.
+   Report-driven `device_put` therefore **cannot** re-home such
+   fields; the sanctioned re-home path is **true-shape re-pad** —
+   the `set_fields`/`set_state` path, where values are gathered at
+   true shape and re-stored under the live decomposition. Model
+   assembly avoids the problem wholesale by allocating all carry
+   fields only **after** final negotiation (assembly step 8) and
+   forbidding field materialization at `bind`.
 4. **Registry reuse:** once any lazy transform row has been resolved,
    the registry holds grid-bound instances and is **grid-private**;
    sharing a registry object between grids is an error.

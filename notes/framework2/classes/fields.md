@@ -12,7 +12,7 @@ Pure annotation for naming and I/O, no discretization content
 | Aspect | Value |
 |--------|-------|
 | Kind | concrete, frozen dataclass |
-| Pytree | static (part of the treedef via its `ScalarField` owner) |
+| Pytree | static aux via its `ScalarField` owner; **annotation-exempt from aux equality** (Phase-2 reconciliation amendment, 2026-07-08 — see the metadata-propagation entry under `ScalarField`) |
 | Iteration | 1 |
 | Concept refs | 2.4, section 5 (metadata stays name/units/nc-attrs) |
 
@@ -74,7 +74,7 @@ wavenumbers, masks, metrics) is one of these (sections 2.4, 2.7).
 | Aspect | Value |
 |--------|-------|
 | Kind | concrete, final |
-| Pytree | `jaxify, dynamic=("_data",)`; grid/space/metadata static aux (grid identity-hashed) |
+| Pytree | `jaxify, dynamic=("_data",)`; grid/space/metadata static aux (grid identity-hashed; metadata annotation-exempt from aux equality — 2026-07-08 amendment below) |
 | Iteration | 1 (core); individual methods tagged |
 | Concept refs | 2.4, 2.7, 3.1–3.5, 3.10–3.13, all sketches |
 
@@ -442,6 +442,30 @@ Semantics, invariants, error behavior:
   `VectorField`/`State` componentwise arithmetic *preserves* each
   component's metadata, because component names are structural there
   (see the scan-stability rule under `VectorField`).
+- **Amended (Phase-2 reconciliation, 2026-07-08): metadata is
+  annotation-exempt from pytree structure.** `FieldMetadata` stays in
+  the static aux — it must survive flatten/unflatten — but jaxify
+  grows an *annotation* aux category **excluded from aux equality**:
+  two fields differing only in metadata have equal treedefs.
+  Documented consequences: `lax.scan`/`vmap`/jit caching are
+  metadata-insensitive, and objects returned from jitted functions
+  carry *trace-time* metadata — host code wanting authoritative names
+  reads container keys or the model's `FieldTable`, never
+  round-tripped field metadata. The "same quantity keeps, new
+  quantity resets" rule above **stands unchanged** — it is now purely
+  annotational, never structural. The same fix direction applies to
+  `to` on the converting path: the landed implementation returns the
+  registered operator's output with default metadata where this
+  document says "keep" — an annotational bug of the same class, no
+  longer a structural one. Rationale:
+  [`../phase1_findings.md`](../phase1_findings.md) contract finding 2
+  (arithmetic on a *named* field changes the treedef; scan rejects
+  named-field carries), widened by the Phase-2 reconciliation audit —
+  `replace`/`map`/`add` and the model's replace-gated stage writes
+  reproduced the treedef break *inside `State` carries* (fresh
+  components inserted without re-attached metadata), and the aux hash
+  being keys-only meant metadata differences also caused **silent
+  recompiles** rather than errors.
 - **No comparisons** (decision): `<`, `<=`, `>`, `>=` are not
   defined (elementwise comparisons are `f.data` territory); `==` is
   identity (pytree/jaxjit friendly); `__bool__` raises to catch
@@ -559,14 +583,19 @@ class VectorField:
         ...
 
     def replace(self, **components: ScalarField) -> Self:      # it-1
-        """Functional update of named components."""
+        """Functional update of named components; re-attaches the
+        incumbent component's metadata by key (2026-07-08 amendment
+        below)."""
         ...
 
     def add(self, **contributions: ScalarField) -> Self:       # it-1
-        """Functional accumulate: ``replace(**{k: self[k] + v})``;
-        unknown name -> MissingComponentError listing components.
-        (Phase-2 amendment, model design D1.5: the composer's
-        primitive for summing tendency-contribution dicts.)"""
+        """Functional accumulate: per component ``self[k] + v``
+        through the metadata-preserving path (2026-07-08 amendment
+        below; the literal ``replace(**{k: self[k] + v})`` spelling
+        loses annotation and is superseded); unknown name ->
+        MissingComponentError listing components. (Phase-2
+        amendment, model design D1.5: the composer's primitive for
+        summing tendency-contribution dicts.)"""
         ...
 
     # ================================================================
@@ -669,6 +698,23 @@ Semantics, invariants, error behavior:
   the treedef, and break `lax.scan`/`jit` round trips. Required test
   (model smoke level):
   `jax.tree_util.tree_structure(step(z)) == tree_structure(z)`.
+- **Amended (Phase-2 reconciliation, 2026-07-08): container ops
+  re-attach incumbent metadata by key.** Componentwise arithmetic
+  continues to preserve component metadata as above (under the
+  annotation-exempt rule this is no longer load-bearing for the
+  treedef — it keeps component annotation authoritative). `add` is
+  specified to run through the same metadata-preserving path (the
+  docstring's former literal spelling is superseded), and
+  `replace`/`map` — and with them the model's replace-gated stage
+  application, which routes through `replace` — re-attach the
+  *incumbent* component's metadata to the incoming field, keyed by
+  component name. A genuinely new component (no incumbent under that
+  key) keeps the metadata it was given. Rationale: the reconciliation
+  audit found `replace`/`map` inserting fresh components *without*
+  re-attaching metadata, so every replace-gated stage write and the
+  composer's add path broke carry-treedef stability on step 1 of any
+  multistep tendency ring — see the `ScalarField` metadata amendment
+  for the full finding.
 - **`map` is the functional surface consumed by eigenmode objects
   and spectra-based ICs** (sketch 4.9): `fn` receives each component
   on its own space and must return a `ScalarField`; the result keeps
@@ -835,7 +881,9 @@ shared pytree section, not left open.
    keeps metadata, new quantity resets" split for bare `ScalarField`
    ops is a pragmatic default (the vector/state level is decided:
    preserved); fine-tune the exact method list during the nonhydro
-   port (ROADMAP Phase 1).
+   port (ROADMAP Phase 1). Since the 2026-07-08 amendment the split
+   is purely annotational (never structural), so fine-tuning it can
+   no longer break treedefs.
 3. **Migration mutation shim** — *resolved by the Phase-2 model
    design (D1.5, `notes/framework2/model/01_concepts.md`)*: ports go
    fully functional immediately; the shims are raising teaching

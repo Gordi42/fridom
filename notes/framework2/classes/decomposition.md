@@ -53,7 +53,14 @@ base); stated here because the decomposition defines the shapes.
   exchanges and letting depth accumulate, as the accounting semantics
   of [§5](../04_decomposition.md#5-domain-decomposition) permit — is
   the designed-for optimization this contract deliberately leaves on
-  the table.
+  the table. **Amended (2026-07-08): the placement strategy is
+  decided to be replaced** — consumption-side sync with trace-time
+  halo-validity tracking (see the per-step sync-amplification entry
+  under Open questions, and ROADMAP task 1.8). The contract's
+  *observable* guarantee is permanent — an operator never reads an
+  invalid halo, and true-shape results are unchanged; what goes is
+  the unconditional per-application placement. This bullet describes
+  the shipped iteration-1 behavior until 1.8 lands.
 - **Halo-0 paths skip sync structurally.** Symbol application,
   transforms, `Hadamard`, and anything else whose per-axis halo is
   zero performs no exchange — not as an optimization but because the
@@ -715,8 +722,8 @@ coefficient space reached in different pencils depending on transform
 order) is kept in §5.1.
 
 - **Per-step sync amplification across tendency modules**
-  (owner-flagged, 2026-07-07; important — investigate with the
-  Phase-2 model-composition design, ROADMAP 2.1). Under the
+  (owner-flagged, 2026-07-07; **model half closed 2026-07-08** —
+  grid-owned residual below). Under the
   iteration-1 sync-after-every-operator contract, n tendency modules
   each computing a tendency for the same field (advection, Coriolis,
   ...) pay n syncs per step where at most one is needed — tendency
@@ -724,7 +731,7 @@ order) is kept in §5.1.
   module's last operator and the state update; strictly, the *summed
   tendency* needs valid halos only where the next step's operators
   consume it. This cost is unaffordable at scale (each sync is a
-  communication round). Candidate resolutions to investigate:
+  communication round). The two candidate resolutions, kept for the record:
   1. **Drop auto-sync** — user/model-controlled sync placement.
      Maximum control, but moves the halo-validity invariant onto
      users; the contract's rationale (silent wrongness impossible)
@@ -737,6 +744,58 @@ order) is kept in §5.1.
      halo-accounting rules (chains sum, parallel terms max) and the
      designed-for sync-elision machinery already fit exactly this
      shape; this generalizes elision from chains to the whole step.
-  Not resolved here; the decision belongs to 2.1 and must be made
-  before the module `update` signature is fixed.
+  **Model half CLOSED** (2026-07-08, Phase-2 reconciliation; model
+  D3). The signed D3 term surface makes tendency terms **dict-valued
+  plain-Python hooks** (`(self, state, ctx) -> dict`), which is
+  **sync-policy-neutral**: the signature never sees or places a sync,
+  so the "before the module `update` signature is fixed" deadline is
+  discharged. Candidate 2's literal form — each module contributes an
+  operator term and the model composes one fused `OperatorSum`
+  tendency — is **rejected**, and would not have delivered
+  single-sync anyway: as implemented, `OperatorSum._apply` syncs per
+  term *and* per pairwise addition (`operators/base.py:982-988`);
+  only `SeparableComposite` elides intra-chain syncs
+  (`base.py:889-910`).
+
+  The reconciliation also found the amplification **worse than
+  framed** above: the cost is per operator *application* (`_finalize`
+  appends the sync on every application, `operators/base.py:1317-1365`)
+  *and* per field `+`/`-` — every true-shape field construction pays
+  `store = pad + sync` (`fields/storage.py:201-213`), so
+  `_linear_combine` (`scalar_field.py:711-736`, the deliberate
+  benchmarked wave-4B choice) exchanges on every arithmetic node. And
+  since sync fills the *space's* negotiated widths regardless of the
+  op's requirement, pointwise products on sharded nodal spaces
+  exchange too, despite being halo-0 operations.
+
+  **Decided (owner sign-off, 2026-07-08): the sync strategy is
+  redone.** The iteration-1 sync-after-every-operator placement is
+  replaced by **consumption-side sync with trace-time halo-validity
+  tracking** (the mechanism below, proposed by the Phase-2
+  reconciliation and signed as-is); implementation is ROADMAP task
+  1.8. Until 1.8 lands, the shipped iteration-1 contract stays the
+  executable behavior — the swap is results-neutral, so nothing
+  built meanwhile needs revisiting. Each field carries a valid-halo-depth as
+  a static Python attribute — trace-time only, zero runtime cost
+  under jit, and existing identically on the eager path. Operator
+  application syncs **iff** the input's valid depth < the op's
+  requirement; `store` stops syncing (fresh results are depth 0); a
+  stencil op with requirement r on an input of depth d yields output
+  of depth d − r, computed locally without exchange. Consequences:
+  the negotiated width (traced chains-sum / parallel-max) guarantees
+  roughly **one exchange per state component per step**;
+  `SeparableComposite`'s elision generalizes to the whole composed
+  step automatically; the per-arithmetic syncs vanish; the "silent
+  wrongness impossible" rationale is preserved because the check is
+  mechanical at every consumption site; and elision is
+  **results-neutral by construction** — syncs only rewrite ghost
+  cells, never true-shape data. This revises the "no halo bookkeeping
+  on real fields" rule of the `HaloTracer` notes above — but the
+  bookkeeping is internal and invisible, not the user-facing kind
+  that rule rejects. The Phase-2 assembly seam already feeds it:
+  assembly step 7 hands `grid.negotiate(tendency=composed_step)` the
+  *whole* step, so the halo trace sees every operator application in
+  program order. Work item:
+  [`../phase2_grid_followups.md`](../phase2_grid_followups.md) item 8;
+  roadmap: task 1.8.
 

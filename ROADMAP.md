@@ -59,6 +59,7 @@ the `classes/README` staging section is the basis for the breakdown.
 | 1.5 | **Domain decomposition** | `negotiate` + `MeshDecompositionTraits` + `HaloSpec`/`HaloTracer` (halo accounting by tracing operator requirements) + multi-device shard maps (class doc 04). The grid is a static pytree aux with per-coordinate halos. |
 | 1.6 | **Immersed subset + export** | `grid.immersed` (per-space boolean masks derived on demand) and `f.xr` export to xarray. |
 | 1.7 | **Standalone validation** | A hand-rolled PDE (advection / diffusion) driven by fields + operators + decomposition under a plain loop, single and multi device, plus the numerical checks in [`05_validation.md`](notes/framework2/05_validation.md). The correctness gate before the model layer exists. |
+| 1.8 | **Sync-strategy redo: consumption-side halo-validity tracking** | *Decided 2026-07-08.* Replace the iteration-1 sync-after-every-operator placement: fields carry a trace-time valid-halo depth (static attribute, zero runtime cost); operators sync iff input depth < requirement; `store` stops syncing. Cuts the composed model step from one exchange per operator application *and per field `+`/`-`* to ~one per state component per step; results-neutral by construction (syncs only rewrite ghost cells). Decision record: [decomposition open questions](notes/framework2/classes/decomposition.md#open-questions); work item 8 in [`phase2_grid_followups.md`](notes/framework2/phase2_grid_followups.md). Not blocking 2.2–2.3; land before performance-sensitive multi-device work (2.7 benchmarks, 3.3). |
 
 Grid extensions specified as `designed-for` (may defer): stretched /
 coordinate-map grids, terrain-following coordinates, spherical grids with
@@ -77,7 +78,7 @@ tasks against that design.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 2.1 | **Design doc: model composition** — *done (2026-07-08)* | Resolved as decisions D1–D5 in `notes/framework2/model/` (concepts, rules, full designs for stepping/run-loop/transforms, API sketches, research archive, class specs in `notes/framework2/model/classes/`). Remaining reconciliation against the landed Phase-1 code: the per-step sync-amplification question ([decomposition open questions](notes/framework2/classes/decomposition.md#open-questions)) — n tendency modules must not mean n syncs — and the [Phase-1 validation findings](notes/framework2/phase1_findings.md) (jit ulp-invariance contract, metadata-in-treedef scan issue, API-gap backlog). |
+| 2.1 | **Design doc: model composition** — *done (2026-07-08)* | Resolved as decisions D1–D5 in `notes/framework2/model/` (concepts, rules, full designs for stepping/run-loop/transforms, API sketches, research archive, class specs in `notes/framework2/model/classes/`). Reconciled against the landed Phase-1 code (2026-07-08): the per-step sync-amplification question's model half is discharged (the signed term surface is sync-policy-neutral; the grid-side strategy redo is decided as task 1.8, decision record in the [decomposition open questions](notes/framework2/classes/decomposition.md#open-questions)), the Phase-1 validation findings are consumed (metadata ruling in `notes/framework2/classes/fields.md`, bitwise umbrella in `notes/framework2/model/02_rules.md`, precision ruling in `notes/framework2/model/classes/declarations.md`), and the grid follow-up work items are filed in [notes/framework2/phase2_grid_followups.md](notes/framework2/phase2_grid_followups.md). |
 | 2.2 | **Field registration + parameters in modules** | `Module` API to declare `FieldMetadata` for the state; parameters move into modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallowwater `csqr`, Rossby scaling); stratification modules register `b`. |
 | 2.3 | **Modules modify anything** | Modules and grid in the traced state; `Model(grid=..., tendencies=..., diagnostics=..., time_stepper=...)` direct assembly. |
 | 2.4 | **Single `jax.jit` for the full run** | Choose between a full-run `lax.scan`/`while_loop` with `io_callback` and a chunked scan; trace-friendly `Clock`; scan-body time steppers; a NaN-check / early-exit strategy under scan. |
@@ -106,6 +107,7 @@ and retire the old package in one swap; update imports, examples, docs.
 ```
 Phase 1 (standalone):
   1.1 ► 1.2 ► 1.3 ► 1.4 ► 1.5 ► 1.6 ► 1.7 (PDE validation, no model)
+  1.5 ► 1.8 sync-strategy redo (perf; before 2.7 benchmarks / 3.3)
 Phase 2 (on the grid):
   1.x ► 2.1 ► 2.2 ► 2.3 ► 2.4 ► 2.5 ► 2.6 ► 2.7 port models
   2.2 declarations ► 2.5 staged stepping
