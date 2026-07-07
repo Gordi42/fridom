@@ -13,6 +13,12 @@ implementation start (ROADMAP 2.2); **correctness** items produce
 wrong results or wrong sizing if hit; **perf** and **ergonomics**
 items do not gate 2.2.
 
+Status (2026-07-08): **items 1–7 landed** in Phase-2 wave 1
+([`model/implementation_plan.md`](model/implementation_plan.md);
+dev `040f5ad`) — nothing gates 2.2 anymore. Item 8 is ROADMAP task
+1.8, owned by a separate session; items 9–10 remain open
+(ergonomics).
+
 ## Work items
 
 1. **`negotiate` combined-halo semantics** — 2.2-blocking,
