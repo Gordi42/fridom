@@ -85,12 +85,13 @@ def test_dispatch_defaults_to_seeded_registry_and_is_settable(mx):
 def test_decomposition_is_single_device_provisional_halo(
         grid, mx, my):
     # provisional negotiation: halo = per-operator max over the
-    # seeded registry (order-2 stencils declare width 1)
+    # seeded registry; the widest entry is the two-factor
+    # FV-derivative chain (reconstruct + flux_diff, width 1 each)
     dec = grid.decomposition
-    assert dec.halo["x"] == 1
-    assert dec.halo["y"] == 1
+    assert dec.halo["x"] == 2
+    assert dec.halo["y"] == 2
     space = mx.center * my.center
-    assert dec.storage_shape(space) == (8 + 2, 4 + 2)
+    assert dec.storage_shape(space) == (8 + 4, 4 + 4)
     assert dec.default_layout.device_axes == ()
 
 

@@ -42,9 +42,22 @@ from fridom.framework2.grid.fields.storage import (
     store,
 )
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.composed import (
+    Curl,
+    Divergence,
+    Gradient,
+    Laplacian,
+)
 from fridom.framework2.grid.operators.finite_difference import (
     FiniteDifference,
 )
+from fridom.framework2.grid.operators.flux_diff import (
+    DualFluxDifference,
+    FaceDifference,
+    FluxDifference,
+    FVDerivative,
+)
+from fridom.framework2.grid.operators.integrate import Integral
 from fridom.framework2.grid.operators.interp import LinearInterp
 from fridom.framework2.grid.operators.products import (
     Abs,
@@ -52,9 +65,16 @@ from fridom.framework2.grid.operators.products import (
     Divide,
     Power,
 )
+from fridom.framework2.grid.operators.reconstruct import (
+    LinearReconstruction,
+)
 from fridom.framework2.grid.operators.registry import OperatorRegistry
 from fridom.framework2.grid.random_fields import RandomFieldFactory
-from fridom.framework2.grid.spaces.average import CellAvg, FaceAvg
+from fridom.framework2.grid.spaces.average import (
+    AverageSpace,
+    CellAvg,
+    FaceAvg,
+)
 from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
@@ -402,6 +422,76 @@ class Grid:
             "wavenumbers arrives with the transform cluster "
             "(Wave-2 operators merge)")
 
+    def measure(
+        self,
+        space: SpaceLike,
+        name: str | None = None,
+    ) -> ScalarField:
+        """
+        Materialize the metric measure proper to the node set.
+
+        Description
+        -----------
+        The staggered ``dx`` field of the factor carrying ``name``:
+        the primal cell width on ``Center``/``CellAvg`` (the FV
+        integration weight), the dual cell width on the face-family
+        node sets (``Right``/``Outer``/``Inner``/``FaceAvg``, the
+        ``diff`` denominator), clipped to the domain on bounded
+        meshes (a boundary-member node carries the half cell
+        ``dx / 2``) — one accessor, the space decides which measure
+        it is (rules sections 2.7, 3.9). Uniform ``IntervalMesh``
+        geometry in iteration 1; the result is tagged with the
+        querying space, all other factors replaced by their
+        ``ConstantSpace``, so it broadcasts exactly (section 3.3).
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying space (mandatory; no default form).
+        name : str | None, optional
+            The coordinate whose measure to materialize; may be
+            omitted when unambiguous (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The per-factor measure weights as a field.
+        """
+        space = self._laid_out(space)
+        candidates = tuple(
+            coord for factor in space.factors
+            if not isinstance(factor, ConstantSpace)
+            for coord in factor.names)
+        if name is None:
+            if len(candidates) != 1:
+                raise ValueError(
+                    "the coordinate is ambiguous on this space; "
+                    f"pass name= (one of {candidates})")
+            name = candidates[0]
+        factor = space.factor(name)
+        if isinstance(factor, ConstantSpace):
+            # a value error (bad name choice), not a type error
+            raise ValueError(  # noqa: TRY004
+                f"factor {factor!r} is constant along {name!r}; "
+                "constant factors carry no measure")
+        if isinstance(factor, CoefficientSpace):
+            raise ValueError(  # noqa: TRY004 — value, not type
+                f"coefficient factor {factor!r} carries no metric "
+                "measure; measures live on nodal/average factors")
+        weights = _measure_vector(factor)
+        bare_factors = tuple(
+            f if f is factor else f.mesh.constant
+            for f in space.factors)
+        result: SpaceLike = (
+            bare_factors[0] if len(bare_factors) == 1
+            else TensorProductSpace.of(*bare_factors))
+        # `space` went through _laid_out, so its layout is never None
+        result = result.with_layout(space.layout)
+        data = weights.reshape(result.shape)
+        stored = store(self._decomposition, result, data)
+        return ScalarField(self, result, stored,
+                           FieldMetadata.create(name=f"d{name}"))
+
     # ================================================================
     #  Internal helpers
     # ================================================================
@@ -570,6 +660,83 @@ def _node_vector(factor: FunctionSpace) -> jax.Array:
     return nodes[start:stop]
 
 
+def _measure_vector(factor: FunctionSpace) -> jax.Array:
+    """
+    Materialize the 1D measure weights of one factor space.
+
+    Description
+    -----------
+    Uniform ``IntervalMesh`` geometry (iteration 1): the constant
+    cell width ``dx`` everywhere, except that on bounded meshes a
+    node sitting *on* the boundary (a boundary-member DOF of its
+    node set) owns the clipped half dual cell ``dx / 2`` — which
+    makes the ``Outer`` weights exactly the trapezoid rule.
+    BC-constrained boundary DOFs are dropped exactly like the space
+    shapes drop them.
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        A non-constant, non-coefficient factor space.
+
+    Returns
+    -------
+    jax.Array
+        The measure weights, matching ``factor.shape``.
+    """
+    mesh = factor.mesh
+    if not isinstance(mesh, IntervalMesh):
+        raise NotImplementedError(
+            f"measure fields on {type(mesh).__name__} arrive in a "
+            "later wave; iteration 1 covers IntervalMesh")
+    dx = mesh.dx
+    count_offset, membership = _measure_geometry(factor)
+    count = mesh.n_cells + count_offset
+    weights = jnp.full(count, dx, dtype=dtype_real())
+    if not mesh.periodic:
+        if membership[0]:
+            weights = weights.at[0].set(dx / 2)
+        if membership[1]:
+            weights = weights.at[-1].set(dx / 2)
+    start, stop = 0, count
+    components = factor.bc.components
+    if components:
+        left, right = components
+        if membership[0] and left is not BC.NONE:
+            start += 1
+        if membership[1] and right is not BC.NONE:
+            stop -= 1
+    return weights[start:stop]
+
+
+def _measure_geometry(
+    factor: FunctionSpace,
+) -> tuple[int, tuple[bool, bool]]:
+    """
+    Resolve the DOF-count offset and boundary membership.
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        A nodal or average factor space of an ``IntervalMesh``.
+
+    Returns
+    -------
+    tuple[int, tuple[bool, bool]]
+        The count offset from the cell count and whether the
+        (left, right) end DOF sits on the boundary.
+    """
+    if isinstance(factor, NodalSpace):
+        return (_NODE_OFFSET[factor.node_set][1],
+                _BOUNDARY_MEMBERSHIP[factor.node_set])
+    if isinstance(factor, CellAvg):
+        return 0, (False, False)
+    if isinstance(factor, FaceAvg):
+        return (0 if factor.mesh.periodic else -1), (False, False)
+    raise NotImplementedError(
+        f"the measure of {factor!r} is not defined in iteration 1")
+
+
 # ================================================================
 #  Default registry seeding (grid lifecycle step 1) and the
 #  provisional halo (step 2)
@@ -603,12 +770,25 @@ def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
     (operators_composed.md default entry table, iteration-1 subset):
     ``("diff", nodal)`` -> ``FiniteDifference(order=2)`` and
     ``("interpolate", nodal)`` -> ``LinearInterp()`` wherever the
-    per-factor signature applies; the elementwise
-    ``multiply``/``divide``/``power`` rows on nodal *and* average
-    factors (one shared instance per kind — the registry's form-2
-    product resolution requires it) and ``abs`` on nodal factors
-    only, each seeded for the real space and its complex variant.
-    Coefficient and constant factors deliberately get no rows.
+    per-factor signature applies; the FV/average family —
+    ``("reconstruct", ...)`` -> ``LinearReconstruction()`` (its
+    nodal -> average rows additionally seeded under ``("average",
+    ...)``, the kind ``f.to`` resolves for that direction),
+    ``("flux_diff", face)`` -> ``FluxDifference()``,
+    ``("flux_diff", Center/CellAvg)`` -> ``DualFluxDifference()``,
+    ``("face_diff", CellAvg)`` -> ``FaceDifference()``, and
+    ``("diff", CellAvg)`` -> the ``FVDerivative()`` chain, whose
+    ``Dispatched("reconstruct")`` hole is baked by the trailing
+    ``merge({})`` (the iteration-1 assembly moment; module override
+    merging arrives with ``grid.merge_overrides``);
+    ``("integrate", nodal/average)`` -> one shared ``Integral()``;
+    the elementwise ``multiply``/``divide``/``power`` rows on nodal
+    *and* average factors (one shared instance per kind — the
+    registry's form-2 product resolution requires it) and ``abs`` on
+    nodal factors only, each seeded for the real space and its
+    complex variant; and the kind-only ``"grad"``/``"div"``/
+    ``"curl"``/``"laplacian"`` builder rows. Coefficient and
+    constant factors deliberately get no rows.
 
     Parameters
     ----------
@@ -618,10 +798,15 @@ def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
     Returns
     -------
     OperatorRegistry
-        The seeded default registry.
+        The seeded default registry (placeholders resolved).
     """
     fd = FiniteDifference(order=2)
     interp = LinearInterp()
+    flux_ops = (FluxDifference(), DualFluxDifference(),
+                FaceDifference())
+    reconstruct = LinearReconstruction()
+    fv_derivative = FVDerivative()
+    integral = Integral()
     multiply = CollocationProduct()
     divide = Divide()
     power = Power()
@@ -630,22 +815,90 @@ def _default_registry(meshes: tuple[Mesh, ...]) -> OperatorRegistry:
     for mesh in meshes:
         nodal = _family_spaces(mesh, _NODAL_FACTORIES)
         average = _family_spaces(mesh, _AVERAGE_FACTORIES)
-        for space in nodal:
-            for stencil in (fd, interp):
-                try:
-                    stencil.codomain(space)
-                except (SpaceMismatchError, ValueError):
-                    continue  # no per-factor signature on this space
-                entries[(stencil.dispatch_kind, space)] = stencil
+        _seed_signature_rows(entries, nodal, (fd, interp))
+        _seed_reconstruct_rows(entries, nodal + average, reconstruct)
+        _seed_signature_rows(entries, nodal + average, flux_ops)
         for space in nodal + average:
+            if isinstance(space, CellAvg):
+                entries[("diff", space)] = fv_derivative
             for variant in (space, space.as_complex()):
+                entries[("integrate", variant)] = integral
                 entries[("multiply", variant)] = multiply
                 entries[("divide", variant)] = divide
                 entries[("power", variant)] = power
         for space in nodal:
             for variant in (space, space.as_complex()):
                 entries[("abs", variant)] = abs_op
-    return OperatorRegistry(entries)
+    entries["grad"] = Gradient()
+    entries["div"] = Divergence()
+    entries["curl"] = Curl()
+    entries["laplacian"] = Laplacian()
+    # bake the Dispatched("reconstruct") hole of the FV-derivative
+    # chain against the seeded defaults (D4's merge moment, empty
+    # override set): day-one `f.diff` on average spaces needs a
+    # concrete chain, and merge_overrides is not implemented yet
+    return OperatorRegistry(entries).merge({})
+
+
+def _seed_signature_rows(
+    entries: dict[DispatchKey, Operator],
+    spaces: tuple[FunctionSpace, ...],
+    ops: tuple[Operator, ...],
+) -> None:
+    """
+    Seed ``(op.dispatch_kind, space)`` rows where signatures apply.
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    spaces : tuple[FunctionSpace, ...]
+        The candidate factor spaces.
+    ops : tuple[Operator, ...]
+        The kernels; a ``codomain`` rejection skips the row.
+    """
+    for space in spaces:
+        for op in ops:
+            try:
+                op.codomain(space)
+            except (SpaceMismatchError, ValueError):
+                continue  # no per-factor signature on this space
+            entries[(op.dispatch_kind, space)] = op
+
+
+def _seed_reconstruct_rows(
+    entries: dict[DispatchKey, Operator],
+    spaces: tuple[FunctionSpace, ...],
+    reconstruct: Operator,
+) -> None:
+    """
+    Seed the reconstruction rows of the average family.
+
+    Description
+    -----------
+    Every space with a reconstruct signature gets a
+    ``("reconstruct", space)`` row; the nodal -> average direction is
+    additionally seeded under ``("average", space)`` — the kind
+    ``f.to`` resolves for that direction (fields.md family matrix),
+    realized at second order by the same trapezoid two-point mean.
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    spaces : tuple[FunctionSpace, ...]
+        The candidate factor spaces (nodal and average).
+    reconstruct : Operator
+        The shared ``LinearReconstruction`` instance.
+    """
+    for space in spaces:
+        try:
+            codomain = reconstruct.codomain(space)
+        except SpaceMismatchError:
+            continue  # no per-factor signature on this space
+        entries[("reconstruct", space)] = reconstruct
+        if isinstance(codomain, AverageSpace):
+            entries[("average", space)] = reconstruct
 
 
 def _registry_halo(

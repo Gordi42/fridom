@@ -153,11 +153,13 @@ def test_result_metadata_is_default(fd, mx):
     assert fd["x"](f).name == "unnamed"  # new quantity
 
 
-def test_order_4_needs_a_wider_halo_than_negotiated(mx):
-    grid = Grid((mx,))  # provisional halo 1 (order-2 registry)
+def test_order_6_needs_a_wider_halo_than_negotiated(mx):
+    # provisional halo 2 (the seeded order-2 registry's widest
+    # entry is the two-factor FV-derivative chain)
+    grid = Grid((mx,))
     f = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
-    wide = FiniteDifference(order=4)
-    with pytest.raises(ValueError, match="halo width 1"):
+    wide = FiniteDifference(order=6)
+    with pytest.raises(ValueError, match="halo width 2"):
         wide["x"](f)
 
 

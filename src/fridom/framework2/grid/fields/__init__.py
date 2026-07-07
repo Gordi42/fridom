@@ -27,6 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all classes
     from .metadata import FieldMetadata
     from .scalar_field import ScalarField
+    from .vector_field import VectorField
 
 # ================================================================
 #  Setup lazy loading
@@ -46,6 +47,7 @@ all_modules_by_origin = {
 all_imports_by_origin = {
     f"{base}.metadata": ["FieldMetadata"],
     f"{base}.scalar_field": ["ScalarField"],
+    f"{base}.vector_field": ["VectorField"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

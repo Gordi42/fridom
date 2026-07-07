@@ -111,8 +111,12 @@ def test_dirichlet_structured_storage_gets_the_odd_extension():
                           init=lambda y: jnp.sin(jnp.pi * y))
     storage = np.asarray(f._data)
     data = np.asarray(f.data)
-    assert storage[0] == pytest.approx(-data[0])   # odd extension
-    assert storage[-1] == pytest.approx(-data[-1])
+    width = grid.decomposition.halo["y"]
+    # odd extension, ghost slot k mirrors the k-th interior DOF
+    assert storage[width - 1] == pytest.approx(-data[0])
+    assert storage[width - 2] == pytest.approx(-data[1])
+    assert storage[-width] == pytest.approx(-data[-1])
+    assert storage[-width + 1] == pytest.approx(-data[-2])
 
 
 # ================================================================
