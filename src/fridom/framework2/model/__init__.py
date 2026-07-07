@@ -29,12 +29,17 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
+        assembly,
+        composer,
         context,
         declarations,
+        field_table,
         implicit,
+        module,
         parameters,
         params,
         roles,
+        schedule,
         space_patterns,
         stages,
         terms,
@@ -60,6 +65,11 @@ all_modules_by_origin = {
         "implicit",
         "stages",
         "context",
+        "field_table",
+        "assembly",
+        "module",
+        "composer",
+        "schedule",
     ],
 }
 

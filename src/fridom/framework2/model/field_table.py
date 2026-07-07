@@ -266,13 +266,20 @@ class FieldTable:
     ----------
     records : Iterable[FieldRecord]
         The resolved rows, in declaration order.
+    grid : Grid | None, optional
+        The grid the rows were resolved against; carried for
+        downstream field materialization (the composer's dry run,
+        allocation) and excluded from equality/hash — the resolved
+        spaces already pin it structurally (default: None).
     """
 
-    __slots__ = ("_by_name", "_records")
+    __slots__ = ("_by_name", "_grid", "_records")
 
-    def __init__(self, records: Iterable[FieldRecord]) -> None:
+    def __init__(self, records: Iterable[FieldRecord],
+                 grid: Grid | None = None) -> None:
         """Validate the rows, check collisions, and freeze."""
         records = tuple(records)
+        object.__setattr__(self, "_grid", grid)
         by_name: dict[str, FieldRecord] = {}
         for record in records:
             if not isinstance(record, FieldRecord):
@@ -301,6 +308,11 @@ class FieldTable:
     # ================================================================
     #  Mapping-style access
     # ================================================================
+    @property
+    def grid(self) -> Grid | None:
+        """The grid the rows were resolved against (may be None)."""
+        return self._grid
+
     @property
     def names(self) -> tuple[str, ...]:
         """All declared field names, declaration order."""

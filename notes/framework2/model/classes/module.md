@@ -112,10 +112,20 @@ These apply to every class below and are not repeated per class:
   order is the declaration-ordered `dynamic_jax_attrs` tuple (wave-0
   fix) — **never reorder declared leaves in a released module**: it
   changes the treedef and breaks snapshot compatibility. Named
-  `ScalarField`-valued dynamic leaves are **forbidden** until the
+  `ScalarField`-valued dynamic leaves are **permitted** — the
   annotation-exempt metadata amendment
   ([`../../classes/fields.md`](../../classes/fields.md), 2026-07-08)
-  is implemented — raw arrays via `jnp.asarray` remain the rule.
+  landed in Phase-2 wave 1, discharging the former prohibition
+  (verified: metadata-differing instances share treedef and trace);
+  raw numeric leaves still go through `jnp.asarray`.
+  **Amendment (wave 3, 2026-07-08)**: `_eq_ignored_attrs` governs
+  only direct object equality (`_object_eq`); the treedef/jit-cache
+  aux equality does **not** consult it. A host-side observer
+  attribute therefore needs **both** declarations: jaxify's
+  `annotation=` category (treedef/jit stability; the value survives
+  flatten) *and* `_eq_ignored_attrs` (structural equality). Note
+  also `_eq_ignored_attrs` is looked up unmerged — a subclass
+  redeclares the full set.
 - **Purity.** Traced hooks are pure field algebra — no Python-state
   mutation, no branching on traced values, no raw `.data` escapes
   (the sanctioned escape for clamps/branches is a custom pointwise

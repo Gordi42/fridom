@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FieldReference,
         Lifecycle,
     )
+    from .model.module import Module
     from .model.parameters import (
         USE_PROVIDED,
         Param,
@@ -85,6 +86,7 @@ all_imports_by_origin = {
         "TendencyTerm", "term", "Treatment", "EXPLICIT", "IMPLICIT"],
     f"{base}.model.stages": ["Stage", "StageKind", "self_update"],
     f"{base}.model.context": ["StepContext"],
+    f"{base}.model.module": ["Module"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
