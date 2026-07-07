@@ -117,3 +117,15 @@ items do not gate 2.2.
     (re-exports, BC-nodal operator rows, coefficient-space products,
     `.item()`, Chebyshev geometry accessors) remains open and is not
     repeated here.
+
+11. **BC-free bounded spaces: exterior values untouchable** —
+    owner-flagged design question (2026-07-07), full note in
+    [`bc_free_boundaries.md`](bc_free_boundaries.md). Replace the
+    BC-free extrapolation ghost fill with a legality rule: operator
+    rows needing exterior values exist only on BC-structured
+    spaces; explicit one-sided stencil rows are the opt-in
+    replacement. Motivated by the fill's inconsistency under
+    composition (the task-1.8 `d²` counterexample); unlocks bounded
+    chain elision (mirror fills commute). Not blocking; decide
+    before 2.2+ registers boundary-aware modules on bounded meshes.
+    Subsumes the "BC-nodal operator rows" API-gap entry above.

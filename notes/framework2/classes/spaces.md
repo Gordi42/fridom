@@ -572,6 +572,17 @@ Still open:
    `SphereMesh` notes) — `SphereMesh.boundary` needs pole-cap
    latitude circles as boundary curves too. Not designed here;
    `PointMesh` only covers the 1D-factor case iteration 1 needs.
+4. **BC-free bounded spaces: exterior values untouchable**
+   (owner-flagged, 2026-07-07). Should `BC.NONE` on a bounded axis
+   mean "no operation may read beyond the boundary" — replacing the
+   one-sided extrapolation ghost fill with per-row legality
+   (exterior-needing signatures exist only on BC-structured spaces)
+   plus explicit opt-in one-sided stencil rows? Full analysis,
+   motivation (the fill is inconsistent under composition), and
+   migration cost in
+   [`../bc_free_boundaries.md`](../bc_free_boundaries.md); decide
+   together with the Robin/mixed question above (both hinge on what
+   BC structure the space key carries vs what stays dynamic).
 4. **Dedicated unstructured space classes.** Vertex/edge/cell spaces
    are speced as `NodalSpace` instances with new `NodeSet` tags;
    whether dispatch ergonomics want dedicated classes (`Vertex`,
