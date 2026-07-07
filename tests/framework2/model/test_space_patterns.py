@@ -4,7 +4,10 @@ import pytest
 from fridom.framework2.grid.bc import BC, BCStructure
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.registry import DispatchError
+from fridom.framework2.grid.operators.registry import (
+    DispatchError,
+    OperatorRegistry,
+)
 from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.nodal import NodeSet
@@ -53,9 +56,14 @@ def grid(meshes):
 
 @pytest.fixture(scope="module")
 def bare_grid():
-    """Build a grid WITHOUT resolver rows."""
+    """Build a grid WITHOUT resolver rows.
+
+    The default registry seeds per-mesh resolver rows since wave 4,
+    so an empty registry is passed explicitly.
+    """
     return Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
-                              name="x"),))
+                              name="x"),),
+                dispatch=OperatorRegistry({}))
 
 
 # ================================================================

@@ -19,20 +19,34 @@ Shared file: orchestrator-owned; raise sites land wave by wave.
 """
 from __future__ import annotations
 
+from fridom.framework2.grid.errors import GridFrozenError
 from fridom.framework2.grid.operators.registry import (
     DispatchCollisionError,
+)
+from fridom.framework2.io.streams import (
+    IOCollisionError,
+    SnapshotMismatchError,
+)
+from fridom.framework2.model.results import (
+    PanicError,
+    RunTargetError,
 )
 
 __all__ = [
     "AssemblyError",
     "DispatchCollisionError",
     "FieldCollisionError",
+    "GridFrozenError",
+    "IOCollisionError",
     "ImmutableParameterError",
     "ImmutableStateError",
     "ImplicitCollisionError",
     "MissingFieldError",
     "MissingParameterError",
+    "PanicError",
     "ParameterCollisionError",
+    "RunTargetError",
+    "SnapshotMismatchError",
     "TermEvaluationError",
     "TimeDependentParameterError",
 ]

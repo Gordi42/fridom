@@ -26,9 +26,12 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import grid, io, model, ops, transforms
-    from .model import implicit, params, roles
+    from .io import slurm
 
     # import all classes (the fr.* surface, grown wave by wave)
+    from .io.triggers import at, every
+    from .model import implicit, params, roles
+    from .model.clock import Clock
     from .model.context import StepContext
     from .model.declarations import (
         FieldDeclaration,
@@ -41,6 +44,13 @@ if TYPE_CHECKING:  # pragma: no cover
         Param,
         ParameterDeclaration,
         ParameterReference,
+    )
+    from .model.results import (
+        AdvanceResult,
+        PanicError,
+        RunResult,
+        RunStatus,
+        RunTargetError,
     )
     from .model.space_patterns import (
         Collocated,
@@ -69,6 +79,7 @@ all_modules_by_origin = {
     base: ["grid", "model", "transforms", "io", "ops"],
     # module namespaces re-homed to the top level (fr.roles, ...)
     f"{base}.model": ["roles", "params", "implicit"],
+    f"{base}.io": ["slurm"],
 }
 
 all_imports_by_origin = {
@@ -87,6 +98,11 @@ all_imports_by_origin = {
     f"{base}.model.stages": ["Stage", "StageKind", "self_update"],
     f"{base}.model.context": ["StepContext"],
     f"{base}.model.module": ["Module"],
+    f"{base}.model.clock": ["Clock"],
+    f"{base}.model.results": [
+        "RunStatus", "AdvanceResult", "RunResult", "PanicError",
+        "RunTargetError"],
+    f"{base}.io.triggers": ["every", "at"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

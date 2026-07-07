@@ -1943,6 +1943,9 @@ def _stepper_statics(
     what excludes ``dt``), nor an equality-exempt host observer.
     Hashability is enforced by the record's unhashable-static lint.
     """
+    token = getattr(time_stepper, "fingerprint_token", None)
+    if callable(token):
+        return token()
     provided = {entry.attr for entry in binding_table
                 if entry.slot == "stepper"}
     dynamic = set(getattr(time_stepper, "dynamic_jax_attrs", ())

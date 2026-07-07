@@ -30,14 +30,18 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
         assembly,
+        clock,
         composer,
         context,
         declarations,
+        errors,
         field_table,
         implicit,
         module,
         parameters,
         params,
+        report,
+        results,
         roles,
         schedule,
         space_patterns,
@@ -70,6 +74,10 @@ all_modules_by_origin = {
         "module",
         "composer",
         "schedule",
+        "clock",
+        "results",
+        "report",
+        "errors",
     ],
 }
 
