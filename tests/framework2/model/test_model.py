@@ -543,9 +543,9 @@ def test_advance_entry_raises_on_panicked_carry(model):
         model.advance(1)
 
 
-def test_run_tendency_variant_are_later_waves(model):
-    with pytest.raises(NotImplementedError, match="wave 5"):
-        model.run(steps=1)
+def test_tendency_variant_are_later_waves(model):
+    # run() landed in wave 5 (see tests/framework2/model/test_run.py);
+    # tendency/variant remain wave-7 stubs
     with pytest.raises(NotImplementedError, match="wave 7"):
         model.tendency(model.state)
     with pytest.raises(NotImplementedError, match="wave 7"):

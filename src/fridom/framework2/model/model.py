@@ -31,6 +31,7 @@ tests).
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Mapping
 from functools import partial
@@ -61,7 +62,12 @@ from fridom.framework2.model.clock import Clock
 from fridom.framework2.model.context import StepContext
 from fridom.framework2.model.declarations import Lifecycle
 from fridom.framework2.model.errors import AssemblyError
-from fridom.framework2.model.results import AdvanceResult, PanicError
+from fridom.framework2.model.results import (
+    AdvanceResult,
+    PanicError,
+    RunResult,
+    RunTargetError,
+)
 from fridom.framework2.model.schedule import BoundSchedule
 from fridom.framework2.model.stages import StageKind
 from fridom.framework2.model.time_dependent import resolve_at
@@ -97,6 +103,23 @@ _CARRY_FIELDS: Final[tuple[str, ...]] = (
 # the default host-sync granularity of advance() (04 section 6.3:
 # max_chunk auto ~256; run()'s trigger-driven subdivision is wave 5)
 _DEFAULT_CHUNK: Final[int] = 256
+
+# the sign-agnostic run-target snap tolerance: steps = ceil(k - eps),
+# so an exact-multiple target does not overshoot by a whole step
+# (04 section 6.3, amended V-S1).
+_TARGET_EPS: Final[float] = 1e-9
+
+
+def _run_target_seconds(value: object, *, name: str) -> float:
+    """Convert a run-target spelling to float seconds."""
+    if isinstance(value, np.timedelta64):
+        return float(value / np.timedelta64(1, "s"))
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise RunTargetError(
+            f"{name}= takes float seconds or np.timedelta64; got "
+            f"{value!r}") from exc
 
 
 def _dtype_int() -> jnp.dtype:
@@ -1434,11 +1457,151 @@ class Model:
                 return int(carry.panic.it)
         return None
 
-    def run(self, *_args: object, **_kwargs: object) -> object:
-        """``run()`` (advance + IO sugar) lands at wave 5 (2.4/2.6)."""
-        raise NotImplementedError(
-            "Model.run lands at wave 5 with the trigger-driven "
-            "chunk plan and IO binding; use advance() (ROADMAP 2.4)")
+    def _plan_run_steps(
+        self,
+        steps: int | None,
+        runlen: float | np.timedelta64 | None,
+        end_time: float | np.timedelta64 | None,
+    ) -> int:
+        """Reduce a run target to a step count (sign-agnostic).
+
+        Description
+        -----------
+        Exactly one of ``steps``/``runlen``/``end_time`` (none or
+        several is ambiguous — ``RunTargetError``). Durations reduce
+        by ``steps = ceil((end - t0)/dt - eps)`` with the precondition
+        ``(end - t0)*dt > 0``; ``runlen`` is an unsigned duration, the
+        direction taken from the dt sign.
+        """
+        given = [steps is not None, runlen is not None,
+                 end_time is not None]
+        if sum(given) != 1:
+            raise RunTargetError(
+                "run() takes exactly one of steps=/runlen=/end_time="
+                f" (got {sum(given)} of them); none or several is "
+                "ambiguous")
+        dt = float(self._stepper.dt)
+        if dt == 0.0:
+            raise RunTargetError(
+                "the time step is zero; run() cannot plan a target")
+        if steps is not None:
+            if isinstance(steps, bool) or not isinstance(steps, int) \
+                    or steps < 0:
+                raise RunTargetError(
+                    f"steps= must be a non-negative int; got {steps!r}")
+            return steps
+        if runlen is not None:
+            runlen_s = abs(_run_target_seconds(runlen, name="runlen"))
+            if runlen_s == 0.0:
+                raise RunTargetError(
+                    f"runlen= must be a nonzero duration; got "
+                    f"{runlen!r}")
+            return max(1, math.ceil(runlen_s / abs(dt) - _TARGET_EPS))
+        end_s = _run_target_seconds(end_time, name="end_time")
+        t0 = float(self._carry.clock.time)
+        delta = end_s - t0
+        if delta * dt <= 0.0:
+            raise RunTargetError(
+                f"run(end_time={end_time!r}) cannot be reached from "
+                f"t0={t0} with dt={dt}: the precondition "
+                "(end - t0)*dt > 0 fails (flip fr.params.TIME_STEP "
+                "via update_parameters for a backward leg)")
+        return max(1, math.ceil(delta / dt - _TARGET_EPS))
+
+    def run(
+        self,
+        steps: int | None = None,
+        *,
+        runlen: float | np.timedelta64 | None = None,
+        end_time: float | np.timedelta64 | None = None,
+        outputs: tuple = (),
+        snapshots: Any = None,
+        max_chunk: int | None = None,
+        progress: bool | Any = True,
+        jit: bool = True,
+        profile: str | None = None,
+        debug_nan: bool = False,
+        raise_on_nan: bool = False,
+    ) -> RunResult:
+        """Advance to a run target, driving IO — sugar over advance.
+
+        Description
+        -----------
+        Reimplemented as a single-model ``fr.ops.Session`` loop (the
+        facade law: ``run(n)`` is bitwise-identical to a hand-written
+        Session loop with the same chunk plan, and adds zero jit-cache
+        entries). Exactly one of
+        ``steps``/``runlen``/``end_time`` sets the target
+        (:class:`RunTargetError` on a bad or ambiguous target). The
+        model's standing ``io=`` streams plus ``outputs=`` bind at run
+        start. ``raise_on_nan=False`` (the default) catches the
+        Session's ``PanicError`` and returns ``RunResult(NAN_ABORT)``
+        (notebooks want the carry); ``raise_on_nan=True`` re-raises.
+        ``run()`` never exits the process.
+
+        Parameters
+        ----------
+        steps : int or None, optional
+            Advance exactly this many steps (default: None).
+        runlen : float or np.timedelta64 or None, optional
+            Advance this (unsigned) model-time duration (default:
+            None).
+        end_time : float or np.timedelta64 or None, optional
+            Advance until this absolute model time (default: None).
+        outputs : tuple, optional
+            Per-run output streams, added to the model's ``io=``
+            (default: ()).
+        snapshots : Snapshots or None, optional
+            The restart-snapshot run config (default: None).
+        max_chunk : int or None, optional
+            Host-sync granularity override (default: None).
+        progress : bool or ProgressReporter, optional
+            Progress rendering (default: True).
+        jit : bool, optional
+            Reserved chunk-dispatch policy; ``jit=False`` is not wired
+            in wave 5 (default: True).
+        profile : str or None, optional
+            Reserved profiling target; accepted, not wired in wave 5
+            (default: None).
+        debug_nan : bool, optional
+            Keep a chunk-start carry copy for ``replay_nan``
+            (default: False).
+        raise_on_nan : bool, optional
+            Re-raise ``PanicError`` instead of returning
+            ``RunResult(NAN_ABORT)`` (default: False).
+
+        Returns
+        -------
+        RunResult
+            The aggregated single-model run result.
+        """
+        from fridom.framework2.ops.session import (  # noqa: PLC0415 — avoids the ops<->model import cycle
+            Session,
+        )
+        if profile is not None:
+            _log.debug(
+                "run(profile=%r) is accepted but not wired in wave 5",
+                profile)
+        session = Session(
+            self, outputs=tuple(self._io) + tuple(outputs),
+            snapshots=snapshots, progress=progress,
+            max_chunk=max_chunk, jit=jit, debug_nan=debug_nan)
+        key = self._name if self._name is not None else "model"
+        try:
+            with session as active:
+                # plan AFTER __enter__ so a snapshot resume re-plans
+                # the remaining steps against the absolute target
+                # (end_time= is the natural resumable spelling)
+                n_steps = self._plan_run_steps(steps, runlen, end_time)
+                active.advance({self: n_steps})
+                results = dict(active.result)
+            return results[key]
+        except PanicError:
+            if raise_on_nan:
+                raise
+            # the Session's bookkeeping already recorded NAN_ABORT and
+            # the partial step count; aggregate it post-exit
+            return session._aggregate()[key]  # noqa: SLF001 — sibling-owned helper
 
     def tendency(self, *_args: object, **_kwargs: object) -> object:
         """``model.tendency`` lands at wave 7 (2.8)."""
