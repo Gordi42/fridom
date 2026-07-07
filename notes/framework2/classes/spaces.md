@@ -243,12 +243,20 @@ Notes:
   xarray/xgcm staggered-coordinate export. The old
   `Position`/`AxisPosition` enums (`grid/position.py`) disappear:
   staggering is the choice of space per variable.
-- **BC structure reduces the shape** by `bc.n_constraints` *when the
-  constrained boundary DOF is in the node set*: Dirichlet `Outer` has
-  shape (n - 1,) (the same DOF set as BC-free `Inner`, yet a distinct
-  interned space — types differ, and that is fine); Dirichlet
-  `Center` keeps (n,) — no boundary node — but selects DST-II as its
-  compatible coefficient basis (section 3.2). BC-free `Outer` keeps
+- **Only Dirichlet-type BC structure reduces the shape** (owner
+  decision, 2026-07-07), by `bc.n_constraints` *when the constrained
+  boundary DOF is in the node set*: a Dirichlet condition eliminates
+  a boundary *value* DOF, so Dirichlet `Outer` has shape (n - 1,)
+  (the same DOF set as BC-free `Inner`, yet a distinct interned
+  space — types differ, and that is fine); Dirichlet `Center` keeps
+  (n,) — no boundary node — but selects DST-II as its compatible
+  coefficient basis (section 3.2). **Neumann structure never reduces
+  the shape**: a Neumann condition constrains a derivative
+  combination, not a nodal DOF — Neumann `Outer` keeps all n + 1
+  nodes, which is exactly what makes DCT-I shape-honest (n + 1
+  cosine modes k = 0..n; this resolves the DCT-I inconsistency found
+  during implementation — the earlier blanket over non-free kinds
+  was a doc bug). BC-free `Outer` keeps
   its boundary DOFs as the slots for prescribed boundary fluxes
   (section 3.6, FV row).
 - Concrete classes are empty subclasses of `NodalSpace`: the class
@@ -369,6 +377,10 @@ class SineSpace(CoefficientSpace):
 
 class CosineSpace(CoefficientSpace):
     """DCT coefficients of a Neumann-structured bounded origin."""
+
+    # DCT-II of Neumann Center: (n,); DCT-I of Neumann Outer:
+    # (n + 1,) — Neumann never reduces the origin shape (owner
+    # decision 2026-07-07, NodalSpace shape note)
 
 
 class ChebyshevSpace(CoefficientSpace):
