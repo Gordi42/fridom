@@ -33,8 +33,10 @@ from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.operators.base import (
     FieldLike,
+    Identity,
     Operator,
     OperatorRequirements,
+    ScaledOperator,
     Zero,
     resolve_codomain,
 )
@@ -46,6 +48,10 @@ from fridom.framework2.grid.operators.registry import DispatchError
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Mapping
+
+    import jax
+
     from fridom.framework2.grid.operators.registry import (
         OperatorRegistry,
     )
@@ -714,3 +720,69 @@ def Laplacian(order: int | None = None) -> Operator:  # noqa: N802
         The builder.
     """
     return _Laplacian(order)
+
+
+def _is_unit(coeff: complex | jax.Array) -> bool:
+    """Whether ``coeff`` is exactly the scalar ``1`` (the neutral)."""
+    return isinstance(coeff, int | float | complex) and coeff == 1.0
+
+
+def Diag(  # noqa: N802
+    coeffs: Mapping[str, complex | jax.Array],
+    *,
+    axes: tuple[str, ...],
+    default: complex | jax.Array = 1.0,
+) -> BlockMatrix:
+    r"""
+    Build a diagonal metric block keyed by axis name.
+
+    Description
+    -----------
+    The per-component weight of the elegant pressure Laplacian
+    ``Div @ Diag(...) @ Grad`` (symbol_stack_design.md decision 2): a
+    diagonal ``n x n`` :class:`BlockMatrix` over a component vector,
+    one entry per axis in ``axes``. The diagonal entry for axis ``a``
+    is :class:`~fridom.framework2.grid.operators.base.Identity` when
+    ``coeffs.get(a, default)`` is exactly the scalar ``1`` (the
+    structural neutral — its ``codomain`` is the identity, so the
+    diagonal threads each component's space through unchanged and
+    ``Div @ Diag @ Grad`` block-composes), else the scaled identity
+    ``coeff * Identity``; off-diagonal entries are ``Zero``.
+
+    A coefficient may be a Python number or a 0-d ``jax.Array`` (a
+    traced-but-constant scalar such as ``1/dsqr``); the scaled-identity
+    entry carries a symbol through
+    :meth:`~fridom.framework2.grid.operators.base.ScaledOperator.eigenvalues`.
+
+    Parameters
+    ----------
+    coeffs : Mapping[str, complex | jax.Array]
+        Per-axis diagonal weights; axes absent from the mapping take
+        ``default``.
+    axes : tuple[str, ...]
+        The component axis family, in order (the operand's bindable
+        names); it fixes the block's row/column layout.
+    default : complex | jax.Array, optional
+        The weight for axes absent from ``coeffs`` (default: 1.0).
+
+    Returns
+    -------
+    BlockMatrix
+        The diagonal metric block (vector -> vector).
+    """
+    if not axes:
+        raise SpaceMismatchError(
+            "Diag needs at least one component axis", operation="diag")
+    ident = Identity()
+    zero = Zero()
+
+    def diagonal(axis: str) -> Operator:
+        coeff = coeffs.get(axis, default)
+        return ident if _is_unit(coeff) else ScaledOperator(coeff, ident)
+
+    rows = tuple(
+        tuple(diagonal(ai) if i == j else zero
+              for j in range(len(axes)))
+        for i, ai in enumerate(axes))
+    names = axes if len(axes) > 1 else None
+    return BlockMatrix(rows, output_names=names)

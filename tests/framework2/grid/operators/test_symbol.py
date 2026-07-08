@@ -6,7 +6,11 @@ import pytest
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.base import Identity
+from fridom.framework2.grid.operators.base import (
+    EigenbasisError,
+    Identity,
+    ScaledOperator,
+)
 from fridom.framework2.grid.operators.interp import LinearInterp
 from fridom.framework2.grid.operators.spectral import SpectralDerivative
 from fridom.framework2.grid.operators.symbol import Symbol
@@ -463,6 +467,29 @@ def test_scaled_identity_eigenvalues_is_the_constant(periodic):
     assert all(isinstance(f, ConstantSpace) for f in sym.space.factors)
     assert sym.codomain is sym.space
     assert jnp.allclose(sym.data, csqr)
+
+
+def test_scaled_identity_accepts_a_zero_d_array_coeff(periodic):
+    grid, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    # a 0-d jax array (a traced-but-constant scalar, e.g. 1/dsqr) is
+    # translation-invariant, so the scaled operator keeps a symbol
+    scaled = jnp.asarray(2.0) * Identity()
+    sym = scaled.eigenvalues(grid, space)
+    assert isinstance(sym, Symbol)
+    assert all(isinstance(f, ConstantSpace) for f in sym.space.factors)
+    assert jnp.allclose(sym.data, 2.0)
+
+
+def test_scaled_identity_with_a_field_coeff_has_no_symbol(periodic):
+    grid, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    # an n-d array carries no space tags -> a field coefficient, which
+    # breaks translation invariance: no symbol
+    field_coeff = jnp.ones(space.shape)
+    scaled = ScaledOperator(field_coeff, Identity())
+    with pytest.raises(EigenbasisError, match="field coefficient"):
+        scaled.eigenvalues(grid, space)
 
 
 def test_identity_is_neutral_in_a_symbol_chain(periodic):

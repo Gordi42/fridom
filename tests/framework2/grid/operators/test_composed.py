@@ -9,12 +9,14 @@ from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.base import (
     Identity,
     OperatorSum,
+    ScaledOperator,
     SeparableComposite,
     Zero,
 )
 from fridom.framework2.grid.operators.composed import (
     BlockMatrix,
     Curl,
+    Diag,
     Divergence,
     Gradient,
     Laplacian,
@@ -214,6 +216,102 @@ def test_curl_needs_two_or_three_axes(mx):
     u = grid.create_field(mx.right, name="u")
     with pytest.raises(SpaceMismatchError, match="2 or 3 axes"):
         Curl()(VectorField([u]))
+
+
+# ================================================================
+#  Diag (the pressure Laplacian's diagonal metric)
+# ================================================================
+def test_diag_builds_the_diagonal_block():
+    axes = ("x", "y", "z")
+    diag = Diag({"z": 2.0}, axes=axes)
+    assert isinstance(diag, BlockMatrix)
+    assert diag.output_names == axes
+    ident = Identity()
+    for i in range(len(axes)):
+        for j in range(len(axes)):
+            entry = diag.rows[i][j]
+            if i != j:
+                assert isinstance(entry, Zero)
+            elif axes[i] == "z":
+                # a non-unit weight is the scaled identity
+                assert isinstance(entry, ScaledOperator)
+                assert entry.coeff == 2.0
+                assert entry.target is ident
+            else:
+                # a unit weight is the structural neutral Identity
+                assert entry is ident
+
+
+def test_diag_accepts_a_zero_d_array_weight():
+    diag = Diag({"z": jnp.asarray(3.0)}, axes=("x", "y", "z"))
+    entry = diag.rows[2][2]
+    assert isinstance(entry, ScaledOperator)
+    assert float(entry.coeff) == 3.0
+
+
+def test_diag_default_weight_fills_absent_axes():
+    diag = Diag({}, axes=("x", "y"), default=5.0)
+    assert diag.rows[0][0].coeff == 5.0
+    assert diag.rows[1][1].coeff == 5.0
+    assert isinstance(diag.rows[0][1], Zero)
+
+
+def test_diag_single_axis_has_no_output_names():
+    diag = Diag({}, axes=("x",))
+    assert diag.output_names is None
+    assert diag.rows[0][0] is Identity()
+
+
+def test_diag_needs_at_least_one_axis():
+    with pytest.raises(SpaceMismatchError, match="component axis"):
+        Diag({}, axes=())
+
+
+def _periodic_grid():
+    gx = IntervalMesh(8, (0.0, 2 * jnp.pi), periodic=True, name="x")
+    gy = IntervalMesh(8, (0.0, 2 * jnp.pi), periodic=True, name="y")
+    return Grid((gx, gy))
+
+
+def _div_grad(grid):
+    f = grid.create_field(
+        init=lambda x, y: jnp.sin(x) * jnp.cos(y))
+    bare = f.function_space.bare
+    grad = Gradient().expand(bare, grid.dispatch)
+    mid = grad.codomain(bare)
+    mid = mid if isinstance(mid, tuple) else (mid,)
+    div = Divergence().expand(mid, grid.dispatch)
+    coeff = grid.dispatch.resolve("transform", bare).codomain(bare)
+    return div, grad, coeff
+
+
+def test_div_identity_diag_grad_is_the_plain_laplacian():
+    # the all-unit Diag is the identity metric: Div @ Diag @ Grad has
+    # exactly the plain div @ grad symbol (Identity threads the spaces)
+    grid = _periodic_grid()
+    div, grad, coeff = _div_grad(grid)
+    weighted = div @ Diag({}, axes=("x", "y")) @ grad
+    assert isinstance(weighted, BlockMatrix)
+    entry = weighted.rows[0][0]
+    assert isinstance(entry, OperatorSum)
+    got = entry.eigenvalues(grid, coeff)
+    plain = (div @ grad).rows[0][0].eigenvalues(grid, coeff)
+    assert jnp.array_equal(got.data, plain.data)
+
+
+def test_div_weighted_diag_grad_scales_the_matching_axis():
+    # a weight w on axis y scales exactly that axis' Laplacian term
+    grid = _periodic_grid()
+    div, grad, coeff = _div_grad(grid)
+    w = 4.0
+    plain = (div @ grad).rows[0][0]
+    x_term = next(t for t in plain.terms if t.bound_axis == "x")
+    y_term = next(t for t in plain.terms if t.bound_axis == "y")
+    expected = (x_term.eigenvalues(grid, coeff)
+                + w * y_term.eigenvalues(grid, coeff))
+    got = (div @ Diag({"y": w}, axes=("x", "y")) @ grad
+           ).rows[0][0].eigenvalues(grid, coeff)
+    assert jnp.allclose(got.data, expected.data)
 
 
 # ================================================================

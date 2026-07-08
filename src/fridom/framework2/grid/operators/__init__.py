@@ -62,7 +62,7 @@ if TYPE_CHECKING:  # pragma: no cover
         resolve_codomain,
     )
     from .block_symbol import BlockSymbol
-    from .composed import Curl, Divergence, Gradient, Laplacian
+    from .composed import Curl, Diag, Divergence, Gradient, Laplacian
     from .finite_difference import FiniteDifference
     from .flux_diff import (
         DualFluxDifference,
@@ -174,6 +174,7 @@ all_imports_by_origin = {
         "Gradient",
         "Divergence",
         "Curl",
+        "Diag",
         "Laplacian",
     ],
     f"{base}.movement": ["Reshard", "Sync"],

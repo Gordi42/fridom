@@ -1102,9 +1102,21 @@ class ScaledOperator(Operator):
         return self.target.requirements(domain)
 
     def eigenvalues(self, grid: object, space: SpaceLike) -> object:
-        """Scale the target's symbol iff the coefficient is constant."""
-        if isinstance(self.coeff, int | float | complex):
-            return self.coeff * self.target.eigenvalues(grid, space)
+        """Scale the target's symbol iff the coefficient is a scalar.
+
+        Description
+        -----------
+        A scalar coefficient is translation-invariant, so the scaled
+        operator keeps a symbol: a Python number, or a 0-d ``jax.Array``
+        (a traced-but-constant scalar, e.g. the ``1/dsqr`` leaf riding
+        ``ctx.params``). A genuine **field** coefficient (a
+        ``ScalarField`` / anything with ``function_space``, or an n-d
+        array) breaks translation invariance and has no symbol.
+        """
+        coeff = self.coeff
+        if isinstance(coeff, int | float | complex) or (
+                isinstance(coeff, jax.Array) and coeff.ndim == 0):
+            return coeff * self.target.eigenvalues(grid, space)
         raise EigenbasisError(
             "a field coefficient breaks translation invariance; the "
             "scaled operator has no symbol")
