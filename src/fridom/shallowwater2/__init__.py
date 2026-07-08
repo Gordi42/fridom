@@ -30,7 +30,7 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
-    from . import diagnostics, eigenmodes, modules, params
+    from . import diagnostics, eigenmodes, modules, params, transforms
 
     # import all classes
     from .model import Model
@@ -42,7 +42,8 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.shallowwater2"
 
 all_modules_by_origin = {
-    base: ["modules", "eigenmodes", "diagnostics", "params"],
+    base: ["modules", "eigenmodes", "diagnostics", "params",
+           "transforms"],
 }
 
 all_imports_by_origin = {

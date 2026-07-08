@@ -72,6 +72,7 @@ class Eigenmodes:
             raise ValueError(
                 "degenerate eigenmode system: f0 == csqr == 0")
         center = fr.Collocated().resolve(grid)
+        self._center = center
         self._transform = grid.dispatch.resolve("transform", center)
         self._template = self._transform.forward(
             grid.create_field(center))
@@ -79,6 +80,19 @@ class Eigenmodes:
         names = grid.names
         self._kx = grid.wavenumbers(coeff, names[0]).data
         self._ky = grid.wavenumbers(coeff, names[1]).data
+
+    # ================================================================
+    #  Accessors (the wave-7 ``sw.transforms`` projection surface)
+    # ================================================================
+    @property
+    def transform(self) -> object:
+        """The collocated forward/backward transform (nodal <-> coeff)."""
+        return self._transform
+
+    @property
+    def center_space(self) -> object:
+        """The collocated physical (cell-centre) space of the modes."""
+        return self._center
 
     # ================================================================
     #  Dispersion relation

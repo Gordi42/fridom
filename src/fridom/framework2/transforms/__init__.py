@@ -32,8 +32,12 @@ if TYPE_CHECKING:  # pragma: no cover
         identity,
         info,
         norms,
+        optimal_balance,
+        projection,
+        propagator,
         shift,
         signature,
+        time_average,
     )
 
     # import all classes
@@ -48,8 +52,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from .identity import Identity
     from .info import TransformCost, TransformInfo, TransformProgress
     from .norms import assert_idempotent, relative_l2
+    from .optimal_balance import OptimalBalance
+    from .projection import EigenProjection, ProjectionFactory
+    from .propagator import Propagator
     from .shift import Shift
     from .signature import StateSignature
+    from .time_average import TimeAverage
 
 # ================================================================
 #  Setup lazy loading
@@ -70,6 +78,10 @@ all_modules_by_origin = {
         "shift",
         "fixed_point",
         "norms",
+        "propagator",
+        "time_average",
+        "optimal_balance",
+        "projection",
     ],
 }
 
@@ -86,6 +98,10 @@ all_imports_by_origin = {
     f"{pkg}.shift": ["Shift"],
     f"{pkg}.fixed_point": ["FixedPoint"],
     f"{pkg}.norms": ["relative_l2", "assert_idempotent"],
+    f"{pkg}.propagator": ["Propagator"],
+    f"{pkg}.time_average": ["TimeAverage"],
+    f"{pkg}.optimal_balance": ["OptimalBalance"],
+    f"{pkg}.projection": ["EigenProjection", "ProjectionFactory"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

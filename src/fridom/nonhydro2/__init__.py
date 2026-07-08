@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FPlaneCoriolis,
     )
 
-    from . import diagnostics, eigenmodes, modules, params
+    from . import diagnostics, eigenmodes, modules, params, transforms
     from .model import Model
     from .modules.advection import CenteredAdvection
     from .modules.core import DynamicalCore
@@ -30,7 +30,8 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.nonhydro2"
 
 all_modules_by_origin = {
-    base: ["modules", "eigenmodes", "diagnostics", "params"],
+    base: ["modules", "eigenmodes", "diagnostics", "params",
+           "transforms"],
 }
 
 all_imports_by_origin = {

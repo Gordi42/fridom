@@ -39,6 +39,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FieldReference,
         Lifecycle,
     )
+    from .model.eigen import NumericEigenmodes, numeric_eigenpairs
     from .model.energy import EnergyMetric
     from .model.model import Model
     from .model.module import Module
@@ -74,6 +75,9 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .model.time_dependent import Ramp, TimeDependent, resolve_at
     from .transforms.base import StateTransform
+    from .transforms.optimal_balance import OptimalBalance
+    from .transforms.propagator import Propagator
+    from .transforms.time_average import TimeAverage
 
 # ================================================================
 #  Setup lazy loading
@@ -107,9 +111,13 @@ all_imports_by_origin = {
     f"{base}.model.module": ["Module"],
     f"{base}.model.model": ["Model"],
     f"{base}.model.clock": ["Clock"],
+    f"{base}.model.eigen": ["NumericEigenmodes", "numeric_eigenpairs"],
     f"{base}.model.energy": ["EnergyMetric"],
     f"{base}.model.term_predicates": ["linearize"],
     f"{base}.transforms.base": ["StateTransform"],
+    f"{base}.transforms.propagator": ["Propagator"],
+    f"{base}.transforms.time_average": ["TimeAverage"],
+    f"{base}.transforms.optimal_balance": ["OptimalBalance"],
     f"{base}.model.results": [
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
         "RunTargetError"],

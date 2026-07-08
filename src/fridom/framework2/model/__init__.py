@@ -34,6 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover
         composer,
         context,
         declarations,
+        eigen,
         errors,
         field_table,
         implicit,
@@ -80,6 +81,7 @@ all_modules_by_origin = {
         "results",
         "report",
         "errors",
+        "eigen",
     ],
 }
 
