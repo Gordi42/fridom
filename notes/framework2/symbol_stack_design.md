@@ -91,6 +91,47 @@ the **`eigh` boundary** materialize the per-mode `(m·N_y)×(m·N_y)` dense
 matrix (eigenvectors are global in `y`). A flat `(m·N_y)` matrix
 everywhere would densify both and cost O((m·N_y)³) — rejected.
 
+## The realized-map algebra — grades, `@`, explicit materialization
+
+Everything that maps `ScalarField → ScalarField` is **one concept** with a
+domain/codomain **space tag** and a `@` (function composition, well-typed
+iff `B.codomain == A.space`). The tag *encodes the representation*
+(`Nodal` / `Fourier` / mixed `Fourier ⊗ Nodal`), so a representation
+mismatch — a spectral `Symbol` against a physical stencil with no
+transform between — is a **tag error, caught for free**. The three
+things differ only in **exposed structure**, a lattice:
+
+- **symbolic operator** (recipe) — grid-free, static, composes to a
+  `Composite`; materialized via `.eigenvalues(grid, space)`.
+- **structured realized** (`Symbol`, `Banded`, `BlockSymbol`) —
+  grid-bound, dynamic data; composes by Hadamard / band / matmul; cheap
+  inverse.
+- **opaque realized** — an arbitrary callable chain; a valid linear map
+  but no exploitable structure, no cheap inverse.
+
+`A @ B` yields the **weakest grade** of its operands (a lattice meet).
+Consequences:
+
+- **`SpectralSolve` is not a class** — it is a *composition* of realized
+  maps, `backward @ symbol.inverse() @ forward`. The Phase-D′
+  `SpectralPressureSolver` should become a thin constructor returning
+  that value (a follow-up reframe, not a rewrite).
+- **Materialization is explicit (decision A, 2026-07-08).** A bare
+  `symbol @ recipe` **raises** a taught error pointing at
+  `recipe.eigenvalues(grid, space)`. Crossing recipe → structured binds
+  a grid *and* asserts diagonalizability; both must be visible, never
+  silent. `.eigenvalues` is the one labelled door.
+- **Physical↔spectral duality.** For a diagonalizable `A`,
+  `transform @ A_physical == A_symbol @ transform` is the
+  change-of-representation rule; `Symbol × field` (the `kx·c(y)` case) is
+  its coefficient-carrying special case.
+- **Symmetry with `StateTransform`.** This realized-map algebra on
+  `ScalarField` mirrors the `StateTransform` algebra on `State`
+  (grid/model-bound, `@`/`+`/`.complement`, applies) — the same pattern
+  at two levels, bridged by materialization. *(Open: whether the two are
+  literally one abstraction parameterized by field-vs-state, or two
+  parallel ones — deferred.)*
+
 ## What this dissolves
 
 1. **Pressure solver** — `SpectralSolve(Div @ Diag(1,1,1/dsqr) @ Grad)`;
