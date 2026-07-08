@@ -29,9 +29,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.framework2.grid.operators.symbol import Symbol
+
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.operators.base import FieldLike, Operator
-    from fridom.framework2.grid.operators.symbol import Symbol
     from fridom.framework2.grid.operators.transform import Transform
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
@@ -58,10 +59,16 @@ class SpectralSolve:
 
     Parameters
     ----------
-    elliptic : Operator
-        The elliptic operator to invert; every factor must diagonalize
-        in the transform basis (it carries an ``eigenvalues`` symbol on
-        the coefficient space).
+    elliptic : Operator | Symbol
+        The elliptic operator to invert (every factor must diagonalize
+        in the transform basis, carrying an ``eigenvalues`` symbol on
+        the coefficient space), or a pre-assembled coefficient-space
+        ``Symbol``. The symbol form is the seam for a metric that
+        cannot fold into a static operator — the nonhydro pressure
+        Laplacian, whose ``1/dsqr`` vertical weight is a *traced*
+        (``ctx.params``) leaf and so is scaled in at the symbol level
+        (``Symbol x field``), not via ``ScaledOperator``
+        (symbol_stack_design.md decision 2).
     grid : Grid
         The grid mediating the transform, wavenumbers, and measures.
     space : SpaceLike
@@ -73,7 +80,7 @@ class SpectralSolve:
 
     def __init__(
         self,
-        elliptic: Operator,
+        elliptic: Operator | Symbol,
         grid: object,
         space: SpaceLike,
         *,
@@ -84,8 +91,9 @@ class SpectralSolve:
         self._transform: Transform = grid.dispatch.resolve(
             "transform", bare)
         coeff = self._transform.codomain(bare)
-        self._inverse: Symbol = elliptic.eigenvalues(
-            grid, coeff).inverse(where_zero)
+        symbol = (elliptic if isinstance(elliptic, Symbol)
+                  else elliptic.eigenvalues(grid, coeff))
+        self._inverse: Symbol = symbol.inverse(where_zero)
 
     # ================================================================
     #  Properties

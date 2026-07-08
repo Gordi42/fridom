@@ -827,10 +827,57 @@ def periodic_fourier_factor(
     return nodal_factor.mesh.fourier(origin=nodal_factor)
 
 
+def fourier_partner(
+    factor: FunctionSpace, who: str,
+) -> tuple[FourierSpace, FunctionSpace]:
+    r"""
+    Resolve the source Fourier factor and its periodic nodal origin.
+
+    Description
+    -----------
+    Layout-faithful staggering (symbol_stack_design.md decision 3): a
+    staggering stencil (``FiniteDifference``/``LinearInterp``) carries
+    a Fourier symbol relative to whatever coefficient layout the query
+    threads. The eigenvalue query may thread a **nodal** factor (the
+    physical operand space — the eigenmode path) or a **Fourier**
+    factor (a transformed coefficient space — the spectral solve, where
+    one axis of an ``rfftn`` layout is a half spectrum and the rest are
+    full). Either way this returns the source Fourier factor — whose
+    scalars fix the per-axis mode count that ``fourier_wavenumbers``
+    reads — and the periodic nodal origin (carrying the measure).
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        The threaded coefficient factor (nodal or Fourier).
+    who : str
+        The querying operator name, for the error message.
+
+    Returns
+    -------
+    tuple[FourierSpace, FunctionSpace]
+        ``(src_fourier, nodal_origin)``.
+    """
+    if isinstance(factor, FourierSpace):
+        origin = factor.origin
+        periodic_fourier_factor(origin, who)  # validate the origin
+        return factor, origin
+    return periodic_fourier_factor(factor, who), factor
+
+
+def _match_scalars(
+    nodal: FunctionSpace, src: FourierSpace,
+) -> FunctionSpace:
+    """Return ``nodal`` in ``src``'s Körper (the codomain origin)."""
+    if src.scalars is Scalars.COMPLEX:
+        return nodal.as_complex()
+    return nodal
+
+
 def _staggering_symbol(
-    bare: SpaceLike, axis: str, nodal_factor: FunctionSpace,
-    codomain_nodal: FunctionSpace,
-    magnitude: object, who: str,
+    bare: SpaceLike, axis: str, src: FourierSpace,
+    nodal_origin: FunctionSpace, codomain_nodal: FunctionSpace,
+    magnitude: object,
 ) -> Symbol:
     r"""
     Fourier diagonal of a periodic-nodal staggering stencil.
@@ -840,22 +887,33 @@ def _staggering_symbol(
     The shared body of ``FiniteDifference``/``LinearInterp``
     ``eigenvalues``: the retagging ``Fourier(src origin) ->
     Fourier(codomain origin)`` diagonal ``magnitude(k, dx) *
-    e^{i k delta dx}`` (the half-cell shift zeroes the even-n real
-    Nyquist mode, like ``PhaseShift``).
+    e^{i k delta dx}``. ``src`` fixes the layout — its scalars select
+    the half/full spectrum (decision 3) — and the codomain Fourier
+    factor inherits ``src``'s Körper.
+
+    Unlike the pure phase shift (``PhaseShift``/``SincShift``, where a
+    half-cell shift of a real even-n Nyquist has no valid rfft layout
+    and is zeroed), a staggering **stencil** carries a magnitude that
+    combines with the phase into a Nyquist leaf that *is* representable
+    — real for the first difference (``2i sin(π/2)/dx · e^{iπ/2} =
+    -2/dx``), zero for the two-point average (``cos(π/2) = 0``). The
+    honest ``bwd @ fwd`` Laplacian must recover ``-khat^2`` there
+    (matching the ``staggered_diff`` kernel exactly, so the pressure
+    projection drives the discrete divergence to machine zero), so the
+    Nyquist is **kept**, not zeroed.
     """
-    src = periodic_fourier_factor(nodal_factor, who)
-    dst = periodic_fourier_factor(codomain_nodal, who)
-    dx = _length(nodal_factor) / nodal_factor.shape[0]
+    dst = src.mesh.fourier(origin=_match_scalars(codomain_nodal, src))
+    dx = _length(nodal_origin) / nodal_origin.shape[0]
     k = fourier_wavenumbers(src)
     delta = (_NODE_OFFSETS[codomain_nodal.node_set]
-             - _NODE_OFFSETS[nodal_factor.node_set])
-    leaf = magnitude(k, dx) * _origin_shift(src, delta)
+             - _NODE_OFFSETS[nodal_origin.node_set])
+    leaf = magnitude(k, dx) * jnp.exp(1j * k * (delta * dx))
     return diagonal_symbol(bare, axis, src, dst, leaf)
 
 
 def finite_difference_symbol(
-    bare: SpaceLike, axis: str, nodal_factor: FunctionSpace,
-    codomain_nodal: FunctionSpace,
+    bare: SpaceLike, axis: str, src: FourierSpace,
+    nodal_origin: FunctionSpace, codomain_nodal: FunctionSpace,
 ) -> Symbol:
     r"""
     Order-2 staggered-FD Fourier diagonal ``2i sin(k dx/2)/dx`` (phase).
@@ -866,8 +924,10 @@ def finite_difference_symbol(
         The bare operand space the eigenvalue query threads.
     axis : str
         The coordinate the derivative acts along.
-    nodal_factor : FunctionSpace
-        The domain nodal factor (its Fourier partner is ``space``).
+    src : FourierSpace
+        The source Fourier factor (fixing the coefficient layout).
+    nodal_origin : FunctionSpace
+        The periodic nodal origin of ``src`` (measure / node offset).
     codomain_nodal : FunctionSpace
         The staggered codomain nodal factor.
 
@@ -877,14 +937,13 @@ def finite_difference_symbol(
         The retagging ``i k_hat`` diagonal.
     """
     return _staggering_symbol(
-        bare, axis, nodal_factor, codomain_nodal,
-        lambda k, dx: 1j * (2.0 * jnp.sin(k * dx / 2.0) / dx),
-        "FiniteDifference")
+        bare, axis, src, nodal_origin, codomain_nodal,
+        lambda k, dx: 1j * (2.0 * jnp.sin(k * dx / 2.0) / dx))
 
 
 def linear_interp_symbol(
-    bare: SpaceLike, axis: str, nodal_factor: FunctionSpace,
-    codomain_nodal: FunctionSpace,
+    bare: SpaceLike, axis: str, src: FourierSpace,
+    nodal_origin: FunctionSpace, codomain_nodal: FunctionSpace,
 ) -> Symbol:
     r"""
     Two-point averaging Fourier diagonal ``cos(k dx/2)`` (one_hat).
@@ -895,8 +954,10 @@ def linear_interp_symbol(
         The bare operand space the eigenvalue query threads.
     axis : str
         The coordinate the interpolation acts along.
-    nodal_factor : FunctionSpace
-        The domain nodal factor (its Fourier partner is ``space``).
+    src : FourierSpace
+        The source Fourier factor (fixing the coefficient layout).
+    nodal_origin : FunctionSpace
+        The periodic nodal origin of ``src`` (measure / node offset).
     codomain_nodal : FunctionSpace
         The staggered codomain nodal factor.
 
@@ -906,6 +967,5 @@ def linear_interp_symbol(
         The retagging ``one_hat`` diagonal.
     """
     return _staggering_symbol(
-        bare, axis, nodal_factor, codomain_nodal,
-        lambda k, dx: jnp.cos(k * dx / 2.0),
-        "LinearInterp")
+        bare, axis, src, nodal_origin, codomain_nodal,
+        lambda k, dx: jnp.cos(k * dx / 2.0))

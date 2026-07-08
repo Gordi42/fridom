@@ -288,6 +288,121 @@ def test_union_rejects_a_disagreeing_non_constant_factor(periodic_2d):
 
 
 # ================================================================
+#  Symbol x field — the coefficient rule
+# ================================================================
+def _profile(grid, space, axis, fn):
+    """Return a physical profile field on ``axis`` (constant else)."""
+    nodes = grid.evaluation_nodes(space, axis)
+    return nodes.with_data(fn(nodes.data))
+
+
+def test_symbol_times_profile_commutes_with_the_transform(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = (mx.fourier(origin=mx.center)
+             * my.fourier(origin=my.center))
+    kx = SpectralDerivative()["x"].eigenvalues(grid, space)
+    # a physical profile c(y) — constant on the transformed x axis
+    cy = _profile(grid, mx.center * my.center, "y",
+                  lambda y: jnp.cos(TWO_PI * y))
+    left = kx * cy
+    right = cy * kx  # __rmul__ path
+    # kx . c(y) commutes: c(y) constant in x passes through FFT_x
+    assert jnp.allclose(left.data, right.data)
+    # the result adopts the field's Nodal(y) on the symbol's Const(y),
+    # keeping Fourier(x) on the transformed axis (mixed representation)
+    assert left.space.factor("x") is space.factor("x")
+    assert left.space.factor("y") is (mx.center * my.center).factor("y")
+    assert jnp.allclose(left.data, kx.data * cy.data)
+
+
+def test_symbol_times_field_rejects_variation_on_a_transformed_axis(
+        periodic_2d):
+    grid, mx, my = periodic_2d
+    space = (mx.fourier(origin=mx.center)
+             * my.fourier(origin=my.center))
+    kx = SpectralDerivative()["x"].eigenvalues(grid, space)
+    # a profile that varies on the transformed x axis is illegal
+    cx = _profile(grid, mx.center * my.center, "x",
+                  lambda x: jnp.cos(TWO_PI * x))
+    with pytest.raises(SpaceMismatchError, match="transformed"):
+        _ = kx * cx
+
+
+def test_symbol_times_constant_field_is_the_dsqr_case(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = (mx.fourier(origin=mx.center)
+             * my.fourier(origin=my.center))
+    kx = SpectralDerivative()["x"].eigenvalues(grid, space)
+    # a scalar-ish all-Constant field (the dsqr degenerate case): built
+    # by reducing a profile to its (Constant) mean
+    const = _profile(grid, mx.center * my.center, "y",
+                     lambda y: 0.0 * y + 3.0).mean("y")
+    scaled = kx * const
+    assert scaled.space is kx.space  # no physical axis introduced
+    assert jnp.allclose(scaled.data, 3.0 * kx.data)
+
+
+def test_symbol_times_field_keeps_a_physical_factor(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = (mx.fourier(origin=mx.center)
+             * my.fourier(origin=my.center))
+    kx = SpectralDerivative()["x"].eigenvalues(grid, space)
+    cy = _profile(grid, mx.center * my.center, "y",
+                  lambda y: jnp.cos(TWO_PI * y))
+    mixed = kx * cy  # Fourier(x) . Center(y)
+    # scaling the mixed symbol by an all-Constant field keeps the
+    # existing physical Center(y) factor (the ``field Constant`` branch)
+    const = _profile(grid, mx.center * my.center, "y",
+                     lambda y: 0.0 * y + 2.0).mean("y")
+    scaled = mixed * const
+    assert scaled.space is mixed.space
+    assert jnp.allclose(scaled.data, 2.0 * mixed.data)
+
+
+def test_symbol_times_field_on_a_matching_profile(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = (mx.fourier(origin=mx.center)
+             * my.fourier(origin=my.center))
+    kx = SpectralDerivative()["x"].eigenvalues(grid, space)
+    cy = _profile(grid, mx.center * my.center, "y",
+                  lambda y: jnp.cos(TWO_PI * y))
+    mixed = kx * cy  # Fourier(x) . Center(y)
+    # a second profile on the *same* Center(y) set multiplies in (the
+    # ``sym_factor is field_factor`` branch)
+    cy2 = _profile(grid, mx.center * my.center, "y",
+                   lambda y: 1.0 + jnp.sin(TWO_PI * y))
+    both = mixed * cy2
+    assert both.space is mixed.space
+    assert jnp.allclose(both.data, mixed.data * cy2.data)
+
+
+def test_symbol_times_field_rejects_a_rank_mismatch(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = mx.fourier(origin=mx.center)  # 1-factor symbol
+    sym = Symbol(space, jnp.ones(space.shape[0]))
+    cy = _profile(grid, mx.center * my.center, "y",
+                  lambda y: jnp.cos(TWO_PI * y))  # 2-factor field
+    with pytest.raises(SpaceMismatchError, match="incompatible ranks"):
+        _ = sym * cy
+
+
+def test_symbol_times_field_rejects_a_disagreeing_profile(periodic_2d):
+    grid, mx, my = periodic_2d
+    # a symbol already carrying a physical Nodal(y) factor (kx . c(y))
+    space = (mx.fourier(origin=mx.center)
+             * my.fourier(origin=my.center))
+    kx = SpectralDerivative()["x"].eigenvalues(grid, space)
+    cy = _profile(grid, mx.center * my.center, "y",
+                  lambda y: jnp.cos(TWO_PI * y))
+    mixed = kx * cy  # Fourier(x) . Center(y)
+    # multiplying by a profile on a *different* nodal y set disagrees
+    staggered = _profile(grid, mx.center * my.right, "y",
+                         lambda y: jnp.cos(TWO_PI * y))
+    with pytest.raises(SpaceMismatchError, match="physical factor"):
+        _ = mixed * staggered
+
+
+# ================================================================
 #  Identity.eigenvalues — the ones diagonal (neutral of ``@``)
 # ================================================================
 def test_identity_eigenvalues_is_the_ones_diagonal(periodic):

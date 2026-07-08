@@ -30,6 +30,7 @@ import fridom.framework as fr
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.fields.storage import store
 from fridom.framework2.grid.operators.transform import axis_vector
+from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.function_space import FunctionSpace
 from fridom.framework2.grid.spaces.tensor_product import (
@@ -216,12 +217,16 @@ class Symbol:
     # ================================================================
     #  Diagonal (elementwise) algebra — never the physical product
     # ================================================================
-    def __mul__(self, other: Symbol | complex) -> Symbol:
-        """Elementwise product (tag-union with a symbol)."""
+    def __mul__(self, other: Symbol | complex | FieldLike) -> Symbol:
+        """Elementwise product (a symbol, a scalar, or a field)."""
+        if _is_field(other):
+            return self._mul_field(other)
         return self._elementwise(other, jnp.multiply)
 
-    def __rmul__(self, other: complex) -> Symbol:
-        """Scalar product (commutative in the coefficient)."""
+    def __rmul__(self, other: complex | FieldLike) -> Symbol:
+        """Scalar/field product (commutative in the coefficient)."""
+        if _is_field(other):
+            return self._mul_field(other)
         return Symbol(self._space, self._data * other,
                       codomain=self._codomain)
 
@@ -343,10 +348,87 @@ class Symbol:
                           codomain=self._codomain)
         return NotImplemented
 
+    def _mul_field(self, field: FieldLike) -> Symbol:
+        r"""
+        Multiply the diagonal by a coefficient ``ScalarField``.
+
+        Description
+        -----------
+        The ``Symbol x field`` coefficient rule (symbol_stack_design.md
+        §"``Symbol x field``"): because multiplication by a coefficient
+        constant in ``x`` commutes with ``FFT_x``
+        (``kx · FFT_x(c(y) f) = kx · c(y) · FFT_x(f)``), the product is
+        legal **iff** ``field`` is ``ConstantSpace`` on every
+        *transformed* (coefficient) factor of the symbol; it may vary on
+        the symbol's ``Constant``/nodal (physical) factors. The result
+        adopts the field's space there (``Constant(y) -> Nodal(y)``) and
+        Hadamard-multiplies the data (jax size-1 broadcasting), giving
+        the mixed representation (Fourier in ``x``, physical in ``y``).
+        The degenerate all-``Constant`` field is the ``dsqr`` scalar; a
+        genuine profile ``c(y)`` / ``N^2(z)`` is the general case — one
+        code path.
+
+        Parameters
+        ----------
+        field : FieldLike
+            The coefficient field, constant on the transformed factors.
+
+        Returns
+        -------
+        Symbol
+            The diagonal times the coefficient, in the mixed space.
+        """
+        fspace = field.function_space.bare
+        s_domain = self._space.factors
+        s_codomain = self._codomain.factors
+        f_factors = fspace.factors
+        if not len(s_domain) == len(s_codomain) == len(f_factors):
+            raise SpaceMismatchError(
+                f"cannot multiply a symbol on {self._space!r} by a "
+                f"field on {fspace!r}: incompatible ranks",
+                left=self._space, right=fspace, operation="Symbol.__mul__")
+        domain, codomain = [], []
+        for sd, sc, ff in zip(s_domain, s_codomain, f_factors,
+                              strict=True):
+            if isinstance(sd, CoefficientSpace):
+                if not isinstance(ff, ConstantSpace):
+                    raise SpaceMismatchError(
+                        "a Symbol x field coefficient must be constant "
+                        f"on every transformed factor; {ff!r} varies on "
+                        f"the transformed axis {sd!r}", left=sd,
+                        right=ff, operation="Symbol.__mul__")
+                domain.append(sd)
+                codomain.append(sc)
+            else:
+                domain.append(_adopt(sd, ff))
+                codomain.append(_adopt(sc, ff))
+        return Symbol(TensorProductSpace.of(*domain),
+                      self._data * field.data,
+                      codomain=TensorProductSpace.of(*codomain))
+
 
 # ================================================================
 #  Diagonal-symbol construction helpers
 # ================================================================
+def _is_field(obj: object) -> bool:
+    """Whether ``obj`` is a coefficient field (not a Symbol/scalar)."""
+    return hasattr(obj, "function_space") and hasattr(obj, "data")
+
+
+def _adopt(sym_factor: SpaceLike, field_factor: SpaceLike) -> SpaceLike:
+    """Union a non-transformed symbol factor with the field's factor."""
+    if isinstance(sym_factor, ConstantSpace):
+        return field_factor
+    if isinstance(field_factor, ConstantSpace):
+        return sym_factor
+    if sym_factor is field_factor:
+        return sym_factor
+    raise SpaceMismatchError(
+        "a Symbol x field coefficient disagrees with the symbol's own "
+        f"physical factor: {sym_factor!r} vs {field_factor!r}",
+        left=sym_factor, right=field_factor, operation="Symbol.__mul__")
+
+
 def diagonal_symbol(
     bare: SpaceLike,
     axis: str,

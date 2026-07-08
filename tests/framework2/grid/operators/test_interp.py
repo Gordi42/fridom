@@ -60,6 +60,17 @@ def test_codomain_preserves_scalars(interp, mx):
         mx.center.as_complex())
 
 
+def test_codomain_retags_a_fourier_factor(interp, mx):
+    # layout-faithful eigenvalue threading (decision 3): the codomain of
+    # a Fourier factor retags through its staggered origin, preserving
+    # the Körper (so a chain threads coefficient spaces)
+    src = mx.fourier(origin=mx.center)
+    assert interp.codomain(src) is mx.fourier(origin=mx.right)
+    csrc = mx.fourier(origin=mx.center).as_complex()
+    assert interp.codomain(csrc) is (
+        mx.fourier(origin=mx.right).as_complex())
+
+
 def test_codomain_outer_variant(my):
     outer = LinearInterp(target=NodeSet.OUTER)
     assert outer.codomain(my.center) is my.outer

@@ -65,9 +65,11 @@ def test_eigenvalues_is_the_ik_hat_retagging_symbol(fd, mx):
     dx = mx.dx
     expected = (1j * 2.0 * jnp.sin(k * dx / 2.0) / dx
                 * jnp.exp(1j * k * 0.5 * dx))
-    # the half-cell shift zeroes the even-n Nyquist mode
-    assert jnp.allclose(sym.data[:-1], expected[:-1])
-    assert sym.data[-1] == 0
+    # the Nyquist leaf is kept: 2i sin(π/2)/dx · e^{iπ/2} = -2/dx (real,
+    # representable — matching the staggered_diff kernel), unlike a pure
+    # phase shift where a half-cell shift of the real Nyquist is zeroed
+    assert jnp.allclose(sym.data, expected)
+    assert jnp.abs(sym.data[-1] - (-2.0 / dx)) < 1e-12
 
 
 def test_bwd_fwd_composes_to_the_real_discrete_laplacian(mx):
@@ -79,23 +81,35 @@ def test_bwd_fwd_composes_to_the_real_discrete_laplacian(mx):
     assert sym.codomain.origin.node_set is NodeSet.CENTER
     k = fourier_wavenumbers(mx.fourier(origin=mx.center))
     dx = mx.dx
-    # real -k_hat**2 = -2 (1 - cos k dx) / dx**2 off the Nyquist mode
+    # real -k_hat**2 = -2 (1 - cos k dx) / dx**2 on every mode — the
+    # bwd @ fwd round-trip recovers the Nyquist (-4/dx**2), matching the
+    # discrete div @ grad kernel exactly (the pressure Poisson symbol)
     assert jnp.max(jnp.abs(sym.data.imag)) < 1e-12
     khat2 = -2.0 * (1.0 - jnp.cos(k * dx)) / dx ** 2
-    assert jnp.allclose(sym.data.real[:-1], khat2[:-1])
+    assert jnp.allclose(sym.data.real, khat2)
 
 
 def test_eigenvalues_raise_on_the_wrong_boundary(fd, my, mx):
     # bounded meshes diagonalize in the sine/cosine basis, not Fourier
     with pytest.raises(EigenbasisError, match="periodic"):
         fd["y"].eigenvalues(Grid((my,)), my.center)
-    # a Fourier operand is not a nodal factor either
-    with pytest.raises(EigenbasisError):
-        fd.eigenvalues(Grid((mx,)), mx.fourier(origin=mx.center))
     # higher orders are not grounded in iteration 1
     with pytest.raises(EigenbasisError, match="order 2"):
         FiniteDifference(order=4)["x"].eigenvalues(Grid((mx,)),
                                                    mx.center)
+
+
+def test_eigenvalues_thread_a_fourier_coefficient_factor(fd, mx):
+    # layout-faithful threading (decision 3): a periodic Fourier factor
+    # is a legal operand and yields the same i k_hat symbol as the
+    # nodal query (the origin fixes the staggering, its scalars fix the
+    # spectrum layout)
+    grid = Grid((mx,))
+    nodal = fd.eigenvalues(grid, mx.center)
+    coeff = fd.eigenvalues(grid, mx.fourier(origin=mx.center))
+    assert coeff.space is nodal.space
+    assert coeff.codomain is nodal.codomain
+    assert jnp.array_equal(coeff.data, nodal.data)
 
 
 # ================================================================

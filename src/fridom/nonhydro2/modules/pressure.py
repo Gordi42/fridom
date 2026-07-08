@@ -4,28 +4,33 @@ Description
 -----------
 The nonhydrostatic incompressibility constraint is enforced by the
 fractional-step projection ``div(grad p) = div(u*)`` then
-``u = u* - grad p`` (03 §5.6, project-the-state). The inverse is the
-pseudo-inverse of the discrete Laplacian's diagonal ``Symbol``: the
-eigenvalue diagonal is assembled on the transformed coefficient space
-and inverted via ``Symbol.inverse`` (the ``k = 0`` nullspace
-regularized by its exact structural-zero test — the mean-pressure
-gauge), retiring the hand-rolled ``jnp.where`` pseudo-inverse.
+``u = u* - grad p`` (03 §5.6, project-the-state). The elliptic operator
+is the grid's own discrete Laplacian ``∇² = Div @ Diag(1, 1, 1/dsqr) @
+Grad``: the ``Divergence``/``Gradient`` builders expand into whatever
+staggered difference scheme the grid dispatches (the C-grid forward /
+backward differences), and their ``eigenvalues`` supply the per-mode
+diagonal ``Symbol`` on the transformed coefficient space — no
+hand-written ``k̂²`` (``discrete_laplace_symbol`` retired,
+symbol_stack_design.md decision 1).
 
-The discrete eigenvalue matches the C-grid ``Divergence()@Gradient()``
-chain exactly: forward difference (center -> face) has eigenvalue
-``(e^{ik dx} - 1)/dx`` and backward difference (face -> center)
-``(1 - e^{-ik dx})/dx``; their product is ``-2(1 - cos k dx)/dx^2 =
--khat^2``. Inverting therefore drives the *discrete* divergence to
-machine zero. ``dsqr`` enters only through the vertical term
-``khat_z^2 / dsqr`` and is read live in-step (it is not factorable
-into grid x parameter — D2.4 V-N), so the diagonal is (re)assembled
-per solve rather than materialized once by a static ``SpectralSolve``.
+Because ``eigenvalues`` is layout-faithful (decision 3), the composed
+``bwd @ fwd`` symbol is assembled directly on the ``rfftn`` coefficient
+layout ``(half, full, full)`` — the wall the old hand-rolled solve hit
+is dissolved. The ``bwd @ fwd`` round-trip recovers the honest
+``-k̂² = -2(1 - cos k dx)/dx²`` on *every* mode (Nyquist included),
+matching the ``staggered_diff`` kernel exactly, so inverting drives the
+*discrete* divergence to machine zero.
 
-The eigenvalue is assembled directly on the transformed coefficient
-factors (not via ``Laplacian().eigenvalues``): the composed C-grid FD
-symbol tags every axis with an independent half spectrum, incompatible
-with the multi-axis rfftn coefficient layout ``(half, full, full)``
-this solve transforms into — reconciling the two is a follow-up.
+The vertical ``1/dsqr`` weight lives in the operator (``Diag``); but
+``dsqr`` rides ``ctx.params`` as a traced-but-constant leaf, so the
+scaling happens at the **symbol** level — the assembled vertical term
+is multiplied by a degenerate all-``Constant`` coefficient field
+(``Symbol x field``, the ``dsqr`` case), never via
+``ScaledOperator.eigenvalues`` (which rightly refuses a non-constant
+operator coefficient). The weighted diagonal is handed to a grid-bound
+``SpectralSolve`` (forward transform → ``Symbol.inverse(where_zero=0)``
+→ backward), the ``k = 0`` nullspace regularized by its exact
+structural-zero test (the mean-pressure gauge).
 """
 from __future__ import annotations
 
@@ -33,69 +38,61 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.framework2.grid.operators.fourier import Fourier
-from fridom.framework2.grid.operators.spectral import fourier_wavenumbers
-from fridom.framework2.grid.operators.symbol import Symbol
-from fridom.framework2.grid.spaces.coefficient import FourierSpace
+from fridom.framework.utils import dtype_real
+from fridom.framework2.grid.fields.metadata import FieldMetadata
+from fridom.framework2.grid.fields.scalar_field import ScalarField
+from fridom.framework2.grid.fields.storage import store
+from fridom.framework2.grid.operators.base import OperatorSum
+from fridom.framework2.grid.operators.composed import Laplacian
+from fridom.framework2.grid.operators.spectral_solve import SpectralSolve
+from fridom.framework2.grid.spaces.tensor_product import (
+    TensorProductSpace,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     import jax
 
+    from fridom.framework2.grid.operators.base import Operator
+    from fridom.framework2.grid.operators.symbol import Symbol
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
 
-def discrete_laplace_symbol(
-    space: SpaceLike, *, vertical: str, dsqr: jax.Array,
-) -> Symbol:
-    r"""Discrete Laplacian diagonal ``-(khat_x^2 + khat_y^2 + khat_z^2/dsqr)``.
+def _constant_field(
+    grid: object, coeff: SpaceLike, value: jax.Array,
+) -> ScalarField:
+    """
+    Wrap a (possibly traced) scalar as an all-``Constant`` field.
 
     Description
     -----------
-    ``space`` is the coefficient (Fourier) space of the transformed
-    divergence. Each factor contributes the discrete second-difference
-    eigenvalue ``khat^2 = 2(1 - cos k dx)/dx^2`` reshaped onto its axis;
-    the vertical factor is weighted by ``1 / dsqr``. The result is the
-    (negative) discrete Laplacian eigenvalue diagonal, wrapped as a
-    ``Symbol`` so the caller inverts it through the diagonal-operator
-    algebra (``Symbol.inverse``).
+    The degenerate ``Symbol x field`` coefficient (symbol_stack_design.md
+    §"``Symbol x field``"): a field constant on every axis, so it is
+    trivially ``Constant`` on the symbol's transformed factors and
+    scales the diagonal by ``value`` in the mixed representation. The
+    array is a dynamic leaf, so a traced ``value`` (``1/dsqr``) flows
+    through untouched.
 
     Parameters
     ----------
-    space : SpaceLike
-        The coefficient-space of the transformed field.
-    vertical : str
-        Coordinate name of the vertical (``dsqr``-weighted) axis.
-    dsqr : jax.Array
-        The live squared-aspect-ratio leaf.
+    grid : object
+        The grid mediating the decomposition.
+    coeff : SpaceLike
+        The coefficient space whose factor family the field mirrors.
+    value : jax.Array
+        The (possibly traced) scalar coefficient.
 
     Returns
     -------
-    Symbol
-        The discrete Laplacian diagonal on the bare coefficient space.
+    ScalarField
+        The all-``Constant`` coefficient field carrying ``value``.
     """
-    bare = space.bare
-    names = bare.names
-    ndim = len(names)
-    total = jnp.zeros((1,) * ndim)
-    for index, name in enumerate(names):
-        factor = bare.factor(name)
-        if not isinstance(factor, FourierSpace):
-            raise NotImplementedError(
-                "the spectral pressure solve needs a Fourier factor on "
-                f"every transformed axis; {name!r} resolved to "
-                f"{factor!r} (use a periodic grid, or extend the solve "
-                "with the trig transforms)")
-        mesh = factor.mesh
-        n = factor.origin.shape[0]
-        length = mesh.extent[1] - mesh.extent[0]
-        dx = length / n
-        k = fourier_wavenumbers(factor)
-        khat2 = 2.0 * (1.0 - jnp.cos(k * dx)) / dx**2
-        shape = [1] * ndim
-        shape[index] = khat2.shape[0]
-        weight = 1.0 / dsqr if name == vertical else 1.0
-        total = total + weight * khat2.reshape(shape)
-    return Symbol(bare, -total)
+    bare = TensorProductSpace.of(
+        *(factor.mesh.constant for factor in coeff.factors))
+    data = jnp.broadcast_to(
+        jnp.asarray(value, dtype=dtype_real()), (1,) * len(coeff.factors))
+    stored = store(grid.decomposition, bare, data)
+    return ScalarField(grid, bare, stored,
+                       FieldMetadata.create(name="dsqr_metric"))
 
 
 class SpectralPressureSolver:
@@ -105,15 +102,53 @@ class SpectralPressureSolver:
     Description
     -----------
     Constructed at trace time inside the projection stage from the
-    operand's grid; carries no state and is not a pytree leaf.
+    operand's grid; carries no mutable state and is not a pytree leaf.
+    At construction it resolves the transform and expands the grid's
+    ``Divergence @ Gradient`` into its per-axis discrete
+    second-difference terms; per solve it assembles the ``dsqr``-weighted
+    Laplacian ``Symbol`` (live ``1/dsqr`` on the vertical term) and
+    inverts it through a ``SpectralSolve``.
+
+    Parameters
+    ----------
+    grid : object
+        The grid carrying the transform / dispatch registry.
+    space : SpaceLike
+        The (cell-centered) function space of the divergence operand.
+    vertical : str
+        The vertical coordinate name (the ``1/dsqr``-weighted axis).
     """
 
-    def __init__(self, grid: object) -> None:
-        """Bind the all-axes Fourier transform on ``grid``."""
-        self._fourier = Fourier(grid)
+    def __init__(
+        self, grid: object, space: SpaceLike, *, vertical: str,
+    ) -> None:
+        """Bind the transform and the per-axis Laplacian terms."""
+        bare = space.bare
+        self._grid: object = grid
+        self._vertical: str = vertical
+        self._transform = grid.dispatch.resolve("transform", bare)
+        self._coeff: SpaceLike = self._transform.codomain(bare)
+        # div @ grad collapses to a 1x1 block whose entry is the sum of
+        # per-axis ``bwd @ fwd`` chains (the discrete Laplacian)
+        entry: Operator = Laplacian().expand(
+            bare, grid.dispatch).rows[0][0]
+        self._terms: tuple[Operator, ...] = (
+            entry.terms if isinstance(entry, OperatorSum) else (entry,))
+
+    def _laplacian_symbol(self, dsqr: jax.Array) -> Symbol:
+        """Assemble ``-(k̂_x² + k̂_y² + k̂_z²/dsqr)`` on the coeff space."""
+        inv_dsqr = _constant_field(self._grid, self._coeff, 1.0 / dsqr)
+        total: Symbol | None = None
+        for term in self._terms:
+            sym = term.eigenvalues(self._grid, self._coeff)
+            if term.bound_axis == self._vertical:
+                # the traced 1/dsqr scaled in at the symbol level
+                sym = sym * inv_dsqr
+            total = sym if total is None else total + sym
+        return total
 
     def solve(
-        self, div: object, *, vertical: str, dsqr: jax.Array,
+        self, div: object, *, dsqr: jax.Array,
     ) -> object:
         """Return ``p`` with ``div(grad p) = div`` (discrete, exact).
 
@@ -122,8 +157,6 @@ class SpectralPressureSolver:
         div : ScalarField
             The (cell-centered, real) divergence of the provisional
             velocity.
-        vertical : str
-            The vertical coordinate name.
         dsqr : jax.Array
             The live squared-aspect-ratio leaf.
 
@@ -132,10 +165,8 @@ class SpectralPressureSolver:
         ScalarField
             The pressure on the same (cell-centered) space as ``div``.
         """
-        div_hat = self._fourier.forward(div)
-        laplace = discrete_laplace_symbol(
-            div_hat.function_space, vertical=vertical, dsqr=dsqr)
-        # ``Symbol.inverse`` regularizes the ``k = 0`` nullspace (the
-        # mean-pressure gauge) via its exact structural-zero test
-        p_hat = laplace.inverse()(div_hat)
-        return self._fourier.backward(p_hat).real
+        laplace = self._laplacian_symbol(dsqr)
+        # ``SpectralSolve`` wraps forward -> Symbol.inverse(0) -> backward;
+        # the exact structural-zero test regularizes the k = 0 nullspace
+        # (the mean-pressure gauge)
+        return SpectralSolve(laplace, self._grid, div.function_space)(div)

@@ -109,6 +109,22 @@ def test_helmholtz_shift_has_no_nullspace():
 # ================================================================
 #  Properties
 # ================================================================
+def test_accepts_a_preassembled_symbol(grid_2d):
+    # the metric seam: a solve built from a coefficient-space Symbol
+    # (assembled off the operators, e.g. with a traced weight) rather
+    # than an operator — must match the operator-built solve
+    grid = grid_2d
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    from_op = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
+    coeff = from_op.transform.codomain(rhs.function_space.bare)
+    symbol = laplacian_2d().eigenvalues(grid, coeff)
+    from_sym = SpectralSolve(symbol, grid, rhs.function_space)
+    assert jnp.array_equal(from_sym.inverse_symbol.data,
+                           from_op.inverse_symbol.data)
+    assert jnp.allclose(from_sym(rhs).data, from_op(rhs).data)
+
+
 def test_properties_expose_the_transform_and_inverse(grid_2d):
     grid = grid_2d
     rhs = grid.create_field(

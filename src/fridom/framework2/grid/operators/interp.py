@@ -27,14 +27,15 @@ from fridom.framework2.grid.operators.base import (
 )
 from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.spectral import (
+    fourier_partner,
     linear_interp_symbol,
-    periodic_fourier_factor,
 )
 from fridom.framework2.grid.operators.staggering import apply_staggered
 from fridom.framework2.grid.operators.stencil_kernels import (
     linear_interp,
 )
 from fridom.framework2.grid.scalars import Scalars
+from fridom.framework2.grid.spaces.coefficient import FourierSpace
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -108,6 +109,10 @@ class LinearInterp(SeparableOperator):
         FunctionSpace
             The staggered codomain factor (scalars preserved).
         """
+        if isinstance(domain, FourierSpace):
+            # layout-faithful eigenvalue threading: retag the Fourier
+            # factor through the staggered origin (decision 3)
+            return domain.mesh.fourier(origin=self.codomain(domain.origin))
         if not (isinstance(domain, NodalSpace) and domain.bc.is_free):
             raise SpaceMismatchError(
                 "LinearInterp covers BC-free nodal spaces, got "
@@ -205,10 +210,12 @@ class LinearInterp(SeparableOperator):
         bare = space.bare
         axis = _resolve_axis(self, bare)
         factor = bare.factor(axis)
-        # guard the periodic-nodal boundary before ``codomain``
-        periodic_fourier_factor(factor, "LinearInterp")
-        codomain_nodal = self.codomain(factor)
-        return linear_interp_symbol(bare, axis, factor, codomain_nodal)
+        # resolve the source Fourier factor from the threaded layout
+        # (nodal operand, or a transformed rfftn coefficient factor)
+        src, nodal_origin = fourier_partner(factor, "LinearInterp")
+        codomain_nodal = self.codomain(nodal_origin)
+        return linear_interp_symbol(
+            bare, axis, src, nodal_origin, codomain_nodal)
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """

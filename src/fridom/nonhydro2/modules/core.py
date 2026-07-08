@@ -164,8 +164,9 @@ class DynamicalCore(Module):
         vel = VectorField({
             "u": state["u"], "v": state["v"], "w": state["w"]})
         div = Divergence()(vel)
-        solver = SpectralPressureSolver(div.grid)
-        p = solver.solve(div, vertical=self._vertical, dsqr=dsqr)
+        solver = SpectralPressureSolver(
+            div.grid, div.function_space, vertical=self._vertical)
+        p = solver.solve(div, dsqr=dsqr)
         grad = Gradient()(p)
         gpz = grad[self._vertical]
         return {
