@@ -10,6 +10,19 @@ deviations instead of redesigning**. The API sketches
 surface; the design notes (01–09) are consulted for semantics, never
 reopened.
 
+**Scope extension (2026-07-08, awaiting sign-off).** The energy-metric
+projection design ([`../projection_eigenmode_plan.md`](../projection_eigenmode_plan.md),
+build order in [`../projection_eigenmode_roadmap.md`](../projection_eigenmode_roadmap.md))
+and the spectral/eigen substrate ([`../operator_symbols_plan.md`](../operator_symbols_plan.md),
+[`../blocksymbol_l_assembly.md`](../blocksymbol_l_assembly.md),
+[`../linear_term_blocks_plan.md`](../linear_term_blocks_plan.md)) refine
+two things here: **wave 7's projections become energy-metric** (drop the
+biorthogonal `vec_p`; `p = M q` under a first-class `EnergyMetric`), and
+a new **Phase 2.9** (waves 9–11, below) adds the scalar-`Symbol` /
+`SpectralSolve` substrate, the operator-algebra assembly of the
+linearized `L` as a `BlockSymbol`, and the numeric / non-Fourier
+eigenmode generalization. Waves 2.2–2.7 are unaffected.
+
 ## Ground rules
 
 - Integration branch: `framework2-model-impl` (off `dev`; merged to
@@ -68,7 +81,7 @@ sync). Rules for this plan:
 | — | **Gate: first end-to-end jitted run.** Module-only toy model (tracer advection–diffusion, no fake core; CS-13), single jit over chunked scan, 1 and 4 devices. Oracles: treedef stability, compile counter (one compile across a parameter re-assembly sweep), repeated-`advance` ≡ uninterrupted run, snapshot round-trip bitwise, NaN-abort at chunk boundary. Merge to `dev`. | |
 | 5 | Ops + steppers + writers (2.4/2.5/2.6) | A `fr.ops.Session` + `run()` reimplemented over it, boundary sequence (sync → panic → flush → progress → walltime), interrupt handling, `debug_nan` replay · B RK family (`ButcherTableau`/`tableaus`, `ExplicitRungeKutta`, `LowStorageRK3` — pin coefficients vs Oceananigans) + treatment partition/`implicit`/`advance_stages` in the schedule + `IMEXMultistep`/`IMEXState` + `CNAB2`/`SBDF2` factories, with the `VerticalDiffusion` reference consumer (1D decay + stiff-κ) · C `fr.io.Writer` (zarr sink, xarray/xgcm-openable, `truncate_after` resume) + `TimeSeries` (CSV) + `IOCollisionError`/`SnapshotMismatchError` + restart-under-scan integration tests |
 | 6 | Model ports (2.7) | A nonhydro: core module + `FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification` (registers `b`), advection, pressure projection as CONSTRAINT stage + solver operator, eigenmodes (`from_model`, `em.q`/`em.p`/`em.projector`), `State` vocabulary, preset factory · B shallowwater: same shape (`csqr` field, Sadourny, Rossby scaling), plus `WindowAccumulator` and the first closure port on `ClosureBase` · C the §8.8 cutover-parity suite ([`06_validation.md`](06_validation.md)) + examples/docs refresh + benchmark table vs old framework at identical sizes |
-| 7 | State transforms (2.8) | A `StateSignature`/`TransformInfo`/errors, `StateTransform` base + algebra nodes, `Identity`/`Shift`/`FixedPoint`/`relative_l2`/`assert_idempotent`, `model.variant` + term predicates (`fr.terms`) + `fr.linearize` + `model.tendency` · B Tier-2 presets: `Propagator`, `TimeAverage`, `OptimalBalance` (+ SELF_UPDATE-first regression, info law, trace guard) · C eigenmode-backed projections (`VorticalProjection`/`WaveProjection`/`DivergenceProjection`, `nh.transforms`/`sw.transforms` aliases) + the D5 behavior-delta tests (`stop_best`, continuous Ramp, TimeAverage-drops-Smagorinsky) |
+| 7 | State transforms (2.8) | A `StateSignature`/`TransformInfo`/errors, `StateTransform` base + algebra nodes, `Identity`/`Shift`/`FixedPoint`/`relative_l2`/`assert_idempotent`, `model.variant` + term predicates (`fr.terms`) + `fr.linearize` + `model.tendency` · B Tier-2 presets: `Propagator`, `TimeAverage`, `OptimalBalance` (+ SELF_UPDATE-first regression, info law, trace guard) · C **energy-metric** projections: `fr.EnergyMetric` + State inner-product/norm (+ SW `ekin`/`epot`, nh `epot` diagnostics), reformulate the wave-6 eigenmodes to derive `p = M q` (drop hand-written `vec_p`), then `VorticalProjection`/`WaveProjection`(`=P(+1)+P(−1)`)/`DivergenceProjection`(`=complement`) + `nh.transforms`/`sw.transforms` aliases + the D5 behavior-delta tests (`stop_best`, continuous Ramp, TimeAverage-drops-Smagorinsky) |
 | 8 | Final gate: full suite + 95% coverage + ruff, benchmark table, §8.8 sign-off review, merge to `dev` | serial |
 
 Wave 3's tracks interlock through the pre-scaffolded stubs (A's
@@ -76,6 +89,34 @@ Wave 3's tracks interlock through the pre-scaffolded stubs (A's
 specs fix the signatures, so the tracks build against the stubs and
 the orchestrator merges A → B → C. Waves 6 A/B are independent by
 package; C follows their merges.
+
+## Phase 2.9 — energy-metric substrate & operator-algebra `L` (new; awaiting sign-off)
+
+Extends Phase 2 with the spectral/eigen substrate the wave-6 ports
+hand-rolled and the operator-algebra assembly of the linearized system
+operator. Full build order + dependency graph:
+[`../projection_eigenmode_roadmap.md`](../projection_eigenmode_roadmap.md).
+**Wave 9 is grid-layer and independent of wave 7 — may run in
+parallel.** Waves 10–11 depend on wave 7C's `EnergyMetric` and on wave
+9. The `Eigenmodes.from_operator(L, M, grid)` seam is stable across
+10–11; only the `L`-producer changes (probe → symbolic `BlockSymbol`).
+
+| Wave | Content (roadmap phase) | Parallel split |
+|------|-------------------------|----------------|
+| 9 | Spectral-solve substrate (C/D; S1/S2) | A scalar `Symbol` (`@final`) in `operators/symbol.py` + per-operator `eigenvalues` (§4 table) — lights the dormant `base.py` product/sum/scale composition; delivers the pure-diagonal pressure solver · B `SpectralSolve` (diagonal/banded partition) + lift the tridiagonal primitive from `model/implicit.py` into `grid/operators/banded`; retire the hand-rolled `nonhydro2/pressure.py` inverse. Gates `operator_symbols_plan.md` §7 A–E |
+| 10 | Linear-term blocks + numeric eigenmodes (T1–T4, H0) | A `LinearBlock`/`Coeff`/op-specs + `TendencyTerm.blocks` + `@fr.term(blocks=)` + assembly validation (T1); re-author the four linear terms (shared Coriolis, stratification ×2, sw gravity) with the block-vs-hand equivalence test, then derive `fn` from `blocks` (T2–T4) · B the `from_operator` seam + H0 probe: `L(k)` by `jax.jvp` of `fr.linearize(model).tendency(·, constraints=True)`, `eigh(iML, M)`, validated against the analytic Tier-0 modes |
+| 11 | Symbolic `BlockSymbol` + general eigenmodes (H1, I) | A `BlockSymbol` (separate type from scalar `Symbol`) + `BlockMatrix.eigenvalues()`; assemble `L(k)` from block Symbols (SW pure; nonhydro composes the Leray `Symbol.inverse` from wave 9) — swap behind the unchanged `from_operator` seam · B non-periodic / vertical general eigenmodes (sine/cosine structure functions; banded generalized `eigh`); walls-in-vertical additionally need Shen/Galerkin Chebyshev + Chebyshev `grid.measure` quadrature (own prerequisites) |
+| 12 | 2.9 gate: full suite + 95% coverage + ruff, symbol/eigen validation review, merge to `dev` | serial |
+
+Named oracles: **W9** — the [`06_validation.md`](06_validation.md)
+eigenvalue identities (`i k sinc` = average-of-∂ₓ, `bwd @ fwd` real
+Laplacian); `SpectralSolve` residual ≡ the hand-rolled pressure solver
+on the shared path. **W10** — block-derived `fn` ≡ hand `fn` on random
+state (the desync guard); H0 `eigh(iML, M)` modes ≡ analytic `em.q` /
+`em.omega` to tolerance; `from_model` beta-plane / variable-coefficient
+decline preserved. **W11** — symbolic `L(k)` ≡ the H0 probe `L(k)`;
+assembled SW/nonhydro dispersion ≡ analytic; the 1×1 Laplacian block ≡
+the scalar `kx² + ky²` symbol.
 
 ## Module/jaxify discipline (verbatim into agent prompts)
 
@@ -116,6 +157,12 @@ async/split/`sel=` writer features, multi-model Session maturation
 (3.2), NNMD (descoped — no model propagator), `Velocity` `group=`
 qualifier, batched Tier-2 / `with_parameters` / `resync()` /
 `OnComponents`, `em.omega_field`.
+
+The scalar `Symbol`, `SpectralSolve` + `grid/operators/banded`,
+`BlockSymbol`, `EnergyMetric`, and the operator-algebra `L` assembly —
+formerly deferred "designed-for" slots — are **now scheduled in Phase
+2.9** (waves 9–11), not do-not-build. Still deferred: `SpectralDiagonal`
+(the implicit spectral operator), `em.omega_field`, and NNMD.
 
 ## Standing test gates
 
