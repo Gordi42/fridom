@@ -115,7 +115,9 @@ Consequences:
 - **`SpectralSolve` is not a class** — it is a *composition* of realized
   maps, `backward @ symbol.inverse() @ forward`. The Phase-D′
   `SpectralPressureSolver` should become a thin constructor returning
-  that value (a follow-up reframe, not a rewrite).
+  that value (a follow-up reframe, not a rewrite). **The implementation
+  path is [`composition_refactor_plan.md`](composition_refactor_plan.md)**
+  — the realized-map category + the shared composition core.
 - **Materialization is explicit (decision A, 2026-07-08).** A bare
   `symbol @ recipe` **raises** a taught error pointing at
   `recipe.eigenvalues(grid, space)`. Crossing recipe → structured binds

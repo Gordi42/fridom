@@ -187,6 +187,9 @@ backends behind one `Eigenmodes.from_operator(L, M, grid)` seam — see
 ### Phase I — variable-coefficient / wall-bounded eigenmodes  · *(P3; redesigned)*
 Now scoped by [`symbol_stack_design.md`](symbol_stack_design.md) — the
 `Banded` + nesting + mixed-representation tier (not "needs Chebyshev").
+**Realized as S3–S4 of
+[`composition_refactor_plan.md`](composition_refactor_plan.md)** (on the
+consolidated realized-map layer, after the S0–S2 composition-core work).
 - **What.** (a) The **`Banded`** operator type (promote
   `grid/operators/banded.py` to a first-class diagonal-in-transformed /
   banded-in-one-axis operator with matvec + Thomas solve). (b) The
