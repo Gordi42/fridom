@@ -8,8 +8,12 @@ from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.base import EigenbasisError
+from fridom.framework2.grid.operators.composed import Laplacian
 from fridom.framework2.grid.operators.finite_difference import (
     FiniteDifference,
+)
+from fridom.framework2.grid.operators.spectral import (
+    fourier_wavenumbers,
 )
 from fridom.framework2.grid.spaces.nodal import NodeSet
 
@@ -51,9 +55,47 @@ def test_requirements_halo_is_half_the_order(mx):
     assert FiniteDifference().requirements(mx.center).layout == "any"
 
 
-def test_eigenvalues_designed_for(fd, mx):
+def test_eigenvalues_is_the_ik_hat_retagging_symbol(fd, mx):
+    grid = Grid((mx,))
+    sym = fd["x"].eigenvalues(grid, mx.center)
+    # retags Fourier(Center) -> Fourier(Right)
+    assert sym.space.origin.node_set is NodeSet.CENTER
+    assert sym.codomain.origin.node_set is NodeSet.RIGHT
+    k = fourier_wavenumbers(mx.fourier(origin=mx.center))
+    dx = mx.dx
+    expected = (1j * 2.0 * jnp.sin(k * dx / 2.0) / dx
+                * jnp.exp(1j * k * 0.5 * dx))
+    # the half-cell shift zeroes the even-n Nyquist mode
+    assert jnp.allclose(sym.data[:-1], expected[:-1])
+    assert sym.data[-1] == 0
+
+
+def test_bwd_fwd_composes_to_the_real_discrete_laplacian(mx):
+    grid = Grid((mx,))
+    # div @ grad collapses to the 1x1 block whose entry is bwd @ fwd
+    entry = Laplacian().expand(mx.center, grid.dispatch).rows[0][0]
+    sym = entry.eigenvalues(grid, mx.center)
+    assert sym.space.origin.node_set is NodeSet.CENTER
+    assert sym.codomain.origin.node_set is NodeSet.CENTER
+    k = fourier_wavenumbers(mx.fourier(origin=mx.center))
+    dx = mx.dx
+    # real -k_hat**2 = -2 (1 - cos k dx) / dx**2 off the Nyquist mode
+    assert jnp.max(jnp.abs(sym.data.imag)) < 1e-12
+    khat2 = -2.0 * (1.0 - jnp.cos(k * dx)) / dx ** 2
+    assert jnp.allclose(sym.data.real[:-1], khat2[:-1])
+
+
+def test_eigenvalues_raise_on_the_wrong_boundary(fd, my, mx):
+    # bounded meshes diagonalize in the sine/cosine basis, not Fourier
+    with pytest.raises(EigenbasisError, match="periodic"):
+        fd["y"].eigenvalues(Grid((my,)), my.center)
+    # a Fourier operand is not a nodal factor either
     with pytest.raises(EigenbasisError):
-        fd.eigenvalues(None, mx.fourier(origin=mx.center))
+        fd.eigenvalues(Grid((mx,)), mx.fourier(origin=mx.center))
+    # higher orders are not grounded in iteration 1
+    with pytest.raises(EigenbasisError, match="order 2"):
+        FiniteDifference(order=4)["x"].eigenvalues(Grid((mx,)),
+                                                   mx.center)
 
 
 # ================================================================

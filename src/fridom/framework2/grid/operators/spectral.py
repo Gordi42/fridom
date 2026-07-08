@@ -9,8 +9,10 @@ the exact derivative on coefficient spaces — the only ``"diff"``
 choice there; ``PhaseShift`` and ``SincShift`` are the exact
 inter-origin conversions (rules section 3.2). All three are diagonal
 (or index-shifted diagonal) multiplies whose values derive from the
-factor's mesh at trace time; ``eigenvalues`` stays the raising base
-method until the (designed-for) ``Symbol`` cluster lands.
+factor's mesh at trace time; ``eigenvalues`` returns the matching
+``Symbol`` on Fourier factors (Wave 9A). The sine/cosine derivative
+(an index-shifted diagonal) and the Chebyshev recurrence raise
+``EigenbasisError`` — deferred to the block/eigen layer.
 
 Coefficient conventions match the transforms (index-based amplitude
 convention of ``operators.fourier`` and the sine/cosine mode tables
@@ -28,11 +30,14 @@ from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.fields.storage import store
 from fridom.framework2.grid.operators.base import (
+    EigenbasisError,
     FieldLike,
     OperatorRequirements,
     SeparableOperator,
+    _resolve_axis,
 )
 from fridom.framework2.grid.operators.interned import interned
+from fridom.framework2.grid.operators.symbol import diagonal_symbol
 from fridom.framework2.grid.operators.transform import (
     axis_concat,
     axis_slice,
@@ -55,6 +60,9 @@ from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     import jax
+
+    from fridom.framework2.grid.operators.symbol import Symbol
+    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
 TWO_PI = 2.0 * jnp.pi
 
@@ -291,6 +299,48 @@ class SpectralDerivative(SeparableOperator):
         """
         return OperatorRequirements(halo=0, layout="local")
 
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the exact Fourier ``i k`` diagonal (retag-free).
+
+        Description
+        -----------
+        The spectral derivative is a diagonal multiply on a Fourier
+        factor (the Nyquist mode of even-length spectra annihilated,
+        matching ``_apply_factor``). The sine/cosine derivative is an
+        index-shifted diagonal that the Hadamard ``Symbol`` cannot
+        carry, and the Chebyshev recurrence couples all modes, so both
+        raise ``EigenbasisError`` (deferred to the block layer).
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The ``i k`` diagonal on the Fourier factor.
+        """
+        bare = space.bare
+        axis = _resolve_axis(self, bare)
+        factor = bare.factor(axis)
+        if not isinstance(factor, FourierSpace):
+            raise EigenbasisError(
+                "SpectralDerivative has a diagonal symbol only on "
+                f"Fourier factors, got {factor!r}: the sine/cosine "
+                "derivative is an index-shifted diagonal (deferred to "
+                "the block layer) and the Chebyshev recurrence couples "
+                "all modes")
+        k = _zero_nyquist(fourier_wavenumbers(factor), factor)
+        return diagonal_symbol(bare, axis, factor, factor, 1j * k)
+
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """
         Differentiate the coefficient factor along ``axis``.
@@ -477,6 +527,42 @@ class PhaseShift(SeparableOperator):
             target = target.as_complex()
         return domain.mesh.fourier(origin=target)
 
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the inter-origin phase diagonal ``e^{i k delta dx}``.
+
+        Description
+        -----------
+        Retags ``Fourier(A) -> Fourier(<to>)`` on the same mesh; the
+        even-n real Nyquist mode is zeroed for a half-cell shift (the
+        one non-exact DOF, matching ``_apply_factor``). Identity when
+        the origin already matches.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The phase diagonal on the Fourier factor.
+        """
+        bare = space.bare
+        axis = _resolve_axis(self, bare)
+        factor = bare.factor(axis)
+        out_factor = self.codomain(factor)
+        delta = (_NODE_OFFSETS[self._to]
+                 - _NODE_OFFSETS[factor.origin.node_set])
+        return diagonal_symbol(bare, axis, factor, out_factor,
+                               _origin_shift(factor, delta))
+
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """
         Multiply by the inter-origin phase along ``axis``.
@@ -583,6 +669,46 @@ class SincShift(SeparableOperator):
             target = target.as_complex()  # pragma: no cover
         return domain.mesh.fourier(origin=target)
 
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the ``sinc(k dx/2)`` average-to-nodal diagonal.
+
+        Description
+        -----------
+        Average -> nodal **divides** by the cell-averaging sinc factor
+        (invertible on the resolved band), composing the corresponding
+        inter-origin phase — the exact ``_apply_factor`` diagonal as a
+        retagging ``Fourier(avg) -> Fourier(nodal)`` symbol.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The sinc/phase diagonal on the Fourier factor.
+        """
+        bare = space.bare
+        axis = _resolve_axis(self, bare)
+        factor = bare.factor(axis)
+        out_factor = self.codomain(factor)
+        origin = factor.origin
+        offset = 0.5 if isinstance(origin, CellAvg) else 1.0
+        delta = _NODE_OFFSETS[self._to] - offset
+        k = fourier_wavenumbers(factor)
+        dx = _length(factor) / origin.shape[0]
+        sinc = jnp.sinc(k * dx / TWO_PI)
+        leaf = _origin_shift(factor, delta) / sinc
+        return diagonal_symbol(bare, axis, factor, out_factor, leaf)
+
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """
         Divide by sinc (and phase-shift) along ``axis``.
@@ -659,3 +785,127 @@ def _origin_shift(factor: FourierSpace,
     if factor.scalars is Scalars.REAL and n % 2 == 0:
         phase = phase.at[-1].set(0)
     return phase
+
+
+# ================================================================
+#  Staggering (nodal -> Fourier) symbols
+# ================================================================
+def periodic_fourier_factor(
+    nodal_factor: FunctionSpace, who: str,
+) -> FourierSpace:
+    """
+    Return the Fourier space diagonalizing a periodic nodal factor.
+
+    Description
+    -----------
+    A staggering stencil (``FiniteDifference``/``LinearInterp``)
+    diagonalizes only on a periodic mesh; on a bounded mesh it
+    diagonalizes in the sine/cosine basis instead, so this raises
+    ``EigenbasisError`` there (the correct boundary of the symbol
+    capability, rules section 3.7).
+
+    Parameters
+    ----------
+    nodal_factor : FunctionSpace
+        The (bare) nodal coefficient factor.
+    who : str
+        The querying operator name, for the error message.
+
+    Returns
+    -------
+    FourierSpace
+        ``mesh.fourier(origin=nodal_factor)``.
+    """
+    if not (isinstance(nodal_factor, NodalSpace)
+            and nodal_factor.mesh.periodic
+            and nodal_factor.bc.is_free
+            and nodal_factor.node_set in _NODE_OFFSETS):
+        raise EigenbasisError(
+            f"{who} has a Fourier symbol only on periodic BC-free "
+            f"nodal factors (Center/Right/Left), got {nodal_factor!r}: "
+            "bounded staggering diagonalizes in the sine/cosine basis")
+    return nodal_factor.mesh.fourier(origin=nodal_factor)
+
+
+def _staggering_symbol(
+    bare: SpaceLike, axis: str, nodal_factor: FunctionSpace,
+    codomain_nodal: FunctionSpace,
+    magnitude: object, who: str,
+) -> Symbol:
+    r"""
+    Fourier diagonal of a periodic-nodal staggering stencil.
+
+    Description
+    -----------
+    The shared body of ``FiniteDifference``/``LinearInterp``
+    ``eigenvalues``: the retagging ``Fourier(src origin) ->
+    Fourier(codomain origin)`` diagonal ``magnitude(k, dx) *
+    e^{i k delta dx}`` (the half-cell shift zeroes the even-n real
+    Nyquist mode, like ``PhaseShift``).
+    """
+    src = periodic_fourier_factor(nodal_factor, who)
+    dst = periodic_fourier_factor(codomain_nodal, who)
+    dx = _length(nodal_factor) / nodal_factor.shape[0]
+    k = fourier_wavenumbers(src)
+    delta = (_NODE_OFFSETS[codomain_nodal.node_set]
+             - _NODE_OFFSETS[nodal_factor.node_set])
+    leaf = magnitude(k, dx) * _origin_shift(src, delta)
+    return diagonal_symbol(bare, axis, src, dst, leaf)
+
+
+def finite_difference_symbol(
+    bare: SpaceLike, axis: str, nodal_factor: FunctionSpace,
+    codomain_nodal: FunctionSpace,
+) -> Symbol:
+    r"""
+    Order-2 staggered-FD Fourier diagonal ``2i sin(k dx/2)/dx`` (phase).
+
+    Parameters
+    ----------
+    bare : SpaceLike
+        The bare operand space the eigenvalue query threads.
+    axis : str
+        The coordinate the derivative acts along.
+    nodal_factor : FunctionSpace
+        The domain nodal factor (its Fourier partner is ``space``).
+    codomain_nodal : FunctionSpace
+        The staggered codomain nodal factor.
+
+    Returns
+    -------
+    Symbol
+        The retagging ``i k_hat`` diagonal.
+    """
+    return _staggering_symbol(
+        bare, axis, nodal_factor, codomain_nodal,
+        lambda k, dx: 1j * (2.0 * jnp.sin(k * dx / 2.0) / dx),
+        "FiniteDifference")
+
+
+def linear_interp_symbol(
+    bare: SpaceLike, axis: str, nodal_factor: FunctionSpace,
+    codomain_nodal: FunctionSpace,
+) -> Symbol:
+    r"""
+    Two-point averaging Fourier diagonal ``cos(k dx/2)`` (one_hat).
+
+    Parameters
+    ----------
+    bare : SpaceLike
+        The bare operand space the eigenvalue query threads.
+    axis : str
+        The coordinate the interpolation acts along.
+    nodal_factor : FunctionSpace
+        The domain nodal factor (its Fourier partner is ``space``).
+    codomain_nodal : FunctionSpace
+        The staggered codomain nodal factor.
+
+    Returns
+    -------
+    Symbol
+        The retagging ``one_hat`` diagonal.
+    """
+    return _staggering_symbol(
+        bare, axis, nodal_factor, codomain_nodal,
+        lambda k, dx: jnp.cos(k * dx / 2.0),
+        "LinearInterp")

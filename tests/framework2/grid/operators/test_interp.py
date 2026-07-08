@@ -5,6 +5,7 @@ import pytest
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.base import EigenbasisError
 from fridom.framework2.grid.operators.interp import LinearInterp
 from fridom.framework2.grid.spaces.nodal import NodeSet
 
@@ -117,3 +118,31 @@ def test_metadata_is_preserved(interp, mx):
     f = grid.create_field(name="u", units="m/s")
     g = interp["x"](f)
     assert g.metadata == f.metadata  # same-quantity rule
+
+
+# ================================================================
+#  Eigenvalue symbol (the one_hat averaging diagonal)
+# ================================================================
+def test_eigenvalues_matches_the_apply(interp, mx):
+    grid = Grid((mx,))
+    ft = grid.dispatch.resolve("transform", mx.center)
+    f = grid.create_field(
+        init=lambda x: jnp.sin(2 * jnp.pi * x)
+        + jnp.cos(3 * 2 * jnp.pi * x))
+    center_hat = ft.forward(f)
+    sym = interp["x"].eigenvalues(grid, mx.center)
+    # retags Fourier(Center) -> Fourier(Right)
+    assert sym.space.origin.node_set is NodeSet.CENTER
+    assert sym.codomain.origin.node_set is NodeSet.RIGHT
+    op_hat = ft.forward(interp["x"](f))
+    assert jnp.allclose(sym(center_hat).data, op_hat.data, atol=1e-12)
+
+
+def test_eigenvalues_raise_on_the_wrong_boundary(interp, my, mx):
+    # bounded meshes diagonalize in the sine/cosine basis
+    with pytest.raises(EigenbasisError, match="periodic"):
+        interp["y"].eigenvalues(Grid((my,)), my.center)
+    # the target= variant has no diagonalizing symbol in iteration 1
+    with pytest.raises(EigenbasisError, match="target="):
+        LinearInterp(target=NodeSet.OUTER)["x"].eigenvalues(
+            Grid((mx,)), mx.center)

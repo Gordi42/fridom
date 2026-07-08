@@ -62,6 +62,25 @@ def ekin(
     return state["p"].with_data(0.5 * (u**2 + v**2 + dsqr * w**2))
 
 
+def epot(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    """Potential energy ``0.5 b^2 / N^2`` at cell center.
+
+    Description
+    -----------
+    The linearized (quadratic) potential energy consistent with the
+    energy metric weight ``1/N^2`` on ``b`` (``fr.EnergyMetric``).
+    Carries ``N^2``; the buoyancy is interpolated onto the pressure
+    cell.
+    """
+    state = _detach(state)
+    n2 = params[STRATIFICATION_N2]
+    center = state["p"].function_space
+    b = state["b"].to(center).data
+    return state["p"].with_data(0.5 * b**2 / n2)
+
+
 def linear_pot_vort(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
@@ -84,5 +103,6 @@ def linear_pot_vort(
 
 DIAGNOSTICS = {
     "ekin": ekin,
+    "epot": epot,
     "linear_pot_vort": linear_pot_vort,
 }

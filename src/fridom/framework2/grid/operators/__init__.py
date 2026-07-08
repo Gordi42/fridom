@@ -71,6 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .select import Where
+    from .symbol import Symbol
     from .verbs import diff, integrate, interpolate
     from .weno import WenoReconstruction
 
@@ -135,6 +136,7 @@ all_imports_by_origin = {
     f"{base}.reconstruct": ["LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.select": ["Where"],
+    f"{base}.symbol": ["Symbol"],
     f"{base}.flux_diff": [
         "FluxDifference",
         "DualFluxDifference",

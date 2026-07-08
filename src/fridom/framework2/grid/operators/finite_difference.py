@@ -17,11 +17,17 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.operators.base import (
+    EigenbasisError,
     FieldLike,
     OperatorRequirements,
     SeparableOperator,
+    _resolve_axis,
 )
 from fridom.framework2.grid.operators.interned import interned
+from fridom.framework2.grid.operators.spectral import (
+    finite_difference_symbol,
+    periodic_fourier_factor,
+)
 from fridom.framework2.grid.operators.staggering import (
     apply_staggered,
     uniform_spacing,
@@ -36,9 +42,15 @@ from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 if TYPE_CHECKING:  # pragma: no cover
     from jax import Array
 
+    from fridom.framework2.grid.operators.symbol import Symbol
     from fridom.framework2.grid.spaces.function_space import (
         FunctionSpace,
     )
+    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
+
+#: the only staggered-FD order carrying a closed-form Fourier symbol
+#: in iteration 1
+_SYMBOL_ORDER = 2
 
 
 @final
@@ -53,9 +65,9 @@ class FiniteDifference(SeparableOperator):
     The stencil pattern (from ``order``) is static identity; the
     spacing denominator is the mesh's uniform cell width read at
     trace time (iteration-1 stand-in for the ``grid.measure`` dual
-    measure field). ``eigenvalues`` (the ``i k_hat`` retagging
-    symbol) is designed-for and inherits the raising base until the
-    ``Symbol`` cluster lands (Wave 3).
+    measure field). ``eigenvalues`` is the ``i k_hat`` retagging
+    symbol on a periodic mesh (order 2, Wave 9A); bounded meshes and
+    higher orders raise ``EigenbasisError``.
 
     Parameters
     ----------
@@ -146,6 +158,49 @@ class FiniteDifference(SeparableOperator):
             The per-factor requirements record.
         """
         return OperatorRequirements(halo=self._order // 2)
+
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the retagging ``i k_hat`` diagonal (periodic mesh).
+
+        Description
+        -----------
+        The order-2 staggered-difference Fourier symbol
+        ``2i sin(k dx/2)/dx`` composed with the half-cell inter-origin
+        phase, retagging ``Fourier(Center) -> Fourier(Right)`` (and
+        back). Bounded meshes diagonalize in the sine/cosine basis and
+        higher orders are not grounded in iteration 1, so both raise
+        ``EigenbasisError``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the nodal factor carries the mesh).
+        space : SpaceLike
+            The nodal coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The ``i k_hat`` diagonal on the Fourier factor.
+        """
+        if self._order != _SYMBOL_ORDER:
+            raise EigenbasisError(
+                "the iteration-1 FiniteDifference symbol is order 2 "
+                f"only, got order {self._order}")
+        bare = space.bare
+        axis = _resolve_axis(self, bare)
+        factor = bare.factor(axis)
+        # guard the periodic-nodal boundary before ``codomain`` (which
+        # would raise a SpaceMismatchError on a non-nodal factor)
+        periodic_fourier_factor(factor, "FiniteDifference")
+        codomain_nodal = self.codomain(factor)
+        return finite_difference_symbol(
+            bare, axis, factor, codomain_nodal)
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """

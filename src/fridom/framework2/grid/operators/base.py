@@ -906,7 +906,14 @@ class SeparableComposite(SeparableOperator):
 
     def eigenvalues(self, grid: object, space: SpaceLike) -> object:
         """PRODUCT of factor symbols (rules 3.7)."""
-        return _chain_eigenvalues(self._factors, grid, space)
+        factors = self._factors
+        if self.bound_axis is not None:
+            # bind each factor to the composite's axis, like the
+            # application path (``_apply_factor``): the stored factors
+            # are unbound, but a symbol query on a multi-axis operand
+            # must resolve the bound axis unambiguously.
+            factors = tuple(op[self.bound_axis] for op in factors)
+        return _chain_eigenvalues(factors, grid, space)
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """

@@ -30,6 +30,7 @@ import jax.numpy as jnp
 import fridom.framework2 as fr
 from fridom.framework.utils import dtype_real, jaxify
 from fridom.shallowwater2 import params as sw_params
+from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.state import State
 
 
@@ -52,6 +53,9 @@ class DynamicalCore(fr.Module):
 
     #: The vocabulary class this core supplies (D1.3 commitment 4).
     state_type = State
+
+    #: Bound parameterful diagnostics (the D1.3 commitment-4 channel).
+    diagnostics = DIAGNOSTICS
 
     def __init__(
         self, csqr: float = 1.0, rossby_number: float = 1.0,

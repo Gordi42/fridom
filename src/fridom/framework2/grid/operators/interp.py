@@ -19,11 +19,17 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.operators.base import (
+    EigenbasisError,
     FieldLike,
     OperatorRequirements,
     SeparableOperator,
+    _resolve_axis,
 )
 from fridom.framework2.grid.operators.interned import interned
+from fridom.framework2.grid.operators.spectral import (
+    linear_interp_symbol,
+    periodic_fourier_factor,
+)
 from fridom.framework2.grid.operators.staggering import apply_staggered
 from fridom.framework2.grid.operators.stencil_kernels import (
     linear_interp,
@@ -32,9 +38,11 @@ from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
+    from fridom.framework2.grid.operators.symbol import Symbol
     from fridom.framework2.grid.spaces.function_space import (
         FunctionSpace,
     )
+    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
 _INTERP_SIZE = 2
 
@@ -50,9 +58,10 @@ class LinearInterp(SeparableOperator):
     -----------
     Fixed codomain per rules section 3.4: the registered operator
     fixes its own codomain, alternative codomains are per-instance
-    via the ``target=`` constructor knob. ``eigenvalues`` (the
-    ``one_hat`` averaging symbol) is designed-for and inherits the
-    raising base until the ``Symbol`` cluster lands (Wave 3).
+    via the ``target=`` constructor knob. ``eigenvalues`` is the
+    ``one_hat`` averaging symbol on a periodic mesh (Wave 9A);
+    bounded meshes and the ``target=`` variant raise
+    ``EigenbasisError``.
 
     Parameters
     ----------
@@ -159,6 +168,47 @@ class LinearInterp(SeparableOperator):
             The per-factor requirements record.
         """
         return OperatorRequirements(halo=1)
+
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the retagging ``one_hat`` diagonal (periodic mesh).
+
+        Description
+        -----------
+        The two-point averaging Fourier symbol ``cos(k dx/2)``
+        composed with the half-cell inter-origin phase, retagging
+        ``Fourier(Center) -> Fourier(Right)`` (and back). The
+        ``target=`` variant and bounded meshes are not grounded as
+        diagonalizing symbols in iteration 1, so they raise
+        ``EigenbasisError``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the nodal factor carries the mesh).
+        space : SpaceLike
+            The nodal coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The ``one_hat`` diagonal on the Fourier factor.
+        """
+        if self._target is not None:
+            raise EigenbasisError(
+                "the target= LinearInterp variant has no diagonalizing "
+                "symbol in iteration 1")
+        bare = space.bare
+        axis = _resolve_axis(self, bare)
+        factor = bare.factor(axis)
+        # guard the periodic-nodal boundary before ``codomain``
+        periodic_fourier_factor(factor, "LinearInterp")
+        codomain_nodal = self.codomain(factor)
+        return linear_interp_symbol(bare, axis, factor, codomain_nodal)
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """

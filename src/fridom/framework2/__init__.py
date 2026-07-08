@@ -38,6 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FieldReference,
         Lifecycle,
     )
+    from .model.energy import EnergyMetric
     from .model.model import Model
     from .model.module import Module
     from .model.parameters import (
@@ -101,6 +102,7 @@ all_imports_by_origin = {
     f"{base}.model.module": ["Module"],
     f"{base}.model.model": ["Model"],
     f"{base}.model.clock": ["Clock"],
+    f"{base}.model.energy": ["EnergyMetric"],
     f"{base}.model.results": [
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
         "RunTargetError"],

@@ -16,6 +16,7 @@ from fridom.framework2.grid.operators.spectral import (
     SpectralDerivative,
     fourier_wavenumbers,
 )
+from fridom.framework2.grid.operators.symbol import Symbol
 from fridom.framework2.grid.operators.trig import Cosine, Sine
 from fridom.framework2.grid.spaces.nodal import NodeSet
 
@@ -104,11 +105,33 @@ def test_requirements_and_dispatch_kind(periodic):
     assert SincShift().dispatch_kind == "interpolate"
 
 
-def test_eigenvalues_raise_until_symbol_lands(periodic):
-    _, mesh = periodic
+def test_spectral_derivative_eigenvalues_is_the_ik_diagonal(periodic):
+    grid, mesh = periodic
     space = mesh.fourier(origin=mesh.center)
+    sym = SpectralDerivative().eigenvalues(grid, space)
+    assert sym.space is space
+    assert sym.codomain is space  # spectral diff does not stagger
+    k = fourier_wavenumbers(space)
+    # exact i k, the even-n Nyquist mode annihilated (like _apply)
+    assert jnp.allclose(sym.data[:-1], 1j * k[:-1])
+    assert sym.data[-1] == 0
+
+
+def test_spectral_derivative_eigenvalues_raise_off_fourier(bounded):
+    grid, mesh = bounded
+    sine = mesh.sine(mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    # the sine/cosine derivative is an index-shifted diagonal the
+    # Hadamard Symbol cannot carry (deferred to the block layer)
+    with pytest.raises(EigenbasisError, match="index-shifted"):
+        SpectralDerivative().eigenvalues(grid, sine)
+
+
+def test_spectral_derivative_eigenvalues_raise_on_chebyshev():
+    mesh = ChebyshevMesh(8, (-1.0, 1.0), name="z")
+    grid = Grid((mesh,))
     with pytest.raises(EigenbasisError):
-        SpectralDerivative().eigenvalues(None, space)
+        SpectralDerivative().eigenvalues(
+            grid, mesh.chebyshev(mesh.lobatto))
 
 
 # ================================================================
@@ -437,3 +460,35 @@ def test_phase_shift_is_exact_on_odd_n_real_origins():
     shifted = PhaseShift(to=NodeSet.RIGHT)(center_hat)
     # odd n: no Nyquist mode, the shift is exact on every mode
     assert jnp.allclose(shifted.data, right_hat.data, atol=1e-13)
+
+
+# ================================================================
+#  PhaseShift / SincShift eigenvalue symbols
+# ================================================================
+def test_phase_shift_eigenvalues_matches_the_apply(periodic):
+    grid, _ = periodic
+    ft = Fourier(grid)
+    wave = lambda x: (jnp.sin(TWO_PI * x)  # noqa: E731
+                      + jnp.cos(5 * TWO_PI * x))
+    center_hat = ft.forward(grid.create_field(init=wave))
+    op = PhaseShift(to=NodeSet.RIGHT)
+    sym = op.eigenvalues(grid, center_hat.function_space)
+    assert isinstance(sym, Symbol)
+    assert sym.codomain.origin.node_set is NodeSet.RIGHT
+    assert jnp.allclose(sym(center_hat).data,
+                        op(center_hat).data, atol=1e-13)
+
+
+def test_sinc_shift_eigenvalues_matches_the_apply(periodic):
+    grid, mesh = periodic
+    dx = mesh.dx
+    ft = Fourier(grid)
+    avg = grid.create_field(
+        mesh.cell_avg,
+        init=lambda x: jnp.sin(TWO_PI * x) * jnp.sinc(dx))
+    avg_hat = ft.forward(avg)
+    op = SincShift(to=NodeSet.CENTER)
+    sym = op.eigenvalues(grid, avg_hat.function_space)
+    assert sym.codomain.origin.node_set is NodeSet.CENTER
+    assert jnp.allclose(sym(avg_hat).data, op(avg_hat).data,
+                        atol=1e-13)
