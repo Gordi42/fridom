@@ -31,6 +31,10 @@ from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.fields.storage import store
 from fridom.framework2.grid.operators.transform import axis_vector
 from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
+from fridom.framework2.grid.spaces.composition import (
+    compose_spaces,
+    union_spaces,
+)
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.function_space import FunctionSpace
 from fridom.framework2.grid.spaces.tensor_product import (
@@ -317,7 +321,9 @@ class Symbol:
         if other._codomain is self._space:
             return Symbol(other._space, self._data * other._data,
                           codomain=self._codomain)
-        space, codomain = _compose_spaces(self, other)
+        space, codomain = compose_spaces(
+            other._space, other._codomain,
+            self._space, self._codomain)
         return Symbol(space, self._data * other._data,
                       codomain=codomain)
 
@@ -338,9 +344,11 @@ class Symbol:
         broadcasting of both diagonals.
         """
         if isinstance(other, Symbol):
-            space = _union_space(self._space, other.space, op)
-            codomain = _union_space(
-                self._codomain, other.codomain, op)
+            operation = getattr(op, "__name__", "op")
+            space = union_spaces(
+                self._space, other.space, operation=operation)
+            codomain = union_spaces(
+                self._codomain, other.codomain, operation=operation)
             return Symbol(space, op(self._data, other.data),
                           codomain=codomain)
         if isinstance(other, int | float | complex):
@@ -482,76 +490,3 @@ def _lift(
         coeff_factor if axis in factor.names else factor.mesh.constant
         for factor in bare.factors)
     return TensorProductSpace.of(*factors)
-
-
-def _union_space(
-    a: SpaceLike, b: SpaceLike, op: object,
-) -> SpaceLike:
-    """Factor-wise tag union (``Constant ⊗ X -> X``); mismatch raises."""
-    if a is b:
-        return a
-    a_factors = a.factors
-    b_factors = b.factors
-    if len(a_factors) != len(b_factors):
-        raise SpaceMismatchError(
-            f"symbols on incompatible spaces {a!r} vs {b!r}",
-            left=a, right=b, operation=getattr(op, "__name__", "op"))
-    factors = []
-    for fa, fb in zip(a_factors, b_factors, strict=True):
-        if fa is fb:
-            factors.append(fa)
-        elif isinstance(fa, ConstantSpace):
-            factors.append(fb)
-        elif isinstance(fb, ConstantSpace):
-            factors.append(fa)
-        else:
-            raise SpaceMismatchError(
-                "symbols disagree on a non-constant factor: "
-                f"{fa!r} vs {fb!r}", left=fa, right=fb,
-                operation=getattr(op, "__name__", "op"))
-    return TensorProductSpace.of(*factors)
-
-
-def _compose_spaces(
-    a: Symbol, b: Symbol,
-) -> tuple[SpaceLike, SpaceLike]:
-    """
-    Factor-wise composition tags for ``a @ b`` (``Identity ⊗ D``).
-
-    Description
-    -----------
-    Per axis: the shared physical mode index is ``b.codomain`` met
-    with ``a.space`` — required identical where both are non-
-    ``Constant`` (else ``SpaceMismatchError``), disjoint where either
-    is ``Constant``. The composed domain factor is ``b.space`` (else
-    ``a.space`` where ``b`` passes through), the composed codomain
-    factor is ``a.codomain`` (else ``b.codomain`` where ``a`` passes
-    through).
-    """
-    a_space = a.space.factors
-    a_codomain = a.codomain.factors
-    b_space = b.space.factors
-    b_codomain = b.codomain.factors
-    if not (len(a_codomain) == len(b_space) == len(b_codomain)
-            == len(a_space)):
-        raise SpaceMismatchError(
-            "cannot compose symbols on incompatible spaces "
-            f"{a.space!r} @ {b.space!r}", left=a.space, right=b.space,
-            operation="Symbol.__matmul__")
-    domain_factors = []
-    codomain_factors = []
-    for fas, fac, fbs, fbc in zip(
-            a_space, a_codomain, b_space, b_codomain, strict=True):
-        shared_a = not isinstance(fas, ConstantSpace)
-        shared_b = not isinstance(fbc, ConstantSpace)
-        if shared_a and shared_b and fas is not fbc:
-            raise SpaceMismatchError(
-                "cannot compose symbols: inner codomain factor "
-                f"{fbc!r} != outer domain factor {fas!r}",
-                left=fbc, right=fas, operation="Symbol.__matmul__")
-        domain_factors.append(
-            fbs if not isinstance(fbs, ConstantSpace) else fas)
-        codomain_factors.append(
-            fac if not isinstance(fac, ConstantSpace) else fbc)
-    return (TensorProductSpace.of(*domain_factors),
-            TensorProductSpace.of(*codomain_factors))

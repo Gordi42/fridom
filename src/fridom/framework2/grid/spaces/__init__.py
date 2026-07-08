@@ -21,12 +21,16 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         average,
         coefficient,
+        composition,
         constant,
         function_space,
         galerkin,
         nodal,
         tensor_product,
     )
+
+    # import all functions
+    from .composition import compose_spaces, union_spaces
 
 # ================================================================
 #  Setup lazy loading
@@ -42,9 +46,12 @@ all_modules_by_origin = {
         "galerkin",
         "constant",
         "tensor_product",
+        "composition",
     ],
 }
 
-all_imports_by_origin = {}
+all_imports_by_origin = {
+    f"{base}.composition": ["compose_spaces", "union_spaces"],
+}
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
