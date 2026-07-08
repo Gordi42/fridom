@@ -73,6 +73,10 @@ if TYPE_CHECKING:  # pragma: no cover
         Staggered,
     )
     from .model.stages import Stage, StageKind, self_update
+    from .model.symbolic_eigen import (
+        SymbolicEigenmodes,
+        symbolic_eigenpairs,
+    )
     from .model.term_predicates import linearize
     from .model.terms import (
         EXPLICIT,
@@ -124,6 +128,8 @@ all_imports_by_origin = {
     f"{base}.model.linear_blocks": [
         "LinearBlock", "Coeff", "Interp", "Diff", "Scale",
         "linear_blocks"],
+    f"{base}.model.symbolic_eigen": [
+        "SymbolicEigenmodes", "symbolic_eigenpairs"],
     f"{base}.model.term_predicates": ["linearize"],
     f"{base}.transforms.base": ["StateTransform"],
     f"{base}.transforms.propagator": ["Propagator"],
