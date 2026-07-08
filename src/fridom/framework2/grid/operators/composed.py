@@ -38,6 +38,7 @@ from fridom.framework2.grid.operators.base import (
     Zero,
     resolve_codomain,
 )
+from fridom.framework2.grid.operators.block_symbol import BlockSymbol
 from fridom.framework2.grid.operators.finite_difference import (
     FiniteDifference,
 )
@@ -237,6 +238,56 @@ class BlockMatrix(Operator):
                 halo = max(halo, req.halo)
                 collective = collective or req.collective
         return OperatorRequirements(halo=halo, collective=collective)
+
+    # ------------------------------------------------------------
+    #  Eigenvalues (per-mode system matrix)
+    # ------------------------------------------------------------
+    def eigenvalues(
+        self, grid: object, *spaces: SpaceLike,
+    ) -> BlockSymbol:
+        r"""
+        Assemble the per-mode block symbol (the system matrix).
+
+        Description
+        -----------
+        The block generalization of the scalar
+        :meth:`~fridom.framework2.grid.operators.base.Operator.eigenvalues`:
+        walks the entry matrix and queries each non-``Zero`` entry's
+        scalar ``eigenvalues`` on its column's coefficient space (the
+        scalar chain / sum / scale algebra runs *inside* each entry,
+        reused unchanged), then scatters the results into a
+        :class:`BlockSymbol`. The row (codomain) coefficient tuple is
+        ``self.codomain(*spaces)`` — which also enforces the per-row
+        codomain consistency (staggered entries retag through their own
+        phase symbols). Any entry declining its symbol raises
+        ``EigenbasisError``, propagated here.
+
+        Parameters
+        ----------
+        grid : object
+            The grid mediating wavenumbers and metric measures.
+        *spaces : SpaceLike
+            One column (domain) coefficient space per block column.
+
+        Returns
+        -------
+        BlockSymbol
+            The per-mode ``m_out x m_in`` system matrix.
+        """
+        n_cols = len(self._rows[0])
+        if len(spaces) != n_cols:
+            raise SpaceMismatchError(
+                f"block of {n_cols} columns queried with "
+                f"{len(spaces)} operand space(s)", operation="block")
+        out = self.codomain(*spaces)
+        out_spaces = out if isinstance(out, tuple) else (out,)
+        blocks = tuple(
+            tuple(
+                None if isinstance(entry, Zero)
+                else entry.eigenvalues(grid, spaces[j])
+                for j, entry in enumerate(row))
+            for row in self._rows)
+        return BlockSymbol.from_blocks(blocks, spaces, out_spaces)
 
     # ------------------------------------------------------------
     #  Block matmul

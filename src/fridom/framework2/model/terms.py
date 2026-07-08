@@ -117,6 +117,12 @@ class TendencyTerm:
         state-independent forcing is *not* linear. Consumers:
         ``fr.terms.linear``, ``fr.linearize``, the IMEX partition
         sanity. Default: ``False``.
+    blocks : tuple[LinearBlock, ...]
+        The ``(out, src, op, coeff)`` block signatures of a LINEAR
+        term (``fr.LinearBlock``): the single source of truth from
+        which both the numeric ``fn`` (via ``apply_linear_blocks``)
+        and the symbolic ``L`` (via ``fr.linear_blocks``) derive.
+        Every ``out`` must be an advanced component. Default: ``()``.
 
     Raises
     ------
@@ -137,6 +143,7 @@ class TendencyTerm:
     transports: tuple[str, ...] = ()
     implicit: ImplicitOperator | None = None
     linear: bool = False
+    blocks: tuple = ()
 
     def __post_init__(self) -> None:
         """Normalize name tuples and check local record validity."""
@@ -165,6 +172,14 @@ class TendencyTerm:
         if self.advances is not None:
             object.__setattr__(self, "advances", tuple(self.advances))
         object.__setattr__(self, "transports", tuple(self.transports))
+        object.__setattr__(self, "blocks", tuple(self.blocks))
+        if self.blocks and self.advances is not None:
+            stray = tuple(block.out for block in self.blocks
+                          if block.out not in self.advances)
+            if stray:
+                raise ValueError(
+                    f"term {self.name!r}: block out {stray} not in "
+                    f"advances {self.advances}")
 
     def __repr__(self) -> str:
         """Return a compact record repr (assembly logs terms)."""
@@ -180,6 +195,8 @@ class TendencyTerm:
             parts.append(f"implicit={type(self.implicit).__name__}")
         if self.linear:
             parts.append("linear=True")
+        if self.blocks:
+            parts.append(f"blocks={len(self.blocks)}")
         return f"TendencyTerm({', '.join(parts)})"
 
 
@@ -195,6 +212,7 @@ def term(
     transports: Iterable[str] = (),
     implicit: ImplicitOperator | None = None,
     linear: bool = False,
+    blocks: Iterable = (),
 ) -> Callable:
     """
     Stamp a module method as a ``TendencyTerm`` (``@fr.term``).
@@ -233,6 +251,9 @@ def term(
         Implicit-operator slot (default: None).
     linear : bool
         Strict linear-in-state tag (default: False).
+    blocks : Iterable[LinearBlock]
+        The ``(out, src, op, coeff)`` block signatures of a linear
+        term (default: ()).
 
     Returns
     -------
@@ -249,6 +270,7 @@ def term(
             transports=transports,
             implicit=implicit,
             linear=linear,
+            blocks=tuple(blocks),
         )
         setattr(func, TERM_ATTRIBUTE, declaration)
         return func

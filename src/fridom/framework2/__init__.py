@@ -41,6 +41,14 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .model.eigen import NumericEigenmodes, numeric_eigenpairs
     from .model.energy import EnergyMetric
+    from .model.linear_blocks import (
+        Coeff,
+        Diff,
+        Interp,
+        LinearBlock,
+        Scale,
+        linear_blocks,
+    )
     from .model.model import Model
     from .model.module import Module
     from .model.parameters import (
@@ -113,6 +121,9 @@ all_imports_by_origin = {
     f"{base}.model.clock": ["Clock"],
     f"{base}.model.eigen": ["NumericEigenmodes", "numeric_eigenpairs"],
     f"{base}.model.energy": ["EnergyMetric"],
+    f"{base}.model.linear_blocks": [
+        "LinearBlock", "Coeff", "Interp", "Diff", "Scale",
+        "linear_blocks"],
     f"{base}.model.term_predicates": ["linearize"],
     f"{base}.transforms.base": ["StateTransform"],
     f"{base}.transforms.propagator": ["Propagator"],

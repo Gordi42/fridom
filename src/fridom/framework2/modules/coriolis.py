@@ -53,6 +53,12 @@ from fridom.framework2.model.declarations import (
     FieldReference,
     Lifecycle,
 )
+from fridom.framework2.model.linear_blocks import (
+    Coeff,
+    Interp,
+    LinearBlock,
+    apply_linear_blocks,
+)
 from fridom.framework2.model.module import Module
 from fridom.framework2.model.parameters import ParameterDeclaration
 from fridom.framework2.model.params import CORIOLIS_BETA, CORIOLIS_F0
@@ -67,21 +73,32 @@ _U_HINT = ("velocities are declared by a dynamical-core module, "
            "e.g. nh.DynamicalCore or sw.DynamicalCore")
 
 
-def _coriolis_tendency(state: object) -> dict[str, ScalarField]:
-    r"""``{u: f v, v: -f u}`` in pure staggered field arithmetic.
+# The linear rotation blocks, shared verbatim by the f-plane and
+# beta-plane terms (the only difference between them is the *space* of
+# ``f_coriolis``, not the coupling). The coefficient's runtime source
+# is the constant AUX field ``f_coriolis`` (interpolated onto the
+# target face and multiplied as fields); its symbolic constant is the
+# provided ``CORIOLIS_F0`` (a beta-plane f(y) provides no f0, so
+# ``fr.linear_blocks`` declines it — provides-implies-constancy).
+_CORIOLIS_BLOCKS = (
+    LinearBlock("u", "v", Interp(),
+                Coeff(aux="f_coriolis", const=CORIOLIS_F0)),
+    LinearBlock("v", "u", Interp(),
+                Coeff(aux="f_coriolis", const=CORIOLIS_F0, sign=-1)),
+)
+
+
+def _coriolis_tendency(state: object, ctx: object) -> dict[str, ScalarField]:
+    r"""``{u: f v, v: -f u}`` derived from the shared rotation blocks.
 
     Description
     -----------
-    Interpolate the Coriolis field ``f`` and the velocities to the
-    opposite face (``.to``) and multiply as fields. Shared verbatim by
-    the f-plane and beta-plane terms (the only difference between them
-    is the *space* of ``f_coriolis``, not the tendency).
+    The numeric consumer of :data:`_CORIOLIS_BLOCKS` (single source of
+    truth): ``increment[out] += coeff . op(state[src])`` interpolates
+    the Coriolis field ``f`` and the velocities to the opposite face
+    and multiplies as fields — bit-identical to the pre-block closure.
     """
-    u, v = state["u"], state["v"]
-    f = state["f_coriolis"]
-    du = f.to(u.function_space) * v.to(u.function_space)
-    dv = -(f.to(v.function_space) * u.to(v.function_space))
-    return {"u": du, "v": dv}
+    return apply_linear_blocks(_CORIOLIS_BLOCKS, state, ctx)
 
 
 @partial(jaxify, dynamic=("f0",))
@@ -139,12 +156,12 @@ class FPlaneCoriolis(Module):
             space, data=jnp.full(space.shape, self.f0),
             name="f_coriolis")
 
-    @term(advances=("u", "v"), linear=True)
+    @term(advances=("u", "v"), linear=True, blocks=_CORIOLIS_BLOCKS)
     def coriolis(
-        self, state: object, ctx: StepContext,  # noqa: ARG002
+        self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
         r"""``\partial_t u = f v``; ``\partial_t v = -f u``."""
-        return _coriolis_tendency(state)
+        return _coriolis_tendency(state, ctx)
 
 
 @partial(jaxify, dynamic=("f0", "beta"))
@@ -221,9 +238,9 @@ class BetaPlaneCoriolis(Module):
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="f_coriolis")
 
-    @term(advances=("u", "v"), linear=True)
+    @term(advances=("u", "v"), linear=True, blocks=_CORIOLIS_BLOCKS)
     def coriolis(
-        self, state: object, ctx: StepContext,  # noqa: ARG002
+        self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
         r"""``\partial_t u = f(y) v``; ``\partial_t v = -f(y) u``."""
-        return _coriolis_tendency(state)
+        return _coriolis_tendency(state, ctx)
