@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import pytest
 
 import fridom.framework2 as fr
+from fridom.framework2.grid.operators.realized import RealizedComposite
 from fridom.framework2.grid.operators.spectral import SpectralDerivative
 from fridom.framework2.grid.operators.spectral_solve import SpectralSolve
 from fridom.framework2.grid.operators.symbol import Symbol
@@ -45,6 +46,22 @@ def test_reproduces_the_poisson_solution(grid_2d):
     assert float(jnp.abs(u.data - u_exact.data).max()) < 1e-10
     # the k = 0 gauge is the mean-free solution
     assert float(jnp.abs(u.mean().data.ravel()[0])) < 1e-13
+
+
+def test_call_is_bitwise_equal_to_imperative_solve(grid_2d):
+    # S2 reframe guard: the composite ``backward @ inverse @ forward``
+    # must be bitwise-identical to the pre-refactor imperative body
+    # ``transform.backward(inverse(transform.forward(rhs)))``
+    grid = grid_2d
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    solve = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
+    t = solve.transform
+    imperative = t.backward(solve.inverse_symbol(t.forward(rhs)))
+    maxdiff = float(jnp.abs(solve(rhs).data - imperative.data).max())
+    assert maxdiff == 0.0
+    # and the object *is* the realized-map composition
+    assert isinstance(solve.composite, RealizedComposite)
 
 
 def test_solve_alias_matches_call(grid_2d):

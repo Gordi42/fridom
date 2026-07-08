@@ -27,10 +27,11 @@ scaling happens at the **symbol** level — the assembled vertical term
 is multiplied by a degenerate all-``Constant`` coefficient field
 (``Symbol x field``, the ``dsqr`` case), never via
 ``ScaledOperator.eigenvalues`` (which rightly refuses a non-constant
-operator coefficient). The weighted diagonal is handed to a grid-bound
-``SpectralSolve`` (forward transform → ``Symbol.inverse(where_zero=0)``
-→ backward), the ``k = 0`` nullspace regularized by its exact
-structural-zero test (the mean-pressure gauge).
+operator coefficient). The weighted diagonal is inverted by the
+realized-map composition ``backward @ weighted_lap.inverse() @
+forward`` (S2 — ``SpectralSolve`` is a composition, not a bespoke
+orchestrator), the ``k = 0`` nullspace regularized by the inverse's
+exact structural-zero test (the mean-pressure gauge).
 """
 from __future__ import annotations
 
@@ -44,7 +45,7 @@ from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.grid.fields.storage import store
 from fridom.framework2.grid.operators.base import OperatorSum
 from fridom.framework2.grid.operators.composed import Laplacian
-from fridom.framework2.grid.operators.spectral_solve import SpectralSolve
+from fridom.framework2.grid.operators.realized import BoundTransform
 from fridom.framework2.grid.spaces.tensor_product import (
     TensorProductSpace,
 )
@@ -103,11 +104,13 @@ class SpectralPressureSolver:
     -----------
     Constructed at trace time inside the projection stage from the
     operand's grid; carries no mutable state and is not a pytree leaf.
-    At construction it resolves the transform and expands the grid's
-    ``Divergence @ Gradient`` into its per-axis discrete
-    second-difference terms; per solve it assembles the ``dsqr``-weighted
-    Laplacian ``Symbol`` (live ``1/dsqr`` on the vertical term) and
-    inverts it through a ``SpectralSolve``.
+    At construction it resolves the transform, binds its forward /
+    backward directions as :class:`BoundTransform` realized maps, and
+    expands the grid's ``Divergence @ Gradient`` into its per-axis
+    discrete second-difference terms; per solve it assembles the
+    ``dsqr``-weighted Laplacian ``Symbol`` (live ``1/dsqr`` on the
+    vertical term) and inverts it through the realized-map composition
+    ``backward @ weighted_lap.inverse() @ forward``.
 
     Parameters
     ----------
@@ -122,12 +125,17 @@ class SpectralPressureSolver:
     def __init__(
         self, grid: object, space: SpaceLike, *, vertical: str,
     ) -> None:
-        """Bind the transform and the per-axis Laplacian terms."""
+        """Bind the transform directions and per-axis Laplacian terms."""
         bare = space.bare
         self._grid: object = grid
         self._vertical: str = vertical
         self._transform = grid.dispatch.resolve("transform", bare)
         self._coeff: SpaceLike = self._transform.codomain(bare)
+        # the forward / backward transform directions as realized maps
+        # (the fixed-tag halves of the spectral solve composition)
+        self._forward = BoundTransform(self._transform, bare)
+        self._backward = BoundTransform(
+            self._transform, self._coeff, backward=True)
         # div @ grad collapses to a 1x1 block whose entry is the sum of
         # per-axis ``bwd @ fwd`` chains (the discrete Laplacian)
         entry: Operator = Laplacian().expand(
@@ -166,7 +174,8 @@ class SpectralPressureSolver:
             The pressure on the same (cell-centered) space as ``div``.
         """
         laplace = self._laplacian_symbol(dsqr)
-        # ``SpectralSolve`` wraps forward -> Symbol.inverse(0) -> backward;
-        # the exact structural-zero test regularizes the k = 0 nullspace
-        # (the mean-pressure gauge)
-        return SpectralSolve(laplace, self._grid, div.function_space)(div)
+        # the spectral solve *is* backward @ inverse @ forward (S2); the
+        # inverse's exact structural-zero test regularizes the k = 0
+        # nullspace (the mean-pressure gauge)
+        solve = self._backward @ laplace.inverse() @ self._forward
+        return solve(div)
