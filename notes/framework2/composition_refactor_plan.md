@@ -106,8 +106,14 @@ Each stage is behavior-neutral where marked and gated by the **full**
 - **S0a — `compose_spaces`/`union_spaces` validator.** Extract; route
   `Symbol`/`BlockSymbol`/operator tag checks through it. Behavior-neutral;
   prerequisite for the realized-map `@` typing. *(low risk)*
-- **S0b — `normalize_chain`/`normalize_sum` helper.** Operator
-  `_compose`/`_sum` adopt it. Behavior-neutral de-dup. *(low risk)*
+- **S0b — `normalize_chain`/`normalize_sum` helper. DROPPED (2026-07-09).**
+  On inspection the three flatten implementations share only "flatten
+  nested same-kind + collapse singleton"; the variations dominate
+  (operator: `Zero` + interning + `Identity`; `RealizedComposite`:
+  symbol-fusion + adjacency-typecheck, no `Zero`; `StateTransform`:
+  `Identity`, no `Zero`). A shared helper needs ~5 hooks over ~5 lines
+  each — the over-abstraction the "small pinned surface" guard rejects.
+  The load-bearing shared piece was the tag validator (S0a). Not worth it.
 - **S1 — `RealizedMap` protocol + `Symbol`/`BlockSymbol` adopt it.**
   Add the missing `BlockSymbol.__call__`/`inverse`; both use S0a for
   typing. Behavior-neutral for existing use; adds the shared interface.
