@@ -6,8 +6,11 @@ import pytest
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.base import Identity
+from fridom.framework2.grid.operators.interp import LinearInterp
 from fridom.framework2.grid.operators.spectral import SpectralDerivative
 from fridom.framework2.grid.operators.symbol import Symbol
+from fridom.framework2.grid.spaces.constant import ConstantSpace
 
 TWO_PI = 2.0 * jnp.pi
 N = 16
@@ -282,3 +285,124 @@ def test_union_rejects_a_disagreeing_non_constant_factor(periodic_2d):
     b = Symbol(staggered, jnp.ones(staggered.shape))
     with pytest.raises(SpaceMismatchError, match="non-constant factor"):
         _ = a + b
+
+
+# ================================================================
+#  Identity.eigenvalues — the ones diagonal (neutral of ``@``)
+# ================================================================
+def test_identity_eigenvalues_is_the_ones_diagonal(periodic):
+    grid, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    sym = Identity().eigenvalues(grid, space)
+    assert isinstance(sym, Symbol)
+    # the identity's symbol is the all-Constant ones wildcard
+    assert all(isinstance(f, ConstantSpace) for f in sym.space.factors)
+    assert sym.codomain is sym.space
+    assert jnp.allclose(sym.data, 1.0)
+
+
+def test_scaled_identity_eigenvalues_is_the_constant(periodic):
+    grid, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    csqr = 4.0
+    scaled = csqr * Identity()
+    sym = scaled.eigenvalues(grid, space)
+    assert isinstance(sym, Symbol)
+    assert all(isinstance(f, ConstantSpace) for f in sym.space.factors)
+    assert sym.codomain is sym.space
+    assert jnp.allclose(sym.data, csqr)
+
+
+def test_identity_is_neutral_in_a_symbol_chain(periodic):
+    grid, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    kx = SpectralDerivative()["x"].eigenvalues(grid, space)
+    one = Identity().eigenvalues(grid, space)
+    chain = kx @ one  # A @ Identity reduces to A
+    assert chain.space is kx.space
+    assert chain.codomain is kx.codomain
+    assert jnp.allclose(chain.data, kx.data)
+
+
+# ================================================================
+#  Cross-axis (disjoint) composition — the Coriolis interp corner
+# ================================================================
+def test_matmul_composes_disjoint_axes_into_the_corner(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = mx.center * my.center  # nodal product operand
+    # a 2-D interpolation: interp-x ⊗ Const(y) composed against
+    # Const(x) ⊗ interp-y — each carries Constant on the other axis
+    interp_x = LinearInterp()["x"].eigenvalues(grid, space)
+    interp_y = LinearInterp()["y"].eigenvalues(grid, space)
+    corner = interp_x @ interp_y
+    # domain reads through to the centered product; codomain lands on
+    # the fully staggered (Right, Right) corner
+    expected_space = (mx.fourier(origin=mx.center)
+                      * my.fourier(origin=my.center))
+    expected_codomain = (mx.fourier(origin=mx.right)
+                         * my.fourier(origin=my.right))
+    assert corner.space is expected_space
+    assert corner.codomain is expected_codomain
+    # the leaf is the outer product of the two per-axis diagonals
+    ax = interp_x.data.ravel()
+    by = interp_y.data.ravel()
+    assert jnp.allclose(corner.data, jnp.outer(ax, by))
+
+
+def test_matmul_cross_axis_is_order_independent_leaf(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = mx.center * my.center  # nodal product operand
+    interp_x = LinearInterp()["x"].eigenvalues(grid, space)
+    interp_y = LinearInterp()["y"].eigenvalues(grid, space)
+    # disjoint axes commute at the leaf level (tensor product)
+    assert jnp.allclose((interp_x @ interp_y).data,
+                        (interp_y @ interp_x).data)
+
+
+def test_matmul_rejects_a_shared_axis_mismatch_in_2d(periodic_2d):
+    _, mx, my = periodic_2d
+    # both non-Constant on the shared x axis, disagreeing origins
+    a_space = mx.fourier(origin=mx.center) * my.constant
+    b_cod = mx.fourier(origin=mx.right) * my.constant
+    a = Symbol(a_space, jnp.ones(a_space.shape))
+    b = Symbol(mx.fourier(origin=mx.center) * my.constant,
+               jnp.ones(a_space.shape), codomain=b_cod)
+    with pytest.raises(SpaceMismatchError, match="cannot compose"):
+        _ = a @ b
+
+
+# ================================================================
+#  Concrete probe: every resolved linear block carries a symbol
+# ================================================================
+def _nonhydro_model():
+    import fridom.nonhydro2 as nh  # noqa: PLC0415 — heavy model package
+    grid = Grid(tuple(
+        IntervalMesh(8, (0.0, TWO_PI), periodic=True, name=name)
+        for name in ("x", "y", "z")))
+    return nh.Model(grid=grid, dt=0.02)
+
+
+def _shallowwater_model():
+    import fridom.framework2 as fr  # noqa: PLC0415
+    import fridom.shallowwater2 as sw  # noqa: PLC0415 — heavy package
+    grid = Grid(tuple(
+        IntervalMesh(16, (0.0, 1.0), periodic=True, name=name)
+        for name in ("x", "y")))
+    return sw.Model(
+        grid=grid, csqr=1.0, rossby_number=0.2,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+@pytest.mark.parametrize(
+    "build", [_nonhydro_model, _shallowwater_model],
+    ids=["nonhydro", "shallowwater"])
+def test_every_linear_block_resolves_to_a_symbol(build):
+    import fridom.framework2 as fr  # noqa: PLC0415
+    model = build()
+    blocks = fr.linear_blocks(model)
+    assert blocks  # the model exposes linear terms to diagonalize
+    for block in blocks:
+        src_space = model.state[block.src].function_space
+        sym = block.op.eigenvalues(model.grid, src_space)
+        assert isinstance(sym, Symbol)

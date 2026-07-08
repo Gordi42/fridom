@@ -284,10 +284,18 @@ class Symbol:
 
         Description
         -----------
-        Requires ``B.codomain == A.space`` (the shared physical mode
-        index), multiplies the diagonals, and threads the tags
-        ``space = B.space``, ``codomain = A.codomain`` — the honest
-        discrete Laplacian ``bwd @ fwd``.
+        Factor-wise (the ``Identity ⊗ D`` tensor-product extension):
+        per axis the shared physical mode index is ``B.codomain`` met
+        with ``A.space`` — required identical where **both** are
+        non-``Constant``, disjoint/passthrough where either is
+        ``Constant``. The composed domain reads ``B.space`` (else
+        ``A.space`` where ``B`` is identity along the axis), the
+        composed codomain reads ``A.codomain`` (else ``B.codomain``
+        where ``A`` is identity), and the leaves multiply (jax size-1
+        broadcasting builds the tensor product across disjoint axes).
+        On the common same-space chain (``B.codomain is A.space``) this
+        reduces to ``space = B.space``, ``codomain = A.codomain`` — the
+        honest discrete Laplacian ``bwd @ fwd``.
 
         Parameters
         ----------
@@ -301,14 +309,12 @@ class Symbol:
         """
         if not isinstance(other, Symbol):
             return NotImplemented
-        if other._codomain is not self._space:
-            raise SpaceMismatchError(
-                "cannot compose symbols: inner codomain "
-                f"{other._codomain!r} != outer domain {self._space!r}",
-                left=other._codomain, right=self._space,
-                operation="Symbol.__matmul__")
-        return Symbol(other._space, self._data * other._data,
-                      codomain=self._codomain)
+        if other._codomain is self._space:
+            return Symbol(other._space, self._data * other._data,
+                          codomain=self._codomain)
+        space, codomain = _compose_spaces(self, other)
+        return Symbol(space, self._data * other._data,
+                      codomain=codomain)
 
     # ================================================================
     #  Internal helpers
@@ -422,3 +428,48 @@ def _union_space(
                 f"{fa!r} vs {fb!r}", left=fa, right=fb,
                 operation=getattr(op, "__name__", "op"))
     return TensorProductSpace.of(*factors)
+
+
+def _compose_spaces(
+    a: Symbol, b: Symbol,
+) -> tuple[SpaceLike, SpaceLike]:
+    """
+    Factor-wise composition tags for ``a @ b`` (``Identity ⊗ D``).
+
+    Description
+    -----------
+    Per axis: the shared physical mode index is ``b.codomain`` met
+    with ``a.space`` — required identical where both are non-
+    ``Constant`` (else ``SpaceMismatchError``), disjoint where either
+    is ``Constant``. The composed domain factor is ``b.space`` (else
+    ``a.space`` where ``b`` passes through), the composed codomain
+    factor is ``a.codomain`` (else ``b.codomain`` where ``a`` passes
+    through).
+    """
+    a_space = a.space.factors
+    a_codomain = a.codomain.factors
+    b_space = b.space.factors
+    b_codomain = b.codomain.factors
+    if not (len(a_codomain) == len(b_space) == len(b_codomain)
+            == len(a_space)):
+        raise SpaceMismatchError(
+            "cannot compose symbols on incompatible spaces "
+            f"{a.space!r} @ {b.space!r}", left=a.space, right=b.space,
+            operation="Symbol.__matmul__")
+    domain_factors = []
+    codomain_factors = []
+    for fas, fac, fbs, fbc in zip(
+            a_space, a_codomain, b_space, b_codomain, strict=True):
+        shared_a = not isinstance(fas, ConstantSpace)
+        shared_b = not isinstance(fbc, ConstantSpace)
+        if shared_a and shared_b and fas is not fbc:
+            raise SpaceMismatchError(
+                "cannot compose symbols: inner codomain factor "
+                f"{fbc!r} != outer domain factor {fas!r}",
+                left=fbc, right=fas, operation="Symbol.__matmul__")
+        domain_factors.append(
+            fbs if not isinstance(fbs, ConstantSpace) else fas)
+        codomain_factors.append(
+            fac if not isinstance(fac, ConstantSpace) else fbc)
+    return (TensorProductSpace.of(*domain_factors),
+            TensorProductSpace.of(*codomain_factors))

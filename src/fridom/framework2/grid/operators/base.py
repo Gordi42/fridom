@@ -778,6 +778,51 @@ class Identity(Operator):
         """Return the operand unchanged (already synced)."""
         return f
 
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the ones diagonal needs no grid
+        space: SpaceLike,
+    ) -> object:
+        """
+        Return the all-ones diagonal (neutral element of ``@``).
+
+        Description
+        -----------
+        The identity map is the unit of the diagonal algebra: a
+        ``Symbol`` on ``space.bare`` with ``codomain == space`` whose
+        diagonal is one everywhere. A scalar-broadcast ``ones(())``
+        suffices — ``Symbol`` multiplies by size-1 broadcasting, so
+        ``ScaledOperator(Identity, c)`` yields the ``c`` constant
+        symbol and a chain ``A @ Identity`` reduces to ``A``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the ones diagonal needs no wavenumbers).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The all-ones diagonal on ``space.bare``.
+        """
+        from fridom.framework2.grid.operators.symbol import (  # noqa: PLC0415
+            Symbol,
+        )
+        from fridom.framework2.grid.spaces.tensor_product import (  # noqa: PLC0415
+            TensorProductSpace,
+        )
+        # The identity is diagonal in every basis, so its symbol is the
+        # all-``Constant`` ones — the universal broadcast wildcard that
+        # composes with any coefficient tag (``A @ Identity == A``),
+        # rather than a nodal ``space.bare`` that would clash with a
+        # neighbour's ``Fourier`` factor in a chain.
+        bare = space.bare
+        const = TensorProductSpace.of(
+            *(factor.mesh.constant for factor in bare.factors))
+        return Symbol(const, jax.numpy.ones(()))
+
 
 @final
 class Zero(Operator):
