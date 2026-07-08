@@ -30,6 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover
         interp,
         movement,
         products,
+        realized,
         reconstruct,
         registry,
         select,
@@ -72,6 +73,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from .integrate import Integral
     from .interp import LinearInterp
     from .movement import Reshard, Sync
+    from .realized import (
+        BoundTransform,
+        RealizedComposite,
+        RealizedMap,
+        RealizedSum,
+    )
     from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .select import Where
@@ -92,6 +99,7 @@ all_modules_by_origin = {
         "banded",
         "symbol",
         "block_symbol",
+        "realized",
         "spectral_solve",
         "finite_difference",
         "interp",
@@ -145,6 +153,12 @@ all_imports_by_origin = {
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.select": ["Where"],
     f"{base}.spectral_solve": ["SpectralSolve"],
+    f"{base}.realized": [
+        "RealizedMap",
+        "RealizedComposite",
+        "RealizedSum",
+        "BoundTransform",
+    ],
     f"{base}.symbol": ["Symbol"],
     f"{base}.block_symbol": ["BlockSymbol"],
     f"{base}.flux_diff": [

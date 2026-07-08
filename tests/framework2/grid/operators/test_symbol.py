@@ -218,6 +218,24 @@ def test_matmul_returns_notimplemented_for_non_symbol(periodic):
     assert sym.__matmul__(3) is NotImplemented
 
 
+def test_domain_is_an_alias_of_space(periodic):
+    _, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    sym = Symbol(space, jnp.ones(space.shape[0]))
+    assert sym.domain is sym.space is space
+
+
+def test_matmul_with_an_operator_raises_materialization_guard(periodic):
+    _, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    sym = Symbol(space, jnp.ones(space.shape[0]))
+    lap = SpectralDerivative()["x"] @ SpectralDerivative()["x"]
+    with pytest.raises(SpaceMismatchError, match="materialize it first"):
+        _ = sym @ lap
+    with pytest.raises(SpaceMismatchError, match="materialize it first"):
+        _ = lap @ sym
+
+
 def test_elementwise_returns_notimplemented_for_foreign_operand(
         periodic):
     _, mx = periodic

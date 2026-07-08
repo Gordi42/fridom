@@ -119,6 +119,11 @@ class Symbol:
         return self._space
 
     @property
+    def domain(self) -> SpaceLike:
+        """Domain coefficient space (``RealizedMap`` alias of ``space``)."""
+        return self._space
+
+    @property
     def codomain(self) -> SpaceLike:
         """Codomain space (equals ``space`` unless retagging)."""
         return self._codomain
@@ -287,45 +292,84 @@ class Symbol:
         return Symbol(self._codomain, other / self._data,
                       codomain=self._space)
 
-    def __matmul__(self, other: Symbol) -> Symbol:
+    def __matmul__(self, other: object) -> Symbol | object:
         """
         Diagonal composition ``(A @ B)(f) == A(B(f))``.
 
         Description
         -----------
-        Factor-wise (the ``Identity ⊗ D`` tensor-product extension):
-        per axis the shared physical mode index is ``B.codomain`` met
-        with ``A.space`` — required identical where **both** are
-        non-``Constant``, disjoint/passthrough where either is
-        ``Constant``. The composed domain reads ``B.space`` (else
-        ``A.space`` where ``B`` is identity along the axis), the
-        composed codomain reads ``A.codomain`` (else ``B.codomain``
-        where ``A`` is identity), and the leaves multiply (jax size-1
-        broadcasting builds the tensor product across disjoint axes).
-        On the common same-space chain (``B.codomain is A.space``) this
-        reduces to ``space = B.space``, ``codomain = A.codomain`` — the
-        honest discrete Laplacian ``bwd @ fwd``.
+        A ``Symbol`` inner is fused **eagerly** (the bitwise Hadamard
+        fast path, unchanged): factor-wise (the ``Identity ⊗ D``
+        tensor-product extension) per axis the shared physical mode
+        index is ``B.codomain`` met with ``A.space`` — required
+        identical where **both** are non-``Constant``,
+        disjoint/passthrough where either is ``Constant``. The composed
+        domain reads ``B.space`` (else ``A.space`` where ``B`` is
+        identity along the axis), the composed codomain reads
+        ``A.codomain`` (else ``B.codomain`` where ``A`` is identity),
+        and the leaves multiply (jax size-1 broadcasting builds the
+        tensor product across disjoint axes). On the common same-space
+        chain (``B.codomain is A.space``) this reduces to
+        ``space = B.space``, ``codomain = A.codomain`` — the honest
+        discrete Laplacian ``bwd @ fwd``.
+
+        Any other :class:`RealizedMap` inner (a bound transform, a
+        realized composite) builds a lazy ``RealizedComposite`` (fusing
+        adjacent symbols); an *unmaterialized* :class:`Operator` raises
+        the taught materialization guard.
 
         Parameters
         ----------
-        other : Symbol
-            The inner diagonal (applied first).
+        other : object
+            The inner map (applied first): a ``Symbol``, another
+            realized map, or (rejected) an operator recipe.
 
         Returns
         -------
-        Symbol
-            The composed diagonal.
+        Symbol | object
+            The fused ``Symbol``, a ``RealizedComposite``, or
+            ``NotImplemented``.
         """
-        if not isinstance(other, Symbol):
-            return NotImplemented
-        if other._codomain is self._space:
-            return Symbol(other._space, self._data * other._data,
-                          codomain=self._codomain)
-        space, codomain = compose_spaces(
-            other._space, other._codomain,
-            self._space, self._codomain)
-        return Symbol(space, self._data * other._data,
-                      codomain=codomain)
+        if isinstance(other, Symbol):
+            if other._codomain is self._space:
+                return Symbol(other._space, self._data * other._data,
+                              codomain=self._codomain)
+            space, codomain = compose_spaces(
+                other._space, other._codomain,
+                self._space, self._codomain)
+            return Symbol(space, self._data * other._data,
+                          codomain=codomain)
+        from fridom.framework2.grid.operators.realized import (  # noqa: PLC0415
+            realized_matmul,
+        )
+        return realized_matmul(self, other)
+
+    def __rmatmul__(self, other: object) -> object:
+        """
+        Reflected composition ``other @ self``.
+
+        Description
+        -----------
+        Reached when ``other`` did not implement ``@`` for a
+        ``Symbol`` — e.g. an unmaterialized :class:`Operator` recipe,
+        which raises the taught materialization guard. ``Symbol @
+        Symbol`` and ``realized @ Symbol`` never route here (the left
+        operand handles them).
+
+        Parameters
+        ----------
+        other : object
+            The outer (applied-last) operand.
+
+        Returns
+        -------
+        object
+            ``NotImplemented`` unless the guard raises.
+        """
+        from fridom.framework2.grid.operators.realized import (  # noqa: PLC0415
+            realized_rmatmul,
+        )
+        return realized_rmatmul(self, other)
 
     # ================================================================
     #  Internal helpers
