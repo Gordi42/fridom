@@ -7,6 +7,14 @@ the decisions in §7 (2026-07-08).** Owning class doc for the type:
 architecture. Backed by this session's research on the symbol type,
 the spectral solver, and (deferred) the eigen layer.
 
+> **Refined by [`symbol_stack_design.md`](symbol_stack_design.md)
+> (2026-07-08):** `Symbol` is the dynamic layer (coefficients enter via
+> `Symbol × field`; operators stay static); `eigenvalues` is
+> layout-faithful to the coefficient space passed; partial transforms +
+> mixed `Fourier ⊗ Nodal` spaces are first-class; and the banded /
+> non-transformed axis is a separate `Banded` type. Read that note for
+> the current stack; §4-5 here stand as the diagonal-case detail.
+
 ## Scope
 
 **In scope:** the scalar `Symbol` type + its algebra, and the spectral

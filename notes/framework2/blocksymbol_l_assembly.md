@@ -9,6 +9,13 @@ from the operator algebra (a `BlockSymbol`), not a hand-provided
 implies. Backed by an audit of the tendency/term system, the
 `Block`/`BlockMatrix` code, and the `A(k)` derivations.
 
+> **Extended by [`symbol_stack_design.md`](symbol_stack_design.md)
+> (2026-07-08):** the real-FFT/staggering boundary this note hit is
+> dissolved by layout-faithful `eigenvalues` + the mixed
+> `Fourier ⊗ Nodal` representation; the general variable-coefficient /
+> wall system is a `BlockSymbol` of `Banded`s (densified only at the
+> `eigh` boundary).
+
 ## 1. What `L` is, per model
 
 `L` is the linearized tendency, per Fourier mode an `m×m` matrix `A(k)`

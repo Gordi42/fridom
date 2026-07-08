@@ -116,16 +116,20 @@ notes.
 - **Gates.** Sign-offs A (`@final`), B (eager materialization), E
   (`inverse` exact `== 0`).
 
-### Phase D — `SpectralSolve` + banded primitive  · *(S2)*
-- **What.** Lift the tridiagonal solve from `model/implicit.py` into
-  `grid/operators/banded.py`; build `SpectralSolve` (diagonal via
-  `Symbol.inverse`; mixed Fourier×Chebyshev via the diagonal/banded
-  partition). Retire the hand-rolled `nonhydro2/pressure.py` inverse.
-- **Depends.** C (+ existing transforms; banded for the mixed case).
-- **Delivers.** The pressure/Poisson/Helmholtz solver — the "solve" face
-  of the substrate.
-- **Gates.** Sign-off C (banded lift crosses the model/grid boundary),
-  D (separable-only in it-1).
+### Phase D — `SpectralSolve` + banded primitive  · *(S2; DONE, with a follow-up)*
+- **Done (round 2 / Wave 9B):** banded primitive lifted to
+  `grid/operators/banded.py`; `SpectralSolve` (pure-diagonal) built;
+  pressure inverts via `Symbol.inverse` bitwise-identical.
+- **Follow-up (D′ — the pressure-solver refinement,
+  [`symbol_stack_design.md`](symbol_stack_design.md)):** make
+  `eigenvalues` **layout-faithful** (read `grid.wavenumbers(space,
+  axis)`) + add `Symbol × field` (constant-in-transformed-axes) +
+  build the pressure `∇² = Div @ Diag(1,1,1/dsqr) @ Grad` so
+  `SpectralSolve(∇²)` **retires the hand-rolled `discrete_laplace_symbol`**
+  in `nonhydro2/modules/pressure.py`. Bounded, near-term. `dsqr` scales
+  at the symbol level (traced-but-constant leaf).
+- **Deferred:** mixed Fourier×Chebyshev via the diagonal/banded
+  partition (folds into Phase I's `Banded`).
 
 ### Phase E — `StateTransform` algebra  · *(wave 7 A / ROADMAP 2.8-A)*
 - **What.** Populate `transforms/`: `StateTransform` base,
@@ -180,17 +184,23 @@ backends behind one `Eigenmodes.from_operator(L, M, grid)` seam — see
 - **Gates.** Decision 1 (`eigh(iML, M)`, not `eig`).
 - **Delivers.** Numeric spectral eigenmodes where no closed form exists.
 
-### Phase I — non-periodic / vertical general eigenmodes  · *(P3)*
-- **What.** Structure functions on sine/cosine axes (transforms exist)
-  and a banded generalized `eigh` along a non-diagonalizing axis — the
-  boundary-trapped / vertical-structure / one-axis-variable-coefficient
-  modes (the `boundary_emission` / `Adiabatic-Coriolis-Ramping`
-  generality).
-- **Depends.** H + D (banded). Walls-in-the-vertical additionally need
-  two currently-stubbed prerequisites: **Shen/Galerkin BC-structured
-  Chebyshev** (`galerkin.py`) and **Chebyshev quadrature in
-  `grid.measure`/`evaluation_nodes`** (today `NotImplementedError` off
-  `IntervalMesh`).
+### Phase I — variable-coefficient / wall-bounded eigenmodes  · *(P3; redesigned)*
+Now scoped by [`symbol_stack_design.md`](symbol_stack_design.md) — the
+`Banded` + nesting + mixed-representation tier (not "needs Chebyshev").
+- **What.** (a) The **`Banded`** operator type (promote
+  `grid/operators/banded.py` to a first-class diagonal-in-transformed /
+  banded-in-one-axis operator with matvec + Thomas solve). (b) The
+  **mixed `Fourier ⊗ Nodal`** representation + partial transforms (from
+  D′). (c) **`Symbol × field`** for variable coefficients (`f(y)`,
+  `N²(z)`; from D′). (d) **`BlockSymbol` of `Banded`** nesting for the
+  general system, densified only at the `eigh` boundary. Delivers the
+  β-plane / boundary-trapped / vertical-structure modes (the
+  `boundary_emission` / `Adiabatic-Coriolis-Ramping` generality).
+- **Depends.** H + D′ (layout-faithful `eigenvalues`, `Symbol × field`,
+  mixed transforms). Chebyshev/Shen is now just *one* `Banded` instance
+  (dense bandwidth); the earlier "Shen + Chebyshev quadrature"
+  prerequisites are needed only for the spectral-vertical variant, not
+  for the FD-vertical / structure-function path.
 - **Delivers.** The fully general eigen/projection reach.
 
 ## 3. Recommended serialization
