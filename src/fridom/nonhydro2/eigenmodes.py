@@ -193,23 +193,30 @@ class Eigenmodes:
         return self._vec_q(s)
 
     def p(self, s: int = 1) -> dict[str, jax.Array]:
-        """Return the ``s``-mode projection vector ``p^s`` (arrays).
+        r"""Return the ``s``-mode projection vector ``p^s`` (arrays).
 
         Description
         -----------
-        Normalized so ``<p^s, q^s> = 1`` (inner product = sum over the
-        nonzero modes of ``conj(p) . q``), giving the biorthogonal
-        projector.
+        Derived, not hand-written: ``p^s = M q^s / <q^s, q^s>_M`` with
+        ``M`` the energy metric (see :meth:`_energy_weights` /
+        ``fr.EnergyMetric``). This is the biorthogonal dual of ``q^s``
+        (``<p^s, q^s> = 1`` and ``<p^s, q^t> = 0`` for ``t != s``, since
+        the discrete modes are ``M``-orthogonal), so the plain
+        biorthonormality ``sum_c conj(p_c) q_c = 1`` still holds.
         """
-        raw = self._vec_p(s)
         q = self._vec_q(s)
-        norm = self._pair(raw, q)
+        weights = self._energy_weights()
+        mq = {c: weights[c] * q[c] for c in q}
+        # per-mode energy norm <q, q>_M = sum_c w_c |q_c|^2 -- a keepdims
+        # component contraction over (u,v,w,b), NOT the global
+        # fr.EnergyMetric.inner (which sums over all modes).
+        qq_m = sum(jnp.real(jnp.conj(q[c]) * mq[c]) for c in q)
         # guard the degenerate modes (kh = 0 for s != 0, and the mean
-        # mode): where <p, q> ~ 0 the mode has no representative in this
-        # family, so the projector maps it to zero.
-        good = jnp.abs(norm) > 1e-9  # noqa: PLR2004
-        safe = jnp.where(good, norm, 1.0)
-        return {c: jnp.where(good, raw[c] / safe, 0.0) for c in raw}
+        # mode): where the energy vanishes the mode has no representative
+        # in this family, so the projector maps it to zero.
+        good = qq_m > 1e-9  # noqa: PLR2004
+        safe = jnp.where(good, qq_m, 1.0)
+        return {c: jnp.where(good, mq[c] / safe, 0.0) for c in q}
 
     def projector(self, s: int = 1):  # noqa: ANN201 — a closure
         """Return the spectral projector ``P^s`` (a state -> state map).
@@ -268,36 +275,24 @@ class Eigenmodes:
         b = om_[z] * self.n2 * kh2
         return self._named(u, v, w, b)
 
-    def _vec_p(self, s: int) -> dict[str, jax.Array]:
-        x, y, z = self.names
-        op, om_, o2 = self._one_p, self._one_m, self._one2
-        kp, km = self._khatp, self._khatm
-        if s == 0:
-            u = -(op[x] * om_[y] * op[z] * self.n2 * kp[y])
-            v = om_[x] * op[y] * op[z] * self.n2 * kp[x]
-            w = jnp.zeros_like(u)
-            b = o2[x] * o2[y] * self.f0 * kp[z]
-            return self._named(u, v, w, b)
-        kh2 = self._sum_kh2()
-        omega = self.omega(s)
-        gamma = ((kh2 + self._khat2[z])
-                 / (self.dsqr * kh2 + self._khat2[z]))
-        gamma = jnp.where(self._nonzero_mask(), gamma, 0.0)
-        u = km[z] * (-1j * omega * kp[x]
-                     + op[x] * om_[y] * self.f0 * gamma * kp[y])
-        v = km[z] * (-1j * omega * kp[y]
-                     - om_[x] * op[y] * self.f0 * gamma * kp[x])
-        w = 1j * omega * kh2
-        b = om_[z] * gamma * kh2
-        return self._named(u, v, w, b)
-
     def _named(self, u, v, w, b) -> dict[str, jax.Array]:  # noqa: ANN001
         return {"u": u, "v": v, "w": w, "b": b}
 
-    def _pair(
-        self, p: dict[str, jax.Array], q: dict[str, jax.Array],
-    ) -> jax.Array:
-        return sum(jnp.conj(p[c]) * q[c] for c in p)
+    def _energy_weights(self) -> dict[str, float]:
+        r"""Per-component energy weights (the ``fr.EnergyMetric`` diag).
+
+        Description
+        -----------
+        ``diag(1, 1, dsqr, 1/N^2)`` on ``(u, v, w, b)`` -- the canonical
+        nonhydro energy metric ``M`` (a single source of truth with
+        ``fr.EnergyMetric.from_model``); ``p = M q`` scales ``q`` by
+        these. The ``1/N^2`` reciprocal falls back to ``1`` for the
+        degenerate ``N^2 = 0`` (pure-inertial) grid the constructor
+        permits -- the metric proper (and ``fr.EnergyMetric``) needs
+        ``N^2 != 0``.
+        """
+        inv_n2 = 1.0 / self.n2 if self.n2 != 0.0 else 1.0
+        return {"u": 1.0, "v": 1.0, "w": self.dsqr, "b": inv_n2}
 
 
 def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:

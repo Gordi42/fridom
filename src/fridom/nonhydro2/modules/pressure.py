@@ -4,21 +4,28 @@ Description
 -----------
 The nonhydrostatic incompressibility constraint is enforced by the
 fractional-step projection ``div(grad p) = div(u*)`` then
-``u = u* - grad p`` (03 §5.6, project-the-state). Framework2 lands no
-Poisson/Symbol operator (``operators/symbol.py`` is a stub,
-``SpectralDerivative.eigenvalues`` and ``Fourier.truncation_mask``
-raise ``NotImplementedError``), so the inverse is assembled here from
-the landed ``Fourier`` transform and the discrete finite-difference
-eigenvalue.
+``u = u* - grad p`` (03 §5.6, project-the-state). The inverse is the
+pseudo-inverse of the discrete Laplacian's diagonal ``Symbol``: the
+eigenvalue diagonal is assembled on the transformed coefficient space
+and inverted via ``Symbol.inverse`` (the ``k = 0`` nullspace
+regularized by its exact structural-zero test — the mean-pressure
+gauge), retiring the hand-rolled ``jnp.where`` pseudo-inverse.
 
 The discrete eigenvalue matches the C-grid ``Divergence()@Gradient()``
 chain exactly: forward difference (center -> face) has eigenvalue
 ``(e^{ik dx} - 1)/dx`` and backward difference (face -> center)
 ``(1 - e^{-ik dx})/dx``; their product is ``-2(1 - cos k dx)/dx^2 =
--khat^2``. Inverting with ``p_hat = -div_hat / khat^2`` therefore drives
-the *discrete* divergence to machine zero. ``dsqr`` enters only through
-the vertical term ``khat_z^2 / dsqr`` and is read live in-step (it is
-not factorable into grid x parameter — D2.4 V-N).
+-khat^2``. Inverting therefore drives the *discrete* divergence to
+machine zero. ``dsqr`` enters only through the vertical term
+``khat_z^2 / dsqr`` and is read live in-step (it is not factorable
+into grid x parameter — D2.4 V-N), so the diagonal is (re)assembled
+per solve rather than materialized once by a static ``SpectralSolve``.
+
+The eigenvalue is assembled directly on the transformed coefficient
+factors (not via ``Laplacian().eigenvalues``): the composed C-grid FD
+symbol tags every axis with an independent half spectrum, incompatible
+with the multi-axis rfftn coefficient layout ``(half, full, full)``
+this solve transforms into — reconciling the two is a follow-up.
 """
 from __future__ import annotations
 
@@ -28,6 +35,7 @@ import jax.numpy as jnp
 
 from fridom.framework2.grid.operators.fourier import Fourier
 from fridom.framework2.grid.operators.spectral import fourier_wavenumbers
+from fridom.framework2.grid.operators.symbol import Symbol
 from fridom.framework2.grid.spaces.coefficient import FourierSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -36,17 +44,20 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
 
-def discrete_laplace_eigenvalues(
+def discrete_laplace_symbol(
     space: SpaceLike, *, vertical: str, dsqr: jax.Array,
-) -> jax.Array:
-    r"""Assemble ``khat_x^2 + khat_y^2 + khat_z^2 / dsqr`` on ``space``.
+) -> Symbol:
+    r"""Discrete Laplacian diagonal ``-(khat_x^2 + khat_y^2 + khat_z^2/dsqr)``.
 
     Description
     -----------
     ``space`` is the coefficient (Fourier) space of the transformed
     divergence. Each factor contributes the discrete second-difference
     eigenvalue ``khat^2 = 2(1 - cos k dx)/dx^2`` reshaped onto its axis;
-    the vertical factor is weighted by ``1 / dsqr``.
+    the vertical factor is weighted by ``1 / dsqr``. The result is the
+    (negative) discrete Laplacian eigenvalue diagonal, wrapped as a
+    ``Symbol`` so the caller inverts it through the diagonal-operator
+    algebra (``Symbol.inverse``).
 
     Parameters
     ----------
@@ -59,8 +70,8 @@ def discrete_laplace_eigenvalues(
 
     Returns
     -------
-    jax.Array
-        The eigenvalue array, broadcastable to the coefficient data.
+    Symbol
+        The discrete Laplacian diagonal on the bare coefficient space.
     """
     bare = space.bare
     names = bare.names
@@ -84,7 +95,7 @@ def discrete_laplace_eigenvalues(
         shape[index] = khat2.shape[0]
         weight = 1.0 / dsqr if name == vertical else 1.0
         total = total + weight * khat2.reshape(shape)
-    return total
+    return Symbol(bare, -total)
 
 
 class SpectralPressureSolver:
@@ -122,10 +133,9 @@ class SpectralPressureSolver:
             The pressure on the same (cell-centered) space as ``div``.
         """
         div_hat = self._fourier.forward(div)
-        eig = discrete_laplace_eigenvalues(
+        laplace = discrete_laplace_symbol(
             div_hat.function_space, vertical=vertical, dsqr=dsqr)
-        # zero-mode mask (grid-static): the mean pressure is gauge
-        zero = eig == 0.0
-        inv = jnp.where(zero, 0.0, -1.0 / jnp.where(zero, 1.0, eig))
-        p_hat = div_hat.with_data(div_hat.data * inv)
+        # ``Symbol.inverse`` regularizes the ``k = 0`` nullspace (the
+        # mean-pressure gauge) via its exact structural-zero test
+        p_hat = laplace.inverse()(div_hat)
         return self._fourier.backward(p_hat).real

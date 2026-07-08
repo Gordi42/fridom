@@ -43,6 +43,7 @@ import numpy as np
 
 from fridom.framework.utils import dtype_real, jaxify
 from fridom.framework2.grid.fields.scalar_field import ScalarField
+from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.io.snapshots import (
     FORMAT_VERSION,
     SnapshotManifest,
@@ -57,7 +58,7 @@ from fridom.framework2.io.streams import (
     IOCollisionError,
     SnapshotMismatchError,
 )
-from fridom.framework2.model.assembly import assemble
+from fridom.framework2.model.assembly import _collect_terms, assemble
 from fridom.framework2.model.clock import Clock
 from fridom.framework2.model.context import StepContext
 from fridom.framework2.model.declarations import Lifecycle
@@ -68,15 +69,20 @@ from fridom.framework2.model.results import (
     RunResult,
     RunTargetError,
 )
-from fridom.framework2.model.schedule import BoundSchedule
+from fridom.framework2.model.schedule import (
+    BoundSchedule,
+    apply_add,
+    evaluate_entry,
+    zero_like,
+)
 from fridom.framework2.model.stages import StageKind
+from fridom.framework2.model.terms import Treatment
 from fridom.framework2.model.time_dependent import resolve_at
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
-    from fridom.framework2.grid.fields.vector_field import VectorField
     from fridom.framework2.grid.grid import Grid
     from fridom.framework2.model.assembly import (
         AssemblyArtifacts,
@@ -128,6 +134,23 @@ def _run_target_seconds(value: object, *, name: str) -> float:
 def _dtype_int() -> jnp.dtype:
     """Return the default integer dtype (the clock's ``it`` twin)."""
     return jnp.result_type(int)
+
+
+def _validate_filter_names(
+    term_filter: Callable | None, term_keys: tuple[str, ...],
+) -> None:
+    """Reject a filter that names an unknown term (build error, 2.8)."""
+    if term_filter is None:
+        return
+    referenced = getattr(term_filter, "referenced_names", None)
+    if referenced is None:
+        return
+    unknown = frozenset(referenced()) - set(term_keys)
+    if unknown:
+        raise AssemblyError(
+            f"the term filter names unknown terms "
+            f"{tuple(sorted(unknown))}; declared terms: "
+            f"{tuple(sorted(term_keys))}")
 
 
 # ================================================================
@@ -789,6 +812,7 @@ class Model:
         state_type: type | None = None,
         name: str | None = None,
         chunk_size: int = _DEFAULT_CHUNK,
+        term_filter: Callable | None = None,
     ) -> None:
         """Assemble (steps 1-7, 9) and allocate the carry (step 8)."""
         if isinstance(chunk_size, bool) or not isinstance(
@@ -804,7 +828,7 @@ class Model:
         modules = tuple(modules)
         self._artifacts: AssemblyArtifacts = assemble(
             grid=grid, modules=modules, time_stepper=time_stepper,
-            state_type=state_type, name=name)
+            state_type=state_type, name=name, term_filter=term_filter)
         self._grid = grid
         self._stepper = time_stepper
         self._name = name
@@ -833,6 +857,10 @@ class Model:
         self._host_elapsed = np.float64(0.0)
         self._debug_carry: ModelState | None = None
         self._debug_steps = 0
+        # memoized jitted read-only tendency executables (2.8): keyed
+        # by (kept-term-key frozenset, constraints) so repeated matvec
+        # calls with one filter hit ONE compiled entry
+        self._tendency_cache: dict[tuple, Callable] = {}
 
     # ================================================================
     #  Allocation helpers (step 8)
@@ -1611,17 +1639,213 @@ class Model:
             # the partial step count; aggregate it post-exit
             return session._aggregate()[key]  # noqa: SLF001 — sibling-owned helper
 
-    def tendency(self, *_args: object, **_kwargs: object) -> object:
-        """``model.tendency`` lands at wave 7 (2.8)."""
-        raise NotImplementedError(
-            "Model.tendency lands at wave 7 with the read-only "
-            "composed tendency (ROADMAP 2.8)")
+    def tendency(
+        self,
+        state: VectorField,
+        *,
+        t: float | None = None,
+        filter: Callable | None = None,  # noqa: A002 — spec-fixed keyword
+        constraints: bool = True,
+    ) -> VectorField:
+        """
+        Host-callable, jitted, read-only composed tendency (2.8).
 
-    def variant(self, *_args: object, **_kwargs: object) -> Model:
-        """``model.variant`` (derived models) lands at wave 7 (2.8)."""
-        raise NotImplementedError(
-            "Model.variant lands at wave 7 with the term-predicate "
-            "algebra (ROADMAP 2.8)")
+        Description
+        -----------
+        The linear-stability / JVP matvec surface (08 §10.6 S1): the
+        input's PROGNOSTIC components are overlaid onto the carry's
+        current full state (so AUXILIARY inputs are available), the
+        SELF_UPDATE and DIAGNOSE stages run first at ``t`` (amended
+        V-H8 — the result reflects recomputed diagnostics), the
+        filtered EXPLICIT terms accumulate (IMPLICIT terms via their
+        forward apply ``L @ state``), and the CONSTRAINT stages apply
+        to the result iff ``constraints``. **Never advances the
+        carry.** The composed tendency is jitted separately, keyed by
+        the kept-term set and ``constraints`` (its own cache entry).
+
+        Parameters
+        ----------
+        state : VectorField
+            The state to evaluate the tendency at; its declared
+            components overlay the carry's current state.
+        t : float | None, optional
+            The stage time for parameter/diagnostic evaluation;
+            ``None`` reads the carry clock (default: None).
+        filter : Callable | None, optional
+            A term predicate (``fr.terms``) restricting the evaluated
+            terms — per-term budgets, linear matvecs (default: None).
+        constraints : bool, optional
+            Whether the CONSTRAINT stages apply to the result
+            (default: True).
+
+        Returns
+        -------
+        VectorField
+            The PROGNOSTIC-only composed tendency (``d state / d t``).
+        """
+        schedule = self._artifacts.schedule
+        if not schedule.prognostic:
+            raise NotImplementedError(
+                "model.tendency needs PROGNOSTIC fields; a stage-only"
+                " / field-free composition has no state tendency")
+        base_state = self._carry.state
+        if base_state is None:  # pragma: no cover — prognostic implies state
+            raise AttributeError("this composition declares no fields")
+        kept = self._resolve_tendency_filter(filter)
+        run = self._tendency_executable(kept, constraints)
+        t_val = (self._carry.clock.time if t is None
+                 else jnp.asarray(t, dtype=dtype_real()))
+        return run(state, base_state, self._carry.modules,
+                   self._stepper, t_val)
+
+    def _terms_by_key(self, modules: tuple) -> dict[str, object]:
+        """Map each term's attribution key to its ``TendencyTerm``."""
+        return {
+            f"{type(modules[slot]).__name__}/{term.name}": term
+            for slot, term in _collect_terms(modules)}
+
+    def _resolve_tendency_filter(
+        self, term_filter: Callable | None,
+    ) -> frozenset[str]:
+        """Resolve the kept-term key set for a tendency filter."""
+        entries = self._artifacts.schedule.kind_entries(None)
+        if term_filter is None:
+            return frozenset(entry.key for entry in entries)
+        modules = self._carry.modules
+        term_by_key = self._terms_by_key(modules)
+        _validate_filter_names(term_filter, tuple(term_by_key))
+        wants_module = getattr(term_filter, "wants_module", False)
+        kept = set()
+        for entry in entries:
+            term = term_by_key[entry.key]
+            module = modules[entry.slot]
+            keep = (term_filter(entry.key, term, module) if wants_module
+                    else term_filter(entry.key, term))
+            if keep:
+                kept.add(entry.key)
+        return frozenset(kept)
+
+    def _tendency_executable(
+        self, kept: frozenset[str], constraints: bool,
+    ) -> Callable:
+        """Build (memoized) the jitted composed-tendency function."""
+        cache_key = (kept, constraints)
+        cached = self._tendency_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        schedule = self._artifacts.schedule
+        prognostic = schedule.prognostic
+        term_entries = schedule.kind_entries(None)
+        do_constrain = bool(
+            constraints and schedule.kind_entries(StageKind.CONSTRAINT))
+
+        def run(
+            state: VectorField,
+            base_state: VectorField,
+            modules: tuple,
+            stepper: TimeStepper,
+            t: Any,
+        ) -> VectorField:
+            """Overlay, prepare at t, accumulate the kept terms."""
+            overlay = {name: state[name]
+                       for name in state.component_names
+                       if name in base_state}
+            full = base_state.replace(**overlay)
+            table = schedule.binding_table
+            params = (table.eval_params(modules, stepper, t)
+                      if table is not None else {})
+            ctx = StepContext(params=params, clock=t, dt=stepper.dt,
+                              stage_dt=stepper.dt)
+            bound = schedule.bind(modules)
+            full = bound.prepare(full, ctx)
+            sums = VectorField({name: zero_like(full[name])
+                               for name in prognostic})
+            for entry in term_entries:
+                if entry.key not in kept:
+                    continue
+                module = modules[entry.slot]
+                if entry.treatment is Treatment.IMPLICIT:
+                    result = entry.implicit.apply(module, full, ctx)
+                else:
+                    result = evaluate_entry(entry, module, full, ctx)
+                sums = apply_add(entry, sums, result)
+            if do_constrain:
+                sums = bound.constrain(sums, ctx)
+            return sums
+
+        jitted = jax.jit(run)
+        self._tendency_cache[cache_key] = jitted
+        return jitted
+
+    def variant(
+        self,
+        *,
+        term_filter: Callable | None = None,
+        updates: Mapping[str, object] | None = None,
+        name: str | None = None,
+    ) -> Model:
+        """
+        Re-assemble a derived model on the parent's frozen grid (2.8).
+
+        Description
+        -----------
+        08 §10.4: declarations are **never** filtered — the variant
+        shares the parent's FieldTable, State treedef, shapes, halos
+        and layouts (parent<->variant state exchange is copy-free).
+        Only tendency terms are filtered (at assembly step 5). The ⊆
+        verify lemma guarantees the frozen-grid verify path passes
+        (variants never ``GridFrozenError``). ``updates=`` is
+        assembly-time and may change value **specs** (scalar -> Ramp,
+        ``fr.params.TIME_STEP`` sign) — unlike post-assembly
+        ``update_parameters``; the carry treedef may then differ, but
+        the State treedef (the load-bearing identity) does not.
+
+        Parameters
+        ----------
+        term_filter : Callable | None, optional
+            A term predicate (``fr.terms``) removing terms at assembly;
+            an empty result / unknown ``named`` key is a build error
+            (default: None).
+        updates : Mapping[str, object] | None, optional
+            Assembly-time parameter value (or spec) changes, resolved
+            through the parent's binding table (default: None).
+        name : str | None, optional
+            The variant's report/log name (default: ``"{parent}/
+            variant"``).
+
+        Returns
+        -------
+        Model
+            The derived model (a full lifecycle citizen).
+        """
+        modules = list(self._carry.modules)
+        stepper = self._stepper
+        for pname, value in dict(updates or {}).items():
+            entry = self._binding_table[pname]  # MissingParameterError
+            if entry.slot is None:
+                raise AssemblyError(
+                    f"parameter {str(pname)!r} is an identity-"
+                    "defaulted constant (no provider owns a leaf); "
+                    "provide it from a module, or re-assemble")
+            if entry.slot == "stepper":
+                stepper = self._replace_leaf(stepper, entry.attr, value)
+            else:
+                modules[entry.slot] = self._replace_leaf(
+                    modules[entry.slot], entry.attr, value)
+        _validate_filter_names(
+            term_filter, tuple(self._terms_by_key(tuple(modules))))
+        if name is not None:
+            variant_name = name
+        elif self._name:
+            variant_name = f"{self._name}/variant"
+        else:
+            variant_name = "variant"
+        return Model(
+            grid=self._grid, modules=tuple(modules),
+            time_stepper=stepper,
+            state_type=self._artifacts.record.state_type,
+            name=variant_name, term_filter=term_filter,
+            chunk_size=self._chunk_size)
 
     # ================================================================
     #  Persistence (section 6.4)

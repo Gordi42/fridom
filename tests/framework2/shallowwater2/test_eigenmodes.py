@@ -48,6 +48,24 @@ def test_projection_vectors_are_biorthonormal():
         np.testing.assert_allclose(inner[nonzero], 1.0, atol=1e-6)
 
 
+def test_projection_vector_is_the_metric_image_of_q():
+    # p is now DERIVED as p = M q / <q, q>_M, not hand-written; assert
+    # it component-wise against the energy metric diag(1, 1, 1/c^2).
+    csqr = 4.0
+    em, _ = _eig(csqr=csqr)
+    weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
+    for s in (0, 1, -1):
+        q = {c: np.asarray(em.q(s)[c].data) for c in ("u", "v", "p")}
+        p = {c: np.asarray(em.p(s)[c].data) for c in ("u", "v", "p")}
+        qq_m = sum(weights[c] * np.abs(q[c]) ** 2 for c in q)
+        good = qq_m > 1e-10
+        for c in ("u", "v", "p"):
+            expect = np.where(
+                good, weights[c] * q[c] / np.where(good, qq_m, 1.0),
+                0.0)
+            np.testing.assert_allclose(p[c], expect, atol=1e-12)
+
+
 def test_projectors_are_idempotent_and_partition_unity():
     em, _ = _eig()
     q1 = em.q(1)

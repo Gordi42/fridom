@@ -393,10 +393,16 @@ class TendencyComposer:
         """Apply the variant term filter (terms only, 08 10.4)."""
         if self._term_filter is None:
             return entries
+        # module-aware predicates (fr.terms, wants_module=True) receive
+        # the owning module for owned_by's isinstance check; legacy
+        # two-argument callables keep the (key, term) signature.
+        wants_module = getattr(self._term_filter, "wants_module", False)
         kept = tuple(
-            entry for entry, (_, term) in zip(entries, terms,
-                                              strict=True)
-            if self._term_filter(entry.key, term))
+            entry for entry, (slot, term) in zip(entries, terms,
+                                                 strict=True)
+            if (self._term_filter(entry.key, term, self._modules[slot])
+                if wants_module
+                else self._term_filter(entry.key, term)))
         if entries and not kept:
             raise AssemblyError(
                 "the term filter drops every collected term; an "

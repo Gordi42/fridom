@@ -543,13 +543,14 @@ def test_advance_entry_raises_on_panicked_carry(model):
         model.advance(1)
 
 
-def test_tendency_variant_are_later_waves(model):
-    # run() landed in wave 5 (see tests/framework2/model/test_run.py);
-    # tendency/variant remain wave-7 stubs
-    with pytest.raises(NotImplementedError, match="wave 7"):
-        model.tendency(model.state)
-    with pytest.raises(NotImplementedError, match="wave 7"):
-        model.variant()
+def test_tendency_and_variant_landed_in_wave_7(model):
+    # wave 7 (2.8): the read-only composed tendency and derived models
+    model.set_fields(u=ic(), b=ic())
+    tendency = model.tendency(model.state)
+    assert tendency.component_names == ("u", "b")
+    variant = model.variant()
+    assert (jax.tree_util.tree_structure(model.state)
+            == jax.tree_util.tree_structure(variant.state))
 
 
 # ================================================================

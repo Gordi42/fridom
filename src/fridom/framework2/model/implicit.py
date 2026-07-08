@@ -26,6 +26,11 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
+from fridom.framework2.grid.operators.banded import (
+    apply_along_axis,
+    second_difference_matrix,
+    solve_along_axis,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Hashable
@@ -315,7 +320,7 @@ class VerticalDiffusion:
                 field, self.axis,
                 self.kappa(module, state, ctx, name))
             data = jnp.asarray(field.data)
-            applied = _apply_along_axis(operator, data, axis_index)
+            applied = apply_along_axis(operator, data, axis_index)
             result[name] = field.with_data(applied)
         return result
 
@@ -369,7 +374,7 @@ class VerticalDiffusion:
             system = (jnp.eye(size, dtype=real)
                       - jnp.asarray(dt_gamma, dtype=real) * operator)
             data = jnp.asarray(field.data)
-            solved = _solve_along_axis(system, data, axis_index)
+            solved = solve_along_axis(system, data, axis_index)
             result[name] = field.with_data(solved)
         return result
 
@@ -440,12 +445,11 @@ def _diffusion_operator(
 
     Description
     -----------
-    The dense ``(N, N)`` second-difference matrix on the field's
-    true-shape column with zero-flux (Neumann) boundary rows —
-    ``-1`` on the two corner diagonals instead of ``-2`` — divided by
-    ``dz^2`` (uniform spacing from the axis evaluation nodes) and
-    scaled by the constant column ``kappa``. Returns the matrix and
-    the storage-frame axis index of ``axis``.
+    The dense ``(N, N)`` Neumann second-difference band — assembled by
+    the shared ``grid.operators.banded`` primitive on the field's
+    true-shape column evaluation nodes — scaled by the constant column
+    ``kappa``. Returns the matrix and the storage-frame axis index of
+    ``axis``.
 
     Parameters
     ----------
@@ -476,42 +480,12 @@ def _diffusion_operator(
             f"VerticalDiffusion axis {axis!r} is not a coordinate of "
             f"the field space {names}")
     axis_index = names.index(axis)
-    size = int(field.shape[axis_index])
     if hasattr(kappa_value, "function_space"):
         raise NotImplementedError(
             "VerticalDiffusion supports a constant (scalar) column "
             "kappa in iteration 1; a face-averaged variable-kappa "
             "conservative form is the follow-up")
-    real = dtype_real()
-    kappa = jnp.asarray(kappa_value, dtype=real)
+    kappa = jnp.asarray(kappa_value, dtype=dtype_real())
     coords = field.grid.evaluation_nodes(space, axis)
-    line = jnp.reshape(jnp.asarray(coords.data), (-1,)).astype(real)
-    dz = line[1] - line[0]
-    main = jnp.full((size,), -2.0, dtype=real)
-    main = main.at[0].set(-1.0).at[size - 1].set(-1.0)
-    off = jnp.ones((size - 1,), dtype=real)
-    d2 = (jnp.diag(main) + jnp.diag(off, 1) + jnp.diag(off, -1)
-          ) / (dz * dz)
+    d2 = second_difference_matrix(coords.data)
     return kappa * d2, axis_index
-
-
-def _apply_along_axis(
-    operator: jax.Array, data: jax.Array, axis_index: int,
-) -> jax.Array:
-    """Apply the ``(N, N)`` operator along one axis (batched)."""
-    moved = jnp.moveaxis(data, axis_index, -1)
-    shape = moved.shape
-    flat = moved.reshape(-1, shape[-1])
-    out = flat @ operator.T
-    return jnp.moveaxis(out.reshape(shape), -1, axis_index)
-
-
-def _solve_along_axis(
-    system: jax.Array, data: jax.Array, axis_index: int,
-) -> jax.Array:
-    """Solve ``system @ x = data`` along one axis (batched columns)."""
-    moved = jnp.moveaxis(data, axis_index, -1)
-    shape = moved.shape
-    flat = moved.reshape(-1, shape[-1])
-    solved = jnp.linalg.solve(system, flat.T).T
-    return jnp.moveaxis(solved.reshape(shape), -1, axis_index)

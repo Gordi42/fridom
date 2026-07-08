@@ -175,20 +175,43 @@ class Eigenmodes:
         qp = jnp.where(nonzero, qp, qp0)
         return qu, qv, qp
 
+    def _energy_weights(self) -> dict[str, float]:
+        r"""Per-component energy weights (the ``fr.EnergyMetric`` diag).
+
+        Description
+        -----------
+        ``diag(1, 1, 1/c^2)`` on ``(u, v, p)`` -- the canonical
+        shallow-water energy metric ``M`` (a single source of truth
+        with ``fr.EnergyMetric.from_model``); ``p = M q`` scales ``q``
+        by these. The ``1/c^2`` reciprocal falls back to ``1`` for the
+        degenerate ``c^2 = 0`` (no-gravity) case the constructor permits
+        -- the metric proper (and ``fr.EnergyMetric``) needs
+        ``c^2 != 0``.
+        """
+        inv_csqr = 1.0 / self.csqr if self.csqr != 0.0 else 1.0
+        return {"u": 1.0, "v": 1.0, "p": inv_csqr}
+
     def _p_arrays(
         self, s: int,
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """Projection-vector arrays: q with p/c^2, then normalized."""
+        r"""Projection-vector arrays: derived ``p = M q`` normalized.
+
+        Description
+        -----------
+        ``p^s = M q^s / <q^s, q^s>_M`` with ``M`` the energy metric
+        (see :meth:`_energy_weights`); no hand-written formula. The
+        per-mode energy norm ``<q, q>_M = sum_c w_c |q_c|^2`` is a
+        keepdims component contraction, not the global
+        ``fr.EnergyMetric.inner``.
+        """
         qu, qv, qp = self._q_arrays(s)
-        nonzero = (self._kx ** 2 + self._ky ** 2) != 0
-        zp = jnp.where(nonzero & (self.csqr != 0),
-                       qp / (self.csqr if self.csqr != 0 else 1.0),
-                       qp)
-        norm = jnp.abs(jnp.conj(qu) * qu + jnp.conj(qv) * qv
-                       + jnp.conj(qp) * zp)
-        good = norm > _NORM_FLOOR
-        scale = jnp.where(good, 1.0 / jnp.where(good, norm, 1.0), 0.0)
-        return qu * scale, qv * scale, zp * scale
+        w = self._energy_weights()
+        mqu, mqv, mqp = w["u"] * qu, w["v"] * qv, w["p"] * qp
+        qq_m = jnp.real(jnp.conj(qu) * mqu + jnp.conj(qv) * mqv
+                        + jnp.conj(qp) * mqp)
+        good = qq_m > _NORM_FLOOR
+        scale = jnp.where(good, 1.0 / jnp.where(good, qq_m, 1.0), 0.0)
+        return mqu * scale, mqv * scale, mqp * scale
 
 
 def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:

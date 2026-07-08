@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all classes (the fr.* surface, grown wave by wave)
     from .io.triggers import at, every
     from .model import implicit, params, roles, time_steppers
+    from .model import term_predicates as terms
     from .model.clock import Clock
     from .model.context import StepContext
     from .model.declarations import (
@@ -63,6 +64,7 @@ if TYPE_CHECKING:  # pragma: no cover
         Staggered,
     )
     from .model.stages import Stage, StageKind, self_update
+    from .model.term_predicates import linearize
     from .model.terms import (
         EXPLICIT,
         IMPLICIT,
@@ -71,6 +73,7 @@ if TYPE_CHECKING:  # pragma: no cover
         term,
     )
     from .model.time_dependent import Ramp, TimeDependent, resolve_at
+    from .transforms.base import StateTransform
 
 # ================================================================
 #  Setup lazy loading
@@ -79,8 +82,10 @@ base = "fridom.framework2"
 
 all_modules_by_origin = {
     base: ["grid", "model", "modules", "transforms", "io", "ops"],
-    # module namespaces re-homed to the top level (fr.roles, ...)
-    f"{base}.model": ["roles", "params", "implicit", "time_steppers"],
+    # module namespaces re-homed to the top level (fr.roles, fr.terms)
+    f"{base}.model": [
+        "roles", "params", "implicit", "time_steppers",
+        {"terms": "term_predicates"}],
     f"{base}.io": ["slurm"],
 }
 
@@ -103,6 +108,8 @@ all_imports_by_origin = {
     f"{base}.model.model": ["Model"],
     f"{base}.model.clock": ["Clock"],
     f"{base}.model.energy": ["EnergyMetric"],
+    f"{base}.model.term_predicates": ["linearize"],
+    f"{base}.transforms.base": ["StateTransform"],
     f"{base}.model.results": [
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
         "RunTargetError"],

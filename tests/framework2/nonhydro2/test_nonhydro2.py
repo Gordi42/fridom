@@ -164,6 +164,25 @@ def test_eigenmode_biorthogonality():
         assert np.abs(pq(em.p(s), em.q(t))).max() < 1e-9
 
 
+def test_eigenmode_p_is_the_metric_image_of_q():
+    # p is now DERIVED as p = M q / <q, q>_M, not hand-written; assert
+    # it component-wise against the energy metric diag(1, 1, dsqr, 1/N^2)
+    # with non-trivial dsqr / N^2 so the weights genuinely bite.
+    dsqr, n2 = 2.0, 3.0
+    em = nh.eigenmodes.Eigenmodes(make_grid(), f0=1.0, n2=n2, dsqr=dsqr)
+    weights = {"u": 1.0, "v": 1.0, "w": dsqr, "b": 1.0 / n2}
+    for s in (0, 1, -1):
+        q = {c: np.asarray(em.q(s)[c]) for c in "uvwb"}
+        p = {c: np.asarray(em.p(s)[c]) for c in "uvwb"}
+        qq_m = sum(weights[c] * np.abs(q[c]) ** 2 for c in "uvwb")
+        good = qq_m > 1e-9
+        for c in "uvwb":
+            expect = np.where(
+                good, weights[c] * q[c] / np.where(good, qq_m, 1.0),
+                0.0)
+            np.testing.assert_allclose(p[c], expect, atol=1e-12)
+
+
 def test_eigenmode_dispersion_continuous_limit():
     em = nh.eigenmodes.Eigenmodes(make_grid(), f0=1.0, n2=1.0,
                                   dsqr=1.0)

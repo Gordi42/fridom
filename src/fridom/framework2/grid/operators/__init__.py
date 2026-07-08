@@ -17,6 +17,7 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
+        banded,
         base,
         chebyshev,
         combinators,
@@ -32,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover
         registry,
         select,
         spectral,
+        spectral_solve,
         symbol,
         transform,
         trig,
@@ -71,6 +73,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .select import Where
+    from .spectral_solve import SpectralSolve
     from .symbol import Symbol
     from .verbs import diff, integrate, interpolate
     from .weno import WenoReconstruction
@@ -84,7 +87,9 @@ all_modules_by_origin = {
     base: [
         "base",
         "registry",
+        "banded",
         "symbol",
+        "spectral_solve",
         "finite_difference",
         "interp",
         "reconstruct",
@@ -136,6 +141,7 @@ all_imports_by_origin = {
     f"{base}.reconstruct": ["LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.select": ["Where"],
+    f"{base}.spectral_solve": ["SpectralSolve"],
     f"{base}.symbol": ["Symbol"],
     f"{base}.flux_diff": [
         "FluxDifference",
