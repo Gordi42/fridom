@@ -24,6 +24,12 @@ from fridom.framework2.model.declarations import (
     FieldDeclaration,
     FieldReference,
 )
+from fridom.framework2.model.linear_blocks import (
+    Coeff,
+    Interp,
+    LinearBlock,
+    apply_linear_blocks,
+)
 from fridom.framework2.model.module import Module
 from fridom.framework2.model.parameters import (
     ParameterDeclaration,
@@ -37,6 +43,20 @@ from fridom.nonhydro2.params import DSQR
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.fields.scalar_field import ScalarField
     from fridom.framework2.model.context import StepContext
+
+
+# The two linear coupling blocks (single source of truth). Buoyancy
+# force ``+b/dsqr`` divides by the traced ``ctx.params[DSQR]`` scalar
+# (``invert``); restoring ``-N^2 w`` scales by the owned ``n2`` leaf.
+# Both interpolate across the staggered face (``Interp``) and read
+# their symbolic constant off ``model.parameters``.
+_BUOYANCY_BLOCKS = (
+    LinearBlock("w", "b", Interp(), Coeff(param=DSQR, invert=True)),
+)
+_RESTORING_BLOCKS = (
+    LinearBlock("b", "w", Interp(),
+                Coeff(param=STRATIFICATION_N2, sign=-1)),
+)
 
 
 @partial(jaxify, dynamic=("n2",))
@@ -100,20 +120,16 @@ class ConstantStratification(Module):
         """The interpolation stencils (the raw-``.data`` bypass)."""
         return HaloSpec(dict.fromkeys(self._coords, 1))
 
-    @term(advances=("w",), linear=True)
+    @term(advances=("w",), linear=True, blocks=_BUOYANCY_BLOCKS)
     def buoyancy_force(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
         """``dw/dt += b / dsqr`` (interpolated onto the w face)."""
-        dsqr = ctx.params[DSQR]
-        b = state["b"].to(state["w"].function_space)
-        return {"w": b.with_data(b.data / dsqr)}
+        return apply_linear_blocks(_BUOYANCY_BLOCKS, state, ctx)
 
-    @term(advances=("b",), linear=True)
+    @term(advances=("b",), linear=True, blocks=_RESTORING_BLOCKS)
     def restoring(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
         """``db/dt += -N^2 w`` (interpolated onto the b cell)."""
-        n2 = ctx.params[STRATIFICATION_N2]
-        w = state["w"].to(state["b"].function_space)
-        return {"b": w.with_data(-n2 * w.data)}
+        return apply_linear_blocks(_RESTORING_BLOCKS, state, ctx)

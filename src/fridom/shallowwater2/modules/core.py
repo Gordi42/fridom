@@ -29,9 +29,32 @@ import jax.numpy as jnp
 
 import fridom.framework2 as fr
 from fridom.framework.utils import dtype_real, jaxify
+from fridom.framework2.model.linear_blocks import (
+    Coeff,
+    Diff,
+    LinearBlock,
+    Scale,
+    apply_linear_blocks,
+)
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.state import State
+
+# The pressure-gradient / geopotential-divergence blocks (single
+# source of truth). ``u,v <- p`` are bare pressure gradients; the
+# ``p <- u,v`` divergences put ``c^2`` INSIDE the derivative
+# (``Diff @ Scale``, the flux form) to reproduce ``diff(c^2 u)``
+# bit-for-bit. ``Scale("csqr", ...)``'s symbolic constant is the
+# provided ``shallowwater.csqr`` (a variable-depth core provides none,
+# so ``fr.linear_blocks`` declines it).
+_GRAVITY_BLOCKS = (
+    LinearBlock("u", "p", Diff("x"), Coeff(const=-1)),
+    LinearBlock("v", "p", Diff("y"), Coeff(const=-1)),
+    LinearBlock("p", "u", Diff("x") @ Scale("csqr", sw_params.CSQR),
+                Coeff(const=-1)),
+    LinearBlock("p", "v", Diff("y") @ Scale("csqr", sw_params.CSQR),
+                Coeff(const=-1)),
+)
 
 
 @partial(jaxify, dynamic=("csqr", "rossby_number"))
@@ -115,14 +138,8 @@ class DynamicalCore(fr.Module):
     # ================================================================
     #  Tendency terms (linear)
     # ================================================================
-    @fr.term(advances=("u", "v", "p"), linear=True)
-    def gravity(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
+    @fr.term(advances=("u", "v", "p"), linear=True,
+             blocks=_GRAVITY_BLOCKS)
+    def gravity(self, state, ctx) -> dict:  # noqa: ANN001
         r"""Pressure gradient and geopotential divergence."""
-        u, v, p = state["u"], state["v"], state["p"]
-        c = state["csqr"]
-        du = -p.diff("x")
-        dv = -p.diff("y")
-        flux_u = c.to(u.function_space) * u
-        flux_v = c.to(v.function_space) * v
-        dp = -(flux_u.diff("x") + flux_v.diff("y"))
-        return {"u": du, "v": dv, "p": dp}
+        return apply_linear_blocks(_GRAVITY_BLOCKS, state, ctx)
