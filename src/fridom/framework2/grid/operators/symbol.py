@@ -232,21 +232,25 @@ class Symbol:
             return self._mul_field(other)
         return self._elementwise(other, jnp.multiply)
 
-    def __rmul__(self, other: complex | FieldLike) -> Symbol:
+    def __rmul__(self, other: complex | FieldLike) -> Symbol | object:
         """Scalar/field product (commutative in the coefficient)."""
         if _is_field(other):
             return self._mul_field(other)
-        return Symbol(self._space, self._data * other,
-                      codomain=self._codomain)
+        if _is_scalar(other):
+            return Symbol(self._space, self._data * other,
+                          codomain=self._codomain)
+        return NotImplemented
 
     def __add__(self, other: Symbol | complex) -> Symbol:
         """Elementwise sum (the Laplacian ``kx**2 + ky**2`` union)."""
         return self._elementwise(other, jnp.add)
 
-    def __radd__(self, other: complex) -> Symbol:
+    def __radd__(self, other: complex) -> Symbol | object:
         """Scalar sum (commutative)."""
-        return Symbol(self._space, self._data + other,
-                      codomain=self._codomain)
+        if _is_scalar(other):
+            return Symbol(self._space, self._data + other,
+                          codomain=self._codomain)
+        return NotImplemented
 
     def __sub__(self, other: Symbol | complex) -> Symbol:
         """Elementwise difference."""
@@ -280,17 +284,21 @@ class Symbol:
         return Symbol(self._space, self._data ** p,
                       codomain=self._codomain)
 
-    def __truediv__(self, other: Symbol | complex) -> Symbol:
+    def __truediv__(self, other: Symbol | complex) -> Symbol | object:
         """Elementwise division (bare jax semantics at zeros)."""
         if isinstance(other, Symbol):
             return self._elementwise(other, jnp.divide)
-        return Symbol(self._space, self._data / other,
-                      codomain=self._codomain)
+        if _is_scalar(other):
+            return Symbol(self._space, self._data / other,
+                          codomain=self._codomain)
+        return NotImplemented
 
-    def __rtruediv__(self, other: complex) -> Symbol:
+    def __rtruediv__(self, other: complex) -> Symbol | object:
         """Scalar over the diagonal: the (tag-flipped) raw inverse."""
-        return Symbol(self._codomain, other / self._data,
-                      codomain=self._space)
+        if _is_scalar(other):
+            return Symbol(self._codomain, other / self._data,
+                          codomain=self._space)
+        return NotImplemented
 
     def __matmul__(self, other: object) -> Symbol | object:
         """
@@ -395,7 +403,7 @@ class Symbol:
                 self._codomain, other.codomain, operation=operation)
             return Symbol(space, op(self._data, other.data),
                           codomain=codomain)
-        if isinstance(other, int | float | complex):
+        if _is_scalar(other):
             return Symbol(self._space, op(self._data, other),
                           codomain=self._codomain)
         return NotImplemented
@@ -465,6 +473,21 @@ class Symbol:
 def _is_field(obj: object) -> bool:
     """Whether ``obj`` is a coefficient field (not a Symbol/scalar)."""
     return hasattr(obj, "function_space") and hasattr(obj, "data")
+
+
+def _is_scalar(obj: object) -> bool:
+    """Whether ``obj`` is a scalar coefficient of the diagonal.
+
+    Description
+    -----------
+    A Python number or a 0-d array (e.g. a traced ``ctx.params`` leaf
+    such as ``1/dsqr``). An n-d array is **not** a scalar — it carries
+    no space tags, so it must enter as a ``ScalarField`` (via
+    ``_mul_field``) where the constant-on-transformed-axes guard applies.
+    """
+    if isinstance(obj, int | float | complex):
+        return True
+    return not _is_field(obj) and getattr(obj, "ndim", None) == 0
 
 
 def _adopt(sym_factor: SpaceLike, field_factor: SpaceLike) -> SpaceLike:

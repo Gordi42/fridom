@@ -159,6 +159,25 @@ def test_scalar_arithmetic(periodic):
     assert jnp.allclose((sym ** 2).data, data ** 2)
 
 
+def test_scalar_arithmetic_accepts_0d_arrays(periodic):
+    """A 0-d jax array is a scalar coefficient (a traced ``1/dsqr``)."""
+    _, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    data = jnp.arange(space.shape[0], dtype=jnp.float64)
+    sym = Symbol(space, data)
+    scalar = jnp.asarray(2.0)  # 0-d, like a traced ctx.params leaf
+    assert jnp.allclose((sym * scalar).data, data * 2.0)  # forward
+    assert jnp.allclose((scalar * sym).data, data * 2.0)  # reflected
+    assert jnp.allclose((sym + scalar).data, data + 2.0)
+    assert jnp.allclose((sym / scalar).data, data / 2.0)
+    # an n-d array carries no space tags -> not a scalar; must be a field
+    nd = jnp.ones(space.shape[0])
+    with pytest.raises(TypeError):
+        _ = sym * nd
+    with pytest.raises(TypeError):
+        _ = nd * sym
+
+
 def test_rtruediv_is_the_tag_flipped_raw_inverse(periodic):
     _, mx = periodic
     src = mx.fourier(origin=mx.center)
