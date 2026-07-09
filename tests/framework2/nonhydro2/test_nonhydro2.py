@@ -8,6 +8,7 @@ div(u) to machine zero, eigenmode biorthogonality/dispersion, the
 vocabulary.
 """
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -17,6 +18,10 @@ from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.composed import Divergence
+from fridom.framework2.model.eigen import (
+    _leray_projector,
+    _rest_background,
+)
 from fridom.framework2.model.model import Model as FrModel
 from fridom.framework2.model.params import (
     CORIOLIS_F0,
@@ -146,66 +151,140 @@ def test_energy_stays_bounded():
 # ================================================================
 #  Eigenmode biorthogonality and dispersion
 # ================================================================
+def _mode_data(state):
+    return {c: np.asarray(state[c].data) for c in "uvwb"}
+
+
+def _dual_data(q, weights):
+    """Rayleigh dual of a data-level column (plus the represented mask)."""
+    norm = sum(weights[c] * np.abs(q[c]) ** 2 for c in "uvwb")
+    good = norm != 0
+    safe = np.where(good, norm, 1.0)
+    p = {c: np.where(good, weights[c] * q[c] / safe, 0.0)
+         for c in "uvwb"}
+    return p, good
+
+
 def test_eigenmode_biorthogonality():
-    em = nh.eigenmodes.from_model(nh.Model(grid=make_grid(), dt=DT))
-    mask = np.asarray(em._nonzero_mask())
-
-    def pq(p, q):
-        arr = sum(np.conj(np.asarray(p[c])) * np.asarray(q[c])
-                  for c in "uvwb")
-        return np.asarray(arr)[mask]
-
-    for s in (0, 1, -1):
-        d = pq(em.p(s), em.q(s))
-        # a projector: <p^s, q^s> is 0 (degenerate mode) or 1
-        assert np.abs(d * (d - 1.0)).max() < 1e-9
-        assert np.abs(d - 1.0).min() < 1e-9   # some mode is represented
-    for s, t in [(0, 1), (0, -1), (1, -1), (1, 0), (-1, 0)]:
-        assert np.abs(pq(em.p(s), em.q(t))).max() < 1e-9
-
-
-def test_eigenmode_p_is_the_metric_image_of_q():
-    # p is now DERIVED as p = M q / <q, q>_M, not hand-written; assert
-    # it component-wise against the energy metric diag(1, 1, dsqr, 1/N^2)
-    # with non-trivial dsqr / N^2 so the weights genuinely bite.
+    # non-trivial dsqr / N^2 so the energy weights genuinely bite
     dsqr, n2 = 2.0, 3.0
     em = nh.eigenmodes.Eigenmodes(make_grid(), f0=1.0, n2=n2, dsqr=dsqr)
     weights = {"u": 1.0, "v": 1.0, "w": dsqr, "b": 1.0 / n2}
+    q = {s: _mode_data(em.q(s)) for s in (0, 1, -1)}
     for s in (0, 1, -1):
-        q = {c: np.asarray(em.q(s)[c]) for c in "uvwb"}
-        p = {c: np.asarray(em.p(s)[c]) for c in "uvwb"}
-        qq_m = sum(weights[c] * np.abs(q[c]) ** 2 for c in "uvwb")
-        good = qq_m > 1e-9
+        p, good = _dual_data(q[s], weights)
+        d = sum(np.conj(p[c]) * q[s][c] for c in "uvwb")
+        # sum_c conj(p_c) q_c == 1 wherever the mode is represented
+        assert np.abs(d[good] - 1.0).max() < 1e-12
+        # ... and the degenerate modes are EXACT structural zeros of q
+        assert good.any()
+        assert (~good).any()
         for c in "uvwb":
-            expect = np.where(
-                good, weights[c] * q[c] / np.where(good, qq_m, 1.0),
-                0.0)
-            np.testing.assert_allclose(p[c], expect, atol=1e-12)
+            assert np.all(q[s][c][~good] == 0.0)
+    for s, t in [(0, 1), (0, -1), (1, -1), (1, 0), (-1, 0)]:
+        p, _ = _dual_data(q[s], weights)
+        cross = sum(np.conj(p[c]) * q[t][c] for c in "uvwb")
+        assert np.abs(cross).max() < 1e-9
 
 
-def test_eigenmode_dispersion_continuous_limit():
-    em = nh.eigenmodes.Eigenmodes(make_grid(), f0=1.0, n2=1.0,
-                                  dsqr=1.0)
-    # f0 = n2 = dsqr = 1 -> omega = sqrt((kz^2 + kh^2)/k^2) = 1
-    om = em.omega_at((0.03, 0.0, 0.03), 1)
-    assert abs(om.real - 1.0) < 1e-2
-    assert em.omega_at((0.5, 0.3, 0.2), -1) == pytest.approx(
-        -em.omega_at((0.5, 0.3, 0.2), 1))
+def test_eigenmode_projector_reproduces_its_eigenvector():
+    # the dual is DERIVED (rayleigh dual under the energy metric), so
+    # P(s) q(s) == q(s) — the projector-level replacement of the old
+    # raw-entry p-vs-Mq comparison.
+    em = nh.eigenmodes.Eigenmodes(make_grid(), f0=1.0, n2=3.0,
+                                  dsqr=2.0)
+    for s in (0, 1, -1):
+        q = em.q(s)
+        pq = em.projector(s)(q)
+        for c in "uvwb":
+            assert np.abs(np.asarray(pq[c].data)
+                          - np.asarray(q[c].data)).max() < 1e-12
+
+
+def test_eigenmode_dispersion_continuum_limit():
+    # omega at the lowest resolved wavevector k = (1, 0, 1) approaches
+    # the continuum relation (second-order discretization error)
+    f0, n2, dsqr = 1.5, 3.0, 2.0
+    em = nh.eigenmodes.Eigenmodes(make_grid(n=16), f0=f0, n2=n2,
+                                  dsqr=dsqr)
+    om = np.broadcast_to(np.asarray(em.omega(1).data), (9, 16, 16))
+    kh2 = kz2 = 1.0  # unit fundamental on the 2*pi box
+    expect = np.sqrt((f0**2 * kz2 + n2 * kh2) / (dsqr * kh2 + kz2))
+    assert abs(om[1, 0, 1] - expect) / expect < 0.05
+    # the branches are symmetric and the geostrophic one is zero
+    assert np.allclose(np.asarray(em.omega(-1).data), -np.asarray(om))
+    assert np.abs(np.asarray(em.omega(0).data)).max() == 0.0
 
 
 def test_eigenmode_projector_is_idempotent():
     em = nh.eigenmodes.Eigenmodes(make_grid(), f0=1.0, n2=1.0,
                                   dsqr=1.0)
-    proj = em.projector(0)
     rng = np.random.default_rng(0)
-    shape = np.asarray(em.q(0)["u"]).shape
-    z = {c: rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
-         for c in "uvwb"}
-    once = proj(z)
-    twice = proj(once)
-    for c in "uvwb":
-        assert np.abs(np.asarray(twice[c]) - np.asarray(once[c])).max(
-        ) < 1e-9
+    template = em.q(0)
+    shape = np.asarray(template["u"].data).shape
+    z = State({c: template[c].with_data(jnp.asarray(
+        rng.standard_normal(shape) + 1j * rng.standard_normal(shape)))
+        for c in "uvwb"})
+    for s in (0, 1, -1):
+        proj = em.projector(s)
+        once = proj(z)
+        twice = proj(once)
+        for c in "uvwb":
+            assert np.abs(np.asarray(twice[c].data)
+                          - np.asarray(once[c].data)).max() < 1e-9
+
+
+def test_tendency_eigenrelation_lq_equals_i_omega_q():
+    # the strong operator-level check: for the linearized tendency
+    # composed with the Leray projector, L q(s) = i omega(s) q(s).
+    grid = make_grid()
+    model = FrModel(
+        grid=grid,
+        modules=(
+            DynamicalCore(dsqr=1.0, rossby_number=1.0),
+            FPlaneCoriolis(f0=1.0),
+            ConstantStratification(n2=1.0),
+            CenteredAdvection()),
+        time_stepper=AdamBashforth(DT, order=3))
+    em = nh.eigenmodes.from_model(model)
+    kit = em._kit
+    lin = fr.linearize(model)
+    prog, base0 = _rest_background(lin, 0.0)
+    leray = np.asarray(
+        _leray_projector(lin, base0, prog, jnp.asarray(0.0)))
+    rng = np.random.default_rng(5)
+    for s in (0, 1, -1):
+        q = em.q(s)
+        shape = np.asarray(q["u"].data).shape
+        amp = (rng.standard_normal(shape)
+               + 1j * rng.standard_normal(shape))
+        if s != 0:
+            # on a REAL physical field the kx = 0 / Nyquist planes of
+            # the rfft layout are Hermitian-mixed with the opposite
+            # wave branch; probe the wave branches on interior kx only
+            amp[0] = 0.0
+            amp[-1] = 0.0
+        coeff = State({
+            c: q[c].with_data(jnp.asarray(np.asarray(q[c].data) * amp))
+            for c in "uvwb"})
+        phys = base0.replace(**{
+            c: base0[c].with_data(kit.backward(c)(coeff[c]).data)
+            for c in "uvwb"})
+        # the honest reference: the round-tripped coefficients
+        zeta = {c: np.asarray(kit.forward(c)(phys[c]).data)
+                for c in "uvwb"}
+        tau = lin.tendency(phys, t=0.0, constraints=False)
+        tau_hat = np.stack(
+            [np.fft.fftn(np.asarray(tau[c].data)) for c in prog],
+            axis=-1)
+        ptau = np.einsum("...ij,...j->...i", leray, tau_hat)
+        omega = np.broadcast_to(np.asarray(em.omega(s).data), shape)
+        scale = max(np.abs(zeta[c]).max() for c in "uvwb")
+        for i, c in enumerate(prog):
+            got = np.asarray(kit.forward(c)(phys[c].with_data(
+                jnp.asarray(np.fft.ifftn(ptau[..., i]).real))).data)
+            want = 1j * omega * zeta[c]
+            assert np.abs(got - want).max() / scale < 1e-11
 
 
 # ================================================================

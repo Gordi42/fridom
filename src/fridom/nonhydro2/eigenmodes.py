@@ -1,32 +1,31 @@
-"""Analytic discrete-C-grid eigenmodes (the vec_q / vec_p / omega port).
+r"""Operator-sourced analytic eigenmodes of the discrete C-grid.
 
 Description
 -----------
-The successor of the old ``eigenvectors.py`` (``vec_q``, ``vec_p``,
-``omega``): the **analytic** closed-form eigenmodes of the discrete
-C-grid linear operator, assembled here directly from the grid's
-discrete wavenumbers on a staggered-reference basis (with the explicit
-interpolation phases ``one_hat(+/-)`` that carry the staggering). This
-module is retained deliberately because ``nh.transforms``' projector
-consumes it.
+The analytic closed-form eigenmodes of the discrete nonhydrostatic
+C-grid linear operator, assembled **from the grid's own operator
+symbols** instead of hand-coded trigonometric formulas: a
+``fr.grid.GridSymbols`` kit names the staggered component spaces
+(``u``, ``v``, ``w``, ``b``, ``p``) once, and every derivative /
+interpolation diagonal (``k``, ``kb``, ``a``, ``ab``) is the
+corresponding operator's ``eigenvalues`` query on the matching
+coefficient space. The dispersion relation is the symbol algebra
+(``magnitude ** 2`` quantities composed with a structural-zero
+``inverse``), the eigenvector column ``q^s`` is a tag-checked
+composition of the same symbols, and the biorthonormal dual is the
+derived ``fr.grid.rayleigh_dual`` under the nonhydro energy metric —
+no hand-written left vector and no caller-side masking (the ``k = 0``
+mean and the degenerate ``k_h = 0`` / Nyquist modes drop through
+exact structural zeros).
 
-It is **complementary** to the model-layer numeric eigenmode surface
-``fr.numeric_eigenpairs`` (the transfer-function probe): that returns
-eigenvectors in the raw staggered-DFT basis, which differ from these
-by the per-component staggering phases. The two are not interchangeable
-inputs to the same projector; this closed-form port is the one wired
-into the nonhydro transform algebra.
-
-It exposes the eigenmode **data** (``em.q(s)`` / ``em.p(s)`` as
-component arrays, ``em.omega(s)`` / ``em.omega_at(k, s)``) and a
-``em.projector(s)`` **callable** (spectral state -> spectral state)
-that ``nh.transforms`` wraps as an ``fr.StateTransform``.
-
-Discrete operators (C-grid, ``use_discrete=True``), per axis with
-spacing ``dx``:
-``one_hat2 = (1 + cos k dx)/2``,
-``k_hat(+/-) = -/+ i (1 - e^{+/- i k dx}) / dx``,
-``k_hat2 = 2 (1 - cos k dx) / dx^2``.
+Surface: ``em.omega(s)`` returns the frequency ``Symbol`` (``.data``
+for the half-spectrum array), ``em.q(s)`` the eigenvector as a
+coefficient-space :class:`~fridom.nonhydro2.state.State`, and
+``em.projector(s)`` a ``State -> State`` callable on coefficient
+states satisfying ``L q^s = i \omega^s q^s`` for the linearized,
+Leray-projected tendency. ``em.grid`` and ``em.kit`` expose the grid
+and the per-component transform kit — the ``nh.transforms``
+projection surface for the physical round-trip.
 """
 from __future__ import annotations
 
@@ -35,42 +34,37 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom.framework2 as fr
+from fridom.framework2.grid.symbols import GridSymbols, rayleigh_dual
 from fridom.framework2.model.energy import nonhydro_energy_weights
 from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
     import jax
 
+    from fridom.framework2.grid.fields.scalar_field import ScalarField
     from fridom.framework2.grid.grid import Grid
+    from fridom.framework2.grid.operators.symbol import Symbol
     from fridom.framework2.model.model import Model
-
-
-# ================================================================
-#  Discrete spectral operators
-# ================================================================
-def _one_hat(k: jax.Array, dx: float, sign: int) -> jax.Array:
-    """``(1 + e^{+/- i k dx}) / 2`` — the averaging symbol (sign +/-1)."""
-    return 0.5 * (1.0 + jnp.exp(1j * sign * k * dx))
-
-
-def _one_hat2(k: jax.Array, dx: float) -> jax.Array:
-    """``(1 + cos k dx) / 2`` — the squared averaging symbol."""
-    return 0.5 * (1.0 + jnp.cos(k * dx))
-
-
-def _k_hat(k: jax.Array, dx: float, sign: int) -> jax.Array:
-    """``-/+ i (1 - e^{+/- i k dx}) / dx`` (sign = +1 / -1)."""
-    return -1j * sign * (1.0 - jnp.exp(1j * sign * k * dx)) / dx
-
-
-def _k_hat2(k: jax.Array, dx: float) -> jax.Array:
-    """``2 (1 - cos k dx) / dx^2`` — the squared derivative symbol."""
-    return 2.0 * (1.0 - jnp.cos(k * dx)) / dx**2
 
 
 class Eigenmodes:
 
-    """Discrete inertia-gravity / geostrophic eigenmodes on a grid.
+    r"""Discrete inertia-gravity / geostrophic eigenmodes on a grid.
+
+    Description
+    -----------
+    Binds a :class:`~fridom.framework2.grid.symbols.GridSymbols` kit
+    on the canonical C-grid component spaces and exposes the analytic
+    eigenmode surface: the dispersion ``omega(s)`` (a ``Symbol``),
+    the eigenvector column ``q(s)`` (a coefficient-space ``State``),
+    and the ``projector(s)`` closure (coefficient ``State ->
+    State``). The per-axis symbol families are public attributes:
+    ``k`` (centre -> face derivative), ``kb`` (face -> centre
+    derivative), ``a`` (centre -> face interpolation) and ``ab``
+    (face -> centre interpolation), keyed by coordinate name.
 
     Parameters
     ----------
@@ -90,7 +84,7 @@ class Eigenmodes:
         self, grid: Grid, *, f0: float, n2: float, dsqr: float,
         vertical: str = "z",
     ) -> None:
-        """Precompute the discrete wavenumber symbols on the grid."""
+        """Build the symbol kit and the per-axis operator diagonals."""
         if float(f0) == 0.0 and float(n2) == 0.0:
             raise ValueError(
                 "an eigenmode set needs f0 != 0 or n2 != 0 "
@@ -98,233 +92,235 @@ class Eigenmodes:
         self.f0 = float(f0)
         self.n2 = float(n2)
         self.dsqr = float(dsqr)
-        self._vertical = vertical
 
-        template = grid.create_field()
-        bare = template.function_space.bare
-        names = bare.names
+        names = grid.names
         if vertical not in names or len(names) != 3:  # noqa: PLR2004
             raise ValueError(
                 "eigenmodes need a 3-D grid with the vertical "
                 f"coordinate {vertical!r}; got names {names}")
-        self.names = names
+        x, y = (n for n in names if n != vertical)
+        z = vertical
+        self._axes: tuple[str, str, str] = (x, y, z)
+        self._grid: Grid = grid
 
-        khatp: dict[str, jax.Array] = {}
-        khatm: dict[str, jax.Array] = {}
-        khat2: dict[str, jax.Array] = {}
-        one_p: dict[str, jax.Array] = {}
-        one_m: dict[str, jax.Array] = {}
-        one2: dict[str, jax.Array] = {}
-        dx_map: dict[str, float] = {}
-        for index, name in enumerate(names):
-            factor = bare.factor(name)
-            n = factor.shape[0]
-            length = factor.mesh.extent[1] - factor.mesh.extent[0]
-            dx = length / n
-            modes = jnp.fft.fftfreq(n, d=1.0 / n)
-            k1d = ((2.0 * jnp.pi / length) * modes).reshape(
-                tuple(n if i == index else 1 for i in range(3)))
-            khatp[name] = _k_hat(k1d, dx, +1)
-            khatm[name] = _k_hat(k1d, dx, -1)
-            khat2[name] = _k_hat2(k1d, dx)
-            one_p[name] = _one_hat(k1d, dx, +1)
-            one_m[name] = _one_hat(k1d, dx, -1)
-            one2[name] = _one_hat2(k1d, dx)
-            dx_map[name] = dx
-        self._khatp = khatp
-        self._khatm = khatm
-        self._khat2 = khat2
-        self._one_p = one_p
-        self._one_m = one_m
-        self._one2 = one2
-        self._dx_map = dx_map
+        spaces = {
+            "u": fr.Staggered(x).resolve(grid),
+            "v": fr.Staggered(y).resolve(grid),
+            "w": fr.Staggered(z).resolve(grid),
+            "b": fr.Collocated().resolve(grid),
+            "p": fr.Collocated().resolve(grid),
+        }
+        kit = GridSymbols(grid, spaces)
+        self._kit: GridSymbols = kit
+        face = {x: "u", y: "v", z: "w"}
+        axes = (x, y, z)
+        self.k: dict[str, Symbol] = {
+            n: kit.diff(n, on="p") for n in axes}
+        self.kb: dict[str, Symbol] = {
+            n: kit.diff(n, on=face[n]) for n in axes}
+        self.a: dict[str, Symbol] = {
+            n: kit.interp(n, on="p") for n in axes}
+        self.ab: dict[str, Symbol] = {
+            n: kit.interp(n, on=face[n]) for n in axes}
+        self._templates: dict[str, ScalarField] = {
+            c: kit.forward(c)(grid.create_field(spaces[c]))
+            .with_metadata(name=c)
+            for c in ("u", "v", "w", "b")}
+
+    # ================================================================
+    #  Accessors (the wave-7 ``nh.transforms`` projection surface)
+    # ================================================================
+    @property
+    def grid(self) -> Grid:
+        """The grid the eigenmode set is built on."""
+        return self._grid
+
+    @property
+    def kit(self) -> GridSymbols:
+        """The per-component transform kit (``forward``/``backward``)."""
+        return self._kit
 
     # ================================================================
     #  Dispersion
     # ================================================================
-    def _dispersion(
-        self,
-        one2: dict[str, jax.Array],
-        khat2: dict[str, jax.Array],
-        kh2: jax.Array,
-    ) -> tuple[jax.Array, jax.Array]:
-        r"""Shared dispersion core ``(|omega|, denom)`` with a safe divide.
+    def _omega2(self) -> Symbol:
+        r"""Squared dispersion symbol (w-referenced, k = 0 exact).
 
         Description
         -----------
-        Assembles the discrete relation
-        ``|omega| = sqrt((coriolis + buoyancy) / denom)`` shared by
-        :meth:`omega` and :meth:`omega_at`, using a nonzero-guarded
-        denominator so the mean/zero mode (``denom == 0``, equivalently
-        the empty :meth:`_nonzero_mask`, since ``denom = dsqr*kh2 +
-        khat2[z]`` sums two non-negative terms) does not divide by zero.
-        Returns the unsigned magnitude and ``denom``; each caller applies
-        its own degenerate-mode guard and the branch sign ``s``.
+        The discrete relation
 
-        Parameters
-        ----------
-        one2 : dict[str, jax.Array]
-            The squared averaging symbols per axis.
-        khat2 : dict[str, jax.Array]
-            The squared derivative symbols per axis.
-        kh2 : jax.Array
-            The horizontal ``khat2[x] + khat2[y]``.
+        .. math::
+
+            \omega^2 = \frac{f_0^2\,|\hat a_x|^2 |\hat a_y|^2
+                             |\hat k_z|^2
+                             + N^2\,|\hat a_z|^2 \hat k_h^2}
+                            {\delta^2 \hat k_h^2 + |\hat k_z|^2}
+
+        assembled from the operator symbols' ``magnitude ** 2``
+        quantities on ``w``'s coefficient space. The ``k = 0`` mean
+        mode drops structurally: the numerator and denominator are
+        both exact zeros there, and ``Symbol.inverse`` maps the
+        structural zero to zero (no caller-side masking).
 
         Returns
         -------
-        tuple[jax.Array, jax.Array]
-            The unsigned frequency magnitude and the raw denominator.
+        Symbol
+            The real, non-negative ``omega ** 2`` diagonal.
         """
-        x, y, z = self.names
-        coriolis = one2[x] * one2[y] * self.f0**2 * khat2[z]
-        buoyancy = one2[z] * self.n2 * kh2
-        denom = self.dsqr * kh2 + khat2[z]
-        safe = jnp.where(denom == 0, 1.0, denom)
-        return jnp.sqrt((coriolis + buoyancy) / safe), denom
+        x, y, z = self._axes
+        kh2 = self.k[x].magnitude ** 2 + self.k[y].magnitude ** 2
+        coriolis = self.f0 ** 2 * (
+            self.a[x].magnitude ** 2 * self.a[y].magnitude ** 2
+            * self.kb[z].magnitude ** 2)
+        buoyancy = self.n2 * (self.ab[z].magnitude ** 2 * kh2)
+        denom = self.dsqr * kh2 + self.kb[z].magnitude ** 2
+        return (coriolis + buoyancy) @ denom.inverse()
 
-    def omega(self, s: int = 1) -> jax.Array:
-        """Discrete frequency field ``omega^s`` over the spectral grid.
+    def omega(self, s: int = 1) -> Symbol:
+        r"""Discrete frequency symbol ``omega^s`` (a ``Symbol``).
 
         Description
         -----------
-        ``s = 0`` is geostrophic (zero frequency); ``s = +/-1`` are the
-        inertia-gravity branches.
-        """
-        if s == 0:
-            return jnp.zeros_like(jnp.real(self._sum_kh2()))
-        kh2 = self._sum_kh2()
-        mag, _ = self._dispersion(self._one2, self._khat2, kh2)
-        return s * jnp.where(self._nonzero_mask(), mag, 0.0)
+        ``s = 0`` is geostrophic (zero frequency); ``s = +/-1`` are
+        the inertia-gravity branches ``s * sqrt(omega ** 2)``. The
+        diagonal lives on the grid's real-FFT coefficient layout
+        (first transformed axis half-spectrum); read the array off
+        ``.data`` (broadcast-shaped).
 
-    def omega_at(self, k: tuple[float, float, float], s: int = 1,
-                 ) -> complex:
-        """Scalar frequency at a physical wavevector ``k = (kx,ky,kz)``.
+        Parameters
+        ----------
+        s : int, optional
+            The mode branch: 0, +1 or -1 (default: 1).
 
-        Description
-        -----------
-        Evaluates the discrete dispersion relation at one wavevector
-        (the continuous-symbol convenience accessor).
+        Returns
+        -------
+        Symbol
+            The real frequency diagonal.
         """
-        if s == 0:
-            return 0.0
-        x, y, _ = self.names
-        dx = {name: self._dx(name) for name in self.names}
-        kmap = dict(zip(self.names, k, strict=True))
-        one2 = {n: _one_hat2(jnp.asarray(kmap[n]), dx[n])
-                for n in self.names}
-        khat2 = {n: _k_hat2(jnp.asarray(kmap[n]), dx[n])
-                 for n in self.names}
-        kh2 = khat2[x] + khat2[y]
-        mag, denom = self._dispersion(one2, khat2, kh2)
-        if float(jnp.real(denom)) == 0.0:
-            return 0.0
-        return complex(s * mag)
+        om2 = self._omega2()
+        return 0.0 * om2 if s == 0 else float(s) * om2.sqrt()
 
     # ================================================================
-    #  Eigenvectors
+    #  Eigenvectors and the projector
     # ================================================================
-    def q(self, s: int = 1) -> dict[str, jax.Array]:
-        """Return the ``s``-mode eigenvector ``q^s`` (component arrays)."""
-        return self._vec_q(s)
-
-    def p(self, s: int = 1) -> dict[str, jax.Array]:
-        r"""Return the ``s``-mode projection vector ``p^s`` (arrays).
+    def _vec_q(self, s: int) -> dict[str, Symbol]:
+        r"""Eigenvector column ``q^s`` as per-component ``Symbol``s.
 
         Description
         -----------
-        Derived, not hand-written: ``p^s = M q^s / <q^s, q^s>_M`` with
-        ``M`` the energy metric (see :meth:`_energy_weights` /
-        ``fr.EnergyMetric``). This is the biorthogonal dual of ``q^s``
-        (``<p^s, q^s> = 1`` and ``<p^s, q^t> = 0`` for ``t != s``, since
-        the discrete modes are ``M``-orthogonal), so the plain
-        biorthonormality ``sum_c conj(p_c) q_c = 1`` still holds.
+        Tag-checked operator compositions with common domain = ``w``'s
+        coefficient space (the codomain tags of the entries mix union
+        factors; consumers rely on the data). The degenerate modes
+        (``k_h = 0`` for ``s != 0``, the ``k = 0`` mean, and the
+        interpolation-Nyquist zeros for ``s = 0``) are **exact**
+        structural zeros of every entry, so the Rayleigh dual
+        vanishes there with no masking.
+
+        The ``s != 0`` column is built on the opposite dispersion
+        root ``omega(-s)``: the linearized tendency satisfies
+        ``L q = -i omega q`` for the column written with ``omega``
+        (the :math:`e^{i(kx - \omega t)}` convention), so pairing
+        branch ``s`` with the root ``-s`` yields the eigen-relation
+        ``L q^s = +i omega^s q^s`` asserted by the tests. This is a
+        pure branch relabelling: the projector family is unchanged
+        (``P(0)`` identical, ``P(+1)`` and ``P(-1)`` swap).
+        """
+        x, y, z = self._axes
+        k, kb, a, ab = self.k, self.kb, self.a, self.ab
+        if s == 0:
+            return {
+                "u": -(a[x] @ (ab[y] @ k[y]) @ ab[z]),
+                "v": a[y] @ (ab[x] @ k[x]) @ ab[z],
+                "w": self.omega(0),
+                "b": self.f0 * (a[x].magnitude ** 2
+                                * a[y].magnitude ** 2 * kb[z]),
+            }
+        om = self.omega(-s)
+        kh2 = k[x].magnitude ** 2 + k[y].magnitude ** 2
+        return {
+            "u": kb[z] @ (k[x] @ om
+                          + 1j * self.f0 * (a[x] @ (ab[y] @ k[y]))),
+            "v": kb[z] @ (k[y] @ om
+                          - 1j * self.f0 * (a[y] @ (ab[x] @ k[x]))),
+            "w": om @ kh2,
+            "b": -1j * self.n2 * (ab[z] @ kh2),
+        }
+
+    def q(self, s: int = 1) -> State:
+        r"""Eigenvector ``q^s`` as a coefficient-space ``State``.
+
+        Description
+        -----------
+        Each component symbol's diagonal is wrapped on that
+        component's own coefficient space (the kit's per-component
+        transform codomain), broadcast to the full spectral shape.
+
+        Parameters
+        ----------
+        s : int, optional
+            The mode branch: 0, +1 or -1 (default: 1).
+
+        Returns
+        -------
+        State
+            The ``(u, v, w, b)`` coefficient-space eigenvector.
+        """
+        syms = self._vec_q(s)
+        return State({c: self._wrap(c, syms[c].data) for c in syms})
+
+    def projector(self, s: int = 1) -> Callable[[State], State]:
+        r"""Return the spectral projector ``P^s`` on coefficient states.
+
+        Description
+        -----------
+        ``P^s z = q^s \langle p^s, z\rangle`` with the Rayleigh dual
+        ``p^s`` derived from ``q^s`` under the nonhydro energy metric
+        (``fr.grid.rayleigh_dual`` + the ``diag(1, 1, dsqr, 1/N^2)``
+        weights): idempotent by biorthonormality, exactly zero on the
+        structurally degenerate modes.
+
+        Parameters
+        ----------
+        s : int, optional
+            The mode branch: 0, +1 or -1 (default: 1).
+
+        Returns
+        -------
+        Callable[[State], State]
+            The projection acting on coefficient-space states.
         """
         q = self._vec_q(s)
-        weights = self._energy_weights()
-        mq = {c: weights[c] * q[c] for c in q}
-        # per-mode energy norm <q, q>_M = sum_c w_c |q_c|^2 -- a keepdims
-        # component contraction over (u,v,w,b), NOT the global
-        # fr.EnergyMetric.inner (which sums over all modes).
-        qq_m = sum(jnp.real(jnp.conj(q[c]) * mq[c]) for c in q)
-        # guard the degenerate modes (kh = 0 for s != 0, and the mean
-        # mode): where the energy vanishes the mode has no representative
-        # in this family, so the projector maps it to zero.
-        good = qq_m > 1e-9  # noqa: PLR2004
-        safe = jnp.where(good, qq_m, 1.0)
-        return {c: jnp.where(good, mq[c] / safe, 0.0) for c in q}
+        p = rayleigh_dual(q, self._energy_weights())
 
-    def projector(self, s: int = 1):  # noqa: ANN201 — a closure
-        """Return the spectral projector ``P^s`` (a state -> state map).
-
-        Description
-        -----------
-        The returned callable takes a mapping ``{u,v,w,b: array}`` of
-        **spectral** component arrays and returns ``q^s <p^s, .>`` —
-        the projection onto the ``s`` eigenspace. Wrapping this as an
-        ``fr.StateTransform`` (with the forward/inverse transforms) is
-        the deferred wave-7 ``nh.transforms`` surface.
-        """
-        p = self.p(s)
-        q = self.q(s)
-
-        def project(
-            fields: dict[str, jax.Array],
-        ) -> dict[str, jax.Array]:
-            amp = sum(jnp.conj(p[c]) * fields[c] for c in p)
-            return {c: q[c] * amp for c in q}
+        def project(z: State) -> State:
+            """Project ``z`` onto mode ``s`` (pointwise per mode)."""
+            amp = sum(jnp.conj(p[c].data) * z[c].data for c in p)
+            return State({c: self._wrap(c, q[c].data * amp)
+                          for c in q})
 
         return project
 
     # ================================================================
     #  Internals
     # ================================================================
-    def _dx(self, name: str) -> float:
-        return self._dx_map[name]
-
-    def _sum_kh2(self) -> jax.Array:
-        x, y, _ = self.names
-        return self._khat2[x] + self._khat2[y]
-
-    def _nonzero_mask(self) -> jax.Array:
-        x, y, z = self.names
-        total = self._khat2[x] + self._khat2[y] + self._khat2[z]
-        return total != 0.0
-
-    def _vec_q(self, s: int) -> dict[str, jax.Array]:
-        x, y, z = self.names
-        op, om_, o2 = self._one_p, self._one_m, self._one2
-        kp, km = self._khatp, self._khatm
-        if s == 0:
-            u = -(op[x] * om_[y] * op[z] * kp[y])
-            v = om_[x] * op[y] * op[z] * kp[x]
-            w = jnp.zeros_like(u)
-            b = o2[x] * o2[y] * self.f0 * kp[z]
-            return self._named(u, v, w, b)
-        kh2 = self._sum_kh2()
-        omega = self.omega(s)
-        u = km[z] * (-1j * omega * kp[x]
-                     + op[x] * om_[y] * self.f0 * kp[y])
-        v = km[z] * (-1j * omega * kp[y]
-                     - om_[x] * op[y] * self.f0 * kp[x])
-        w = 1j * omega * kh2
-        b = om_[z] * self.n2 * kh2
-        return self._named(u, v, w, b)
-
-    def _named(self, u, v, w, b) -> dict[str, jax.Array]:  # noqa: ANN001
-        return {"u": u, "v": v, "w": w, "b": b}
+    def _wrap(self, name: str, data: jax.Array) -> ScalarField:
+        """Broadcast a diagonal onto the component's coefficient field."""
+        template = self._templates[name]
+        full = jnp.broadcast_to(data, template.data.shape)
+        return template.with_data(full.astype(template.data.dtype))
 
     def _energy_weights(self) -> dict[str, float]:
         r"""Per-component energy weights (the ``fr.EnergyMetric`` diag).
 
         Description
         -----------
-        ``diag(1, 1, dsqr, 1/N^2)`` on ``(u, v, w, b)`` -- the canonical
-        nonhydro energy metric ``M`` (a single source of truth with
-        ``fr.EnergyMetric.from_model``); ``p = M q`` scales ``q`` by
-        these. The ``1/N^2`` reciprocal falls back to ``1`` for the
-        degenerate ``N^2 = 0`` (pure-inertial) grid the constructor
-        permits -- the metric proper (and ``fr.EnergyMetric``) needs
-        ``N^2 != 0``.
+        ``diag(1, 1, dsqr, 1/N^2)`` on ``(u, v, w, b)`` -- the
+        canonical nonhydro energy metric ``M`` (a single source of
+        truth with ``fr.EnergyMetric.from_model``). The ``1/N^2``
+        reciprocal falls back to ``1`` for the degenerate ``N^2 = 0``
+        (pure-inertial) grid the constructor permits -- the metric
+        proper (and ``fr.EnergyMetric``) needs ``N^2 != 0``.
         """
         inv_n2 = 1.0 / self.n2 if self.n2 != 0.0 else 1.0
         return nonhydro_energy_weights(self.dsqr, inv_n2)

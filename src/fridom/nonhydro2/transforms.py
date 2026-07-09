@@ -20,36 +20,42 @@ with dual sources — ``VorticalProjection(em)`` from an explicit
 ``Eigenmodes``, or ``VorticalProjection.from_model(model, at_time=...)``.
 
 Staggered spectral basis. The nonhydro modes are the *discrete* C-grid
-eigenvectors: the projector acts on the full-complex Fourier transform
-of the staggered ``(u, v, w, b)`` fields (the discrete ``one_hat`` /
-``k_hat`` symbols carry the half-cell staggering). The transform is the
-plain multi-dimensional FFT (``jnp.fft.fftn`` / ``ifftn``) of each
-component — the grid's real-FFT collocated transform uses a different
-(halved, collocated) layout, so the round-trip is done at package level
-here rather than through ``grid.dispatch``. Signatures are polymorphic
-in this iteration (a concrete staggered-spectral ``StateSignature`` is
-deferred with the grid-level staggered transform).
+eigenvectors, and the projection is a clean per-component round-trip
+through the grid's own transforms: each ``(u, v, w, b)`` component is
+forward-transformed on its **own** physical space (``u``/``v``/``w``
+face-staggered, ``b`` collocated) via the eigenmode kit
+(``em.kit.forward(name)``), ``sum_s em.projector(s)`` acts on the
+coefficient state (diagonal per wavenumber — the half-cell staggering
+lives in the eigenvectors' operator symbols), and the backward
+transforms return to the staggered physical spaces. The coefficient
+layout is the grid's real-FFT layout — half spectrum on the first
+transformed axis, full-complex later axes — so on a real state a
+single-branch projection is Hermitian-closed by the real part of the
+backward transform (see :func:`mode_projection`). The transforms carry
+the concrete staggered endo ``StateSignature`` over ``(u, v, w, b)``.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
-
-import fridom.framework2 as fr
+from fridom.framework2.transforms.projection import (
+    EigenProjection,
+    ProjectionFactory,
+)
+from fridom.framework2.transforms.signature import StateSignature
 from fridom.nonhydro2.eigenmodes import from_model
+from fridom.nonhydro2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.transforms.base import StateTransform
     from fridom.nonhydro2.eigenmodes import Eigenmodes
-    from fridom.nonhydro2.state import State
 
 #: the nonhydro prognostic components the projector acts on.
 _COMPONENTS = ("u", "v", "w", "b")
 
 
 # ================================================================
-#  The staggered-spectral projector (fftn -> project -> ifftn)
+#  The staggered projector (forward -> project -> backward)
 # ================================================================
 def _project(
     em: Eigenmodes, modes: tuple[int, ...], state: State,
@@ -59,23 +65,39 @@ def _project(
 
     Description
     -----------
-    Forward-transforms each ``(u, v, w, b)`` component with a plain
-    ``fftn`` (the discrete staggering lives in the eigenvectors),
-    applies ``sum_s em.projector(s)`` on the resulting spectral dicts,
-    and inverse-transforms back. Components outside the family (e.g.
-    the pressure ``p``) pass through unchanged (``rest="pass"``).
+    Forward-transforms each ``(u, v, w, b)`` component on its own
+    staggered space through the eigenmode kit, applies
+    ``sum_s em.projector(s)`` on the coefficient state (diagonal per
+    wavenumber), inverse-transforms back, and takes the real part —
+    the Hermitian closure of single-branch projections on the stored
+    rfft half-lattice (see :func:`mode_projection`).
     """
-    fields = {c: jnp.fft.fftn(jnp.asarray(state[c].data))
-              for c in _COMPONENTS}
-    projected: dict | None = None
+    kit = em.kit
+    coeff = State({
+        name: kit.forward(name)(state[name]) for name in _COMPONENTS})
+    projected = None
     for s in modes:
-        contribution = em.projector(s)(fields)
-        projected = (contribution if projected is None else
-                     {c: projected[c] + contribution[c]
-                      for c in contribution})
-    return state.replace(**{
-        c: state[c].with_data(jnp.fft.ifftn(projected[c]))
-        for c in _COMPONENTS})
+        contribution = em.projector(s)(coeff)
+        projected = (contribution if projected is None
+                     else projected + contribution)
+    return State({
+        name: kit.backward(name)(projected[name]).real
+        for name in _COMPONENTS})
+
+
+def _signature(em: Eigenmodes) -> StateSignature:
+    """Return the staggered endo signature ``(u, v, w, b)``.
+
+    Description
+    -----------
+    Each component on its own physical space — ``u``/``v``/``w`` on
+    the face-staggered spaces, ``b`` collocated — read off the
+    eigenmode kit's bound forward transforms.
+    """
+    kit = em.kit
+    components = tuple(
+        (name, kit.forward(name).domain) for name in _COMPONENTS)
+    return StateSignature(grid=em.grid, components=components)
 
 
 # ================================================================
@@ -83,12 +105,34 @@ def _project(
 # ================================================================
 def mode_projection(
     em: Eigenmodes, s: int, *, name: str | None = None,
-) -> fr.transforms.EigenProjection:
-    """Return the single-mode projection ``P(s)`` as a transform."""
-    return fr.transforms.EigenProjection(
+) -> EigenProjection:
+    r"""
+    Return the single-mode projection ``P(s)`` as a transform.
+
+    Description
+    -----------
+    Branch labelling: ``P(s)`` projects onto the eigenvector
+    ``em.q(s)``, which pairs with the eigenvalue ``+i omega(s)`` of
+    the linearized tendency (the operator-sourced convention; the
+    previous hand-coded modes paired ``q(s)`` with ``-i omega(s)``,
+    so the individual ``+1``/``-1`` branches are swapped relative to
+    that labelling while ``P(0)`` and ``P(+1) + P(-1)`` are
+    unchanged).
+
+    Single-branch semantics on a real state: the state's spectrum is
+    stored on the grid's rfft half-lattice, so ``P(s)`` applies the
+    ``s``-branch projector on the stored half-lattice while the
+    implicit conjugate half carries the mirrored ``-s`` branch; the
+    real part of the backward transform realizes exactly this
+    Hermitian closure, and the result is a **real** physical field
+    (not the complex single-branch field of a full-complex lattice).
+    ``P(0)`` and the merged ``P(+1) + P(-1)`` family are closed under
+    the mirror pairing, hence unaffected.
+    """
+    return EigenProjection(
         eigenmodes=em,
         modes=(s,),
-        signature=None,
+        signature=_signature(em),
         project_fn=_project,
         name=name or f"P({s:+d})")
 
@@ -111,9 +155,9 @@ def _build_divergence(em: Eigenmodes) -> StateTransform:
 # ================================================================
 #  Public dual-source projections
 # ================================================================
-VorticalProjection = fr.transforms.ProjectionFactory(
+VorticalProjection = ProjectionFactory(
     _build_vortical, from_model, "VorticalProjection")
-WaveProjection = fr.transforms.ProjectionFactory(
+WaveProjection = ProjectionFactory(
     _build_wave, from_model, "WaveProjection")
-DivergenceProjection = fr.transforms.ProjectionFactory(
+DivergenceProjection = ProjectionFactory(
     _build_divergence, from_model, "DivergenceProjection")

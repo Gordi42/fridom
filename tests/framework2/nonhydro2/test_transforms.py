@@ -1,21 +1,27 @@
 """Nonhydrostatic eigenmode projections as StateTransforms (wave 7 C).
 
 Validates the ``nh.transforms`` projections on the staggered physical
-``(u, v, w, b)`` state (the discrete C-grid eigenvectors, transformed
-with a plain ``fftn``): idempotency, the ``WaveProjection = P(+1) +
-P(-1)`` algebra identity, and partition of unity. Unlike shallow water,
-the four nonhydro components leave a genuine unbalanced residual, so
-``DivergenceProjection`` is non-trivial here.
+``(u, v, w, b)`` state (the discrete C-grid eigenvectors, round-tripped
+through the grid's own per-component transforms): idempotency, the
+``WaveProjection = P(+1) + P(-1)`` algebra identity, partition of
+unity, the concrete staggered signature, and the Hermitian-closure
+semantics of single branches on the rfft half-lattice. Unlike shallow
+water, the four nonhydro components leave a genuine unbalanced
+residual, so ``DivergenceProjection`` is non-trivial here.
 """
 import numpy as np
+import pytest
 
 import fridom.framework2 as fr
 import fridom.nonhydro2 as nh
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.transforms.errors import SignatureMismatchError
 from fridom.framework2.transforms.projection import EigenProjection
 
 DT = 0.02
+
+COMPONENTS = ("u", "v", "w", "b")
 
 
 def make_grid(n=8, length=2 * np.pi):
@@ -33,14 +39,14 @@ def _state(model, seed=1):
     rng = np.random.default_rng(seed)
     shape = np.asarray(model.state["u"].data).shape
     model.set_fields(**{
-        c: rng.standard_normal(shape) for c in ("u", "v", "w", "b")})
-    return nh.State({c: model.state[c] for c in ("u", "v", "w", "b")})
+        c: rng.standard_normal(shape) for c in COMPONENTS})
+    return nh.State({c: model.state[c] for c in COMPONENTS})
 
 
 def _absmax(a, b):
     return max(
         float(np.abs(np.asarray(a[c].data) - np.asarray(b[c].data)).max())
-        for c in ("u", "v", "w", "b"))
+        for c in COMPONENTS)
 
 
 # ================================================================
@@ -86,18 +92,69 @@ def test_divergence_projection_is_non_trivial():
     z = _state(model)
     div = nh.transforms.DivergenceProjection(em)(z)
     assert max(float(np.abs(np.asarray(div[c].data)).max())
-               for c in ("u", "v", "w", "b")) > 1e-2
+               for c in COMPONENTS) > 1e-2
 
 
 # ================================================================
-#  The shared base: polymorphic signature, dual constructors
+#  Single branches: Hermitian closure on the rfft half-lattice
 # ================================================================
-def test_projections_are_signature_polymorphic():
-    em = nh.eigenmodes.from_model(_model())
+def test_single_branch_is_real_and_branches_sum_to_wave():
+    # a single branch on a real state applies P(s) on the stored rfft
+    # half-lattice; the implicit conjugate half carries the mirrored
+    # -s branch, so the output is the real Hermitian-closed field and
+    # the separately applied branches still sum to the wave field.
+    model = _model()
+    em = nh.eigenmodes.from_model(model)
+    z = _state(model)
+    plus = nh.transforms.mode_projection(em, 1)(z)
+    minus = nh.transforms.mode_projection(em, -1)(z)
+    for c in COMPONENTS:
+        assert not np.iscomplexobj(np.asarray(plus[c].data))
+        assert not np.iscomplexobj(np.asarray(minus[c].data))
+    wave = nh.transforms.WaveProjection(em)(z)
+    assert _absmax(plus + minus, wave) < 1e-12
+
+
+# ================================================================
+#  The shared base: concrete staggered signature, dual constructors
+# ================================================================
+def test_projections_carry_the_staggered_signature():
+    model = _model()
+    em = nh.eigenmodes.from_model(model)
     proj = nh.transforms.VorticalProjection(em)
-    assert proj.domain is None
-    assert proj.codomain is None
+    sig = proj.domain
+    assert sig is proj.codomain
+    assert sig.grid is model.grid
+    assert sig.names == COMPONENTS
     assert proj.modes == (0,)
+    # each component on its OWN physical space: u/v/w face-staggered,
+    # b collocated (bare spaces are interned, == is identity)
+    grid = model.grid
+    spaces = dict(sig.components)
+    assert spaces["u"] == fr.Staggered("x").resolve(grid).bare
+    assert spaces["v"] == fr.Staggered("y").resolve(grid).bare
+    assert spaces["w"] == fr.Staggered("z").resolve(grid).bare
+    assert spaces["b"] == fr.Collocated().resolve(grid).bare
+
+
+def test_call_rejects_a_state_missing_a_mapped_component():
+    model = _model()
+    em = nh.eigenmodes.from_model(model)
+    partial = nh.State({c: model.state[c] for c in ("u", "v", "w")})
+    with pytest.raises(SignatureMismatchError, match=r"missing: \('b',\)"):
+        nh.transforms.VorticalProjection(em)(partial)
+
+
+def test_call_rejects_a_component_on_the_wrong_space():
+    model = _model()
+    em = nh.eigenmodes.from_model(model)
+    grid = model.grid
+    center = fr.Collocated().resolve(grid)
+    collocated = nh.State({
+        c: grid.create_field(center, name=c) for c in COMPONENTS})
+    with pytest.raises(SignatureMismatchError,
+                       match="space mismatch for 'u'"):
+        nh.transforms.VorticalProjection(em)(collocated)
 
 
 def test_from_model_and_explicit_agree():

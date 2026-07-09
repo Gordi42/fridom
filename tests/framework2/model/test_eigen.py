@@ -144,9 +144,18 @@ def test_nonhydro_spectrum_matches_the_analytic_discrete(f0, n2, dsqr):
     omega = np.asarray(ne.omega).reshape(-1, 4)
 
     em = nh.eigenmodes.Eigenmodes(model.grid, f0=f0, n2=n2, dsqr=dsqr)
+    # em.omega(s).data lives on the rfft half-lattice (x half-spectrum);
+    # unfold to the full fftn lattice via evenness: full index j on the
+    # x axis carries |mode| = min(j, 8 - j) = the half-lattice index.
+    fold = np.minimum(np.arange(8), 8 - np.arange(8))
+
+    def full_omega(s):
+        half = np.broadcast_to(np.asarray(em.omega(s).data), (5, 8, 8))
+        return half[fold]
+
     analytic = np.sort(np.stack(
-        [np.broadcast_to(np.asarray(em.omega(s)), (8, 8, 8))
-         for s in (-1, 0, 1)], axis=-1), axis=-1).reshape(-1, 3)
+        [full_omega(s) for s in (-1, 0, 1)], axis=-1),
+        axis=-1).reshape(-1, 3)
 
     # the divergence constraint removes one velocity DOF -> one extra
     # exact zero; drop the eigenvalue nearest zero and compare 3 vs 3.
