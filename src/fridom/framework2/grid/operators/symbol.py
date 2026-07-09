@@ -62,7 +62,11 @@ class Symbol:
     staggering first-derivative ``Fourier(Center) -> Fourier(Right)``).
     The tags are interned coefficient spaces (static aux); ``data`` is
     the dynamic pytree leaf, pre-shaped for size-1 broadcasting across
-    the product's other (``ConstantSpace``) factors.
+    the product's other (``ConstantSpace``) factors. Convention:
+    ``data`` lives in the **codomain** slot layout — on a derived
+    shift (``(mode_offset, shape)`` differs between the tags, e.g.
+    ``d/dx``: ``Sine -> Cosine``) operands are embedded into that
+    layout by a static pad/slice before the Hadamard multiply.
 
     Parameters
     ----------
@@ -144,14 +148,19 @@ class Symbol:
         -----------
         The Hermitian adjoint of a diagonal map conjugates the
         entries and swaps the domain/codomain tags (a no-op on the
-        tags for the common non-retagging symbol).
+        tags for the common non-retagging symbol). Across a derived
+        shift the conjugated data moves into the swapped codomain's
+        (the old domain's) slot layout: the adjoint of a zero-filled
+        mode is annihilation, of a dropped mode zero-fill.
 
         Returns
         -------
         Symbol
             The adjoint diagonal.
         """
-        return Symbol(self._codomain, jnp.conj(self._data),
+        shifts = _axis_shifts(self._codomain, self._space)
+        return Symbol(self._codomain,
+                      _reindex(jnp.conj(self._data), shifts),
                       codomain=self._space)
 
     def inverse(self, where_zero: complex = 0.0) -> Symbol:
@@ -168,6 +177,13 @@ class Symbol:
         ``lap.inverse()(-div_hat)`` regularizes ``k = 0`` without
         caller-side masking.
 
+        Requires equal ``(mode_offset, shape)`` slot layouts between
+        ``space`` and ``codomain`` on every axis (net shift 0): a
+        derived-shift diagonal (e.g. ``d/dx``: sine -> cosine) drops
+        and creates modes, so no diagonal is its inverse. The
+        parity-even chains (the Laplacian ``bwd @ fwd``) return to
+        net shift 0 and invert fine.
+
         Parameters
         ----------
         where_zero : complex, optional
@@ -178,6 +194,16 @@ class Symbol:
         Symbol
             The (tag-flipped) pseudo-inverse diagonal.
         """
+        if _axis_shifts(self._space, self._codomain):
+            raise SpaceMismatchError(
+                "Symbol.inverse() needs equal (mode_offset, shape) "
+                f"slot layouts, but {self._space!r} and "
+                f"{self._codomain!r} differ on a coefficient axis: a "
+                "derived-shift diagonal drops/creates modes and has "
+                "no diagonal inverse; compose to net shift 0 first "
+                "(e.g. invert the Laplacian bwd @ fwd, not one "
+                "derivative)", left=self._space, right=self._codomain,
+                operation="Symbol.inverse")
         zero = self._data == 0
         safe = jnp.where(zero, jnp.ones_like(self._data), self._data)
         inv = jnp.where(zero, where_zero, 1.0 / safe)
@@ -201,15 +227,19 @@ class Symbol:
         ``(D.conj() @ D).data.real``. The magnitude of a
         backward-threaded symbol is face-side-endo, of a forward one
         centre-side-endo — same data, different tags. Structural
-        zeros stay exact (``sqrt(0) == 0``).
+        zeros stay exact (``sqrt(0) == 0``). Across a derived shift
+        ``|d|**2`` moves from the codomain back into the domain slot
+        layout before the collapse; domain modes the codomain lacks
+        (the annihilated DST-II top mode) come back as exact zeros.
 
         Returns
         -------
         Symbol
             The real magnitude diagonal on ``(space, space)``.
         """
-        return Symbol(self._space, jnp.sqrt(
-            jnp.real(jnp.conj(self._data) * self._data)))
+        shifts = _axis_shifts(self._codomain, self._space)
+        return Symbol(self._space, jnp.sqrt(_reindex(
+            jnp.real(jnp.conj(self._data) * self._data), shifts)))
 
     def sqrt(self) -> Symbol:
         """
@@ -248,7 +278,11 @@ class Symbol:
         Multiplies on the strict same-space precondition
         (``f.function_space.bare is space``) and emits on ``codomain``
         (through the field plumbing constructor when the symbol
-        retags).
+        retags). On a derived-shift symbol (domain and codomain slot
+        layouts differ, e.g. sine -> cosine) the operand is first
+        embedded into the codomain layout — the diagonal ``_data``
+        already lives there — so target modes the domain lacks are
+        structurally zero and surplus domain modes drop.
 
         Parameters
         ----------
@@ -266,7 +300,8 @@ class Symbol:
                 f"symbol on {self._space!r} applied to a field on "
                 f"{laid_out.bare!r}", left=laid_out.bare,
                 right=self._space, operation="Symbol.__call__")
-        out = f.data * self._data
+        shifts = _axis_shifts(self._space, self._codomain)
+        out = _reindex(f.data, shifts) * self._data
         if self._codomain is self._space:
             return f.with_data(out)
         layout = laid_out.layout
@@ -372,7 +407,10 @@ class Symbol:
         tensor product across disjoint axes). On the common same-space
         chain (``B.codomain is A.space``) this reduces to
         ``space = B.space``, ``codomain = A.codomain`` — the honest
-        discrete Laplacian ``bwd @ fwd``.
+        discrete Laplacian ``bwd @ fwd``. Across a derived shift the
+        inner data (in ``B.codomain = A.space`` layout) is embedded
+        into ``A.codomain`` layout first, so intermediate-only modes
+        are structurally annihilated in the fused diagonal.
 
         Any other :class:`RealizedMap` inner (a bound transform, a
         realized composite) builds a lazy ``RealizedComposite`` (fusing
@@ -392,14 +430,18 @@ class Symbol:
             ``NotImplemented``.
         """
         if isinstance(other, Symbol):
+            # the inner data is in ``other.codomain`` (= ``self.space``
+            # where shared) layout; embed it into ``self.codomain``
+            # layout — where the outer data and the composite live
+            shifts = _axis_shifts(self._space, self._codomain)
+            data = self._data * _reindex(other._data, shifts)
             if other._codomain is self._space:
-                return Symbol(other._space, self._data * other._data,
+                return Symbol(other._space, data,
                               codomain=self._codomain)
             space, codomain = compose_spaces(
                 other._space, other._codomain,
                 self._space, self._codomain)
-            return Symbol(space, self._data * other._data,
-                          codomain=codomain)
+            return Symbol(space, data, codomain=codomain)
         from fridom.framework2.grid.operators.realized import (  # noqa: PLC0415
             realized_matmul,
         )
@@ -518,6 +560,113 @@ class Symbol:
         return Symbol(TensorProductSpace.of(*domain),
                       self._data * field.data,
                       codomain=TensorProductSpace.of(*codomain))
+
+
+# ================================================================
+#  Derived-shift alignment (mode_offset slot layouts)
+# ================================================================
+def _axis_shifts(
+    domain: SpaceLike, codomain: SpaceLike,
+) -> tuple[tuple[int, int, int, int], ...]:
+    r"""
+    Per-axis slot-layout shifts between two coefficient taggings.
+
+    Description
+    -----------
+    A derived-shift symbol (e.g. ``d/dx``: sine mode ``k`` -> cosine
+    mode ``k``) stores its diagonal in the **codomain** slot layout,
+    which differs from the domain's whenever the two coefficient
+    families disagree in ``(mode_offset, shape)`` along an axis
+    (sine slot ``j`` holds mode ``j + 1``, cosine slot ``j`` holds
+    mode ``j``). This helper reports those axes; on all same-family
+    taggings (Fourier retags, endo symbols) it returns ``()`` and
+    every caller keeps the plain Hadamard fast path bitwise
+    unchanged. Axes where either factor is non-coefficient
+    (``Constant``/nodal) never shift.
+
+    Parameters
+    ----------
+    domain : SpaceLike
+        The slot layout the data currently follows.
+    codomain : SpaceLike
+        The slot layout the data must be moved to.
+
+    Returns
+    -------
+    tuple[tuple[int, int, int, int], ...]
+        One ``(axis, delta, len_in, len_out)`` per shifted axis:
+        ``axis`` is the **negative** array axis (trailing-aligned,
+        matching jax broadcasting), and slot ``j`` (physical mode
+        ``j + delta``, ``delta = offset_in - offset_out``) moves to
+        slot ``j + delta`` of the ``len_out``-slot target.
+    """
+    if domain is codomain:
+        return ()
+    factors_in = domain.factors
+    rank = len(factors_in)
+    shifts = []
+    for i, (fd, fc) in enumerate(
+            zip(factors_in, codomain.factors, strict=True)):
+        if not (isinstance(fd, CoefficientSpace)
+                and isinstance(fc, CoefficientSpace)):
+            continue
+        if (fd.mode_offset, fd.shape) == (fc.mode_offset, fc.shape):
+            continue
+        shifts.append((i - rank, fd.mode_offset - fc.mode_offset,
+                       fd.shape[0], fc.shape[0]))
+    return tuple(shifts)
+
+
+def _reindex(
+    data: jax.Array,
+    shifts: tuple[tuple[int, int, int, int], ...],
+) -> jax.Array:
+    r"""
+    Move slots between layouts by a static pad/slice per axis.
+
+    Description
+    -----------
+    The executable spec is the four derivative kernels in
+    ``grid/operators/spectral.py`` (``_sine_to_cosine`` /
+    ``_cosine_to_sine`` / ``_sine1_to_cosine1`` /
+    ``_cosine1_to_sine1``), whose index maps this mirrors
+    one-to-one: source slot ``j`` (physical mode ``j + offset_in``)
+    lands on target slot ``j + delta``; target modes the source
+    lacks are zero-filled (cosine ``k = 0``, the DCT-I Nyquist),
+    source modes outside the target range are dropped (the DST-II
+    top mode ``k = n``). All indices are static Python ints, so the
+    move is jit-stable. Size-1 (broadcast ``Identity ⊗ D``) axes
+    carry the same value on every mode and pass through untouched.
+
+    Parameters
+    ----------
+    data : jax.Array
+        The array in the source slot layout.
+    shifts : tuple[tuple[int, int, int, int], ...]
+        The per-axis moves from :func:`_axis_shifts`; ``()``
+        returns ``data`` unchanged (the bitwise fast path).
+
+    Returns
+    -------
+    jax.Array
+        The array in the target slot layout.
+    """
+    if not shifts:
+        return data
+    out = data
+    for axis, delta, len_in, len_out in shifts:
+        if -axis > out.ndim or out.shape[axis] == 1:
+            continue  # broadcast axis: constant on every mode
+        start = max(0, -delta)
+        stop = max(start, min(len_in, len_out - delta))
+        index = [slice(None)] * out.ndim
+        index[axis] = slice(start, stop)
+        kept = out[tuple(index)]
+        pad = [(0, 0)] * out.ndim
+        pad[axis] = (max(0, delta),
+                     len_out - max(0, delta) - (stop - start))
+        out = jnp.pad(kept, pad)
+    return out
 
 
 # ================================================================

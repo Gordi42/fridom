@@ -1,8 +1,10 @@
 """Tests for the diagonal ``Symbol`` type and its algebra."""
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
@@ -17,10 +19,15 @@ from fridom.framework2.grid.operators.finite_difference import (
 from fridom.framework2.grid.operators.interp import LinearInterp
 from fridom.framework2.grid.operators.spectral import (
     SpectralDerivative,
+    _cosine1_to_sine1,
+    _cosine_to_sine,
+    _sine1_to_cosine1,
+    _sine_to_cosine,
     fourier_wavenumbers,
 )
 from fridom.framework2.grid.operators.symbol import Symbol
 from fridom.framework2.grid.spaces.constant import ConstantSpace
+from fridom.framework2.grid.spaces.nodal import NodeSet
 
 TWO_PI = 2.0 * jnp.pi
 N = 16
@@ -37,6 +44,62 @@ def periodic_2d():
     mx = IntervalMesh(N, (0.0, 1.0), name="x")
     my = IntervalMesh(N, (0.0, 2.0), name="y")
     return Grid((mx, my)), mx, my
+
+
+@pytest.fixture
+def walled():
+    mx = IntervalMesh(N, (0.0, 1.0), periodic=False, name="x")
+    return Grid((mx,)), mx
+
+
+@pytest.fixture
+def walled_2d():
+    mx = IntervalMesh(N, (0.0, 1.0), periodic=False, name="x")
+    my = IntervalMesh(N, (0.0, 1.0), periodic=False, name="y")
+    return Grid((mx, my)), mx, my
+
+
+# ----------------------------------------------------------------
+#  Trig coefficient spaces (interval length 1.0 in the fixtures)
+# ----------------------------------------------------------------
+def _sine2(mesh):
+    """DST-II space: modes 1..n at slots 0..n-1."""
+    return mesh.sine(mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+
+
+def _sine1(mesh):
+    """DST-I space: modes 1..n-1 at slots 0..n-2."""
+    return mesh.sine(mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+
+
+def _cosine2(mesh):
+    """DCT-II space: modes 0..n-1 at slots 0..n-1."""
+    return mesh.cosine(mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN))
+
+
+def _cosine1(mesh):
+    """DCT-I space: modes 0..n at slots 0..n."""
+    return mesh.cosine(mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN))
+
+
+def _d_sine(mesh):
+    """d/dx on sine modes: sine k -> cosine k, diagonal pi k."""
+    space, cod = _sine2(mesh), _cosine2(mesh)
+    k = jnp.arange(cod.shape[0], dtype=jnp.float64)
+    return Symbol(space, jnp.pi * k, codomain=cod)
+
+
+def _d_cosine(mesh):
+    """d/dx on cosine modes: cosine k -> sine k, diagonal -pi k."""
+    space, cod = _cosine2(mesh), _sine2(mesh)
+    k = jnp.arange(1, cod.shape[0] + 1, dtype=jnp.float64)
+    return Symbol(space, -jnp.pi * k, codomain=cod)
+
+
+def _random_coeffs(grid, space, seed):
+    rng = np.random.default_rng(seed)
+    return grid.create_field(
+        space, data=jnp.asarray(rng.standard_normal(space.shape)))
 
 
 # ================================================================
@@ -632,3 +695,203 @@ def test_matmul_rejects_a_shared_axis_mismatch_in_2d(periodic_2d):
                jnp.ones(a_space.shape), codomain=b_cod)
     with pytest.raises(SpaceMismatchError, match="cannot compose"):
         _ = a @ b
+
+
+# ================================================================
+#  Derived shifts — sine/cosine slot layouts differ by one mode
+# ================================================================
+def test_shifted_apply_sine2_matches_the_kernel(walled):
+    grid, mx = walled
+    sym = _d_sine(mx)
+    f = _random_coeffs(grid, _sine2(mx), seed=1)
+    out = sym(f)
+    assert out.function_space.bare is _cosine2(mx)
+    expected = _sine_to_cosine(jnp.asarray(f.data), 0, 1.0)
+    assert jnp.array_equal(out.data, expected)
+    assert out.data[0] == 0.0  # cosine k = 0: zero-filled
+
+
+def test_shifted_apply_cosine2_matches_the_kernel(walled):
+    grid, mx = walled
+    sym = _d_cosine(mx)
+    f = _random_coeffs(grid, _cosine2(mx), seed=2)
+    out = sym(f)
+    assert out.function_space.bare is _sine2(mx)
+    expected = _cosine_to_sine(jnp.asarray(f.data), 0, 1.0)
+    assert jnp.array_equal(out.data, expected)
+    assert out.data[-1] == 0.0  # sine k = n: zero-filled
+
+
+def test_shifted_apply_sine1_matches_the_kernel(walled):
+    grid, mx = walled
+    space, cod = _sine1(mx), _cosine1(mx)  # n - 1 -> n + 1 slots
+    k = jnp.arange(cod.shape[0], dtype=jnp.float64)
+    sym = Symbol(space, jnp.pi * k, codomain=cod)
+    f = _random_coeffs(grid, space, seed=3)
+    out = sym(f)
+    assert out.function_space.bare is cod
+    assert out.shape == (N + 1,)
+    expected = _sine1_to_cosine1(jnp.asarray(f.data), 0, 1.0)
+    assert jnp.array_equal(out.data, expected)
+    # neither cosine k = 0 nor the Nyquist k = n is populated
+    assert out.data[0] == 0.0
+    assert out.data[-1] == 0.0
+
+
+def test_shifted_apply_cosine1_matches_the_kernel(walled):
+    grid, mx = walled
+    space, cod = _cosine1(mx), _sine1(mx)  # n + 1 -> n - 1 slots
+    k = jnp.arange(1, cod.shape[0] + 1, dtype=jnp.float64)
+    sym = Symbol(space, -jnp.pi * k, codomain=cod)
+    f = _random_coeffs(grid, space, seed=4)
+    out = sym(f)
+    assert out.function_space.bare is cod
+    assert out.shape == (N - 1,)
+    expected = _cosine1_to_sine1(jnp.asarray(f.data), 0, 1.0)
+    assert jnp.array_equal(out.data, expected)
+
+
+def test_shifted_matmul_fuses_the_sine_laplacian(walled):
+    grid, mx = walled
+    fwd = _d_sine(mx)  # Sine -> Cosine
+    bwd = _d_cosine(mx)  # Cosine -> Sine
+    lap = bwd @ fwd
+    assert lap.space is _sine2(mx)
+    assert lap.codomain is _sine2(mx)
+    # hand-built index map: the inner cosine-layout diagonal shifts
+    # by -1 into the sine layout (drop k = 0, zero-fill k = n)
+    inner = jnp.concatenate([fwd.data[1:], jnp.zeros(1)])
+    assert jnp.array_equal(lap.data, bwd.data * inner)
+    assert lap.data[-1] == 0.0  # intermediate-only mode annihilated
+    # fused apply == chained apply == chained kernels
+    f = _random_coeffs(grid, _sine2(mx), seed=5)
+    chained = bwd(fwd(f))
+    assert jnp.allclose(lap(f).data, chained.data)
+    kernels = _cosine_to_sine(
+        _sine_to_cosine(jnp.asarray(f.data), 0, 1.0), 0, 1.0)
+    assert jnp.allclose(lap(f).data, kernels)
+
+
+def test_shifted_magnitude_reindexes_to_the_domain_layout(walled):
+    _, mx = walled
+    mag = _d_sine(mx).magnitude
+    assert mag.space is _sine2(mx)
+    assert mag.codomain is _sine2(mx)
+    # sine slot j holds mode j + 1: |pi (j + 1)|, top mode dropped
+    k = jnp.arange(1, N, dtype=jnp.float64)
+    assert jnp.array_equal(mag.data[:-1], jnp.pi * k)
+    assert mag.data[-1] == 0.0  # mode n has no cosine image
+
+
+def test_shifted_conj_lands_in_the_swapped_codomain_layout(walled):
+    _, mx = walled
+    sym = _d_sine(mx)
+    adj = sym.conj()
+    assert adj.space is _cosine2(mx)
+    assert adj.codomain is _sine2(mx)
+    # the adjoint data lives in the sine layout: slot j holds the
+    # conjugate eigenvalue of mode j + 1; mode n is zero-filled
+    k = jnp.arange(1, N, dtype=jnp.float64)
+    assert jnp.array_equal(adj.data[:-1], jnp.pi * k)
+    assert adj.data[-1] == 0.0
+
+
+def test_shifted_conj_round_trips(walled):
+    _, mx = walled
+    sym = _d_sine(mx)
+    back = sym.conj().conj()
+    assert back.space is sym.space
+    assert back.codomain is sym.codomain
+    assert jnp.array_equal(back.data, sym.data)
+
+
+def test_inverse_guard_raises_across_a_derived_shift(walled):
+    _, mx = walled
+    with pytest.raises(SpaceMismatchError,
+                       match="no diagonal inverse"):
+        _d_sine(mx).inverse()
+
+
+def test_inverse_works_at_net_shift_zero(walled):
+    _, mx = walled
+    lap = _d_cosine(mx) @ _d_sine(mx)  # sine -> sine: net shift 0
+    inv = lap.inverse()
+    assert inv.space is lap.codomain
+    assert inv.codomain is lap.space
+    assert inv.data[-1] == 0.0  # the annihilated top mode: regular
+    assert jnp.allclose(inv.data[:-1], 1.0 / lap.data[:-1])
+
+
+def test_mode_embedding_pads_the_tail(walled):
+    grid, mx = walled
+    # equal offsets, different lengths: DCT-II modes 0..n-1 embed
+    # into DCT-I modes 0..n (a zero-pad at the absent Nyquist)
+    space, cod = _cosine2(mx), _cosine1(mx)
+    sym = Symbol(space, jnp.ones(cod.shape[0]), codomain=cod)
+    f = _random_coeffs(grid, space, seed=6)
+    out = sym(f)
+    assert out.function_space.bare is cod
+    assert jnp.array_equal(out.data[:-1], f.data)
+    assert out.data[-1] == 0.0
+
+
+# ================================================================
+#  Derived shifts on a product — trailing-axis alignment
+# ================================================================
+def test_shifted_apply_moves_only_the_shifted_axis(walled_2d):
+    grid, mx, my = walled_2d
+    space = _sine2(mx) * _sine2(my)
+    cod = _cosine2(mx) * _sine2(my)
+    k = jnp.arange(N, dtype=jnp.float64)
+    sym = Symbol(space, (jnp.pi * k)[:, None], codomain=cod)
+    f = _random_coeffs(grid, space, seed=7)
+    out = sym(f)
+    assert out.function_space.bare is cod
+    expected = _sine_to_cosine(jnp.asarray(f.data), 0, 1.0)
+    assert jnp.array_equal(out.data, expected)
+
+
+def test_shifted_matmul_skips_a_broadcast_inner_axis(walled_2d):
+    _, mx, my = walled_2d
+    # the outer shifts along x; the inner is Identity ⊗ D along y,
+    # so its data is constant on every x mode and must pass through
+    outer_space = _cosine2(mx) * my.constant
+    outer_cod = _sine2(mx) * my.constant
+    k = jnp.arange(1, N + 1, dtype=jnp.float64)
+    outer = Symbol(outer_space, (-jnp.pi * k)[:, None],
+                   codomain=outer_cod)
+    inner_space = mx.constant * _sine2(my)
+    diag_y = jnp.arange(1.0, N + 1.0)
+    # 1-D data: trailing-aligned to y, no x axis at all
+    inner_1d = Symbol(inner_space, diag_y)
+    fused = outer @ inner_1d
+    assert fused.space is _cosine2(mx) * _sine2(my)
+    assert fused.codomain is _sine2(mx) * _sine2(my)
+    assert jnp.array_equal(fused.data, outer.data * inner_1d.data)
+    # size-1 x axis: same passthrough
+    inner_2d = Symbol(inner_space, diag_y[None, :])
+    assert jnp.array_equal((outer @ inner_2d).data,
+                           outer.data * inner_2d.data)
+
+
+# ================================================================
+#  The shiftless path is bitwise-identical to the plain Hadamard
+# ================================================================
+def test_shiftless_paths_stay_bitwise_identical(periodic):
+    grid, mx = periodic
+    # a retagging Fourier symbol: equal (mode_offset, shape) on the
+    # center/right origins, so no derived shift anywhere
+    fd = FiniteDifference()["x"].eigenvalues(grid, mx.center)
+    ft = grid.dispatch.resolve("transform", mx.center)
+    f = ft.forward(grid.create_field(
+        init=lambda x: jnp.sin(TWO_PI * x)))
+    # apply: the plain Hadamard product, bit for bit
+    assert jnp.array_equal(fd(f).data, f.data * fd.data)
+    # fuse: the plain diagonal product, bit for bit
+    bwd = fd.conj()
+    assert jnp.array_equal((bwd @ fd).data, bwd.data * fd.data)
+    # conj / magnitude: the plain elementwise forms, bit for bit
+    assert jnp.array_equal(bwd.data, jnp.conj(fd.data))
+    assert jnp.array_equal(
+        fd.magnitude.data,
+        jnp.sqrt(jnp.real(jnp.conj(fd.data) * fd.data)))
