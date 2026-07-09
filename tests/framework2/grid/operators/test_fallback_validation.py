@@ -15,6 +15,8 @@ The gates F1's ``test_fallback.py`` did NOT cover (plan
 Everything is driven through the shipped ``graded_reconstruction`` /
 ``Fallback`` API (no F2 knob needed).
 """
+from itertools import pairwise
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -38,7 +40,7 @@ def sin_cell_averages(a, b, n):
 
 
 def bounded_field(n, order, data=None):
-    """A CellAvg field on a bounded n-cell mesh with WENO-`order` halo.
+    """Build a CellAvg field on a bounded mesh with WENO-`order` halo.
 
     Pinned to a single device (``device_ids=(0,)``): these are numerical
     order / jit gates, so the bounded axis must stay undistributed
@@ -57,8 +59,11 @@ def bounded_field(n, order, data=None):
 
 
 def masked_interior_convergence(order, bias, sizes=(32, 64, 128)):
-    """Max reconstruction error at interior faces away from critical
-    points of sin (WENO-JS degrades there), one value per size."""
+    """Return max reconstruction error at interior faces per size.
+
+    Sampled away from the critical points of sin (WENO-JS degrades
+    there), one value per size.
+    """
     op = graded_reconstruction(order, bias)
     errors = []
     for n in sizes:
@@ -201,8 +206,7 @@ def test_wall_rows_degrade_gracefully(order):
         wall_errors.append(wall.max())
     # graceful: the wall error monotonically reduces (>= ~1st order,
     # the wall-adjacent upwind rung), it does not grow or oscillate
-    for coarse, fine in zip(wall_errors[:-1], wall_errors[1:],
-                            strict=True):
+    for coarse, fine in pairwise(wall_errors):
         assert fine < coarse
     slopes = [np.log2(wall_errors[k] / wall_errors[k + 1])
               for k in range(len(sizes) - 1)]
