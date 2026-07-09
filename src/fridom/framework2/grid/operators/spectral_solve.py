@@ -34,11 +34,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.framework2.grid.operators.mixed import resolve_transform
 from fridom.framework2.grid.operators.realized import BoundTransform
 from fridom.framework2.grid.operators.symbol import Symbol
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.operators.base import FieldLike, Operator
+    from fridom.framework2.grid.operators.mixed import ComposedTransform
     from fridom.framework2.grid.operators.realized import RealizedMap
     from fridom.framework2.grid.operators.transform import Transform
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
@@ -99,8 +101,8 @@ class SpectralSolve:
     ) -> None:
         """Materialize the inverse symbol and compose the solve chain."""
         bare = space.bare
-        self._transform: Transform = grid.dispatch.resolve(
-            "transform", bare)
+        self._transform: Transform | ComposedTransform = (
+            resolve_transform(grid, bare))
         coeff = self._transform.codomain(bare)
         symbol = (elliptic if isinstance(elliptic, Symbol)
                   else elliptic.eigenvalues(grid, coeff))
@@ -115,7 +117,7 @@ class SpectralSolve:
     #  Properties
     # ================================================================
     @property
-    def transform(self) -> Transform:
+    def transform(self) -> Transform | ComposedTransform:
         """The bound nodal <-> coefficient transform."""
         return self._transform
 

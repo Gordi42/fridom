@@ -27,6 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
         flux_diff,
         fourier,
         interp,
+        mixed,
         movement,
         products,
         realized,
@@ -70,6 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .integrate import Integral
     from .interp import LinearInterp
+    from .mixed import ComposedTransform, resolve_transform
     from .movement import Reshard, Sync
     from .realized import (
         BoundTransform,
@@ -106,6 +108,7 @@ all_modules_by_origin = {
         "flux_diff",
         "spectral",
         "transform",
+        "mixed",
         "fourier",
         "trig",
         "chebyshev",
@@ -166,6 +169,7 @@ all_imports_by_origin = {
     # the class import "Integral" and the D3b verb "integrate"
     # coexist: only the verb owns the ``fr.operators.integrate`` slot
     f"{base}.integrate": ["Integral"],
+    f"{base}.mixed": ["ComposedTransform", "resolve_transform"],
     f"{base}.composed": [
         "Gradient",
         "Divergence",

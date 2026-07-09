@@ -2,17 +2,29 @@
 import jax.numpy as jnp
 import pytest
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.framework2.grid.operators.interp import LinearInterp
+from fridom.framework2.grid.operators.mixed import (
+    ComposedTransform,
+    resolve_transform,
+)
+from fridom.framework2.grid.spaces.coefficient import (
+    CosineSpace,
+    FourierSpace,
+    SineSpace,
+)
 from fridom.framework2.grid.spaces.constant import ConstantSpace
+from fridom.framework2.grid.spaces.nodal import NodeSet
 from fridom.framework2.grid.symbols import GridSymbols, rayleigh_dual
 
 N2 = 8
 N3 = 4
+NW = 8
 
 
 @pytest.fixture
@@ -36,6 +48,23 @@ def kit_3d():
               "v": mx.center * my.right * mz.center,
               "w": mx.center * my.center * mz.right,
               "p": mx.center * my.center * mz.center}
+    return grid, GridSymbols(grid, spaces), spaces
+
+
+@pytest.fixture
+def kit_walled():
+    # the walled-z kit: periodic x/y, bounded z with BC-tagged
+    # component factors (trig transforms reject BC-free origins)
+    mx = IntervalMesh(NW, (0.0, 1.0), name="x")
+    my = IntervalMesh(NW, (0.0, 2.0), name="y")
+    mz = IntervalMesh(NW, (0.0, 1.0), periodic=False, name="z")
+    grid = Grid((mx, my, mz))
+    hor = mx.center * my.center
+    spaces = {
+        "w": hor * mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET),
+        "b": hor * mz.nodal(NodeSet.CENTER, bc=BC.DIRICHLET),
+        "p": hor * mz.nodal(NodeSet.CENTER, bc=BC.NEUMANN),
+    }
     return grid, GridSymbols(grid, spaces), spaces
 
 
@@ -68,6 +97,45 @@ def test_forward_backward_round_trips_a_field(kit_2d):
     back = kit.backward("p")(kit.forward("p")(f))
     assert back.function_space.bare is spaces["p"].bare
     assert jnp.allclose(back.data, f.data)
+
+
+# ================================================================
+#  Walled grids: mixed per-component transforms (C5)
+# ================================================================
+# NOTE: kit.diff / kit.interp on the walled grid need the trig
+# eigenvalue rows (the parallel C4 work); they are exercised with
+# the C7 pressure-solve integration.
+@pytest.mark.parametrize(("name", "z_family"), [
+    pytest.param("w", SineSpace, id="w-inner-dirichlet"),
+    pytest.param("b", SineSpace, id="b-center-dirichlet"),
+    pytest.param("p", CosineSpace, id="p-center-neumann"),
+])
+def test_walled_coeff_is_the_mixed_product(kit_walled, name,
+                                           z_family):
+    grid, kit, spaces = kit_walled
+    coeff = kit.coeff(name)
+    assert isinstance(coeff.factor("x"), FourierSpace)
+    assert isinstance(coeff.factor("y"), FourierSpace)
+    assert isinstance(coeff.factor("z"), z_family)
+    # interned identity against the resolved composition
+    tf = resolve_transform(grid, spaces[name].bare)
+    assert isinstance(tf, ComposedTransform)
+    assert coeff is tf.codomain(spaces[name].bare)
+
+
+@pytest.mark.parametrize("name", ["w", "b", "p"])
+def test_walled_forward_backward_round_trips(kit_walled, name):
+    grid, kit, spaces = kit_walled
+    f = grid.random.normal(spaces[name], seed=21)
+    fwd = kit.forward(name)
+    bwd = kit.backward(name)
+    assert fwd.domain is spaces[name].bare
+    assert fwd.codomain is kit.coeff(name)
+    assert bwd.domain is kit.coeff(name)
+    assert bwd.codomain is spaces[name].bare
+    back = bwd(fwd(f))
+    assert back.function_space is f.function_space
+    assert jnp.allclose(back.data, f.data, atol=1e-14)
 
 
 # ================================================================

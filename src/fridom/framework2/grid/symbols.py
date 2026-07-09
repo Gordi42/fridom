@@ -23,12 +23,16 @@ from operator import matmul
 from typing import TYPE_CHECKING
 
 from fridom.framework2.grid.operators.base import Identity
+from fridom.framework2.grid.operators.mixed import resolve_transform
 from fridom.framework2.grid.operators.realized import BoundTransform
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
     from fridom.framework2.grid.grid import Grid
+    from fridom.framework2.grid.operators.mixed import (
+        ComposedTransform,
+    )
     from fridom.framework2.grid.operators.symbol import Symbol
     from fridom.framework2.grid.operators.transform import Transform
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
@@ -45,7 +49,8 @@ class GridSymbols:
     e.g. ``{"u": right * center, "p": center * center}`` — and
     answers every symbol query on the matching **coefficient** space:
     the transform is resolved once per component at construction
-    (``grid.dispatch.resolve("transform", space.bare)``), and
+    (``resolve_transform(grid, space.bare)``, which composes the
+    per-family transforms of a mixed walled product), and
     ``diff`` / ``interp`` / ``move`` thread
     ``transform.codomain(space.bare)`` through the operators'
     ``eigenvalues``, exactly like ``SpectralSolve``. No physics lives
@@ -66,8 +71,9 @@ class GridSymbols:
         self._grid: Grid = grid
         self._spaces: dict[str, SpaceLike] = {
             name: space.bare for name, space in spaces.items()}
-        self._transforms: dict[str, Transform] = {
-            name: grid.dispatch.resolve("transform", bare)
+        self._transforms: dict[
+            str, Transform | ComposedTransform] = {
+            name: resolve_transform(grid, bare)
             for name, bare in self._spaces.items()}
 
     # ================================================================

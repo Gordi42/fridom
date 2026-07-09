@@ -43,6 +43,7 @@ from fridom.framework2.grid.spaces.composition import (
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.operators.base import FieldLike
+    from fridom.framework2.grid.operators.mixed import ComposedTransform
     from fridom.framework2.grid.operators.transform import Transform
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
@@ -592,8 +593,9 @@ class BoundTransform:
 
     Parameters
     ----------
-    transform : Transform
-        The grid-bound transform to adapt.
+    transform : Transform | ComposedTransform
+        The grid-bound transform to adapt (a per-family transform or
+        the mixed-product composition).
     space : SpaceLike
         The operand space of this direction (the ``domain``): a nodal
         space for ``forward``, a coefficient space for ``backward``.
@@ -604,14 +606,14 @@ class BoundTransform:
 
     def __init__(
         self,
-        transform: Transform,
+        transform: Transform | ComposedTransform,
         space: SpaceLike,
         *,
         backward: bool = False,
     ) -> None:
         """Bind the direction and resolve the fixed ``(domain, codomain)``."""
         bare = space.bare
-        self._transform: Transform = transform
+        self._transform: Transform | ComposedTransform = transform
         self._backward: bool = backward
         self._domain: SpaceLike = bare
         self._codomain: SpaceLike = (
@@ -622,7 +624,7 @@ class BoundTransform:
     #  Properties
     # ================================================================
     @property
-    def transform(self) -> Transform:
+    def transform(self) -> Transform | ComposedTransform:
         """The adapted grid-bound transform."""
         return self._transform
 
