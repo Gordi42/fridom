@@ -7,8 +7,8 @@ contributes **both** linear coupling terms (D1's driving example):
 ``+b/dsqr`` in the w-equation (buoyancy force) and ``-N^2 w`` in the
 b-equation (restoring). It owns the constant ``n2`` leaf and provides
 ``stratification.n2``; ``dsqr`` is read from ``ctx.params``. The
-interpolation stencils are declared through ``extra_halo`` (the
-sanctioned raw-``.data`` coefficient-scaling bypass, V-N2).
+w-b interpolation stencils are auto-derived from the linear terms'
+block operators (R13) — the module declares no ``extra_halo``.
 """
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from functools import partial
 
 import fridom.framework2 as fr
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.model.linear_blocks import (
     Coeff,
     Interp,
@@ -63,7 +62,6 @@ class ConstantStratification(fr.Module):
         self.n2 = fr.leaf(n2)
         self._wall_z = wall_z
         self._vertical = vertical
-        self._coords: tuple[str, ...] = ()
 
     field_references = (
         fr.FieldReference(
@@ -89,16 +87,6 @@ class ConstantStratification(fr.Module):
                 "b", space=fr.Collocated(bc=bc),
                 long_name="Buoyancy", units="m/s^2"),
         )
-
-    def bind(self, table: object) -> None:
-        """Capture the grid coordinate names (halo exemption)."""
-        self._coords = tuple(
-            axis for _, axis in table.velocity().labels)
-
-    @property
-    def extra_halo(self) -> HaloSpec:
-        """The interpolation stencils (the raw-``.data`` bypass)."""
-        return HaloSpec(dict.fromkeys(self._coords, 1))
 
     #: ``dw/dt += b / dsqr`` (interpolated onto the w face), derived
     #: wholly from the shared buoyancy-force blocks.

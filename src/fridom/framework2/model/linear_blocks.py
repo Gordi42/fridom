@@ -32,6 +32,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fridom.framework2.grid.decomposition.halo import (
+    HaloTracer,
+    VectorTracer,
+    _TraceRecorder,
+)
 from fridom.framework2.grid.fields.scalar_field import _conversion_kind
 from fridom.framework2.grid.operators.base import (
     EigenbasisError,
@@ -48,8 +53,9 @@ from fridom.framework2.model.terms import (
 from fridom.framework2.model.time_dependent import resolve_at
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
+    from fridom.framework2.grid.decomposition.halo import HaloSpec
     from fridom.framework2.grid.fields.scalar_field import ScalarField
     from fridom.framework2.grid.grid import Grid
     from fridom.framework2.grid.operators.base import Operator
@@ -447,6 +453,62 @@ def apply_linear_blocks(
         else:
             result[block.out] = contrib
     return result
+
+
+# ================================================================
+#  Halo consumer — the derived linear-term ghost-width demand (R13)
+# ================================================================
+def linear_blocks_halo(
+    blocks: tuple[LinearBlock, ...],
+    spaces: Mapping[str, SpaceLike],
+    registry: object,
+) -> HaloSpec:
+    r"""
+    Derive a linear term's ghost-width demand from its block operators.
+
+    Description
+    -----------
+    The R13 seam: a linear term's halo is read off the *same*
+    ``block.op`` the running model applies, so a linear module never
+    hand-writes ``extra_halo``. Only the operator part of each block is
+    traced on a data-free :class:`HaloTracer` — the coefficient is
+    pointwise (an ``aux`` field product, a ``param``/literal scalar
+    multiply), so it adds zero halo, and its raw-``.data`` scaling
+    (the V-N2 tracer gate) is never run. The flux-form :class:`Scale`
+    factor (``Diff @ Scale``) reads the constant AUX field off the
+    state, so the trace runs over a full name-keyed tracer state rather
+    than a bare source tracer; that broadcast is halo 0, matching the
+    numeric path.
+
+    Because ``.diff``/``.to`` resolve to the same interned operators
+    the numeric path applies, the derived demand is exactly the traced
+    demand of the coefficient-free block — tighter than a
+    hand-declared, all-axes ``extra_halo`` (buoyancy's true w-b interp
+    is only ``{z: 1}``), never smaller where a real stencil exists.
+
+    Parameters
+    ----------
+    blocks : tuple[LinearBlock, ...]
+        The term's declared blocks.
+    spaces : Mapping[str, SpaceLike]
+        The bare space of every state component (PROGNOSTIC and
+        AUXILIARY), keyed by name.
+    registry : object
+        The merged operator registry (``grid.dispatch``).
+
+    Returns
+    -------
+    HaloSpec
+        The maximal per-name ghost width the blocks' operators demand.
+    """
+    recorder = _TraceRecorder()
+    state = VectorTracer({
+        name: HaloTracer(space, registry, recorder=recorder)
+        for name, space in spaces.items()})
+    for block in blocks:
+        block.op.apply_numeric(
+            state[block.src], spaces[block.out], state, None)
+    return recorder.spec
 
 
 # ================================================================

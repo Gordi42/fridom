@@ -11,14 +11,14 @@ Ro-ignorant — D2 reconciliation 4). The flux for axis ``i`` lives on
 ``i``); both ``v_i`` and ``q`` are interpolated there, multiplied
 (a genuine field-times-field product), and differenced back onto
 ``q``'s space. The chained interpolation/difference stencils are
-declared through ``extra_halo``.
+halo-traced numerically (pure field arithmetic), so the module
+declares no ``extra_halo``.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import fridom.framework2 as fr
-from fridom.framework2.grid.decomposition.halo import HaloSpec
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.fields.scalar_field import ScalarField
@@ -39,21 +39,14 @@ class CenteredAdvection(fr.Module):
         """No numeric leaves; targets resolve at bind."""
         self._advected: tuple[str, ...] = ()
         self._axis_velocity: tuple[tuple[str, str], ...] = ()
-        self._coords: tuple[str, ...] = ()
 
     def bind(self, table: object) -> None:
         """Freeze the advected set and the axis -> velocity mapping."""
         self._advected = table.select(fr.roles.ADVECTED)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
-        self._coords = tuple(axis for _, axis in selector.labels)
         self._axis_velocity = tuple(
             (axis, name) for name, axis in selector.labels)
-
-    @property
-    def extra_halo(self) -> HaloSpec:
-        """The chained interp/difference stencils (raw-``.data`` scale)."""
-        return HaloSpec(dict.fromkeys(self._coords, 2))
 
     def tendency_terms(self) -> tuple[fr.TendencyTerm, ...]:
         """One term advancing (and transporting) every advected field."""

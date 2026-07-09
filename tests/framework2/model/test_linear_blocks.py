@@ -20,6 +20,7 @@ from fridom.framework2.model.linear_blocks import (
     Scale,
     apply_linear_blocks,
     linear_blocks,
+    linear_blocks_halo,
 )
 from fridom.framework2.model.params import (
     STRATIFICATION_N2,
@@ -333,3 +334,79 @@ def test_scale_needs_csqr_param():
     scale = Scale("csqr", sw_params.CSQR)
     assert scale.aux == "csqr"
     assert scale.const == sw_params.CSQR
+
+
+# ================================================================
+#  R13 — auto-derived linear-term halo (op-only trace)
+# ================================================================
+def _spaces_and_registry(model):
+    """Return the (name -> bare space) map and the merged registry."""
+    spaces = {name: model.state[name].function_space.bare
+              for name in model.state.component_names}
+    return spaces, model.grid.dispatch
+
+
+def _width(spec, name):
+    """Ghost width along `name` (0 where the spec omits the name)."""
+    return dict(spec.widths).get(name, 0)
+
+
+def test_linear_blocks_halo_stratification_is_z_only(nh_model):
+    """Buoyancy/restoring w-b interp demands only ``{z: 1}`` (R13).
+
+    The hand-declared ``extra_halo`` was the over-conservative
+    ``{x: 1, y: 1, z: 1}``; the derived demand is tighter — w is
+    Staggered("z"), b is Collocated, so only the vertical face
+    interpolation carries a stencil.
+    """
+    spaces, reg = _spaces_and_registry(nh_model)
+    for blocks in (_BUOYANCY_BLOCKS, _RESTORING_BLOCKS):
+        spec = linear_blocks_halo(blocks, spaces, reg)
+        assert _width(spec, "z") == 1
+        assert _width(spec, "x") == 0
+        assert _width(spec, "y") == 0
+
+
+def test_linear_blocks_halo_coriolis_is_xy(nh_model):
+    """The u-v rotation interp demands ``{x: 1, y: 1}`` (R13)."""
+    spaces, reg = _spaces_and_registry(nh_model)
+    spec = linear_blocks_halo(_CORIOLIS_BLOCKS, spaces, reg)
+    assert _width(spec, "x") == 1
+    assert _width(spec, "y") == 1
+    assert _width(spec, "z") == 0
+
+
+def test_linear_blocks_halo_sw_gravity_traces_scale(sw_model):
+    """The ``Diff @ Scale`` gravity blocks trace op-only (no state raise).
+
+    The flux-form ``Scale`` factor reads the constant ``csqr`` AUX
+    field off the tracer state (a halo-0 broadcast), and the pressure
+    gradients/divergences carry the finite-difference stencil.
+    """
+    spaces, reg = _spaces_and_registry(sw_model)
+    spec = linear_blocks_halo(_GRAVITY_BLOCKS, spaces, reg)
+    assert _width(spec, "x") == 1
+    assert _width(spec, "y") == 1
+
+
+def test_negotiated_halo_covers_derived_linear_demand(nh_model):
+    """The negotiated halo is >= every linear term's derived demand.
+
+    Never smaller where a real stencil exists (the R13 lower-bound
+    guarantee): the tightened per-term demand still fits under the
+    model-wide negotiated width (dominated by advection).
+    """
+    spaces, reg = _spaces_and_registry(nh_model)
+    negotiated = nh_model.grid.fingerprint.halo
+    for blocks in (_BUOYANCY_BLOCKS, _RESTORING_BLOCKS, _CORIOLIS_BLOCKS):
+        demand = linear_blocks_halo(blocks, spaces, reg)
+        for name, width in demand.widths:
+            assert _width(negotiated, name) >= width
+
+
+def test_linear_modules_declare_no_extra_halo():
+    """R13: the linear physics modules stop hand-writing extra_halo."""
+    assert getattr(
+        nh.modules.ConstantStratification(), "extra_halo", None) is None
+    assert getattr(
+        nh.modules.CenteredAdvection(), "extra_halo", None) is None
