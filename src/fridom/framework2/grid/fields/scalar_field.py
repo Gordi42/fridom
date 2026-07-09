@@ -244,6 +244,69 @@ class ScalarField:
                            self._metadata.replace(**changes),
                            halo_valid=self._halo_valid)
 
+    def retag(self, target: ScalarField | SpaceLike) -> ScalarField:
+        """
+        Rebuild the field on a BC-sibling space (same nodes, new tag).
+
+        Description
+        -----------
+        On a walled grid, fields carrying different BC tags on one
+        node set must interoperate (nodal operator outputs are
+        BC-free; owner decision). ``retag`` adopts the target's BC
+        structure without touching the point samples: per axis the
+        target factor must differ from the source factor **only** in
+        BC structure — same mesh, same node-set class, same shape,
+        same scalars — anything else raises ``SpaceMismatchError``.
+        The data is unchanged (identical point samples), but halo
+        validity resets on the retagged axes (the ghost policy
+        changed with the tag) and carries over on the others.
+
+        Parameters
+        ----------
+        target : ScalarField | SpaceLike
+            A field, a full product space, or a single factor space
+            (shorthand: retag that factor, keep the rest).
+
+        Returns
+        -------
+        ScalarField
+            The retagged field (``self`` when already on target).
+        """
+        space = _target_space(self._function_space, target)
+        src_bare = self._function_space.bare
+        dst_bare = space.bare
+        if dst_bare is src_bare:
+            return self
+        if src_bare.names != dst_bare.names:
+            raise SpaceMismatchError(
+                f"cannot retag {src_bare!r} onto {dst_bare!r}: "
+                "the coordinate names differ",
+                left=src_bare, right=dst_bare, operation="retag")
+        retagged = []
+        for name in dst_bare.names:
+            src = src_bare.factor(name)
+            dst = dst_bare.factor(name)
+            if src is dst:
+                continue
+            if not _bc_siblings(src, dst):
+                raise SpaceMismatchError(
+                    f"retag changes BC structure only: at {name!r} "
+                    f"the factors {src!r} and {dst!r} differ beyond "
+                    "their BC tags (mesh, node-set class, shape and "
+                    "scalars must match); use .to for a conversion",
+                    left=src, right=dst, operation="retag",
+                    mismatched_names=(name,))
+            retagged.append(name)
+        new_space: SpaceLike = dst_bare
+        if self._function_space.layout is not None:
+            new_space = dst_bare.with_layout(
+                self._function_space.layout)
+        halo_valid = HaloSpec({
+            name: 0 if name in retagged else self._halo_valid[name]
+            for name in new_space.names})
+        return ScalarField(self._grid, new_space, self._data,
+                           self._metadata, halo_valid=halo_valid)
+
     # ================================================================
     #  Scalars (Körper) surface — section 3.1
     # ================================================================
@@ -329,8 +392,10 @@ class ScalarField:
         source ``"reconstruct"``, nodal -> average ``"average"``,
         coefficient -> coefficient ``"interpolate"``), resolves
         ``(kind, source_factor)`` in the grid registry, and applies
-        the bound operator. A registered codomain that disagrees
-        with the requested target factor raises
+        the bound operator. A registered codomain that is a
+        BC-sibling of the requested target factor (nodal operator
+        outputs are BC-free; owner decision) adopts the requested
+        tag via ``retag``; any other disagreement raises
         ``SpaceMismatchError``; nodal <-> coefficient targets raise
         (a ``.to`` is not a transform).
 
@@ -369,6 +434,11 @@ class ScalarField:
             resolved = resolve_codomain(
                 op, result.function_space).factor(name)
             if resolved is not dst:
+                if _bc_siblings(resolved, dst):
+                    # nodal operator outputs are BC-free (owner
+                    # decision): adopt the requested sibling tag
+                    result = op(result).retag(dst)
+                    continue
                 raise SpaceMismatchError(
                     f"the registered ({kind!r}, {src!r}) operator "
                     f"lands on {resolved!r}, not the requested "
@@ -981,6 +1051,39 @@ def _broadcast_factor(
     else:
         target = dst
     return _lift_field(f, target)
+
+
+def _bc_siblings(src: FunctionSpace, dst: FunctionSpace) -> bool:
+    """
+    Whether two distinct factors differ only in BC structure.
+
+    Description
+    -----------
+    The sibling relation of the retag seam: identical node-set
+    class, mesh, shape, and scalars. Under mesh interning two
+    *distinct* bare nodal factors agreeing on all of these can only
+    differ in their BC structure, so no explicit ``bc`` comparison
+    is needed. Restricted to nodal factors — only nodal spaces
+    carry retaggable BC tags (a coefficient factor's BC lives in
+    its origin).
+
+    Parameters
+    ----------
+    src : FunctionSpace
+        The source (bare) factor.
+    dst : FunctionSpace
+        The requested (bare) target factor.
+
+    Returns
+    -------
+    bool
+        True iff the factors are BC-siblings.
+    """
+    return (isinstance(src, NodalSpace)
+            and type(src) is type(dst)
+            and src.mesh is dst.mesh
+            and src.shape == dst.shape
+            and src.scalars is dst.scalars)
 
 
 def _conversion_kind(

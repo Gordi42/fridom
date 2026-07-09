@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.errors import (
     GridMismatchError,
     SpaceMismatchError,
@@ -13,6 +14,7 @@ from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.registry import OperatorRegistry
 from fridom.framework2.grid.scalars import Scalars
+from fridom.framework2.grid.spaces.nodal import NodeSet
 
 
 @pytest.fixture
@@ -757,6 +759,122 @@ def test_to_from_constant_factor_broadcasts(grid, mx, my):
         mx.center * my.center,
         init=lambda x, y: 1.0 + y)  # noqa: ARG005 — init(**coords) by name
     assert jnp.allclose(lifted.data, full.data)
+
+
+# ================================================================
+#  BC-sibling retag seam (C6)
+# ================================================================
+@pytest.fixture
+def walled():
+    mz = IntervalMesh(8, (0.0, 1.0), periodic=False, name="z")
+    return Grid((mz,)), mz
+
+
+def test_retag_identity_returns_self(f, my):
+    assert f.retag(f) is f
+    assert f.retag(f.function_space) is f
+    assert f.retag(my.center) is f  # single-factor shorthand
+
+
+def test_retag_between_bc_siblings_preserves_data(mx, my, f):
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = f.retag(tagged)
+    assert g.function_space.bare is mx.center * tagged
+    assert g.grid is f.grid
+    assert g.metadata == f.metadata  # same-quantity rule
+    assert jnp.array_equal(g.data, f.data)
+
+
+def test_retag_full_product_target_and_round_trip(mx, my, f):
+    tagged = mx.center * my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = f.retag(tagged)
+    assert g.function_space.bare is tagged
+    back = g.retag(f.function_space)
+    assert back.function_space is f.function_space
+    assert jnp.array_equal(back.data, f.data)
+
+
+def test_retag_rejects_different_node_set(my, f):
+    # Left free matches Center free in mesh, shape, and scalars but
+    # not in node-set class: not a BC sibling
+    with pytest.raises(SpaceMismatchError,
+                       match="beyond their BC tags"):
+        f.retag(my.left)
+
+
+def test_retag_rejects_different_shape(grid, my):
+    h = grid.create_field(grid.factors[0].center * my.outer)
+    # Outer(DIRICHLET) drops the two boundary DOFs: same node-set
+    # class, different shape
+    with pytest.raises(SpaceMismatchError,
+                       match="beyond their BC tags"):
+        h.retag(my.nodal(NodeSet.OUTER, bc=BC.DIRICHLET))
+
+
+def test_retag_rejects_different_mesh(grid1d, mx):
+    other = IntervalMesh(8, (0.0, 1.0), name="x")
+    a = grid1d.create_field(mx.center)
+    with pytest.raises(SpaceMismatchError,
+                       match="beyond their BC tags"):
+        a.retag(other.center)
+
+
+def test_retag_rejects_different_scalars(my, f):
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET).as_complex()
+    with pytest.raises(SpaceMismatchError,
+                       match="beyond their BC tags"):
+        f.retag(tagged)
+
+
+def test_retag_rejects_differing_coordinate_names(grid1d, mx):
+    mz = IntervalMesh(8, (0.0, 1.0), name="z")
+    a = grid1d.create_field(mx.center)
+    with pytest.raises(SpaceMismatchError, match="names differ"):
+        a.retag(mz.center)
+
+
+def test_retag_resets_validity_on_retagged_axes_only(grid, my, f):
+    synced = grid.sync(f)
+    assert synced.halo_valid["x"] > 0  # meaningful preservation
+    g = synced.retag(my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    assert g.halo_valid["y"] == 0  # the ghost policy changed
+    assert g.halo_valid["x"] == synced.halo_valid["x"]
+
+
+def test_to_adopts_bc_sibling_of_registered_codomain(walled):
+    # b.to(w-space) on a walled grid: the registered bounded
+    # interpolation lands on the BC-free Inner sibling (nodal
+    # operator outputs are BC-free; owner decision) and the
+    # requested Inner(DIRICHLET) tag is adopted via retag.
+    # TODO(Silvano): C8 integration — exercise a BC-tagged *source*
+    # (Center(DIRICHLET) -> Inner(DIRICHLET)) once interp accepts
+    # BC-tagged domains; today LinearInterp guards them.
+    grid, mz = walled
+    b = grid.create_field(mz.center, init=lambda z: z * (1.0 - z))
+    w_space = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    w = b.to(w_space)
+    assert w.function_space.bare is w_space
+    free = b.to(mz.inner)
+    assert jnp.array_equal(w.data, free.data)
+
+
+def test_to_field_target_adopts_the_sibling_tag(walled):
+    # the state["b"].to(state["w"]) shape of the seam
+    grid, mz = walled
+    b = grid.create_field(mz.center, init=lambda z: z)
+    w = grid.create_field(mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    out = b.to(w)
+    assert out.function_space is w.function_space
+    assert jnp.array_equal(out.data, b.to(mz.inner).data)
+
+
+def test_to_non_sibling_codomain_disagreement_still_raises(walled):
+    # Center -> Outer: the registered operator lands on Inner, and
+    # Outer free is not a BC sibling of Inner free
+    grid, mz = walled
+    b = grid.create_field(mz.center)
+    with pytest.raises(SpaceMismatchError, match="lands on"):
+        b.to(mz.outer)
 
 
 def test_real_on_lone_complex_factor(grid1d, mx):
