@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import fridom.framework2 as fr
 from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.shallowwater2._util import scale
 
 
 class SadournyAdvection(fr.Module):
@@ -73,7 +72,7 @@ class SadournyAdvection(fr.Module):
 
         # full geopotential thickness (centre) — the csqr-FIELD fix
         # (c is the centre csqr field, never the scalar; old bug)
-        p_full = c.to(p.function_space) + scale(p, rossby)
+        p_full = c.to(p.function_space) + rossby * p
 
         u_sp, v_sp, p_sp = (u.function_space, v.function_space,
                             p.function_space)
@@ -81,7 +80,7 @@ class SadournyAdvection(fr.Module):
         # --- thickness tendency  dp = -Ro div(u p_e, v p_n) --------
         flux_u = u * p.to(u_sp)                     # u face (east)
         flux_v = v * p.to(v_sp)                     # v face (north)
-        dp = scale(-(flux_u.diff("x") + flux_v.diff("y")), rossby)
+        dp = rossby * -(flux_u.diff("x") + flux_v.diff("y"))
 
         # --- momentum: vorticity flux + kinetic-energy gradient ----
         zeta = v.diff("x") - u.diff("y")           # NE corner
@@ -90,6 +89,6 @@ class SadournyAdvection(fr.Module):
         fu = (u * p_full.to(u_sp)).to(ne)          # mass flux, NE
         fv = (v * p_full.to(v_sp)).to(ne)
         ekin = 0.5 * ((u * u).to(p_sp) + (v * v).to(p_sp))  # centre
-        du = scale((fv * q).to(u_sp) - ekin.diff("x"), rossby)
-        dv = scale(-(fu * q).to(v_sp) - ekin.diff("y"), rossby)
+        du = rossby * ((fv * q).to(u_sp) - ekin.diff("x"))
+        dv = rossby * (-(fu * q).to(v_sp) - ekin.diff("y"))
         return {"u": du, "v": dv, "p": dp}

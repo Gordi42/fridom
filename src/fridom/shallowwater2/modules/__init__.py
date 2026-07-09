@@ -14,16 +14,37 @@ The module library for the shallow-water model:
 - :class:`SadournyAdvection` — the energy/enstrophy-conserving
   nonlinear advection.
 """
-from fridom.framework2.modules.coriolis import (
-    BetaPlaneCoriolis,
-    FPlaneCoriolis,
-)
-from fridom.shallowwater2.modules.core import DynamicalCore
-from fridom.shallowwater2.modules.sadourny import SadournyAdvection
+from typing import TYPE_CHECKING
 
-__all__ = [
-    "BetaPlaneCoriolis",
-    "DynamicalCore",
-    "FPlaneCoriolis",
-    "SadournyAdvection",
-]
+from lazypimp import setup
+
+# ================================================================
+#  Disable lazy loading for type checking
+# ================================================================
+if TYPE_CHECKING:  # pragma: no cover
+    from fridom.framework2.modules import (
+        BetaPlaneCoriolis,
+        FPlaneCoriolis,
+    )
+
+    from .core import DynamicalCore
+    from .sadourny import SadournyAdvection
+
+# ================================================================
+#  Setup lazy loading
+# ================================================================
+base = "fridom.shallowwater2.modules"
+
+all_modules_by_origin: dict[str, list[str]] = {}
+
+# The Coriolis family is the shared framework module library
+# (fr.modules), re-exported here so sw.modules.FPlaneCoriolis keeps
+# working.
+all_imports_by_origin = {
+    "fridom.framework2.modules": [
+        "FPlaneCoriolis", "BetaPlaneCoriolis"],
+    f"{base}.core": ["DynamicalCore"],
+    f"{base}.sadourny": ["SadournyAdvection"],
+}
+
+setup(__name__, all_modules_by_origin, all_imports_by_origin)

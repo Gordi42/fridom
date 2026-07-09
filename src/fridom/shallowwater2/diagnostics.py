@@ -27,20 +27,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.fields.vector_field import VectorField
 
 
-def _detach(state: VectorField) -> VectorField:
-    """Rebuild every component to a fresh field (halo-validity reset).
-
-    Description
-    -----------
-    ``model.diagnostics.X()`` evaluates on the **live carry** state,
-    and interpolating a carry field mutates its halo-validity in place
-    (a framework halo-bookkeeping side effect). Rebuilding through
-    ``with_data`` detaches the diagnostic from the carry so a
-    diagnostic call never corrupts the next ``advance``.
-    """
-    return state.map(lambda f: f.with_data(f.data))
-
-
 def ekin(
     state: VectorField,
     params: Mapping[str, object],  # noqa: ARG001 — diagnostic protocol
@@ -53,7 +39,6 @@ def ekin(
     metric weights ``1`` on ``u`` and ``v``. Velocities are
     interpolated onto the pressure cell.
     """
-    state = _detach(state)
     center = state["p"].function_space
     u = state["u"].to(center).data
     v = state["v"].to(center).data
@@ -70,7 +55,6 @@ def epot(
     The linearized (quadratic) potential energy consistent with the
     energy metric weight ``1/c^2`` on ``p``. Carries ``c^2``.
     """
-    state = _detach(state)
     csqr = params[CSQR]
     p = state["p"]
     return p.with_data(0.5 * p.data**2 / csqr)

@@ -30,15 +30,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.framework2.grid.errors import MissingComponentError
 from fridom.framework2.grid.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     import fridom.framework2 as fr
 
-
-class MissingComponentError(KeyError):
-
-    """A vocabulary accessor named a component the state lacks."""
+__all__ = ["MissingComponentError", "State"]
 
 
 class State(VectorField):
@@ -60,31 +58,23 @@ class State(VectorField):
     @property
     def u(self) -> fr.ScalarField:
         """Velocity in x (declared by a shallow-water core)."""
-        return self._component(
+        return self.require(
             "u", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
 
     @property
     def v(self) -> fr.ScalarField:
         """Velocity in y (declared by a shallow-water core)."""
-        return self._component(
+        return self.require(
             "v", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
 
     @property
     def p(self) -> fr.ScalarField:
         r"""Pressure / geopotential perturbation :math:`p = g\eta`."""
-        return self._component(
+        return self.require(
             "p", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
-
-    def _component(self, name: str, *, hint: str) -> fr.ScalarField:
-        """Return the named component or raise a hinted error."""
-        if name not in self:
-            raise MissingComponentError(
-                f"no component {name!r}: {hint}. Components present: "
-                f"{', '.join(self.component_names) or '(none)'}.")
-        return self[name]
 
     # ================================================================
     #  Parameter-free diagnostics (field algebra; D2.3)

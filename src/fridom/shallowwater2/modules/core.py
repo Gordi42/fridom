@@ -28,13 +28,12 @@ from functools import partial
 import jax.numpy as jnp
 
 import fridom.framework2 as fr
-from fridom.framework.utils import dtype_real, jaxify
+from fridom.framework.utils import jaxify
 from fridom.framework2.model.linear_blocks import (
     Coeff,
     Diff,
     LinearBlock,
     Scale,
-    apply_linear_blocks,
 )
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
@@ -69,9 +68,10 @@ class DynamicalCore(fr.Module):
         The squared gravity-wave phase speed :math:`c^2` (constant
         depth); published as ``shallowwater.csqr`` and materialized
         into the one-DOF ``csqr`` field (default: 1.0).
-    rossby_number : float, optional
+    rossby_number : float | fr.Ramp, optional
         The Rossby number scaling the (separate) advection term;
-        published as ``scaling.rossby`` (default: 1.0).
+        published as ``scaling.rossby`` (default: 1.0); may be a
+        ``fr.Ramp`` for a spun-up nonlinearity.
     """
 
     #: The vocabulary class this core supplies (D1.3 commitment 4).
@@ -81,12 +81,11 @@ class DynamicalCore(fr.Module):
     diagnostics = DIAGNOSTICS
 
     def __init__(
-        self, csqr: float = 1.0, rossby_number: float = 1.0,
+        self, csqr: float = 1.0, rossby_number: float | fr.Ramp = 1.0,
     ) -> None:
         """Store ``csqr`` and the Rossby number as dynamic leaves."""
-        self.csqr = jnp.asarray(csqr, dtype=dtype_real())
-        self.rossby_number = jnp.asarray(
-            rossby_number, dtype=dtype_real())
+        self.csqr = fr.leaf(csqr)
+        self.rossby_number = fr.leaf(rossby_number)
 
     # ================================================================
     #  Declarations
@@ -95,13 +94,11 @@ class DynamicalCore(fr.Module):
     def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
         """U (east face), v (north face), p (centre), csqr (AUX)."""
         return (
-            fr.FieldDeclaration(
-                "u", space=fr.Staggered("x"),
-                roles=(fr.roles.Velocity("x"),),
+            fr.FieldDeclaration.velocity(
+                "u", "x", space=fr.Staggered("x"),
                 long_name="Velocity (x)", units="m/s"),
-            fr.FieldDeclaration(
-                "v", space=fr.Staggered("y"),
-                roles=(fr.roles.Velocity("y"),),
+            fr.FieldDeclaration.velocity(
+                "v", "y", space=fr.Staggered("y"),
                 long_name="Velocity (y)", units="m/s"),
             fr.FieldDeclaration(
                 "p", space=fr.Collocated(),
@@ -109,7 +106,7 @@ class DynamicalCore(fr.Module):
             fr.FieldDeclaration(
                 "csqr", space=fr.Profile(),
                 lifecycle=fr.Lifecycle.AUXILIARY,
-                default=DynamicalCore._csqr_default,
+                default=self._csqr_default,
                 long_name="Squared phase speed", units="m^2/s^2"),
         )
 
@@ -138,8 +135,7 @@ class DynamicalCore(fr.Module):
     # ================================================================
     #  Tendency terms (linear)
     # ================================================================
-    @fr.term(advances=("u", "v", "p"), linear=True,
-             blocks=_GRAVITY_BLOCKS)
-    def gravity(self, state, ctx) -> dict:  # noqa: ANN001
-        r"""Pressure gradient and geopotential divergence."""
-        return apply_linear_blocks(_GRAVITY_BLOCKS, state, ctx)
+    #: Pressure gradient and geopotential divergence, derived wholly
+    #: from ``_GRAVITY_BLOCKS`` (numeric fn + symbolic L both).
+    gravity = fr.linear_term(
+        "gravity", advances=("u", "v", "p"), blocks=_GRAVITY_BLOCKS)

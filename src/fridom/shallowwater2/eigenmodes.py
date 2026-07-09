@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom.framework2 as fr
+from fridom.framework2.model.energy import shallowwater_energy_weights
 from fridom.framework2.model.time_dependent import resolve_at
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.state import State
@@ -203,7 +204,7 @@ class Eigenmodes:
         ``c^2 != 0``.
         """
         inv_csqr = 1.0 / self.csqr if self.csqr != 0.0 else 1.0
-        return {"u": 1.0, "v": 1.0, "p": inv_csqr}
+        return shallowwater_energy_weights(inv_csqr)
 
     def _p_arrays(
         self, s: int,
