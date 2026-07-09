@@ -128,6 +128,57 @@ def test_chebyshev_shape():
 
 
 # ================================================================
+#  Mode offset: storage slot j holds physical mode j + offset
+# ================================================================
+def test_mode_offset_fourier_is_zero(periodic):
+    assert periodic.fourier(origin=periodic.center).mode_offset == 0
+    complexified = periodic.fourier(
+        origin=periodic.center.as_complex())
+    assert complexified.mode_offset == 0
+
+
+def test_mode_offset_sine_ii(bounded):
+    # DST-II: modes 1..n at slots 0..n-1
+    origin = bounded.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    space = bounded.sine(origin=origin)
+    assert space.mode_offset == 1
+    top = space.mode_offset + space.shape[0] - 1
+    assert top == N  # modes 1..N
+
+
+def test_mode_offset_sine_i(bounded):
+    # DST-I: modes 1..n-1 at slots 0..n-2
+    origin = bounded.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    space = bounded.sine(origin=origin)
+    assert space.mode_offset == 1
+    top = space.mode_offset + space.shape[0] - 1
+    assert top == N - 1  # modes 1..N-1
+
+
+def test_mode_offset_cosine_ii(bounded):
+    # DCT-II: modes 0..n-1 at slots 0..n-1
+    origin = bounded.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    space = bounded.cosine(origin=origin)
+    assert space.mode_offset == 0
+    top = space.mode_offset + space.shape[0] - 1
+    assert top == N - 1  # modes 0..N-1
+
+
+def test_mode_offset_cosine_i(bounded):
+    # DCT-I: modes 0..n at slots 0..n
+    origin = bounded.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    space = bounded.cosine(origin=origin)
+    assert space.mode_offset == 0
+    top = space.mode_offset + space.shape[0] - 1
+    assert top == N  # modes 0..N
+
+
+def test_mode_offset_chebyshev_is_zero():
+    mesh = ChebyshevMesh(N, (0, 1), name="z")
+    assert mesh.chebyshev(origin=mesh.lobatto).mode_offset == 0
+
+
+# ================================================================
 #  Layout protocol
 # ================================================================
 def test_layout_variants(periodic):

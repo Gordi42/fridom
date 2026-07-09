@@ -72,6 +72,26 @@ class CoefficientSpace(FunctionSpace):
         """
         return self._origin
 
+    @property
+    def mode_offset(self) -> int:
+        """
+        Physical mode held by storage slot 0.
+
+        Description
+        -----------
+        Storage slot ``j`` holds the physical mode ``j +
+        mode_offset``, per the trig mode tables (module docstring of
+        ``grid/operators/trig.py``): Fourier (fft layout), DCT-II
+        (modes ``0..n-1``), DCT-I (``0..n``) and Chebyshev
+        (degrees ``0..n``) store mode ``j`` at slot ``j`` — offset 0
+        (the base default) — while the sine families start at mode 1
+        (:class:`SineSpace` overrides to 1). Together with ``shape``
+        it fixes the slot layout, so derived-shift symbols (e.g.
+        ``d/dx``: sine mode ``k`` -> cosine mode ``k``) can align
+        diagonals across families by a static pad/slice.
+        """
+        return 0
+
     # ------------------------------------------------------------
     #  Variant interning (scalar variants route through the origin)
     # ------------------------------------------------------------
@@ -152,6 +172,20 @@ class SineSpace(CoefficientSpace):
     def shape(self) -> tuple[int, ...]:
         """One mode per origin DOF."""
         return self._origin.shape
+
+    @property
+    def mode_offset(self) -> int:
+        """
+        Sine slot 0 holds physical mode 1.
+
+        Description
+        -----------
+        Both sine layouts start at mode 1 (trig mode tables,
+        ``grid/operators/trig.py``): DST-II holds modes ``1..n`` at
+        slots ``0..n-1`` (the scipy layout), DST-I holds modes
+        ``1..n-1`` at slots ``0..n-2``.
+        """
+        return 1
 
 
 class CosineSpace(CoefficientSpace):
