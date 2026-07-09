@@ -184,6 +184,59 @@ class Symbol:
         return Symbol(self._codomain, inv, codomain=self._space)
 
     # ================================================================
+    #  Magnitude and elementwise root
+    # ================================================================
+    @property
+    def magnitude(self) -> Symbol:
+        r"""
+        The real ``|lambda|`` diagonal, collapsed to the domain tags.
+
+        Description
+        -----------
+        The honest magnitude of the diagonal:
+        ``sqrt(real(conj(d) * d))``, retagged **collapsed** onto
+        ``(domain, domain)`` (``codomain = space``), so a retagging
+        symbol's magnitude is endo. ``D.magnitude ** 2`` is the
+        ``|k_hat|**2`` / ``|o_hat|**2`` dispersion quantity, equal to
+        ``(D.conj() @ D).data.real``. The magnitude of a
+        backward-threaded symbol is face-side-endo, of a forward one
+        centre-side-endo — same data, different tags. Structural
+        zeros stay exact (``sqrt(0) == 0``).
+
+        Returns
+        -------
+        Symbol
+            The real magnitude diagonal on ``(space, space)``.
+        """
+        return Symbol(self._space, jnp.sqrt(
+            jnp.real(jnp.conj(self._data) * self._data)))
+
+    def sqrt(self) -> Symbol:
+        """
+        Elementwise square root; forbidden across a retag.
+
+        Description
+        -----------
+        The diagonal root (``sqrt(d)``, bare jax branch-cut
+        semantics), tags kept. Like ``**`` it is only meaningful on
+        an endo diagonal — a retagging symbol has no elementwise
+        root within one tag pair.
+
+        Returns
+        -------
+        Symbol
+            The rooted diagonal (``codomain is space`` required).
+        """
+        if self._codomain is not self._space:
+            raise SpaceMismatchError(
+                "Symbol.sqrt() needs codomain is space (collapse a "
+                "retagging symbol via .magnitude first)",
+                left=self._space, right=self._codomain,
+                operation="Symbol.sqrt")
+        return Symbol(self._space, jnp.sqrt(self._data),
+                      codomain=self._codomain)
+
+    # ================================================================
     #  Application (Hadamard multiply)
     # ================================================================
     def __call__(self, f: FieldLike) -> FieldLike:

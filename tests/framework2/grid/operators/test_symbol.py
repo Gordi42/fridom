@@ -11,8 +11,14 @@ from fridom.framework2.grid.operators.base import (
     Identity,
     ScaledOperator,
 )
+from fridom.framework2.grid.operators.finite_difference import (
+    FiniteDifference,
+)
 from fridom.framework2.grid.operators.interp import LinearInterp
-from fridom.framework2.grid.operators.spectral import SpectralDerivative
+from fridom.framework2.grid.operators.spectral import (
+    SpectralDerivative,
+    fourier_wavenumbers,
+)
 from fridom.framework2.grid.operators.symbol import Symbol
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 
@@ -143,6 +149,84 @@ def test_conj_conjugates_and_swaps_tags(periodic):
     assert sym.space is dst
     assert sym.codomain is src
     assert jnp.array_equal(sym.data, jnp.conj(data))
+
+
+# ================================================================
+#  Magnitude and elementwise root
+# ================================================================
+def test_magnitude_collapses_a_retag_onto_the_domain(periodic):
+    grid, mx = periodic
+    fd = FiniteDifference()["x"].eigenvalues(grid, mx.center)
+    assert fd.codomain is not fd.space  # a retagging symbol
+    mag = fd.magnitude
+    assert mag.space is fd.space
+    assert mag.codomain is fd.space  # collapsed: codomain is domain
+
+
+def test_magnitude_is_the_real_abs_of_the_data(periodic):
+    _, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    data = (jnp.arange(space.shape[0], dtype=jnp.complex128)
+            * (1.0 + 2.0j))
+    mag = Symbol(space, data).magnitude
+    assert not jnp.iscomplexobj(mag.data)
+    assert jnp.allclose(mag.data, jnp.abs(data))
+
+
+def test_magnitude_squared_matches_conj_matmul(periodic):
+    grid, mx = periodic
+    s = FiniteDifference()["x"].eigenvalues(grid, mx.center)
+    dispersion = (s.conj() @ s).data.real
+    assert jnp.allclose(dispersion, s.magnitude.data ** 2)
+
+
+def test_magnitude_of_the_fd_symbol_is_khat(periodic):
+    grid, mx = periodic
+    mag = FiniteDifference()["x"].eigenvalues(grid, mx.center).magnitude
+    k = fourier_wavenumbers(mx.fourier(origin=mx.center))
+    dx = mx.dx
+    khat = jnp.abs(2.0 * jnp.sin(k * dx / 2.0) / dx)
+    assert jnp.allclose(mag.data.ravel(), khat)
+
+
+def test_magnitude_keeps_structural_zeros_exact(periodic):
+    grid, mx = periodic
+    fd = FiniteDifference()["x"].eigenvalues(grid, mx.center)
+    assert fd.data.ravel()[0] == 0.0  # the k = 0 structural zero
+    assert fd.magnitude.data.ravel()[0] == 0.0  # sqrt(0) == 0 exact
+
+
+def test_magnitude_squares_compose_on_union_tags(periodic_2d):
+    grid, mx, my = periodic_2d
+    space = mx.center * my.center
+    a = FiniteDifference()["x"].eigenvalues(grid, space)
+    b = FiniteDifference()["y"].eigenvalues(grid, space)
+    total = a.magnitude ** 2 * b.magnitude ** 2
+    # Fourier(x) ⊗ Const(y) unions with Const(x) ⊗ Fourier(y)
+    assert total.space.factor("x") is a.space.factor("x")
+    assert total.space.factor("y") is b.space.factor("y")
+    assert total.codomain is total.space
+    assert jnp.allclose(total.data,
+                        a.magnitude.data ** 2 * b.magnitude.data ** 2)
+
+
+def test_sqrt_is_the_elementwise_root(periodic):
+    _, mx = periodic
+    space = mx.fourier(origin=mx.center)
+    data = jnp.arange(space.shape[0], dtype=jnp.float64)
+    rooted = Symbol(space, data).sqrt()
+    assert rooted.space is space
+    assert rooted.codomain is space
+    assert jnp.allclose(rooted.data, jnp.sqrt(data))
+
+
+def test_sqrt_forbidden_across_a_retag(periodic):
+    _, mx = periodic
+    src = mx.fourier(origin=mx.center)
+    dst = mx.fourier(origin=mx.right)
+    sym = Symbol(src, jnp.ones(src.shape[0]), codomain=dst)
+    with pytest.raises(SpaceMismatchError, match="codomain is space"):
+        sym.sqrt()
 
 
 # ================================================================
