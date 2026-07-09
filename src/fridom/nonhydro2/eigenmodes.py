@@ -1,18 +1,27 @@
-"""Discrete-dispersion eigenmodes (the vec_q / vec_p / omega successor).
+"""Analytic discrete-C-grid eigenmodes (the vec_q / vec_p / omega port).
 
 Description
 -----------
 The successor of the old ``eigenvectors.py`` (``vec_q``, ``vec_p``,
-``omega``). Framework2 lands no ``Symbol`` cluster
-(``operators/symbol.py`` is a stub), and the model-layer eigenmode
-surface is an open thread (07_open_threads item 5), so the eigenmodes
-are assembled here directly from the grid's discrete wavenumbers.
+``omega``): the **analytic** closed-form eigenmodes of the discrete
+C-grid linear operator, assembled here directly from the grid's
+discrete wavenumbers on a staggered-reference basis (with the explicit
+interpolation phases ``one_hat(+/-)`` that carry the staggering). This
+module is retained deliberately because ``nh.transforms``' projector
+consumes it.
 
-This wave exposes the eigenmode **data** (``em.q(s)`` / ``em.p(s)`` as
+It is **complementary** to the model-layer eigenmode surface
+``fr.numeric_eigenpairs`` / ``fr.symbolic_eigenpairs`` (built on the
+``fr.Symbol`` / ``fr.BlockSymbol`` cluster): those return eigenvectors
+in the raw staggered-DFT basis, which differ from these by the
+per-component staggering phases. The two are not interchangeable inputs
+to the same projector; this closed-form port is the one wired into the
+nonhydro transform algebra.
+
+It exposes the eigenmode **data** (``em.q(s)`` / ``em.p(s)`` as
 component arrays, ``em.omega(s)`` / ``em.omega_at(k, s)``) and a
-``em.projector(s)`` **callable** (spectral state -> spectral state).
-Wrapping the projector as an ``fr.StateTransform`` (``nh.transforms``)
-is deferred to wave 7 with the transform algebra.
+``em.projector(s)`` **callable** (spectral state -> spectral state)
+that ``nh.transforms`` wraps as an ``fr.StateTransform``.
 
 Discrete operators (C-grid, ``use_discrete=True``), per axis with
 spacing ``dx``:
@@ -26,11 +35,8 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.framework2.model.params import (
-    CORIOLIS_F0,
-    STRATIFICATION_N2,
-)
-from fridom.framework2.model.time_dependent import TimeDependent
+import fridom.framework2 as fr
+from fridom.framework2.model.energy import nonhydro_energy_weights
 from fridom.nonhydro2.params import DSQR
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -137,6 +143,46 @@ class Eigenmodes:
     # ================================================================
     #  Dispersion
     # ================================================================
+    def _dispersion(
+        self,
+        one2: dict[str, jax.Array],
+        khat2: dict[str, jax.Array],
+        kh2: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        r"""Shared dispersion core ``(|omega|, denom)`` with a safe divide.
+
+        Description
+        -----------
+        Assembles the discrete relation
+        ``|omega| = sqrt((coriolis + buoyancy) / denom)`` shared by
+        :meth:`omega` and :meth:`omega_at`, using a nonzero-guarded
+        denominator so the mean/zero mode (``denom == 0``, equivalently
+        the empty :meth:`_nonzero_mask`, since ``denom = dsqr*kh2 +
+        khat2[z]`` sums two non-negative terms) does not divide by zero.
+        Returns the unsigned magnitude and ``denom``; each caller applies
+        its own degenerate-mode guard and the branch sign ``s``.
+
+        Parameters
+        ----------
+        one2 : dict[str, jax.Array]
+            The squared averaging symbols per axis.
+        khat2 : dict[str, jax.Array]
+            The squared derivative symbols per axis.
+        kh2 : jax.Array
+            The horizontal ``khat2[x] + khat2[y]``.
+
+        Returns
+        -------
+        tuple[jax.Array, jax.Array]
+            The unsigned frequency magnitude and the raw denominator.
+        """
+        x, y, z = self.names
+        coriolis = one2[x] * one2[y] * self.f0**2 * khat2[z]
+        buoyancy = one2[z] * self.n2 * kh2
+        denom = self.dsqr * kh2 + khat2[z]
+        safe = jnp.where(denom == 0, 1.0, denom)
+        return jnp.sqrt((coriolis + buoyancy) / safe), denom
+
     def omega(self, s: int = 1) -> jax.Array:
         """Discrete frequency field ``omega^s`` over the spectral grid.
 
@@ -147,17 +193,9 @@ class Eigenmodes:
         """
         if s == 0:
             return jnp.zeros_like(jnp.real(self._sum_kh2()))
-        x, y, z = self.names
         kh2 = self._sum_kh2()
-        coriolis = (self._one2[x] * self._one2[y] * self.f0**2
-                    * self._khat2[z])
-        buoyancy = self._one2[z] * self.n2 * kh2
-        denom = self.dsqr * kh2 + self._khat2[z]
-        nonzero = self._nonzero_mask()
-        safe = jnp.where(denom == 0, 1.0, denom)
-        om = jnp.sqrt((coriolis + buoyancy) / safe)
-        om = jnp.where(nonzero, om, 0.0)
-        return s * om
+        mag, _ = self._dispersion(self._one2, self._khat2, kh2)
+        return s * jnp.where(self._nonzero_mask(), mag, 0.0)
 
     def omega_at(self, k: tuple[float, float, float], s: int = 1,
                  ) -> complex:
@@ -170,7 +208,7 @@ class Eigenmodes:
         """
         if s == 0:
             return 0.0
-        x, y, z = self.names
+        x, y, _ = self.names
         dx = {name: self._dx(name) for name in self.names}
         kmap = dict(zip(self.names, k, strict=True))
         one2 = {n: _one_hat2(jnp.asarray(kmap[n]), dx[n])
@@ -178,12 +216,10 @@ class Eigenmodes:
         khat2 = {n: _k_hat2(jnp.asarray(kmap[n]), dx[n])
                  for n in self.names}
         kh2 = khat2[x] + khat2[y]
-        coriolis = one2[x] * one2[y] * self.f0**2 * khat2[z]
-        buoyancy = one2[z] * self.n2 * kh2
-        denom = self.dsqr * kh2 + khat2[z]
+        mag, denom = self._dispersion(one2, khat2, kh2)
         if float(jnp.real(denom)) == 0.0:
             return 0.0
-        return complex(s * jnp.sqrt((coriolis + buoyancy) / denom))
+        return complex(s * mag)
 
     # ================================================================
     #  Eigenvectors
@@ -292,7 +328,7 @@ class Eigenmodes:
         ``N^2 != 0``.
         """
         inv_n2 = 1.0 / self.n2 if self.n2 != 0.0 else 1.0
-        return {"u": 1.0, "v": 1.0, "w": self.dsqr, "b": inv_n2}
+        return nonhydro_energy_weights(self.dsqr, inv_n2)
 
 
 def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
@@ -327,12 +363,12 @@ def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
                 "not provide it (a beta-plane / profile module is not "
                 "Fourier-diagonalizable)")
         value = params[name]
-        if isinstance(value, TimeDependent):
+        if isinstance(value, fr.TimeDependent):
             return float(value.at_time(at_time))
         return float(value)
 
     return Eigenmodes(
         model.grid,
-        f0=_read(CORIOLIS_F0),
-        n2=_read(STRATIFICATION_N2),
+        f0=_read(fr.params.CORIOLIS_F0),
+        n2=_read(fr.params.STRATIFICATION_N2),
         dsqr=_read(DSQR))

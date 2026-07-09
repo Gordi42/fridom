@@ -31,48 +31,39 @@ class State(VectorField):
     -----------
     ``state["u"]`` stays the primary, module-facing spelling; the
     named properties are notebook sugar that raise a hinted
-    ``KeyError`` when a component is absent (the curated-hint contract
-    of D1.5; the landed grid layer raises ``KeyError`` rather than the
-    designed ``MissingComponentError`` — deviation noted in the port
-    report).
+    ``MissingComponentError`` (a ``KeyError`` subclass) when a
+    component is absent — the curated-hint contract of D1.5, delegated
+    to :meth:`~fridom.framework2.grid.VectorField.require`.
     """
 
     # ================================================================
     #  Curated component accessors
     # ================================================================
-    def _component(self, name: str, *, hint: str) -> ScalarField:
-        """Return the named component or raise a hinted ``KeyError``."""
-        if name not in self:
-            raise KeyError(
-                f"no component {name!r}; {hint}. Components present: "
-                f"{', '.join(self.component_names)}.")
-        return self[name]
-
     @property
     def u(self) -> ScalarField:
         """Zonal velocity (declared by a dynamical-core module)."""
-        return self._component(
+        return self.require(
             "u", hint="declared by a dynamical-core module, "
                       "e.g. nh.DynamicalCore")
 
     @property
     def v(self) -> ScalarField:
         """Meridional velocity (declared by a dynamical-core module)."""
-        return self._component(
+        return self.require(
             "v", hint="declared by a dynamical-core module, "
                       "e.g. nh.DynamicalCore")
 
     @property
     def w(self) -> ScalarField:
         """Vertical velocity (declared by a dynamical-core module)."""
-        return self._component(
+        return self.require(
             "w", hint="declared by a dynamical-core module, "
                       "e.g. nh.DynamicalCore")
 
     @property
     def b(self) -> ScalarField:
         """Buoyancy (present when a stratification module is used)."""
-        return self._component(
+        return self.require(
             "b", hint="add a stratification module, e.g. "
                       "nh.ConstantStratification")
 

@@ -36,10 +36,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.framework2.transforms.projection import (
-    EigenProjection,
-    ProjectionFactory,
-)
+import fridom.framework2 as fr
 from fridom.nonhydro2.eigenmodes import from_model
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -86,9 +83,9 @@ def _project(
 # ================================================================
 def mode_projection(
     em: Eigenmodes, s: int, *, name: str | None = None,
-) -> EigenProjection:
+) -> fr.transforms.EigenProjection:
     """Return the single-mode projection ``P(s)`` as a transform."""
-    return EigenProjection(
+    return fr.transforms.EigenProjection(
         eigenmodes=em,
         modes=(s,),
         signature=None,
@@ -114,9 +111,9 @@ def _build_divergence(em: Eigenmodes) -> StateTransform:
 # ================================================================
 #  Public dual-source projections
 # ================================================================
-VorticalProjection = ProjectionFactory(
+VorticalProjection = fr.transforms.ProjectionFactory(
     _build_vortical, from_model, "VorticalProjection")
-WaveProjection = ProjectionFactory(
+WaveProjection = fr.transforms.ProjectionFactory(
     _build_wave, from_model, "WaveProjection")
-DivergenceProjection = ProjectionFactory(
+DivergenceProjection = fr.transforms.ProjectionFactory(
     _build_divergence, from_model, "DivergenceProjection")

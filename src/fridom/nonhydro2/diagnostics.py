@@ -29,20 +29,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.fields.vector_field import VectorField
 
 
-def _detach(state: VectorField) -> VectorField:
-    """Rebuild every component to a fresh field (halo-validity reset).
-
-    Description
-    -----------
-    ``model.diagnostics.X()`` evaluates on the **live carry** state,
-    and interpolating a carry field mutates its halo-validity in place
-    (a framework halo-bookkeeping side effect). Rebuilding through
-    ``with_data`` detaches the diagnostic from the carry so a
-    diagnostic call never corrupts the next ``advance``.
-    """
-    return state.map(lambda f: f.with_data(f.data))
-
-
 def ekin(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
@@ -53,7 +39,6 @@ def ekin(
     Carries ``dsqr`` (so it is a bound diagnostic, not a State
     property). Velocities are interpolated onto the pressure cell.
     """
-    state = _detach(state)
     dsqr = params[DSQR]
     center = state["p"].function_space
     u = state["u"].to(center).data
@@ -74,7 +59,6 @@ def epot(
     Carries ``N^2``; the buoyancy is interpolated onto the pressure
     cell.
     """
-    state = _detach(state)
     n2 = params[STRATIFICATION_N2]
     center = state["p"].function_space
     b = state["b"].to(center).data
@@ -91,7 +75,6 @@ def linear_pot_vort(
     The linearized Ertel PV (the old ``linear_pot_vort``). Carries
     ``f0``, ``N^2`` and the Rossby number.
     """
-    state = _detach(state)
     f0 = params[CORIOLIS_F0]
     n2 = params[STRATIFICATION_N2]
     ro = params[SCALING_ROSSBY]

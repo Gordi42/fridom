@@ -13,10 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.framework2.model.model import Model as _Model
-from fridom.framework2.model.time_steppers.adam_bashforth import (
-    AdamBashforth,
-)
+import fridom.framework2 as fr
 from fridom.framework2.modules.coriolis import FPlaneCoriolis
 from fridom.nonhydro2.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import DynamicalCore
@@ -25,19 +22,23 @@ from fridom.nonhydro2.modules.stratification import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Sequence
+
     from fridom.framework2.grid.grid import Grid
+    from fridom.framework2.model.model import Model as _Model
+    from fridom.framework2.model.time_steppers.base import TimeStepper
 
 
 def Model(  # noqa: N802 — a factory that mirrors fr.Model's surface
     *,
     grid: Grid,
     dsqr: float = 1.0,
-    rossby_number: object = 1.0,
-    coriolis: object | None = None,
-    stratification: object | None = None,
-    advection: object | None = None,
-    modules_extra: tuple[object, ...] = (),
-    time_stepper: object | None = None,
+    rossby_number: float | fr.Ramp = 1.0,
+    coriolis: fr.Module | None = None,
+    stratification: fr.Module | None = None,
+    advection: fr.Module | bool = True,
+    modules_extra: Sequence[fr.Module] = (),
+    time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
     name: str | None = None,
 ) -> _Model:
@@ -45,28 +46,28 @@ def Model(  # noqa: N802 — a factory that mirrors fr.Model's surface
 
     Parameters
     ----------
-    grid : fr.grid.Grid
+    grid : Grid
         The grid to assemble on.
     dsqr : float, optional
         Squared aspect ratio for the dynamical core (default: 1.0).
     rossby_number : float | fr.Ramp, optional
         Rossby number (default: 1.0).
-    coriolis : fr.Module, optional
+    coriolis : fr.Module | None, optional
         The Coriolis module (default: ``FPlaneCoriolis(f0=1.0)``).
-    stratification : fr.Module, optional
+    stratification : fr.Module | None, optional
         The stratification module
         (default: ``ConstantStratification(n2=1.0)``).
-    advection : fr.Module | None, optional
-        The advection module (default: ``CenteredAdvection()``; pass
-        ``False`` — any falsy non-None — to omit advection for a
-        linear model).
-    modules_extra : tuple[fr.Module, ...], optional
+    advection : fr.Module | bool, optional
+        The advection module: ``True`` uses the default
+        ``CenteredAdvection()``, ``False`` omits advection (a linear
+        model), and a module instance is used as given (default: True).
+    modules_extra : Sequence[fr.Module], optional
         Additional modules (tracers, closures) (default: ()).
-    time_stepper : fr.time_steppers.TimeStepper, optional
+    time_stepper : TimeStepper | None, optional
         Override the default ``AdamBashforth(dt, order=3)``.
     dt : float, optional
         Time step for the default stepper (default: 1.0).
-    name : str, optional
+    name : str | None, optional
         Model name (default: None).
 
     Returns
@@ -78,19 +79,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.Model's surface
         coriolis = FPlaneCoriolis(f0=1.0)
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
-    if advection is None:
+    if advection is True:
         advection = CenteredAdvection()
     if time_stepper is None:
-        time_stepper = AdamBashforth(dt, order=3)
+        time_stepper = fr.time_steppers.AdamBashforth(dt, order=3)
 
-    modules: list[object] = [
+    modules: list[fr.Module] = [
         DynamicalCore(dsqr=dsqr, rossby_number=rossby_number),
         coriolis,
         stratification,
     ]
-    if advection:
+    if advection is not False:
         modules.append(advection)
     modules.extend(modules_extra)
 
-    return _Model(grid=grid, modules=tuple(modules),
-                  time_stepper=time_stepper, name=name)
+    return fr.Model(grid=grid, modules=tuple(modules),
+                    time_stepper=time_stepper, name=name)

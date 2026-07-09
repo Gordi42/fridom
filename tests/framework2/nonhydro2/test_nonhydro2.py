@@ -280,7 +280,19 @@ def test_state_accessors_and_missing_component_hint():
     model = nh.Model(grid=make_grid(), dt=DT)
     st = model.state
     assert st.u is st["u"]
+    assert st.v is st["v"]
+    assert st.w is st["w"]
     assert st.b is st["b"]
+    # the parameter-free vorticity diagnostic lives on the State
+    assert st.rel_vort_z.function_space is not None
+
+
+def test_bound_diagnostics_evaluate_on_the_carry():
+    model = nh.Model(grid=make_grid(), dt=DT)
+    epot = model.diagnostics.epot()
+    pv = model.diagnostics.linear_pot_vort()
+    assert bool(np.all(np.isfinite(np.asarray(epot.data))))
+    assert bool(np.all(np.isfinite(np.asarray(pv.data))))
 
 
 def test_model_without_stratification_has_no_buoyancy():
