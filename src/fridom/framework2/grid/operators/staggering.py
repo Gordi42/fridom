@@ -12,11 +12,15 @@ outputs land on the codomain's true DOFs — the staggering direction
 is pure window alignment (rules section 3.5).
 
 The alignment calculus, in units of the (uniform) cell width: the
-first true node of a BC-free nodal factor sits at a fixed offset from
+first true node of a nodal factor sits at a fixed offset from
 ``x_min`` (``Center`` 0.5, ``Left``/``Outer`` 0.0, ``Right``/``Inner``
 1.0), and a ``size``-point kernel output sits at the midpoint of its
-input window. Output slot ``m`` of the codomain storage frame is
-therefore fed by the input window starting at storage slot
+input window. BC tags are accepted as long as they drop no DOFs
+(the tag governs only the ghost fill, ``decomposition/tensor.py``);
+a Dirichlet component on a *member* boundary node (``Left`` /
+``Right`` / ``Outer``) eliminates that value DOF and is rejected.
+Output slot ``m`` of the codomain storage frame is
+fed by the input window starting at storage slot
 ``m + i0`` with ``i0 = delta - (size - 1) / 2``, where ``delta`` is
 the codomain-minus-domain first-node offset (always a half-integer
 apart, so ``i0`` is an integer for the even-size staggered family).
@@ -35,6 +39,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.operators.base import (
     FieldLike,
@@ -54,7 +59,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
 # first-node offset from x_min per node set, in cell-width units
-# (BC-free nodal spaces of the structured 1D meshes)
+# (DOF-complete nodal spaces of the structured 1D meshes)
 _FIRST_NODE_OFFSET: dict[NodeSet, float] = {
     NodeSet.CENTER: 0.5,
     NodeSet.LEFT: 0.0,
@@ -63,10 +68,78 @@ _FIRST_NODE_OFFSET: dict[NodeSet, float] = {
     NodeSet.INNER: 1.0,
 }
 
+# whether the (left, right) boundary node is a member of the node
+# set on a bounded mesh (mirror of the halo-fill geometry table in
+# ``decomposition/tensor.py``; ``spaces/nodal.py`` shape note)
+_BOUNDARY_MEMBERSHIP: dict[NodeSet, tuple[bool, bool]] = {
+    NodeSet.CENTER: (False, False),
+    NodeSet.LEFT: (True, False),
+    NodeSet.RIGHT: (False, True),
+    NodeSet.OUTER: (True, True),
+    NodeSet.INNER: (False, False),
+}
+
+
+def require_dof_preserving_bc(
+    factor: FunctionSpace, operation: str,
+) -> None:
+    """
+    Reject BC tags that drop boundary DOFs off a nodal factor.
+
+    Description
+    -----------
+    A Dirichlet component whose boundary node is a *member* of the
+    node set eliminates that value DOF (``spaces/nodal.py`` shape
+    note), so the factor's lattice no longer matches the BC-free
+    staggering calculus: the first true node moves one cell inward
+    (the halo-fill geometry of ``decomposition/tensor.py`` shifts
+    its nearest-DOF distance the same way) and the window alignment
+    below would feed the kernels phantom slots. ``Center`` and
+    ``Inner`` carry no boundary members, and a Neumann tag keeps
+    the boundary value a true DOF, so those always pass — the BC
+    tag then governs only the ghost fill.
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        A bare 1D nodal factor space.
+    operation : str
+        The dispatch kind named in the error message.
+
+    Raises
+    ------
+    SpaceMismatchError
+        If a Dirichlet component drops a member boundary DOF.
+    """
+    membership = _BOUNDARY_MEMBERSHIP.get(factor.node_set, ())
+    dropped = tuple(
+        ("left", "right")[side]
+        for side, (kind, member) in enumerate(
+            zip(factor.bc.components, membership, strict=False))
+        if member and kind is BC.DIRICHLET)
+    if dropped:
+        raise SpaceMismatchError(
+            f"{factor!r} drops its {'/'.join(dropped)} boundary "
+            f"DOF: a Dirichlet condition on a member node of "
+            f"{factor.node_set.name} eliminates the boundary value "
+            "from the space, so the staggered stencils cannot align "
+            "their windows on it (out of scope in this iteration); "
+            "keep such fields on Center/Inner (no boundary members) "
+            "or on the BC-free sibling",
+            left=factor, operation=operation)
+
 
 def first_node_offset(factor: FunctionSpace) -> float:
     """
-    First-node offset of a BC-free nodal factor, in cell widths.
+    First-node offset of a nodal factor, in cell widths.
+
+    Description
+    -----------
+    BC tags are accepted as long as they drop no DOFs: the node
+    positions are then identical to the BC-free sibling's and the
+    offset table applies unchanged (the tag governs only the ghost
+    fill). Dirichlet on a member node set (``Left`` / ``Right`` /
+    ``Outer``) raises through ``require_dof_preserving_bc``.
 
     Parameters
     ----------
@@ -82,15 +155,16 @@ def first_node_offset(factor: FunctionSpace) -> float:
     Raises
     ------
     SpaceMismatchError
-        If the factor is not a BC-free nodal space of the staggered
-        node-set family.
+        If the factor is not a nodal space of the staggered
+        node-set family, or its BC tag drops a boundary DOF.
     """
-    if (isinstance(factor, NodalSpace) and factor.bc.is_free
+    if (isinstance(factor, NodalSpace)
             and factor.node_set in _FIRST_NODE_OFFSET):
+        require_dof_preserving_bc(factor, "stencil alignment")
         return _FIRST_NODE_OFFSET[factor.node_set]
     raise SpaceMismatchError(
-        f"{factor!r} is not a BC-free staggered nodal factor; the "
-        "iteration-1 stencil kernels cover the plain "
+        f"{factor!r} is not a staggered nodal factor; the "
+        "iteration-1 stencil kernels cover the "
         "Center/Left/Right/Outer/Inner node sets only",
         left=factor, operation="stencil alignment")
 

@@ -44,10 +44,29 @@ def test_first_node_offset_rejects_non_nodal(mx):
         first_node_offset(mx.cell_avg)
 
 
-def test_first_node_offset_rejects_bc_structured(my):
-    space = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
-    with pytest.raises(SpaceMismatchError, match="BC-free"):
-        first_node_offset(space)
+def test_first_node_offset_accepts_dof_preserving_bc_tags(my):
+    # Center/Inner carry no boundary members and Neumann keeps the
+    # boundary DOF: the offsets of the BC-free table apply unchanged
+    assert first_node_offset(
+        my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)) == 0.5
+    assert first_node_offset(
+        my.nodal(NodeSet.CENTER, bc=BC.NEUMANN)) == 0.5
+    assert first_node_offset(
+        my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)) == 1.0
+    assert first_node_offset(
+        my.nodal(NodeSet.OUTER, bc=BC.NEUMANN)) == 0.0
+
+
+def test_first_node_offset_rejects_dirichlet_dropped_dofs(my):
+    # Dirichlet on a member node set drops the boundary value DOF,
+    # breaking the window-alignment lattice
+    with pytest.raises(SpaceMismatchError, match="boundary DOF"):
+        first_node_offset(my.nodal(NodeSet.OUTER, bc=BC.DIRICHLET))
+    with pytest.raises(SpaceMismatchError, match="boundary DOF"):
+        first_node_offset(my.nodal(NodeSet.RIGHT, bc=BC.DIRICHLET))
+    # a Dirichlet component on the non-member side drops nothing
+    assert first_node_offset(
+        my.nodal(NodeSet.RIGHT, bc=(BC.DIRICHLET, BC.NONE))) == 1.0
 
 
 def test_uniform_spacing(mx, my):

@@ -1467,6 +1467,18 @@ def _measure_geometry(
 _NODAL_FACTORIES = ("center", "left", "right", "outer", "inner")
 _AVERAGE_FACTORIES = ("cell_avg", "face_avg")
 
+# the BC-tagged nodal origins of the bounded trig transforms
+# (DST-II, DST-I, DCT-II, DCT-I) — also the BC-tagged operands the
+# staggered stencil rows are seeded for (the tag governs only the
+# ghost fill; the stencils' codomains are the BC-free siblings)
+_TRIG_ORIGIN_CANDIDATES: tuple[
+    tuple[type[Transform], Callable[[Mesh], FunctionSpace]], ...] = (
+    (Sine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)),
+    (Sine, lambda m: m.nodal(NodeSet.INNER, bc=BC.DIRICHLET)),
+    (Cosine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.NEUMANN)),
+    (Cosine, lambda m: m.nodal(NodeSet.OUTER, bc=BC.NEUMANN)),
+)
+
 # coefficient-space family -> transform class (explicit per-axes
 # construction is the sanctioned non-registry path)
 _TRANSFORM_FAMILY: tuple[tuple[type[CoefficientSpace],
@@ -1518,7 +1530,9 @@ def _default_registry(
     (operators_composed.md default entry table, iteration-1 subset):
     ``("diff", nodal)`` -> ``FiniteDifference(order=2)`` and
     ``("interpolate", nodal)`` -> ``LinearInterp()`` wherever the
-    per-factor signature applies; the FV/average family —
+    per-factor signature applies (including the BC-tagged trig
+    origins of bounded meshes, whose stencil codomains are the
+    BC-free siblings); the FV/average family —
     ``("reconstruct", ...)`` -> ``LinearReconstruction()`` (its
     nodal -> average rows additionally seeded under ``("average",
     ...)``, the kind ``f.to`` resolves for that direction),
@@ -1575,7 +1589,12 @@ def _default_registry(
     for mesh in meshes:
         nodal = _family_spaces(mesh, _NODAL_FACTORIES)
         average = _family_spaces(mesh, _AVERAGE_FACTORIES)
-        _seed_signature_rows(entries, nodal, (fd, interp))
+        # BC-tagged bounded trig origins get the same stencil rows:
+        # the stencils accept them (BC-aware ghost fill, BC-free
+        # codomain), so a walled grid dispatches diff/interpolate
+        # on Dirichlet/Neumann fields out of the box (C3)
+        tagged = _tagged_trig_origins(mesh)
+        _seed_signature_rows(entries, nodal + tagged, (fd, interp))
         _seed_reconstruct_rows(entries, nodal + average, reconstruct)
         _seed_signature_rows(entries, nodal + average, flux_ops)
         for space in nodal + average:
@@ -1617,9 +1636,12 @@ def _declared_space_resolver(
     The default mapping over each mesh's space vocabulary:
     ``Dof.COLLOCATED`` -> the center/nodal family (``ChebyshevMesh``,
     whose restricted family carries no cell centers, uses its
-    outer/Lobatto family instead); ``Dof.STAGGERED`` -> the
-    face/right family (an error on ``ChebyshevMesh`` — no face
-    spaces exist there). ``Dof.CONSTANT`` never reaches a resolver:
+    outer/Lobatto family instead); ``Dof.STAGGERED`` -> the face
+    family: ``Right`` on a periodic mesh, ``Inner`` on a bounded
+    one — a C-grid wall-normal velocity carries interior faces
+    only, the wall value is a boundary condition, not a DOF (an
+    error on ``ChebyshevMesh`` — no face spaces exist there).
+    ``Dof.CONSTANT`` never reaches a resolver:
     patterns route it to ``mesh.constant`` directly. Meshes without
     a nodal factory (``PointMesh``) get no default row and keep the
     hinted ``DispatchError``.
@@ -1643,7 +1665,8 @@ def _declared_space_resolver(
     elif isinstance(mesh, StructuredMesh1D):
         node_sets = {
             Dof.COLLOCATED: NodeSet.CENTER,
-            Dof.STAGGERED: NodeSet.RIGHT,
+            Dof.STAGGERED: (NodeSet.RIGHT if mesh.periodic
+                            else NodeSet.INNER),
         }
     else:
         return None
@@ -1673,6 +1696,29 @@ def _probe(factory: Callable[[], object]) -> object | None:
     except (AttributeError, TypeError, ValueError,
             NotImplementedError):
         return None
+
+
+def _tagged_trig_origins(mesh: Mesh) -> tuple[FunctionSpace, ...]:
+    """
+    Collect the BC-tagged nodal trig origins one mesh grounds.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        One grid mesh factor.
+
+    Returns
+    -------
+    tuple[FunctionSpace, ...]
+        The (real) BC-tagged origin spaces; empty on periodic
+        meshes and wherever a candidate factory is absent.
+    """
+    if getattr(mesh, "periodic", False):
+        return ()
+    return tuple(
+        origin for _family, factory in _TRIG_ORIGIN_CANDIDATES
+        if (origin := _probe(lambda f=factory, m=mesh: f(m)))
+        is not None)
 
 
 def _seed_transform_rows(
@@ -1760,13 +1806,7 @@ def _transform_origins(
                 continue  # family or Fourier signature absent
             pairs.append((Fourier, origin))
         return tuple(pairs)
-    candidates = (
-        (Sine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)),
-        (Sine, lambda m: m.nodal(NodeSet.INNER, bc=BC.DIRICHLET)),
-        (Cosine, lambda m: m.nodal(NodeSet.CENTER, bc=BC.NEUMANN)),
-        (Cosine, lambda m: m.nodal(NodeSet.OUTER, bc=BC.NEUMANN)),
-    )
-    for family, factory in candidates:
+    for family, factory in _TRIG_ORIGIN_CANDIDATES:
         origin = _probe(lambda f=factory, m=mesh: f(m))
         if origin is not None:
             pairs.append((family, origin))

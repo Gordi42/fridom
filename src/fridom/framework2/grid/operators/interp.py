@@ -7,7 +7,9 @@ Owning class doc: ``notes/framework2/classes/operators_stencils.md``.
 A ``SeparableOperator`` wrapping the pure ``linear_interp`` kernel;
 the default ``("interpolate", ...)`` entry on nodal spaces.
 Per-factor defaults: periodic ``Center <-> Right``; bounded
-``Center -> Inner``, ``Outer/Inner -> Center``. The
+``Center -> Inner``, ``Outer/Inner -> Center`` — BC-tagged bounded
+domains resolve through the same table to the **BC-free** sibling
+(the tag governs only the ghost fill; DOF-dropping tags raise). The
 ``target=NodeSet.OUTER`` variant (bounded ``Center -> Outer``,
 boundary faces by one-sided extrapolation through the BC-free ghost
 fill) is per-instance and never a default row.
@@ -30,7 +32,10 @@ from fridom.framework2.grid.operators.spectral import (
     fourier_partner,
     linear_interp_symbol,
 )
-from fridom.framework2.grid.operators.staggering import apply_staggered
+from fridom.framework2.grid.operators.staggering import (
+    apply_staggered,
+    require_dof_preserving_bc,
+)
 from fridom.framework2.grid.operators.stencil_kernels import (
     linear_interp,
 )
@@ -98,6 +103,10 @@ class LinearInterp(SeparableOperator):
         -----------
         interpolate: Center <-> Right (periodic); Center -> Inner,
         Outer/Inner -> Center (bounded); target= selects Outer.
+        BC-tagged bounded domains resolve to the **BC-free** sibling
+        (the tag governs only the ghost fill); tags that drop a
+        member boundary DOF (Dirichlet on Left/Right/Outer) are
+        rejected loudly.
 
         Parameters
         ----------
@@ -113,12 +122,13 @@ class LinearInterp(SeparableOperator):
             # layout-faithful eigenvalue threading: retag the Fourier
             # factor through the staggered origin (decision 3)
             return domain.mesh.fourier(origin=self.codomain(domain.origin))
-        if not (isinstance(domain, NodalSpace) and domain.bc.is_free):
+        if not isinstance(domain, NodalSpace):
             raise SpaceMismatchError(
-                "LinearInterp covers BC-free nodal spaces, got "
+                "LinearInterp covers nodal spaces, got "
                 f"{domain!r} (average conversions are the "
                 "'reconstruct' kind)", left=domain,
                 operation="interpolate")
+        require_dof_preserving_bc(domain, "interpolate")
         mesh = domain.mesh
         node_set = domain.node_set
         if self._target is not None:

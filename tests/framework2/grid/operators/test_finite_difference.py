@@ -15,22 +15,44 @@ from fridom.framework2.grid.operators.finite_difference import (
 from fridom.framework2.grid.operators.spectral import (
     fourier_wavenumbers,
 )
+from fridom.framework2.grid.operators.trig import Cosine, Sine
 from fridom.framework2.grid.spaces.nodal import NodeSet
+
+N = 8
 
 
 @pytest.fixture
 def mx():
-    return IntervalMesh(8, (0.0, 1.0), name="x")
+    return IntervalMesh(N, (0.0, 1.0), name="x")
 
 
 @pytest.fixture
 def my():
-    return IntervalMesh(8, (0.0, 2.0), periodic=False, name="y")
+    return IntervalMesh(N, (0.0, 2.0), periodic=False, name="y")
+
+
+@pytest.fixture
+def mz():
+    return IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
+
+
+@pytest.fixture
+def walled(mz):
+    return Grid((mz,))
 
 
 @pytest.fixture
 def fd():
     return FiniteDifference()
+
+
+def _mode_field(grid, mesh, space, family, index):
+    """Synthesize one trig mode through the backward transform."""
+    coeff_space = (mesh.sine(space) if family is Sine
+                   else mesh.cosine(space))
+    data = jnp.zeros(coeff_space.shape[0]).at[index].set(1.0)
+    coeff = grid.create_field(coeff_space, data=data)
+    return family(grid).backward(coeff)
 
 
 # ================================================================
@@ -146,10 +168,29 @@ def test_codomain_rejects_average_spaces(fd, mx):
         fd.codomain(mx.cell_avg)
 
 
-def test_codomain_rejects_bc_structured_spaces(fd, my):
-    space = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
-    with pytest.raises(SpaceMismatchError, match="BC-free"):
-        fd.codomain(space)
+def test_codomain_bc_tagged_maps_to_the_bc_free_sibling(fd, my):
+    # the BC tag governs only the ghost fill; nodal outputs are
+    # BC-free (owner decision)
+    assert fd.codomain(
+        my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)) is my.inner
+    assert fd.codomain(
+        my.nodal(NodeSet.CENTER, bc=BC.NEUMANN)) is my.inner
+    assert fd.codomain(
+        my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)) is my.center
+    assert fd.codomain(
+        my.nodal(NodeSet.OUTER, bc=BC.NEUMANN)) is my.center
+
+
+def test_codomain_rejects_dirichlet_dropped_membership(fd, my):
+    # Dirichlet on a member node set drops the boundary value DOF;
+    # the staggered stencils cannot align on such lattices
+    with pytest.raises(SpaceMismatchError, match="boundary DOF"):
+        fd.codomain(my.nodal(NodeSet.OUTER, bc=BC.DIRICHLET))
+    with pytest.raises(SpaceMismatchError, match="boundary DOF"):
+        fd.codomain(my.nodal(NodeSet.RIGHT, bc=BC.DIRICHLET))
+    with pytest.raises(SpaceMismatchError, match="boundary DOF"):
+        fd.codomain(my.nodal(
+            NodeSet.OUTER, bc=(BC.DIRICHLET, BC.NEUMANN)))
 
 
 # ================================================================
@@ -204,6 +245,94 @@ def test_bounded_inner_to_center_consumes_the_bc_free_fill(fd, my):
     d2 = fd["y"](fd["y"](f))
     assert d2.function_space.bare is my.center
     assert jnp.allclose(d2.data, jnp.full(8, -2.0))
+
+
+# ================================================================
+#  BC-tagged bounded domains (C3: the tag governs the ghost fill)
+# ================================================================
+@pytest.mark.parametrize("k0", [1, 3, N], ids=["first", "mid", "top"])
+def test_dirichlet_center_mode_derivative(fd, walled, mz, k0):
+    # sin(k0 pi z) at centers (DST-II synthesis) -> k_hat cos at the
+    # interior faces: the discrete staggered derivative is exact on
+    # single modes, k_hat = 2 sin(k dz/2) / dz
+    space = mz.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    f = _mode_field(walled, mz, space, Sine, k0 - 1)
+    df = fd["z"](f)
+    assert df.function_space.bare is mz.inner  # BC-free sibling
+    k = k0 * jnp.pi
+    k_hat = 2.0 * jnp.sin(k * mz.dx / 2.0) / mz.dx
+    z = walled.evaluation_nodes(mz.inner).data
+    assert jnp.allclose(df.data, k_hat * jnp.cos(k * z), atol=1e-14)
+
+
+def test_neumann_center_mode_derivative(fd, walled, mz):
+    # d/dz of cos(k z) sampled at centers -> -k_hat times the
+    # half-shifted sine at the interior faces
+    space = mz.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    k0 = 3
+    f = _mode_field(walled, mz, space, Cosine, k0)
+    df = fd["z"](f)
+    assert df.function_space.bare is mz.inner
+    k = k0 * jnp.pi
+    k_hat = 2.0 * jnp.sin(k * mz.dx / 2.0) / mz.dx
+    z = walled.evaluation_nodes(mz.inner).data
+    assert jnp.allclose(df.data, -k_hat * jnp.sin(k * z), atol=1e-14)
+
+
+def test_dirichlet_inner_mode_derivative(fd, walled, mz):
+    # sin(k0 pi z) on the interior faces (DST-I synthesis) -> k_hat
+    # cos at the centers; the wall rows consume the Dirichlet w = 0
+    # ghost, which coincides with the analytic sin(0) = sin(k L) = 0
+    space = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    k0 = 3
+    f = _mode_field(walled, mz, space, Sine, k0 - 1)
+    df = fd["z"](f)
+    assert df.function_space.bare is mz.center
+    k = k0 * jnp.pi
+    k_hat = 2.0 * jnp.sin(k * mz.dx / 2.0) / mz.dx
+    z = walled.evaluation_nodes(mz.center).data
+    assert jnp.allclose(df.data, k_hat * jnp.cos(k * z), atol=1e-14)
+
+
+def test_neumann_outer_mode_derivative(fd, walled, mz):
+    # cos(k0 pi z) on all faces (DCT-I synthesis) -> -k_hat sin at
+    # the centers (no ghost consumption: centers sit between faces)
+    space = mz.nodal(NodeSet.OUTER, bc=BC.NEUMANN)
+    k0 = 3
+    f = _mode_field(walled, mz, space, Cosine, k0)
+    df = fd["z"](f)
+    assert df.function_space.bare is mz.center
+    k = k0 * jnp.pi
+    k_hat = 2.0 * jnp.sin(k * mz.dx / 2.0) / mz.dx
+    z = walled.evaluation_nodes(mz.center).data
+    assert jnp.allclose(df.data, -k_hat * jnp.sin(k * z), atol=1e-14)
+
+
+def test_dirichlet_inner_wall_rows_use_zero_ghosts(fd, walled, mz):
+    # the w Dirichlet fill: the vacant wall faces are zero-value
+    # ghosts (tensor.py Inner-Dirichlet face lattice); the wall rows
+    # of the derivative match a manual stencil with w = 0 ghosts
+    space = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    w = jnp.asarray([2.0, -1.0, 4.0, 0.5, -3.0, 1.5, 2.5])
+    f = walled.create_field(space, data=w)
+    df = fd["z"](f)
+    w_ext = jnp.concatenate([jnp.zeros(1), w, jnp.zeros(1)])
+    assert jnp.allclose(df.data, jnp.diff(w_ext) / mz.dx)
+
+
+def test_bc_tagged_diff_is_registry_resolvable(walled, mz):
+    # a walled grid seeds ("diff", tagged-origin) rows, so the field
+    # verb dispatches without manual seeding
+    space = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    fd = walled.dispatch.resolve("diff", space)
+    assert isinstance(fd, FiniteDifference)
+    assert fd is walled.dispatch.resolve("diff", mz.center)
+    w = jnp.arange(1.0, 8.0)
+    f = walled.create_field(space, data=w)
+    df = f.diff("z")
+    assert df.function_space.bare is mz.center
+    w_ext = jnp.concatenate([jnp.zeros(1), w, jnp.zeros(1)])
+    assert jnp.allclose(df.data, jnp.diff(w_ext) / mz.dx)
 
 
 def test_result_metadata_is_default(fd, mx):

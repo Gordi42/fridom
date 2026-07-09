@@ -7,8 +7,11 @@ Owning class doc: ``notes/framework2/classes/operators_stencils.md``.
 A ``SeparableOperator`` wrapping the pure ``staggered_diff`` kernel;
 the default ``("diff", ...)`` entry on nodal spaces. Per-factor
 signatures: periodic ``Center -> Right``, ``Right -> Center``;
-bounded ``Center -> Inner``, ``Outer/Inner -> Center``. Nodal only —
-the FV derivative on average spaces is ``FVDerivative`` (Wave 3).
+bounded ``Center -> Inner``, ``Outer/Inner -> Center``. BC-tagged
+bounded domains are accepted when the tag drops no DOFs (the tag
+governs only the ghost fill); the codomain is always the BC-free
+sibling of the table. Nodal only — the FV derivative on average
+spaces is ``FVDerivative`` (Wave 3).
 """
 # Wave 2: FiniteDifference
 from __future__ import annotations
@@ -30,6 +33,7 @@ from fridom.framework2.grid.operators.spectral import (
 )
 from fridom.framework2.grid.operators.staggering import (
     apply_staggered,
+    require_dof_preserving_bc,
     uniform_spacing,
 )
 from fridom.framework2.grid.operators.stencil_kernels import (
@@ -96,6 +100,14 @@ class FiniteDifference(SeparableOperator):
         """
         diff: Center -> Right | Inner; Right/Outer/Inner -> Center.
 
+        Description
+        -----------
+        BC-tagged bounded domains resolve through the same table;
+        the codomain is the **BC-free** sibling (nodal outputs are
+        BC-free — the input's tag governs only the ghost fill).
+        Tags that drop a member boundary DOF (Dirichlet on
+        Left/Right/Outer) are rejected loudly.
+
         Parameters
         ----------
         domain : FunctionSpace
@@ -115,11 +127,7 @@ class FiniteDifference(SeparableOperator):
                 f"FiniteDifference is nodal-only, got {domain!r}; "
                 "the FV derivative on average spaces is FVDerivative",
                 left=domain, operation="diff")
-        if not domain.bc.is_free:
-            raise SpaceMismatchError(
-                "FiniteDifference covers BC-free nodal spaces in "
-                f"iteration 1, got {domain!r}",
-                left=domain, operation="diff")
+        require_dof_preserving_bc(domain, "diff")
         mesh = domain.mesh
         node_set = domain.node_set
         if mesh.periodic:

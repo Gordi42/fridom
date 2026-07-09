@@ -4,8 +4,11 @@ A bare ``Grid`` now seeds one resolver row per structured mesh
 factor (grid.py, ``_default_registry``), so the model-layer space
 patterns (``Collocated()`` / ``Staggered(...)`` / ``Profile(...)``)
 resolve out of the box: COLLOCATED -> the center/nodal family
-(ChebyshevMesh: the outer/Lobatto family), STAGGERED -> the
-face/right family (an error on ChebyshevMesh — no face spaces).
+(ChebyshevMesh: the outer/Lobatto family), STAGGERED -> the face
+family — Right on periodic meshes, Inner on bounded ones (a C-grid
+wall-normal velocity carries interior faces only; the wall value is
+a boundary condition, not a DOF) — and an error on ChebyshevMesh
+(no face spaces).
 """
 import pytest
 
@@ -57,14 +60,27 @@ def test_collocated_resolves_to_the_center_family(grid, meshes):
     assert space.factors == (x.center, z.center)
 
 
-def test_staggered_resolves_to_the_right_family(grid, meshes):
+def test_staggered_resolves_right_periodic_inner_bounded(grid,
+                                                         meshes):
+    # periodic axes stagger to Right; bounded axes to Inner (the
+    # wall-normal velocity's wall values are BCs, not DOFs)
     x, z = meshes
     assert Staggered("x").resolve(grid).factors == (x.right,
                                                     z.center)
     assert Staggered("z").resolve(grid).factors == (x.center,
-                                                    z.right)
+                                                    z.inner)
     assert Staggered("x", "z").resolve(grid).factors == (x.right,
-                                                         z.right)
+                                                         z.inner)
+
+
+def test_bounded_staggered_bc_resolves_on_inner(grid, meshes):
+    from fridom.framework2.grid.spaces.nodal import (  # noqa: PLC0415
+        NodeSet,
+    )
+    x, z = meshes
+    space = Staggered("z", bc={"z": BC.DIRICHLET}).resolve(grid)
+    assert space.factors == (
+        x.center, z.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
 
 
 def test_profile_mixes_constant_and_center(grid, meshes):

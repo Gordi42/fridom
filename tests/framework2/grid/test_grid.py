@@ -124,6 +124,24 @@ def test_seeded_registry_covers_the_default_rows(grid, mx, my):
         registry.resolve("diff", my.right)  # no bounded Right row
 
 
+def test_seeded_registry_covers_the_bc_tagged_trig_origins(grid, my):
+    # the four bounded trig origins (DST-II/DST-I/DCT-II/DCT-I) get
+    # the same shared stencil rows as the BC-free nodal family (C3)
+    registry = grid.dispatch
+    fd = registry.resolve("diff", my.center)
+    interp = registry.resolve("interpolate", my.center)
+    for space in (my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET),
+                  my.nodal(NodeSet.INNER, bc=BC.DIRICHLET),
+                  my.nodal(NodeSet.CENTER, bc=BC.NEUMANN),
+                  my.nodal(NodeSet.OUTER, bc=BC.NEUMANN)):
+        assert registry.resolve("diff", space) is fd
+        assert registry.resolve("interpolate", space) is interp
+    with pytest.raises(DispatchError, match="diff"):
+        # Dirichlet-Outer drops DOFs: deliberately no row
+        registry.resolve("diff",
+                         my.nodal(NodeSet.OUTER, bc=BC.DIRICHLET))
+
+
 def test_seeded_registry_covers_the_spectral_rows(grid, mx, my):
     registry = grid.dispatch
     spectral = registry.resolve("diff", mx.fourier(origin=mx.center))
