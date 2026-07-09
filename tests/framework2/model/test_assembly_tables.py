@@ -513,6 +513,30 @@ def test_from_declaration_retains_the_aux_default(grid):
     assert entry.host_writable is False
 
 
+def test_from_declaration_normalizes_a_bound_owner_method(grid):
+    owner = Strat()
+    declaration = FieldDeclaration(
+        "n2", space=Profile(), lifecycle=Lifecycle.AUXILIARY,
+        default=owner.make_n2)
+    entry = RematerializationEntry.from_declaration(
+        declaration, owner=0, space=Profile().resolve(grid),
+        owner_instance=owner)
+    # the bound owner method is normalized to its UNBOUND __func__
+    assert entry.default is Strat.make_n2
+
+
+def test_from_declaration_rejects_a_bound_other_method(grid):
+    owner = Strat()
+    stranger = Strat()
+    declaration = FieldDeclaration(
+        "n2", space=Profile(), lifecycle=Lifecycle.AUXILIARY,
+        default=stranger.make_n2)
+    with pytest.raises(TypeError, match="aliasing"):
+        RematerializationEntry.from_declaration(
+            declaration, owner=0, space=Profile().resolve(grid),
+            owner_instance=owner)
+
+
 def test_from_declaration_rejects_non_aux(grid):
     declaration = FieldDeclaration.tracer("b")
     with pytest.raises(ValueError, match="AUXILIARY"):

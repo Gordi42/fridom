@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover
         LinearBlock,
         Scale,
         linear_blocks,
+        linear_term,
     )
     from .model.model import Model
     from .model.module import Module
@@ -56,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
         Param,
         ParameterDeclaration,
         ParameterReference,
+        leaf,
     )
     from .model.results import (
         AdvanceResult,
@@ -113,7 +115,7 @@ all_imports_by_origin = {
         "SpaceRule"],
     f"{base}.model.parameters": [
         "ParameterDeclaration", "ParameterReference", "Param",
-        "USE_PROVIDED"],
+        "USE_PROVIDED", "leaf"],
     f"{base}.model.time_dependent": [
         "TimeDependent", "Ramp", "resolve_at"],
     f"{base}.model.terms": [
@@ -127,7 +129,7 @@ all_imports_by_origin = {
     f"{base}.model.energy": ["EnergyMetric"],
     f"{base}.model.linear_blocks": [
         "LinearBlock", "Coeff", "Interp", "Diff", "Scale",
-        "linear_blocks"],
+        "linear_blocks", "linear_term"],
     f"{base}.model.symbolic_eigen": [
         "SymbolicEigenmodes", "symbolic_eigenpairs"],
     f"{base}.model.term_predicates": ["linearize"],

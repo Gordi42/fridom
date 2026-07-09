@@ -21,6 +21,44 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final, NamedTuple, final
 
+import jax.numpy as jnp
+
+from fridom.framework.utils import dtype_real
+from fridom.framework2.model.time_dependent import TimeDependent
+
+
+# ================================================================
+#  Scalar-leaf coercion
+# ================================================================
+def leaf(value: float | TimeDependent) -> object:
+    r"""
+    Coerce a scalar parameter to a dynamic leaf; pass curves through.
+
+    Description
+    -----------
+    The one shared coercion for module parameter slots: a plain
+    number becomes a real-dtype ``jnp`` array (a dynamic leaf), while
+    a `TimeDependent` value (an ``fr.Ramp``) rides through untouched
+    as its own pytree — so a slot spelled ``fr.leaf(...)`` accepts
+    both a swept float and a ramped curve without each module
+    re-implementing the branch (and without the ``jnp.asarray``
+    inline form silently choking on a Ramp).
+
+    Parameters
+    ----------
+    value : float | TimeDependent
+        The scalar parameter value, or an ``fr.Ramp`` curve.
+
+    Returns
+    -------
+    object
+        The `TimeDependent` value unchanged, or ``value`` coerced to
+        a real-dtype array leaf.
+    """
+    if isinstance(value, TimeDependent):
+        return value
+    return jnp.asarray(value, dtype=dtype_real())
+
 
 # ================================================================
 #  Sentinels

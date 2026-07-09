@@ -127,15 +127,18 @@ def test_default_forms():
     assert make(owner).default_form == "owner_method"
 
 
-def test_default_rejects_bound_methods():
+def test_default_accepts_callables_and_defers_bound_check():
     class Owner:
         def make(self, grid, space):
             pass
 
-    with pytest.raises(TypeError, match="UNBOUND"):
-        FieldDeclaration("n2", space=Profile(),
-                         lifecycle=Lifecycle.AUXILIARY,
-                         default=Owner().make)
+    # a bound method is accepted at construction (accept-and-defer):
+    # the owner-identity check runs at assembly, where the owning
+    # module is known via from_declaration's owner_instance
+    decl = FieldDeclaration("n2", space=Profile(),
+                            lifecycle=Lifecycle.AUXILIARY,
+                            default=Owner().make)
+    assert callable(decl.default)
     # the unbound class attribute is the sanctioned spelling
     decl = FieldDeclaration("n2", space=Profile(),
                             lifecycle=Lifecycle.AUXILIARY,

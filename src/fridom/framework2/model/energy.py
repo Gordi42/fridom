@@ -74,6 +74,61 @@ _CSQR = "shallowwater.csqr"
 Weight = float | int | complex
 
 
+# ================================================================
+#  Per-model energy-weight builders (the single source of truth)
+# ================================================================
+def nonhydro_energy_weights(
+    dsqr: float, inv_n2: float,
+) -> dict[str, float]:
+    r"""Assemble the nonhydro energy weights ``diag(1, 1, dsqr, 1/N^2)``.
+
+    Description
+    -----------
+    The canonical nonhydro energy metric ``M`` on ``(u, v, w, b)``. The
+    caller passes the **already-computed** reciprocal ``inv_n2`` so the
+    degenerate ``N^2 = 0`` path (which the eigenmode classes permit,
+    falling back to ``1``) never divides here.
+
+    Parameters
+    ----------
+    dsqr : float
+        The squared aspect ratio (the ``w`` weight).
+    inv_n2 : float
+        The reciprocal squared buoyancy frequency ``1/N^2`` (the ``b``
+        weight), computed by the caller.
+
+    Returns
+    -------
+    dict[str, float]
+        The ``(u, v, w, b)`` energy weights.
+    """
+    return {"u": 1.0, "v": 1.0, "w": dsqr, "b": inv_n2}
+
+
+def shallowwater_energy_weights(inv_csqr: float) -> dict[str, float]:
+    r"""Assemble the shallow-water weights ``diag(1, 1, 1/c^2)``.
+
+    Description
+    -----------
+    The canonical shallow-water energy metric ``M`` on ``(u, v, p)``.
+    The caller passes the **already-computed** reciprocal ``inv_csqr``
+    so the degenerate ``c^2 = 0`` path (which the eigenmode class
+    permits, falling back to ``1``) never divides here.
+
+    Parameters
+    ----------
+    inv_csqr : float
+        The reciprocal squared phase speed ``1/c^2`` (the ``p``
+        weight), computed by the caller.
+
+    Returns
+    -------
+    dict[str, float]
+        The ``(u, v, p)`` energy weights.
+    """
+    return {"u": 1.0, "v": 1.0, "p": inv_csqr}
+
+
 class EnergyMetric:
 
     r"""
@@ -256,15 +311,14 @@ class EnergyMetric:
                 raise ValueError(
                     "the nonhydro energy weight 1/N^2 needs a nonzero "
                     "stratification 'stratification.n2'")
-            weights: dict[str, Weight | ScalarField] = {
-                "u": 1.0, "v": 1.0, "w": dsqr, "b": 1.0 / n2}
+            weights = nonhydro_energy_weights(dsqr, 1.0 / n2)
         elif _CSQR in params:
             csqr = _read_scalar(params, _CSQR, at_time)
             if csqr == 0.0:
                 raise ValueError(
                     "the shallow-water energy weight 1/c^2 needs a "
                     "nonzero phase speed 'shallowwater.csqr'")
-            weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
+            weights = shallowwater_energy_weights(1.0 / csqr)
         else:
             raise ValueError(
                 "unrecognized model energy: expected a "

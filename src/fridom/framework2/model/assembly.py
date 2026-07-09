@@ -819,9 +819,19 @@ class RematerializationEntry:
         *,
         owner: int,
         space: TensorProductSpace,
+        owner_instance: object = None,
     ) -> RematerializationEntry:
         """
         Retain one AUXILIARY declaration's default.
+
+        Description
+        -----------
+        The default may be a bound method of the owning module (the
+        natural ``default=self._make`` spelling): given the owning
+        instance, it is normalized to its ``__func__`` so the retained
+        default stays UNBOUND and is called ``default(module, grid,
+        space)`` with the *live* module at re-materialization. A bound
+        method of any OTHER object is the D2 aliasing trap.
 
         Parameters
         ----------
@@ -831,6 +841,10 @@ class RematerializationEntry:
             The owning module's tuple index.
         space : TensorProductSpace
             The resolved bare space (from the field table).
+        owner_instance : object, optional
+            The owning module instance; enables normalizing a bound
+            owner-method default to unbound (default: None — no
+            normalization, an unbound default is required).
 
         Returns
         -------
@@ -842,6 +856,9 @@ class RematerializationEntry:
         ValueError
             If the declaration is not AUXILIARY (only AUX defaults
             are retained; DIAGNOSTIC defaults are ``reset()``'s).
+        TypeError
+            If the default is a bound method of a different object
+            (the D2 aliasing trap).
         """
         if declaration.lifecycle is not Lifecycle.AUXILIARY:
             raise ValueError(
@@ -849,10 +866,60 @@ class RematerializationEntry:
                 f"{declaration.lifecycle.name}; the "
                 "re-materialization table retains AUXILIARY "
                 "declaration defaults only")
+        default = _normalize_default(
+            declaration.name, declaration.default, owner_instance)
         return cls(
             field=declaration.name, owner=owner,
-            default=declaration.default, space=space,
+            default=default, space=space,
             host_writable=declaration.host_writable)
+
+
+def _normalize_default(
+    field: str, default: object, owner_instance: object,
+) -> object:
+    """
+    Accept a bound owner-method default; normalize it to unbound.
+
+    Description
+    -----------
+    A bound method of the OWNING module (``default=self._make``) is
+    normalized to its ``__func__`` so the retained default is stored
+    UNBOUND and called ``default(module, grid, space)`` with the live
+    module (the one shared re-materialization path). A bound method of
+    any other object is the D2 aliasing trap — it would capture the
+    assembly-time instance while live parameters ride the carry.
+
+    Parameters
+    ----------
+    field : str
+        The AUXILIARY component name (error attribution).
+    default : object
+        The declaration's retained default (any of the four forms).
+    owner_instance : object
+        The owning module instance, or None (no normalization).
+
+    Returns
+    -------
+    object
+        The unbound default (``default.__func__`` for a bound owner
+        method, else ``default`` unchanged).
+
+    Raises
+    ------
+    TypeError
+        If ``default`` is a bound method of a different object.
+    """
+    if not (callable(default)
+            and getattr(default, "__self__", None) is not None):
+        return default
+    if owner_instance is not None and default.__self__ is owner_instance:
+        return default.__func__
+    raise TypeError(
+        f"field {field!r}: default= callables are stored UNBOUND "
+        f"and paired with the owner slot; {default!r} is bound to a "
+        "different object and would capture the assembly-time "
+        "instance while live parameters ride the carry (the D2 "
+        "aliasing trap). Pass the class attribute instead")
 
 
 @dataclass(frozen=True)
@@ -1593,7 +1660,7 @@ def assemble(
     # -- step 5: terms + stages, remat table, extra halo ---------
     terms = _collect_terms(modules)
     stages = _collect_stages(modules)
-    remat_table = _build_remat_table(declarations, table)
+    remat_table = _build_remat_table(declarations, table, modules)
     extra_halo = _merged_extra_halo(modules)
     composer = TendencyComposer(
         field_table=table, modules=modules, terms=terms,
@@ -1776,12 +1843,14 @@ def _collect_stages(
 def _build_remat_table(
     declarations: tuple[tuple[int, FieldDeclaration], ...],
     table: FieldTable,
+    modules: tuple,
 ) -> RematerializationTable:
     """Retain the AUXILIARY declaration defaults (the D1.1 soften)."""
     return RematerializationTable(tuple(
         RematerializationEntry.from_declaration(
             declaration, owner=slot,
-            space=table[declaration.name].space)
+            space=table[declaration.name].space,
+            owner_instance=modules[slot])
         for slot, declaration in declarations
         if declaration.lifecycle is Lifecycle.AUXILIARY))
 

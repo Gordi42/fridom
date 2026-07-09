@@ -19,7 +19,12 @@ import fridom.shallowwater2 as sw
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.fourier import Fourier
-from fridom.framework2.model.energy import EnergyMetric, _read_scalar
+from fridom.framework2.model.energy import (
+    EnergyMetric,
+    _read_scalar,
+    nonhydro_energy_weights,
+    shallowwater_energy_weights,
+)
 from fridom.framework2.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
@@ -110,6 +115,19 @@ def random_coeff_state(template, seed):
         return template.with_data(jnp.asarray(data)).with_metadata(
             name=name)
     return sw.State({c: draw(c) for c in ("u", "v", "p")})
+
+
+# ================================================================
+#  Weight builders (the single source of truth)
+# ================================================================
+def test_nonhydro_energy_weights_builder():
+    assert nonhydro_energy_weights(2.0, 0.25) == {
+        "u": 1.0, "v": 1.0, "w": 2.0, "b": 0.25}
+
+
+def test_shallowwater_energy_weights_builder():
+    assert shallowwater_energy_weights(0.5) == {
+        "u": 1.0, "v": 1.0, "p": 0.5}
 
 
 # ================================================================

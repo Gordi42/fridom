@@ -47,7 +47,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.framework.utils import dtype_real, jaxify
+from fridom.framework.utils import jaxify
 from fridom.framework2.model.declarations import (
     FieldDeclaration,
     FieldReference,
@@ -57,17 +57,15 @@ from fridom.framework2.model.linear_blocks import (
     Coeff,
     Interp,
     LinearBlock,
-    apply_linear_blocks,
+    linear_term,
 )
 from fridom.framework2.model.module import Module
-from fridom.framework2.model.parameters import ParameterDeclaration
+from fridom.framework2.model.parameters import ParameterDeclaration, leaf
 from fridom.framework2.model.params import CORIOLIS_BETA, CORIOLIS_F0
 from fridom.framework2.model.space_patterns import Profile
-from fridom.framework2.model.terms import term
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.model.context import StepContext
 
 _U_HINT = ("velocities are declared by a dynamical-core module, "
            "e.g. nh.DynamicalCore or sw.DynamicalCore")
@@ -86,19 +84,6 @@ _CORIOLIS_BLOCKS = (
     LinearBlock("v", "u", Interp(),
                 Coeff(aux="f_coriolis", const=CORIOLIS_F0, sign=-1)),
 )
-
-
-def _coriolis_tendency(state: object, ctx: object) -> dict[str, ScalarField]:
-    r"""``{u: f v, v: -f u}`` derived from the shared rotation blocks.
-
-    Description
-    -----------
-    The numeric consumer of :data:`_CORIOLIS_BLOCKS` (single source of
-    truth): ``increment[out] += coeff . op(state[src])`` interpolates
-    the Coriolis field ``f`` and the velocities to the opposite face
-    and multiplies as fields — bit-identical to the pre-block closure.
-    """
-    return apply_linear_blocks(_CORIOLIS_BLOCKS, state, ctx)
 
 
 @partial(jaxify, dynamic=("f0",))
@@ -122,7 +107,7 @@ class FPlaneCoriolis(Module):
 
     def __init__(self, f0: float = 1.0) -> None:
         """Store the Coriolis parameter as a dynamic leaf."""
-        self.f0 = jnp.asarray(f0, dtype=dtype_real())
+        self.f0 = leaf(f0)
 
     field_references = (
         FieldReference("u", hint=_U_HINT),
@@ -140,7 +125,7 @@ class FPlaneCoriolis(Module):
             FieldDeclaration(
                 "f_coriolis", space=Profile(),
                 lifecycle=Lifecycle.AUXILIARY,
-                default=FPlaneCoriolis._f_default,
+                default=self._f_default,
                 long_name="Coriolis parameter", units="1/s"),
         )
 
@@ -156,12 +141,10 @@ class FPlaneCoriolis(Module):
             space, data=jnp.full(space.shape, self.f0),
             name="f_coriolis")
 
-    @term(advances=("u", "v"), linear=True, blocks=_CORIOLIS_BLOCKS)
-    def coriolis(
-        self, state: object, ctx: StepContext,
-    ) -> dict[str, ScalarField]:
-        r"""``\partial_t u = f v``; ``\partial_t v = -f u``."""
-        return _coriolis_tendency(state, ctx)
+    #: ``du/dt = f v``; ``dv/dt = -f u``, derived wholly from the
+    #: shared rotation blocks (numeric fn + symbolic L both).
+    coriolis = linear_term(
+        "coriolis", advances=("u", "v"), blocks=_CORIOLIS_BLOCKS)
 
 
 @partial(jaxify, dynamic=("f0", "beta"))
@@ -195,8 +178,8 @@ class BetaPlaneCoriolis(Module):
         *, meridional: str = "y",
     ) -> None:
         """Store the leaves and the meridional coordinate name."""
-        self.f0 = jnp.asarray(f0, dtype=dtype_real())
-        self.beta = jnp.asarray(beta, dtype=dtype_real())
+        self.f0 = leaf(f0)
+        self.beta = leaf(beta)
         self._meridional = meridional
 
     field_references = (
@@ -216,7 +199,7 @@ class BetaPlaneCoriolis(Module):
             FieldDeclaration(
                 "f_coriolis", space=Profile(self._meridional),
                 lifecycle=Lifecycle.AUXILIARY,
-                default=BetaPlaneCoriolis._f_default,
+                default=self._f_default,
                 long_name="Coriolis parameter", units="1/s"),
         )
 
@@ -238,9 +221,7 @@ class BetaPlaneCoriolis(Module):
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="f_coriolis")
 
-    @term(advances=("u", "v"), linear=True, blocks=_CORIOLIS_BLOCKS)
-    def coriolis(
-        self, state: object, ctx: StepContext,
-    ) -> dict[str, ScalarField]:
-        r"""``\partial_t u = f(y) v``; ``\partial_t v = -f(y) u``."""
-        return _coriolis_tendency(state, ctx)
+    #: ``du/dt = f(y) v``; ``dv/dt = -f(y) u``, derived wholly from
+    #: the shared rotation blocks (numeric fn + symbolic L both).
+    coriolis = linear_term(
+        "coriolis", advances=("u", "v"), blocks=_CORIOLIS_BLOCKS)

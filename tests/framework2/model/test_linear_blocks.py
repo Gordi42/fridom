@@ -156,6 +156,39 @@ def test_existing_model_tendency_runs(sw_model):
 
 
 # ================================================================
+#  R10 — the fr.linear_term factory
+# ================================================================
+def test_linear_term_stamps_and_matches(sw_model):
+    """fr.linear_term stamps a term whose fn == apply_linear_blocks."""
+    fn = fr.linear_term(
+        "grav", advances=("u", "v", "p"), blocks=_GRAVITY_BLOCKS)
+    decl = getattr(fn, TERM_ATTRIBUTE)
+    assert decl.name == "grav"
+    assert decl.fn is fn
+    assert decl.linear is True
+    assert decl.treatment is fr.EXPLICIT
+    assert decl.advances == ("u", "v", "p")
+    assert decl.blocks == tuple(_GRAVITY_BLOCKS)
+    # the synthesized numeric fn (composer's (module, state, ctx)
+    # convention) matches the hand-rolled apply_linear_blocks
+    state, ctx = sw_model.state, _ctx(sw_model)
+    derived = apply_linear_blocks(_GRAVITY_BLOCKS, state, ctx)
+    via_fn = fn(None, state, ctx)
+    assert set(via_fn) == set(derived)
+    for name in derived:
+        assert _same(via_fn[name], derived[name])
+
+
+def test_linear_term_defaults_and_transports():
+    """Optional fields default; transports is recorded verbatim."""
+    fn = fr.linear_term(
+        "t", blocks=_GRAVITY_BLOCKS, transports=("p",))
+    decl = getattr(fn, TERM_ATTRIBUTE)
+    assert decl.advances is None
+    assert decl.transports == ("p",)
+
+
+# ================================================================
 #  T2/T3 — the linear_blocks accessor structure
 # ================================================================
 def test_linear_blocks_sw_structure(sw_model):

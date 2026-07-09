@@ -540,12 +540,39 @@ def test_stage_wrong_space_write_is_attributed(field_table, grid,
 # ================================================================
 #  Static checks at construction
 # ================================================================
-def test_bound_hook_rejected(field_table):
+def test_bound_hook_of_another_module_rejected(field_table):
+    # fn bound to a DIFFERENT object than the term's slot-0 module
     core = Core()
-    terms = ((0, TendencyTerm(name="du", fn=core.du)),)
+    stranger = Forcing()
+    terms = ((0, TendencyTerm(name="du", fn=stranger.db)),)
     with pytest.raises(AssemblyError, match="BOUND"):
         make_composer(field_table, modules=(core, Forcing()),
                       terms=terms)
+
+
+def test_bound_hook_of_owning_module_accepted(field_table):
+    # a bound method of the OWNING module normalizes to __func__ and
+    # runs correctly under the (module, state, ctx) convention
+    core = Core()
+    forcing = Forcing()
+    terms = (
+        (0, TendencyTerm(name="du", fn=core.du)),
+        (1, TendencyTerm(name="db", fn=forcing.db)),
+    )
+    composer = make_composer(field_table, modules=(core, forcing),
+                             terms=terms)
+    composer.dry_run()  # no aliasing error; the term evaluates
+
+
+def test_bound_stage_fn_rejected(field_table):
+    # stages stay strict (they have the string-fn path): a bound
+    # stage fn is the aliasing trap, even of the owning module
+    core = Core()
+    stage = Stage(kind=StageKind.DIAGNOSE, fn=core.diagnose,
+                  name="diagnose")
+    with pytest.raises(AssemblyError, match="BOUND"):
+        make_composer(field_table, modules=(core, Forcing()),
+                      stages=((0, stage),))
 
 
 def test_treatment_vs_stepper_check(field_table):

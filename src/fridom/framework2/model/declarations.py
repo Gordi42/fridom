@@ -487,18 +487,22 @@ def _check_roles(
 def _check_default(
     name: str, default: object,
 ) -> float | Callable | None:
-    """Validate the background-initializer slot."""
+    """
+    Validate the background-initializer slot (accept-and-defer).
+
+    Description
+    -----------
+    Callables are accepted here regardless of bound-ness: the
+    owner-identity check is deferred to assembly, where the owning
+    module is known
+    (``RematerializationEntry.from_declaration(owner=...)``). A bound
+    method of the OWNING module is the natural ``default=self._make``
+    spelling and normalizes to its ``__func__``; a bound method of
+    any OTHER object is the D2 aliasing trap, rejected at assembly.
+    """
     if default is None or isinstance(default, numbers.Number):
         return default
     if callable(default):
-        if getattr(default, "__self__", None) is not None:
-            raise TypeError(
-                f"field {name!r}: default= callables are stored "
-                "UNBOUND and paired with a module slot at assembly; "
-                f"{default!r} is bound and would capture the "
-                "assembly-time instance while live parameters ride "
-                "the carry (the D2 aliasing trap). Pass the class "
-                "attribute (e.g. MyModule._make_default) instead")
         return default
     raise TypeError(
         f"field {name!r}: default= takes None (zeros), a number "

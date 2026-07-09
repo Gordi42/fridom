@@ -9,8 +9,25 @@ from fridom.framework2.model.parameters import (
     Param,
     ParameterDeclaration,
     ParameterReference,
+    leaf,
 )
 from fridom.framework2.model.params import SCALING_ROSSBY, ParamName
+from fridom.framework2.model.time_dependent import Ramp
+
+
+# ================================================================
+#  fr.leaf — shared scalar-leaf coercion
+# ================================================================
+def test_leaf_coerces_a_float():
+    result = leaf(2.5)
+    assert float(result) == 2.5
+    # a real-dtype array leaf, not a bare Python float
+    assert hasattr(result, "dtype")
+
+
+def test_leaf_passes_time_dependent_through():
+    ramp = Ramp(1.0, 3.0, period=10.0)
+    assert leaf(ramp) is ramp
 
 
 # ================================================================

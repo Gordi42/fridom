@@ -39,6 +39,12 @@ from fridom.framework2.grid.operators.base import (
     resolve_codomain,
 )
 from fridom.framework2.model.assembly import _collect_terms
+from fridom.framework2.model.terms import (
+    EXPLICIT,
+    TERM_ATTRIBUTE,
+    TendencyTerm,
+    Treatment,
+)
 from fridom.framework2.model.time_dependent import resolve_at
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -441,6 +447,76 @@ def apply_linear_blocks(
         else:
             result[block.out] = contrib
     return result
+
+
+# ================================================================
+#  Term factory — a linear term is fully derived from its blocks
+# ================================================================
+def linear_term(
+    name: str,
+    *,
+    blocks: tuple[LinearBlock, ...],
+    advances: tuple[str, ...] | None = None,
+    transports: tuple[str, ...] = (),
+    treatment: Treatment = EXPLICIT,
+) -> Callable:
+    r"""
+    Build a ``@fr.term``-stamped function for a pure LINEAR term.
+
+    Description
+    -----------
+    A linear-block term is *entirely* derived from its ``blocks``:
+    the symbolic path already reads ``term.blocks`` (the single
+    source of truth), and the numeric path is the mechanical
+    ``apply_linear_blocks(blocks, state, ctx)``. This factory
+    synthesizes that body once, so a module declares the term as a
+    class attribute — ``gravity = fr.linear_term("gravity", ...)`` —
+    instead of a decorated method whose body is boilerplate.
+
+    The returned function carries the same ``TendencyTerm`` stamp
+    ``@fr.term`` installs (under ``TERM_ATTRIBUTE``), so
+    ``Module.tendency_terms`` collects it in class-definition order,
+    reading the raw class dict — it is never called bound. The
+    synthesized ``fn`` matches the composer's ``(module, state,
+    ctx)`` calling convention.
+
+    Parameters
+    ----------
+    name : str
+        The term part of the ``"Module/term"`` attribution key.
+    blocks : tuple[LinearBlock, ...]
+        The ``(out, src, op, coeff)`` block signatures — the single
+        source of truth for both the numeric and symbolic paths.
+    advances : tuple[str, ...] | None, optional
+        The advanced PROGNOSTIC subset (default: None, derived by
+        the assembly dry run).
+    transports : tuple[str, ...], optional
+        Declared transport intent for the coverage lint
+        (default: ()).
+    treatment : Treatment, optional
+        The integration treatment (default: ``fr.EXPLICIT``).
+
+    Returns
+    -------
+    Callable
+        The stamped function to assign as a class attribute.
+    """
+    blocks = tuple(blocks)
+
+    def _fn(
+        module: object,  # noqa: ARG001 — composer calling convention
+        state: object,
+        ctx: StepContext,
+    ) -> dict[str, ScalarField]:
+        """Derive the numeric increment from the shared blocks."""
+        return apply_linear_blocks(blocks, state, ctx)
+
+    _fn.__name__ = name
+    declaration = TendencyTerm(
+        name=name, fn=_fn, treatment=treatment, advances=advances,
+        transports=transports, linear=True, blocks=blocks)
+    setattr(_fn, TERM_ATTRIBUTE, declaration)
+    return _fn
 
 
 # ================================================================

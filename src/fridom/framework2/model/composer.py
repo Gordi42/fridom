@@ -354,8 +354,10 @@ class TendencyComposer:
                     f"terms[{index}]: expected a TendencyTerm, got "
                     f"{term!r}")
             key = f"{type(self._modules[slot]).__name__}/{term.name}"
-            if term.fn is not None:
-                _check_unbound(key, term.fn)
+            fn = term.fn
+            if fn is not None:
+                fn = _normalize_owned_hook(
+                    key, fn, self._modules[slot])
             if (term.treatment is Treatment.IMPLICIT
                     and term.implicit is None):
                 raise AssemblyError(
@@ -380,7 +382,7 @@ class TendencyComposer:
                     else tuple(term.implicit.fields))
             entries.append(ScheduleEntry(
                 key=key, kind=None, slot=slot, order=0, index=index,
-                fn=term.fn, gate=gate, treatment=term.treatment,
+                fn=fn, gate=gate, treatment=term.treatment,
                 advances=term.advances, reads=(),
                 implicit=term.implicit))
         return tuple(entries)
@@ -612,6 +614,56 @@ def _check_unbound(key: str, fn: object) -> None:
             "unbound and paired with a module slot at compose time "
             "(a bound method captures the assembly-time instance "
             "while live parameters ride the carry)")
+
+
+def _normalize_owned_hook(key: str, fn: object, owner: object) -> object:
+    """
+    Accept a bound method of the OWNING module; normalize to unbound.
+
+    Description
+    -----------
+    A term ``fn`` is stored unbound and paired with a module slot at
+    compose time (a bound method would pin the assembly-time instance
+    while live parameters ride the carry — the D2 aliasing trap). The
+    natural authoring spelling ``fn=self._advect`` is nonetheless
+    accepted when ``fn`` is a bound method of exactly the owning
+    module: it is normalized to its ``__func__`` so the composer's
+    ``fn(carry.modules[slot], state, ctx)`` call is identical to the
+    unbound spelling. A bound method of any OTHER object stays the
+    aliasing error.
+
+    Parameters
+    ----------
+    key : str
+        The ``"Module/term"`` attribution key (error prefix).
+    fn : object
+        The declared hook (callable; unbound or bound).
+    owner : object
+        The owning module instance (the term's slot).
+
+    Returns
+    -------
+    object
+        The unbound hook (``fn.__func__`` for a bound owner method,
+        else ``fn`` unchanged).
+
+    Raises
+    ------
+    AssemblyError
+        If ``fn`` is a bound method of a different object (the D2
+        aliasing trap).
+    """
+    bound_self = getattr(fn, "__self__", None)
+    if bound_self is None:
+        return fn
+    if bound_self is not owner:
+        raise AssemblyError(
+            f"{key}: the hook is a BOUND method of "
+            f"{type(bound_self).__name__}; hooks are stored "
+            "unbound and paired with a module slot at compose time "
+            "(a bound method captures the assembly-time instance "
+            "while live parameters ride the carry)")
+    return fn.__func__
 
 
 def _implicit_groups(
