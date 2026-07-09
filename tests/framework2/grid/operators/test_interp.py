@@ -1,5 +1,6 @@
 """Tests for fridom.framework2.grid.operators.interp."""
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.framework2.grid.bc import BC
@@ -46,6 +47,29 @@ def _mode_field(grid, mesh, space, family, index):
     data = jnp.zeros(coeff_space.shape[0]).at[index].set(1.0)
     coeff = grid.create_field(coeff_space, data=data)
     return family(grid).backward(coeff)
+
+
+# ----------------------------------------------------------------
+#  Trig coefficient spaces of a walled mesh
+# ----------------------------------------------------------------
+def _sine2(mesh):
+    """DST-II space: modes 1..n at slots 0..n-1."""
+    return mesh.sine(mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+
+
+def _sine1(mesh):
+    """DST-I space: modes 1..n-1 at slots 0..n-2."""
+    return mesh.sine(mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+
+
+def _cosine2(mesh):
+    """DCT-II space: modes 0..n-1 at slots 0..n-1."""
+    return mesh.cosine(mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN))
+
+
+def _cosine1(mesh):
+    """DCT-I space: modes 0..n at slots 0..n."""
+    return mesh.cosine(mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN))
 
 
 # ================================================================
@@ -254,10 +278,94 @@ def test_eigenvalues_nyquist_is_an_exact_structural_zero(interp, mx):
 
 
 def test_eigenvalues_raise_on_the_wrong_boundary(interp, my, mx):
-    # bounded meshes diagonalize in the sine/cosine basis
+    # BC-free bounded factors diagonalize in no seeded basis
     with pytest.raises(EigenbasisError, match="periodic"):
         interp["y"].eigenvalues(Grid((my,)), my.center)
     # the target= variant has no diagonalizing symbol in iteration 1
     with pytest.raises(EigenbasisError, match="target="):
         LinearInterp(target=NodeSet.OUTER)["x"].eigenvalues(
             Grid((mx,)), mx.center)
+
+
+# ================================================================
+#  Trig eigenvalue symbols (C4: bounded staggering diagonals)
+# ================================================================
+def test_trig_codomain_pairing_keeps_family_and_bc(interp, mz):
+    # coefficient-side codomains carry constitutive BC tags (the
+    # nodal outputs above stay BC-free — two-representations rule):
+    # interpolate keeps family and BC kind, staggering the node set
+    assert interp.codomain(_sine2(mz)) is _sine1(mz)
+    assert interp.codomain(_sine1(mz)) is _sine2(mz)
+    assert interp.codomain(_cosine1(mz)) is _cosine2(mz)
+
+
+def test_interp_on_the_dct2_family_tells_the_eigen_layer_to_skip(
+        interp, walled, mz):
+    # "cosine at Inner" is not a grounded family: both the codomain
+    # seam and the eigenvalue query raise the skip signal
+    with pytest.raises(EigenbasisError, match="skip"):
+        interp.codomain(_cosine2(mz))
+    with pytest.raises(EigenbasisError, match="skip"):
+        interp["z"].eigenvalues(walled, _cosine2(mz))
+    with pytest.raises(EigenbasisError, match="skip"):
+        interp["z"].eigenvalues(
+            walled, mz.nodal(NodeSet.CENTER, bc=BC.NEUMANN))
+
+
+def test_trig_codomain_respects_the_target_guard(mz):
+    outer = LinearInterp(target=NodeSet.OUTER)
+    with pytest.raises(SpaceMismatchError, match="target="):
+        outer.codomain(_sine2(mz))
+
+
+@pytest.mark.parametrize(
+    ("domain_of", "family"),
+    [pytest.param(_sine2, Sine, id="sine2->sine1"),
+     pytest.param(_sine1, Sine, id="sine1->sine2"),
+     pytest.param(_cosine1, Cosine, id="cosine1->cosine2")])
+def test_trig_symbol_matches_the_nodal_apply(
+        interp, walled, mz, domain_of, family):
+    # the decisive identity on random fields:
+    # backward(symbol(forward(f))) == BC-aware nodal interpolation
+    domain = domain_of(mz)
+    rng = np.random.default_rng(5)
+    f = walled.create_field(
+        domain.origin,
+        data=jnp.asarray(rng.standard_normal(domain.origin.shape)))
+    sym = interp["z"].eigenvalues(walled, domain)
+    back = family(walled).backward(sym(family(walled).forward(f)))
+    ref = interp["z"](f)
+    assert jnp.max(jnp.abs(back.data - ref.data)) < 1e-14
+
+
+def test_trig_eigenvalues_match_the_periodic_magnitude_table(
+        interp, walled, mz):
+    dz = mz.dx
+    # the same cos(k dz/2) magnitude as the periodic table at
+    # k = pi m / L, evaluated on the codomain (sine-I) mode table;
+    # real: walls kill the staggering phase
+    sym = interp["z"].eigenvalues(walled, _sine2(mz))
+    k = jnp.pi * jnp.arange(1, N)  # sine-I modes 1..n-1
+    assert jnp.array_equal(sym.data.ravel(), jnp.cos(k * dz / 2.0))
+    assert not jnp.iscomplexobj(sym.data)
+
+
+def test_trig_eigenvalues_top_mode_is_an_exact_zero(
+        interp, walled, mz):
+    # the half-angle pi/2 snap: cos(pi/2) = 0 exactly at the top
+    # sine-II mode (also absent from the DST-I domain), so
+    # Symbol.inverse sees a structural zero
+    sym = interp["z"].eigenvalues(walled, _sine1(mz))
+    assert sym.data.ravel()[-1] == 0.0
+
+
+def test_trig_eigenvalues_thread_the_tagged_nodal_factor(
+        interp, walled, mz):
+    # layout-faithful threading: the BC-tagged nodal origin resolves
+    # the same symbol as the trig coefficient factor
+    coeff_space = _sine1(mz)
+    nodal = interp["z"].eigenvalues(walled, coeff_space.origin)
+    coeff = interp["z"].eigenvalues(walled, coeff_space)
+    assert nodal.space is coeff.space
+    assert nodal.codomain is coeff.codomain
+    assert jnp.array_equal(nodal.data, coeff.data)

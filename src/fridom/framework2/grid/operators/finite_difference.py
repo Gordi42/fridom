@@ -30,6 +30,10 @@ from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.spectral import (
     finite_difference_symbol,
     fourier_partner,
+    in_trig_family,
+    trig_diff_codomain,
+    trig_finite_difference_symbol,
+    trig_partner,
 )
 from fridom.framework2.grid.operators.staggering import (
     apply_staggered,
@@ -41,7 +45,11 @@ from fridom.framework2.grid.operators.stencil_kernels import (
     staggered_diff_weights,
 )
 from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.coefficient import FourierSpace
+from fridom.framework2.grid.spaces.coefficient import (
+    CosineSpace,
+    FourierSpace,
+    SineSpace,
+)
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -71,8 +79,10 @@ class FiniteDifference(SeparableOperator):
     spacing denominator is the mesh's uniform cell width read at
     trace time (iteration-1 stand-in for the ``grid.measure`` dual
     measure field). ``eigenvalues`` is the ``i k_hat`` retagging
-    symbol on a periodic mesh (order 2, Wave 9A); bounded meshes and
-    higher orders raise ``EigenbasisError``.
+    symbol on a periodic mesh (order 2, Wave 9A) and the real
+    ``±k_hat`` sine/cosine diagonal on the walled trig families
+    (C4); BC-free bounded factors and higher orders raise
+    ``EigenbasisError``.
 
     Parameters
     ----------
@@ -122,6 +132,12 @@ class FiniteDifference(SeparableOperator):
             # layout-faithful eigenvalue threading: retag the Fourier
             # factor through the staggered origin (decision 3)
             return domain.mesh.fourier(origin=self.codomain(domain.origin))
+        if isinstance(domain, SineSpace | CosineSpace):
+            # coefficient-side pairing (constitutive tags): the
+            # family and BC kind flip, the node set staggers — unlike
+            # the BC-free nodal codomains below (two-representations
+            # rule, see the tables in ``operators.spectral``)
+            return trig_diff_codomain(domain)
         if not isinstance(domain, NodalSpace):
             raise SpaceMismatchError(
                 f"FiniteDifference is nodal-only, got {domain!r}; "
@@ -178,28 +194,31 @@ class FiniteDifference(SeparableOperator):
         space: SpaceLike,
     ) -> Symbol:
         r"""
-        Return the retagging ``i k_hat`` diagonal (periodic mesh).
+        Return the retagging ``i k_hat`` / ``±k_hat`` diagonal.
 
         Description
         -----------
-        The order-2 staggered-difference Fourier symbol
-        ``2i sin(k dx/2)/dx`` composed with the half-cell inter-origin
-        phase, retagging ``Fourier(Center) -> Fourier(Right)`` (and
-        back). Bounded meshes diagonalize in the sine/cosine basis and
-        higher orders are not grounded in iteration 1, so both raise
-        ``EigenbasisError``.
+        On a periodic mesh: the order-2 staggered-difference Fourier
+        symbol ``2i sin(k dx/2)/dx`` composed with the half-cell
+        inter-origin phase, retagging ``Fourier(Center) ->
+        Fourier(Right)`` (and back). On a walled mesh (sine/cosine
+        factors, or their BC-tagged nodal origins): the real
+        ``±2 sin(k dz/2)/dz`` derived-shift diagonal on the paired
+        trig family (``+`` on sine -> cosine, ``-`` on cosine ->
+        sine). BC-free bounded factors and higher orders are not
+        grounded in iteration 1 and raise ``EigenbasisError``.
 
         Parameters
         ----------
         grid : object
             The grid (unused: the nodal factor carries the mesh).
         space : SpaceLike
-            The nodal coefficient factor (or product) space.
+            The nodal or coefficient factor (or product) space.
 
         Returns
         -------
         Symbol
-            The ``i k_hat`` diagonal on the Fourier factor.
+            The staggering diagonal on the coefficient factor.
         """
         if self._order != _SYMBOL_ORDER:
             raise EigenbasisError(
@@ -208,6 +227,12 @@ class FiniteDifference(SeparableOperator):
         bare = space.bare
         axis = _resolve_axis(self, bare)
         factor = bare.factor(axis)
+        if in_trig_family(factor):
+            # bounded staggering diagonalizes in the sine/cosine
+            # basis (C4); the codomain carries the constitutive tag
+            coeff, _origin = trig_partner(factor, "FiniteDifference")
+            return trig_finite_difference_symbol(
+                bare, axis, coeff, self.codomain(coeff))
         # resolve the source Fourier factor from the threaded layout
         # (nodal operand, or a transformed rfftn coefficient factor)
         src, nodal_origin = fourier_partner(factor, "FiniteDifference")

@@ -30,7 +30,11 @@ from fridom.framework2.grid.operators.base import (
 from fridom.framework2.grid.operators.interned import interned
 from fridom.framework2.grid.operators.spectral import (
     fourier_partner,
+    in_trig_family,
     linear_interp_symbol,
+    trig_interp_codomain,
+    trig_linear_interp_symbol,
+    trig_partner,
 )
 from fridom.framework2.grid.operators.staggering import (
     apply_staggered,
@@ -40,7 +44,11 @@ from fridom.framework2.grid.operators.stencil_kernels import (
     linear_interp,
 )
 from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.coefficient import FourierSpace
+from fridom.framework2.grid.spaces.coefficient import (
+    CosineSpace,
+    FourierSpace,
+    SineSpace,
+)
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -65,9 +73,10 @@ class LinearInterp(SeparableOperator):
     Fixed codomain per rules section 3.4: the registered operator
     fixes its own codomain, alternative codomains are per-instance
     via the ``target=`` constructor knob. ``eigenvalues`` is the
-    ``one_hat`` averaging symbol on a periodic mesh (Wave 9A);
-    bounded meshes and the ``target=`` variant raise
-    ``EigenbasisError``.
+    ``one_hat`` averaging symbol on a periodic mesh (Wave 9A) and
+    the real ``cos(k dz/2)`` sine/cosine diagonal on the walled
+    trig families (C4, DCT-II excluded); BC-free bounded factors
+    and the ``target=`` variant raise ``EigenbasisError``.
 
     Parameters
     ----------
@@ -122,6 +131,8 @@ class LinearInterp(SeparableOperator):
             # layout-faithful eigenvalue threading: retag the Fourier
             # factor through the staggered origin (decision 3)
             return domain.mesh.fourier(origin=self.codomain(domain.origin))
+        if isinstance(domain, SineSpace | CosineSpace):
+            return self._trig_codomain(domain)
         if not isinstance(domain, NodalSpace):
             raise SpaceMismatchError(
                 "LinearInterp covers nodal spaces, got "
@@ -165,6 +176,37 @@ class LinearInterp(SeparableOperator):
             codomain = codomain.as_complex()
         return codomain
 
+    def _trig_codomain(self, domain: FunctionSpace) -> FunctionSpace:
+        """
+        Coefficient-side pairing of a sine/cosine factor.
+
+        Description
+        -----------
+        Constitutive tags (two-representations rule, see the tables
+        in ``operators.spectral``): family and BC kind are kept, the
+        node set staggers — unlike the BC-free nodal codomains of
+        the default table. The DCT-II domain raises
+        ``EigenbasisError`` (the eigen-layer skip signal), and the
+        ``target=`` variant has no trig pairing.
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare sine/cosine coefficient factor.
+
+        Returns
+        -------
+        FunctionSpace
+            The same-family, BC-tagged codomain factor.
+        """
+        if self._target is not None:
+            raise SpaceMismatchError(
+                "the target= variant grounds bounded "
+                "Center -> Outer only in iteration 1; got "
+                f"target={self._target} on {domain!r}",
+                left=domain, operation="interpolate")
+        return trig_interp_codomain(domain)
+
     def requirements(
         self,
         domain: FunctionSpace,  # noqa: ARG002 — fixed two-point halo
@@ -190,28 +232,33 @@ class LinearInterp(SeparableOperator):
         space: SpaceLike,
     ) -> Symbol:
         r"""
-        Return the retagging ``one_hat`` diagonal (periodic mesh).
+        Return the retagging ``one_hat`` diagonal.
 
         Description
         -----------
-        The two-point averaging Fourier symbol ``cos(k dx/2)``
-        composed with the half-cell inter-origin phase, retagging
-        ``Fourier(Center) -> Fourier(Right)`` (and back). The
-        ``target=`` variant and bounded meshes are not grounded as
-        diagonalizing symbols in iteration 1, so they raise
-        ``EigenbasisError``.
+        On a periodic mesh: the two-point averaging Fourier symbol
+        ``cos(k dx/2)`` composed with the half-cell inter-origin
+        phase, retagging ``Fourier(Center) -> Fourier(Right)`` (and
+        back). On a walled mesh (sine/cosine factors, or their
+        BC-tagged nodal origins): the real ``cos(k dz/2)``
+        derived-shift diagonal on the same trig family (the DCT-II
+        domain has no grounded codomain family and raises
+        ``EigenbasisError`` — the eigen layer skips it). The
+        ``target=`` variant and BC-free bounded factors are not
+        grounded as diagonalizing symbols in iteration 1, so they
+        raise ``EigenbasisError`` too.
 
         Parameters
         ----------
         grid : object
             The grid (unused: the nodal factor carries the mesh).
         space : SpaceLike
-            The nodal coefficient factor (or product) space.
+            The nodal or coefficient factor (or product) space.
 
         Returns
         -------
         Symbol
-            The ``one_hat`` diagonal on the Fourier factor.
+            The ``one_hat`` diagonal on the coefficient factor.
         """
         if self._target is not None:
             raise EigenbasisError(
@@ -220,6 +267,12 @@ class LinearInterp(SeparableOperator):
         bare = space.bare
         axis = _resolve_axis(self, bare)
         factor = bare.factor(axis)
+        if in_trig_family(factor):
+            # bounded staggering diagonalizes in the sine/cosine
+            # basis (C4); the codomain carries the constitutive tag
+            coeff, _origin = trig_partner(factor, "LinearInterp")
+            return trig_linear_interp_symbol(
+                bare, axis, coeff, self.codomain(coeff))
         # resolve the source Fourier factor from the threaded layout
         # (nodal operand, or a transformed rfftn coefficient factor)
         src, nodal_origin = fourier_partner(factor, "LinearInterp")

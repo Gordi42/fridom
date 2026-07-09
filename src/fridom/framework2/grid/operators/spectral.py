@@ -10,9 +10,10 @@ choice there; ``PhaseShift`` and ``SincShift`` are the exact
 inter-origin conversions (rules section 3.2). All three are diagonal
 (or index-shifted diagonal) multiplies whose values derive from the
 factor's mesh at trace time; ``eigenvalues`` returns the matching
-``Symbol`` on Fourier factors (Wave 9A). The sine/cosine derivative
-(an index-shifted diagonal) and the Chebyshev recurrence raise
-``EigenbasisError`` — deferred to the block/eigen layer.
+``Symbol`` on Fourier factors (Wave 9A) and, since the derived-shift
+``Symbol`` alignment landed, on the sine/cosine families too (the
+diagonal lives in the codomain slot layout). The Chebyshev
+recurrence couples all modes and keeps raising ``EigenbasisError``.
 
 Coefficient conventions match the transforms (index-based amplitude
 convention of ``operators.fourier`` and the sine/cosine mode tables
@@ -226,8 +227,10 @@ class SpectralDerivative(SeparableOperator):
     Neumann) ``d/dx: Sine -> Cosine`` lands in cosine ``k = 1..n-1``
     (neither ``k = 0`` nor ``k = n`` is populated); the reverse
     annihilates the constant ``k = 0`` **and** the Nyquist cosine
-    ``k = n``. ``eigenvalues`` inherits the raising base until
-    ``Symbol`` lands (designed-for).
+    ``k = n``. ``eigenvalues`` returns the ``i k`` diagonal on
+    Fourier factors and the (real, derived-shift) ``±pi k / L``
+    diagonal on sine/cosine factors; Chebyshev raises
+    ``EigenbasisError``.
     """
 
     dispatch_kind: ClassVar[str | None] = "diff"
@@ -305,16 +308,22 @@ class SpectralDerivative(SeparableOperator):
         space: SpaceLike,
     ) -> Symbol:
         r"""
-        Return the exact Fourier ``i k`` diagonal (retag-free).
+        Return the exact ``i k`` (Fourier) / ``±pi k / L`` diagonal.
 
         Description
         -----------
         The spectral derivative is a diagonal multiply on a Fourier
         factor (the Nyquist mode of even-length spectra annihilated,
-        matching ``_apply_factor``). The sine/cosine derivative is an
-        index-shifted diagonal that the Hadamard ``Symbol`` cannot
-        carry, and the Chebyshev recurrence couples all modes, so both
-        raise ``EigenbasisError`` (deferred to the block layer).
+        matching ``_apply_factor``) and a **derived-shift** diagonal
+        on the sine/cosine families: the real ``±pi k / L`` values,
+        stored in the codomain slot layout per the ``Symbol``
+        convention (``+`` on sine -> cosine, ``-`` on cosine -> sine,
+        matching the four apply kernels bitwise; modes the codomain
+        lacks are annihilated by the embedding, modes the domain
+        lacks multiply structural zero-fills — the cosine ``k = 0``
+        entry is an exact zero so inverses/round-trips stay clean).
+        The Chebyshev recurrence couples all modes and raises
+        ``EigenbasisError`` (deferred to the block layer).
 
         Parameters
         ----------
@@ -326,18 +335,22 @@ class SpectralDerivative(SeparableOperator):
         Returns
         -------
         Symbol
-            The ``i k`` diagonal on the Fourier factor.
+            The diagonal on the coefficient factor.
         """
         bare = space.bare
         axis = _resolve_axis(self, bare)
         factor = bare.factor(axis)
+        if isinstance(factor, SineSpace | CosineSpace):
+            out_factor = self.codomain(factor)
+            k = trig_wavenumbers(out_factor)
+            leaf = k if isinstance(factor, SineSpace) else -k
+            return diagonal_symbol(bare, axis, factor, out_factor,
+                                   leaf)
         if not isinstance(factor, FourierSpace):
             raise EigenbasisError(
                 "SpectralDerivative has a diagonal symbol only on "
-                f"Fourier factors, got {factor!r}: the sine/cosine "
-                "derivative is an index-shifted diagonal (deferred to "
-                "the block layer) and the Chebyshev recurrence couples "
-                "all modes")
+                f"Fourier and sine/cosine factors, got {factor!r}: "
+                "the Chebyshev recurrence couples all modes")
         k = _zero_nyquist(fourier_wavenumbers(factor), factor)
         return diagonal_symbol(bare, axis, factor, factor, 1j * k)
 
@@ -863,6 +876,358 @@ def fourier_partner(
         periodic_fourier_factor(origin, who)  # validate the origin
         return factor, origin
     return periodic_fourier_factor(factor, who), factor
+
+
+# ================================================================
+#  Staggering (bounded trig) partners and codomain pairing
+# ================================================================
+# the (basis <- origin node set, BC) rows of the bounded trig
+# transforms (mirror of ``grid._TRIG_ORIGIN_CANDIDATES`` and the
+# origin tables in ``operators.trig``)
+_TRIG_BASIS_ROWS: tuple[tuple[BC, tuple[NodeSet, ...], str], ...] = (
+    (BC.DIRICHLET, (NodeSet.CENTER, NodeSet.INNER), "sine"),
+    (BC.NEUMANN, (NodeSet.CENTER, NodeSet.OUTER), "cosine"),
+)
+
+# constitutive coefficient-side codomains of the order-2 staggering
+# stencils on the trig families. Two-representations rule: the
+# stencils' NODAL codomains are the BC-free siblings (the input's
+# tag governs only the ghost fill), but their COEFFICIENT codomains
+# carry BC-tagged origins — the tag is constitutive of the basis.
+# ``diff`` flips the family and the BC kind, staggering the node
+# set; ``interpolate`` keeps both, staggering the node set (the
+# missing DCT-II row would land on "cosine at Inner", which is not
+# a grounded family — ``trig_interp_codomain`` raises there).
+_TRIG_DIFF_PAIRING: dict[
+    tuple[type, NodeSet], tuple[str, NodeSet, BC]] = {
+    (SineSpace, NodeSet.CENTER):
+        ("cosine", NodeSet.OUTER, BC.NEUMANN),
+    (SineSpace, NodeSet.INNER):
+        ("cosine", NodeSet.CENTER, BC.NEUMANN),
+    (CosineSpace, NodeSet.CENTER):
+        ("sine", NodeSet.INNER, BC.DIRICHLET),
+    (CosineSpace, NodeSet.OUTER):
+        ("sine", NodeSet.CENTER, BC.DIRICHLET),
+}
+_TRIG_INTERP_PAIRING: dict[
+    tuple[type, NodeSet], tuple[str, NodeSet, BC]] = {
+    (SineSpace, NodeSet.CENTER):
+        ("sine", NodeSet.INNER, BC.DIRICHLET),
+    (SineSpace, NodeSet.INNER):
+        ("sine", NodeSet.CENTER, BC.DIRICHLET),
+    (CosineSpace, NodeSet.OUTER):
+        ("cosine", NodeSet.CENTER, BC.NEUMANN),
+}
+
+
+def in_trig_family(factor: FunctionSpace) -> bool:
+    """
+    Whether a factor diagonalizes in the sine/cosine basis.
+
+    Description
+    -----------
+    The routing predicate of the staggering ``eigenvalues`` methods
+    (``FiniteDifference``/``LinearInterp``): ``True`` on sine/cosine
+    coefficient factors and on BC-tagged bounded nodal factors —
+    :func:`trig_partner` then validates the exact (node set, BC)
+    row. Periodic and BC-free factors return ``False`` and keep the
+    Fourier path bitwise untouched.
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        The threaded coefficient or nodal factor.
+
+    Returns
+    -------
+    bool
+        Whether the trig staggering-symbol path applies.
+    """
+    if isinstance(factor, SineSpace | CosineSpace):
+        return True
+    return (isinstance(factor, NodalSpace)
+            and not getattr(factor.mesh, "periodic", False)
+            and not factor.bc.is_free)
+
+
+def trig_partner(
+    factor: FunctionSpace, who: str,
+) -> tuple[SineSpace | CosineSpace, FunctionSpace]:
+    r"""
+    Resolve the sine/cosine factor and its BC-tagged nodal origin.
+
+    Description
+    -----------
+    The bounded sibling of :func:`fourier_partner`: on a walled mesh
+    a staggering stencil diagonalizes in the sine/cosine basis, and
+    the eigenvalue query may thread the **trig coefficient** factor
+    itself (a transformed coefficient space — the spectral solve) or
+    the **BC-tagged bounded nodal** origin (the physical operand
+    space — the eigenmode path). A nodal factor resolves through the
+    same (basis <- origin node set, BC) table the trig transforms
+    use: Dirichlet ``Center``/``Inner`` -> DST-II/DST-I, Neumann
+    ``Center``/``Outer`` -> DCT-II/DCT-I. Anything else — BC-free or
+    mixed-tag nodal factors, Chebyshev factors — raises
+    ``EigenbasisError`` (no closed staggering diagonal).
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        The threaded coefficient factor (trig or tagged nodal).
+    who : str
+        The querying operator name, for the error message.
+
+    Returns
+    -------
+    tuple[SineSpace | CosineSpace, FunctionSpace]
+        ``(trig_factor, nodal_origin)``.
+    """
+    if isinstance(factor, SineSpace | CosineSpace):
+        return factor, factor.origin
+    if (isinstance(factor, NodalSpace)
+            and not getattr(factor.mesh, "periodic", False)):
+        components = factor.bc.components
+        for kind, node_sets, family in _TRIG_BASIS_ROWS:
+            if (factor.node_set in node_sets
+                    and all(c is kind for c in components)):
+                return getattr(factor.mesh, family)(factor), factor
+    raise EigenbasisError(
+        f"{who} has a sine/cosine symbol only on Sine/Cosine "
+        "coefficient factors and the BC-tagged bounded trig origins "
+        "(Dirichlet Center/Inner, Neumann Center/Outer), got "
+        f"{factor!r}: Chebyshev and mixed-tag factors have no "
+        "staggering diagonal in iteration 1")
+
+
+def trig_diff_codomain(
+    domain: SineSpace | CosineSpace,
+) -> SineSpace | CosineSpace:
+    r"""
+    Coefficient-side ``diff`` codomain of a trig factor.
+
+    Description
+    -----------
+    The constitutive pairing of the order-2 staggered derivative
+    (module table ``_TRIG_DIFF_PAIRING``): the family **and** the BC
+    kind flip while the origin node set staggers —
+    ``Sine-II(Center, DIR) <-> Cosine-I(Outer, NEU)`` and
+    ``Sine-I(Inner, DIR) <-> Cosine-II(Center, NEU)``.
+
+    Parameters
+    ----------
+    domain : SineSpace | CosineSpace
+        The bare trig coefficient factor.
+
+    Returns
+    -------
+    SineSpace | CosineSpace
+        The flipped-family codomain factor (scalars preserved).
+    """
+    return _trig_pairing(domain, _TRIG_DIFF_PAIRING, "diff")
+
+
+def trig_interp_codomain(
+    domain: SineSpace | CosineSpace,
+) -> SineSpace | CosineSpace:
+    r"""
+    Coefficient-side ``interpolate`` codomain of a trig factor.
+
+    Description
+    -----------
+    The constitutive pairing of the two-point staggering mean
+    (module table ``_TRIG_INTERP_PAIRING``): the family and the BC
+    kind are kept while the origin node set staggers —
+    ``Sine-I <-> Sine-II`` and ``Cosine-I -> Cosine-II``. The DCT-II
+    (Neumann ``Center``) domain would land on cosine values at the
+    interior faces — not a grounded coefficient family — and raises
+    ``EigenbasisError`` so the eigen layer skips that factor.
+
+    Parameters
+    ----------
+    domain : SineSpace | CosineSpace
+        The bare trig coefficient factor.
+
+    Returns
+    -------
+    SineSpace | CosineSpace
+        The same-family codomain factor (scalars preserved).
+    """
+    origin = domain.origin
+    if (isinstance(domain, CosineSpace)
+            and isinstance(origin, NodalSpace)
+            and origin.node_set is NodeSet.CENTER):
+        raise EigenbasisError(
+            "interpolate on the DCT-II family (Neumann Center "
+            "origin) lands on cosine values at the interior faces — "
+            "not a grounded coefficient family; the eigen layer "
+            "must skip this factor")
+    return _trig_pairing(domain, _TRIG_INTERP_PAIRING, "interpolate")
+
+
+def _trig_pairing(
+    domain: SineSpace | CosineSpace,
+    table: dict[tuple[type, NodeSet], tuple[str, NodeSet, BC]],
+    operation: str,
+) -> SineSpace | CosineSpace:
+    """Resolve one row of a trig staggering pairing table."""
+    origin = domain.origin
+    node_set = (origin.node_set
+                if isinstance(origin, NodalSpace) else None)
+    row = table.get((type(domain), node_set))
+    if row is None:
+        raise SpaceMismatchError(
+            f"no {operation} pairing on {domain!r}: the trig "
+            "staggering tables cover the DST-II/DST-I/DCT-II/DCT-I "
+            "families", left=domain, operation=operation)
+    family, target_set, kind = row
+    partner = _paired_origin(origin, target_set, kind)
+    return getattr(domain.mesh, family)(partner)
+
+
+def trig_staggering_symbol(
+    bare: SpaceLike, axis: str,
+    domain: SineSpace | CosineSpace,
+    codomain: SineSpace | CosineSpace,
+    magnitude: object, top: object,
+) -> Symbol:
+    r"""
+    Sine/cosine diagonal of a bounded staggering stencil.
+
+    Description
+    -----------
+    The bounded sibling of ``_staggering_symbol``: on a walled mesh
+    the order-2 staggering stencils diagonalize in the sine/cosine
+    basis with **real** diagonals — the walls kill the periodic
+    staggering phase; the half-cell move is absorbed by the family
+    flip (``diff``) / half-shifted same-family evaluation
+    (``interpolate``) of the codomain basis. The diagonal is
+    ``magnitude(pi m / L, dz)`` evaluated on the **codomain** mode
+    table (slot ``j`` holds mode ``j + codomain.mode_offset``, where
+    the derived-shift ``Symbol`` stores its data), with two exact
+    snaps: ``top`` maps the top-mode entry (mode ``n``, half-angle
+    ``pi / 2``) to its analytic value — ``cos(pi/2) = 0`` exactly
+    for the interp diagonal, the bounded analogue of the periodic
+    Nyquist snap — and codomain modes **absent from the domain's
+    mode range** (e.g. cosine ``k = 0`` under diff-from-sine) are
+    pinned to exact structural zeros: they multiply structural
+    zero-fills of the embedding anyway, and exact zeros keep
+    ``Symbol.inverse`` and round trips clean.
+
+    Parameters
+    ----------
+    bare : SpaceLike
+        The bare operand space the eigenvalue query threads.
+    axis : str
+        The coordinate the stencil acts along.
+    domain : SineSpace | CosineSpace
+        The source trig coefficient factor.
+    codomain : SineSpace | CosineSpace
+        The paired codomain trig factor (pairing tables above).
+    magnitude : object
+        Callable ``(k, dz) -> diagonal`` on the codomain mode table.
+    top : object
+        Callable snapping the top-mode entry to its exact value.
+
+    Returns
+    -------
+    Symbol
+        The real, derived-shift staggering diagonal.
+    """
+    n = domain.mesh.n_cells
+    dz = _length(domain) / n
+    leaf = magnitude(trig_wavenumbers(codomain), dz)
+    offset = codomain.mode_offset
+    slots = codomain.shape[0]
+    top_slot = n - offset  # the half-angle pi/2 mode, if present
+    if 0 <= top_slot < slots:
+        leaf = leaf.at[top_slot].set(top(leaf[top_slot]))
+    head = max(0, domain.mode_offset - offset)
+    tail = max(0, (offset + slots)
+               - (domain.mode_offset + domain.shape[0]))
+    if head:  # codomain modes below the domain's mode range
+        leaf = leaf.at[:head].set(0.0)
+    if tail:  # codomain modes above the domain's mode range
+        leaf = leaf.at[slots - tail:].set(0.0)
+    return diagonal_symbol(bare, axis, domain, codomain, leaf)
+
+
+def trig_finite_difference_symbol(
+    bare: SpaceLike, axis: str,
+    domain: SineSpace | CosineSpace,
+    codomain: SineSpace | CosineSpace,
+) -> Symbol:
+    r"""
+    Bounded order-2 staggered-FD diagonal ``±2 sin(k dz/2)/dz``.
+
+    Description
+    -----------
+    The bounded row of the ``k_hat`` table: the **same magnitude**
+    as the periodic ``finite_difference_symbol``, evaluated at
+    ``k = pi m / L`` on the codomain mode table, real (no phase),
+    with the nodal kernels' family-flip signs — ``+k_hat`` on
+    sine -> cosine and ``-k_hat`` on cosine -> sine, exactly as the
+    staggered nodal ground truth (and ``_cosine_to_sine``) spell it.
+
+    Parameters
+    ----------
+    bare : SpaceLike
+        The bare operand space the eigenvalue query threads.
+    axis : str
+        The coordinate the derivative acts along.
+    domain : SineSpace | CosineSpace
+        The source trig coefficient factor.
+    codomain : SineSpace | CosineSpace
+        The flipped-family codomain factor.
+
+    Returns
+    -------
+    Symbol
+        The real ``±k_hat`` derived-shift diagonal.
+    """
+    sign = 1.0 if isinstance(domain, SineSpace) else -1.0
+    # the top-mode entry is already exact: sin(pi/2) == 1.0 bitwise
+    return trig_staggering_symbol(
+        bare, axis, domain, codomain,
+        lambda k, dz: sign * (2.0 * jnp.sin(k * dz / 2.0) / dz),
+        jnp.real)
+
+
+def trig_linear_interp_symbol(
+    bare: SpaceLike, axis: str,
+    domain: SineSpace | CosineSpace,
+    codomain: SineSpace | CosineSpace,
+) -> Symbol:
+    r"""
+    Bounded two-point averaging diagonal ``cos(k dz/2)``.
+
+    Description
+    -----------
+    The bounded row of the ``one_hat`` table: the **same magnitude**
+    as the periodic ``linear_interp_symbol`` at ``k = pi m / L`` on
+    the codomain mode table, real, family kept. The top-mode entry
+    (half-angle ``pi / 2``) is a structural zero — ``cos(pi/2) = 0``
+    exactly, so ``Symbol.inverse`` sees it.
+
+    Parameters
+    ----------
+    bare : SpaceLike
+        The bare operand space the eigenvalue query threads.
+    axis : str
+        The coordinate the interpolation acts along.
+    domain : SineSpace | CosineSpace
+        The source trig coefficient factor.
+    codomain : SineSpace | CosineSpace
+        The same-family codomain factor.
+
+    Returns
+    -------
+    Symbol
+        The real ``one_hat`` derived-shift diagonal.
+    """
+    return trig_staggering_symbol(
+        bare, axis, domain, codomain,
+        lambda k, dz: jnp.cos(k * dz / 2.0),
+        jnp.zeros_like)
 
 
 def _match_scalars(

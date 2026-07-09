@@ -1,5 +1,6 @@
 """Coefficient-space operator tests (derivative, shifts)."""
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.framework2.grid.bc import BC
@@ -17,6 +18,7 @@ from fridom.framework2.grid.operators.spectral import (
     finite_difference_symbol,
     fourier_wavenumbers,
     linear_interp_symbol,
+    trig_partner,
 )
 from fridom.framework2.grid.operators.symbol import Symbol
 from fridom.framework2.grid.operators.trig import Cosine, Sine
@@ -36,6 +38,29 @@ def periodic():
 def bounded():
     mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="x")
     return Grid((mesh,)), mesh
+
+
+# ----------------------------------------------------------------
+#  Trig coefficient spaces of a walled mesh
+# ----------------------------------------------------------------
+def _sine2(mesh):
+    """DST-II space: modes 1..n at slots 0..n-1."""
+    return mesh.sine(mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+
+
+def _sine1(mesh):
+    """DST-I space: modes 1..n-1 at slots 0..n-2."""
+    return mesh.sine(mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+
+
+def _cosine2(mesh):
+    """DCT-II space: modes 0..n-1 at slots 0..n-1."""
+    return mesh.cosine(mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN))
+
+
+def _cosine1(mesh):
+    """DCT-I space: modes 0..n at slots 0..n."""
+    return mesh.cosine(mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN))
 
 
 # ================================================================
@@ -96,6 +121,13 @@ def test_i_type_pair_signatures(bounded):
     assert d.codomain(mesh.cosine(outer)) is mesh.sine(inner)
 
 
+def test_trig_derivative_rejects_unlisted_origins(bounded):
+    _, mesh = bounded
+    left = mesh.sine(mesh.nodal(NodeSet.LEFT, bc=BC.DIRICHLET))
+    with pytest.raises(SpaceMismatchError, match="II-type"):
+        SpectralDerivative().codomain(left)
+
+
 def test_requirements_and_dispatch_kind(periodic):
     _, mesh = periodic
     d = SpectralDerivative()
@@ -119,13 +151,65 @@ def test_spectral_derivative_eigenvalues_is_the_ik_diagonal(periodic):
     assert sym.data[-1] == 0
 
 
-def test_spectral_derivative_eigenvalues_raise_off_fourier(bounded):
+def test_spectral_derivative_trig_eigenvalues_ii_pair(bounded):
     grid, mesh = bounded
-    sine = mesh.sine(mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
-    # the sine/cosine derivative is an index-shifted diagonal the
-    # Hadamard Symbol cannot carry (deferred to the block layer)
-    with pytest.raises(EigenbasisError, match="index-shifted"):
-        SpectralDerivative().eigenvalues(grid, sine)
+    n = mesh.n_cells
+    d = SpectralDerivative()
+    # d/dx on DST-II modes: sine k -> cosine k. The diagonal lives
+    # in the codomain (cosine) slot layout — slot j holds pi j / L,
+    # with an exact 0 at cosine k = 0 (it multiplies the structural
+    # zero-fill of the embedding; test_symbol.py builds it by hand)
+    fwd = d.eigenvalues(grid, _sine2(mesh))
+    assert fwd.space is _sine2(mesh)
+    assert fwd.codomain is _cosine2(mesh)
+    assert jnp.array_equal(fwd.data.ravel(), jnp.pi * jnp.arange(n))
+    assert fwd.data.ravel()[0] == 0.0
+    # the reverse: cosine k -> sine k, sine slot j holds -pi (j+1)/L
+    bwd = d.eigenvalues(grid, _cosine2(mesh))
+    assert bwd.space is _cosine2(mesh)
+    assert bwd.codomain is _sine2(mesh)
+    assert jnp.array_equal(bwd.data.ravel(),
+                           -jnp.pi * jnp.arange(1, n + 1))
+
+
+def test_spectral_derivative_trig_eigenvalues_i_pair(bounded):
+    grid, mesh = bounded
+    n = mesh.n_cells
+    d = SpectralDerivative()
+    # DST-I -> DCT-I: an n + 1 diagonal pi j / L (slots 0 and n
+    # multiply structural zero-fills; exact 0 kept at slot 0)
+    fwd = d.eigenvalues(grid, _sine1(mesh))
+    assert fwd.space is _sine1(mesh)
+    assert fwd.codomain is _cosine1(mesh)
+    assert fwd.data.ravel().shape == (n + 1,)
+    assert jnp.array_equal(fwd.data.ravel(),
+                           jnp.pi * jnp.arange(n + 1))
+    assert fwd.data.ravel()[0] == 0.0
+    # DCT-I -> DST-I: an n - 1 diagonal -pi (j+1) / L
+    bwd = d.eigenvalues(grid, _cosine1(mesh))
+    assert bwd.space is _cosine1(mesh)
+    assert bwd.codomain is _sine1(mesh)
+    assert bwd.data.ravel().shape == (n - 1,)
+    assert jnp.array_equal(bwd.data.ravel(),
+                           -jnp.pi * jnp.arange(1, n))
+
+
+@pytest.mark.parametrize("space_of",
+                         [_sine2, _cosine2, _sine1, _cosine1])
+def test_spectral_derivative_trig_symbol_matches_the_apply(
+        bounded, space_of):
+    grid, mesh = bounded
+    space = space_of(mesh)
+    rng = np.random.default_rng(9)
+    f = grid.create_field(
+        space, data=jnp.asarray(rng.standard_normal(space.shape)))
+    d = SpectralDerivative()
+    sym = d.eigenvalues(grid, space)
+    out = sym(f)
+    # the derived-shift symbol reproduces the four apply kernels
+    # bitwise (same pi k / L values, same index maps)
+    assert out.function_space.bare is d.codomain(space)
+    assert jnp.array_equal(out.data, d(f).data)
 
 
 def test_spectral_derivative_eigenvalues_raise_on_chebyshev():
@@ -541,3 +625,39 @@ def test_staggering_odd_n_has_no_nyquist_snap():
     # odd n has no Nyquist mode: the closed formula holds bitwise
     expected = jnp.cos(k * dx / 2.0) * jnp.exp(1j * k * (0.5 * dx))
     assert jnp.array_equal(interp.data.ravel(), expected)
+
+
+# ================================================================
+#  trig_partner — the bounded sibling of fourier_partner
+# ================================================================
+@pytest.mark.parametrize("space_of",
+                         [_sine2, _sine1, _cosine2, _cosine1])
+def test_trig_partner_resolves_the_four_origin_rows(bounded,
+                                                    space_of):
+    _, mesh = bounded
+    coeff = space_of(mesh)
+    # a threaded trig coefficient factor passes through
+    assert trig_partner(coeff, "T") == (coeff, coeff.origin)
+    # a threaded BC-tagged nodal origin resolves its basis through
+    # the (node set, BC) table of the trig transforms
+    resolved, origin = trig_partner(coeff.origin, "T")
+    assert resolved is coeff
+    assert origin is coeff.origin
+
+
+def test_trig_partner_raises_off_the_table(periodic, bounded):
+    _, pmesh = periodic
+    _, mesh = bounded
+    # BC-free bounded and periodic nodal factors have no trig basis
+    with pytest.raises(EigenbasisError, match="sine/cosine"):
+        trig_partner(mesh.center, "T")
+    with pytest.raises(EigenbasisError, match="sine/cosine"):
+        trig_partner(pmesh.center, "T")
+    # mixed tags select no single basis
+    with pytest.raises(EigenbasisError, match="mixed-tag"):
+        trig_partner(mesh.nodal(
+            NodeSet.CENTER, bc=(BC.DIRICHLET, BC.NEUMANN)), "T")
+    # Chebyshev keeps raising (the recurrence couples all modes)
+    cheb = ChebyshevMesh(8, (-1.0, 1.0), name="z")
+    with pytest.raises(EigenbasisError, match="Chebyshev"):
+        trig_partner(cheb.chebyshev(cheb.lobatto), "T")

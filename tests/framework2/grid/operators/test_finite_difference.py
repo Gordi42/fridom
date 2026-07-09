@@ -1,5 +1,6 @@
 """Tests for fridom.framework2.grid.operators.finite_difference."""
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.framework2.grid.bc import BC
@@ -53,6 +54,29 @@ def _mode_field(grid, mesh, space, family, index):
     data = jnp.zeros(coeff_space.shape[0]).at[index].set(1.0)
     coeff = grid.create_field(coeff_space, data=data)
     return family(grid).backward(coeff)
+
+
+# ----------------------------------------------------------------
+#  Trig coefficient spaces of a walled mesh
+# ----------------------------------------------------------------
+def _sine2(mesh):
+    """DST-II space: modes 1..n at slots 0..n-1."""
+    return mesh.sine(mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+
+
+def _sine1(mesh):
+    """DST-I space: modes 1..n-1 at slots 0..n-2."""
+    return mesh.sine(mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+
+
+def _cosine2(mesh):
+    """DCT-II space: modes 0..n-1 at slots 0..n-1."""
+    return mesh.cosine(mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN))
+
+
+def _cosine1(mesh):
+    """DCT-I space: modes 0..n at slots 0..n."""
+    return mesh.cosine(mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN))
 
 
 # ================================================================
@@ -143,6 +167,13 @@ def test_eigenvalues_thread_a_fourier_coefficient_factor(fd, mx):
 def test_codomain_periodic(fd, mx):
     assert fd.codomain(mx.center) is mx.right
     assert fd.codomain(mx.right) is mx.center
+
+
+def test_codomain_retags_a_fourier_factor(fd, mx):
+    # layout-faithful eigenvalue threading (decision 3): the codomain
+    # of a Fourier factor retags through its staggered origin
+    src = mx.fourier(origin=mx.center)
+    assert fd.codomain(src) is mx.fourier(origin=mx.right)
 
 
 def test_codomain_bounded(fd, my):
@@ -376,3 +407,91 @@ def test_chebyshev_mesh_has_no_fd_signature(fd):
     cheb = ChebyshevMesh(8, (0.0, 1.0), name="s")
     with pytest.raises(SpaceMismatchError, match="no center space"):
         fd.codomain(cheb.outer)
+
+
+# ================================================================
+#  Trig eigenvalue symbols (C4: bounded staggering diagonals)
+# ================================================================
+def test_trig_codomain_pairing_flips_family_and_bc(fd, mz):
+    # coefficient-side codomains carry constitutive BC tags (the
+    # nodal outputs above stay BC-free — two-representations rule):
+    # diff flips family and BC kind, staggering the node set
+    assert fd.codomain(_sine2(mz)) is _cosine1(mz)
+    assert fd.codomain(_sine1(mz)) is _cosine2(mz)
+    assert fd.codomain(_cosine2(mz)) is _sine1(mz)
+    assert fd.codomain(_cosine1(mz)) is _sine2(mz)
+
+
+def test_trig_codomain_rejects_unlisted_origins(fd, mz):
+    # a sine space of a Left-Dirichlet origin is off the four-family
+    # staggering table
+    left = mz.sine(mz.nodal(NodeSet.LEFT, bc=BC.DIRICHLET))
+    with pytest.raises(SpaceMismatchError, match="no diff pairing"):
+        fd.codomain(left)
+
+
+@pytest.mark.parametrize(
+    ("domain_of", "family_in", "family_out", "trim_walls"),
+    [pytest.param(_sine2, Sine, Cosine, True, id="sine2->cosine1"),
+     pytest.param(_cosine2, Cosine, Sine, False, id="cosine2->sine1"),
+     pytest.param(_sine1, Sine, Cosine, False, id="sine1->cosine2"),
+     pytest.param(_cosine1, Cosine, Sine, False, id="cosine1->sine2")])
+def test_trig_symbol_matches_the_nodal_apply(
+        fd, walled, mz, domain_of, family_in, family_out, trim_walls):
+    # the decisive identity on random fields:
+    # backward(symbol(forward(f))) == BC-aware nodal derivative.
+    # The sine2 -> cosine1 codomain extends to the wall faces; its
+    # interior slice is the nodal Inner output
+    domain = domain_of(mz)
+    rng = np.random.default_rng(3)
+    f = walled.create_field(
+        domain.origin,
+        data=jnp.asarray(rng.standard_normal(domain.origin.shape)))
+    sym = fd["z"].eigenvalues(walled, domain)
+    back = family_out(walled).backward(
+        sym(family_in(walled).forward(f)))
+    ref = fd["z"](f)
+    out = back.data[1:-1] if trim_walls else back.data
+    assert jnp.max(jnp.abs(out - ref.data)) < 1e-14
+
+
+def test_trig_eigenvalues_match_the_periodic_magnitude_table(
+        fd, walled, mz):
+    dz = mz.dx
+    # sine -> cosine carries +k_hat = 2 sin(k dz/2)/dz — the same
+    # magnitude as the periodic table at k = pi m / L, evaluated on
+    # the codomain (cosine-I) mode table; real: walls kill the phase
+    plus = fd["z"].eigenvalues(walled, _sine2(mz))
+    k = jnp.pi * jnp.arange(N + 1)  # cosine-I modes 0..n
+    assert jnp.array_equal(plus.data.ravel(),
+                           2.0 * jnp.sin(k * dz / 2.0) / dz)
+    assert not jnp.iscomplexobj(plus.data)
+    # cosine -> sine carries -k_hat (the _cosine_to_sine sign)
+    minus = fd["z"].eigenvalues(walled, _cosine1(mz))
+    k = jnp.pi * jnp.arange(1, N + 1)  # sine-II modes 1..n
+    assert jnp.array_equal(minus.data.ravel(),
+                           -(2.0 * jnp.sin(k * dz / 2.0) / dz))
+
+
+def test_trig_eigenvalues_structural_zero_at_cosine_mode_zero(
+        fd, walled, mz):
+    # diff-from-sine never populates cosine k = 0: the entry is an
+    # exact structural zero (it multiplies the embedding zero-fill)
+    s2 = fd["z"].eigenvalues(walled, _sine2(mz))
+    assert s2.data.ravel()[0] == 0.0
+    s1 = fd["z"].eigenvalues(walled, _sine1(mz))
+    assert s1.data.ravel()[0] == 0.0
+
+
+@pytest.mark.parametrize("domain_of",
+                         [_sine2, _sine1, _cosine2, _cosine1])
+def test_trig_eigenvalues_thread_the_tagged_nodal_factor(
+        fd, walled, mz, domain_of):
+    # layout-faithful threading: the BC-tagged nodal origin resolves
+    # the same symbol as the trig coefficient factor
+    coeff_space = domain_of(mz)
+    nodal = fd["z"].eigenvalues(walled, coeff_space.origin)
+    coeff = fd["z"].eigenvalues(walled, coeff_space)
+    assert nodal.space is coeff.space
+    assert nodal.codomain is coeff.codomain
+    assert jnp.array_equal(nodal.data, coeff.data)
