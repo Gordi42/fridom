@@ -81,5 +81,5 @@ class State(VectorField):
         target position; ``dudy`` is interpolated onto it.
         """
         dvdx = self.v.diff("x")
-        dudy = self.u.diff("y").to(dvdx.function_space)
+        dudy = self.u.diff("y").to(dvdx)
         return dvdx - dudy

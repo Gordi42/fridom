@@ -1026,9 +1026,14 @@ def _target_space(
     space: SpaceLike,
     target: ScalarField | SpaceLike,
 ) -> SpaceLike:
-    """Resolve a ``to`` target: field, product, or single factor."""
-    if isinstance(target, ScalarField):
-        return target.function_space
+    """Resolve a ``to`` target: field/tracer, product, or single factor."""
+    # A field-like target (a ``ScalarField``, or a ``HaloTracer`` during
+    # a halo trace) carries its own space; duck-type on
+    # ``function_space`` so ``x.to(field)`` resolves in both the numeric
+    # and the tracing pass. No ``SpaceLike`` exposes ``function_space``.
+    resolved = getattr(target, "function_space", None)
+    if resolved is not None:
+        return resolved
     if (not isinstance(target, TensorProductSpace)
             and isinstance(space, TensorProductSpace)):
         # single-factor shorthand: replace that factor, keep the rest
