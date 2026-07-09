@@ -29,31 +29,9 @@ import jax.numpy as jnp
 
 import fridom.framework2 as fr
 from fridom.framework.utils import jaxify
-from fridom.framework2.model.linear_blocks import (
-    Coeff,
-    Diff,
-    LinearBlock,
-    Scale,
-)
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.state import State
-
-# The pressure-gradient / geopotential-divergence blocks (single
-# source of truth). ``u,v <- p`` are bare pressure gradients; the
-# ``p <- u,v`` divergences put ``c^2`` INSIDE the derivative
-# (``Diff @ Scale``, the flux form) to reproduce ``diff(c^2 u)``
-# bit-for-bit. ``Scale("csqr", ...)``'s symbolic constant is the
-# provided ``shallowwater.csqr`` (a variable-depth core provides none,
-# so ``fr.linear_blocks`` declines it).
-_GRAVITY_BLOCKS = (
-    LinearBlock("u", "p", Diff("x"), Coeff(const=-1)),
-    LinearBlock("v", "p", Diff("y"), Coeff(const=-1)),
-    LinearBlock("p", "u", Diff("x") @ Scale("csqr", sw_params.CSQR),
-                Coeff(const=-1)),
-    LinearBlock("p", "v", Diff("y") @ Scale("csqr", sw_params.CSQR),
-                Coeff(const=-1)),
-)
 
 
 @partial(jaxify, dynamic=("csqr", "rossby_number"))
@@ -124,7 +102,7 @@ class DynamicalCore(fr.Module):
         The field is declared on ``fr.Profile()`` (constant depth is a
         single degree of freedom); the GAP-A ConstantSpace/Profile
         broadcast lifts it to the nodal join wherever a term multiplies
-        it (``c.to(u.function_space) * u``). No ``grid.sync``
+        it (``c.to(u) * u``). No ``grid.sync``
         pre-syncing: the GAP-B fix keeps carry-resident AUXILIARY
         fields scan-treedef-stable without pre-flooding their halos.
         """
@@ -135,7 +113,24 @@ class DynamicalCore(fr.Module):
     # ================================================================
     #  Tendency terms (linear)
     # ================================================================
-    #: Pressure gradient and geopotential divergence, derived wholly
-    #: from ``_GRAVITY_BLOCKS`` (numeric fn + symbolic L both).
-    gravity = fr.linear_term(
-        "gravity", advances=("u", "v", "p"), blocks=_GRAVITY_BLOCKS)
+    @fr.term(advances=("u", "v", "p"), linear=True)
+    def gravity(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
+        r"""Pressure gradient and geopotential divergence.
+
+        .. math::
+            \partial_t \boldsymbol{u} = - \nabla p , \qquad
+            \partial_t p = -\nabla\cdot\left(c^2 \boldsymbol{u}\right)
+
+        Pure field arithmetic: ``c^2`` sits INSIDE the divergence
+        (``(c.to(u) * u).diff("x")``, the flux form) so the discrete
+        stencil matches ``diff(c^2 u)``. The ``csqr`` field lifts from
+        its one-DOF ``fr.Profile()`` onto each velocity face via the
+        ConstantSpace broadcast in ``.to``.
+        """
+        u, v, p = state["u"], state["v"], state["p"]
+        csqr = state["csqr"]
+        return {
+            "u": -p.diff("x"),
+            "v": -p.diff("y"),
+            "p": -(csqr.to(u) * u).diff("x") - (csqr.to(v) * v).diff("y"),
+        }

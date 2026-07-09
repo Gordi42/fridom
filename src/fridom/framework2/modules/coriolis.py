@@ -53,16 +53,11 @@ from fridom.framework2.model.declarations import (
     FieldReference,
     Lifecycle,
 )
-from fridom.framework2.model.linear_blocks import (
-    Coeff,
-    Interp,
-    LinearBlock,
-    linear_term,
-)
 from fridom.framework2.model.module import Module
 from fridom.framework2.model.parameters import ParameterDeclaration, leaf
 from fridom.framework2.model.params import CORIOLIS_BETA, CORIOLIS_F0
 from fridom.framework2.model.space_patterns import Profile
+from fridom.framework2.model.terms import term
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.fields.scalar_field import ScalarField
@@ -71,19 +66,21 @@ _U_HINT = ("velocities are declared by a dynamical-core module, "
            "e.g. nh.DynamicalCore or sw.DynamicalCore")
 
 
-# The linear rotation blocks, shared verbatim by the f-plane and
-# beta-plane terms (the only difference between them is the *space* of
-# ``f_coriolis``, not the coupling). The coefficient's runtime source
-# is the constant AUX field ``f_coriolis`` (interpolated onto the
-# target face and multiplied as fields); its symbolic constant is the
-# provided ``CORIOLIS_F0`` (a beta-plane f(y) provides no f0, so
-# ``fr.linear_blocks`` declines it — provides-implies-constancy).
-_CORIOLIS_BLOCKS = (
-    LinearBlock("u", "v", Interp(),
-                Coeff(aux="f_coriolis", const=CORIOLIS_F0)),
-    LinearBlock("v", "u", Interp(),
-                Coeff(aux="f_coriolis", const=CORIOLIS_F0, sign=-1)),
-)
+@term(advances=("u", "v"), linear=True, name="coriolis")
+def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
+    r"""``du/dt = f v``; ``dv/dt = -f u`` as pure field arithmetic.
+
+    ``f`` and the velocities are interpolated to the target staggered
+    face with ``.to`` and multiplied as fields. Shared verbatim by the
+    f-plane (constant ``f``) and beta-plane (``f(y)``) module types —
+    the only difference between them is the *space* of ``f_coriolis``,
+    not the coupling.
+    """
+    u, v, f = state["u"], state["v"], state["f_coriolis"]
+    return {
+        "u": f.to(u) * v.to(u),
+        "v": -(f.to(v) * u.to(v)),
+    }
 
 
 @partial(jaxify, dynamic=("f0",))
@@ -141,10 +138,8 @@ class FPlaneCoriolis(Module):
             space, data=jnp.full(space.shape, self.f0),
             name="f_coriolis")
 
-    #: ``du/dt = f v``; ``dv/dt = -f u``, derived wholly from the
-    #: shared rotation blocks (numeric fn + symbolic L both).
-    coriolis = linear_term(
-        "coriolis", advances=("u", "v"), blocks=_CORIOLIS_BLOCKS)
+    #: ``du/dt = f v``; ``dv/dt = -f u`` (shared rotation term).
+    coriolis = _coriolis
 
 
 @partial(jaxify, dynamic=("f0", "beta"))
@@ -221,7 +216,5 @@ class BetaPlaneCoriolis(Module):
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="f_coriolis")
 
-    #: ``du/dt = f(y) v``; ``dv/dt = -f(y) u``, derived wholly from
-    #: the shared rotation blocks (numeric fn + symbolic L both).
-    coriolis = linear_term(
-        "coriolis", advances=("u", "v"), blocks=_CORIOLIS_BLOCKS)
+    #: ``du/dt = f(y) v``; ``dv/dt = -f(y) u`` (shared rotation term).
+    coriolis = _coriolis
