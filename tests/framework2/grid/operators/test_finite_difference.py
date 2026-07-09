@@ -69,7 +69,10 @@ def test_eigenvalues_is_the_ik_hat_retagging_symbol(fd, mx):
     # representable — matching the staggered_diff kernel), unlike a pure
     # phase shift where a half-cell shift of the real Nyquist is zeroed
     assert jnp.allclose(sym.data, expected)
-    assert jnp.abs(sym.data[-1] - (-2.0 / dx)) < 1e-12
+    # the Nyquist entry is snapped to its exact analytic value: the
+    # ~1e-16 spurious imaginary part of the exp/sin round trip is gone
+    assert sym.data.ravel()[-1] == -2.0 / dx
+    assert sym.data.ravel()[-1].imag == 0.0
 
 
 def test_bwd_fwd_composes_to_the_real_discrete_laplacian(mx):

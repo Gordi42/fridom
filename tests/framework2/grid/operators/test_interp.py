@@ -149,6 +149,14 @@ def test_eigenvalues_matches_the_apply(interp, mx):
     assert jnp.allclose(sym(center_hat).data, op_hat.data, atol=1e-12)
 
 
+def test_eigenvalues_nyquist_is_an_exact_structural_zero(interp, mx):
+    grid = Grid((mx,))
+    sym = interp["x"].eigenvalues(grid, mx.center)
+    # cos(pi/2) = 0 exactly: the snapped Nyquist leaf is a structural
+    # zero, so ``Symbol.inverse`` regularizes it (no ~1e-17 residue)
+    assert sym.data.ravel()[-1] == 0.0
+
+
 def test_eigenvalues_raise_on_the_wrong_boundary(interp, my, mx):
     # bounded meshes diagonalize in the sine/cosine basis
     with pytest.raises(EigenbasisError, match="periodic"):

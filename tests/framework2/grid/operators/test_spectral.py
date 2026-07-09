@@ -14,7 +14,9 @@ from fridom.framework2.grid.operators.spectral import (
     PhaseShift,
     SincShift,
     SpectralDerivative,
+    finite_difference_symbol,
     fourier_wavenumbers,
+    linear_interp_symbol,
 )
 from fridom.framework2.grid.operators.symbol import Symbol
 from fridom.framework2.grid.operators.trig import Cosine, Sine
@@ -492,3 +494,50 @@ def test_sinc_shift_eigenvalues_matches_the_apply(periodic):
     assert sym.codomain.origin.node_set is NodeSet.CENTER
     assert jnp.allclose(sym(avg_hat).data, op(avg_hat).data,
                         atol=1e-13)
+
+
+# ================================================================
+#  Staggering symbols — exact structural Nyquist leaves
+# ================================================================
+def test_staggering_nyquist_is_exact_on_the_real_layout(periodic):
+    _, mesh = periodic
+    src = mesh.fourier(origin=mesh.center)
+    fd = finite_difference_symbol(
+        mesh.center, "x", src, mesh.center, mesh.right)
+    interp = linear_interp_symbol(
+        mesh.center, "x", src, mesh.center, mesh.right)
+    dx = 1.0 / N
+    # the interp Nyquist is a structural zero (cos(pi/2) = 0), exact
+    assert interp.data.ravel()[-1] == 0.0
+    # the FD Nyquist is exactly real:
+    # 2i sin(pi/2)/dx . e^{i pi/2} = -2/dx
+    assert fd.data.ravel()[-1] == -2.0 / dx
+    assert fd.data.ravel()[-1].imag == 0.0
+
+
+def test_staggering_nyquist_is_exact_on_the_complex_layout(periodic):
+    _, mesh = periodic
+    center_c = mesh.center.as_complex()
+    right_c = mesh.right.as_complex()
+    src = mesh.fourier(origin=center_c)
+    fd = finite_difference_symbol(
+        center_c, "x", src, center_c, right_c)
+    interp = linear_interp_symbol(
+        center_c, "x", src, center_c, right_c)
+    dx = 1.0 / N
+    # the fft-layout Nyquist slot is n // 2 (k = -pi/dx there)
+    assert interp.data.ravel()[N // 2] == 0.0
+    assert fd.data.ravel()[N // 2] == -2.0 / dx
+    assert fd.data.ravel()[N // 2].imag == 0.0
+
+
+def test_staggering_odd_n_has_no_nyquist_snap():
+    mesh = IntervalMesh(7, (0.0, 1.0), name="x")
+    src = mesh.fourier(origin=mesh.center)
+    interp = linear_interp_symbol(
+        mesh.center, "x", src, mesh.center, mesh.right)
+    k = fourier_wavenumbers(src)
+    dx = 1.0 / 7
+    # odd n has no Nyquist mode: the closed formula holds bitwise
+    expected = jnp.cos(k * dx / 2.0) * jnp.exp(1j * k * (0.5 * dx))
+    assert jnp.array_equal(interp.data.ravel(), expected)

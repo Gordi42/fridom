@@ -877,7 +877,7 @@ def _match_scalars(
 def _staggering_symbol(
     bare: SpaceLike, axis: str, src: FourierSpace,
     nodal_origin: FunctionSpace, codomain_nodal: FunctionSpace,
-    magnitude: object,
+    magnitude: object, nyquist: object,
 ) -> Symbol:
     r"""
     Fourier diagonal of a periodic-nodal staggering stencil.
@@ -901,6 +901,15 @@ def _staggering_symbol(
     (matching the ``staggered_diff`` kernel exactly, so the pressure
     projection drives the discrete divergence to machine zero), so the
     Nyquist is **kept**, not zeroed.
+
+    The Nyquist entry is **snapped to its exact analytic value** by
+    ``nyquist`` (a callable on the computed entry): the interp
+    diagonal is a structural zero there (``cos(π/2) = 0`` exactly, so
+    ``Symbol.inverse`` sees it) and the first difference is exactly
+    real (``exp``/``sin`` round trips leave a spurious ~1e-16
+    imaginary part otherwise). Only even-n factors carry a Nyquist
+    mode: index ``-1`` on the real half spectrum, ``n // 2`` on the
+    complex fft layout (matching ``_zero_nyquist``).
     """
     dst = src.mesh.fourier(origin=_match_scalars(codomain_nodal, src))
     dx = _length(nodal_origin) / nodal_origin.shape[0]
@@ -908,6 +917,10 @@ def _staggering_symbol(
     delta = (_NODE_OFFSETS[codomain_nodal.node_set]
              - _NODE_OFFSETS[nodal_origin.node_set])
     leaf = magnitude(k, dx) * jnp.exp(1j * k * (delta * dx))
+    n = nodal_origin.shape[0]
+    if n % 2 == 0:  # only even-n factors have a Nyquist mode
+        index = n // 2 if src.scalars is Scalars.COMPLEX else -1
+        leaf = leaf.at[index].set(nyquist(leaf[index]))
     return diagonal_symbol(bare, axis, src, dst, leaf)
 
 
@@ -936,9 +949,11 @@ def finite_difference_symbol(
     Symbol
         The retagging ``i k_hat`` diagonal.
     """
+    # the Nyquist leaf is exactly real: 2i sin(±π/2)/dx · e^{±iπδ}
     return _staggering_symbol(
         bare, axis, src, nodal_origin, codomain_nodal,
-        lambda k, dx: 1j * (2.0 * jnp.sin(k * dx / 2.0) / dx))
+        lambda k, dx: 1j * (2.0 * jnp.sin(k * dx / 2.0) / dx),
+        jnp.real)
 
 
 def linear_interp_symbol(
@@ -966,6 +981,8 @@ def linear_interp_symbol(
     Symbol
         The retagging ``one_hat`` diagonal.
     """
+    # the Nyquist leaf is a structural zero: cos(π/2) = 0 exactly
     return _staggering_symbol(
         bare, axis, src, nodal_origin, codomain_nodal,
-        lambda k, dx: jnp.cos(k * dx / 2.0))
+        lambda k, dx: jnp.cos(k * dx / 2.0),
+        jnp.zeros_like)
