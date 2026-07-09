@@ -42,6 +42,11 @@ class ConstantSpace(FunctionSpace):
     _repr_label = "Constant"
 
     @property
+    def is_constant(self) -> bool:
+        """Always ``True``: this is the constant/broadcast factor."""
+        return True
+
+    @property
     def shape(self) -> tuple[int, ...]:
         """Always (1,): a single broadcast DOF."""
         return (1,)

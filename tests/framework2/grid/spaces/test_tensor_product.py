@@ -7,6 +7,7 @@ import pytest
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.composed import _bindable_names
 from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.function_space import FunctionSpace
 from fridom.framework2.grid.spaces.tensor_product import (
@@ -120,6 +121,31 @@ def test_factor_by_name(mx, my):
     assert product.factor("y") is my.center
     with pytest.raises(KeyError, match="no factor"):
         product.factor("t")
+
+
+# ================================================================
+#  Constancy predicates
+# ================================================================
+def test_active_axis_names_pure_nodal(mx, my, mz):
+    product = mx.center * my.center * mz.lobatto
+    assert product.active_axis_names == ("x", "y", "z")
+
+
+def test_active_axis_names_drops_constant(mx, my):
+    product = mx.center * my.constant
+    assert product.active_axis_names == ("x",)
+
+
+def test_has_constant_factor_mixed_vs_pure(mx, my):
+    assert (mx.center * my.center).has_constant_factor is False
+    assert (mx.center * my.constant).has_constant_factor is True
+
+
+def test_active_axis_names_matches_bindable_names(mx, my):
+    pure = mx.center * my.center
+    mixed = mx.center * my.constant
+    assert pure.active_axis_names == _bindable_names(pure)
+    assert mixed.active_axis_names == _bindable_names(mixed)
 
 
 # ================================================================

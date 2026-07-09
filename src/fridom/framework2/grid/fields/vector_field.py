@@ -28,7 +28,10 @@ from typing import TYPE_CHECKING, Self
 import jax.numpy as jnp
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.errors import GridMismatchError
+from fridom.framework2.grid.errors import (
+    GridMismatchError,
+    MissingComponentError,
+)
 from fridom.framework2.grid.fields.scalar_field import ScalarField
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -158,7 +161,7 @@ class VectorField:
             try:
                 index = self._names.index(key)
             except ValueError:
-                raise KeyError(
+                raise MissingComponentError(
                     f"no component named {key!r}; components are "
                     f"{self._names}") from None
             return self._fields[index]
@@ -167,6 +170,66 @@ class VectorField:
         raise TypeError(
             f"components are indexed by name or position, got "
             f"{key!r}")
+
+    def require(self, name: str, *, hint: str) -> ScalarField:
+        """
+        Return component ``name`` or raise a hinted error.
+
+        Description
+        -----------
+        The lookup for callers that can suggest a fix: on a miss the
+        ``MissingComponentError`` names the missing component, the
+        caller's ``hint`` (what was expected / how to supply it), and
+        the present component names.
+
+        Parameters
+        ----------
+        name : str
+            The component name to fetch.
+        hint : str
+            A caller-supplied remediation hint included in the
+            message.
+
+        Returns
+        -------
+        ScalarField
+            The requested component.
+        """
+        if name in self._names:
+            return self._fields[self._names.index(name)]
+        raise MissingComponentError(
+            f"no component named {name!r}: {hint}; present "
+            f"components are {self._names}")
+
+    def select(self, *names: str) -> VectorField:
+        """
+        Return a new VectorField of only the named components.
+
+        Description
+        -----------
+        Subsets and re-keys the container in the given ``names`` order
+        (preserving it); a name that is not a present component raises
+        ``MissingComponentError``.
+
+        Parameters
+        ----------
+        *names : str
+            The component names to keep, in the desired order.
+
+        Returns
+        -------
+        VectorField
+            The subset collection; ``self`` is unchanged.
+        """
+        missing = tuple(name for name in names
+                        if name not in self._names)
+        if missing:
+            raise MissingComponentError(
+                f"no components named {missing}; components are "
+                f"{self._names}")
+        return type(self)(
+            {name: self._fields[self._names.index(name)]
+             for name in names})
 
     def __iter__(self) -> Iterator[ScalarField]:
         """Iterate over component fields in declaration order."""
@@ -318,28 +381,28 @@ class VectorField:
 
     def __add__(self, other: Self | complex) -> Self:
         """Componentwise sum (join rule per component)."""
-        if isinstance(other, VectorField | _SCALAR_TYPES):
+        if isinstance(other, VectorField) or _is_scalar(other):
             return self._componentwise(
                 other, lambda a, b: a + b, "+")
         return NotImplemented
 
     def __radd__(self, other: complex) -> Self:
         """Scalar + vector."""
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return self._componentwise(
                 other, lambda a, b: b + a, "+")
         return NotImplemented
 
     def __sub__(self, other: Self | complex) -> Self:
         """Componentwise difference."""
-        if isinstance(other, VectorField | _SCALAR_TYPES):
+        if isinstance(other, VectorField) or _is_scalar(other):
             return self._componentwise(
                 other, lambda a, b: a - b, "-")
         return NotImplemented
 
     def __rsub__(self, other: complex) -> Self:
         """Scalar - vector."""
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return self._componentwise(
                 other, lambda a, b: b - a, "-")
         return NotImplemented
@@ -375,15 +438,15 @@ class VectorField:
         Self
             The componentwise product.
         """
-        if isinstance(other,
-                      VectorField | ScalarField | _SCALAR_TYPES):
+        if (isinstance(other, VectorField | ScalarField)
+                or _is_scalar(other)):
             return self._componentwise(
                 other, lambda a, b: a * b, "*")
         return NotImplemented
 
     def __rmul__(self, other: ScalarField | complex) -> Self:
         """ScalarField/scalar * vector (broadcast product)."""
-        if isinstance(other, ScalarField | _SCALAR_TYPES):
+        if isinstance(other, ScalarField) or _is_scalar(other):
             return self._componentwise(
                 other, lambda a, b: b * a, "*")
         return NotImplemented
@@ -392,15 +455,15 @@ class VectorField:
         self, other: Self | ScalarField | complex,
     ) -> Self:
         """Componentwise quotient (dispatched per component)."""
-        if isinstance(other,
-                      VectorField | ScalarField | _SCALAR_TYPES):
+        if (isinstance(other, VectorField | ScalarField)
+                or _is_scalar(other)):
             return self._componentwise(
                 other, lambda a, b: a / b, "/")
         return NotImplemented
 
     def __pow__(self, exponent: float) -> Self:
         """Componentwise physical power."""
-        if isinstance(exponent, int | float):
+        if isinstance(exponent, int | float) or _is_0d_array(exponent):
             return self._componentwise(
                 exponent, lambda a, b: a ** b, "**")
         return NotImplemented
@@ -443,6 +506,25 @@ class VectorField:
             for name, field in zip(self._names, self._fields,
                                    strict=True))
         return f"VectorField({parts})"
+
+
+def _is_0d_array(value: object) -> bool:
+    """
+    Whether ``value`` is a 0-d array (a scalar, not a field).
+
+    Description
+    -----------
+    A raw 0-d ``jax.Array`` (e.g. a traced ``ctx.params`` leaf) is a
+    scalar coefficient broadcast across every component. An array with
+    ``ndim >= 1`` is not a scalar (mirrors ``scalar_field._is_scalar``).
+    """
+    return (not isinstance(value, VectorField | ScalarField)
+            and getattr(value, "ndim", None) == 0)
+
+
+def _is_scalar(value: object) -> bool:
+    """Whether ``value`` enters componentwise arithmetic as scalar."""
+    return isinstance(value, _SCALAR_TYPES) or _is_0d_array(value)
 
 
 def _keep_metadata(

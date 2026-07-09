@@ -119,8 +119,7 @@ def test_seeded_registry_covers_the_default_rows(grid, mx, my):
     registry.resolve("divide", my.face_avg)
     registry.resolve("power", mx.cell_avg)
     registry.resolve("abs", mx.center)
-    with pytest.raises(DispatchError, match="abs"):
-        registry.resolve("abs", mx.cell_avg)  # nodal-only by design
+    registry.resolve("abs", mx.cell_avg)  # abs is pointwise on averages
     with pytest.raises(DispatchError, match="diff"):
         registry.resolve("diff", my.right)  # no bounded Right row
 

@@ -45,7 +45,6 @@ from fridom.framework2.grid.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.framework2.grid.operators.registry import DispatchError
-from fridom.framework2.grid.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -92,11 +91,7 @@ def _entry_chain(outer: Operator, inner: Operator) -> Operator:
 
 def _bindable_names(space: SpaceLike) -> tuple[str, ...]:
     """Coordinate names of the non-``ConstantSpace`` factors."""
-    return tuple(
-        name
-        for factor in space.factors
-        if not isinstance(factor, ConstantSpace)
-        for name in factor.names)
+    return space.active_axis_names
 
 
 # ================================================================
@@ -174,25 +169,42 @@ class BlockMatrix(Operator):
         """Component names keying a multi-row output."""
         return self._output_names
 
-    # ------------------------------------------------------------
-    #  Signature and requirements
-    # ------------------------------------------------------------
-    def codomain(
-        self, *domains: SpaceLike,
-    ) -> SpaceLike | tuple[SpaceLike, ...]:
+    def scalar(self) -> Operator:
         """
-        Resolve the per-row codomains (tuple signature).
+        Collapse a 1x1 block to its single scalar-signature entry.
 
-        Parameters
-        ----------
-        *domains : SpaceLike
-            One bare domain space per block column.
+        Description
+        -----------
+        A ``Div @ Diag @ Grad`` Laplacian block-composes to a 1x1
+        block holding the scalar Laplacian operator; ``scalar()``
+        recovers that operator (the elegant spelling of
+        ``block.rows[0][0]``). It is deliberately *not* an automatic
+        ``@`` collapse — only an explicit request unwraps the block.
 
         Returns
         -------
-        SpaceLike | tuple[SpaceLike, ...]
-            The row codomains (a bare space for one row).
+        Operator
+            The block's sole entry.
+
+        Raises
+        ------
+        SpaceMismatchError
+            If the block is not exactly one row by one column.
         """
+        if len(self._rows) == 1 and len(self._rows[0]) == 1:
+            return self._rows[0][0]
+        raise SpaceMismatchError(
+            f"scalar() collapses a 1x1 block, but this block is "
+            f"{len(self._rows)}x{len(self._rows[0])}",
+            operation="scalar")
+
+    # ------------------------------------------------------------
+    #  Signature and requirements
+    # ------------------------------------------------------------
+    def _row_codomains(
+        self, *domains: SpaceLike,
+    ) -> list[SpaceLike]:
+        """Resolve one shared codomain per block row (validated)."""
         if len(domains) != len(self._rows[0]):
             raise SpaceMismatchError(
                 f"block of {len(self._rows[0])} columns applied to "
@@ -211,9 +223,53 @@ class BlockMatrix(Operator):
                     f"codomain; resolved {row_codomains!r}",
                     operation="block")
             outputs.append(first)
+        return outputs
+
+    def codomain(
+        self, *domains: SpaceLike,
+    ) -> SpaceLike | tuple[SpaceLike, ...]:
+        """
+        Resolve the per-row codomains (tuple signature).
+
+        Parameters
+        ----------
+        *domains : SpaceLike
+            One bare domain space per block column.
+
+        Returns
+        -------
+        SpaceLike | tuple[SpaceLike, ...]
+            The row codomains (a bare space for one row).
+        """
+        outputs = self._row_codomains(*domains)
         if len(outputs) == 1:
             return outputs[0]
         return tuple(outputs)
+
+    def codomains(self, *domains: SpaceLike) -> tuple[SpaceLike, ...]:
+        """
+        Resolve the per-row codomains, always as a tuple.
+
+        Description
+        -----------
+        The always-tuple override of
+        :meth:`~fridom.framework2.grid.operators.base.Operator.codomains`:
+        returns the true per-row codomain tuple directly (a single row
+        yields a length-1 tuple, not the bare space
+        :meth:`codomain` returns), so block call sites skip the
+        ``isinstance(x, tuple)`` normalization.
+
+        Parameters
+        ----------
+        *domains : SpaceLike
+            One bare domain space per block column.
+
+        Returns
+        -------
+        tuple[SpaceLike, ...]
+            The per-row codomains.
+        """
+        return tuple(self._row_codomains(*domains))
 
     def requirements(self, domain: SpaceLike) -> OperatorRequirements:
         """
@@ -285,8 +341,7 @@ class BlockMatrix(Operator):
             raise SpaceMismatchError(
                 f"block of {n_cols} columns queried with "
                 f"{len(spaces)} operand space(s)", operation="block")
-        out = self.codomain(*spaces)
-        out_spaces = out if isinstance(out, tuple) else (out,)
+        out_spaces = self.codomains(*spaces)
         blocks = tuple(
             tuple(
                 None if isinstance(entry, Zero)
@@ -492,16 +547,26 @@ class _VectorCalculusBuilder(Operator):
 
     _kind: Literal["grad", "div", "curl", "laplacian"]
 
-    def __init__(self, order: int | None) -> None:
-        """Store the optional pinned FD order."""
+    def __init__(
+        self,
+        order: int | None,
+        metric: Mapping[str, complex | jax.Array] | None = None,
+    ) -> None:
+        """Store the optional pinned FD order and metric weights."""
         if order is not None:
             FiniteDifference(order)  # validates even, >= 2
         self._order: int | None = order
+        self._metric: Mapping[str, complex | jax.Array] | None = metric
 
     @property
     def order(self) -> int | None:
         """Pinned FD order, or None for dispatched entries."""
         return self._order
+
+    @property
+    def metric(self) -> Mapping[str, complex | jax.Array] | None:
+        """Per-axis metric weights of a weighted Laplacian (or None)."""
+        return self._metric
 
     def codomain(
         self,
@@ -510,13 +575,13 @@ class _VectorCalculusBuilder(Operator):
         """Unexpanded builders have no signature: raise."""
         raise DispatchError(
             f"the {self._kind!r} builder expands against a grid's "
-            "registry; call expand(domains, registry) or apply it "
-            "to a field")
+            "registry; call expand(domains, grid) (or a registry) or "
+            "apply it to a field")
 
     def expand(
         self,
         domains: SpaceLike | tuple[SpaceLike, ...],
-        registry: OperatorRegistry,
+        registry: OperatorRegistry | object,
     ) -> Operator:
         """
         Expand into the concrete block over the axis family.
@@ -526,14 +591,18 @@ class _VectorCalculusBuilder(Operator):
         domains : SpaceLike | tuple[SpaceLike, ...]
             The bare operand space (scalar kinds) or the tuple of
             component spaces (vector kinds).
-        registry : OperatorRegistry
-            The dispatch registry resolving the per-axis entries.
+        registry : OperatorRegistry | object
+            The dispatch registry resolving the per-axis entries, or a
+            grid: any object carrying a ``dispatch`` attribute is used
+            through ``obj.dispatch``, so ``expand(domains, grid)`` and
+            ``expand(domains, grid.dispatch)`` are interchangeable.
 
         Returns
         -------
         Operator
             The expanded ``BlockMatrix``.
         """
+        registry = getattr(registry, "dispatch", registry)
         order = self._order
         if self._kind in {"div", "curl"} and not isinstance(
                 domains, tuple):
@@ -546,12 +615,14 @@ class _VectorCalculusBuilder(Operator):
             return _expand_div(domains, order, registry)
         if self._kind == "curl":
             return _expand_curl(domains, order, registry)
-        # laplacian: div @ grad as a block matmul (1xn @ nx1)
+        # laplacian: div @ grad as a block matmul (1xn @ nx1), with an
+        # optional diagonal metric between them: div @ Diag @ grad
         grad = _expand_grad(domains, order, registry)
-        mid = grad.codomain(domains)
-        if not isinstance(mid, tuple):
-            mid = (mid,)
+        mid = grad.codomains(domains)
         div = _expand_div(mid, order, registry)
+        if self._metric is not None:
+            axes = _bindable_names(mid[0])
+            return div @ Diag(self._metric, axes=axes) @ grad
         return div @ grad
 
     def __call__(self, f: FieldLike) -> FieldLike:
@@ -697,8 +768,11 @@ def Curl(order: int | None = None) -> Operator:  # noqa: N802
     return _Curl(order)
 
 
-def Laplacian(order: int | None = None) -> Operator:  # noqa: N802
-    """
+def Laplacian(  # noqa: N802
+    order: int | None = None,
+    metric: Mapping[str, complex | jax.Array] | None = None,
+) -> Operator:
+    r"""
     Build the ``"laplacian"`` builder: ``div @ grad``.
 
     Description
@@ -708,18 +782,31 @@ def Laplacian(order: int | None = None) -> Operator:  # noqa: N802
     second-derivative ``SeparableComposite``s (B1) — so
     div∘grad = laplacian holds by construction.
 
+    With ``metric`` given, the expansion threads a diagonal
+    :func:`Diag` block between the factors — ``div @ Diag @ grad`` —
+    scaling each gradient component by its axis weight before the
+    divergence sums them. This is the elegant pressure Laplacian
+    :math:`\nabla\cdot\mathrm{diag}(w)\nabla` (e.g.
+    ``metric={"z": 1/dsqr}`` for the non-hydrostatic vertical scaling);
+    weights may be Python numbers or 0-d ``jax.Array`` scalars.
+    ``Laplacian()`` (no metric) is unchanged.
+
     Parameters
     ----------
     order : int | None, optional
         Pinned FD order; None resolves the registered per-axis
         ``"diff"`` entries (default: None).
+    metric : Mapping[str, complex | jax.Array] | None, optional
+        Per-axis diagonal weights inserted between ``div`` and
+        ``grad``; axes absent from the mapping take weight ``1``
+        (default: None, the unweighted ``div @ grad``).
 
     Returns
     -------
     Operator
         The builder.
     """
-    return _Laplacian(order)
+    return _Laplacian(order, metric)
 
 
 def _is_unit(coeff: complex | jax.Array) -> bool:

@@ -217,6 +217,52 @@ class FunctionSpace(ABC):
             f"names are {self._mesh.names}")
 
     # ================================================================
+    #  Constancy predicates (shared with TensorProductSpace)
+    # ================================================================
+    @property
+    def is_constant(self) -> bool:
+        """Whether this factor is the constant/broadcast factor.
+
+        The public predicate replacing ``isinstance(x,
+        ConstantSpace)``; ``False`` on every non-constant space,
+        overridden to ``True`` in ``ConstantSpace``.
+        """
+        return False
+
+    @property
+    def active_axis_names(self) -> tuple[str, ...]:
+        """
+        Coordinate names of the non-constant factors, flattened.
+
+        Description
+        -----------
+        The public "active axis names" accessor: the names a
+        separable operator can bind against, i.e. the coordinate
+        names of the factors that are not constant/broadcast
+        factors. On a lone factor this is the space's own ``names``
+        unless the factor is constant (then empty).
+
+        Returns
+        -------
+        tuple[str, ...]
+            The coordinate names of the non-constant factors.
+        """
+        return tuple(
+            name
+            for factor in self.factors
+            if not factor.is_constant
+            for name in factor.names)
+
+    @property
+    def has_constant_factor(self) -> bool:
+        """Whether any factor is the constant/broadcast factor.
+
+        On a bare (non-tensor) space this is the space's own
+        ``is_constant``.
+        """
+        return self.is_constant
+
+    # ================================================================
     #  Layout protocol (section 5.1)
     # ================================================================
     @property

@@ -1587,8 +1587,6 @@ def _default_registry(
                 entries[("divide", variant)] = divide
                 entries[("power", variant)] = power
                 entries[("select", variant)] = select
-        for space in nodal:
-            for variant in (space, space.as_complex()):
                 entries[("abs", variant)] = abs_op
         resolver = _declared_space_resolver(mesh)
         if resolver is not None:

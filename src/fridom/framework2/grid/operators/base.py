@@ -177,6 +177,32 @@ class Operator(ABC):
         """
         ...
 
+    def codomains(self, *domains: SpaceLike) -> tuple[SpaceLike, ...]:
+        """
+        Codomain resolver that always returns a tuple.
+
+        Description
+        -----------
+        The always-tuple companion of :meth:`codomain`: single-space
+        signatures are wrapped in a length-1 tuple, direct-sum
+        (vector/tensor) signatures pass through unchanged. Call sites
+        that iterate the per-output codomains use this instead of
+        the ``isinstance(x, tuple)`` normalization ``codomain``
+        otherwise forces on them.
+
+        Parameters
+        ----------
+        *domains : SpaceLike
+            The bare domain space(s), one per operand.
+
+        Returns
+        -------
+        tuple[SpaceLike, ...]
+            The bare codomain space(s), always as a tuple.
+        """
+        result = self.codomain(*domains)
+        return result if isinstance(result, tuple) else (result,)
+
     def requirements(
         self,
         domain: SpaceLike,  # noqa: ARG002 — halo-0 default
@@ -1351,11 +1377,7 @@ def resolve_codomain(op: Operator, domain: SpaceLike) -> SpaceLike:
 
 def _bindable_axes(space: SpaceLike) -> tuple[str, ...]:
     """Coordinate names of the non-``ConstantSpace`` factors."""
-    return tuple(
-        name
-        for factor in space.factors
-        if not isinstance(factor, ConstantSpace)
-        for name in factor.names)
+    return space.active_axis_names
 
 
 def _resolve_axis(op: SeparableOperator, space: SpaceLike) -> str:
@@ -1505,9 +1527,10 @@ def _ensure_valid(
     The consumption-side sync placement (task 1.8): a trace-time
     check of static Python attributes — zero runtime cost under jit.
     A triggered sync fills every axis to the negotiated widths, and
-    the synced storage is written back onto the operand object
-    (ghost slots only, semantically invisible), so further consumers
-    of the same field find it valid: n readers pay one exchange.
+    the synced field is memoized in an external identity-keyed cache
+    (:data:`_SYNC_CACHE`) — never written back onto the operand, whose
+    ``halo_valid`` is treedef-participating static aux — so further
+    consumers of the same field reuse it: n readers pay one exchange.
 
     Parameters
     ----------

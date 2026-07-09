@@ -109,6 +109,27 @@ class GridMismatchError(TypeError):
         self.operation: str | None = operation
 
 
+class MissingComponentError(KeyError):
+
+    """
+    Raised when a VectorField component is looked up but absent.
+
+    Description
+    -----------
+    The component-lookup exception of ``VectorField`` (``__getitem__``,
+    ``require``, ``select``). It subclasses ``KeyError`` so existing
+    ``except KeyError`` handlers and the mapping-lookup idiom keep
+    working, while callers that care can catch a missing *component*
+    specifically. The message names the missing component(s) and the
+    present component names (``require`` also carries the caller hint).
+
+    Parameters
+    ----------
+    msg : str
+        The error message.
+    """
+
+
 class GridFrozenError(RuntimeError):
 
     """

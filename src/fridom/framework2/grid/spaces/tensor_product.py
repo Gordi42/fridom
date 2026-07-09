@@ -137,6 +137,33 @@ class TensorProductSpace:
             name for factor in self._factors for name in factor.names)
 
     @property
+    def active_axis_names(self) -> tuple[str, ...]:
+        """
+        Coordinate names of the non-constant factors, flattened.
+
+        Description
+        -----------
+        The public "active axis names" accessor: the coordinate
+        names of the factors that are not constant/broadcast
+        factors — the names a separable operator can bind against.
+
+        Returns
+        -------
+        tuple[str, ...]
+            The coordinate names of the non-constant factors.
+        """
+        return tuple(
+            name
+            for factor in self._factors
+            if not factor.is_constant
+            for name in factor.names)
+
+    @property
+    def has_constant_factor(self) -> bool:
+        """Whether any factor is the constant/broadcast factor."""
+        return any(factor.is_constant for factor in self._factors)
+
+    @property
     def shape(self) -> tuple[int, ...]:
         """True global DOF shape: concatenated factor shapes."""
         return tuple(

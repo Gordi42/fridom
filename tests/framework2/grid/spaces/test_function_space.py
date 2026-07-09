@@ -3,6 +3,7 @@ import pytest
 
 from fridom.framework2.grid.bc import BC, BCStructure
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.composed import _bindable_names
 from fridom.framework2.grid.scalars import Scalars
 from fridom.framework2.grid.spaces.nodal import Center, NodeSet
 from fridom.framework2.grid.spaces.tensor_product import (
@@ -90,6 +91,29 @@ def test_mul_returns_a_product(mesh):
     product = mesh.center * other.center
     assert isinstance(product, TensorProductSpace)
     assert product.factors == (mesh.center, other.center)
+
+
+# ================================================================
+#  Constancy predicates
+# ================================================================
+def test_is_constant_false_for_full_factor(mesh):
+    assert mesh.center.is_constant is False
+
+
+def test_active_axis_names_single_factor(mesh):
+    assert mesh.center.active_axis_names == ("x",)
+    assert mesh.constant.active_axis_names == ()
+
+
+def test_has_constant_factor_bare_space(mesh):
+    assert mesh.center.has_constant_factor is False
+    assert mesh.constant.has_constant_factor is True
+
+
+def test_active_axis_names_matches_bindable_names(mesh):
+    assert mesh.center.active_axis_names == _bindable_names(mesh.center)
+    assert mesh.constant.active_axis_names == _bindable_names(
+        mesh.constant)
 
 
 # ================================================================

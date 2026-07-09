@@ -61,6 +61,8 @@ def test_factories_return_kind_tagged_builders():
     assert Laplacian().dispatch_kind == "laplacian"
     assert Gradient().order is None
     assert Laplacian(order=2).order == 2
+    assert Laplacian().metric is None
+    assert Laplacian(metric={"z": 2.0}).metric == {"z": 2.0}
 
 
 def test_builders_validate_the_order():
@@ -399,3 +401,100 @@ def test_block_application_arity(grid2, mx, my):
     f = grid2.create_field(mx.center * my.center)
     with pytest.raises(ValueError, match="component"):
         block(f)
+
+
+# ================================================================
+#  codomains (always-tuple accessor, R4)
+# ================================================================
+def test_codomains_wraps_a_single_space_on_the_base(mx):
+    # the Operator base wraps a single-signature codomain in a tuple
+    assert Identity().codomains(mx.center) == (mx.center,)
+
+
+def test_codomains_returns_a_tuple_for_grad_and_laplacian(
+        grid2, p, mx, my):
+    bare = p.function_space.bare
+    grad = Gradient().expand(bare, grid2.dispatch)
+    # grad is multi-row: codomains is the true per-row tuple
+    cod = grad.codomains(bare)
+    assert isinstance(cod, tuple)
+    assert cod == (mx.right * my.center, mx.center * my.right)
+    # laplacian is 1x1: codomain is a bare space, codomains wraps it
+    lap = Laplacian().expand(bare, grid2.dispatch)
+    assert not isinstance(lap.codomain(bare), tuple)
+    assert lap.codomains(bare) == (lap.codomain(bare),)
+
+
+# ================================================================
+#  scalar (1x1 block collapse, R5)
+# ================================================================
+def test_scalar_collapses_a_1x1_block(grid2, p):
+    bare = p.function_space.bare
+    lap = Laplacian().expand(bare, grid2.dispatch)
+    assert lap.scalar() is lap.rows[0][0]
+
+
+def test_scalar_rejects_a_non_1x1_block():
+    ident = Identity()
+    with pytest.raises(SpaceMismatchError, match="1x1"):
+        BlockMatrix(((ident, ident),)).scalar()
+    with pytest.raises(SpaceMismatchError, match="1x1"):
+        BlockMatrix(((ident,), (ident,)),
+                    output_names=("a", "b")).scalar()
+
+
+# ================================================================
+#  Weighted Laplacian (metric, R6) and grid-or-registry expand (R7)
+# ================================================================
+def test_laplacian_unweighted_is_unchanged(grid2, p):
+    # metric=None expands byte-for-byte to the plain div @ grad
+    bare = p.function_space.bare
+    grad = Gradient().expand(bare, grid2.dispatch)
+    div = Divergence().expand(grad.codomains(bare), grid2.dispatch)
+    assert Laplacian().expand(bare, grid2.dispatch).scalar() is (
+        (div @ grad).scalar())
+
+
+def test_laplacian_metric_scales_the_matching_axis():
+    grid = _periodic_grid()
+    f = grid.create_field(
+        init=lambda x, y: jnp.sin(x) * jnp.cos(y))
+    bare = f.function_space.bare
+    coeff = grid.dispatch.resolve("transform", bare).codomain(bare)
+    w = 4.0
+    weighted = Laplacian(metric={"y": w}).expand(bare, grid).scalar()
+    plain = Laplacian().expand(bare, grid).scalar()
+    x_term = next(t for t in plain.terms if t.bound_axis == "x")
+    y_term = next(t for t in plain.terms if t.bound_axis == "y")
+    # the weight scales exactly the y-axis Laplacian term
+    expected = (x_term.eigenvalues(grid, coeff)
+                + w * y_term.eigenvalues(grid, coeff))
+    got = weighted.eigenvalues(grid, coeff)
+    assert jnp.allclose(got.data, expected.data)
+    # and the weighted symbol genuinely differs from the plain one
+    assert not jnp.allclose(
+        got.data, plain.eigenvalues(grid, coeff).data)
+
+
+def test_laplacian_unit_metric_matches_the_unweighted_symbol():
+    # a unit weight on an axis leaves that axis' term unchanged
+    grid = _periodic_grid()
+    f = grid.create_field(
+        init=lambda x, y: jnp.sin(x) * jnp.cos(y))
+    bare = f.function_space.bare
+    coeff = grid.dispatch.resolve("transform", bare).codomain(bare)
+    weighted = Laplacian(metric={"x": 1.0}).expand(
+        bare, grid).scalar()
+    plain = Laplacian().expand(bare, grid).scalar()
+    assert jnp.allclose(weighted.eigenvalues(grid, coeff).data,
+                        plain.eigenvalues(grid, coeff).data)
+
+
+def test_expand_accepts_a_grid_or_a_registry(grid2, p):
+    bare = p.function_space.bare
+    from_grid = Gradient().expand(bare, grid2)
+    from_reg = Gradient().expand(bare, grid2.dispatch)
+    assert from_grid.rows == from_reg.rows
+    # the laplacian path too (grid vs registry give the same block)
+    assert Laplacian().expand(bare, grid2).scalar() is (
+        Laplacian().expand(bare, grid2.dispatch).scalar())

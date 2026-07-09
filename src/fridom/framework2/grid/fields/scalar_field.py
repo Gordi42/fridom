@@ -483,6 +483,79 @@ class ScalarField:
         return integral.with_data(integral.data / total)
 
     # ================================================================
+    #  Grid accessor forwarders (a field carries its grid + space)
+    # ================================================================
+    def nodes(self, name: str | None = None) -> ScalarField:
+        """
+        Physical coordinates of this field's evaluation nodes.
+
+        Description
+        -----------
+        Thin forwarder to ``grid.evaluation_nodes`` with this field's
+        own function space, so callers need not re-thread grid and
+        space (section 2.7). ``name`` may be omitted when the space
+        contributes one non-constant name.
+
+        Parameters
+        ----------
+        name : str | None, optional
+            The coordinate to materialize; may be omitted when
+            unambiguous (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The per-factor node coordinates as a field.
+        """
+        return self._grid.evaluation_nodes(self._function_space, name)
+
+    def measure(self, name: str | None = None) -> ScalarField:
+        """
+        Metric measure proper to this field's node set.
+
+        Description
+        -----------
+        Thin forwarder to ``grid.measure`` with this field's own
+        function space (section 3.9). ``name`` may be omitted when the
+        space contributes one non-constant name.
+
+        Parameters
+        ----------
+        name : str | None, optional
+            The coordinate whose measure to materialize; may be
+            omitted when unambiguous (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The per-factor measure weights as a field.
+        """
+        return self._grid.measure(self._function_space, name)
+
+    def wavenumbers(self, name: str | None = None) -> ScalarField:
+        """
+        Wavenumbers (or mode indices) of this coefficient field.
+
+        Description
+        -----------
+        Thin forwarder to ``grid.wavenumbers`` with this field's own
+        function space (section 3.10). ``name`` may be omitted when
+        the space contributes one non-constant name.
+
+        Parameters
+        ----------
+        name : str | None, optional
+            The coordinate whose wavenumbers to materialize; may be
+            omitted when unambiguous (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The per-factor wavenumbers as a field.
+        """
+        return self._grid.wavenumbers(self._function_space, name)
+
+    # ================================================================
     #  Arithmetic — sections 3.1, 3.3, 3.11 (join rule)
     # ================================================================
     def __add__(self, other: ScalarField | complex) -> ScalarField:
@@ -490,13 +563,13 @@ class ScalarField:
         if isinstance(other, ScalarField):
             return _linear_combine(self, other, "+",
                                    lambda x, y: x + y)
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return _scalar_shift(self, other, lambda d, s: d + s)
         return NotImplemented
 
     def __radd__(self, other: complex) -> ScalarField:
         """Scalar + field (fields handle field + field)."""
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return _scalar_shift(self, other, lambda d, s: s + d)
         return NotImplemented
 
@@ -505,13 +578,13 @@ class ScalarField:
         if isinstance(other, ScalarField):
             return _linear_combine(self, other, "-",
                                    lambda x, y: x - y)
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return _scalar_shift(self, other, lambda d, s: d - s)
         return NotImplemented
 
     def __rsub__(self, other: complex) -> ScalarField:
         """Scalar - field."""
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return _scalar_shift(self, other, lambda d, s: s - d)
         return NotImplemented
 
@@ -527,13 +600,13 @@ class ScalarField:
         """Scalar: linear scaling. Field: dispatched product (3.11)."""
         if isinstance(other, ScalarField):
             return _dispatched_product(self, other, "multiply", "*")
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return _scalar_scale(self, other, lambda d, s: d * s)
         return NotImplemented
 
     def __rmul__(self, other: complex) -> ScalarField:
         """Scalar * field (linear scaling on any space)."""
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return _scalar_scale(self, other, lambda d, s: s * d)
         return NotImplemented
 
@@ -543,13 +616,13 @@ class ScalarField:
         """Scalar: linear scaling. Field: (kind="divide", space)."""
         if isinstance(other, ScalarField):
             return _dispatched_product(self, other, "divide", "/")
-        if isinstance(other, _SCALAR_TYPES):
+        if _is_scalar(other):
             return _scalar_scale(self, other, lambda d, s: d / s)
         return NotImplemented
 
     def __rtruediv__(self, other: complex) -> ScalarField:
         """Scalar / field: a physical divide (nodal/average only)."""
-        if not isinstance(other, _SCALAR_TYPES):
+        if not _is_scalar(other):
             return NotImplemented
         space = self._function_space
         if isinstance(other, complex):
@@ -561,7 +634,8 @@ class ScalarField:
 
     def __pow__(self, exponent: float) -> ScalarField:
         """Physical power, (kind="power", space) (2.5 table)."""
-        if not isinstance(exponent, int | float):
+        if not (isinstance(exponent, int | float)
+                or _is_0d_array(exponent)):
             return NotImplemented
         space = self._function_space
         op = self._grid.dispatch.resolve("power", space.bare)
@@ -773,6 +847,27 @@ def _linear_combine(
     _check_lift(a.function_space, joined)
     _check_lift(b.function_space, joined)
     return _wrap(a.grid, joined, data_op(a.data, b.data))
+
+
+def _is_0d_array(value: object) -> bool:
+    """
+    Whether ``value`` is a 0-d array (a scalar, not a field).
+
+    Description
+    -----------
+    A raw 0-d ``jax.Array`` (e.g. a traced ``ctx.params`` leaf such as
+    ``dsqr``) is a scalar coefficient. An array with ``ndim >= 1`` is
+    **not** a scalar: a field-shaped array carries no space tags and
+    must enter as a ``ScalarField``. Mirrors ``Symbol._is_scalar``
+    (commit 309bbdd).
+    """
+    return (not isinstance(value, ScalarField)
+            and getattr(value, "ndim", None) == 0)
+
+
+def _is_scalar(value: object) -> bool:
+    """Whether ``value`` enters +/-/*// as a scalar operand."""
+    return isinstance(value, _SCALAR_TYPES) or _is_0d_array(value)
 
 
 def _scalar_shift(

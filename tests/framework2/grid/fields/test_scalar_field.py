@@ -238,6 +238,41 @@ def test_hash_is_identity_based(f):
 
 
 # ================================================================
+#  0-d array as a scalar operand (R1)
+# ================================================================
+def test_0d_array_acts_as_scalar(f):
+    s = jnp.asarray(3.0)  # traced ctx.params leaf shape
+    assert jnp.array_equal((s * f).data, 3.0 * f.data)
+    assert jnp.array_equal((f * s).data, f.data * 3.0)
+    assert jnp.array_equal((f + s).data, f.data + 3.0)
+    assert jnp.array_equal((s + f).data, 3.0 + f.data)
+    assert jnp.array_equal((f - s).data, f.data - 3.0)
+    assert jnp.array_equal((s - f).data, 3.0 - f.data)
+    assert jnp.allclose((f / s).data, f.data / 3.0)
+    assert jnp.allclose((s / f).data, 3.0 / f.data)
+    assert jnp.allclose((f ** jnp.asarray(2.0)).data, f.data ** 2)
+
+
+def test_0d_array_matches_float_result(f):
+    s = jnp.asarray(2.5)
+    assert jnp.array_equal((s * f).data, (2.5 * f).data)
+    assert jnp.array_equal((f + s).data, (f + 2.5).data)
+    assert jnp.allclose((f / s).data, (f / 2.5).data)
+
+
+def test_1d_array_is_not_a_scalar(f):
+    arr = jnp.ones(4)  # a field-shaped array is not a scalar
+    with pytest.raises(TypeError):
+        _ = f * arr
+    with pytest.raises(TypeError):
+        _ = f + arr
+    with pytest.raises(TypeError):
+        _ = f / arr
+    with pytest.raises(TypeError):
+        _ = f ** arr
+
+
+# ================================================================
 #  Products (dispatch seam and iteration-1 fallback)
 # ================================================================
 def test_mul_same_space_elementwise_fallback(f, g):
@@ -354,10 +389,14 @@ def test_abs_on_lone_complex_factor(grid1d, mx):
     assert jnp.allclose(h.data, jnp.full(8, 5.0))
 
 
-def test_abs_not_registered_on_average_spaces(grid1d, mx):
-    a = grid1d.create_field(mx.cell_avg, data=jnp.arange(8.0))
-    with pytest.raises(KeyError, match="abs"):
-        _ = abs(a)
+def test_abs_on_average_spaces(grid1d, mx):
+    # abs is pointwise, so it is well-defined on cell/face averages at
+    # the same order (seeded on nodal + average, not nodal only)
+    data = jnp.arange(8.0) - 4.0
+    a = grid1d.create_field(mx.cell_avg, data=data)
+    h = abs(a)
+    assert h.function_space.bare is mx.cell_avg
+    assert jnp.array_equal(h.data, jnp.abs(data))
 
 
 def test_constant_into_coefficient_lift_raises(grid1d, mx):
@@ -562,6 +601,31 @@ def test_xr_is_the_export_entry_point(f):
     assert jnp.array_equal(jnp.asarray(da.values), f.data)
 
 
+# ================================================================
+#  Grid accessor forwarders (R16a)
+# ================================================================
+def test_nodes_forwards_to_grid(f, grid):
+    field = f.nodes("x")
+    ref = grid.evaluation_nodes(f.function_space, "x")
+    assert field.function_space is ref.function_space
+    assert jnp.array_equal(field.data, ref.data)
+
+
+def test_measure_forwards_to_grid(f, grid):
+    field = f.measure("y")
+    ref = grid.measure(f.function_space, "y")
+    assert field.function_space is ref.function_space
+    assert jnp.array_equal(field.data, ref.data)
+
+
+def test_wavenumbers_forwards_to_grid(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    field = a.wavenumbers()  # name omitted: lone factor
+    ref = grid1d.wavenumbers(a.function_space)
+    assert field.function_space is ref.function_space
+    assert jnp.array_equal(field.data, ref.data)
+
+
 def test_reshard_forwards_to_the_movement_operator(f):
     # matching layout: identity elision (no operator application)
     assert f.reshard(f.function_space.layout) is f
@@ -689,8 +753,9 @@ def test_to_from_constant_factor_broadcasts(grid, mx, my):
                                 init=lambda y: 1.0 + y)
     lifted = profile.to(mx.center * my.center)
     assert lifted.function_space.bare is (mx.center * my.center)
-    full = grid.create_field(mx.center * my.center,
-                             init=lambda x, y: 1.0 + y)
+    full = grid.create_field(
+        mx.center * my.center,
+        init=lambda x, y: 1.0 + y)  # noqa: ARG005 — init(**coords) by name
     assert jnp.allclose(lifted.data, full.data)
 
 

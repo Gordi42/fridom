@@ -51,5 +51,11 @@ def test_not_a_nodal_space(mesh):
     assert not isinstance(mesh.constant, NodalSpace)
 
 
+def test_is_constant_true(mesh):
+    # the public predicate replacing isinstance(x, ConstantSpace)
+    assert mesh.constant.is_constant is True
+    assert mesh.center.is_constant is False
+
+
 def test_repr(mesh):
     assert repr(mesh.constant) == "Constant(x)"

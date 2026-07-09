@@ -5,6 +5,7 @@ import pytest
 
 from fridom.framework2.grid.errors import (
     GridMismatchError,
+    MissingComponentError,
     SpaceMismatchError,
 )
 from fridom.framework2.grid.fields.vector_field import VectorField
@@ -103,6 +104,55 @@ def test_access(vec, u, v, grid):
         vec["w"]
     with pytest.raises(TypeError, match="name or position"):
         vec[1.5]
+
+
+def test_getitem_missing_raises_missing_component(vec):
+    with pytest.raises(MissingComponentError, match="no component"):
+        vec["w"]
+    # subclasses KeyError: existing handlers keep working
+    with pytest.raises(KeyError):
+        vec["w"]
+
+
+def test_require_returns_present_component(vec, u):
+    assert vec.require("u", hint="pass the zonal velocity") is u
+
+
+def test_require_missing_raises_with_hint(vec):
+    with pytest.raises(MissingComponentError) as exc:
+        vec.require("w", hint="pass the vertical velocity w")
+    msg = str(exc.value)
+    assert "w" in msg
+    assert "pass the vertical velocity w" in msg
+    assert "u" in msg
+    assert "v" in msg
+
+
+def test_select_subsets_and_reorders(vec, u, v):
+    sub = vec.select("v", "u")
+    assert sub.component_names == ("v", "u")
+    assert sub["u"] is u
+    assert sub["v"] is v
+    single = vec.select("u")
+    assert single.component_names == ("u",)
+    assert single["u"] is u
+
+
+def test_select_rejects_unknown_names(vec):
+    with pytest.raises(MissingComponentError,
+                       match="no components named"):
+        vec.select("u", "w")
+
+
+def test_0d_array_acts_as_scalar(vec):
+    s = jnp.asarray(2.0)  # traced ctx.params leaf shape
+    assert jnp.allclose((s * vec)["u"].data, 2.0 * vec["u"].data)
+    assert jnp.allclose((vec * s)["v"].data, vec["v"].data * 2.0)
+    assert jnp.allclose((vec + s)["u"].data, vec["u"].data + 2.0)
+    assert jnp.allclose((s - vec)["u"].data, 2.0 - vec["u"].data)
+    assert jnp.allclose((vec / s)["u"].data, vec["u"].data / 2.0)
+    assert jnp.allclose((vec ** jnp.asarray(2.0))["u"].data,
+                        vec["u"].data ** 2)
 
 
 def test_no_truth_value(vec):
