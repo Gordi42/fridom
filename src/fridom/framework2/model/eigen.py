@@ -3,11 +3,10 @@ Numeric eigenmodes of a linearized model via ``eigh(iML, M)``.
 
 Description
 -----------
-Phase H0 of the projection/eigenmode roadmap
-(``notes/framework2/blocksymbol_l_assembly.md`` §4): the **numeric
-probe bootstrap** that proves the energy-metric eigensolve path before
-the symbolic ``BlockSymbol`` (H1) lands. It is model-agnostic and
-host-side (analysis, never the traced step).
+The **numeric probe** for a linearized model's eigenmodes: the
+model-agnostic, host-side spectral path (analysis, never the traced
+step). It derives the per-mode system matrix ``L(k)`` directly from
+the numeric tendency, so it needs no symbolic operator assembly.
 
 For a constant-coefficient periodic model the linearized tendency
 :math:`L` is translation-invariant, so per Fourier wavenumber ``k`` it

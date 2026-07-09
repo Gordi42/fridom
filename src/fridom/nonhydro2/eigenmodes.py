@@ -10,13 +10,12 @@ interpolation phases ``one_hat(+/-)`` that carry the staggering). This
 module is retained deliberately because ``nh.transforms``' projector
 consumes it.
 
-It is **complementary** to the model-layer eigenmode surface
-``fr.numeric_eigenpairs`` / ``fr.symbolic_eigenpairs`` (built on the
-``fr.Symbol`` / ``fr.BlockSymbol`` cluster): those return eigenvectors
-in the raw staggered-DFT basis, which differ from these by the
-per-component staggering phases. The two are not interchangeable inputs
-to the same projector; this closed-form port is the one wired into the
-nonhydro transform algebra.
+It is **complementary** to the model-layer numeric eigenmode surface
+``fr.numeric_eigenpairs`` (the transfer-function probe): that returns
+eigenvectors in the raw staggered-DFT basis, which differ from these
+by the per-component staggering phases. The two are not interchangeable
+inputs to the same projector; this closed-form port is the one wired
+into the nonhydro transform algebra.
 
 It exposes the eigenmode **data** (``em.q(s)`` / ``em.p(s)`` as
 component arrays, ``em.omega(s)`` / ``em.omega_at(k, s)``) and a

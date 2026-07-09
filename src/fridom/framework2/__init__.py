@@ -41,15 +41,6 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .model.eigen import NumericEigenmodes, numeric_eigenpairs
     from .model.energy import EnergyMetric
-    from .model.linear_blocks import (
-        Coeff,
-        Diff,
-        Interp,
-        LinearBlock,
-        Scale,
-        linear_blocks,
-        linear_term,
-    )
     from .model.model import Model
     from .model.module import Module
     from .model.parameters import (
@@ -75,10 +66,6 @@ if TYPE_CHECKING:  # pragma: no cover
         Staggered,
     )
     from .model.stages import Stage, StageKind, self_update
-    from .model.symbolic_eigen import (
-        SymbolicEigenmodes,
-        symbolic_eigenpairs,
-    )
     from .model.term_predicates import linearize
     from .model.terms import (
         EXPLICIT,
@@ -127,11 +114,6 @@ all_imports_by_origin = {
     f"{base}.model.clock": ["Clock"],
     f"{base}.model.eigen": ["NumericEigenmodes", "numeric_eigenpairs"],
     f"{base}.model.energy": ["EnergyMetric"],
-    f"{base}.model.linear_blocks": [
-        "LinearBlock", "Coeff", "Interp", "Diff", "Scale",
-        "linear_blocks", "linear_term"],
-    f"{base}.model.symbolic_eigen": [
-        "SymbolicEigenmodes", "symbolic_eigenpairs"],
     f"{base}.model.term_predicates": ["linearize"],
     f"{base}.transforms.base": ["StateTransform"],
     f"{base}.transforms.propagator": ["Propagator"],

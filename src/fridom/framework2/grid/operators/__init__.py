@@ -19,7 +19,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         banded,
         base,
-        block_symbol,
         chebyshev,
         combinators,
         composed,
@@ -61,7 +60,6 @@ if TYPE_CHECKING:  # pragma: no cover
         Zero,
         resolve_codomain,
     )
-    from .block_symbol import BlockSymbol
     from .composed import Curl, Diag, Divergence, Gradient, Laplacian
     from .finite_difference import FiniteDifference
     from .flux_diff import (
@@ -98,7 +96,6 @@ all_modules_by_origin = {
         "registry",
         "banded",
         "symbol",
-        "block_symbol",
         "realized",
         "spectral_solve",
         "finite_difference",
@@ -160,7 +157,6 @@ all_imports_by_origin = {
         "BoundTransform",
     ],
     f"{base}.symbol": ["Symbol"],
-    f"{base}.block_symbol": ["BlockSymbol"],
     f"{base}.flux_diff": [
         "FluxDifference",
         "DualFluxDifference",

@@ -1892,13 +1892,11 @@ def _negotiate(
     tendency to trace, and the unscoped registry maximum must not
     leak into the demand).
 
-    The halo demand combines the module-declared ``extra_halo`` (the
-    genuine raw-``.data`` bypasses — the spectral projection) with the
-    ``derived_halo`` auto-read off every linear term's block operators
-    (R13): a linear module's coefficient scaling would raise on a
-    tracer (V-N2), so its terms are EXEMPT from the numeric trace and
-    their exact stencil demand is supplied here instead — tighter than
-    the old all-axes hand-declaration, never smaller.
+    The halo demand is the module-declared ``extra_halo`` (the genuine
+    raw-``.data`` bypasses — e.g. the spectral projection) merged by
+    the grid with the ghost-widths read off the numeric halo trace.
+    Linear terms are pure field arithmetic, so they trace normally
+    alongside every other term — no exemption needed.
     """
     spaces = {record.name: record.space for record in table}
     if not spaces:
@@ -1908,59 +1906,13 @@ def _negotiate(
     exempt = frozenset(
         slot for slot, module in enumerate(modules)
         if getattr(module, "extra_halo", None) is not None)
-    derived_halo, exempt_terms = _linear_terms_halo(
-        modules, spaces, grid.dispatch)
     tendency = _tracer_tendency(
-        schedule, modules, exempt, exempt_terms,
+        schedule, modules, exempt,
         _tracer_params(binding_table, modules, time_stepper))
     return grid.negotiate(
         state_spaces=_StateSpaceMapping(spaces),
         tendency=tendency,
-        halo=_merge_halo(extra_halo, derived_halo))
-
-
-def _linear_terms_halo(
-    modules: tuple,
-    spaces: Mapping[str, SpaceLike],
-    registry: object,
-) -> tuple[HaloSpec | None, frozenset[str]]:
-    """
-    Derive the linear terms' halo and their exempt entry keys (R13).
-
-    Description
-    -----------
-    Each ``linear`` term with declared ``blocks`` contributes the
-    ghost-width demand of its block operators (coefficient-free — the
-    scaling is pointwise, halo 0) through ``linear_blocks_halo``, and
-    is EXEMPT from the numeric halo trace: its coefficient scaling
-    would raise on a tracer (the V-N2 raw-``.data`` gate). The exempt
-    keys mirror the composer's ``"Module/term"`` attribution so
-    ``_tracer_tendency`` can skip exactly those scheduled entries.
-    """
-    # local import breaks the assembly <-> linear_blocks import cycle
-    from fridom.framework2.model.linear_blocks import (  # noqa: PLC0415
-        linear_blocks_halo,
-    )
-    derived: HaloSpec | None = None
-    keys: set[str] = set()
-    for slot, term in _collect_terms(modules):
-        if not getattr(term, "linear", False) or not term.blocks:
-            continue
-        keys.add(f"{type(modules[slot]).__name__}/{term.name}")
-        spec = linear_blocks_halo(term.blocks, spaces, registry)
-        derived = spec if derived is None else derived.merge_max(spec)
-    return derived, frozenset(keys)
-
-
-def _merge_halo(
-    left: HaloSpec | None, right: HaloSpec | None,
-) -> HaloSpec | None:
-    """Pointwise-max two optional halo specs (None is the identity)."""
-    if left is None:
-        return right
-    if right is None:
-        return left
-    return left.merge_max(right)
+        halo=extra_halo)
 
 
 def _tracer_params(
@@ -1999,7 +1951,6 @@ def _tracer_tendency(
     schedule: Schedule,
     modules: tuple,
     exempt: frozenset[int],
-    exempt_terms: frozenset[str],
     params: Mapping[str, object],
 ) -> Callable[[object], object]:
     """
@@ -2016,10 +1967,7 @@ def _tracer_tendency(
     DIAGNOSE -> EXPLICIT terms -> CONSTRAINT. Hooks of ``exempt``
     (``extra_halo``-declaring) modules are skipped — their declared
     spec substitutes (V-N2), and the second dry-run mode over real
-    zero fields already validated them. Linear terms in
-    ``exempt_terms`` are likewise skipped (their coefficient scaling
-    would raise on a tracer); the R13 ``derived_halo`` supplies their
-    stencil demand instead.
+    zero fields already validated them.
     """
     def tendency(state: object) -> object:
         """Walk the schedule once over the tracer state."""
@@ -2030,7 +1978,6 @@ def _tracer_tendency(
                                       exempt, state, ctx)
         for entry in schedule.kind_entries(None):
             if (entry.slot in exempt
-                    or entry.key in exempt_terms
                     or entry.treatment is not Treatment.EXPLICIT):
                 continue
             evaluate_entry(entry, modules[entry.slot], state, ctx)

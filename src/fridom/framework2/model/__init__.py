@@ -38,7 +38,6 @@ if TYPE_CHECKING:  # pragma: no cover
         errors,
         field_table,
         implicit,
-        linear_blocks,
         module,
         parameters,
         params,
@@ -48,7 +47,6 @@ if TYPE_CHECKING:  # pragma: no cover
         schedule,
         space_patterns,
         stages,
-        symbolic_eigen,
         term_predicates,
         terms,
         time_dependent,
@@ -71,7 +69,6 @@ all_modules_by_origin = {
         "time_dependent",
         "terms",
         "term_predicates",
-        "linear_blocks",
         "implicit",
         "stages",
         "context",
@@ -85,7 +82,6 @@ all_modules_by_origin = {
         "report",
         "errors",
         "eigen",
-        "symbolic_eigen",
     ],
 }
 
