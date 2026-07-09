@@ -20,13 +20,30 @@ the realized-map composition ``backward @ inverse @ forward`` (S2). The
 ``bwd @ fwd`` round-trip recovers the honest ``-k̂²`` on *every* mode
 (Nyquist included), so inverting drives the *discrete* divergence to
 machine zero.
+
+On a walled grid (bounded axes, rigid lids) the solve is still purely
+spectral: the pressure parity at a rigid lid is Neumann (the
+parity-even ``Div @ Diag @ Grad`` chain on the cell centers, the
+DCT-II / Cosine-II basis), so the solve runs on the **Neumann-tagged
+structural sibling** of the divergence space — same mesh, node set,
+and shape, only the BC tag differs. The incoming (BC-free) divergence
+is retagged onto that sibling (the trig transform rows are keyed on
+the BC-tagged origins), the mixed ``Fourier x Fourier x Cosine``
+product resolves through ``ComposedTransform``, and the solution is
+retagged back onto the caller's BC-free space. The vertical eigenvalue
+is the exact trig one, ``k̂_z = 2 sin(pi m dz / (2 L_z)) / dz``, with
+the single structural zero at ``(k_x, k_y, m) = (0, 0, 0)`` — the mean
+gauge through ``Symbol.inverse``. On a fully periodic grid the sibling
+*is* the space itself (interned identity) and no retag happens.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.operators.composed import Laplacian
 from fridom.framework2.grid.operators.spectral_solve import SpectralSolve
+from fridom.framework2.grid.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     import jax
@@ -35,9 +52,48 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.grid.spaces.tensor_product import SpaceLike
 
 
+def _neumann_sibling(space: SpaceLike) -> SpaceLike:
+    r"""
+    Return the Neumann-tagged structural sibling of a solve space.
+
+    Description
+    -----------
+    The trig transform rows of a walled grid are keyed on the
+    BC-tagged nodal origins, and the pressure parity at rigid lids
+    is Neumann (the parity-even ``Div @ Diag @ Grad`` chain on the
+    cell centers: the DCT-II / Cosine-II origin). Every nodal factor
+    on a bounded mesh is swapped for its ``BC.NEUMANN`` sibling —
+    same mesh, node set, and shape (a Neumann tag drops no DOF) —
+    while periodic factors pass through, so on a fully periodic grid
+    the sibling *is* the space itself (interned identity, the
+    no-retag fast path).
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The bare (cell-centered) solve space.
+
+    Returns
+    -------
+    SpaceLike
+        The interned sibling (``space`` itself when no factor is
+        bounded).
+    """
+    replacements = {
+        factor.names[0]: factor.mesh.nodal(
+            factor.node_set, bc=BC.NEUMANN)
+        for factor in space.factors
+        if isinstance(factor, NodalSpace)
+        and not getattr(factor.mesh, "periodic", True)
+    }
+    if not replacements:
+        return space
+    return space.replace(**replacements)
+
+
 class SpectralPressureSolver:
 
-    """Grid-bound spectral solve of ``lap(p) = div`` on a Fourier grid.
+    """Grid-bound spectral solve of ``lap(p) = div``.
 
     Description
     -----------
@@ -46,6 +102,13 @@ class SpectralPressureSolver:
     Per solve it expands the ``dsqr``-weighted Laplacian
     ``Div @ Diag(1, .., 1/dsqr) @ Grad`` (the live ``1/dsqr`` riding the
     vertical metric entry) and inverts it through :class:`SpectralSolve`.
+
+    On a walled grid the expansion and the solve run on the
+    Neumann-tagged sibling of ``space`` (the trig-transform origin of
+    the pressure parity); the divergence is retagged onto it and the
+    solution retagged back, so the caller's BC-free spaces are
+    preserved. On a fully periodic grid the sibling is the space
+    itself and no retag happens.
 
     Parameters
     ----------
@@ -60,10 +123,13 @@ class SpectralPressureSolver:
     def __init__(
         self, grid: object, space: SpaceLike, *, vertical: str,
     ) -> None:
-        """Store the grid, operand space, and vertical axis name."""
+        """Store the grid, spaces, and vertical axis name."""
         self._grid: object = grid
         self._space: SpaceLike = space
         self._vertical: str = vertical
+        # the space the spectral solve runs on: the Neumann-tagged
+        # sibling on a walled grid, the space itself on a periodic one
+        self._solve_space: SpaceLike = _neumann_sibling(space.bare)
 
     def solve(
         self, div: ScalarField, *, dsqr: jax.Array,
@@ -83,7 +149,11 @@ class SpectralPressureSolver:
         ScalarField
             The pressure on the same (cell-centered) space as ``div``.
         """
+        solve_space = self._solve_space
         laplacian = Laplacian(
             metric={self._vertical: 1.0 / dsqr},
-        ).expand(self._space.bare, self._grid).scalar()
-        return SpectralSolve(laplacian, self._grid, self._space).solve(div)
+        ).expand(solve_space, self._grid).scalar()
+        solve = SpectralSolve(laplacian, self._grid, solve_space)
+        if solve_space is self._space.bare:
+            return solve.solve(div)
+        return solve.solve(div.retag(solve_space)).retag(div)
