@@ -4,7 +4,7 @@ Shallow-water eigenmode projections (``sw.transforms``, wave 7 C).
 Description
 -----------
 The Tier-1 vortical / wave / divergence projections as composable
-``fr.StateTransform``s, wrapping the collocated eigenmode projector
+``fr.StateTransform``s, wrapping the discrete eigenmode projector
 (``sw.eigenmodes.Eigenmodes.projector``):
 
 - ``VorticalProjection`` — the geostrophic mode ``P(0)``;
@@ -17,19 +17,25 @@ Each is a :class:`~fridom.framework2.transforms.projection.ProjectionFactory`
 with **dual sources** — ``VorticalProjection(em)`` from an explicit
 ``Eigenmodes``, or ``VorticalProjection.from_model(model, at_time=...)``.
 
-Coefficient basis (wave-6 boundary). The shallow-water modes are the
-*continuous* eigenvectors on a **collocated** coefficient basis, so the
-projection is a clean round-trip on a physical *collocated* state
-``(u, v, p on cell centres)``: forward-transform each component to the
-coefficient basis, apply the diagonal per-mode projector, inverse-
-transform back. Wrapping the model's *staggered* physical state needs
-the deferred discrete staggered spectral transforms (flagged in
-``sw.eigenmodes``), so this iteration validates on the collocated state.
+Staggered coefficient basis. The shallow-water modes are the
+*discrete* C-grid eigenvectors, so the projection is a clean
+round-trip on the model's physical **staggered** state (``u`` on the
+east face, ``v`` on the north face, ``p`` on the centre): the
+eigenmode kit's per-component transforms carry each component to its
+own coefficient basis, the diagonal per-mode projector applies
+there, and the backward transforms return to the nodal spaces. The
+three modes span the three components at every wavenumber (the
+``k = 0`` mean via the inertial patch), except the
+interpolation-Nyquist planes where the geostrophic column is a
+structural zero — ``DivergenceProjection`` picks up exactly that
+Nyquist-vortical residual and is the zero map on Nyquist-free
+states.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import fridom.framework2 as fr
 from fridom.framework2.transforms.projection import (
     EigenProjection,
     ProjectionFactory,
@@ -53,32 +59,40 @@ def _project(
     em: Eigenmodes, modes: tuple[int, ...], state: State,
 ) -> State:
     r"""
-    Project a collocated physical state onto the span of ``modes``.
+    Project a staggered physical state onto the span of ``modes``.
 
     Description
     -----------
-    Forward-transforms each component to the collocated coefficient
-    basis, applies ``sum_s em.projector(s)`` there (diagonal per
-    wavenumber), and inverse-transforms back to the cell-centre space.
+    Forward-transforms each component to its own staggered
+    coefficient basis (the eigenmode kit's per-component
+    transforms), applies ``sum_s em.projector(s)`` there (diagonal
+    per wavenumber), and inverse-transforms back to each component's
+    nodal space (layout and metadata kept).
     """
-    transform = em.transform
+    kit = em._kit  # noqa: SLF001 — package-internal kit access
     coeff = State({
-        name: transform.forward(state[name]) for name in _COMPONENTS})
+        name: kit.forward(name)(state[name]) for name in _COMPONENTS})
     projected = None
     for s in modes:
         contribution = em.projector(s)(coeff)
         projected = (contribution if projected is None
                      else projected + contribution)
     return State({
-        name: transform.backward(projected[name])
+        name: state[name].with_data(
+            kit.backward(name)(projected[name]).data)
         for name in _COMPONENTS})
 
 
 def _signature(em: Eigenmodes) -> StateSignature:
-    """Return the collocated (cell-centre) endo signature ``(u, v, p)``."""
-    center = em.center_space.bare
-    components = tuple((name, center) for name in _COMPONENTS)
-    return StateSignature(grid=em.grid, components=components)
+    """Return the staggered endo signature ``(u, v, p)``."""
+    grid = em.grid
+    x, y = grid.names
+    spaces = {"u": fr.Staggered(x), "v": fr.Staggered(y),
+              "p": fr.Collocated()}
+    components = tuple(
+        (name, spaces[name].resolve(grid).bare)
+        for name in _COMPONENTS)
+    return StateSignature(grid=grid, components=components)
 
 
 # ================================================================

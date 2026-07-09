@@ -1,12 +1,16 @@
 """Shallow-water eigenmode projections as StateTransforms (wave 7 C).
 
-Validates the collocated ``sw.transforms`` projections and the shared
+Validates the staggered ``sw.transforms`` projections and the shared
 ``EigenProjection`` / ``ProjectionFactory`` base: idempotency, the
 ``WaveProjection = P(+1) + P(-1)`` algebra identity, and partition of
-unity ``Vortical + Wave + Divergence == Identity`` on a collocated
-state. The shallow-water ``{vortical, +gravity, -gravity}`` basis is
-complete (three modes span the three components), so
-``DivergenceProjection`` is the (trivially idempotent) zero map here.
+unity ``Vortical + Wave + Divergence == Identity`` on the model's
+staggered state. The discrete ``{vortical, +gravity, -gravity}``
+basis is complete per wavenumber (three modes span the three
+components, the patched ``k = 0`` inertial triple included) except
+the interpolation-Nyquist planes, where the geostrophic column is a
+structural zero — so ``DivergenceProjection`` is the zero map on
+Nyquist-free (band-limited) states and picks up exactly the
+Nyquist-vortical residual otherwise.
 """
 import numpy as np
 import pytest
@@ -16,7 +20,9 @@ import fridom.shallowwater2 as sw
 from fridom.framework2.transforms.errors import SignatureMismatchError
 from fridom.framework2.transforms.projection import EigenProjection
 
-from .conftest import make_grid, make_model
+from .conftest import N, make_grid, make_model
+
+COMPONENTS = ("u", "v", "p")
 
 
 def _eig(f0=1.0, csqr=1.0):
@@ -24,27 +30,33 @@ def _eig(f0=1.0, csqr=1.0):
     return sw.eigenmodes.from_model(model), model
 
 
-def _state(em, model):
-    """Build a physical collocated (u, v, p) probe state."""
-    grid = model.grid
-    center = em.center_space
-    u = grid.create_field(
-        center, name="u",
-        init=lambda x, y: np.sin(2 * np.pi * x) * np.cos(2 * np.pi * y))
-    v = grid.create_field(
-        center, name="v",
-        init=lambda x, y: 0.3 * np.cos(2 * np.pi * x)
-        - 0.2 * np.sin(2 * np.pi * y))
-    p = grid.create_field(
-        center, name="p",
-        init=lambda x, y: 0.1 * np.sin(2 * np.pi * (x + y)))
-    return sw.State({"u": u, "v": v, "p": p})
+def _state(model, *, seed=None):
+    """Build a staggered ``(u, v, p)`` probe state on the model.
+
+    Band-limited (Nyquist-free) trig fields by default so the
+    three-mode basis is complete on the probe; ``seed`` switches to
+    random data (which carries Nyquist-vortical content).
+    """
+    if seed is not None:
+        rng = np.random.default_rng(seed)
+        shape = np.asarray(model.state["u"].data).shape
+        model.set_fields(**{
+            c: rng.standard_normal(shape) for c in COMPONENTS})
+    else:
+        x = (np.arange(N) + 0.5) / N
+        gx, gy = np.meshgrid(x, x, indexing="ij")
+        model.set_fields(
+            u=np.sin(2 * np.pi * gx) * np.cos(2 * np.pi * gy),
+            v=0.3 * np.cos(2 * np.pi * gx)
+            - 0.2 * np.sin(2 * np.pi * gy),
+            p=0.1 * np.sin(2 * np.pi * (gx + gy)))
+    return sw.State({c: model.state[c] for c in COMPONENTS})
 
 
 def _absmax(a, b):
     return max(
         float(np.abs(np.asarray(a[c].data) - np.asarray(b[c].data)).max())
-        for c in ("u", "v", "p"))
+        for c in COMPONENTS)
 
 
 # ================================================================
@@ -52,22 +64,36 @@ def _absmax(a, b):
 # ================================================================
 def test_vortical_and_wave_are_idempotent():
     em, model = _eig()
-    z = _state(em, model)
+    z = _state(model, seed=1)
     fr.transforms.assert_idempotent(sw.transforms.VorticalProjection(em), z)
     fr.transforms.assert_idempotent(sw.transforms.WaveProjection(em), z)
 
 
-def test_divergence_is_the_zero_map_and_idempotent():
-    # the SW eigenbasis is complete, so the residual vanishes.
+def test_divergence_is_the_zero_map_on_band_limited_states():
+    # off the Nyquist planes the three-mode basis is complete, so the
+    # residual vanishes on a band-limited probe.
     em, model = _eig()
-    z = _state(em, model)
+    z = _state(model)
     div = sw.transforms.DivergenceProjection(em)
     once = div(z)
     assert max(float(np.abs(np.asarray(once[c].data)).max())
-               for c in ("u", "v", "p")) < 1e-10
+               for c in COMPONENTS) < 1e-10
     # trivially idempotent (relative_l2 is ill-defined at zero, so an
     # absolute distance is used here)
     fr.transforms.assert_idempotent(div, z, norm=_absmax)
+
+
+def test_divergence_captures_the_nyquist_vortical_residual():
+    # random data carries interpolation-Nyquist vortical content the
+    # discrete mode family structurally drops; the residual picks it
+    # up (and stays idempotent).
+    em, model = _eig()
+    z = _state(model, seed=7)
+    div = sw.transforms.DivergenceProjection(em)
+    once = div(z)
+    assert max(float(np.abs(np.asarray(once[c].data)).max())
+               for c in ("u", "v")) > 1e-3
+    fr.transforms.assert_idempotent(div, z)
 
 
 # ================================================================
@@ -75,7 +101,7 @@ def test_divergence_is_the_zero_map_and_idempotent():
 # ================================================================
 def test_wave_equals_sum_of_single_mode_projections():
     em, model = _eig()
-    z = _state(em, model)
+    z = _state(model, seed=2)
     wave = sw.transforms.WaveProjection(em)
     manual = (sw.transforms.mode_projection(em, 1)
               + sw.transforms.mode_projection(em, -1))
@@ -83,8 +109,10 @@ def test_wave_equals_sum_of_single_mode_projections():
 
 
 def test_partition_of_unity_reconstructs_the_state():
+    # V + W + D == I EXACTLY on any state (D is the complement), the
+    # patched k = 0 triple and the Nyquist planes included.
     em, model = _eig(f0=0.7, csqr=2.0)
-    z = _state(em, model)
+    z = _state(model, seed=4)
     partition = (sw.transforms.VorticalProjection(em)
                  + sw.transforms.WaveProjection(em)
                  + sw.transforms.DivergenceProjection(em))
@@ -104,22 +132,22 @@ def test_wave_projection_merges_into_one_idempotent_projection():
 # ================================================================
 #  The shared base: signatures, dual constructors, repr
 # ================================================================
-def test_projection_has_a_concrete_collocated_signature():
+def test_projection_has_a_concrete_staggered_signature():
     em, model = _eig()
     proj = sw.transforms.VorticalProjection(em)
     assert proj.domain is proj.codomain
     assert proj.domain.grid is model.grid
     assert proj.domain.names == ("u", "v", "p")
     assert proj.eigenmodes is em
+    # the signature accepts the model's own staggered state
+    proj.domain.validate_input(_state(model))
 
 
 def test_call_rejects_a_state_missing_a_mapped_component():
     em, model = _eig()
-    grid = model.grid
-    center = em.center_space
     partial = sw.State({
-        "u": grid.create_field(center, name="u"),
-        "v": grid.create_field(center, name="v")})
+        "u": model.state["u"],
+        "v": model.state["v"]})
     with pytest.raises(SignatureMismatchError, match="p"):
         sw.transforms.VorticalProjection(em)(partial)
 
