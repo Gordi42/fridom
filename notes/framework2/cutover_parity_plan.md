@@ -100,8 +100,17 @@ stack.
 
 ## Wave C — gate + swap
 
-- §8.8 cutover-parity list sign-off
-  (`notes/framework2/model/06_validation.md:272`).
+- §8.8 audit DONE 2026-07-10 → [`parity_audit.md`](parity_audit.md):
+  20/23 rows covered by verified tests, 1 mechanical regression
+  written (eps'd-AB2 jit tolerance), 2 subtle sketches remaining
+  (project-state ≡ project-tendency; one-period dispersion — audit
+  Appendix A, for a strong pass), 16-row intentional-deltas table
+  AWAITING OWNER SIGN-OFF, and 2 owner flags: `p = φ/stage_dt`
+  documented but unwired (nonhydro2 stores the raw potential —
+  decide: normalize or retract the claim), and `rest="zero"`
+  runtime zeroing unimplemented (policy slot only). Residual:
+  `nonhydro2/diagnostics.py` epot returns inf at N²=0 (the guard
+  lives only in EnergyMetric.from_model).
 - Full suite + 95% coverage + ruff (the wave-8 gate), merge to dev.
 - The swap: rename framework2 → framework; **move
   `fridom.framework.utils` into the new package** (framework2
