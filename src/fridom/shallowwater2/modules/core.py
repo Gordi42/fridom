@@ -126,11 +126,20 @@ class DynamicalCore(fr.Module):
         stencil matches ``diff(c^2 u)``. The ``csqr`` field lifts from
         its one-DOF ``fr.Profile()`` onto each velocity face via the
         ConstantSpace broadcast in ``.to``.
+
+        The pressure-gradient entries retag onto their velocities:
+        nodal stencil outputs are BC-free, but on a walled grid each
+        wall-normal velocity carries the derived Dirichlet wall tag
+        on its own axis, so the entry adopts it (the nonhydro
+        projection precedent) — identity on periodic grids. The flux
+        entries need no retag: ``csqr.to(u)`` adopts the velocity's
+        tag (BC-sibling adoption) and the divergence lands BC-free,
+        which is ``p``'s space.
         """
         u, v, p = state["u"], state["v"], state["p"]
         csqr = state["csqr"]
         return {
-            "u": -p.diff("x"),
-            "v": -p.diff("y"),
+            "u": (-p.diff("x")).retag(u),
+            "v": (-p.diff("y")).retag(v),
             "p": -(csqr.to(u) * u).diff("x") - (csqr.to(v) * v).diff("y"),
         }

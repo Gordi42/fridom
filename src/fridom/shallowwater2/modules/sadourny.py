@@ -25,6 +25,13 @@ is scaled by the Rossby number ``scaling.rossby`` (read from
 This port reads the ``csqr`` **field** — ``state["csqr"]`` — so
 ``p_full`` is spatially correct. Bitwise-identical to the old scheme
 only for constant depth.
+
+**Walled grids are future work**: the vector-invariant flux stencils
+near rigid walls (bounded, non-periodic mesh factors) are not covered
+yet — genuinely odd*odd products (e.g. the vorticity flux) need a
+parity-aware product codomain — so ``bind`` rejects walled grids with
+a taught error; build a linear model (``advection=False`` in
+``sw.Model``) instead.
 """
 from __future__ import annotations
 
@@ -61,6 +68,31 @@ class SadournyAdvection(fr.Module):
 
     parameter_references = (
         fr.Param(fr.params.SCALING_ROSSBY, default=1.0),)
+
+    def bind(self, table: object) -> None:
+        """Reject walled grids with a taught error (future work).
+
+        Raises
+        ------
+        NotImplementedError
+            On a walled grid (any bounded mesh factor): the
+            vector-invariant flux stencils near rigid walls are
+            future work, and the natural downstream failure (an
+            operator dispatch mismatch deep in the flux chain)
+            would be cryptic.
+        """
+        factors = getattr(table.grid, "factors", ())
+        walled = tuple(
+            name for mesh in factors for name in mesh.names
+            if not getattr(mesh, "periodic", True))
+        if walled:
+            raise NotImplementedError(
+                f"SadournyAdvection does not support walled grids "
+                f"yet (bounded coordinates: {walled}); the "
+                "vector-invariant flux stencils near rigid walls "
+                "are future work. Build a linear model instead "
+                "(advection=False in sw.Model) or drop the "
+                "advection module")
 
     @fr.term(advances=("u", "v", "p"),
              transports=("u", "v", "p"), linear=False)

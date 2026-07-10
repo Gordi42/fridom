@@ -9,12 +9,12 @@ N = 16
 DT = 5e-3
 
 
-def make_grid(n=N):
-    """Return a tiny doubly-periodic square grid."""
+def make_grid(n=N, *, periodic_y=True):
+    """Return a tiny square grid (a walled channel for periodic_y=False)."""
     mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
-                                     name="y")
+    my = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0),
+                                     periodic=periodic_y, name="y")
     return fr.grid.Grid((mx, my))
 
 
