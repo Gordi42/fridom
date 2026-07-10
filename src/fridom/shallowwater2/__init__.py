@@ -37,6 +37,7 @@ if TYPE_CHECKING:  # pragma: no cover
         channel_eigenmodes,
         diagnostics,
         eigenmodes,
+        initial_conditions,
         modules,
         params,
         transforms,
@@ -45,6 +46,11 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all classes
     from .channel_eigenmodes import ChannelEigenmodes
     from .eigenmodes import eigenbasis
+    from .initial_conditions import (
+        random_state,
+        random_vortical,
+        random_waves,
+    )
     from .model import Model
     from .state import State
 
@@ -55,12 +61,15 @@ base = "fridom.shallowwater2"
 
 all_modules_by_origin = {
     base: ["modules", "eigenmodes", "channel_eigenmodes",
-           "diagnostics", "params", "transforms"],
+           "diagnostics", "params", "transforms",
+           "initial_conditions"],
 }
 
 all_imports_by_origin = {
     f"{base}.channel_eigenmodes": ["ChannelEigenmodes"],
     f"{base}.eigenmodes": ["eigenbasis"],
+    f"{base}.initial_conditions": [
+        "random_state", "random_vortical", "random_waves"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
 }
