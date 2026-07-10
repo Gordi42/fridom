@@ -45,6 +45,7 @@ from fridom.framework2.model.eigenbasis import (
     segment_energy,
     split_frequency_bands,
 )
+from fridom.shallowwater2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -268,6 +269,8 @@ class ChannelEigenmodes(ChannelEigenmodesBase):
     families: ClassVar[Mapping[str, int]] = FAMILIES
     #: Integer label code -> family name.
     family_names: ClassVar[Mapping[int, str]] = FAMILY_NAMES
+    #: Vocabulary class wrapping the ``mode()`` states.
+    state_class: ClassVar[type] = State
 
     def __init__(
         self,

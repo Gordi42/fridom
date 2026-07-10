@@ -994,3 +994,69 @@ def test_varying_n2_analytic_paths_are_taught_errors():
     for periodic_z in (True, False):
         with pytest.raises(ValueError, match=r"nh\.eigenbasis"):
             nh.eigenmodes.from_model(build(periodic_z))
+
+
+# ================================================================
+#  The mode-indexed accessor (em.mode) on the 3-D channel
+# ================================================================
+def _mode_strong_residual(model, em, family, indices, branch=None):
+    """Drive P L P with one mode; return (omega, scaled residual)."""
+    omega, z0 = em.mode(family, indices, branch=branch)
+    _, z1 = em.mode(family, indices, branch=branch,
+                    phase=np.pi / 2)
+    state = nh.State({c: z0[c] for c in em.components})
+    projected = model.constrain(state)
+    tau = model.tendency(projected, constraints=True)
+    residual = max(
+        float(np.abs(np.asarray(tau[c].data)
+                     - omega * np.asarray(z1[c].data)).max())
+        for c in em.components)
+    return omega, residual / (1.0 + abs(omega))
+
+
+@pytest.mark.parametrize(("family", "branch", "indices"), [
+    pytest.param("wave", 1, {"x": 2, "z": 1, "y": 0},
+                 id="wave-plus"),
+    pytest.param("wave-", None, {"x": 1, "z": 2, "y": 1},
+                 id="wave-minus"),
+    pytest.param("kelvin+", None, {"x": 2, "z": 1, "y": 0},
+                 id="kelvin-plus"),
+    pytest.param("vortical", None, {"x": 2, "z": 1, "y": 2},
+                 id="vortical"),
+])
+def test_mode_satisfies_the_strong_eigen_relation(
+        model, em, family, branch, indices):
+    omega, residual = _mode_strong_residual(
+        model, em, family, indices, branch=branch)
+    assert residual < 1e-12
+    if family == "vortical":
+        assert abs(omega) < 1e-8
+
+
+def test_mode_is_leray_compatible_and_normalized(model, em):
+    # a physical-family mode already satisfies the constraint, is
+    # exactly real, and carries a unit horizontal-velocity envelope
+    omega, z0 = em.mode("kelvin", {"x": 2, "z": 1, "y": 0},
+                        branch=1)
+    _, z1 = em.mode("kelvin", {"x": 2, "z": 1, "y": 0}, branch=1,
+                    phase=np.pi / 2)
+    state = nh.State({c: z0[c] for c in em.components})
+    projected = model.constrain(state)
+    assert max(
+        float(np.abs(np.asarray(projected[c].data)
+                     - np.asarray(z0[c].data)).max())
+        for c in em.components) < 1e-12
+    peak = max(
+        float((np.asarray(z0[c].data) ** 2
+               + np.asarray(z1[c].data) ** 2).max())
+        for c in ("u", "v"))
+    assert peak == pytest.approx(1.0, abs=1e-12)
+    for c in em.components:
+        assert not np.iscomplexobj(np.asarray(z0[c].data))
+    assert isinstance(z0, nh.State)
+    assert omega > 0.0
+
+
+def test_mode_rejects_the_constraint_family(em):
+    with pytest.raises(ValueError, match="not a physical mode"):
+        em.mode("constraint", {"x": 1, "z": 1, "y": 0})

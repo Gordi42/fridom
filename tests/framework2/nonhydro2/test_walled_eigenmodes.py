@@ -358,6 +358,98 @@ def test_walled_strong_eigenrelation(walled, linearized, s):
 
 
 # ================================================================
+#  The mode-indexed accessor (em.mode) on the walled vertical
+# ================================================================
+def _mode_tendency_residual(walled, linearized, s, indices):
+    """Return (omega, strong-test residual) for one single mode."""
+    _, _, em = walled
+    lin, prog, base0, constrain = linearized
+    omega, z0 = em.mode(s, indices)
+    _, z1 = em.mode(s, indices, phase=np.pi / 2)
+    phys = base0.replace(**{
+        c: base0[c].with_data(z0[c].data) for c in COMPONENTS})
+    tau = lin.tendency(phys, t=0.0, constraints=False)
+    constrained = constrain(base0.replace(
+        **{c: tau[c] for c in prog}))
+    residual = max(
+        float(np.abs(np.asarray(constrained[c].data)
+                     - omega * np.asarray(z1[c].data)).max())
+        for c in COMPONENTS)
+    return omega, residual / (1.0 + abs(omega))
+
+
+@pytest.mark.parametrize(("s", "iz"), [
+    pytest.param(1, 3, id="plus-m3"),
+    pytest.param(-1, 1, id="minus-m1"),
+    pytest.param(0, 2, id="vortical-m2"),
+    pytest.param(0, 0, id="vortical-barotropic"),
+    pytest.param(0, N, id="vortical-buoyancy-top"),
+])
+def test_mode_satisfies_the_strong_eigen_relation(
+        walled, linearized, s, iz):
+    omega, residual = _mode_tendency_residual(
+        walled, linearized, s, {"x": 2, "y": 1, "z": iz})
+    assert residual < 1e-12
+    if s == 0:
+        assert omega == 0.0
+    else:
+        assert omega != 0.0
+
+
+def test_mode_frequency_matches_the_dispersion_table(walled):
+    _, _, em = walled
+    omega, z = em.mode(1, {"x": 2, "y": 1, "z": 3})
+    table = np.broadcast_to(
+        np.real(np.asarray(em.omega(1).data)),
+        np.asarray(em.q(1)["w"].data).shape)
+    assert omega == pytest.approx(float(table[2, 1, 2]), rel=1e-13)
+    for c in COMPONENTS:
+        assert not np.iscomplexobj(np.asarray(z[c].data))
+    peak = max(float(np.abs(np.asarray(z[c].data)).max())
+               for c in ("u", "v"))
+    assert peak <= 1.0 + 1e-12
+
+
+def test_mode_projection_keeps_and_annihilates(walled):
+    _, _, em = walled
+    _, z = em.mode(1, {"x": 2, "y": 1, "z": 3})
+    kept = nh.transforms.mode_projection(em, 1)(z)
+    assert max(
+        float(np.abs(np.asarray(kept[c].data)
+                     - np.asarray(z[c].data)).max())
+        for c in COMPONENTS) < 1e-12
+    for other in (0, -1):
+        killed = nh.transforms.mode_projection(em, other)(z)
+        assert max(
+            float(np.abs(np.asarray(killed[c].data)).max())
+            for c in COMPONENTS) < 1e-12
+
+
+def test_mode_absent_strata_carry_exact_zero_components(walled):
+    # the barotropic stratum m = 0 exists only on u/v/p lattices:
+    # the returned w and b components are exact zeros
+    _, _, em = walled
+    _, z = em.mode(0, {"x": 2, "y": 1, "z": 0})
+    assert float(np.abs(np.asarray(z["w"].data)).max()) == 0.0
+    assert float(np.abs(np.asarray(z["b"].data)).max()) == 0.0
+    assert float(np.abs(np.asarray(z["u"].data)).max()) > 0.0
+
+
+def test_mode_structural_errors_are_taught(walled):
+    _, _, em = walled
+    # wave branches carry no barotropic / buoyancy-top strata
+    with pytest.raises(ValueError, match="structurally"):
+        em.mode(1, {"x": 2, "y": 1, "z": 0})
+    with pytest.raises(ValueError, match="structurally"):
+        em.mode(1, {"x": 2, "y": 1, "z": N})
+    # ... and no k_h = 0 columns
+    with pytest.raises(ValueError, match="structurally"):
+        em.mode(1, {"x": 0, "y": 0, "z": 3})
+    with pytest.raises(ValueError, match="union modes"):
+        em.mode(0, {"x": 2, "y": 1, "z": N + 1})
+
+
+# ================================================================
 #  Stage B: partition of unity and the unrepresented strata
 # ================================================================
 def test_partition_of_unity_on_the_represented_set(walled,

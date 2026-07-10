@@ -54,6 +54,11 @@ from fridom.framework2.grid.symbols import (
     ModeChart,
     rayleigh_dual,
 )
+from fridom.framework2.model.eigenstates import (
+    coefficient_index,
+    envelope_scale,
+    hermitian_mode_data,
+)
 from fridom.framework2.model.energy import nonhydro_energy_weights
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.params import DSQR
@@ -458,6 +463,103 @@ class Eigenmodes:
                 for c in q})
 
         return project
+
+    # ================================================================
+    #  Mode-indexed single-mode states
+    # ================================================================
+    def mode(
+        self,
+        s: int,
+        indices: Mapping[str, int],
+        *,
+        phase: float = 0.0,
+    ) -> tuple[float, State]:
+        r"""
+        Return one discrete mode as ``(omega, physical state)``.
+
+        Description
+        -----------
+        The mode-indexed accessor of the analytic eigenmodes:
+        ``indices`` is an axis-keyed mapping of integer mode
+        indices (e.g. ``{"x": 3, "y": 0, "z": 2}``) — the
+        half-spectrum axis runs ``0..n//2``, full-spectrum axes
+        take any integer modulo ``n``, and a walled vertical takes
+        the **physical** vertical mode on the ``0..n`` union
+        lattice (components whose trig family lacks the stratum
+        contribute exact zeros). The state is the real
+        Hermitian-closed physical mode
+        :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x + \mathrm{phase})})`
+        satisfying ``d/dt state(phase) = omega * state(phase +
+        pi/2)`` under the linearized, Leray-projected tendency,
+        normalized so the largest horizontal-velocity amplitude
+        (the pointwise oscillation envelope over the ``u`` and
+        ``v`` nodes) is one; a mode without horizontal velocity is
+        left unnormalized. On the self-conjugate planes of the
+        half-spectrum axis a wave branch synthesizes the standing
+        (conjugate-mixed) real mode.
+
+        Parameters
+        ----------
+        s : int
+            The mode branch: 0, +1 or -1.
+        indices : Mapping[str, int]
+            Axis-keyed integer mode indices, one per grid axis.
+        phase : float, optional
+            The mode phase shift (default: 0.0).
+
+        Returns
+        -------
+        tuple[float, State]
+            The frequency and the single-mode physical state.
+
+        Raises
+        ------
+        ValueError
+            On bad indices, or a structurally unrepresented mode
+            (e.g. a wave branch on a vortical-only stratum: the
+            ``k_h = 0`` columns, the walled barotropic ``m = 0``
+            and buoyancy-top ``m = n`` strata).
+        """
+        components = ("u", "v", "w", "b")
+        q = self.q(s)
+        slots = {c: coefficient_index(q[c].function_space, indices)
+                 for c in components}
+        amps = {c: q[c].data[slots[c]] for c in components
+                if slots[c] is not None}
+        if (s != 0 and slots["w"] is None) or all(
+                float(jnp.abs(a)) == 0.0 for a in amps.values()):
+            raise ValueError(
+                f"mode s={s} at {dict(indices)!r} is structurally "
+                "unrepresented on the discrete lattice (wave "
+                "branches vanish at k_h = 0 and outside the "
+                "vertical w strata; the geostrophic column "
+                "vanishes on the interpolation-Nyquist planes)")
+
+        def synth(shift: float) -> dict[str, ScalarField]:
+            out = {}
+            for c in components:
+                if slots[c] is None:
+                    data = jnp.zeros_like(q[c].data)
+                else:
+                    value = amps[c] * jnp.exp(
+                        1j * (float(phase) + shift))
+                    data = hermitian_mode_data(
+                        q[c].function_space, slots[c], value)
+                out[c] = self._kit.backward(c)(
+                    q[c].with_data(data)).real.retag(
+                    self._physical[c])
+            return out
+
+        z0 = synth(0.0)
+        z1 = synth(jnp.pi / 2.0)
+        scale = envelope_scale(z0, z1, ("u", "v"))
+        state = State({c: z0[c] / scale for c in components})
+        if s == 0:
+            return 0.0, state
+        shape = self._templates["w"].data.shape
+        omega = float(jnp.broadcast_to(
+            self.omega(s).data, shape)[slots["w"]])
+        return omega, state
 
     # ================================================================
     #  Internals

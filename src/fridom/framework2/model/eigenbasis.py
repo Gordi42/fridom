@@ -32,22 +32,27 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from importlib import import_module
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
+from fridom.framework.utils import dtype_real
+from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.operators.fourier import Fourier
 from fridom.framework2.model.eigen_channel import channel_eigenpairs
+from fridom.framework2.model.eigenstates import (
+    envelope_scale,
+    normalize_max_component,
+)
 from fridom.framework2.transforms.projection import EigenProjection
 from fridom.framework2.transforms.signature import StateSignature
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
-    import jax
-
-    from fridom.framework2.grid.fields.vector_field import VectorField
+    from fridom.framework2.grid.fields.scalar_field import ScalarField
     from fridom.framework2.grid.grid import Grid
     from fridom.framework2.model.eigen_channel import ChannelEigenbasis
     from fridom.framework2.model.model import Model
@@ -260,6 +265,13 @@ class ChannelEigenmodesBase(ABC):
     def families(self) -> Mapping[str, int]:
         """Family name -> integer label code (the vocabulary)."""
 
+    #: Vocabulary class wrapping the states :meth:`mode` returns.
+    state_class: ClassVar[type] = VectorField
+
+    #: Family names that are engine artifacts, not physical mode
+    #: selections (e.g. the nonhydro ``constraint`` complement).
+    nonphysical_families: ClassVar[tuple[str, ...]] = ()
+
     def __init__(
         self,
         model: Model,
@@ -379,6 +391,100 @@ class ChannelEigenmodesBase(ABC):
             f"projector takes a family name (one of {known}) or a "
             "predicate (omega, labels) -> bool mask; got "
             f"{sel!r}")
+
+    # ================================================================
+    #  Mode-indexed single-mode states
+    # ================================================================
+    def mode(
+        self,
+        family: str,
+        indices: Mapping[str, int],
+        *,
+        branch: int | None = None,
+        phase: float = 0.0,
+    ) -> tuple[float, VectorField]:
+        r"""
+        Return one labeled mode as ``(omega, physical state)``.
+
+        Description
+        -----------
+        The mode-indexed accessor of the channel eigenbasis:
+        ``family`` names a labeled family (a signed name like
+        ``"wave+"``, or an unsigned root with ``branch=+1/-1``);
+        ``indices`` is an axis-keyed mapping covering every grid
+        axis — the periodic axes carry integer wavenumber indices
+        (the half-spectrum axis runs ``0..n//2``, full axes take
+        any integer modulo ``n``), and the bounded axis carries the
+        **within-family mode ordinal**. Ordinals order the family's
+        columns of the plane by ascending ``|omega|`` (for the
+        Poincaré and Kelvin families this is ascending meridional
+        complexity); the ``"vortical"`` family — degenerate at
+        ``omega = 0`` on the f-plane — orders by the node count of
+        the dominant component segment along the bounded axis.
+
+        The state is the real Hermitian-closed physical mode
+        :math:`\mathrm{Re}(q(y)\,e^{i(k\cdot x + \mathrm{phase})})`,
+        normalized so the largest horizontal-velocity amplitude
+        (the pointwise oscillation envelope over the ``u`` and
+        ``v`` nodes) is one; a mode without horizontal velocity is
+        left unnormalized.
+        On the self-conjugate planes of the half-spectrum axis a
+        signed selection synthesizes the standing (conjugate-mixed)
+        real mode.
+
+        Parameters
+        ----------
+        family : str
+            A labeled family name (``self.families``), signed or
+            unsigned-with-``branch``.
+        indices : Mapping[str, int]
+            Axis-keyed mode indices; the bounded axis keys the
+            within-family ordinal.
+        branch : int | None, optional
+            ``+1``/``-1`` selects the signed branch of an unsigned
+            family root (default: None).
+        phase : float, optional
+            The mode phase shift (default: 0.0).
+
+        Returns
+        -------
+        tuple[float, VectorField]
+            The frequency and the single-mode physical state
+            (the package's ``state_class``).
+
+        Raises
+        ------
+        ValueError
+            On unknown/nonphysical families, bad indices, or a
+            plane holding no (or too few) columns of the family.
+        """
+        name = _resolve_mode_family(self, family, branch)
+        slots, ordinal = _plane_slots(self, indices)
+        omega = np.asarray(self.omega)[slots]
+        labels = np.asarray(self.labels)[slots]
+        q = np.asarray(self.q)[slots]
+        cols = _ordered_family_columns(self, name, labels, omega, q)
+        if not cols:
+            raise ValueError(
+                f"no {name!r} column at plane {slots!r}: the family "
+                "is structurally absent there (or the labeler left "
+                "the plane's columns UNLABELED — inspect eb.labels)")
+        if ordinal >= len(cols):
+            raise ValueError(
+                f"the {name!r} family holds {len(cols)} modes at "
+                f"plane {slots!r} (ordinals 0..{len(cols) - 1}); "
+                f"got {ordinal}")
+        col = cols[ordinal]
+        column = jnp.asarray(q[:, col])
+        z0 = _synthesize_column(
+            self, slots, column * jnp.exp(1j * float(phase)))
+        z1 = _synthesize_column(
+            self, slots,
+            column * jnp.exp(1j * (float(phase) + jnp.pi / 2.0)))
+        scale = envelope_scale(z0, z1, _horizontal_velocities(self))
+        state = self.state_class(
+            {c: z0[c] / scale for c in self.components})
+        return float(omega[col]), state
 
 
 # ================================================================
@@ -610,6 +716,360 @@ def predicate_projection(
         signature=_signature(em),
         project_fn=project,
         name=f"P[{label}]")
+
+
+# ================================================================
+#  Mode indexing and synthesis helpers (the engine tier)
+# ================================================================
+def _horizontal_velocities(
+    em: ChannelEigenmodesBase,
+) -> tuple[str, ...]:
+    """Return the horizontal-velocity (normalization) components."""
+    return tuple(n for n in ("u", "v") if n in em.components)
+
+
+def _axis_cells(grid: Grid, name: str) -> int:
+    """Origin cell count of the mesh factor carrying ``name``."""
+    mesh = next(m for m in grid.factors if name in m.names)
+    return mesh.n_cells
+
+
+def _resolve_mode_family(
+    em: ChannelEigenmodesBase,
+    family: str,
+    branch: int | None,
+) -> str:
+    """Resolve a (family, branch) request to one labeled family."""
+    name = family
+    if branch is not None:
+        if int(branch) not in (1, -1):
+            raise ValueError(
+                f"branch selects a signed family branch: +1 or -1, "
+                f"got {branch!r}")
+        name = f"{family}{'+' if int(branch) > 0 else '-'}"
+        if name not in em.families:
+            raise ValueError(
+                f"{family!r} carries no signed branches "
+                f"({name!r} is not a labeled family); pass a "
+                "family name without branch=")
+    if name in em.nonphysical_families:
+        raise ValueError(
+            f"{name!r} is not a physical mode family (an engine "
+            "artifact — e.g. the divergence-complement constraint "
+            "columns); select one of the physical families "
+            f"{tuple(n for n in em.families if n not in em.nonphysical_families)!r}")  # noqa: E501
+    if name not in em.families:
+        known = ", ".join(
+            n for n in em.families
+            if n not in em.nonphysical_families)
+        raise ValueError(
+            f"unknown mode family {name!r}: the labeled vocabulary "
+            f"is {known}; signed pairs take the signed name or the "
+            "unsigned root with branch=+1/-1")
+    return name
+
+
+def _plane_slots(
+    em: ChannelEigenmodesBase,
+    indices: Mapping[str, int],
+) -> tuple[tuple[int, ...], int]:
+    """Resolve axis-keyed indices to (plane slots, family ordinal)."""
+    names = em.grid.names
+    if set(indices) != set(names):
+        raise ValueError(
+            "mode indices are keyed by the grid axes "
+            f"{tuple(names)!r} (the bounded axis "
+            f"{em.bounded_axis!r} keys the within-family ordinal); "
+            f"got keys {tuple(indices)!r}")
+    ordinal = int(indices[em.bounded_axis])
+    if ordinal < 0:
+        raise ValueError(
+            f"the bounded-axis index is the within-family mode "
+            f"ordinal (>= 0); got {ordinal}")
+    slots = []
+    for name in names:
+        if name == em.bounded_axis:
+            continue
+        n = _axis_cells(em.grid, name)
+        m = int(indices[name])
+        if name == em.periodic_axis:
+            if not 0 <= m <= n // 2:
+                raise ValueError(
+                    f"axis {name!r} stores the Hermitian half "
+                    f"spectrum: mode indices run 0..{n // 2}; "
+                    f"got {m}")
+            slots.append(m)
+        else:
+            slots.append(m % n)
+    return tuple(slots), ordinal
+
+
+def _node_count(
+    column: np.ndarray,
+    components: tuple[str, ...],
+    slices: Mapping[str, slice],
+    metric: np.ndarray,
+) -> int:
+    """Sign changes of the dominant component segment of a column."""
+    best = None
+    best_energy = -1.0
+    for name in components:
+        seg = column[slices[name]]
+        energy = float(
+            np.sum(np.abs(seg) ** 2 * metric[slices[name]]))
+        if energy > best_energy:
+            best_energy, best = energy, seg
+    magnitude = np.abs(best)
+    j = int(np.argmax(magnitude))
+    if magnitude[j] == 0.0:
+        return 0
+    profile = np.real(best * np.conj(best[j]) / magnitude[j])
+    keep = np.abs(profile) > 1e-8 * np.abs(profile).max()
+    signs = np.sign(profile[keep])
+    return int(np.count_nonzero(signs[1:] != signs[:-1]))
+
+
+def _ordered_family_columns(
+    em: ChannelEigenmodesBase,
+    family: str,
+    labels: np.ndarray,
+    omega: np.ndarray,
+    q: np.ndarray,
+) -> list[int]:
+    r"""
+    Order one plane's family columns by the mode-ordinal convention.
+
+    Description
+    -----------
+    Ascending ``|omega|`` (ties by column index) — for Poincaré and
+    Kelvin branches that is ascending meridional complexity. The
+    ``"vortical"`` family instead orders by the bounded-axis node
+    count of the dominant component segment (ties by column index):
+    its f-plane columns are an exactly degenerate ``omega = 0``
+    cluster where frequency ordering is meaningless, and under beta
+    the slow Rossby ``|omega|`` *decreases* with meridional mode.
+    """
+    cols = np.flatnonzero(labels == em.families[family])
+    if family == "vortical":
+        metric = np.asarray(em.metric)
+
+        def key(c: int) -> tuple:
+            return (_node_count(q[:, c], em.components, em.slices,
+                                metric), c)
+    else:
+
+        def key(c: int) -> tuple:
+            return (abs(float(omega[c])), c)
+
+    return sorted((int(c) for c in cols), key=key)
+
+
+def _synthesize_column(
+    em: ChannelEigenmodesBase,
+    slots: tuple[int, ...],
+    values: jax.Array,
+) -> dict[str, ScalarField]:
+    r"""
+    Real physical fields of one Hermitian-closed plane column.
+
+    Description
+    -----------
+    Places the stacked column ``values`` on the ``slots`` plane of
+    the engine's partial-Fourier coefficient layout and inverse
+    transforms. On the self-conjugate planes of the half-spectrum
+    axis the placement splits into the conjugate pair across the
+    full periodic axes (the ``(v/2, conj(v)/2)`` closure), so the
+    backward synthesis is exactly real.
+    """
+    grid = em.grid
+    ops = _fourier_ops(em)
+    periodic = tuple(
+        n for n in grid.names if n != em.bounded_axis)
+    half_n = _axis_cells(grid, em.periodic_axis)
+    half_slot = slots[periodic.index(em.periodic_axis)]
+    self_conj = half_slot == 0 or (half_n % 2 == 0
+                                   and half_slot == half_n // 2)
+    index: list[object] = [slice(None)] * len(grid.names)
+    for name, slot in zip(periodic, slots, strict=True):
+        index[grid.names.index(name)] = slot
+    partner = list(index)
+    for name, slot in zip(periodic, slots, strict=True):
+        if name != em.periodic_axis:
+            n = _axis_cells(grid, name)
+            partner[grid.names.index(name)] = (n - slot) % n
+    fields = {}
+    for name in em.components:
+        coeff = grid.create_field(em.spaces[name], name=name)
+        for op in ops:
+            coeff = op.forward(coeff)
+        seg = values[em.slices[name]].astype(coeff.data.dtype)
+        data = jnp.zeros(coeff.data.shape, dtype=coeff.data.dtype)
+        if self_conj:
+            data = data.at[tuple(index)].add(0.5 * seg)
+            data = data.at[tuple(partner)].add(
+                0.5 * jnp.conj(seg))
+        else:
+            data = data.at[tuple(index)].set(seg)
+        coeff = coeff.with_data(data)
+        for op in reversed(ops):
+            coeff = op.backward(coeff)
+        fields[name] = coeff.real
+    return fields
+
+
+def channel_random_state(
+    em: ChannelEigenmodesBase,
+    selection: str,
+    spectral_energy_density: Callable[..., jax.Array],
+    *,
+    seed: int,
+    horizontal: tuple[str, ...],
+) -> dict[str, ScalarField]:
+    r"""
+    Random-phase family state with a prescribed energy spectrum.
+
+    Description
+    -----------
+    The engine-tier port of the reference
+    ``PrescribedSpectraRandomPhase``: every labeled column of the
+    selected family (an unsigned selection covers both signed
+    branches) receives the amplitude
+
+    .. math::
+
+        a = \sqrt{\frac{S(k)}{\pi k_h}} \; e^{i\theta}
+
+    with :math:`\theta` uniform random per column (seeded), the
+    columns being M-orthonormal (unit energy). :math:`S` is
+    evaluated on one wavenumber per grid axis (grid order): the
+    periodic axes carry their physical Fourier wavenumbers and the
+    bounded axis the **effective meridional wavenumber**
+    :math:`k_y = \pi m / L` of the column's within-family ordinal
+    ``m`` (the :func:`ChannelEigenmodesBase.mode` ordering).
+    :math:`\pi k_h` is the ring measure of the reference's
+    :math:`S(k) = 2\pi k\,E(k, 0)` angular convention, with
+    :math:`k_h` built from the ``horizontal`` axes. The backward
+    synthesis takes the real part (the Hermitian closure — exact
+    for conjugation-closed selections), and the result is
+    normalized so the largest horizontal-velocity value is one.
+
+    The coefficient assembly is host-built (the replicated basis
+    against global plane arrays) and committed to the grid's
+    decomposition through the field store; the transforms and any
+    downstream projector applications stay sharded.
+
+    Parameters
+    ----------
+    em : ChannelEigenmodesBase
+        The labeled channel eigenmodes.
+    selection : str
+        A family selection string (unsigned roots cover both
+        signed branches).
+    spectral_energy_density : Callable[..., jax.Array]
+        ``S(*k)`` over the grid-axis wavenumbers, in grid order.
+    seed : int
+        The PRNG seed (bitwise deterministic).
+    horizontal : tuple[str, ...]
+        The horizontal axis names entering :math:`k_h`.
+
+    Returns
+    -------
+    dict[str, ScalarField]
+        The normalized real physical components.
+    """
+    selections = _selection_map(em.families)
+    names = selections.get(selection)
+    if names is None or any(
+            n in em.nonphysical_families
+            for n in (selection, *names)):
+        known = ", ".join(
+            n for n in selections
+            if n not in em.nonphysical_families)
+        raise ValueError(
+            f"unknown or nonphysical family selection "
+            f"{selection!r}: the channel vocabulary is {known}")
+    grid = em.grid
+    omega = np.asarray(em.omega)
+    labels = np.asarray(em.labels)
+    q_host = np.asarray(em.q)
+    plane_shape = omega.shape[:-1]
+    length = _axis_length(grid, em.bounded_axis)
+    ky = np.zeros(omega.shape)
+    selected = np.zeros(omega.shape, dtype=bool)
+    for fam in names:
+        for plane in np.ndindex(plane_shape):
+            cols = _ordered_family_columns(
+                em, fam, labels[plane], omega[plane], q_host[plane])
+            for ordinal, col in enumerate(cols):
+                ky[(*plane, col)] = np.pi * ordinal / length
+                selected[(*plane, col)] = True
+    kvals = _plane_wavenumbers(em, ndim=omega.ndim)
+    kh2 = sum(
+        kvals[name] ** 2 for name in horizontal
+        if name != em.bounded_axis)
+    kh2 = kh2 + (ky ** 2 if em.bounded_axis in horizontal else 0.0)
+    kh = np.sqrt(kh2)
+    args = tuple(
+        jnp.asarray(ky if name == em.bounded_axis
+                    else kvals[name])
+        for name in grid.names)
+    spectra = np.asarray(
+        jnp.broadcast_to(spectral_energy_density(*args),
+                         omega.shape))
+    good = selected & (kh > 0.0)
+    denom = np.where(good, np.pi * kh, 1.0)
+    amp = np.where(good,
+                   np.sqrt(np.where(good, spectra, 0.0) / denom),
+                   0.0)
+    theta = jax.random.uniform(
+        jax.random.key(seed), omega.shape, dtype=dtype_real(),
+        maxval=2.0 * jnp.pi)
+    gains = jnp.asarray(amp) * jnp.exp(1j * theta)
+    z = jnp.einsum("...dj,...j->...d", jnp.asarray(em.q), gains)
+    bounded_pos = grid.names.index(em.bounded_axis)
+    ops = _fourier_ops(em)
+    fields = {}
+    for name in em.components:
+        coeff = grid.create_field(em.spaces[name], name=name)
+        for op in ops:
+            coeff = op.forward(coeff)
+        data = jnp.moveaxis(
+            z[..., em.slices[name]], -1, bounded_pos)
+        coeff = coeff.with_data(data.astype(coeff.data.dtype))
+        for op in reversed(ops):
+            coeff = op.backward(coeff)
+        fields[name] = coeff.real
+    return normalize_max_component(
+        fields, _horizontal_velocities(em))
+
+
+def _axis_length(grid: Grid, name: str) -> float:
+    """Interval length of the mesh factor carrying ``name``."""
+    mesh = next(m for m in grid.factors if name in m.names)
+    return float(mesh.dx * mesh.n_cells)
+
+
+def _plane_wavenumbers(
+    em: ChannelEigenmodesBase, *, ndim: int,
+) -> dict[str, np.ndarray]:
+    """Physical wavenumbers per periodic axis, plane-broadcast."""
+    grid = em.grid
+    periodic = tuple(
+        n for n in grid.names if n != em.bounded_axis)
+    kvals = {}
+    for i, name in enumerate(periodic):
+        n = _axis_cells(grid, name)
+        length = _axis_length(grid, name)
+        if name == em.periodic_axis:
+            modes = np.arange(n // 2 + 1, dtype=float)
+        else:
+            modes = np.arange(n, dtype=float)
+            modes = np.where(modes > n // 2, modes - n, modes)
+        k = 2.0 * np.pi * modes / length
+        shape = [1] * ndim
+        shape[i] = k.size
+        kvals[name] = k.reshape(shape)
+    return kvals
 
 
 # ================================================================

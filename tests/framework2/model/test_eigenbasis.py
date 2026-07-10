@@ -17,7 +17,10 @@ import fridom.framework2 as fr
 import fridom.shallowwater2 as sw
 from fridom.framework2.model.eigenbasis import (
     ChannelEigenmodesBase,
+    _node_count,
+    _ordered_family_columns,
     _selection_map,
+    channel_random_state,
     eigenbasis,
     family_projection,
     recover_crisp_column,
@@ -181,6 +184,130 @@ def test_family_projection_carries_the_model_spaces(channel):
     spaces = dict(proj.domain.components)
     for name in em.components:
         assert spaces[name] is em.spaces[name]
+
+
+# ================================================================
+#  The mode-indexed accessor (eb.mode) and the random-state engine
+# ================================================================
+def _mode_pair(em, family, indices, branch=None, phase=0.0):
+    """Return the mode and its quarter-period phase shift."""
+    omega, z0 = em.mode(family, indices, branch=branch, phase=phase)
+    _, z1 = em.mode(family, indices, branch=branch,
+                    phase=phase + np.pi / 2)
+    return omega, z0, z1
+
+
+@pytest.mark.parametrize(("family", "branch", "indices"), [
+    pytest.param("kelvin", 1, {"x": 2, "y": 0}, id="kelvin-plus"),
+    pytest.param("wave-", None, {"x": 3, "y": 1}, id="wave-minus"),
+    pytest.param("vortical", None, {"x": 1, "y": 2}, id="vortical"),
+])
+def test_mode_satisfies_the_strong_eigen_relation(
+        channel, family, branch, indices):
+    # d/dt state(phase) == omega * state(phase + pi/2) through the
+    # REAL model tendency
+    model, em = channel
+    omega, z0, z1 = _mode_pair(em, family, indices, branch=branch,
+                               phase=0.3)
+    assert isinstance(z0, sw.State)
+    tau = model.tendency(z0)
+    residual = max(
+        float(np.abs(np.asarray(tau[c].data)
+                     - omega * np.asarray(z1[c].data)).max())
+        for c in em.components)
+    assert residual < 1e-11 * (1.0 + abs(omega))
+
+
+def test_mode_normalization_and_realness(channel):
+    _, em = channel
+    _, z0, z1 = _mode_pair(em, "wave", {"x": 2, "y": 0}, branch=1)
+    peak = max(
+        float((np.asarray(z0[c].data) ** 2
+               + np.asarray(z1[c].data) ** 2).max())
+        for c in ("u", "v"))
+    assert peak == pytest.approx(1.0, abs=1e-12)
+    for c in em.components:
+        assert not np.iscomplexobj(np.asarray(z0[c].data))
+        assert float(np.abs(np.asarray(z0[c].data)).max()) <= 1 + 1e-12
+
+
+def test_mode_projectors_confirm_the_family(channel):
+    _, em = channel
+    _, z = em.mode("kelvin+", {"x": 2, "y": 0})
+    kept = em.projector("kelvin+")(z)
+    assert max(
+        float(np.abs(np.asarray(kept[c].data)
+                     - np.asarray(z[c].data)).max())
+        for c in em.components) < 1e-12
+    for other in ("vortical", "wave"):
+        killed = em.projector(other)(z)
+        assert max(
+            float(np.abs(np.asarray(killed[c].data)).max())
+            for c in em.components) < 1e-12
+
+
+def test_mode_vortical_ordinals_follow_the_node_count(channel):
+    _, em = channel
+    omega = np.asarray(em.omega)[2]
+    labels = np.asarray(em.labels)[2]
+    q = np.asarray(em.q)[2]
+    cols = _ordered_family_columns(em, "vortical", labels, omega, q)
+    counts = [
+        _node_count(q[:, c], em.components, em.slices,
+                    np.asarray(em.metric)) for c in cols]
+    assert counts == sorted(counts)
+    assert counts[0] < counts[-1]
+
+
+def test_mode_error_paths(channel):
+    _, em = channel
+    with pytest.raises(ValueError, match="unknown mode family"):
+        em.mode("wave", {"x": 1, "y": 0})
+    with pytest.raises(ValueError, match="signed family branch"):
+        em.mode("wave", {"x": 1, "y": 0}, branch=2)
+    with pytest.raises(ValueError, match="no signed branches"):
+        em.mode("vortical", {"x": 1, "y": 0}, branch=1)
+    with pytest.raises(ValueError, match="keyed by the grid axes"):
+        em.mode("vortical", {"x": 1})
+    with pytest.raises(ValueError, match="half"):
+        em.mode("vortical", {"x": N, "y": 0})
+    with pytest.raises(ValueError, match="ordinal"):
+        em.mode("vortical", {"x": 1, "y": -1})
+    with pytest.raises(ValueError, match="holds"):
+        em.mode("vortical", {"x": 1, "y": 99})
+    with pytest.raises(ValueError, match="structurally absent"):
+        em.mode("kelvin+", {"x": 0, "y": 0})
+
+
+def test_mode_on_a_self_conjugate_plane_is_a_real_steady_mode(
+        channel):
+    # kx = 0 sits on a self-conjugate half-spectrum plane: the
+    # placement closes into the conjugate pair and the synthesized
+    # vortical mode is real and exactly steady
+    model, em = channel
+    omega, z = em.mode("vortical", {"x": 0, "y": 1})
+    assert abs(omega) < 1e-8
+    tau = model.tendency(z)
+    assert max(
+        float(np.abs(np.asarray(tau[c].data)).max())
+        for c in em.components) < 1e-11
+    for c in em.components:
+        assert not np.iscomplexobj(np.asarray(z[c].data))
+
+
+def test_node_count_of_a_zero_column_is_zero(channel):
+    _, em = channel
+    zero = np.zeros(np.asarray(em.q).shape[-2], dtype=complex)
+    assert _node_count(zero, em.components, em.slices,
+                       np.asarray(em.metric)) == 0
+
+
+def test_random_state_engine_rejects_unknown_selections(channel):
+    _, em = channel
+    with pytest.raises(ValueError, match="unknown or nonphysical"):
+        channel_random_state(
+            em, "rossby", lambda *_k: 1.0, seed=1,
+            horizontal=("x", "y"))
 
 
 # ================================================================

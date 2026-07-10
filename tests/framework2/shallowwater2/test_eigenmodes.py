@@ -243,6 +243,125 @@ def test_mode_family_is_complete_off_the_nyquist_nullspace():
 
 
 # ================================================================
+#  The mode-indexed accessor (em.mode)
+# ================================================================
+@pytest.fixture(scope="module")
+def mode_setup():
+    """One linear periodic model + eigenmodes for the mode tests."""
+    model = make_model(csqr=2.0, f0=1.5, advection=False)
+    return model, sw.eigenmodes.from_model(model)
+
+
+def _mode_pair(em, s, indices, phase=0.0):
+    omega, z0 = em.mode(s, indices, phase=phase)
+    _, z1 = em.mode(s, indices, phase=phase + np.pi / 2)
+    return omega, z0, z1
+
+
+@pytest.mark.parametrize(("s", "indices"), [
+    pytest.param(1, {"x": 3, "y": 2}, id="plus"),
+    pytest.param(-1, {"x": 2, "y": -3}, id="minus-negative-ky"),
+    pytest.param(0, {"x": 1, "y": 4}, id="vortical"),
+    pytest.param(1, {"x": 0, "y": 0}, id="inertial-mean"),
+])
+def test_mode_satisfies_the_strong_eigen_relation(
+        mode_setup, s, indices):
+    # d/dt state(phase) == omega * state(phase + pi/2) through the
+    # REAL model tendency (advection off: the tendency is linear)
+    model, em = mode_setup
+    omega, z0, z1 = _mode_pair(em, s, indices, phase=0.4)
+    tau = model.tendency(z0)
+    residual = max(
+        float(np.abs(np.asarray(tau[c].data)
+                     - omega * np.asarray(z1[c].data)).max())
+        for c in COMPONENTS)
+    assert residual < 1e-12 * (1.0 + abs(omega))
+
+
+def test_mode_frequency_matches_the_dispersion_diagonal(mode_setup):
+    _, em = mode_setup
+    omega, _ = em.mode(1, {"x": 3, "y": 2})
+    table = np.broadcast_to(np.asarray(em.omega(1).data),
+                            (N // 2 + 1, N))
+    assert omega == pytest.approx(float(table[3, 2]), rel=1e-14)
+    # the mean mode carries the inertial frequency f0
+    inertial, _ = em.mode(1, {"x": 0, "y": 0})
+    assert inertial == pytest.approx(1.5)
+
+
+def test_mode_projection_keeps_and_annihilates(mode_setup):
+    _, em = mode_setup
+    _, z = em.mode(1, {"x": 3, "y": 2})
+    kept = sw.transforms.mode_projection(em, 1)(z)
+    assert _absmax_states(kept, z) < 1e-12
+    for other in (0, -1):
+        killed = sw.transforms.mode_projection(em, other)(z)
+        assert max(
+            float(np.abs(np.asarray(killed[c].data)).max())
+            for c in COMPONENTS) < 1e-12
+
+
+def _absmax_states(a, b):
+    return max(
+        float(np.abs(np.asarray(a[c].data)
+                     - np.asarray(b[c].data)).max())
+        for c in COMPONENTS)
+
+
+def test_mode_normalization_and_realness(mode_setup):
+    # the largest horizontal-velocity envelope is exactly one, the
+    # fields are exactly real (Hermitian-closed synthesis), and a
+    # pi shift is exactly the negated state
+    _, em = mode_setup
+    _, z0, z1 = _mode_pair(em, 1, {"x": 3, "y": 2}, phase=0.7)
+    peak = max(
+        float((np.asarray(z0[c].data) ** 2
+               + np.asarray(z1[c].data) ** 2).max())
+        for c in ("u", "v"))
+    assert peak == pytest.approx(1.0, abs=1e-12)
+    for c in COMPONENTS:
+        assert not np.iscomplexobj(np.asarray(z0[c].data))
+    _, zpi = em.mode(1, {"x": 3, "y": 2}, phase=0.7 + np.pi)
+    assert _absmax_states(
+        zpi, sw.State({c: -z0[c] for c in COMPONENTS})) < 1e-13
+
+
+def test_mode_standing_wave_on_the_self_conjugate_plane(mode_setup):
+    # kx = 0 with interior ky: the Hermitian closure pairs the
+    # branch with its mirror — still an exact solution of the
+    # tendency eigen-relation
+    model, em = mode_setup
+    omega, z0, z1 = _mode_pair(em, 1, {"x": 0, "y": 2})
+    tau = model.tendency(z0)
+    residual = max(
+        float(np.abs(np.asarray(tau[c].data)
+                     - omega * np.asarray(z1[c].data)).max())
+        for c in COMPONENTS)
+    assert residual < 1e-12 * (1.0 + abs(omega))
+
+
+def test_mode_zero_velocity_mean_is_unnormalized(mode_setup):
+    # the geostrophic k = 0 mean is the pure-pressure mode: no
+    # horizontal velocity to normalize, the raw amplitude stays
+    _, em = mode_setup
+    omega, z = em.mode(0, {"x": 0, "y": 0})
+    assert omega == 0.0
+    assert float(np.abs(np.asarray(z["u"].data)).max()) == 0.0
+    assert float(np.abs(np.asarray(z["v"].data)).max()) == 0.0
+    assert float(np.abs(np.asarray(z["p"].data)).max()) > 0.0
+
+
+def test_mode_errors(mode_setup):
+    _, em = mode_setup
+    with pytest.raises(ValueError, match="structurally"):
+        em.mode(0, {"x": N // 2, "y": 0})  # interpolation Nyquist
+    with pytest.raises(ValueError, match="half"):
+        em.mode(1, {"x": -3, "y": 0})
+    with pytest.raises(ValueError, match="keyed by the grid axes"):
+        em.mode(1, {"x": 3})
+
+
+# ================================================================
 #  from_model dispatch: topology first, then parameter validation
 # ================================================================
 def _walled_model(*, periodic_x=True, coriolis=None):

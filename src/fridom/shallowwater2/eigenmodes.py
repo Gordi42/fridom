@@ -41,6 +41,11 @@ import jax.numpy as jnp
 import fridom.framework2 as fr
 from fridom.framework2.grid.operators.symbol import Symbol
 from fridom.framework2.grid.symbols import GridSymbols, rayleigh_dual
+from fridom.framework2.model.eigenstates import (
+    coefficient_index,
+    envelope_scale,
+    hermitian_mode_data,
+)
 from fridom.framework2.model.energy import shallowwater_energy_weights
 from fridom.framework2.model.time_dependent import resolve_at
 from fridom.shallowwater2 import params as sw_params
@@ -48,7 +53,7 @@ from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
 from fridom.shallowwater2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     import jax
 
@@ -310,6 +315,91 @@ class Eigenmodes:
                           for c in q})
 
         return project
+
+    # ================================================================
+    #  Mode-indexed single-mode states
+    # ================================================================
+    def mode(
+        self,
+        s: int,
+        indices: Mapping[str, int],
+        *,
+        phase: float = 0.0,
+    ) -> tuple[float, State]:
+        r"""
+        Return one discrete mode as ``(omega, physical state)``.
+
+        Description
+        -----------
+        The mode-indexed accessor of the analytic eigenmodes:
+        ``indices`` is an axis-keyed mapping of integer wavenumber
+        indices (e.g. ``{"x": 3, "y": 0}``) — the half-spectrum
+        axis runs ``0..n//2``, full-spectrum axes take any integer
+        modulo ``n``. The state is the real Hermitian-closed
+        physical mode
+        :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x + \mathrm{phase})})`
+        satisfying the eigen-relation ``d/dt state(phase) =
+        omega * state(phase + pi/2)`` under the linearized
+        tendency, normalized so the largest horizontal-velocity
+        amplitude (the pointwise oscillation envelope over the
+        ``u`` and ``v`` nodes) is one; a mode without horizontal
+        velocity (the geostrophic ``k = 0`` mean) is left
+        unnormalized. On the self-conjugate planes of the
+        half-spectrum axis a wave branch synthesizes the standing
+        (conjugate-mixed) real mode.
+
+        Parameters
+        ----------
+        s : int
+            The mode branch: 0, +1 or -1.
+        indices : Mapping[str, int]
+            Axis-keyed integer wavenumber indices, one per grid
+            axis.
+        phase : float, optional
+            The mode phase shift (default: 0.0).
+
+        Returns
+        -------
+        tuple[float, State]
+            The frequency and the single-mode physical state.
+
+        Raises
+        ------
+        ValueError
+            On bad indices, or a structurally unrepresented mode
+            (the geostrophic interpolation-Nyquist planes).
+        """
+        components = ("u", "v", "p")
+        q = self.q(s)
+        slots = {c: coefficient_index(q[c].function_space, indices)
+                 for c in components}
+        amps = {c: q[c].data[slots[c]] for c in components}
+        if all(float(jnp.abs(a)) == 0.0 for a in amps.values()):
+            raise ValueError(
+                f"mode s={s} at {dict(indices)!r} is structurally "
+                "unrepresented on the discrete lattice (the "
+                "geostrophic column vanishes exactly on the "
+                "interpolation-Nyquist planes)")
+
+        def synth(shift: float) -> dict[str, ScalarField]:
+            out = {}
+            for c in components:
+                value = amps[c] * jnp.exp(1j * (float(phase)
+                                                + shift))
+                data = hermitian_mode_data(
+                    q[c].function_space, slots[c], value)
+                out[c] = self._kit.backward(c)(
+                    q[c].with_data(data)).real
+            return out
+
+        z0 = synth(0.0)
+        z1 = synth(jnp.pi / 2.0)
+        scale = envelope_scale(z0, z1, ("u", "v"))
+        state = State({c: z0[c] / scale for c in components})
+        shape = self._templates["p"].data.shape
+        omega = float(jnp.broadcast_to(
+            self.omega(s).data, shape)[slots["p"]])
+        return omega, state
 
     # ================================================================
     #  Internals
