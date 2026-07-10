@@ -213,6 +213,34 @@ def test_rejects_a_beta_plane_model():
         numeric_eigenpairs(model)
 
 
+def test_rejects_a_varying_csqr_model():
+    # the beta-style gate extended to metric coefficients: a
+    # varying csqr(y) on a periodic grid is not translation
+    # invariant; the taught error points at the channel engine
+    mx = IntervalMesh(8, (0.0, 1.0), periodic=True, name="x")
+    my = IntervalMesh(8, (0.0, 1.0), periodic=True, name="y")
+    model = sw.Model(
+        grid=Grid((mx, my)),
+        csqr=lambda y: 1.0 + 0.5 * np.sin(2 * np.pi * y),
+        advection=False,
+        time_stepper=AdamBashforth(5e-3, order=3))
+    with pytest.raises(ValueError, match=r"csqr.*channel"):
+        numeric_eigenpairs(model)
+
+
+def test_rejects_a_varying_stratification_model():
+    grid = Grid(tuple(
+        IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name=nm)
+        for nm in ("x", "y", "z")))
+    model = nh.Model(
+        grid=grid, advection=False,
+        stratification=nh.MeridionalStratification(
+            n2=lambda y: 1.0 + y * y),
+        time_stepper=AdamBashforth(5e-3, order=3))
+    with pytest.raises(ValueError, match=r"n2.*channel"):
+        numeric_eigenpairs(model)
+
+
 def test_constrained_tendency_is_the_projected_tendency():
     # the H1 accumulator fix: tendency(constraints=True) returns the
     # PROJECTED prognostic tendency — the diagnostic 'p' stays on the

@@ -487,6 +487,241 @@ def test_nh_constrained_probe_is_device_count_invariant(
 
 
 # ================================================================
+#  Varying metric coefficients: csqr(y) (sw) and N^2(y) (nh)
+# ================================================================
+def csqr_profile(y):
+    """Return a varying, strictly positive csqr(y)."""
+    return 1.0 + 0.5 * jnp.tanh(4.0 * (y - 0.5))
+
+
+def n2_profile(y):
+    """Return a varying, strictly positive N^2(y)."""
+    return 1.0 + 2.0 * y * y
+
+
+def make_varying_sw(coriolis=None):
+    """Walled channel with csqr varying along the dense y axis."""
+    return sw.Model(
+        grid=make_grid(), csqr=csqr_profile, rossby_number=0.2,
+        coriolis=coriolis, advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+@pytest.fixture(scope="module")
+def varying_model():
+    """One varying-csqr f-plane channel shared across the module."""
+    return make_varying_sw()
+
+
+@pytest.fixture(scope="module")
+def varying_basis(varying_model):
+    """Compute the channel eigenbasis of the varying-csqr model."""
+    return channel_eigenpairs(varying_model)
+
+
+@pytest.fixture(scope="module")
+def varying_beta_model():
+    """Varying csqr combined with a beta-plane f(y)."""
+    return make_varying_sw(coriolis=fr.modules.BetaPlaneCoriolis(
+        f0=F0, beta=BETA, metric_weight="csqr"))
+
+
+@pytest.fixture(scope="module")
+def varying_beta_basis(varying_beta_model):
+    """Eigenbasis with BOTH f and csqr varying along y."""
+    return channel_eigenpairs(varying_beta_model)
+
+
+def test_varying_csqr_pencil_is_hermitian(varying_basis):
+    # the binding metric diag(c^2, c^2, 1) with the weights sampled
+    # exactly as the tendency samples them (csqr.to(u) / csqr.to(v))
+    # and the thickness-weighted rotation keep iMS Hermitian to
+    # machine precision for a genuinely varying profile
+    assert varying_basis.hermiticity_error < 1e-13
+
+
+def test_varying_csqr_plus_beta_pencil_is_hermitian(
+        varying_beta_basis):
+    assert varying_beta_basis.hermiticity_error < 1e-13
+
+
+def test_varying_csqr_eigenvectors_are_m_orthonormal(varying_basis):
+    assert float(varying_basis.orthonormality_error()) < 1e-12
+
+
+def test_varying_metric_diagonal_samples_per_component(
+        varying_basis):
+    # M[(c, j)] = w_c(y_j) mu_c(j): u carries csqr at the centres
+    # (a pointwise broadcast), v carries csqr.to(v) at the interior
+    # faces (the tendency's own flux sampling), p carries 1
+    metric = np.asarray(varying_basis.metric)
+    yc = (np.arange(N) + 0.5) / N
+    c2_c = np.asarray(csqr_profile(yc))
+    c2_f = 0.5 * (c2_c[:-1] + c2_c[1:])
+    assert np.allclose(metric[:N], c2_c / N, rtol=1e-14)
+    assert np.allclose(metric[N:2 * N - 1], c2_f / N, rtol=1e-14)
+    assert np.allclose(metric[2 * N - 1:], 1.0 / N, rtol=1e-14)
+
+
+def test_varying_constant_profile_reproduces_the_constant_path(
+        basis):
+    # csqr(y) = c0 through the varying path: the metric differs from
+    # the constant path's diag(1, 1, 1/c^2) by the overall factor
+    # c^2 only, so the spectrum agrees to machine precision
+    const_var = sw.Model(
+        grid=make_grid(), csqr=lambda y: CSQR + 0.0 * y,
+        rossby_number=0.2, advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    cv = channel_eigenpairs(const_var)
+    assert np.abs(np.asarray(cv.omega)
+                  - np.asarray(basis.omega)).max() < 1e-12
+    assert float(cv.orthonormality_error()) < 1e-12
+
+
+def test_varying_csqr_interior_planes_carry_topographic_rossby(
+        varying_basis):
+    # genuine physics: a geostrophic mode over varying depth has
+    # div(c^2 u_g) = c^2'(y) v_g != 0, so the interior-plane steady
+    # branch acquires slow topographic Rossby frequencies (the exact
+    # beta analogue); the kx = 0 and Nyquist planes keep their
+    # structural zeros
+    omega = np.asarray(varying_basis.omega)
+    zeros = np.sum(np.abs(omega) < 1e-8, axis=-1)
+    assert zeros[0] == N + 1
+    assert (zeros[1:-1] == 1).all()
+    assert zeros[-1] == N - 1
+    # the slow band is nonzero yet separated from the gravity waves
+    slow = np.abs(omega[1])[np.abs(omega[1]) < 1.0]
+    slow = slow[slow > 1e-8]
+    assert slow.size == N - 2
+    assert slow.max() < 0.2
+    fast = np.abs(omega[1])[np.abs(omega[1]) >= 1.0]
+    assert fast.min() > 4.0
+
+
+@pytest.mark.parametrize(("kx", "col"), [
+    pytest.param(1, 0, id="kx1-bottom"),
+    pytest.param(2, D // 2, id="kx2-mid"),
+    pytest.param(3, D - 1, id="kx3-top"),
+])
+def test_varying_csqr_columns_satisfy_the_eigen_relation(
+        varying_model, varying_basis, kx, col):
+    # the strong test through the real model matvec validates the
+    # whole varying chain: the csqr(y) field, the flux-form gravity,
+    # the thickness-weighted rotation, and the sampled metric
+    residual, scale = eigen_relation_residual(
+        varying_model, varying_basis, kx, col)
+    assert residual < 1e-11 * scale
+
+
+@pytest.mark.parametrize(("kx", "col"), [
+    pytest.param(1, 0, id="kx1-bottom"),
+    pytest.param(2, D // 2, id="kx2-slow"),
+    pytest.param(3, D - 1, id="kx3-top"),
+])
+def test_varying_csqr_beta_columns_satisfy_the_eigen_relation(
+        varying_beta_model, varying_beta_basis, kx, col):
+    residual, scale = eigen_relation_residual(
+        varying_beta_model, varying_beta_basis, kx, col)
+    assert residual < 1e-11 * scale
+
+
+def test_varying_metric_must_be_positive():
+    # a sign-crossing csqr(y) produces an indefinite metric: taught
+    model = sw.Model(
+        grid=make_grid(), csqr=lambda y: y - 0.5, rossby_number=0.2,
+        advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    with pytest.raises(ValueError, match="positive definite"):
+        channel_eigenpairs(model)
+
+
+@pytest.fixture(scope="module")
+def nh_varying_channel():
+    """Walled-y nonhydro channel with N^2 varying along y."""
+    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                     periodic=True, name="x")
+    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=False, name="y")
+    mz = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                     periodic=True, name="z")
+    return nh.Model(
+        grid=fr.grid.Grid((mx, my, mz)), advection=False,
+        dsqr=DSQR_NH, coriolis=nh.FPlaneCoriolis(f0=F0_NH),
+        stratification=nh.MeridionalStratification(n2=n2_profile),
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+@pytest.fixture(scope="module")
+def nh_varying_basis(nh_varying_channel):
+    """Compute the constrained eigenbasis with varying N^2(y)."""
+    return channel_eigenpairs(nh_varying_channel)
+
+
+def test_nh_varying_n2_pencil_is_hermitian(nh_varying_basis):
+    # the pointwise pairing: N^2 multiplies at the b nodes and the
+    # 1/N^2(y) metric weight cancels it there, leaving the plain
+    # measure-weighted interpolation adjointness — Hermitian for any
+    # profile, through the P L P sandwich included
+    assert nh_varying_basis.hermiticity_error < 1e-13
+
+
+def test_nh_varying_n2_eigenvectors_are_m_orthonormal(
+        nh_varying_basis):
+    assert float(nh_varying_basis.orthonormality_error()) < 1e-12
+
+
+def test_nh_varying_n2_keeps_the_structural_zero_counts(
+        nh_varying_basis):
+    # balance survives varying N^2: the steady branch has w = 0, so
+    # the N^2(y) restoring never enters it — the zero counts equal
+    # the constant-stratification expectation exactly (see
+    # test_nh_zero_mode_counts_per_plane for the census)
+    omega = np.asarray(nh_varying_basis.omega)
+    zeros = np.sum(np.abs(omega) < 1e-8, axis=-1)
+    expected = np.full((N, NZ_HALF), 2 * N - 1)
+    expected[0, 1:] = 2 * N + 1
+    expected[1:, -1] = 2 * N + 1
+    expected[N // 2, -1] = D_NH
+    assert (zeros == expected).all()
+
+
+def test_nh_varying_constant_profile_reproduces_the_constant_path(
+        nh_basis):
+    # N^2(y) = n0 through the varying path is bitwise the constant
+    # coupling (the profile broadcast multiplies pointwise), so the
+    # spectrum agrees to machine precision
+    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                     periodic=True, name="x")
+    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=False, name="y")
+    mz = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                     periodic=True, name="z")
+    model = nh.Model(
+        grid=fr.grid.Grid((mx, my, mz)), advection=False,
+        dsqr=DSQR_NH, coriolis=nh.FPlaneCoriolis(f0=F0_NH),
+        stratification=nh.MeridionalStratification(
+            n2=lambda y: N2_NH + 0.0 * y),
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    cv = channel_eigenpairs(model)
+    assert np.abs(np.asarray(cv.omega)
+                  - np.asarray(nh_basis.omega)).max() < 1e-12
+
+
+@pytest.mark.parametrize(("kx", "kz", "col"), [
+    pytest.param(1, 1, 0, id="kx1-kz1-bottom"),
+    pytest.param(2, 1, D_NH - 1, id="kx2-kz1-top"),
+    pytest.param(3, 2, D_NH // 2, id="kx3-kz2-zero"),
+    pytest.param(2, 0, D_NH - 1, id="kx2-kz0-top"),
+])
+def test_nh_varying_columns_satisfy_the_eigen_relation(
+        nh_varying_channel, nh_varying_basis, kx, kz, col):
+    residual, scale = nh_eigen_relation_residual(
+        nh_varying_channel, nh_varying_basis, kx, kz, col)
+    assert residual < 1e-12 * scale
+
+
+# ================================================================
 #  Labels: empty by default, model packages fill them
 # ================================================================
 def test_labels_start_empty_and_label_with_fills(basis):

@@ -39,6 +39,18 @@ on the walled-``y`` channel (pointwise rotation does no work for any
 a *periodic* axis breaks the per-mode block structure and is out of
 scope (the Hermiticity assertion is the safety net, not a guarantee).
 
+Coefficients that **enter the energy metric** — the variable-depth
+shallow water :math:`c^2(y)` and the meridionally stratified
+nonhydro :math:`N^2(y)` — are served through profile-valued metric
+weights: ``EnergyMetric.from_model(..., allow_field_weights=True)``
+assembles ``diag(c^2, c^2, 1)`` / ``diag(1, 1, dsqr, 1/N^2(y))``,
+and :func:`_metric_diagonal` samples each field weight **on the
+component's own bounded-axis nodes** through ``.to`` — the identical
+sampling the tendency flux uses, which is what keeps ``iMS``
+Hermitian for any profile (a varying shallow-water depth
+additionally needs the Coriolis module's thickness-weighted
+rotation, ``metric_weight="csqr"``).
+
 Constrained models (the nonhydro pressure)
 ------------------------------------------
 A model carrying a ``CONSTRAINT`` stage (the nonhydro pressure
@@ -77,6 +89,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from fridom.framework.utils import dtype_real
+from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.model.eigen import (
     _metric_weights,
     _rest_background,
@@ -264,7 +277,11 @@ def channel_eigenpairs(
     probe reads whatever the tendency carries — a beta-plane ``f(y)``
     on the walled-``y`` channel works and stays Hermitian); only the
     periodic axes must be constant-coefficient. The energy metric is
-    read with ``require_constant_coriolis=False`` accordingly.
+    read with ``require_constant_coriolis=False`` and
+    ``allow_field_weights=True`` accordingly: a varying
+    ``csqr(y)`` / ``N^2(y)`` enters the metric as a profile weight,
+    sampled per component on its own bounded-axis nodes (see
+    :func:`_metric_diagonal`), and must be strictly positive.
 
     Parameters
     ----------
@@ -313,13 +330,22 @@ def channel_eigenpairs(
         names.index(name) for name in names if name != bounded_axis)
 
     metric = EnergyMetric.from_model(
-        model, at_time=at_time, require_constant_coriolis=False)
+        model, at_time=at_time, require_constant_coriolis=False,
+        allow_field_weights=True)
     lin = linearize(model)
     prog, base0 = _rest_background(lin, at_time)
-    weights = _metric_weights(metric, prog)
+    weights = _metric_weights(metric, prog, allow_fields=True)
 
     slices = _segment_slices(base0, prog, bounded_index)
-    metric_diag = _metric_diagonal(base0, prog, weights, bounded_axis)
+    metric_diag = _metric_diagonal(
+        base0, prog, weights, bounded_axis, bounded_index)
+    if not bool(jnp.all(jnp.isfinite(metric_diag)
+                        & (metric_diag > 0.0))):
+        raise ValueError(
+            "the channel energy metric must be positive definite: "
+            "a varying weight profile (the shallow-water csqr(y), "
+            "the nonhydro N^2(y)) must be finite and strictly "
+            "positive on the bounded axis")
     symbol = _probe_block(
         lin, base0, prog, slices, bounded_index, periodic_axes,
         at_time, chunk, constrained=constrained)
@@ -360,11 +386,12 @@ def _segment_slices(
 def _metric_diagonal(
     base0: VectorField,
     prog: tuple[str, ...],
-    weights: tuple[float, ...],
+    weights: tuple[object, ...],
     bounded_axis: str,
+    bounded_index: int,
 ) -> jax.Array:
     r"""
-    Stack the diagonal metric ``M[(c, j)] = w_c \mu_c(j)``.
+    Stack the diagonal metric ``M[(c, j)] = w_c(j) \mu_c(j)``.
 
     Description
     -----------
@@ -373,12 +400,32 @@ def _metric_diagonal(
     per-node quadrature the skew-adjointness holds under). The
     uniform periodic-axis measure is a common scalar factor and drops
     out of the pencil.
+
+    A field-valued (profile) weight is sampled **on the component's
+    own node set** through ``.to`` — the identical sampling the
+    tendency flux uses (``csqr.to(u)`` at the ``u`` faces,
+    ``1/N^2`` at the ``b`` cells), which is exactly what keeps
+    ``iMS`` Hermitian for a varying profile — and read out along the
+    bounded axis (profiles are constant along the periodic axes by
+    construction of ``fr.Profile``).
     """
-    return jnp.concatenate([
-        weight * jnp.asarray(
+    parts = []
+    for name, weight in zip(prog, weights, strict=True):
+        mu = jnp.asarray(
             base0[name].measure(bounded_axis).data,
             dtype=dtype_real()).ravel()
-        for name, weight in zip(prog, weights, strict=True)])
+        if isinstance(weight, ScalarField):
+            sampled = weight.to(base0[name])
+            data = np.broadcast_to(np.asarray(sampled.data),
+                                   base0[name].data.shape)
+            index: list[int | slice] = [0] * data.ndim
+            index[bounded_index] = slice(None)
+            w = jnp.asarray(data[tuple(index)],
+                            dtype=dtype_real()).ravel()
+            parts.append(w * mu)
+        else:
+            parts.append(weight * mu)
+    return jnp.concatenate(parts)
 
 
 # ================================================================

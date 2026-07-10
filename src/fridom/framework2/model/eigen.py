@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_comp, dtype_real
+from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.model.energy import EnergyMetric
 from fridom.framework2.model.stages import StageKind
 from fridom.framework2.model.term_predicates import linearize
@@ -293,9 +294,20 @@ def _generalized_eigh(
 
 
 def _metric_weights(
-    metric: EnergyMetric, prog: tuple[str, ...],
-) -> tuple[float, ...]:
-    """Return the metric diagonal in prognostic-component order."""
+    metric: EnergyMetric,
+    prog: tuple[str, ...],
+    *,
+    allow_fields: bool = False,
+) -> tuple[object, ...]:
+    """Return the metric diagonal in prognostic-component order.
+
+    Description
+    -----------
+    Scalars are cast to float. A field-valued (profile) weight rides
+    through untouched only for consumers that sample it themselves
+    (``allow_fields=True``, the dense-column channel engine); the
+    translation-invariant probe keeps the float contract.
+    """
     weights = metric.weights
     missing = [name for name in prog if name not in weights]
     if missing:
@@ -303,4 +315,9 @@ def _metric_weights(
             "the energy metric does not weight every prognostic "
             f"component; missing {missing!r} (H0 needs an energy metric "
             "covering all prognostic components)")
+    if allow_fields:
+        return tuple(
+            weights[name] if isinstance(weights[name], ScalarField)
+            else float(weights[name])
+            for name in prog)
     return tuple(float(weights[name]) for name in prog)
