@@ -158,6 +158,18 @@ def numeric_eigenpairs(
     NumericEigenmodes
         The per-mode spectrum and M-orthonormal eigenvectors.
     """
+    bounded = tuple(
+        name for mesh in model.grid.factors
+        if not getattr(mesh, "periodic", True)
+        for name in mesh.names)
+    if bounded:
+        raise ValueError(
+            "numeric_eigenpairs probes the linear operator with "
+            "unit impulses whose DFT is unity at every Fourier mode "
+            f"— structurally wrong on the bounded axes {bounded!r} "
+            "(no translation invariance there). Use the model's "
+            "analytic eigenmodes (e.g. nh.Eigenmodes), which handle "
+            "walled verticals.")
     metric = EnergyMetric.from_model(model, at_time=at_time)
     lin = linearize(model)
     prog, base0 = _rest_background(lin, at_time)

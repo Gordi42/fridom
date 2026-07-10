@@ -186,6 +186,18 @@ def test_nonhydro_eigenvectors_are_m_orthonormal():
 # ================================================================
 #  Structural gate + the recorded H0 constraint-tendency wall
 # ================================================================
+def test_rejects_a_walled_grid():
+    mx = IntervalMesh(8, (0.0, 1.0), periodic=True, name="x")
+    my = IntervalMesh(8, (0.0, 1.0), periodic=True, name="y")
+    mz = IntervalMesh(8, (0.0, 1.0), periodic=False, name="z")
+    model = nh.Model(
+        grid=Grid((mx, my, mz)), advection=False,
+        coriolis=FPlaneCoriolis(f0=1.0),
+        time_stepper=AdamBashforth(5e-3, order=3))
+    with pytest.raises(ValueError, match=r"bounded axes \('z',\)"):
+        numeric_eigenpairs(model)
+
+
 def test_rejects_a_beta_plane_model():
     mx = IntervalMesh(16, (0.0, 1.0), periodic=True, name="x")
     my = IntervalMesh(16, (0.0, 1.0), periodic=True, name="y")
