@@ -1,4 +1,4 @@
-"""Random-phase eigenmode initial conditions (sw.initial_conditions).
+"""Initial conditions (sw.initial_conditions).
 
 Validates the prescribed-spectra random states on both eigenmode
 tiers: family purity (the projections recover ~100% of the energy),
@@ -6,6 +6,12 @@ the realized per-mode energy against the prescribed ``S/(pi k_h)``
 convention (deterministic amplitudes: unit-modulus phases), bitwise
 seed determinism, the normalization convention, the taught errors,
 and the multi-device device-count invariance of the analytic path.
+
+The named analytic ports: single_wave phase-rotates exactly in the
+linear model, the geostrophically projected jet is steady, the
+coherent eddy is discretely divergence-free and balanced, and the
+equatorial wave satisfies the beta-plane eigen-relation to
+discretization accuracy.
 """
 from itertools import pairwise
 
@@ -213,6 +219,227 @@ def test_channel_random_state_is_deterministic(channel):
                  sw.random_vortical(eb, seed=4))
     assert not _same(sw.random_vortical(eb, seed=4),
                      sw.random_vortical(eb, seed=5))
+
+
+# ================================================================
+#  single_wave (the SingleWave port)
+# ================================================================
+@pytest.fixture(scope="module")
+def wave_setup():
+    """One linear periodic model with a wave-resolving time step."""
+    model = make_model(csqr=CSQR, f0=1.5, advection=False, dt=1e-3)
+    return model, sw.eigenmodes.from_model(model)
+
+
+def test_single_wave_phase_rotates_in_the_linear_model(wave_setup):
+    model, em = wave_setup
+    omega, z0 = sw.single_wave(em, {"x": 2, "y": 1}, s=1, phase=0.3)
+    model.set_state(z0)
+    steps = 20
+    model.advance(steps)
+    _, zt = sw.single_wave(em, {"x": 2, "y": 1}, s=1,
+                           phase=0.3 + omega * steps * 1e-3)
+    moved = max(
+        float(np.abs(np.asarray(zt[c].data)
+                     - np.asarray(z0[c].data)).max())
+        for c in COMPONENTS)
+    err = max(
+        float(np.abs(np.asarray(model.state[c].data)
+                     - np.asarray(zt[c].data)).max())
+        for c in COMPONENTS)
+    assert moved > 0.1
+    assert err < 1e-3
+
+
+def test_single_wave_is_the_mode_accessor(wave_setup):
+    model, em = wave_setup
+    omega, z = sw.single_wave(model, {"x": 3, "y": 2}, s=-1,
+                              phase=0.7)
+    omega_em, z_em = em.mode(-1, {"x": 3, "y": 2}, phase=0.7)
+    assert omega == omega_em
+    assert _same(z, z_em)
+
+
+def test_single_wave_needs_the_analytic_tier(channel):
+    _, eb = channel
+    with pytest.raises(ValueError, match="walled channel"):
+        sw.single_wave(eb, {"x": 2, "y": 1})
+
+
+# ================================================================
+#  jet (the Jet port)
+# ================================================================
+def test_geostrophic_jet_is_steady_in_the_linear_model(periodic):
+    model, em = periodic
+    z = sw.jet(em)
+    tendency = model.tendency(z)
+    scale = max(float(np.abs(np.asarray(z[c].data)).max())
+                for c in COMPONENTS)
+    residual = max(
+        float(np.abs(np.asarray(tendency[c].data)).max())
+        for c in COMPONENTS)
+    assert scale > 0.5
+    assert residual < 1e-12 * scale
+
+
+def test_jet_profile_peaks_where_asked(periodic):
+    _, em = periodic
+    z = sw.jet(em, pos=0.25, width=0.1, waveamp=0.0,
+               geo_proj=False)
+    u = np.asarray(z["u"].data)
+    assert float(np.abs(u).max()) == pytest.approx(1.0)
+    nodes = np.asarray(em.grid.evaluation_nodes(
+        z["u"].function_space, "y").data).ravel()
+    peak = nodes[np.abs(u).max(axis=0).argmax()]
+    assert abs(peak - 0.25) <= 0.5 / N + 1e-12
+    # the perturbation rides on top of the normalized jet
+    zp = sw.jet(em, pos=0.25, width=0.1, waveamp=0.1,
+                geo_proj=False)
+    assert not _same(z, zp)
+
+
+# ================================================================
+#  coherent_eddy (the CoherentEddy port)
+# ================================================================
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_eddy_is_divergence_free_and_balanced(periodic, gauss_field):
+    model, em = periodic
+    z = sw.coherent_eddy(em, width=0.2, gauss_field=gauss_field)
+    div = float(np.abs(np.asarray(z.divergence.data)).max())
+    umax = max(float(np.abs(np.asarray(z[c].data)).max())
+               for c in ("u", "v"))
+    assert div < 1e-12 * umax
+    # p = f0 psi balances the velocities to discretization accuracy
+    tendency = model.tendency(z)
+    residual = max(
+        float(np.abs(np.asarray(tendency[c].data)).max())
+        for c in ("u", "v"))
+    assert residual < 0.15 * em.f0 * umax
+
+
+def test_eddy_streamfunction_centers_the_pressure(periodic):
+    _, em = periodic
+    z = sw.coherent_eddy(em, pos_x=0.25, pos_y=0.75, width=0.15,
+                         gauss_field="streamfunction")
+    p = np.asarray(z["p"].data)
+    ix, iy = np.unravel_index(np.abs(p).argmax(), p.shape)
+    grid = em.grid
+    xs = np.asarray(grid.evaluation_nodes(
+        z["p"].function_space, "x").data).ravel()
+    ys = np.asarray(grid.evaluation_nodes(
+        z["p"].function_space, "y").data).ravel()
+    assert abs(xs[ix] - 0.25) <= 0.5 / N + 1e-12
+    assert abs(ys[iy] - 0.75) <= 0.5 / N + 1e-12
+    # a negative amplitude flips the rotation sense exactly
+    flipped = sw.coherent_eddy(em, pos_x=0.25, pos_y=0.75,
+                               width=0.15, amplitude=-1.0,
+                               gauss_field="streamfunction")
+    for c in COMPONENTS:
+        assert np.array_equal(np.asarray(flipped[c].data),
+                              -np.asarray(z[c].data))
+
+
+def test_eddy_taught_errors(periodic, channel):
+    _, em = periodic
+    with pytest.raises(ValueError, match="unknown gauss_field"):
+        sw.coherent_eddy(em, gauss_field="pressure")
+    _, eb = channel
+    with pytest.raises(ValueError, match="walled channel"):
+        sw.coherent_eddy(eb)
+    with pytest.raises(ValueError, match="walled channel"):
+        sw.jet(eb)
+
+
+# ================================================================
+#  equatorial_wave (the EquatorialWave port)
+# ================================================================
+BETA = 8.0
+N_EQ = 32
+
+
+def _beta_model(grid, beta=BETA):
+    """Build a linear beta-plane model (equator mid-domain)."""
+    return sw.Model(
+        grid=grid, csqr=1.0, rossby_number=0.2,
+        coriolis=sw.modules.BetaPlaneCoriolis(f0=-2.0 * beta,
+                                              beta=beta),
+        advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(1e-3, order=3))
+
+
+@pytest.fixture(scope="module")
+def equatorial():
+    """One linear beta-plane model with the equator mid-domain."""
+    mx = fr.grid.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
+                                     periodic=True, name="x")
+    my = fr.grid.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
+                                     periodic=True, name="y")
+    return _beta_model(fr.grid.Grid((mx, my)))
+
+
+def test_equatorial_wave_satisfies_the_eigen_relation(equatorial):
+    # d/dt state(phase) ~ omega * state(phase + pi/2) through the
+    # real linear tendency, to discretization accuracy
+    omega, z0 = sw.equatorial_wave(equatorial, 2, 1, 2, phase=0.4)
+    _, z1 = sw.equatorial_wave(equatorial, 2, 1, 2,
+                               phase=0.4 + np.pi / 2)
+    tau = equatorial.tendency(z0)
+    num = max(
+        float(np.abs(np.asarray(tau[c].data)
+                     - omega * np.asarray(z1[c].data)).max())
+        for c in COMPONENTS)
+    den = abs(omega) * max(
+        float(np.abs(np.asarray(z1[c].data)).max())
+        for c in COMPONENTS)
+    assert num / den < 0.05
+
+
+def test_equatorial_wave_traps_at_the_equator(equatorial):
+    _omega, z = sw.equatorial_wave(equatorial, 2, 0, 2)
+    v = np.asarray(z["v"].data)
+    ys = np.asarray(equatorial.grid.evaluation_nodes(
+        z["v"].function_space, "y").data).ravel()
+    peak = ys[np.abs(v).max(axis=0).argmax()]
+    assert abs(peak - 2.0) <= 4.0 / N_EQ + 1e-12
+    edge = np.abs(v[:, [0, -1]]).max()
+    assert edge < 1e-3 * np.abs(v).max()
+    # normalization: the largest horizontal velocity is one
+    umax = max(float(np.abs(np.asarray(z[c].data)).max())
+               for c in ("u", "v"))
+    assert umax == pytest.approx(1.0, abs=1e-12)
+    # the equator override recentres the trapping latitude
+    _, shifted = sw.equatorial_wave(equatorial, 2, 0, 2,
+                                    equator=1.0)
+    vs = np.asarray(shifted["v"].data)
+    peak = ys[np.abs(vs).max(axis=0).argmax()]
+    assert abs(peak - 1.0) <= 4.0 / N_EQ + 1e-12
+
+
+def test_equatorial_wave_orders_the_dispersion_roots(equatorial):
+    omegas = [
+        sw.equatorial_wave(equatorial, 2, 1, mode)[0]
+        for mode in (0, 1, 2)]
+    assert omegas[0] < omegas[1] < omegas[2]
+    assert omegas[0] < 0 < omegas[2]
+    # the middle root is the slow Rossby wave
+    assert abs(omegas[1]) < min(abs(omegas[0]), abs(omegas[2]))
+
+
+def test_equatorial_wave_taught_errors(equatorial, periodic):
+    model, _ = periodic
+    with pytest.raises(ValueError, match="beta plane"):
+        sw.equatorial_wave(model, 2, 1, 2)
+    with pytest.raises(ValueError, match="non-negative"):
+        sw.equatorial_wave(equatorial, 2, -1, 2)
+    with pytest.raises(ValueError, match="wave_mode"):
+        sw.equatorial_wave(equatorial, 2, 1, 3)
+    walled_x = _beta_model(make_grid(periodic_x=False))
+    with pytest.raises(ValueError, match="periodic zonal axis"):
+        sw.equatorial_wave(walled_x, 2, 1, 2)
+    negative = _beta_model(make_grid(), beta=-1.0)
+    with pytest.raises(ValueError, match="beta > 0"):
+        sw.equatorial_wave(negative, 2, 1, 2)
 
 
 # ================================================================

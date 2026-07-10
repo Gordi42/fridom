@@ -34,9 +34,15 @@ if TYPE_CHECKING:  # pragma: no cover
     from .channel_eigenmodes import ChannelEigenmodes
     from .eigenmodes import eigenbasis
     from .initial_conditions import (
+        barotropic_jet,
+        coherent_eddy,
+        jet,
+        kelvin_wave,
         random_state,
         random_vortical,
         random_waves,
+        single_wave,
+        wave_package,
     )
     from .model import Model
     from .modules.advection import (
@@ -66,7 +72,9 @@ all_imports_by_origin = {
     f"{base}.channel_eigenmodes": ["ChannelEigenmodes"],
     f"{base}.eigenmodes": ["eigenbasis"],
     f"{base}.initial_conditions": [
-        "random_state", "random_vortical", "random_waves"],
+        "random_state", "random_vortical", "random_waves",
+        "single_wave", "kelvin_wave", "wave_package",
+        "barotropic_jet", "jet", "coherent_eddy"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["DynamicalCore"],
