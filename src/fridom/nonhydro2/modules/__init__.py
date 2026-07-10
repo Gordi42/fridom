@@ -18,7 +18,11 @@ if TYPE_CHECKING:  # pragma: no cover
         Relaxation,
     )
 
-    from .advection import CenteredAdvection
+    from .advection import (
+        CenteredAdvection,
+        UpwindAdvection,
+        WENOAdvection,
+    )
     from .core import DynamicalCore
     from .gaussian_wave_maker import GaussianWaveMaker
     from .polarized_wave_maker import PolarizedWaveMaker
@@ -43,7 +47,8 @@ all_imports_by_origin = {
     f"{base}.core": ["DynamicalCore"],
     f"{base}.stratification": [
         "ConstantStratification", "MeridionalStratification"],
-    f"{base}.advection": ["CenteredAdvection"],
+    f"{base}.advection": [
+        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
     f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],
     f"{base}.polarized_wave_maker": ["PolarizedWaveMaker"],
