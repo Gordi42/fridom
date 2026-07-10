@@ -1,6 +1,7 @@
 """Tests for fridom.framework2.grid.random_fields."""
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.framework2.grid.grid import Grid
@@ -131,9 +132,112 @@ def test_normal_is_jit_traceable(grid, mx, my):
                            grid.random.normal(space, seed=4).data)
 
 
-def test_phase_not_implemented(grid, mx, my):
-    with pytest.raises(NotImplementedError, match="phase"):
-        grid.random.phase(mx.center * my.center, seed=0)
+# ================================================================
+#  phase: Hermitian unit-modulus random phases
+# ================================================================
+@pytest.fixture
+def spectra_space(mx, my):
+    """Return the rfft coefficient space (half x, full-complex y)."""
+    return (mx.fourier(origin=mx.center)
+            * my.fourier(origin=my.center.as_complex()))
+
+
+def test_phase_unit_modulus_everywhere(grid, spectra_space):
+    f = grid.random.phase(spectra_space, seed=9)
+    assert f.dtype == jnp.complex128
+    assert float(jnp.abs(jnp.abs(f.data) - 1.0).max()) < 1e-14
+
+
+def test_phase_pairing_is_exact_on_self_conjugate_planes(
+        grid, spectra_space):
+    # on the kx = 0 / Nyquist planes the conjugate pairing across the
+    # full-spectrum y axis is bitwise (shared canonical key + conj)
+    d = grid.random.phase(spectra_space, seed=9).data
+    mirror = (-jnp.arange(16)) % 16
+    for plane in (0, -1):
+        assert jnp.array_equal(d[plane], jnp.conj(d[plane][mirror]))
+
+
+def test_phase_fully_self_conjugate_dofs_are_real_signs(
+        grid, spectra_space):
+    d = grid.random.phase(spectra_space, seed=9).data
+    corners = jnp.stack(
+        [d[0, 0], d[0, 8], d[-1, 0], d[-1, 8]])
+    assert jnp.abs(corners.imag).max() == 0.0
+    assert jnp.array_equal(jnp.abs(corners.real), jnp.ones(4))
+
+
+def test_phase_interior_dofs_are_free(grid, spectra_space):
+    d = grid.random.phase(spectra_space, seed=9).data
+    assert float(jnp.abs(d[1:-1].imag).min()) > 0.0
+
+
+def test_phase_backward_transform_is_exactly_real(
+        grid, spectra_space):
+    # the full-spectrum reconstruction (explicit conjugate half) has
+    # a vanishing imaginary part: the field is a valid rfftn spectrum
+    d = np.asarray(grid.random.phase(spectra_space, seed=4).data)
+    full = np.zeros((16, 16), dtype=complex)
+    full[:9] = d
+    mirror = (-np.arange(16)) % 16
+    full[9:] = np.conj(d[1:8][::-1][:, mirror])
+    phys = np.fft.ifft2(full)
+    assert np.abs(phys.imag).max() < 1e-15
+
+
+def test_phase_deterministic_per_seed(grid, spectra_space):
+    a = grid.random.phase(spectra_space, seed=7)
+    b = grid.random.phase(spectra_space, seed=7)
+    c = grid.random.phase(spectra_space, seed=8)
+    assert jnp.array_equal(a.data, b.data)
+    assert not jnp.array_equal(a.data, c.data)
+
+
+def test_phase_1d_half_spectrum(mx):
+    grid = Grid((mx,))
+    f = grid.random.phase(mx.fourier(origin=mx.center), seed=2)
+    assert f.data[0].imag == 0.0
+    assert f.data[-1].imag == 0.0
+    assert float(jnp.abs(f.data[1:-1].imag).min()) > 0.0
+
+
+def test_phase_complex_space_without_fourier_factor_is_free(
+        grid, mx, my):
+    # complex storage with no half-spectrum factor carries no
+    # Hermitian constraint: every DOF is a free unit phase
+    f = grid.random.phase((mx.center * my.center).as_complex(),
+                          seed=6)
+    assert f.dtype == jnp.complex128
+    assert float(jnp.abs(jnp.abs(f.data) - 1.0).max()) < 1e-14
+    assert float(jnp.abs(f.data.imag).min()) > 0.0
+
+
+def test_phase_real_storage_draws_signs(grid, mx, my):
+    # a real-storage space has no Fourier factor: unit magnitude
+    # means Rademacher +1/-1 per DOF
+    f = grid.random.phase(mx.center * my.center, seed=3)
+    assert f.dtype == jnp.float64
+    assert jnp.array_equal(jnp.abs(f.data), jnp.ones((16, 16)))
+    assert float(f.data.min()) == -1.0
+
+
+@pytest.mark.multi_device
+def test_phase_is_device_count_invariant(forced_devices):
+    # per-DOF keying over the global true index: the same seed gives
+    # bitwise identical draws on any device layout
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        mesh_x = IntervalMesh(16, (0.0, 1.0), name="x")
+        mesh_y = IntervalMesh(16, (0.0, 2.0), name="y")
+        grid = Grid((mesh_x, mesh_y), device_ids=device_ids)
+        space = (mesh_x.fourier(origin=mesh_x.center)
+                 * mesh_y.fourier(
+                     origin=mesh_y.center.as_complex()))
+        results[tag] = np.asarray(
+            grid.random.phase(space, seed=11).data)
+    assert np.array_equal(results["many"], results["one"])
 
 
 def test_global_indices_cover_the_full_true_shape():
