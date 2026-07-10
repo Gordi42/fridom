@@ -40,6 +40,10 @@ if TYPE_CHECKING:  # pragma: no cover
         Lifecycle,
     )
     from .model.eigen import NumericEigenmodes, numeric_eigenpairs
+    from .model.eigen_channel import (
+        ChannelEigenbasis,
+        channel_eigenpairs,
+    )
     from .model.energy import EnergyMetric
     from .model.model import Model
     from .model.module import Module
@@ -113,6 +117,8 @@ all_imports_by_origin = {
     f"{base}.model.model": ["Model"],
     f"{base}.model.clock": ["Clock"],
     f"{base}.model.eigen": ["NumericEigenmodes", "numeric_eigenpairs"],
+    f"{base}.model.eigen_channel": [
+        "ChannelEigenbasis", "channel_eigenpairs"],
     f"{base}.model.energy": ["EnergyMetric"],
     f"{base}.model.term_predicates": ["linearize"],
     f"{base}.transforms.base": ["StateTransform"],

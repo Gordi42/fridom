@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
         context,
         declarations,
         eigen,
+        eigen_channel,
         errors,
         field_table,
         implicit,
@@ -82,6 +83,7 @@ all_modules_by_origin = {
         "report",
         "errors",
         "eigen",
+        "eigen_channel",
     ],
 }
 

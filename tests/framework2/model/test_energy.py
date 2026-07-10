@@ -160,6 +160,17 @@ def test_from_model_rejects_beta_plane():
         EnergyMetric.from_model(bp)
 
 
+def test_from_model_beta_plane_without_the_coriolis_gate():
+    # the weights never involve f (rotation does no work), so a
+    # consumer that tolerates a varying f — the dense-column channel
+    # probe — opts out of the constancy gate and still reads csqr
+    params = {"shallowwater.csqr": 4.0}
+    metric = EnergyMetric.from_model(
+        SimpleNamespace(parameters=params),
+        require_constant_coriolis=False)
+    assert metric.weights["p"] == pytest.approx(0.25)
+
+
 def test_from_model_freezes_ramp_at_time():
     # a Ramp-valued dsqr must be frozen at at_time (constancy snapshot)
     ramp = fr.Ramp(0.0, 1.0, period=1.0)

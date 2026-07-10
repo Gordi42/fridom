@@ -167,7 +167,9 @@ def numeric_eigenpairs(
             "numeric_eigenpairs probes the linear operator with "
             "unit impulses whose DFT is unity at every Fourier mode "
             f"— structurally wrong on the bounded axes {bounded!r} "
-            "(no translation invariance there). Use the model's "
+            "(no translation invariance there). For a grid with "
+            "exactly one bounded axis use channel_eigenpairs (the "
+            "dense-column channel tier); otherwise use the model's "
             "analytic eigenmodes (e.g. nh.Eigenmodes), which handle "
             "walled verticals.")
     metric = EnergyMetric.from_model(model, at_time=at_time)

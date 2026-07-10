@@ -1,0 +1,493 @@
+r"""
+Dense-column channel eigenbasis via per-``kx`` ``eigh(iMS, M)``.
+
+Description
+-----------
+The **dense-column tier** of the numeric eigenmode machinery: the
+eigenbasis of a linearized model on a grid with exactly one bounded
+(walled) axis and periodic remaining axes — the rotating channel.
+
+Along the walls no trigonometric basis exists: rotation couples the
+components with *opposite* wall parities (the normal velocity vanishes
+at the walls, the tangential velocity and pressure do not), so a
+sine/cosine column ansatz cannot diagonalize the operator — the
+boundary-trapped (Kelvin-type) modes decay exponentially off the wall
+instead of oscillating. What survives is translation invariance along
+the periodic axes: per periodic wavenumber the operator is a **dense**
+:math:`D \times D` block over the stacked bounded-axis columns, with
+:math:`D = \sum_c n_c` (the per-component bounded-axis DOF counts —
+segments differ; walls are not DOFs).
+
+:func:`channel_eigenpairs` probes those blocks numerically: a unit
+impulse at periodic-index 0 has a unit DFT at every periodic mode, so
+one linearized-tendency application per (component, bounded-axis node)
+fills a full column of every block at once. The response is Fourier
+transformed along the periodic axes only (``rfftn`` — the operator is
+real, so the half spectrum with :math:`S(-k) = \overline{S(k)}`
+suffices). Under the measure-weighted energy metric ``M`` the operator
+is skew-adjoint, so :math:`H := iMS` is Hermitian and a whitened
+batched ``eigh`` returns real frequencies and ``M``-orthonormal
+eigenvectors per mode plane.
+
+The invariance requirement is exactly this: the operator must be
+translation-invariant (constant-coefficient) **along the periodic
+axes only**. The dense axis is probed numerically with whatever
+coefficients the tendency carries, so coefficients may vary
+arbitrarily along it — e.g. a beta-plane :math:`f(y) = f_0 + \beta y`
+on the walled-``y`` channel (pointwise rotation does no work for any
+``f`` profile, so ``H`` stays Hermitian). A coefficient varying along
+a *periodic* axis breaks the per-mode block structure and is out of
+scope (the Hermiticity assertion is the safety net, not a guarantee).
+
+The framework stays agnostic about the physics of the columns
+(vortical / Kelvin / Poincaré families): :class:`ChannelEigenbasis`
+carries an **empty** integer label slot that a model package fills
+through :meth:`ChannelEigenbasis.label_with`. That agnosticism is
+load-bearing for varying coefficients — with a beta-plane ``f(y)``
+the vortical branch acquires slow Rossby frequencies and the family
+boundaries blur, which is the labeler's concern, not the basis's.
+
+The setup path here may gather to host (a one-off analysis cost); the
+downstream projector *application* is the sharding-critical path.
+"""
+from __future__ import annotations
+
+from types import MappingProxyType
+from typing import TYPE_CHECKING
+
+import jax
+import jax.numpy as jnp
+
+from fridom.framework.utils import dtype_real
+from fridom.framework2.model.eigen import (
+    _metric_weights,
+    _rest_background,
+)
+from fridom.framework2.model.energy import EnergyMetric
+from fridom.framework2.model.stages import StageKind
+from fridom.framework2.model.term_predicates import linearize
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable, Mapping
+
+    from fridom.framework2.grid.fields.vector_field import VectorField
+    from fridom.framework2.model.model import Model
+
+# The value of an unset (empty) mode label.
+UNLABELED = -1
+
+# Relative Hermiticity tolerance for ``H = iMS`` (skew-adjointness of
+# the probed operator under the energy metric).
+_HERMITICITY_TOL = 1e-10
+
+
+class ChannelEigenbasis:
+
+    r"""
+    The per-mode dense eigenbasis of a linearized channel model.
+
+    Description
+    -----------
+    Holds the batched spectrum and eigenvectors produced by
+    :func:`channel_eigenpairs`. The leading axes index the periodic
+    mode planes (the ``rfftn`` half spectrum of the periodic axes —
+    halved along :attr:`periodic_axis`); the trailing axes are the
+    stacked bounded-axis column of length ``D``, ordered by
+    ``components`` with the per-component :attr:`slices` segments.
+    ``q[..., :, j]`` is the M-orthonormal eigenvector for
+    ``omega[..., j]`` (``L q = i omega q``), sorted ascending per
+    plane. The operator is real, so the negative-``kx`` planes are the
+    conjugates of the stored half spectrum.
+
+    A host-side analysis object: build it once, then hand it to a
+    model package's labeler and to the spectral projectors. The
+    projector *application* downstream is the sharding-critical path,
+    not this object. The basis itself is family-agnostic (labels are
+    empty until :meth:`label_with`) — deliberately, because with
+    coefficients varying along the bounded axis (a beta-plane
+    ``f(y)``) the mode families blur and only a model package can
+    judge the boundaries.
+
+    Parameters
+    ----------
+    omega : jax.Array
+        Real frequencies, shape ``(*modes, D)``, ascending per plane.
+    q : jax.Array
+        Eigenvectors, shape ``(*modes, D, D)``.
+    components : tuple[str, ...]
+        The prognostic component names, the segment order of the
+        stacked column.
+    slices : Mapping[str, slice]
+        Per-component segment slices into the stacked ``D`` axis.
+    metric : jax.Array
+        The diagonal energy metric ``M``, shape ``(D,)``: per entry
+        the component weight times the bounded-axis measure.
+    periodic_axis : str
+        The half-spectrum (``rfft``) periodic axis name.
+    bounded_axis : str
+        The bounded (walled) axis name whose nodes the column stacks.
+    hermiticity_error : float
+        The measured pre-symmetrization relative residual
+        ``max|H - H^H| / max|H|`` of the probed ``H = iMS``.
+    """
+
+    def __init__(
+        self,
+        omega: jax.Array,
+        q: jax.Array,
+        components: tuple[str, ...],
+        slices: Mapping[str, slice],
+        metric: jax.Array,
+        periodic_axis: str,
+        bounded_axis: str,
+        hermiticity_error: float,
+    ) -> None:
+        """Store the batched spectrum, eigenvectors and layout."""
+        self.omega = omega
+        self.q = q
+        self.components = components
+        self.slices = MappingProxyType(dict(slices))
+        self.metric = metric
+        self.periodic_axis = periodic_axis
+        self.bounded_axis = bounded_axis
+        self.hermiticity_error = hermiticity_error
+        self.labels: jax.Array = jnp.full(
+            omega.shape, UNLABELED, dtype=jnp.int32)
+
+    # ================================================================
+    #  Labeling hook (model packages own the physics)
+    # ================================================================
+    def label_with(
+        self, labeler: Callable[[ChannelEigenbasis], jax.Array],
+    ) -> None:
+        r"""
+        Fill the label slot from a model package's labeler.
+
+        Description
+        -----------
+        The framework knows nothing about the channel mode families
+        (vortical / Kelvin / Poincaré are model physics); a model
+        package classifies the columns and writes integer labels
+        here. The labeler receives this basis and returns one integer
+        label per mode, shape ``omega.shape``; unset entries are
+        :data:`UNLABELED`.
+
+        Parameters
+        ----------
+        labeler : Callable[[ChannelEigenbasis], jax.Array]
+            Maps this basis to an integer label array of shape
+            ``omega.shape``.
+        """
+        labels = jnp.asarray(labeler(self))
+        if labels.shape != self.omega.shape:
+            raise ValueError(
+                "the labeler must return one integer label per mode: "
+                f"expected shape {self.omega.shape}, got "
+                f"{labels.shape}")
+        if not jnp.issubdtype(labels.dtype, jnp.integer):
+            raise ValueError(
+                "mode labels are small integers (an enum per model "
+                f"package); the labeler returned dtype {labels.dtype}")
+        self.labels = labels
+
+    # ================================================================
+    #  Self-consistency diagnostics (validation helpers)
+    # ================================================================
+    def orthonormality_error(self) -> jax.Array:
+        r"""
+        Return the max deviation of :math:`q^{H} M q` from the identity.
+
+        Description
+        -----------
+        The eigenvectors are M-orthonormal per mode plane by
+        construction; this is a residual on that property (a 0-d real
+        array), near machine epsilon on a well-conditioned metric.
+
+        Returns
+        -------
+        jax.Array
+            ``max |q^H M q - I|`` over all planes (a 0-d array).
+        """
+        gram = jnp.einsum(
+            "...ij,i,...ik->...jk", jnp.conj(self.q), self.metric,
+            self.q)
+        identity = jnp.eye(gram.shape[-1], dtype=gram.dtype)
+        return jnp.max(jnp.abs(gram - identity))
+
+
+def channel_eigenpairs(
+    model: Model, *, at_time: float = 0.0, chunk: int | None = None,
+) -> ChannelEigenbasis:
+    r"""
+    Solve the per-mode dense channel eigenproblem ``eigh(iMS, M)``.
+
+    Description
+    -----------
+    The dense-column probe: builds the linear variant
+    ``fr.linearize(model)``, fills the per-mode dense blocks ``S`` by
+    unit-impulse columns over the bounded-axis nodes (one linearized
+    tendency application each, Fourier read-out along the periodic
+    axes), forms the Hermitian pencil ``H = iMS`` under the
+    measure-weighted energy metric (``fr.EnergyMetric`` times the
+    bounded-axis measure), and solves the whitened batched ``eigh``
+    per mode plane. Requires exactly one bounded grid factor (all
+    others periodic) and an unconstrained model — the 3-D nonhydro
+    channel (a CONSTRAINT stage eliminating the pressure) is a later
+    phase.
+
+    Coefficients may vary arbitrarily **along the bounded axis** (the
+    probe reads whatever the tendency carries — a beta-plane ``f(y)``
+    on the walled-``y`` channel works and stays Hermitian); only the
+    periodic axes must be constant-coefficient. The energy metric is
+    read with ``require_constant_coriolis=False`` accordingly.
+
+    Parameters
+    ----------
+    model : Model
+        An assembled channel model (one bounded axis; e.g. the walled
+        shallow water model).
+    at_time : float, optional
+        Evaluation time for time-dependent parameters (default: 0.0).
+    chunk : int | None, optional
+        Batch size for the impulse probe and the plane eigensolve
+        (``lax.map`` chunking, bounds peak memory); ``None`` vmaps
+        the full batch (default: None).
+
+    Returns
+    -------
+    ChannelEigenbasis
+        The per-plane spectrum, M-orthonormal eigenvectors and the
+        segment layout.
+    """
+    bounded = tuple(
+        name for mesh in model.grid.factors
+        if not getattr(mesh, "periodic", True)
+        for name in mesh.names)
+    if not bounded:
+        raise ValueError(
+            "channel_eigenpairs is the dense-column tier for a grid "
+            "with exactly one bounded axis; this grid is fully "
+            "periodic — use numeric_eigenpairs (the per-mode "
+            "translation-invariant probe) instead")
+    if len(bounded) > 1:
+        raise ValueError(
+            "channel_eigenpairs handles exactly one bounded axis "
+            f"(the channel); this grid bounds {bounded!r} — a "
+            "multi-walled box has no periodic axis to block-"
+            "diagonalize over and is out of scope")
+    schedule = model._artifacts.schedule  # noqa: SLF001 — host probe
+    if schedule.kind_entries(StageKind.CONSTRAINT):
+        raise ValueError(
+            "channel_eigenpairs currently serves unconstrained "
+            "models; this model carries a CONSTRAINT stage (the "
+            "nonhydro pressure projection). The walled 3-D nonhydro "
+            "eigenbasis is a later phase")
+
+    names = model.grid.names
+    bounded_axis = bounded[0]
+    bounded_index = names.index(bounded_axis)
+    periodic_axes = tuple(
+        names.index(name) for name in names if name != bounded_axis)
+
+    metric = EnergyMetric.from_model(
+        model, at_time=at_time, require_constant_coriolis=False)
+    lin = linearize(model)
+    prog, base0 = _rest_background(lin, at_time)
+    weights = _metric_weights(metric, prog)
+
+    slices = _segment_slices(base0, prog, bounded_index)
+    metric_diag = _metric_diagonal(base0, prog, weights, bounded_axis)
+    symbol = _probe_block(
+        lin, base0, prog, slices, bounded_index, periodic_axes,
+        at_time, chunk)
+
+    hamiltonian, residual = _hermitian_pencil(symbol, metric_diag)
+    hermiticity_error = float(residual)
+    if hermiticity_error > _HERMITICITY_TOL:
+        raise ValueError(
+            "the probed operator is not skew-adjoint under the "
+            "energy metric (relative Hermiticity residual "
+            f"{hermiticity_error:.2e} of iMS): the linearization "
+            "carries a non-conservative term or a non-rest "
+            "background, which the channel eigensolve cannot serve")
+    omega, q = _generalized_eigh_diag(hamiltonian, metric_diag, chunk)
+    return ChannelEigenbasis(
+        omega, q, prog, slices, metric_diag,
+        periodic_axis=names[periodic_axes[-1]],
+        bounded_axis=bounded_axis,
+        hermiticity_error=hermiticity_error)
+
+
+# ================================================================
+#  Segment layout and the diagonal metric
+# ================================================================
+def _segment_slices(
+    base0: VectorField, prog: tuple[str, ...], bounded_index: int,
+) -> dict[str, slice]:
+    """Map each component to its segment of the stacked column."""
+    slices = {}
+    offset = 0
+    for name in prog:
+        n = base0[name].data.shape[bounded_index]
+        slices[name] = slice(offset, offset + n)
+        offset += n
+    return slices
+
+
+def _metric_diagonal(
+    base0: VectorField,
+    prog: tuple[str, ...],
+    weights: tuple[float, ...],
+    bounded_axis: str,
+) -> jax.Array:
+    r"""
+    Stack the diagonal metric ``M[(c, j)] = w_c \mu_c(j)``.
+
+    Description
+    -----------
+    Per component the energy weight times the bounded-axis measure on
+    the component's own node set (dual cell widths on faces — the
+    per-node quadrature the skew-adjointness holds under). The
+    uniform periodic-axis measure is a common scalar factor and drops
+    out of the pencil.
+    """
+    return jnp.concatenate([
+        weight * jnp.asarray(
+            base0[name].measure(bounded_axis).data,
+            dtype=dtype_real()).ravel()
+        for name, weight in zip(prog, weights, strict=True)])
+
+
+# ================================================================
+#  The dense-column probe
+# ================================================================
+def _probe_block(
+    lin: Model,
+    base0: VectorField,
+    prog: tuple[str, ...],
+    slices: dict[str, slice],
+    bounded_index: int,
+    periodic_axes: tuple[int, ...],
+    at_time: float,
+    chunk: int | None,
+) -> jax.Array:
+    r"""
+    Probe the linearized tendency into per-mode dense blocks.
+
+    Description
+    -----------
+    Applies the linearized tendency to one-hot impulses over the
+    bounded-axis nodes at periodic-index 0 (their DFT is unity at
+    every periodic mode), transforms the responses along the periodic
+    axes only (``rfftn`` half spectrum — the operator is real), and
+    stacks the segments, so
+    ``S[..., (c', j'), (c, j)] = rfftn(L e_{(c,j)})_{c'}[..., j']``.
+
+    Returns
+    -------
+    jax.Array
+        The batched blocks, shape ``(*modes, D, D)``.
+    """
+    dim = max(s.stop for s in slices.values())
+    batch = _impulse_batch(base0, prog, slices, bounded_index, dim)
+
+    def apply_one(arrays: dict[str, jax.Array]) -> dict[str, jax.Array]:
+        """Embed one impulse and apply the linearized tendency."""
+        state = base0.replace(**{
+            name: base0[name].with_data(arrays[name])
+            for name in prog})
+        out = lin.tendency(state, t=at_time, constraints=False)
+        return {name: out[name].data for name in prog}
+
+    if chunk is None:
+        responses = jax.vmap(apply_one)(batch)
+    else:
+        responses = jax.lax.map(apply_one, batch, batch_size=chunk)
+
+    fft_axes = tuple(axis + 1 for axis in periodic_axes)
+    rows = []
+    for name in prog:
+        spec = jnp.fft.rfftn(responses[name], axes=fft_axes)
+        spec = jnp.moveaxis(spec, 0, -1)  # (*grid axes, D)
+        rows.append(jnp.moveaxis(spec, bounded_index, -2))
+    return jnp.concatenate(rows, axis=-2)
+
+
+def _impulse_batch(
+    base0: VectorField,
+    prog: tuple[str, ...],
+    slices: dict[str, slice],
+    bounded_index: int,
+    dim: int,
+) -> dict[str, jax.Array]:
+    """Build the (D, *shape_c) one-hot probe batch per component."""
+    batch = {}
+    for name in prog:
+        shape = base0[name].data.shape
+        nodes = jnp.arange(shape[bounded_index])
+        index: list[jax.Array | int] = [0] * len(shape)
+        index[bounded_index] = nodes
+        arr = jnp.zeros((dim, *shape), dtype=dtype_real())
+        batch[name] = arr.at[
+            (slices[name].start + nodes, *index)].set(1.0)
+    return batch
+
+
+# ================================================================
+#  The Hermitian pencil and its whitened eigensolve
+# ================================================================
+def _hermitian_pencil(
+    symbol: jax.Array, metric_diag: jax.Array,
+) -> tuple[jax.Array, jax.Array]:
+    r"""
+    Form ``H = iMS`` and its symmetrized half with the residual.
+
+    Returns
+    -------
+    tuple[jax.Array, jax.Array]
+        The symmetrized ``(H + H^H) / 2`` and the relative
+        pre-symmetrization residual ``max|H - H^H| / max|H|``.
+    """
+    h = 1j * metric_diag[:, None] * symbol
+    h_adj = jnp.conj(jnp.swapaxes(h, -1, -2))
+    residual = jnp.max(jnp.abs(h - h_adj)) / jnp.max(jnp.abs(h))
+    return 0.5 * (h + h_adj), residual
+
+
+def _generalized_eigh_diag(
+    hamiltonian: jax.Array,
+    metric_diag: jax.Array,
+    chunk: int | None,
+) -> tuple[jax.Array, jax.Array]:
+    r"""
+    Solve ``H q = mu M q`` for a per-row diagonal metric ``M``.
+
+    Description
+    -----------
+    Whitens the diagonal positive metric (:math:`R = \mathrm{diag}
+    \sqrt{M}`), runs a batched ``eigh`` on :math:`R^{-H} H R^{-1}`
+    (optionally ``lax.map``-chunked over the mode planes),
+    back-substitutes :math:`q = R^{-1}\tilde q`, sets
+    :math:`\omega = -\mu`, and sorts each plane ascending.
+
+    Returns
+    -------
+    tuple[jax.Array, jax.Array]
+        The frequencies ``(*modes, D)`` and eigenvectors
+        ``(*modes, D, D)``.
+    """
+    inv_sqrt = 1.0 / jnp.sqrt(metric_diag)
+    whitened = inv_sqrt[:, None] * hamiltonian * inv_sqrt[None, :]
+    if chunk is None:
+        mu, q_white = jnp.linalg.eigh(whitened)
+    else:
+        planes = whitened.reshape(-1, *whitened.shape[-2:])
+        mu, q_white = jax.lax.map(
+            jnp.linalg.eigh, planes, batch_size=chunk)
+        mu = mu.reshape(whitened.shape[:-1])
+        q_white = q_white.reshape(whitened.shape)
+    omega = -mu
+    order = jnp.argsort(omega, axis=-1)
+    omega = jnp.take_along_axis(omega, order, axis=-1)
+    q_white = jnp.take_along_axis(q_white, order[..., None, :], axis=-1)
+    return omega, inv_sqrt[:, None] * q_white

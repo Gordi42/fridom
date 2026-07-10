@@ -266,7 +266,11 @@ class EnergyMetric:
     # ================================================================
     @classmethod
     def from_model(
-        cls, model: Model, *, at_time: float = 0.0,
+        cls,
+        model: Model,
+        *,
+        at_time: float = 0.0,
+        require_constant_coriolis: bool = True,
     ) -> EnergyMetric:
         r"""
         Build the energy metric from an assembled model's parameters.
@@ -284,6 +288,13 @@ class EnergyMetric:
         (``shallowwater.csqr`` present) yields ``diag(1, 1, 1/c^2)``
         on ``(u,v,p)``.
 
+        The weights themselves never involve the Coriolis parameter
+        (rotation does no work), so a consumer that tolerates a
+        varying ``f`` — the dense-column channel probe, whose bounded
+        axis needs no translation invariance — passes
+        ``require_constant_coriolis=False`` to skip that gate while
+        keeping the genuine weight gates (constant ``csqr`` etc.).
+
         Parameters
         ----------
         model : Model
@@ -291,6 +302,11 @@ class EnergyMetric:
         at_time : float, optional
             Evaluation time for time-dependent parameters
             (default: 0.0).
+        require_constant_coriolis : bool, optional
+            Whether to require the constant ``coriolis.f0`` provide
+            (the Fourier-diagonalizability proxy); pass ``False``
+            for consumers that support a spatially varying ``f``
+            (default: True).
 
         Returns
         -------
@@ -298,7 +314,7 @@ class EnergyMetric:
             The metric with the model's constant energy weights.
         """
         params = model.parameters
-        if CORIOLIS_F0 not in params:
+        if require_constant_coriolis and CORIOLIS_F0 not in params:
             raise ValueError(
                 "the energy metric needs a Fourier-diagonalizable "
                 "model: no constant 'coriolis.f0' (a beta-plane f(y) "

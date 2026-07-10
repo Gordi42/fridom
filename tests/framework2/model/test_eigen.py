@@ -194,7 +194,9 @@ def test_rejects_a_walled_grid():
         grid=Grid((mx, my, mz)), advection=False,
         coriolis=FPlaneCoriolis(f0=1.0),
         time_stepper=AdamBashforth(5e-3, order=3))
-    with pytest.raises(ValueError, match=r"bounded axes \('z',\)"):
+    with pytest.raises(
+            ValueError,
+            match=r"bounded axes \('z',\).*channel_eigenpairs"):
         numeric_eigenpairs(model)
 
 
