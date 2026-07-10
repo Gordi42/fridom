@@ -3,6 +3,8 @@ import numpy as np
 
 import fridom.framework2 as fr
 import fridom.shallowwater2 as sw
+from fridom.framework2.grid.bc import BC
+from fridom.framework2.grid.spaces.nodal import NodeSet
 
 from .conftest import make_grid
 
@@ -39,3 +41,26 @@ def test_rest_state_has_zero_diagnostics():
     model = _model()  # all fields default to zero
     assert float(np.abs(model.state.rel_vort.data).max()) == 0.0
     assert float(np.abs(model.state.divergence.data).max()) == 0.0
+
+
+def test_walled_rel_vort_lands_on_the_free_slip_corner_space():
+    model = sw.Model(
+        grid=make_grid(periodic_y=False),
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    rng = np.random.default_rng(2)
+    u = rng.standard_normal(model.state["u"].shape)
+    v = rng.standard_normal(model.state["v"].shape)
+    model.set_fields(u=u, v=v)
+    zeta = model.state.rel_vort
+    # the free-slip claim: the corner space adopts v's Dirichlet
+    # wall tag on y (zeta = 0 at the wall); interior corners only
+    my = model.grid.factors[1]
+    assert (zeta.function_space.bare.factor("y")
+            is my.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    # interior values are the plain centred stencils
+    n = u.shape[0]
+    dx = dy = 1.0 / n
+    expected = ((np.roll(v, -1, axis=0) - v) / dx
+                - (u[:, 1:] - u[:, :-1]) / dy)
+    np.testing.assert_allclose(np.asarray(zeta.data), expected,
+                               rtol=0.0, atol=1e-13)

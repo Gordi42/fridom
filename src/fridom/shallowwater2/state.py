@@ -88,9 +88,18 @@ class State(VectorField):
         -----------
         On the C-grid ``v`` staggers in y and ``u`` in x, so both
         derivatives land on the north-east vorticity corner and the
-        difference is well defined without an interpolation.
+        difference is well defined without an interpolation. On a
+        walled grid the BC-free stencil outputs are retagged onto
+        the Dirichlet corner space (each velocity's wall tag on the
+        other velocity's axis) — the free-slip claim
+        :math:`\zeta = 0` at the wall, matching the Sadourny
+        advection module; identity on periodic axes.
         """
-        return (self.v.diff("x") - self.u.diff("y")).with_metadata(
+        u, v = self.u, self.v
+        corner = u.function_space.bare.replace(
+            y=v.function_space.bare.factor("y"))
+        return (v.diff("x").retag(corner)
+                - u.diff("y").retag(corner)).with_metadata(
             name="rel_vort", long_name="Relative vorticity",
             units="1/s")
 

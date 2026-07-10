@@ -1601,11 +1601,18 @@ def _default_registry(
         # The elementwise + integrate rows are seeded on the tagged
         # origins too, so walled-grid fields interoperate (e.g. the
         # flux form ``csqr.to(v) * v`` on a Dirichlet face space).
-        # The product keeps the common operand tag, which is correct
-        # when at most one operand is odd (the linear-model uses:
-        # even*odd flux, even*even); genuinely odd*odd products
-        # (walled advection) need a parity-aware codomain — future
-        # work behind the advection modules' walled-grid guards.
+        # The product keeps the common operand tag. A tag is a
+        # *wall-value claim* consumed by the one-layer staggered
+        # ghost fills, not a parity statement: keeping Dirichlet is
+        # exact whenever one operand vanishes on the wall (the
+        # wall-normal velocity, the free-slip vorticity), which
+        # covers every product the walled Sadourny advection syncs —
+        # including odd*odd ones like ``v * v``, whose exact wall
+        # value 0 is precisely what the energy-conserving transpose
+        # identities need (see shallowwater2/modules/sadourny.py).
+        # A parity-aware product codomain is deliberately NOT added:
+        # an even (Neumann) claim carries no wall value at all and
+        # would lose the exact zero.
         for space in nodal + average + tagged:
             if isinstance(space, CellAvg):
                 entries[("diff", space)] = fv_derivative
