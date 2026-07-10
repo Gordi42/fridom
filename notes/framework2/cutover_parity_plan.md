@@ -64,12 +64,14 @@ stack.
   wave package (nh), barotropic jet (nh), equatorial wave (sw).
   Single/Kelvin waves are covered better by `em.mode`/`eb.mode` —
   port only thin named conveniences where examples need them.
-- Examples refresh: all 13 `examples/*.py` currently import the old
-  stack; port to nonhydro2/shallowwater2 (doubles as the parity
-  shakedown). Include the sw.eigenbasis gallery example
-  (β slow-mode filtering; see projection_eigenmode_roadmap §5).
-- Docs refresh: 13 `.rst` files (`fridom_api`, getting-started,
-  10 tutorials) reference only the old packages.
+- Examples refresh (DEFERRED — owner 2026-07-10, not now): all 13
+  `examples/*.py` currently import the old stack; port to
+  nonhydro2/shallowwater2 (doubles as the parity shakedown).
+  Include the sw.eigenbasis gallery example (β slow-mode filtering;
+  see projection_eigenmode_roadmap §5).
+- Docs refresh (DEFERRED — owner 2026-07-10, not now): 13 `.rst`
+  files (`fridom_api`, getting-started, 10 tutorials) reference
+  only the old packages.
 
 ## Wave C — gate + swap
 
