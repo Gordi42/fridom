@@ -6,8 +6,10 @@ Phase-2 port of the nonhydrostatic model onto ``fridom.framework2``
 (renamed onto ``fridom.nonhydro`` at cutover). Consumes framework2
 read-only. The public surface mirrors the API sketches (§7):
 ``nh.Model`` (a preset factory), ``nh.State`` (the vocabulary class),
-``nh.eigenmodes`` (the discrete-dispersion eigenmodes), and the
-concrete modules (``nh.DynamicalCore``, ``nh.FPlaneCoriolis``,
+``nh.eigenmodes`` (the discrete-dispersion eigenmodes),
+``nh.eigenbasis`` / ``nh.channel_eigenmodes`` (the labeled numeric
+eigenmodes of the horizontally walled channel), and the concrete
+modules (``nh.DynamicalCore``, ``nh.FPlaneCoriolis``,
 ``nh.ConstantStratification``, ``nh.CenteredAdvection``, ...).
 """
 from typing import TYPE_CHECKING
@@ -20,7 +22,16 @@ if TYPE_CHECKING:  # pragma: no cover
         FPlaneCoriolis,
     )
 
-    from . import diagnostics, eigenmodes, modules, params, transforms
+    from . import (
+        channel_eigenmodes,
+        diagnostics,
+        eigenmodes,
+        modules,
+        params,
+        transforms,
+    )
+    from .channel_eigenmodes import ChannelEigenmodes
+    from .eigenmodes import eigenbasis
     from .model import Model
     from .modules.advection import CenteredAdvection
     from .modules.core import DynamicalCore
@@ -30,11 +41,13 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.nonhydro2"
 
 all_modules_by_origin = {
-    base: ["modules", "eigenmodes", "diagnostics", "params",
-           "transforms"],
+    base: ["modules", "eigenmodes", "channel_eigenmodes",
+           "diagnostics", "params", "transforms"],
 }
 
 all_imports_by_origin = {
+    f"{base}.channel_eigenmodes": ["ChannelEigenmodes"],
+    f"{base}.eigenmodes": ["eigenbasis"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["DynamicalCore"],

@@ -55,6 +55,7 @@ from fridom.framework2.grid.symbols import (
     rayleigh_dual,
 )
 from fridom.framework2.model.energy import nonhydro_energy_weights
+from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 
@@ -552,16 +553,100 @@ class Eigenmodes:
         return nonhydro_energy_weights(self.dsqr, inv_n2)
 
 
-def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
-    """Build eigenmodes from an assembled model's parameters (D2.4).
+def _bounded_names(grid: Grid) -> tuple[str, ...]:
+    """Return the names of the grid's bounded (walled) axes."""
+    return tuple(
+        name for mesh in grid.factors
+        if not getattr(mesh, "periodic", True)
+        for name in mesh.names)
+
+
+def eigenbasis(
+    model: Model, *, at_time: float = 0.0,
+) -> ChannelEigenmodes:
+    r"""
+    Build the labeled numeric eigenbasis of a channel model.
 
     Description
     -----------
-    Reads ``coriolis.f0``, ``stratification.n2`` and ``nonhydro.dsqr``
-    from ``model.parameters`` with the constancy check: a
-    ``BetaPlaneCoriolis`` model does not provide ``coriolis.f0`` and is
-    rejected (not Fourier-diagonalizable); Ramp-valued parameters are
-    evaluated at ``at_time``.
+    The user surface of the dense-column channel engine: returns the
+    :class:`~fridom.nonhydro2.channel_eigenmodes.ChannelEigenmodes`
+    of a model with exactly one bounded **horizontal** axis (the
+    rotating stratified channel — the walls the rotation couples to,
+    where no trigonometric basis exists) — ``eb.omega`` / ``eb.q``
+    / ``eb.labels`` per ``(kx, kz)`` mode plane, the ``families``
+    vocabulary (the physical vortical / kelvin / wave families plus
+    the non-physical ``constraint`` divergence-complement), the
+    segment ``slices``, and ``eb.projector(sel)`` for family /
+    predicate projections on physical states. Works on the beta
+    plane (coefficients may vary along the bounded axis).
+
+    A fully periodic grid and a walled-**vertical** grid both carry
+    analytic eigenmodes (the trigonometric vertical basis survives
+    rigid lids — rotation acts about the vertical); the taught
+    errors point at :func:`from_model`. A multi-walled box has no
+    periodic axis left to diagonalize over and is rejected.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled nonhydrostatic channel model.
+    at_time : float, optional
+        The clock time at which to freeze time-dependent parameters
+        (default: 0.0).
+
+    Returns
+    -------
+    ChannelEigenmodes
+        The labeled channel eigenmodes.
+
+    Raises
+    ------
+    ValueError
+        On a fully periodic, walled-vertical or multi-walled grid.
+    """
+    bounded = _bounded_names(model.grid)
+    if not bounded:
+        raise ValueError(
+            "nh.eigenbasis is the numeric labeled eigenbasis of the "
+            "horizontally walled channel; this grid is fully "
+            "periodic — use the analytic eigenmodes instead "
+            "(nh.eigenmodes.from_model(model)) and the "
+            "nh.transforms projections")
+    if len(bounded) > 1:
+        raise ValueError(
+            "nh.eigenbasis serves the single-walled channel; this "
+            f"grid bounds {bounded!r} — a multi-walled box has no "
+            "periodic axis left to diagonalize over")
+    if bounded[0] == "z":
+        raise ValueError(
+            "nh.eigenbasis serves walls on a horizontal axis (where "
+            "rotation obstructs the trigonometric basis); the "
+            "walled-vertical (rigid-lid) grid keeps analytic "
+            "eigenmodes — use nh.eigenmodes.from_model(model) and "
+            "the nh.transforms projections")
+    return ChannelEigenmodes(model, at_time=at_time)
+
+
+def from_model(
+    model: Model, *, at_time: float = 0.0,
+) -> Eigenmodes | ChannelEigenmodes:
+    """Build the eigenmodes of an assembled nonhydro model (D2.4).
+
+    Description
+    -----------
+    Dispatches on the grid topology. A fully periodic or
+    walled-**vertical** (rigid-lid) grid gets the analytic
+    operator-sourced :class:`Eigenmodes`: ``coriolis.f0``,
+    ``stratification.n2`` and ``nonhydro.dsqr`` are read from
+    ``model.parameters`` with the constancy check — a
+    ``BetaPlaneCoriolis`` model does not provide ``coriolis.f0`` and
+    is rejected (not Fourier-diagonalizable); Ramp-valued parameters
+    are evaluated at ``at_time``. A grid with exactly one bounded
+    **horizontal** axis gets the numeric
+    :class:`~fridom.nonhydro2.channel_eigenmodes.ChannelEigenmodes`
+    (the labeled dense-column channel eigenbasis, beta-plane
+    included). A multi-walled box is rejected.
 
     Parameters
     ----------
@@ -572,9 +657,21 @@ def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
 
     Returns
     -------
-    Eigenmodes
-        The eigenmode set.
+    Eigenmodes | ChannelEigenmodes
+        The analytic eigenmodes (fully periodic / walled vertical)
+        or the labeled channel eigenmodes (one bounded horizontal
+        axis).
     """
+    bounded = _bounded_names(model.grid)
+    if len(bounded) > 1:
+        raise ValueError(
+            "nonhydro eigenmodes serve the fully periodic grid, the "
+            "walled-vertical grid (analytic) or the single-walled "
+            f"horizontal channel (numeric); this grid bounds "
+            f"{bounded!r} — a multi-walled box has no periodic axis "
+            "left to diagonalize over")
+    if bounded and bounded[0] != "z":
+        return ChannelEigenmodes(model, at_time=at_time)
     params = model.parameters
 
     def _read(name: str) -> float:
