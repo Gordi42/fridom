@@ -47,9 +47,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from .channel_eigenmodes import ChannelEigenmodes
     from .eigenmodes import eigenbasis
     from .initial_conditions import (
+        coherent_eddy,
+        equatorial_wave,
+        jet,
         random_state,
         random_vortical,
         random_waves,
+        single_wave,
     )
     from .model import Model
     from .state import State
@@ -69,7 +73,8 @@ all_imports_by_origin = {
     f"{base}.channel_eigenmodes": ["ChannelEigenmodes"],
     f"{base}.eigenmodes": ["eigenbasis"],
     f"{base}.initial_conditions": [
-        "random_state", "random_vortical", "random_waves"],
+        "random_state", "random_vortical", "random_waves",
+        "single_wave", "jet", "coherent_eddy", "equatorial_wave"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
 }
