@@ -168,6 +168,10 @@ def test_calendar_time_axis(tmp_path, model, state):
     assert ds["time"].dtype.kind == "M"
     assert ds["time"].values[0] == start + np.timedelta64(
         round(4 * DT * 1e9), "ns")
+    # whole-second reference date (ns precision breaks CFTime readers)
+    raw = xr.open_zarr(path, consolidated=False, decode_times=False)
+    assert raw["time"].attrs["units"] == (
+        "seconds since 2020-01-01T00:00:00")
 
 
 # ================================================================
