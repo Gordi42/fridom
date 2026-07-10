@@ -226,24 +226,25 @@ def test_beta_eigenvectors_are_m_orthonormal(beta_basis):
 
 def test_beta_vortical_branch_acquires_rossby_frequencies(beta_basis):
     # on the f-plane every kx != 0 plane carries N - 1 vortical
-    # zeros; with beta they become slow Rossby modes. One steady
-    # mode per plane survives, and the Nyquist plane decouples from
+    # zeros; with beta ALL of them become slow westward Rossby modes
+    # (a steady kx != 0 mode would need v = 0 and geostrophic balance
+    # at once - contradictory), and the Nyquist plane decouples from
     # the rotation entirely (the x-average of a Nyquist mode is 0)
     omega = np.asarray(beta_basis.omega)
     zeros = np.sum(np.abs(omega) < 1e-8, axis=-1)
     assert zeros[0] == N + 1
-    assert (zeros[1:-1] == 1).all()
+    assert (zeros[1:-1] == 0).all()
     assert zeros[-1] == N - 1
     # the slow band is genuinely slow: distinct from the Poincare
     # branches (|omega| >= f0) yet nonzero
     slow = np.abs(omega[1])[np.abs(omega[1]) < F0]
-    assert (np.sort(slow)[1:] > 1e-3).all()
+    assert (np.sort(slow) > 1e-3).all()
 
 
 @pytest.mark.parametrize(("kx", "col"), [
     pytest.param(1, 0, id="kx1-bottom-poincare"),
-    pytest.param(2, D // 2, id="kx2-steady-mode"),
-    pytest.param(2, D // 2 + 1, id="kx2-slow-rossby"),
+    pytest.param(2, D // 2, id="kx2-slow-rossby-a"),
+    pytest.param(2, D // 2 + 1, id="kx2-slow-rossby-b"),
     pytest.param(3, D - 1, id="kx3-top-poincare"),
 ])
 def test_beta_columns_satisfy_the_eigen_relation(

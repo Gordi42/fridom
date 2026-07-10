@@ -72,25 +72,25 @@ _U_HINT = ("velocities are declared by a dynamical-core module, "
 def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
     r"""``du/dt = f v``; ``dv/dt = -f u`` as pure field arithmetic.
 
-    The **energy-conserving** staggered form: ``f`` is sampled once,
-    at the ``v`` faces, and the ``u`` equation averages the *flux*
-    ``(f v)`` to the ``u`` faces. Because the ``.to`` interpolations
-    between the ``u`` and ``v`` spaces are measure-weighted adjoints
-    of each other, the pair ``u += (f_v v).to(u)``,
-    ``v -= f_v (u.to(v))`` is exactly M-skew-adjoint for **any**
-    ``f`` profile (rotation does no work); sampling ``f`` per target
-    face instead would break discrete energy conservation for a
-    varying ``f``. For a constant ``f`` the two forms coincide
-    bit-for-bit (``.to`` is linear). Shared verbatim by the f-plane
-    (constant ``f``) and beta-plane (``f(y)``) module types — the
-    only difference between them is the *space* of ``f_coriolis``,
-    not the coupling.
+    The **energy-conserving** staggered form of the v1 framework:
+    ``f`` is sampled once, at the ``u`` faces, and the ``v`` equation
+    averages the *flux* ``(f u)`` back to the ``v`` faces. Because
+    the ``.to`` interpolations between the ``u`` and ``v`` spaces are
+    measure-weighted adjoints of each other, the pair
+    ``u += f_u (v.to(u))``, ``v -= (f_u u).to(v)`` is exactly
+    M-skew-adjoint for **any** ``f`` profile (rotation does no
+    work); sampling ``f`` per target face instead would break
+    discrete energy conservation for a varying ``f``. For a constant
+    ``f`` the two forms coincide bit-for-bit (``.to`` is linear).
+    Shared verbatim by the f-plane (constant ``f``) and beta-plane
+    (``f(y)``) module types — the only difference between them is
+    the *space* of ``f_coriolis``, not the coupling.
     """
     u, v, f = state["u"], state["v"], state["f_coriolis"]
-    f_v = f.to(v)
+    f_u = f.to(u)
     return {
-        "u": (f_v * v).to(u),
-        "v": -(f_v * u.to(v)),
+        "u": f_u * v.to(u),
+        "v": -((f_u * u).to(v)),
     }
 
 
