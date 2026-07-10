@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         assembly,
         clock,
+        closures,
         composer,
         context,
         declarations,
@@ -62,6 +63,7 @@ base = "fridom.framework2.model"
 all_modules_by_origin = {
     base: [
         "time_steppers",
+        "closures",
         "declarations",
         "space_patterns",
         "roles",

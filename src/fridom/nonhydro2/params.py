@@ -30,10 +30,40 @@ DSQR: ParamName = ParamName(
 # nh.DynamicalCore; re-exported so recipes can spell nh.params.ROSSBY.
 ROSSBY: ParamName = SCALING_ROSSBY
 
+# ----------------------------------------------------------------
+#  Smagorinsky-Lilly closure (nh.SmagorinskyLilly)
+# ----------------------------------------------------------------
+SMAG_CS: ParamName = ParamName(
+    "smagorinsky.cs", units="1",
+    hint="provided by nh.SmagorinskyLilly(smagorinsky_constant=...)")
+
+SMAG_PRANDTL: ParamName = ParamName(
+    "smagorinsky.prandtl", units="1",
+    hint="provided by "
+         "nh.SmagorinskyLilly(turbulent_prandtl_number=...)")
+
+SMAG_BACKGROUND_NU: ParamName = ParamName(
+    "smagorinsky.background_nu", units="m^2/s",
+    hint="provided by nh.SmagorinskyLilly(background_viscosity=...)")
+
+SMAG_BACKGROUND_KAPPA: ParamName = ParamName(
+    "smagorinsky.background_kappa", units="m^2/s",
+    hint="provided by "
+         "nh.SmagorinskyLilly(background_diffusivity=...)")
+
+SMAG_BUOYANCY_MULTIPLIER: ParamName = ParamName(
+    "smagorinsky.buoyancy_multiplier", units="1",
+    hint="provided by nh.SmagorinskyLilly(buoyancy_multiplier=...)")
+
 __all__ = [
     "CORIOLIS_BETA",
     "CORIOLIS_F0",
     "DSQR",
     "ROSSBY",
+    "SMAG_BACKGROUND_KAPPA",
+    "SMAG_BACKGROUND_NU",
+    "SMAG_BUOYANCY_MULTIPLIER",
+    "SMAG_CS",
+    "SMAG_PRANDTL",
     "STRATIFICATION_N2",
 ]

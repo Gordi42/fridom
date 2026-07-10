@@ -1935,9 +1935,16 @@ def _tracer_params(
 
 
 def _as_scalar(value: object) -> object:
-    """Demote a 0-d numeric leaf to a Python scalar (best effort)."""
+    """Demote a 0-d numeric leaf to a Python scalar (best effort).
+
+    Mapping-valued leaves (per-field closure coefficients) are
+    demoted entrywise, so the tracer sees plain scalars there too.
+    """
     if isinstance(value, int | float | complex):
         return value
+    if isinstance(value, dict):
+        return {key: _as_scalar(entry)
+                for key, entry in value.items()}
     try:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
