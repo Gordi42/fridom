@@ -16,13 +16,26 @@ update imports/examples/docs.
   solver variant, old mpi4py multi-host runs (jax.distributed is
   ROADMAP 3.2/3.3).
 
-## Wave A — physics-module ports (parallel, running 2026-07-10)
+## Wave A — physics-module ports (MERGED 2026-07-10)
 
 | Package | Content | Status |
 |---|---|---|
-| Closures | `ClosureBase` (spec: `model/classes/module.md` §fr.closures.ClosureBase) + harmonic/biharmonic diffusion & friction (role-targeted: mixing→TRACER, friction→Velocity family) + nonhydro2 `SmagorinskyLilly` | agent running |
-| Forcings | framework2 `Relaxation`, nonhydro2 `GaussianWaveMaker` + `PolarizedWaveMaker` | agent running |
-| Advection | nonhydro2 `UpwindAdvection` + `WENOAdvection` as model modules over the existing `grid/operators/{weno,reconstruct,…}` layer | agent running |
+| Closures | `ClosureBase` + `Harmonic/BiharmonicDiffusion` (TRACER) + `Harmonic/BiharmonicFriction` (Velocity family) + nonhydro2 `SmagorinskyLilly` | merged 14e7af5 |
+| Forcings | framework2 `Relaxation` (rate/target/mask profiles), nonhydro2 `GaussianWaveMaker` + `PolarizedWaveMaker` (eigenmode packet at bind) | merged (013ee2d..90d91c4) |
+| Advection | nonhydro2 `UpwindAdvection` + `WENOAdvection` (orders 3/5) over the grid WENO kernels; `_FluxFormAdvection` shared base; old-stack tendency parity ≤1e-15 | merged 5e5a061 |
+
+Wave-A gate: full framework2 suite **3697 passed, 14 skipped**;
+ruff clean. Deliberate non-ports (recorded by the agents): old
+`nonhydro.BiharmonicClosure` (grid-scaled, mask-BC variant — the
+generic biharmonics cover periodic physics), spatially varying
+diffusion coefficients (AUXILIARY-field design point, door open),
+walled-grid closures/advection (taught bind errors), orders > 5,
+implicit closure treatment, PolarizedWaveMaker on walled grids.
+Framework note (advection agent): assembly's zero-field dry run
+(step 6) runs real kernels under the provisional halo before
+negotiation — module-side widening workaround in
+`UpwindAdvection.bind`; the designed tracer-based dry run would
+retire it.
 
 ## Wave A2 — background-flow advection (design proposed, awaiting owner)
 
