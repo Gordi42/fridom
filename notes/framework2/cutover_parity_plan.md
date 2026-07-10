@@ -60,10 +60,16 @@ stack.
 
 ## Wave B — after A merges
 
-- Analytic initial conditions, both packages: jets, coherent eddy,
-  wave package (nh), barotropic jet (nh), equatorial wave (sw).
-  Single/Kelvin waves are covered better by `em.mode`/`eb.mode` —
-  port only thin named conveniences where examples need them.
+- Analytic initial conditions — MERGED 2026-07-10: sw2
+  `single_wave`/`jet`/`coherent_eddy`/`equatorial_wave` (Hermite
+  port with movable `equator=`), nh2 `single_wave`/`kelvin_wave`
+  (labeled channel mode, exact — replaces the old approximate
+  V=0 ansatz)/`wave_package`/`barotropic_jet`/`jet`/
+  `coherent_eddy`. Wave factories return `(omega, state)` on the
+  `em.mode` phase convention; `use_discrete` dropped (the
+  eigenmodes ARE discrete); L2 normalization → envelope
+  convention. 81 tests, 100% branch coverage on both edited
+  modules.
 - Examples refresh (DEFERRED — owner 2026-07-10, not now): all 13
   `examples/*.py` currently import the old stack; port to
   nonhydro2/shallowwater2 (doubles as the parity shakedown).
