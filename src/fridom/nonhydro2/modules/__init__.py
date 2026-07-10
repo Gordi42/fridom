@@ -4,7 +4,8 @@ Description
 -----------
 The concrete ``fr.Module`` subclasses of the nonhydrostatic model:
 the dynamical core (declarations + pressure projection), the Coriolis
-family, constant stratification, and centered advection.
+family, constant stratification, centered advection, and the wave
+makers (Gaussian and polarized forcing).
 """
 from typing import TYPE_CHECKING
 
@@ -14,10 +15,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework2.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
+        Relaxation,
     )
 
     from .advection import CenteredAdvection
     from .core import DynamicalCore
+    from .gaussian_wave_maker import GaussianWaveMaker
+    from .polarized_wave_maker import PolarizedWaveMaker
     from .pressure import SpectralPressureSolver
     from .stratification import (
         ConstantStratification,
@@ -28,17 +32,20 @@ base = "fridom.nonhydro2.modules"
 
 all_modules_by_origin: dict[str, list[str]] = {}
 
-# The Coriolis family is the shared framework module library
-# (fr.modules), re-exported here so nh.modules.FPlaneCoriolis keeps
-# working after the wave-6 consolidation.
+# The Coriolis family and the generic relaxation are the shared
+# framework module library (fr.modules), re-exported here so
+# nh.modules.FPlaneCoriolis / nh.modules.Relaxation keep working
+# after the wave-6 consolidation.
 all_imports_by_origin = {
     "fridom.framework2.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis"],
+        "FPlaneCoriolis", "BetaPlaneCoriolis", "Relaxation"],
     f"{base}.core": ["DynamicalCore"],
     f"{base}.stratification": [
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.advection": ["CenteredAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
+    f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],
+    f"{base}.polarized_wave_maker": ["PolarizedWaveMaker"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

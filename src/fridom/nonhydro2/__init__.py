@@ -41,6 +41,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from .model import Model
     from .modules.advection import CenteredAdvection
     from .modules.core import DynamicalCore
+    from .modules.gaussian_wave_maker import GaussianWaveMaker
+    from .modules.polarized_wave_maker import PolarizedWaveMaker
     from .modules.stratification import (
         ConstantStratification,
         MeridionalStratification,
@@ -69,6 +71,8 @@ all_imports_by_origin = {
     f"{base}.modules.stratification": [
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.modules.advection": ["CenteredAdvection"],
+    f"{base}.modules.gaussian_wave_maker": ["GaussianWaveMaker"],
+    f"{base}.modules.polarized_wave_maker": ["PolarizedWaveMaker"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
