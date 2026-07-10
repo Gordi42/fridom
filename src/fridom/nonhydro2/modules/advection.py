@@ -30,17 +30,57 @@ WENO kernel machinery) and the flux-sign selection is the framework
 trace: the modules declare **no** ``extra_halo``; negotiation picks
 the widened stencil up from the trace.
 
+**Prescribed background flow**: every module takes a ``background=``
+mapping of velocity-component names to profiles (callables of
+coordinates, or constants), sampled at each component's own
+staggered nodes as AUXILIARY fields (the profile-sampling precedent
+of ``MeridionalStratification`` / ``GaussianWaveMaker``). With a
+background :math:`U` set, the module contributes TWO terms whose sum
+telescopes to the module's own scheme at the full advecting velocity
+:math:`U + \mathrm{Ro}\,u'`:
+
+- ``background_advection`` (``linear=True``): a linear
+  discretization :math:`L(q) = S_\mathrm{lin}(U, q)` of transport by
+  :math:`U` — the centered flux for ``CenteredAdvection``, and for
+  the biased schemes the **linear** upwind row of the same order
+  (WENO's optimal-weight smooth-limit row: a WENO weighting of a
+  linear operator is not linear in the state and must never carry
+  ``linear=True``), the stencil side selected by the sign of the
+  static background face velocity — a state-independent mask, so the
+  term is exactly linear in the state and ``fr.linearize`` keeps it.
+- ``advection`` (nonlinear): :math:`N(u', q) =
+  S_\mathrm{full}(U + \mathrm{Ro}\,u', q) - S_\mathrm{lin}(U, q)`,
+  the module's own scheme at the full velocity minus the linear
+  piece.
+
+**Scaling convention (deliberate)**: the full advecting velocity is
+:math:`U + \mathrm{Ro}\,u'` and there is NO outer Rossby factor on
+the combined tendency — :math:`U` is an O(1) velocity of the scaled
+equations, consistent with the other linear modules (Coriolis,
+stratification). With ``background=None`` this reduces exactly to
+the single Rossby-scaled term (velocity enters the flux linearly and
+upwind selection is invariant under positive scaling, so
+:math:`S(\mathrm{Ro}\,u', q) = \mathrm{Ro}\,S(u', q)`), and the
+``background=None`` code path is literally the pre-background one.
+The OLD stack differed: ``advect_state`` multiplied the whole
+advecting velocity (background included) by the nonlinear scaling
+factor (``mset.tendencies.advection.scaling = rossby_number``), i.e.
+``Ro * S(u' + U, q)`` — old users passed pre-scaled backgrounds.
+
 **Walled grids are future work**: the advective flux stencils near
 rigid walls (bounded, non-periodic mesh factors) are not covered
 yet, so ``bind`` rejects walled grids with a taught error — build a
-linear model (``advection=False`` in ``nh.Model``) instead.
+linear model (``advection=False`` in ``nh.Model``) instead. The
+background option inherits the restriction.
 """
 from __future__ import annotations
 
+import inspect
 from functools import cache
 from typing import TYPE_CHECKING, ClassVar, Literal, final
 
 import fridom.framework2 as fr
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.operators.base import (
@@ -58,9 +98,12 @@ from fridom.framework2.grid.operators.weno import (
     weno_tables,
 )
 from fridom.framework2.grid.scalars import Scalars
+from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable, Mapping
+
     from jax import Array
 
     from fridom.framework2.grid.fields.scalar_field import ScalarField
@@ -75,6 +118,130 @@ _WEIGHTINGS = ("linear", "weno")
 
 #: the odd formal orders grounded by the framework WENO tables
 _SUPPORTED_ORDERS = (3, 5)
+
+#: the velocity components' staggering axes (the nh C-grid)
+_VELOCITY_AXES = {"u": "x", "v": "y", "w": "z"}
+
+
+def _check_background(
+    background: Mapping[str, Callable | float] | None,
+) -> dict[str, Callable | float]:
+    """
+    Normalize and locally validate the ``background=`` mapping.
+
+    Description
+    -----------
+    Keys must name nh C-grid velocity components (``u``/``v``/``w``);
+    values are coordinate callables (parameters named after grid
+    coordinates, e.g. ``lambda y, z: ...``) or real constants.
+    Missing components are zero. ``None`` and the empty mapping both
+    mean "no background".
+
+    Parameters
+    ----------
+    background : Mapping[str, Callable | float] | None
+        The user-facing constructor option.
+
+    Returns
+    -------
+    dict[str, Callable | float]
+        The normalized mapping (empty for no background).
+    """
+    if background is None:
+        return {}
+    background = dict(background)
+    unknown = sorted(set(background) - set(_VELOCITY_AXES))
+    if unknown:
+        raise ValueError(
+            f"background flow is keyed by the nh velocity "
+            f"components {tuple(_VELOCITY_AXES)}, got the unknown "
+            f"key(s) {unknown}")
+    for name, value in background.items():
+        if not callable(value) and not isinstance(value, int | float):
+            raise TypeError(
+                f"background[{name!r}] must be a coordinate "
+                f"callable (e.g. lambda y, z: ...) or a constant, "
+                f"got {value!r}")
+    return background
+
+
+def _sample_profile(
+    grid: object, space: object, profile: Callable, name: str,
+) -> ScalarField:
+    """
+    Sample a background profile at a space's own node positions.
+
+    Description
+    -----------
+    The profile-sampling seam of the background flow (the
+    ``sample_gaussian_mask`` / ``MeridionalStratification``
+    precedent): the ``init`` signature is stamped with the space's
+    non-constant coordinate names and the user callable is fed
+    exactly the coordinates its own signature declares (constant
+    along the rest).
+
+    Parameters
+    ----------
+    grid : fr.grid.Grid
+        The grid to materialize on.
+    space : SpaceLike
+        The target function space (the velocity component's space).
+    profile : Callable
+        The user profile; parameters must name grid coordinates.
+    name : str
+        Metadata name of the sample field.
+
+    Returns
+    -------
+    ScalarField
+        The sampled background profile.
+    """
+    names = tuple(
+        coordinate for factor in space.factors
+        if not isinstance(factor, ConstantSpace)
+        for coordinate in factor.names)
+    wanted = tuple(inspect.signature(profile).parameters)
+    unknown = sorted(set(wanted) - set(names))
+    if unknown:
+        raise ValueError(
+            f"the background profile {name!r} names the "
+            f"coordinate(s) {unknown}, which the grid does not "
+            f"have (coordinates: {tuple(names)})")
+
+    def init(**coords: Array) -> Array:
+        return profile(**{key: coords[key] for key in wanted})
+
+    init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        [inspect.Parameter(
+            coordinate, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+         for coordinate in names])
+    return grid.create_field(space, init=init, name=name)
+
+
+def _profile_default(name: str) -> Callable:
+    """
+    Build the unbound owner-method default for one profile sample.
+
+    Description
+    -----------
+    The declaration ``default=`` owner-method form (first parameter
+    named ``self``), closing over the component name only: the
+    profile itself is read off the live module at materialization.
+
+    Parameters
+    ----------
+    name : str
+        The velocity component name (the ``background`` key).
+
+    Returns
+    -------
+    Callable
+        The unbound ``(self, grid, space)`` default.
+    """
+    def _default(self, grid, space):  # noqa: ANN001, ANN202
+        return _sample_profile(grid, space, self._background[name],
+                               name=f"background_{name}")
+    return _default
 
 
 # ================================================================
@@ -496,16 +663,27 @@ class _BiasedFaceReconstruction(SeparableOperator):
 # ================================================================
 class _FluxFormAdvection(fr.Module):
 
-    """
+    r"""
     Shared flux-form transport of every ADVECTED component.
 
     Description
     -----------
     The private scaffolding of the advection family (never exported):
-    role selection and the walled-grid rejection at bind, the single
-    Rossby-scaled ``advection`` tendency term, and the per-axis flux
-    loop. Subclasses choose the face value of the advected quantity
-    through the `_face_value` hook (centered by default).
+    role selection and the walled-grid rejection at bind, the
+    tendency terms, and the per-axis flux loop. Subclasses choose
+    the face value of the advected quantity through the
+    `_face_value` / `_linear_face_value` hooks (centered by
+    default).
+
+    Without a background the module contributes the single
+    Rossby-scaled ``advection`` term. With ``background=`` set it
+    contributes the difference-form split (module docstring): the
+    linear ``background_advection`` term
+    :math:`L(q) = S_\mathrm{lin}(U, q)` and the nonlinear
+    ``advection`` term :math:`S_\mathrm{full}(U + \mathrm{Ro}\,u',
+    q) - S_\mathrm{lin}(U, q)`; the background samples are
+    AUXILIARY fields ``background_<component>`` on each velocity
+    component's own space.
     """
 
     parameter_references = (
@@ -514,10 +692,57 @@ class _FluxFormAdvection(fr.Module):
             hint="Rossby number (nh.DynamicalCore)"),
     )
 
-    def __init__(self) -> None:
-        """No numeric leaves; targets resolve at bind."""
+    def __init__(
+        self,
+        background: Mapping[str, Callable | float] | None = None,
+    ) -> None:
+        """Normalize the background mapping; targets resolve at bind."""
         self._advected: tuple[str, ...] = ()
         self._axis_velocity: tuple[tuple[str, str], ...] = ()
+        self._background: dict[str, Callable | float] = (
+            _check_background(background))
+        self._background_axes: tuple[tuple[str, str], ...] = ()
+        self._background_by_axis: dict[str, str] = {}
+
+    # ------------------------------------------------------------
+    #  Background declarations (AUXILIARY profile samples)
+    # ------------------------------------------------------------
+    @property
+    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
+        """The background samples on each component's own space.
+
+        One AUXILIARY field ``background_<component>`` per mapped
+        component, declared on the velocity template's own pattern
+        (staggered along the component axis; the topology-conditional
+        wall Dirichlet is inert on the periodic grids this family
+        accepts), so the profile is sampled at that component's own
+        staggered nodes when materialized. The user value rides the
+        declaration ``default=`` untouched: a constant fills, a
+        coordinate callable is discretized by ``grid.create_field``.
+        """
+        return tuple(
+            fr.FieldDeclaration(
+                f"background_{name}",
+                space=fr.Staggered(
+                    axis, wall_bc={axis: BC.DIRICHLET}),
+                lifecycle=fr.Lifecycle.AUXILIARY,
+                default=(_profile_default(name)
+                         if callable(self._background[name])
+                         else self._background[name]),
+                long_name=f"Background {name}-velocity",
+                units="m/s")
+            for name, axis in _VELOCITY_AXES.items()
+            if name in self._background)
+
+    @property
+    def field_references(self) -> tuple[fr.FieldReference, ...]:
+        """The checked claims on the mapped velocity components."""
+        return tuple(
+            fr.FieldReference(
+                name, hint="the background flow rides the declared "
+                           "velocity components (nh.DynamicalCore "
+                           "declares u, v, w)")
+            for name in _VELOCITY_AXES if name in self._background)
 
     def bind(self, table: object) -> None:
         """Freeze the advected set and the axis -> velocity mapping.
@@ -530,6 +755,10 @@ class _FluxFormAdvection(fr.Module):
             work, and the natural downstream failure (an operator
             dispatch mismatch deep in the flux chain) would be
             cryptic.
+        ValueError
+            If a background sample does not resolve on its velocity
+            component's own space (a component outside the nh
+            ``u``/``v``/``w`` staggering vocabulary).
         """
         factors = getattr(table.grid, "factors", ())
         walled = tuple(
@@ -548,14 +777,61 @@ class _FluxFormAdvection(fr.Module):
         # selector.labels pairs each velocity name with its axis
         self._axis_velocity = tuple(
             (axis, name) for name, axis in selector.labels)
+        self._bind_background(table)
+
+    def _bind_background(self, table: object) -> None:
+        """Freeze the axis -> background-sample mapping.
+
+        Validates that every background sample landed on its
+        component's own space (the GaussianWaveMaker precedent) and
+        records the per-axis sample names in the flux-loop axis
+        order.
+        """
+        by_axis: dict[str, str] = {}
+        for axis, name in self._axis_velocity:
+            if name not in self._background:
+                continue
+            sample = f"background_{name}"
+            if (axis != _VELOCITY_AXES.get(name)
+                    or table[sample].space is not table[name].space):
+                raise ValueError(
+                    f"the background sample {sample!r} resolves on "
+                    f"{table[sample].space!r} but {name!r} lives on "
+                    f"{table[name].space!r}; the background flow "
+                    "samples on the nh C-grid staggering (u, v, w "
+                    "on their x/y/z faces)")
+            by_axis[axis] = sample
+        self._background_by_axis = by_axis
+        self._background_axes = tuple(by_axis.items())
 
     def tendency_terms(self) -> tuple[fr.TendencyTerm, ...]:
-        """One term advancing (and transporting) every advected field."""
+        """Return the advection term(s) of the module.
+
+        Without a background: the single Rossby-scaled ``advection``
+        term (the pre-background code path, literally unchanged).
+        With one: the nonlinear ``advection`` difference term plus
+        the genuinely separate ``background_advection`` term tagged
+        ``linear=True`` so ``fr.linearize`` keeps exactly it (V-S3).
+        """
+        if not self._background:
+            return (
+                fr.TendencyTerm(
+                    name="advection", fn=self._advect,
+                    treatment=fr.Treatment.EXPLICIT,
+                    advances=self._advected,
+                    transports=self._advected),
+            )
         return (
             fr.TendencyTerm(
-                name="advection", fn=self._advect,
+                name="advection", fn=self._advect_perturbation,
                 treatment=fr.Treatment.EXPLICIT,
                 advances=self._advected, transports=self._advected),
+            fr.TendencyTerm(
+                name="background_advection",
+                fn=self._advect_background,
+                treatment=fr.Treatment.EXPLICIT,
+                advances=self._advected, transports=self._advected,
+                linear=True),
         )
 
     def _advect(
@@ -577,6 +853,125 @@ class _FluxFormAdvection(fr.Module):
                 res = -divergence if res is None else res - divergence
             out[qname] = ro * res
         return out
+
+    # ------------------------------------------------------------
+    #  The background-split terms
+    # ------------------------------------------------------------
+    def _advect_perturbation(
+        self, state: object, ctx: StepContext,
+    ) -> dict[str, ScalarField]:
+        r"""
+        Nonlinear difference term with a background flow.
+
+        Description
+        -----------
+        :math:`N(u', q) = S_\mathrm{full}(U + \mathrm{Ro}\,u', q) -
+        S_\mathrm{lin}(U, q)`: the module's own scheme at the full
+        advecting velocity minus the linear background transport, so
+        the two-term sum telescopes to the full-velocity scheme. No
+        outer Rossby factor (module docstring, scaling convention).
+        """
+        ro = ctx.params[fr.params.SCALING_ROSSBY]
+        return {
+            qname: (self._full_transport(state, ro, state[qname])
+                    - self._linear_transport(state, state[qname]))
+            for qname in self._advected}
+
+    def _advect_background(
+        self,
+        state: object,
+        ctx: StepContext,  # noqa: ARG002 — fixed term signature
+    ) -> dict[str, ScalarField]:
+        r"""
+        Linear transport by the background flow (``linear=True``).
+
+        Description
+        -----------
+        :math:`L(q) = S_\mathrm{lin}(U, q)`: the linear
+        discretization of transport by the static background samples
+        — exactly linear in the state (the upwind side selection
+        reads only the background field, never the state), so
+        ``fr.linearize`` keeps this term and drops the nonlinear
+        difference.
+        """
+        return {
+            qname: self._linear_transport(state, state[qname])
+            for qname in self._advected}
+
+    def _full_transport(
+        self, state: object, ro: object, q: ScalarField,
+    ) -> ScalarField:
+        """
+        Flux-form transport of ``q`` by the full velocity.
+
+        Description
+        -----------
+        The per-axis flux loop of `_advect` with the advecting
+        velocity ``U + Ro u'`` (axes without a background sample:
+        ``Ro u'``) and no outer Rossby factor.
+
+        Parameters
+        ----------
+        state : object
+            The full state (perturbation + background samples).
+        ro : object
+            The Rossby number (a traced parameter scalar).
+        q : ScalarField
+            The advected quantity.
+
+        Returns
+        -------
+        ScalarField
+            The full-velocity transport of ``q``.
+        """
+        res = None
+        for axis, vname in self._axis_velocity:
+            v = ro * state[vname]
+            sample = self._background_by_axis.get(axis)
+            if sample is not None:
+                v = v + state[sample]
+            flux_space = q.diff(axis).function_space
+            v_face = self._velocity_face(v, flux_space)
+            flux = v_face * self._face_value(
+                q, v_face, axis, flux_space)
+            divergence = flux.diff(axis)
+            res = -divergence if res is None else res - divergence
+        return res
+
+    def _linear_transport(
+        self, state: object, q: ScalarField,
+    ) -> ScalarField:
+        """
+        Linear flux-form transport of ``q`` by the background flow.
+
+        Description
+        -----------
+        The per-axis flux loop over the background-mapped axes only,
+        with the `_linear_face_value` hook (the module's linear row)
+        and the face-velocity sign masks read from the static
+        background samples.
+
+        Parameters
+        ----------
+        state : object
+            The full state (carries the background samples).
+        q : ScalarField
+            The advected quantity.
+
+        Returns
+        -------
+        ScalarField
+            The linear background transport of ``q``.
+        """
+        res = None
+        for axis, sample in self._background_axes:
+            flux_space = q.diff(axis).function_space
+            v_face = self._velocity_face(state[sample], flux_space)
+            flux = v_face * self._linear_face_value(
+                q, v_face, axis, flux_space)
+            divergence = flux.diff(axis)
+            res = -divergence if res is None else res - divergence
+        return res
 
     def _velocity_face(
         self, v: ScalarField, flux_space: object,
@@ -639,13 +1034,64 @@ class _FluxFormAdvection(fr.Module):
         """
         return q.to(flux_space)
 
+    def _linear_face_value(
+        self,
+        q: ScalarField,
+        v_face: ScalarField,  # noqa: ARG002 — the biased hook reads it
+        axis: str,  # noqa: ARG002 — the biased hook reads it
+        flux_space: object,
+    ) -> ScalarField:
+        """
+        Linear face value for the background transport (hook).
+
+        Description
+        -----------
+        Default: the registered centered interpolation — the
+        centered scheme's own flux, which is already linear. The
+        biased subclasses override this with the linear
+        (optimal-weight) upwind row selected by the sign of the
+        static background face velocity.
+
+        Parameters
+        ----------
+        q : ScalarField
+            The advected quantity.
+        v_face : ScalarField
+            The background face velocity (static in the state).
+        axis : str
+            The advection axis.
+        flux_space : object
+            The flux (control-volume face) space of ``q`` along
+            ``axis``.
+
+        Returns
+        -------
+        ScalarField
+            The linear face value of ``q``.
+        """
+        return q.to(flux_space)
+
 
 # ================================================================
 #  The public module family
 # ================================================================
 class CenteredAdvection(_FluxFormAdvection):
 
-    """Flux-form centered advection of every ADVECTED component."""
+    r"""
+    Flux-form centered advection of every ADVECTED component.
+
+    Parameters
+    ----------
+    background : Mapping[str, Callable | float] | None, optional
+        Prescribed background flow, keyed by velocity component
+        (``{"u": lambda y, z: ..., "w": 0.0}``; missing components
+        are zero); profiles are sampled at each component's own
+        staggered nodes. Adds the linear ``background_advection``
+        term; the full advecting velocity becomes
+        :math:`U + \mathrm{Ro}\,u'` with no outer Rossby factor —
+        unlike the old stack, whose scaling factor multiplied the
+        background too (default: None).
+    """
 
 
 class UpwindAdvection(_FluxFormAdvection):
@@ -673,13 +1119,24 @@ class UpwindAdvection(_FluxFormAdvection):
     order : int, optional
         The odd formal order of the biased reconstruction; the
         framework tables ground 3 and 5 (default: 3).
+    background : Mapping[str, Callable | float] | None, optional
+        Prescribed background flow, keyed by velocity component
+        (see `CenteredAdvection`); the linear
+        ``background_advection`` term applies the linear upwind row
+        of the same order, side-selected by the sign of the static
+        background face velocity (default: None).
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "linear"
 
-    def __init__(self, order: int = 3) -> None:
-        """Build the biased reconstruction pair for ``order``."""
-        super().__init__()
+    def __init__(
+        self,
+        order: int = 3,
+        *,
+        background: Mapping[str, Callable | float] | None = None,
+    ) -> None:
+        """Build the biased reconstruction pairs for ``order``."""
+        super().__init__(background=background)
         if order not in _SUPPORTED_ORDERS:
             raise ValueError(
                 f"{type(self).__name__} grounds the biased "
@@ -691,6 +1148,12 @@ class UpwindAdvection(_FluxFormAdvection):
                                                weighting)
         self._right = _BiasedFaceReconstruction(order, "right",
                                                 weighting)
+        # the linear-weight pair of the background transport (for
+        # weighting == "linear" these are the same interned objects)
+        self._lin_left = _BiasedFaceReconstruction(order, "left",
+                                                   "linear")
+        self._lin_right = _BiasedFaceReconstruction(order, "right",
+                                                    "linear")
         self._interp = _CenteredFaceInterpolation(order - 1)
 
     def bind(self, table: object) -> None:
@@ -810,6 +1273,44 @@ class UpwindAdvection(_FluxFormAdvection):
         return Where()(positive, self._left[axis](q),
                        self._right[axis](q))
 
+    def _linear_face_value(
+        self,
+        q: ScalarField,
+        v_face: ScalarField,
+        axis: str,
+        flux_space: object,  # noqa: ARG002 — fixed by the operator pair
+    ) -> ScalarField:
+        """
+        Linear-row upwind face value for the background transport.
+
+        Description
+        -----------
+        The same ``Where`` side selection as `_face_value`, but with
+        the linear (optimal-weight) reconstruction pair — the WENO
+        module's smooth-limit row — and the mask read from the
+        static background face velocity, so the value is exactly
+        linear in the state.
+
+        Parameters
+        ----------
+        q : ScalarField
+            The advected quantity.
+        v_face : ScalarField
+            The background face velocity (static in the state).
+        axis : str
+            The advection axis.
+        flux_space : object
+            The flux space (fixed by the operator pair here).
+
+        Returns
+        -------
+        ScalarField
+            The linear upwind-biased face value of ``q``.
+        """
+        positive = v_face + abs(v_face)
+        return Where()(positive, self._lin_left[axis](q),
+                       self._lin_right[axis](q))
+
 
 class WENOAdvection(UpwindAdvection):
 
@@ -839,6 +1340,15 @@ class WENOAdvection(UpwindAdvection):
     order : int, optional
         The odd formal WENO order; the framework tables ground 3
         and 5 (default: 3).
+    background : Mapping[str, Callable | float] | None, optional
+        Prescribed background flow, keyed by velocity component
+        (see `CenteredAdvection`). The linear
+        ``background_advection`` term applies the linear
+        optimal-weight row (the WENO smooth limit), NOT the
+        nonlinear WENO weights — a WENO discretization of a linear
+        operator is not linear in the state; the nonlinear
+        difference term keeps the full WENO weighting of the full
+        advecting velocity (default: None).
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "weno"
