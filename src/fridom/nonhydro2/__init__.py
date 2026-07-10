@@ -39,7 +39,11 @@ if TYPE_CHECKING:  # pragma: no cover
         random_waves,
     )
     from .model import Model
-    from .modules.advection import CenteredAdvection
+    from .modules.advection import (
+        CenteredAdvection,
+        UpwindAdvection,
+        WENOAdvection,
+    )
     from .modules.core import DynamicalCore
     from .modules.stratification import (
         ConstantStratification,
@@ -68,7 +72,8 @@ all_imports_by_origin = {
         "FPlaneCoriolis", "BetaPlaneCoriolis"],
     f"{base}.modules.stratification": [
         "ConstantStratification", "MeridionalStratification"],
-    f"{base}.modules.advection": ["CenteredAdvection"],
+    f"{base}.modules.advection": [
+        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

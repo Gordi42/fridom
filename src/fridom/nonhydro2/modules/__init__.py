@@ -16,7 +16,11 @@ if TYPE_CHECKING:  # pragma: no cover
         FPlaneCoriolis,
     )
 
-    from .advection import CenteredAdvection
+    from .advection import (
+        CenteredAdvection,
+        UpwindAdvection,
+        WENOAdvection,
+    )
     from .core import DynamicalCore
     from .pressure import SpectralPressureSolver
     from .stratification import (
@@ -37,7 +41,8 @@ all_imports_by_origin = {
     f"{base}.core": ["DynamicalCore"],
     f"{base}.stratification": [
         "ConstantStratification", "MeridionalStratification"],
-    f"{base}.advection": ["CenteredAdvection"],
+    f"{base}.advection": [
+        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
 }
 
