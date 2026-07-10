@@ -83,6 +83,7 @@ def test_one_device_mesh_regardless_of_device_count(forced_devices):
         assert jax.device_count() == forced_devices
     decomp = make_decomp()
     assert decomp._device_mesh.size == 1
+    assert decomp.device_count == 1
 
 
 def test_layouts_sharing_a_device_axis_share_one_mesh_axis():

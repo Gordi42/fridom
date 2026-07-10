@@ -44,8 +44,10 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
+    from fridom.framework2.grid.grid import Grid
     from fridom.framework2.model.eigen_channel import ChannelEigenbasis
     from fridom.framework2.model.model import Model
+    from fridom.framework2.transforms.base import StateTransform
 
 # ================================================================
 #  The family label codes
@@ -316,8 +318,11 @@ class ChannelEigenmodes:
     class-level :attr:`families` name -> code map (reverse:
     :attr:`family_names`).
 
-    A host-side analysis object; the downstream family projections
-    consume ``labels``/``q``/``metric``.
+    A host-side analysis object; :meth:`projector` builds the family
+    / predicate projections on physical states (the ``sw.transforms``
+    engine path consumes ``labels``/``q``/``metric`` — and reads them
+    off this object *after* labeling, because the Kelvin degeneracy
+    recovery may rotate ``basis.q`` in place).
 
     Parameters
     ----------
@@ -357,12 +362,16 @@ class ChannelEigenmodes:
         | None = None,
     ) -> None:
         """Solve the channel eigenproblem and label the families."""
+        self.grid: Grid = model.grid
         self.basis: ChannelEigenbasis = channel_eigenpairs(
             model, at_time=at_time, chunk=chunk)
         self.basis.label_with(partial(
             label_channel_modes, zero_tol=zero_tol,
             kelvin_tol=kelvin_tol, degeneracy_tol=degeneracy_tol,
             gap_ratio=gap_ratio, override=override))
+        self._spaces: Mapping[str, object] = MappingProxyType({
+            name: model.state[name].function_space.bare
+            for name in self.basis.components})
 
     # ================================================================
     #  Passthrough surface (the labeled basis)
@@ -393,6 +402,11 @@ class ChannelEigenmodes:
         return self.basis.slices
 
     @property
+    def spaces(self) -> Mapping[str, object]:
+        """Per-component bare (BC-tagged) physical function spaces."""
+        return self._spaces
+
+    @property
     def metric(self) -> jax.Array:
         """The diagonal energy metric ``M``, shape ``(D,)``."""
         return self.basis.metric
@@ -406,3 +420,62 @@ class ChannelEigenmodes:
     def bounded_axis(self) -> str:
         """The bounded (walled) axis name the columns stack."""
         return self.basis.bounded_axis
+
+    # ================================================================
+    #  Family / predicate projections on physical states
+    # ================================================================
+    def projector(
+        self,
+        sel: str | Callable[[jax.Array, jax.Array], jax.Array],
+    ) -> StateTransform:
+        r"""
+        Build a mode-family projection on physical states.
+
+        Description
+        -----------
+        The selection is either a **family string** — one of
+        ``"vortical"``, ``"wave"``, ``"wave+"``, ``"wave-"``,
+        ``"kelvin"``, ``"kelvin+"``, ``"kelvin-"`` (the unsigned
+        names cover both branches) — or a **predicate**
+        ``(omega, labels) -> bool mask`` over the ``(n_kx, D)``
+        column planes, evaluated once at build time. Predicates are
+        the primary tool where the named families blur (a beta-plane
+        ``f(y)`` smears the vortical branch into slow Rossby
+        frequencies): a frequency-threshold mask like
+        ``|omega| > c`` is sign-symmetric, hence closed under
+        conjugation, and projects exactly.
+
+        Selections that are **not** conjugation-closed (a single
+        signed branch, or a sign-asymmetric predicate) act on the
+        analytic signal: the stored half-spectrum planes are
+        projected as selected while the implied negative-``kx``
+        planes carry the conjugate selection, and the real synthesis
+        returns the **real part** (the imaginary parts of the
+        self-conjugate ``kx = 0`` / Nyquist planes are discarded).
+        Such projections are idempotent on the analytic signal but
+        only approximately on real states (the self-conjugate
+        planes); closed selections are exactly idempotent.
+
+        Parameters
+        ----------
+        sel : str | Callable[[jax.Array, jax.Array], jax.Array]
+            A family name, or a predicate mapping ``(omega,
+            labels)`` to a boolean mask of shape ``omega.shape``.
+
+        Returns
+        -------
+        StateTransform
+            The projection acting on physical ``(u, v, p)`` states.
+        """
+        from fridom.shallowwater2 import (  # noqa: PLC0415 — avoids the channel_eigenmodes<->transforms import cycle
+            transforms,
+        )
+        if isinstance(sel, str):
+            return transforms.family_projection(self, sel)
+        if callable(sel):
+            return transforms.predicate_projection(self, sel)
+        raise TypeError(
+            "projector takes a family name (one of "
+            f"{', '.join(FAMILIES)}, or the unsigned 'wave' / "
+            "'kelvin') or a predicate (omega, labels) -> bool mask; "
+            f"got {sel!r}")

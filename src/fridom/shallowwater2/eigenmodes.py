@@ -336,6 +336,70 @@ class Eigenmodes:
         return shallowwater_energy_weights(inv_csqr)
 
 
+def _bounded_names(grid: Grid) -> tuple[str, ...]:
+    """Return the names of the grid's bounded (walled) axes."""
+    return tuple(
+        name for mesh in grid.factors
+        if not getattr(mesh, "periodic", True)
+        for name in mesh.names)
+
+
+def eigenbasis(
+    model: Model, *, at_time: float = 0.0,
+) -> ChannelEigenmodes:
+    r"""
+    Build the labeled numeric eigenbasis of a channel model.
+
+    Description
+    -----------
+    The user surface of the dense-column channel engine: returns the
+    :class:`~fridom.shallowwater2.channel_eigenmodes.ChannelEigenmodes`
+    of a model with exactly one bounded (walled) axis — ``eb.omega``
+    / ``eb.q`` / ``eb.labels`` per ``rfft`` plane, the ``families``
+    vocabulary, the segment ``slices``, and ``eb.projector(sel)``
+    for family / predicate projections on physical states. Works on
+    the beta plane (coefficients may vary along the bounded axis).
+
+    A fully periodic grid has no numeric channel basis — its
+    eigenmodes are analytic; the taught error points at
+    :func:`from_model` and the ``sw.transforms`` projections. A
+    multi-walled box has no periodic axis left to diagonalize over
+    and is rejected the same way :func:`from_model` rejects it.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled shallow-water channel model.
+    at_time : float, optional
+        The clock time at which to freeze time-dependent parameters
+        (default: 0.0).
+
+    Returns
+    -------
+    ChannelEigenmodes
+        The labeled channel eigenmodes.
+
+    Raises
+    ------
+    ValueError
+        On a fully periodic or multi-walled grid.
+    """
+    bounded = _bounded_names(model.grid)
+    if not bounded:
+        raise ValueError(
+            "sw.eigenbasis is the numeric labeled eigenbasis of the "
+            "walled channel; this grid is fully periodic — use the "
+            "analytic eigenmodes instead "
+            "(sw.eigenmodes.from_model(model)) and the "
+            "sw.transforms projections")
+    if len(bounded) > 1:
+        raise ValueError(
+            "sw.eigenbasis serves the single-walled channel; this "
+            f"grid bounds {bounded!r} — a multi-walled box has no "
+            "periodic axis left to diagonalize over")
+    return ChannelEigenmodes(model, at_time=at_time)
+
+
 def from_model(
     model: Model, *, at_time: float = 0.0,
 ) -> Eigenmodes | ChannelEigenmodes:
@@ -377,10 +441,7 @@ def from_model(
         if ``coriolis.f0`` or ``shallowwater.csqr`` is not provided
         (a non-constant-coefficient system).
     """
-    bounded = tuple(
-        name for mesh in model.grid.factors
-        if not getattr(mesh, "periodic", True)
-        for name in mesh.names)
+    bounded = _bounded_names(model.grid)
     if len(bounded) > 1:
         raise ValueError(
             "shallow-water eigenmodes serve the fully periodic grid "

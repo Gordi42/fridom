@@ -280,6 +280,30 @@ def test_from_model_rejects_a_multi_walled_box():
 
 
 # ================================================================
+#  sw.eigenbasis: the labeled channel eigenbasis surface
+# ================================================================
+def test_eigenbasis_returns_the_labeled_channel_eigenmodes():
+    model = _walled_model()
+    eb = sw.eigenbasis(model)
+    assert isinstance(eb, sw.ChannelEigenmodes)
+    assert eb.grid is model.grid
+    assert (np.asarray(eb.labels) != -1).all()
+
+
+def test_eigenbasis_rejects_a_fully_periodic_grid():
+    # the periodic eigenmodes are analytic; the taught error points
+    # at from_model and the sw.transforms projections
+    with pytest.raises(ValueError,
+                       match=r"fully periodic.*from_model"):
+        sw.eigenbasis(make_model())
+
+
+def test_eigenbasis_rejects_a_multi_walled_box():
+    with pytest.raises(ValueError, match="multi-walled"):
+        sw.eigenbasis(_walled_model(periodic_x=False))
+
+
+# ================================================================
 #  from_model structural validation
 # ================================================================
 def test_from_model_rejects_a_beta_plane():

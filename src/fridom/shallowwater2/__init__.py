@@ -13,8 +13,9 @@ shallow-water vocabulary and physics:
   Sadourny advection modules;
 - :func:`~fridom.shallowwater2.model.Model` — the thin preset factory
   (``sw.Model(grid=..., coriolis=..., ...)``);
-- :mod:`~fridom.shallowwater2.eigenmodes` — ``from_model`` and the
-  linear dispersion eigenmodes;
+- :mod:`~fridom.shallowwater2.eigenmodes` — ``from_model``, the
+  linear dispersion eigenmodes, and ``eigenbasis`` (the labeled
+  channel eigenbasis surface);
 - :mod:`~fridom.shallowwater2.channel_eigenmodes` — the labeled
   numeric eigenmodes of the walled channel;
 - :mod:`~fridom.shallowwater2.params` — the package parameter names.
@@ -43,6 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     # import all classes
     from .channel_eigenmodes import ChannelEigenmodes
+    from .eigenmodes import eigenbasis
     from .model import Model
     from .state import State
 
@@ -58,6 +60,7 @@ all_modules_by_origin = {
 
 all_imports_by_origin = {
     f"{base}.channel_eigenmodes": ["ChannelEigenmodes"],
+    f"{base}.eigenmodes": ["eigenbasis"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
 }

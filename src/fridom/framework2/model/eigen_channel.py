@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.framework.utils import dtype_real
 from fridom.framework2.model.eigen import (
@@ -251,7 +252,10 @@ def channel_eigenpairs(
     chunk : int | None, optional
         Batch size for the impulse probe and the plane eigensolve
         (``lax.map`` chunking, bounds peak memory); ``None`` vmaps
-        the full batch (default: None).
+        the full batch. On a multi-device grid the probe always runs
+        serially with a host gather (the memory-minimal documented
+        setup cost), so ``chunk`` then bounds the eigensolve only
+        (default: None).
 
     Returns
     -------
@@ -399,7 +403,9 @@ def _probe_block(
         out = lin.tendency(state, t=at_time, constraints=False)
         return {name: out[name].data for name in prog}
 
-    if chunk is None:
+    if base0.grid.decomposition.device_count > 1:
+        responses = _gathered_responses(apply_one, batch, prog, dim)
+    elif chunk is None:
         responses = jax.vmap(apply_one)(batch)
     else:
         responses = jax.lax.map(apply_one, batch, batch_size=chunk)
@@ -411,6 +417,40 @@ def _probe_block(
         spec = jnp.moveaxis(spec, 0, -1)  # (*grid axes, D)
         rows.append(jnp.moveaxis(spec, bounded_index, -2))
     return jnp.concatenate(rows, axis=-2)
+
+
+def _gathered_responses(
+    apply_one: Callable[[dict[str, jax.Array]], dict[str, jax.Array]],
+    batch: dict[str, jax.Array],
+    prog: tuple[str, ...],
+    dim: int,
+) -> dict[str, jax.Array]:
+    r"""
+    Probe the impulses serially with a host gather (multi-device).
+
+    Description
+    -----------
+    The batched probe cannot thread the impulse axis through the
+    sharded storage contract (``store`` attaches the space's
+    per-device sharding, which knows nothing about a ``vmap`` batch
+    axis), so on a multi-device grid the impulses run one by one on
+    the sharded model and each response gathers to host — the
+    documented one-off analysis cost of the setup path (the
+    downstream projector *application* stays sharded). This serial
+    path is already memory-minimal, so ``chunk`` has nothing left to
+    bound here.
+
+    Returns
+    -------
+    dict[str, jax.Array]
+        Per-component stacked responses, shape ``(D, *shape_c)``
+        (uncommitted host-rebuilt arrays).
+    """
+    rows = [apply_one({name: batch[name][i] for name in prog})
+            for i in range(dim)]
+    return {name: jnp.asarray(np.stack(
+        [np.asarray(row[name]) for row in rows]))
+        for name in prog}
 
 
 def _impulse_batch(

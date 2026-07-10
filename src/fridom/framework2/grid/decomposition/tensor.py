@@ -193,6 +193,11 @@ class TensorDecomposition(Decomposition):
         return self._halo
 
     @property
+    def device_count(self) -> int:
+        """Number of devices in the device mesh."""
+        return int(self._device_mesh.devices.size)
+
+    @property
     def default_layout(self) -> Layout:
         """The layout attached to bare spaces at field creation."""
         return self._layouts[0]

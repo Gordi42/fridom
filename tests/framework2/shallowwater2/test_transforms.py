@@ -11,7 +11,15 @@ the interpolation-Nyquist planes, where the geostrophic column is a
 structural zero — so ``DivergenceProjection`` is the zero map on
 Nyquist-free (band-limited) states and picks up exactly the
 Nyquist-vortical residual otherwise.
+
+The channel (engine) path: the same factories on a walled model
+route to the labeled ``sw.ChannelEigenmodes`` families — agreement
+with an in-test port of the reference SpectralProjection pipeline,
+partition of unity of the named families (vortical + wave + kelvin),
+idempotency, mutual annihilation, the energy partition, and the
+sharded multi-device application.
 """
+import jax
 import numpy as np
 import pytest
 
@@ -181,3 +189,225 @@ def test_projection_is_tier_one_and_costless():
     proj = sw.transforms.WaveProjection(em)
     assert proj.traceable
     assert proj.cost().model_steps == 0
+
+
+# ================================================================
+#  The channel (engine) path: labeled family projections
+# ================================================================
+@pytest.fixture(scope="module")
+def channel():
+    """One walled channel model + labeled eigenbasis (shared)."""
+    model = make_model(make_grid(periodic_y=False), advection=False)
+    return model, sw.eigenbasis(model)
+
+
+def _channel_state(model, seed):
+    """Write random data onto the channel's staggered components."""
+    rng = np.random.default_rng(seed)
+    model.set_fields(**{
+        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in COMPONENTS})
+    return sw.State({c: model.state[c] for c in COMPONENTS})
+
+
+def _reference_projection(em, codes, state, csqr=1.0):
+    """In-test port of the reference SpectralProjection pipeline.
+
+    The shape of Adiabatic-Coriolis-Ramping's
+    ``SpectralProjection.__call__``: full ``fft`` in x, per selected
+    mode the Galerkin coefficient under the ``(c^2, c^2, 1)`` weights
+    (inner product summed over y, per-mode normalization), accumulate
+    the eigenfunction, inverse ``fft``, real part. The engine's
+    labeled columns drive the mode iterator; the negative-``kx``
+    planes of the full spectrum use the conjugate columns of the
+    stored half spectrum (the operator is real).
+    """
+    n = np.asarray(state["u"].data).shape[0]
+    arrs = {c: np.fft.fft(np.asarray(state[c].data), axis=0)
+            for c in COMPONENTS}
+    weights = {"u": csqr, "v": csqr, "p": 1.0}
+    out = {c: np.zeros_like(arrs[c]) for c in COMPONENTS}
+    q = np.asarray(em.q)
+    labels = np.asarray(em.labels)
+    n_kx = q.shape[0]
+    for ikx in range(n):
+        half = ikx if ikx < n_kx else n - ikx
+        plane_q = q[half] if ikx < n_kx else np.conj(q[half])
+        z = {c: arrs[c][ikx] for c in COMPONENTS}
+        for col in np.flatnonzero(np.isin(labels[half], codes)):
+            vec = {c: plane_q[em.slices[c], col] for c in COMPONENTS}
+            norm = sum(weights[c] * np.sum(np.conj(vec[c]) * vec[c])
+                       for c in COMPONENTS)
+            inner = sum(weights[c] * np.sum(np.conj(vec[c]) * z[c])
+                        for c in COMPONENTS)
+            for c in COMPONENTS:
+                out[c][ikx] += (inner / norm) * vec[c]
+    return {c: np.real(np.fft.ifft(out[c], axis=0))
+            for c in COMPONENTS}
+
+
+def _m_energy(em, state, csqr=1.0):
+    """Measure-weighted physical energy under ``diag(1, 1, 1/c^2)``."""
+    weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
+    total = 0.0
+    for c in COMPONENTS:
+        mu = np.asarray(
+            state[c].measure(em.bounded_axis).data).ravel()
+        total += weights[c] * float(
+            np.sum(np.asarray(state[c].data) ** 2 * mu[None, :]))
+    return total
+
+
+@pytest.mark.parametrize("family", ["vortical", "kelvin"])
+def test_channel_projection_agrees_with_the_reference_pipeline(
+        channel, family):
+    model, eb = channel
+    factory = {"vortical": sw.transforms.VorticalProjection,
+               "kelvin": sw.transforms.KelvinProjection}[family]
+    codes = tuple(code for name, code in eb.families.items()
+                  if name.startswith(family))
+    z = _channel_state(model, seed=9)
+    got = factory(eb)(z)
+    ref = _reference_projection(eb, codes, z)
+    assert max(
+        float(np.abs(ref[c] - np.asarray(got[c].data)).max())
+        for c in COMPONENTS) < 1e-11
+
+
+def test_channel_named_families_partition_unity(channel):
+    # V + W + K == I at floating point on the f-plane channel (the
+    # labeler resolves every column), so the divergence complement is
+    # the zero map up to fp
+    model, eb = channel
+    z = _channel_state(model, seed=4)
+    v = sw.transforms.VorticalProjection(eb)(z)
+    w = sw.transforms.WaveProjection(eb)(z)
+    k = sw.transforms.KelvinProjection(eb)(z)
+    assert _absmax(
+        sw.State({c: v[c] + w[c] + k[c] for c in COMPONENTS}),
+        z) < 1e-12
+    d = sw.transforms.DivergenceProjection(eb)(z)
+    assert max(float(np.abs(np.asarray(d[c].data)).max())
+               for c in COMPONENTS) < 1e-12
+
+
+def test_channel_projections_are_idempotent_and_annihilating(channel):
+    model, eb = channel
+    z = _channel_state(model, seed=2)
+    projections = {
+        "vortical": sw.transforms.VorticalProjection(eb),
+        "wave": sw.transforms.WaveProjection(eb),
+        "kelvin": sw.transforms.KelvinProjection(eb)}
+    for proj in projections.values():
+        fr.transforms.assert_idempotent(proj, z)
+    parts = {name: proj(z) for name, proj in projections.items()}
+    for a, proj in projections.items():
+        for b, part in parts.items():
+            if a == b:
+                continue
+            crossed = proj(part)
+            assert max(
+                float(np.abs(np.asarray(crossed[c].data)).max())
+                for c in COMPONENTS) < 1e-12, (a, b)
+
+
+def test_channel_energy_partition(channel):
+    # the families are M-orthogonal per plane and the x-FFT is
+    # unitary up to a constant, so the measure-weighted physical
+    # energies of the named projections sum to the total
+    model, eb = channel
+    z = _channel_state(model, seed=6)
+    parts = [factory(eb)(z) for factory in (
+        sw.transforms.VorticalProjection, sw.transforms.WaveProjection,
+        sw.transforms.KelvinProjection)]
+    total = _m_energy(eb, z)
+    assert abs(sum(_m_energy(eb, p) for p in parts)
+               - total) < 1e-12 * total
+
+
+def test_channel_projection_has_the_tagged_signature(channel):
+    model, eb = channel
+    proj = sw.transforms.VorticalProjection(eb)
+    assert isinstance(proj, EigenProjection)
+    assert proj.idempotent
+    assert proj.domain is proj.codomain
+    assert proj.domain.grid is model.grid
+    proj.domain.validate_input(_channel_state(model, seed=1))
+
+
+def test_channel_from_model_routes_to_the_engine_path(channel):
+    model, eb = channel
+    z = _channel_state(model, seed=3)
+    proj = sw.transforms.WaveProjection.from_model(model)
+    assert isinstance(proj.eigenmodes, sw.ChannelEigenmodes)
+    assert _absmax(proj(z), sw.transforms.WaveProjection(eb)(z)) == 0.0
+
+
+def test_kelvin_projection_needs_walls():
+    # the fully periodic path raises the taught error on both the
+    # explicit-eigenmodes and the from_model routes
+    em, model = _eig()
+    with pytest.raises(ValueError, match="no walls, no Kelvin"):
+        sw.transforms.KelvinProjection(em)
+    with pytest.raises(ValueError, match="no walls, no Kelvin"):
+        sw.transforms.KelvinProjection.from_model(model)
+
+
+def test_periodic_analytic_path_is_unchanged_by_the_dispatch():
+    # the engine dispatch must leave the fully periodic projections
+    # on the original analytic path, bitwise
+    em, model = _eig()
+    z = _state(model, seed=8)
+    assert _absmax(sw.transforms.VorticalProjection(em)(z),
+                   sw.transforms.mode_projection(em, 0)(z)) == 0.0
+    manual = (sw.transforms.mode_projection(em, 1)
+              + sw.transforms.mode_projection(em, -1))
+    assert _absmax(sw.transforms.WaveProjection(em)(z),
+                   manual(z)) == 0.0
+
+
+# ================================================================
+#  The sharded multi-device application (forced-devices gate)
+# ================================================================
+@pytest.mark.multi_device
+def test_channel_projection_is_device_count_invariant(forced_devices):
+    # the projector application composes under the domain
+    # decomposition: the partial-axis transforms and the per-plane
+    # contraction run on the sharded state (no host gather), and the
+    # result matches the explicit one-device grid
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+
+    def build(device_ids):
+        mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+                                         periodic=True, name="x")
+        my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+                                         periodic=False, name="y")
+        return make_model(fr.grid.Grid((mx, my),
+                                       device_ids=device_ids),
+                          advection=False)
+
+    rng = np.random.default_rng(12)
+    fields = {"u": rng.standard_normal((N, N)),
+              "v": rng.standard_normal((N, N - 1)),
+              "p": rng.standard_normal((N, N))}
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        model = build(device_ids)
+        model.set_fields(**fields)
+        z = sw.State({c: model.state[c] for c in COMPONENTS})
+        proj = sw.transforms.VorticalProjection(sw.eigenbasis(model))
+        results[tag] = proj(z)
+        if tag == "many":
+            # genuinely sharded in and out (x is the blocked factor)
+            assert z["u"]._data.sharding.spec[0] == "devices"
+            out = results[tag]["u"]._data
+            assert len(out.sharding.device_set) == jax.device_count()
+            assert out.sharding.spec[0] == "devices"
+            # idempotent on the sharded state
+            twice = proj(results[tag])
+            assert _absmax(twice, results[tag]) < 1e-12
+    assert max(
+        float(np.abs(np.asarray(results["many"][c].data)
+                     - np.asarray(results["one"][c].data)).max())
+        for c in COMPONENTS) < 1e-11

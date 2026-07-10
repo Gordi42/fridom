@@ -14,6 +14,9 @@ import pytest
 import fridom.framework2 as fr
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
+from fridom.framework2.grid.decomposition.tensor import (
+    TensorDecomposition,
+)
 from fridom.framework2.model import eigen_channel
 from fridom.framework2.model.eigen_channel import (
     UNLABELED,
@@ -263,6 +266,25 @@ def test_chunked_run_matches_the_vmapped(model, basis):
     chunked = channel_eigenpairs(model, chunk=5)
     assert np.allclose(chunked.omega, basis.omega, atol=1e-10)
     assert float(chunked.orthonormality_error()) < 1e-12
+
+
+def test_multi_device_probe_runs_serially_with_a_host_gather(
+        basis, monkeypatch):
+    # a multi-device decomposition routes the probe through the
+    # serial host-gather path (the batched probe cannot thread the
+    # impulse axis through the sharded storage contract); faking the
+    # device count on one device exercises exactly that path (on a
+    # fresh model: linearizing one model over and over trips the
+    # module rebind guard)
+    monkeypatch.setattr(TensorDecomposition, "device_count",
+                        property(lambda _self: 4))
+    fresh = make_walled_model()
+    serial = channel_eigenpairs(fresh)
+    assert np.allclose(serial.omega, basis.omega, atol=1e-10)
+    assert float(serial.orthonormality_error()) < 1e-12
+    residual, scale = eigen_relation_residual(fresh, serial, kx=1,
+                                              col=D - 1)
+    assert residual < 1e-11 * scale
 
 
 # ================================================================

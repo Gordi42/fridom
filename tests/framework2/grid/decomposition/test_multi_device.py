@@ -164,7 +164,9 @@ def test_wider_halo_negotiation_and_order_4_stencils(forced_devices):
 # ================================================================
 @pytest.mark.multi_device
 def test_default_grid_is_genuinely_sharded(grids):
-    many, _ = grids
+    many, one = grids
+    assert many.decomposition.device_count == jax.device_count()
+    assert one.decomposition.device_count == 1
     f = many.create_field(init=init)
     sharding = f._data.sharding
     assert len(sharding.device_set) == jax.device_count()

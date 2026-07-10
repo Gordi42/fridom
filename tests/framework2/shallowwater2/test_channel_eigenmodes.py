@@ -98,10 +98,16 @@ def em(model):
 
 
 @pytest.fixture(scope="module")
-def beta_em():
+def beta_model():
+    """One beta-plane channel model shared across the module."""
+    return make_walled_model(
+        coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=BETA))
+
+
+@pytest.fixture(scope="module")
+def beta_em(beta_model):
     """Labeled eigenmodes with f varying along the dense y axis."""
-    return ChannelEigenmodes(make_walled_model(
-        coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=BETA)))
+    return ChannelEigenmodes(beta_model)
 
 
 @pytest.fixture(scope="module")
@@ -692,7 +698,7 @@ def test_one_column_per_family_satisfies_the_eigen_relation(
 # ================================================================
 #  The surface: passthroughs and the family map
 # ================================================================
-def test_surface_passthroughs_and_family_map(em):
+def test_surface_passthroughs_and_family_map(model, em):
     assert isinstance(em, ChannelEigenmodes)
     assert em.components == ("u", "v", "p")
     assert em.slices["u"] == slice(0, N)
@@ -707,3 +713,129 @@ def test_surface_passthroughs_and_family_map(em):
     assert em.families == FAMILIES
     assert em.family_names[em.families["kelvin+"]] == "kelvin+"
     assert set(em.families.values()) == set(em.family_names.keys())
+    # the projection surface: the bound grid and the model's own
+    # (BC-tagged) component spaces
+    assert em.grid is model.grid
+    assert tuple(em.spaces) == em.components
+    for name in em.components:
+        assert em.spaces[name] is model.state[
+            name].function_space.bare
+
+
+# ================================================================
+#  The projector surface: family strings and predicates
+# ================================================================
+def random_state(model, seed):
+    """Write random data onto the model's staggered components."""
+    rng = np.random.default_rng(seed)
+    model.set_fields(**{
+        name: rng.standard_normal(
+            np.asarray(model.state[name].data).shape)
+        for name in ("u", "v", "p")})
+    return sw.State({name: model.state[name]
+                     for name in ("u", "v", "p")})
+
+
+def absmax(a, b):
+    """Componentwise max absolute difference of two states."""
+    return max(
+        float(np.abs(np.asarray(a[c].data)
+                     - np.asarray(b[c].data)).max())
+        for c in ("u", "v", "p"))
+
+
+def half_spectrum_projection(em, mask, state):
+    """Manual numpy port of the masked half-spectrum projection.
+
+    Framework coefficient conventions: index-based ``rfft`` planes
+    with ``norm="forward"``; the real synthesis discards the
+    imaginary parts of the self-conjugate ``kx = 0`` / Nyquist
+    planes — the real part of the analytic signal.
+    """
+    q = np.asarray(em.q)
+    metric = np.asarray(em.metric)
+    coeff = np.concatenate(
+        [np.fft.rfft(np.asarray(state[c].data), axis=0,
+                     norm="forward") for c in em.components], axis=1)
+    amp = np.einsum("kdj,d,kd->kj", np.conj(q), metric, coeff)
+    planes = np.einsum("kdj,kj->kd", q,
+                       np.where(np.asarray(mask), amp, 0.0))
+    return {c: np.fft.irfft(planes[:, em.slices[c]], n=N, axis=0,
+                            norm="forward") for c in em.components}
+
+
+def test_projector_strings_equal_the_factory_projections(model, em):
+    z = random_state(model, seed=21)
+    pairs = (
+        ("vortical", sw.transforms.VorticalProjection),
+        ("wave", sw.transforms.WaveProjection),
+        ("kelvin", sw.transforms.KelvinProjection))
+    for selection, factory in pairs:
+        assert absmax(em.projector(selection)(z), factory(em)(z)) == 0.0
+
+
+def test_projector_signed_branches_sum_to_the_closed_pair(model, em):
+    z = random_state(model, seed=22)
+    for family in ("wave", "kelvin"):
+        plus = em.projector(f"{family}+")(z)
+        minus = em.projector(f"{family}-")(z)
+        both = em.projector(family)(z)
+        assert absmax(sw.State({
+            c: plus[c] + minus[c] for c in em.components}),
+            both) < 1e-12
+
+
+def test_non_closed_selection_takes_the_analytic_real_part(model, em):
+    # a single signed branch is not conjugation-closed: the projection
+    # acts on the analytic signal and the synthesis returns the real
+    # part (documented), which the manual numpy port pins down exactly
+    z = random_state(model, seed=23)
+    got = em.projector("wave+")(z)
+    assert all(not np.iscomplexobj(np.asarray(got[c].data))
+               for c in em.components)
+    mask = np.asarray(em.labels) == WAVE_PLUS
+    ref = half_spectrum_projection(em, mask, z)
+    assert max(
+        float(np.abs(ref[c] - np.asarray(got[c].data)).max())
+        for c in em.components) < 1e-12
+
+
+def test_projector_frequency_threshold_predicate(model, em):
+    # |omega| > f0/2 is sign-symmetric (conjugation-closed): on the
+    # f-plane it selects exactly wave + kelvin, projects exactly and
+    # is exactly idempotent
+    z = random_state(model, seed=24)
+    fast = em.projector(lambda om, _labels: jnp.abs(om) > F0 / 2)
+    got = fast(z)
+    w = em.projector("wave")(z)
+    k = em.projector("kelvin")(z)
+    assert absmax(got, sw.State({
+        c: w[c] + k[c] for c in em.components})) < 1e-12
+    assert absmax(fast(got), got) < 1e-12
+
+
+def test_projector_slow_mode_predicate_on_the_beta_plane(
+        beta_model, beta_em):
+    # the varying-f use case: the named vortical family blurs into
+    # slow Rossby frequencies, and a frequency threshold under the
+    # spectral gap selects it — idempotent, equal to the labeled
+    # family where the labeler resolved the gap
+    labels = np.asarray(beta_em.labels)
+    omega = np.asarray(beta_em.omega)
+    wave = np.isin(labels, (WAVE_PLUS, WAVE_MINUS))
+    threshold = 0.5 * float(np.abs(omega[wave]).min())
+    z = random_state(beta_model, seed=25)
+    slow = beta_em.projector(
+        lambda om, _labels: jnp.abs(om) < threshold)
+    got = slow(z)
+    assert absmax(slow(got), got) < 1e-12
+    assert absmax(got, beta_em.projector("vortical")(z)) < 1e-12
+
+
+def test_projector_rejects_bad_selections(em):
+    with pytest.raises(TypeError, match="family name"):
+        em.projector(3.5)
+    with pytest.raises(ValueError, match="unknown family selection"):
+        em.projector("rossby")
+    with pytest.raises(ValueError, match="boolean mask"):
+        em.projector(lambda om, _labels: om)
