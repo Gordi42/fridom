@@ -100,6 +100,13 @@ stack.
 
 ## Wave C — gate + swap
 
+- Audit flags RESOLVED 2026-07-11: `p = φ/stage_dt` wired
+  (physical pressure stored; Sketch-A regression, also closes
+  parity item 1) and `rest` policy wired centrally in
+  `transforms/base.py` (tracer-completion law tested end to end).
+  Audit state now: 23/23 rows covered, 1 subtle sketch open
+  (one-period dispersion, Appendix A Sketch B), 0 flags,
+  16-row intentional-deltas table awaiting owner sign-off.
 - §8.8 audit DONE 2026-07-10 → [`parity_audit.md`](parity_audit.md):
   20/23 rows covered by verified tests, 1 mechanical regression
   written (eps'd-AB2 jit tolerance), 2 subtle sketches remaining
