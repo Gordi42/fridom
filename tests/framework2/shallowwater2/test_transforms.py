@@ -25,6 +25,7 @@ import pytest
 
 import fridom.framework2 as fr
 import fridom.shallowwater2 as sw
+from fridom.framework2.model.terms import term
 from fridom.framework2.transforms.errors import SignatureMismatchError
 from fridom.framework2.transforms.projection import EigenProjection
 
@@ -364,6 +365,45 @@ def test_periodic_analytic_path_is_unchanged_by_the_dispatch():
               + sw.transforms.mode_projection(em, -1))
     assert _absmax(sw.transforms.WaveProjection(em)(z),
                    manual(z)) == 0.0
+
+
+# ================================================================
+#  The rest policy on a tracer-carrying state
+# ================================================================
+class _PassiveTracer(fr.Module):
+
+    """A module declaring one prognostic passive tracer ``c``."""
+
+    field_declarations = (fr.FieldDeclaration.tracer("c"),)
+
+    @term(name="c_hold", advances=("c",))
+    def hold(self, state, _ctx):
+        return {"c": state["c"] * 0.0}
+
+
+def test_projection_rest_zero_completes_a_passive_tracer():
+    # a state extended by a prognostic passive tracer: the vortical
+    # projection (rest="zero") returns the tracer as a zero field on
+    # its own space, and the residual carries it fully (§10.7.2)
+    model = make_model(advection=False,
+                       modules_extra=(_PassiveTracer(),))
+    _state(model, seed=11)
+    rng = np.random.default_rng(12)
+    shape = np.asarray(model.state["c"].data).shape
+    model.set_fields(c=rng.standard_normal(shape))
+    z = sw.State({c: model.state[c] for c in (*COMPONENTS, "c")})
+    proj = sw.transforms.VorticalProjection.from_model(model)
+    out = proj(z)
+    assert out.component_names == (*COMPONENTS, "c")
+    assert np.all(np.asarray(out["c"].data) == 0.0)
+    assert (out["c"].function_space.bare
+            == z["c"].function_space.bare)
+    residual = z - out
+    assert np.allclose(np.asarray(residual["c"].data),
+                       np.asarray(z["c"].data))
+    # the complement transform carries the tracer through unchanged
+    assert np.allclose(np.asarray(proj.complement(z)["c"].data),
+                       np.asarray(z["c"].data))
 
 
 # ================================================================
