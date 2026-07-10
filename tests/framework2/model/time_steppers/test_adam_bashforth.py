@@ -486,6 +486,40 @@ def test_jit_scan_compiles_once_and_crosses_warmup(
                        rtol=1e-12, atol=0.0)
 
 
+def test_order2_eps_jitted_matches_eager_within_tolerance(
+        field_table, u0):
+    # §8.8 parity item: the eps'd order-2 row is bitwise on the eager
+    # path (test_eager_integration_bitwise[order=2]); jitted, the
+    # umbrella rule (02_rules "Bitwise-equality umbrella") downgrades
+    # the claim to tolerance-based (<= a few ulp/step across a
+    # distinct compilation). Pin the jitted eps'd order-2 scan against
+    # the eager reference at that tolerance.
+    steps = 6
+    stepper = AdamBashforth(0.3, order=2)  # eps defaults to 0.01
+    assert stepper.eps == 0.01  # the eps'd row is the one under test
+    schedule, modules = decay_schedule(field_table, stepper)
+
+    def run(stepper, carry):
+        def body(carry, _):
+            state, stepper_state, clock = carry
+            bound = schedule.bind(modules)
+            stepper_state, state, clock = stepper.step(
+                stepper_state, state, bound, clock)
+            return (state, stepper_state, clock), None
+
+        return jax.lax.scan(body, carry, None, length=steps)[0]
+
+    state = make_state(field_table, u0)
+    jit_state, _, jit_clock = jax.jit(run)(
+        stepper, (state, stepper.init(state), Clock()))
+    _, eager_state, _ = run_eager(stepper, schedule, modules,
+                                  make_state(field_table, u0), steps)
+    assert int(jit_clock.it) == steps
+    assert np.allclose(np.asarray(jit_state["u"].data),
+                       np.asarray(eager_state["u"].data),
+                       rtol=1e-11, atol=0.0)
+
+
 # ================================================================
 #  time_discretization_effect — host-side dispersion analysis
 # ================================================================
