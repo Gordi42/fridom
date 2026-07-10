@@ -16,6 +16,7 @@ import pytest
 import fridom.framework2 as fr
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
+from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.fourier import Fourier
@@ -24,6 +25,7 @@ from fridom.framework2.model.energy import (
     _read_scalar,
     nonhydro_energy_weights,
     shallowwater_energy_weights,
+    shallowwater_varying_energy_weights,
 )
 from fridom.framework2.model.params import (
     CORIOLIS_F0,
@@ -212,6 +214,11 @@ def test_read_scalar_rejects_non_scalar():
         _read_scalar({"x": object()}, "x", 0.0)
 
 
+def test_read_scalar_rejects_a_missing_name():
+    with pytest.raises(ValueError, match="does not provide"):
+        _read_scalar({}, "x", 0.0)
+
+
 def test_metric_needs_a_component():
     with pytest.raises(ValueError, match="at least one"):
         EnergyMetric({})
@@ -341,6 +348,161 @@ def test_spectral_inner_is_linear():
     lhs = metric.inner(a, (b * 2.0) + c)
     rhs = 2.0 * metric.inner(a, b) + metric.inner(a, c)
     assert complex(lhs) == pytest.approx(complex(rhs))
+
+
+def _walled_sw_grid(n=8):
+    return Grid((
+        IntervalMesh(n, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")))
+
+
+def varying_sw_model(csqr_fn, grid=None):
+    """Build a walled channel with a varying csqr(y) profile."""
+    return sw.Model(
+        grid=_walled_sw_grid() if grid is None else grid,
+        csqr=csqr_fn, rossby_number=0.2, advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+def varying_nh_model(n2_fn):
+    """Build a walled-y channel with a varying N^2(y) profile."""
+    grid = Grid((
+        IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(8, (0.0, 1.0), periodic=False, name="y"),
+        IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="z")))
+    return nh.Model(
+        grid=grid, dt=DT, advection=False, dsqr=2.0,
+        stratification=nh.MeridionalStratification(n2=n2_fn))
+
+
+def csqr_tanh(y):
+    return 1.0 + 0.5 * jnp.tanh(4.0 * (y - 0.5))
+
+
+# ================================================================
+#  Varying (profile-valued) weights
+# ================================================================
+def test_shallowwater_varying_energy_weights_builder():
+    grid = sw_grid()
+    csqr = grid.create_field(
+        fr.Profile().resolve(grid), data=jnp.full((1, 1), 4.0),
+        name="csqr")
+    weights = shallowwater_varying_energy_weights(csqr)
+    assert weights["u"] is csqr
+    assert weights["v"] is csqr
+    assert weights["p"] == 1.0
+
+
+def test_from_model_varying_shallowwater_assembles_field_weights():
+    # absent scalar provide + present csqr profile field -> the
+    # varying metric diag(c^2, c^2, 1), field weights on u and v
+    model = varying_sw_model(csqr_tanh)
+    assert "shallowwater.csqr" not in model.parameters
+    metric = EnergyMetric.from_model(
+        model, require_constant_coriolis=False,
+        allow_field_weights=True)
+    assert isinstance(metric.weights["u"], ScalarField)
+    assert metric.weights["v"] is metric.weights["u"]
+    assert metric.weights["p"] == 1.0
+
+
+def test_from_model_varying_nonhydro_assembles_the_reciprocal():
+    model = varying_nh_model(lambda y: 1.0 + 2.0 * y * y)
+    assert fr.params.STRATIFICATION_N2 not in model.parameters
+    metric = EnergyMetric.from_model(
+        model, allow_field_weights=True)
+    inv_n2 = metric.weights["b"]
+    assert isinstance(inv_n2, ScalarField)
+    n2 = model.state["n2"]
+    np.testing.assert_allclose(
+        np.asarray(inv_n2.data), 1.0 / np.asarray(n2.data))
+    assert metric.weights["w"] == pytest.approx(2.0)
+
+
+@pytest.mark.parametrize("build", [
+    pytest.param(lambda: varying_sw_model(csqr_tanh), id="sw-csqr"),
+    pytest.param(lambda: varying_nh_model(lambda y: 1.0 + y * y),
+                 id="nh-n2"),
+])
+def test_from_model_varying_without_opt_in_is_a_taught_error(build):
+    # the beta-style gate extended to the metric coefficients: a
+    # varying csqr/n2 breaks translation invariance, so the default
+    # (translation-invariant consumers) rejects with the channel hint
+    with pytest.raises(ValueError, match="channel"):
+        EnergyMetric.from_model(
+            build(), require_constant_coriolis=False)
+
+
+def test_apply_samples_a_field_weight_per_component():
+    # the field weight is sampled on the component's own node set
+    # through .to — u gets the broadcast centre values, v the
+    # interpolated face values (the tendency's own flux sampling)
+    model = varying_sw_model(csqr_tanh)
+    metric = EnergyMetric.from_model(
+        model, require_constant_coriolis=False,
+        allow_field_weights=True)
+    z = sw.State({c: model.state[c] for c in ("u", "v", "p")})
+    rng = np.random.default_rng(3)
+    z = sw.State({
+        c: z[c].with_data(jnp.asarray(rng.standard_normal(
+            np.asarray(z[c].data).shape)))
+        for c in ("u", "v", "p")})
+    mz = metric.apply(z)
+    csqr = model.state["csqr"]
+    for c in ("u", "v"):
+        expect = (csqr.to(z[c]) * z[c]).data
+        np.testing.assert_allclose(np.asarray(mz[c].data),
+                                   np.asarray(expect))
+    np.testing.assert_allclose(np.asarray(mz["p"].data),
+                               np.asarray(z["p"].data))
+
+
+def test_varying_constant_profile_inner_is_the_scaled_constant():
+    # csqr(y) = c0 through the varying path: diag(c^2, c^2, 1) is
+    # exactly c0^2 times the constant path's diag(1, 1, 1/c^2)
+    c0 = 4.0
+    grid = _walled_sw_grid()
+    varying = varying_sw_model(lambda y: c0 + 0.0 * y, grid=grid)
+    metric_v = EnergyMetric.from_model(
+        varying, require_constant_coriolis=False,
+        allow_field_weights=True)
+    metric_c = EnergyMetric(shallowwater_energy_weights(1.0 / c0))
+    rng = np.random.default_rng(9)
+    z = sw.State({
+        c: varying.state[c].with_data(jnp.asarray(
+            rng.standard_normal(
+                np.asarray(varying.state[c].data).shape)))
+        for c in ("u", "v", "p")})
+    lhs = complex(metric_v.inner(z, z))
+    rhs = c0 * complex(metric_c.inner(z, z))
+    assert lhs == pytest.approx(rhs, rel=1e-12)
+
+
+def test_from_model_ignores_absent_or_empty_state():
+    # the varying detection degrades gracefully on models exposing
+    # no csqr field: an empty or None state falls through to the
+    # unrecognized-energy error, never an attribute crash
+    for state in (None, {}):
+        probe = SimpleNamespace(parameters={CORIOLIS_F0: 1.0},
+                                state=state)
+        with pytest.raises(ValueError, match="unrecognized"):
+            EnergyMetric.from_model(probe)
+
+
+def test_spectral_inner_rejects_a_field_weight():
+    grid = sw_grid()
+    transform = _transform(grid)
+    csqr = grid.create_field(
+        fr.Profile().resolve(grid), data=jnp.full((1, 1), 4.0),
+        name="csqr")
+    metric = EnergyMetric({"u": csqr})
+    _, template = full_complex(
+        grid, transform,
+        lambda x, y: np.cos(2 * np.pi * x) * np.cos(2 * np.pi * y),
+        "u")
+    state = random_coeff_state(template, seed=6)
+    with pytest.raises(NotImplementedError, match="Parseval"):
+        metric.inner(state, state)
 
 
 def test_inner_rejects_mixed_space():

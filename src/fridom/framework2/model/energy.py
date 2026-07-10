@@ -25,6 +25,20 @@ weight map (``diag(1, 1, dsqr, 1/N^2)`` on ``(u,v,w,b)`` for nonhydro;
 ``ekin``/``epot`` factors). :meth:`EnergyMetric.from_model` sources
 those weights from an assembled model's parameters.
 
+A weight may also be a **profile field** (a ``ScalarField`` on a
+meridional ``fr.Profile``): the varying-coefficient metrics of the
+channel engine — ``diag(c^2, c^2, 1)`` on ``(u,v,p)`` for the
+variable-depth shallow water (the ``c^2`` weight moves onto the
+velocities because :math:`c^2` sits inside the divergence flux;
+for constant :math:`c^2` the two conventions differ by the overall
+factor :math:`c^2` only) and ``diag(1, 1, dsqr, 1/N^2(y))`` for the
+meridionally stratified nonhydro. A field weight is **sampled on
+the component's own node set** through ``.to`` — exactly the way
+the tendency samples the coefficient — wherever the metric is
+applied. ``from_model`` assembles field weights only when the
+caller opts in (``allow_field_weights=True``, the channel engine);
+translation-invariant consumers keep the taught rejection.
+
 Reduction (iteration 1): :meth:`inner` returns a single scalar (a 0-d
 ``jax`` array — a global inner product is inherently a number, and the
 choice is uniform across the two node families). A **physical/nodal**
@@ -43,6 +57,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.grid.spaces.coefficient import CoefficientSpace
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.model.params import (
@@ -56,7 +71,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
     from fridom.framework2.grid.fields.vector_field import VectorField
     from fridom.framework2.model.model import Model
 
@@ -70,7 +84,8 @@ if TYPE_CHECKING:  # pragma: no cover
 _DSQR = "nonhydro.dsqr"
 _CSQR = "shallowwater.csqr"
 
-# A component weight is a scalar or a one-DOF constant field.
+# A component weight is a scalar; ScalarField widens it to a
+# (profile) field, sampled per component through ``.to``.
 Weight = float | int | complex
 
 
@@ -78,8 +93,8 @@ Weight = float | int | complex
 #  Per-model energy-weight builders (the single source of truth)
 # ================================================================
 def nonhydro_energy_weights(
-    dsqr: float, inv_n2: float,
-) -> dict[str, float]:
+    dsqr: float, inv_n2: float | ScalarField,
+) -> dict[str, float | ScalarField]:
     r"""Assemble the nonhydro energy weights ``diag(1, 1, dsqr, 1/N^2)``.
 
     Description
@@ -87,19 +102,24 @@ def nonhydro_energy_weights(
     The canonical nonhydro energy metric ``M`` on ``(u, v, w, b)``. The
     caller passes the **already-computed** reciprocal ``inv_n2`` so the
     degenerate ``N^2 = 0`` path (which the eigenmode classes permit,
-    falling back to ``1``) never divides here.
+    falling back to ``1``) never divides here. A meridionally
+    stratified model passes the reciprocal **profile field**
+    ``1/N^2(y)`` — the ``b`` weight is then sampled at the ``b``
+    nodes wherever the metric is applied, the pointwise pairing that
+    keeps the buoyancy coupling M-skew for any profile.
 
     Parameters
     ----------
     dsqr : float
         The squared aspect ratio (the ``w`` weight).
-    inv_n2 : float
+    inv_n2 : float | ScalarField
         The reciprocal squared buoyancy frequency ``1/N^2`` (the ``b``
-        weight), computed by the caller.
+        weight), computed by the caller; a profile field for a
+        meridionally varying stratification.
 
     Returns
     -------
-    dict[str, float]
+    dict[str, float | ScalarField]
         The ``(u, v, w, b)`` energy weights.
     """
     return {"u": 1.0, "v": 1.0, "w": dsqr, "b": inv_n2}
@@ -127,6 +147,38 @@ def shallowwater_energy_weights(inv_csqr: float) -> dict[str, float]:
         The ``(u, v, p)`` energy weights.
     """
     return {"u": 1.0, "v": 1.0, "p": inv_csqr}
+
+
+def shallowwater_varying_energy_weights(
+    csqr: ScalarField,
+) -> dict[str, float | ScalarField]:
+    r"""Assemble the variable-depth weights ``diag(c^2, c^2, 1)``.
+
+    Description
+    -----------
+    The shallow-water energy metric for a **varying** :math:`c^2(y)`
+    profile field: :math:`c^2` weights the *velocities* (sampled
+    ``csqr.to(u)`` / ``csqr.to(v)`` wherever the metric is applied),
+    not the pressure — because :math:`c^2` sits inside the
+    divergence flux ``dp = -div(c^2 u)``, skewness pairs
+    :math:`\langle c^2 u, -\nabla p\rangle` with
+    :math:`\langle p, -\mathrm{div}(c^2 u)\rangle` through the
+    discrete div/grad transposes, with the weight sampled exactly
+    where the flux samples it. For a constant :math:`c^2` this
+    convention differs from ``diag(1, 1, 1/c^2)`` by the overall
+    factor :math:`c^2` only (frequencies and projectors agree).
+
+    Parameters
+    ----------
+    csqr : ScalarField
+        The squared phase-speed profile field (strictly positive).
+
+    Returns
+    -------
+    dict[str, float | ScalarField]
+        The ``(u, v, p)`` energy weights.
+    """
+    return {"u": csqr, "v": csqr, "p": 1.0}
 
 
 class EnergyMetric:
@@ -180,6 +232,13 @@ class EnergyMetric:
         r"""
         Return ``M z``: each weighted component scaled by its weight.
 
+        Description
+        -----------
+        A field-valued (profile) weight is sampled on the
+        component's own node set through ``.to`` before the
+        pointwise scaling — the same sampling the tendency uses for
+        the coefficient.
+
         Parameters
         ----------
         state : VectorField
@@ -192,7 +251,7 @@ class EnergyMetric:
             components replaced, others passed through unchanged.
         """
         scaled = {
-            name: weight * state[name]
+            name: _weigh(weight, state[name])
             for name, weight in self._weights.items()
             if name in state}
         return state.replace(**scaled)
@@ -236,11 +295,18 @@ class EnergyMetric:
         for name, weight in self._weights.items():
             a_c, b_c = a[name], b[name]
             if spectral:
+                if isinstance(weight, ScalarField):
+                    raise NotImplementedError(
+                        "a coefficient-space state has no Parseval "
+                        "reduction under a varying (field-valued) "
+                        "energy weight — the weight is not diagonal "
+                        "in the transformed basis; reduce the "
+                        "physical state instead")
                 volume = _spectral_volume(a_c)
                 contrib = weight * volume * jnp.sum(
                     jnp.conj(a_c.data) * b_c.data)
             else:
-                term = a_c.conj() * (weight * b_c)
+                term = a_c.conj() * _weigh(weight, b_c)
                 contrib = jnp.sum(term.integrate().data)
             total = total + contrib
         return total
@@ -271,6 +337,7 @@ class EnergyMetric:
         *,
         at_time: float = 0.0,
         require_constant_coriolis: bool = True,
+        allow_field_weights: bool = False,
     ) -> EnergyMetric:
         r"""
         Build the energy metric from an assembled model's parameters.
@@ -281,19 +348,30 @@ class EnergyMetric:
         with the same Fourier-diagonalizability gate as
         ``Eigenmodes.from_model`` (the metric feeds that projector): a
         beta-plane core provides no constant ``coriolis.f0`` and is
-        rejected; ``Ramp``-valued parameters are frozen at ``at_time``;
-        a variable-coefficient (field-valued) weight is rejected.
+        rejected; ``Ramp``-valued parameters are frozen at ``at_time``.
         Nonhydro (``nonhydro.dsqr`` present) yields
         ``diag(1, 1, dsqr, 1/N^2)`` on ``(u,v,w,b)``; shallow water
         (``shallowwater.csqr`` present) yields ``diag(1, 1, 1/c^2)``
         on ``(u,v,p)``.
 
+        A **varying** coefficient — the absent scalar provide with
+        the profile field present (``csqr`` on the shallow-water
+        model, ``n2`` on the nonhydro model;
+        provides-implies-constancy) — is rejected with a taught
+        error unless the caller opts in with
+        ``allow_field_weights=True`` (the dense-column channel
+        engine, whose bounded axis needs no translation invariance).
+        The varying assemblies are ``diag(c^2, c^2, 1)`` on
+        ``(u,v,p)`` (:func:`shallowwater_varying_energy_weights`)
+        and ``diag(1, 1, dsqr, 1/N^2(y))`` on ``(u,v,w,b)``, with
+        the field weights sampled per component wherever the metric
+        is applied.
+
         The weights themselves never involve the Coriolis parameter
         (rotation does no work), so a consumer that tolerates a
-        varying ``f`` — the dense-column channel probe, whose bounded
-        axis needs no translation invariance — passes
+        varying ``f`` — the dense-column channel probe — passes
         ``require_constant_coriolis=False`` to skip that gate while
-        keeping the genuine weight gates (constant ``csqr`` etc.).
+        keeping the genuine weight gates.
 
         Parameters
         ----------
@@ -307,11 +385,17 @@ class EnergyMetric:
             (the Fourier-diagonalizability proxy); pass ``False``
             for consumers that support a spatially varying ``f``
             (default: True).
+        allow_field_weights : bool, optional
+            Whether a varying coefficient (a ``csqr`` / ``n2``
+            profile field without the constant scalar provide) may
+            enter the metric as a field weight; ``False`` keeps the
+            taught rejection for translation-invariant consumers
+            (default: False).
 
         Returns
         -------
         EnergyMetric
-            The metric with the model's constant energy weights.
+            The metric with the model's energy weights.
         """
         params = model.parameters
         if require_constant_coriolis and CORIOLIS_F0 not in params:
@@ -322,12 +406,19 @@ class EnergyMetric:
                 "module")
         if _DSQR in params:
             dsqr = _read_scalar(params, _DSQR, at_time)
-            n2 = _read_scalar(params, STRATIFICATION_N2, at_time)
-            if n2 == 0.0:
-                raise ValueError(
-                    "the nonhydro energy weight 1/N^2 needs a nonzero "
-                    "stratification 'stratification.n2'")
-            weights = nonhydro_energy_weights(dsqr, 1.0 / n2)
+            if STRATIFICATION_N2 in params:
+                n2 = _read_scalar(params, STRATIFICATION_N2, at_time)
+                if n2 == 0.0:
+                    raise ValueError(
+                        "the nonhydro energy weight 1/N^2 needs a "
+                        "nonzero stratification 'stratification.n2'")
+                weights = nonhydro_energy_weights(dsqr, 1.0 / n2)
+            else:
+                n2_field = _profile_field(
+                    model, "n2", str(STRATIFICATION_N2),
+                    allowed=allow_field_weights)
+                weights = nonhydro_energy_weights(
+                    dsqr, 1.0 / n2_field)
         elif _CSQR in params:
             csqr = _read_scalar(params, _CSQR, at_time)
             if csqr == 0.0:
@@ -335,6 +426,10 @@ class EnergyMetric:
                     "the shallow-water energy weight 1/c^2 needs a "
                     "nonzero phase speed 'shallowwater.csqr'")
             weights = shallowwater_energy_weights(1.0 / csqr)
+        elif _state_field(model, "csqr") is not None:
+            csqr_field = _profile_field(
+                model, "csqr", _CSQR, allowed=allow_field_weights)
+            weights = shallowwater_varying_energy_weights(csqr_field)
         else:
             raise ValueError(
                 "unrecognized model energy: expected a "
@@ -362,6 +457,68 @@ class EnergyMetric:
                 "spectral axes plus quadrature on the rest is "
                 "roadmap Phase I)")
         return coefficient
+
+
+def _weigh(
+    weight: Weight | ScalarField, field: ScalarField,
+) -> ScalarField:
+    r"""Scale ``field`` by a weight, sampling a profile through ``.to``.
+
+    Description
+    -----------
+    A field-valued weight is lifted onto the component's own node
+    set first (``weight.to(field)`` — the ConstantSpace/Profile
+    broadcast plus the staggered interpolation), exactly the way the
+    tendency samples the coefficient; a scalar weight scales
+    directly.
+    """
+    if isinstance(weight, ScalarField):
+        return weight.to(field) * field
+    return weight * field
+
+
+def _state_field(model: Model, name: str) -> ScalarField | None:
+    """Read a named field off the model state, or ``None``."""
+    try:
+        state = model.state
+    except AttributeError:
+        return None
+    if state is None or name not in state:
+        return None
+    return state[name]
+
+
+def _profile_field(
+    model: Model, name: str, param: object, *, allowed: bool,
+) -> ScalarField:
+    r"""Fetch a varying coefficient field; teach the rejection.
+
+    Description
+    -----------
+    The varying-coefficient detection of ``from_model``: the scalar
+    provide is absent (provides-implies-constancy), so the
+    coefficient must exist as the model's profile *field*. Without
+    the caller's ``allow_field_weights`` opt-in the varying case is
+    a taught error — a coefficient profile breaks translation
+    invariance along periodic axes, so only the dense-column channel
+    engine (``fr.channel_eigenpairs`` on a single-walled grid, via
+    ``sw.eigenbasis`` / ``nh.eigenbasis``) can serve it.
+    """
+    field = _state_field(model, name)
+    if field is None:
+        raise ValueError(
+            f"the energy metric needs a constant {param!r}; the "
+            f"model provides neither the scalar nor a {name!r} "
+            "profile field")
+    if not allowed:
+        raise ValueError(
+            f"the model carries a varying {name!r} profile (no "
+            f"constant {param!r} provide): this consumer needs "
+            "constant coefficients — a profile breaks translation "
+            "invariance along periodic axes. On a single-walled "
+            "channel use the dense-column engine instead "
+            "(fr.channel_eigenpairs / sw.eigenbasis / nh.eigenbasis)")
+    return field
 
 
 def _spectral_volume(field: ScalarField) -> float:
