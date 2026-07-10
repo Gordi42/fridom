@@ -1215,6 +1215,21 @@ class Model:
                 if template is not None else ())
 
     @staticmethod
+    def _fresh_clone(provider: object) -> object:
+        """
+        Shallow copy with a fresh identity (an unbound provider).
+
+        Description
+        -----------
+        The bind-once/freeze guard is keyed on object identity, so a
+        fresh shallow copy is unbound and may be handed to a child
+        assembly. Leaf values are shared (arrays are immutable).
+        """
+        clone = object.__new__(type(provider))
+        clone.__dict__.update(provider.__dict__)
+        return clone
+
+    @staticmethod
     def _replace_leaf(
         provider: object, attr: str, value: object,
     ) -> object:
@@ -1224,8 +1239,7 @@ class Model:
                 value, int | float | complex | np.number
                 | np.ndarray | jax.Array):
             value = jnp.asarray(value, dtype=old.dtype)
-        clone = object.__new__(type(provider))
-        clone.__dict__.update(provider.__dict__)
+        clone = Model._fresh_clone(provider)
         object.__setattr__(clone, attr, value)
         return clone
 
@@ -1922,7 +1936,10 @@ class Model:
         Model
             The derived model (a full lifecycle citizen).
         """
-        modules = list(self._carry.modules)
+        # fresh clones: the child assembly binds (and freezes) the
+        # module instances it is handed — cloning keeps the parent's
+        # carry modules unbound, so variants never consume the parent
+        modules = [self._fresh_clone(m) for m in self._carry.modules]
         stepper = self._stepper
         for pname, value in dict(updates or {}).items():
             entry = self._binding_table[pname]  # MissingParameterError

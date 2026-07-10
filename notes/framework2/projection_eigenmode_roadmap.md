@@ -259,16 +259,12 @@ both.
   `eb.mode`, `random_vortical` / `random_waves` /
   `random_state(..., spectral_energy_density=...)`, and the family
   projections. Deferred by owner request; do when asked.
-- **`variant`/`bind` lifecycle bug** — repeated
+- **`variant`/`bind` lifecycle bug — FIXED (2026-07-10).** Repeated
   `fr.linearize(model)` / `model.variant(...)` on the same parent
-  raises `ImmutableParameterError`. Cause: `variant()` passes
-  `self._carry.modules` (unbound pytree clones) into the child
-  assembly, which **binds and freezes them in place** — the parent's
-  carry now holds bound instances, so the next variant on that
-  parent trips the bind-once guard. Any `advance()` resets the
-  budget (the jit carry roundtrip mints fresh unbound clones), so
-  the observed failure count is flow-dependent (2nd call on a fresh
-  model, later otherwise). Fix direction: `variant()` should hand
-  the child a fresh pytree clone of the modules (or assembly should
-  bind clones, never the caller's instances). Workaround: linearize
-  once and reuse (e.g. pass `eb` as the source to the IC helpers).
+  raised `ImmutableParameterError`: `variant()` passed
+  `self._carry.modules` into the child assembly, which bound and
+  froze them in place on the parent's carry. Fix: `variant()` hands
+  the child fresh shallow clones (`Model._fresh_clone`, the
+  `_replace_leaf` copy pattern; the bind guard is identity-keyed).
+  Regression: `test_variant_leaves_the_parent_rebindable`. The
+  "linearize once, pass `eb` as source" workaround is obsolete.

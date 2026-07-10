@@ -187,6 +187,22 @@ def test_variant_names_default():
     assert variant.name == "toy/variant"
 
 
+def test_variant_leaves_the_parent_rebindable():
+    # regression: the child assembly binds (and freezes) the module
+    # instances it is handed; variant must pass fresh clones so the
+    # parent's carry modules stay unbound — any number of variants
+    # (fr.linearize) can then be taken from one parent, including
+    # a variant of a variant
+    model = make_model()
+    first = linearize(model)
+    second = linearize(model)
+    third = second.variant(term_filter=terms.linear)
+    for derived in (first, second, third):
+        keys = {e.key for e in
+                derived._artifacts.schedule.kind_entries(None)}
+        assert keys == {"Core/coriolis", "Core/stratification"}
+
+
 def test_variant_updates_change_dt_sign():
     model = make_model()
     variant = model.variant(
