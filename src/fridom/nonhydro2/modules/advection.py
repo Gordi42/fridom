@@ -13,6 +13,11 @@ Ro-ignorant — D2 reconciliation 4). The flux for axis ``i`` lives on
 ``q``'s space. The chained interpolation/difference stencils are
 halo-traced numerically (pure field arithmetic), so the module
 declares no ``extra_halo``.
+
+**Walled grids are future work**: the advective flux stencils near
+rigid walls (bounded, non-periodic mesh factors) are not covered
+yet, so ``bind`` rejects walled grids with a taught error — build a
+linear model (``advection=False`` in ``nh.Model``) instead.
 """
 from __future__ import annotations
 
@@ -41,7 +46,29 @@ class CenteredAdvection(fr.Module):
         self._axis_velocity: tuple[tuple[str, str], ...] = ()
 
     def bind(self, table: object) -> None:
-        """Freeze the advected set and the axis -> velocity mapping."""
+        """Freeze the advected set and the axis -> velocity mapping.
+
+        Raises
+        ------
+        NotImplementedError
+            On a walled grid (any bounded mesh factor): the
+            advective flux stencils near rigid walls are future
+            work, and the natural downstream failure (an operator
+            dispatch mismatch deep in the flux chain) would be
+            cryptic.
+        """
+        factors = getattr(table.grid, "factors", ())
+        walled = tuple(
+            name for mesh in factors for name in mesh.names
+            if not getattr(mesh, "periodic", True))
+        if walled:
+            raise NotImplementedError(
+                f"CenteredAdvection does not support walled grids "
+                f"yet (bounded coordinates: {walled}); the "
+                "advective flux stencils near rigid walls are "
+                "future work. Build a linear model instead "
+                "(advection=False in nh.Model) or drop the "
+                "advection module")
         self._advected = table.select(fr.roles.ADVECTED)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis

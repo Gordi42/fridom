@@ -845,16 +845,30 @@ def test_to_adopts_bc_sibling_of_registered_codomain(walled):
     # b.to(w-space) on a walled grid: the registered bounded
     # interpolation lands on the BC-free Inner sibling (nodal
     # operator outputs are BC-free; owner decision) and the
-    # requested Inner(DIRICHLET) tag is adopted via retag.
-    # TODO(Silvano): C8 integration — exercise a BC-tagged *source*
-    # (Center(DIRICHLET) -> Inner(DIRICHLET)) once interp accepts
-    # BC-tagged domains; today LinearInterp guards them.
+    # requested Inner(DIRICHLET) tag is adopted via retag. This
+    # BC-free-source path is the one the walled model exercises
+    # (C8 owner decision: b stays BC-free in declarations).
     grid, mz = walled
     b = grid.create_field(mz.center, init=lambda z: z * (1.0 - z))
     w_space = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     w = b.to(w_space)
     assert w.function_space.bare is w_space
     free = b.to(mz.inner)
+    assert jnp.array_equal(w.data, free.data)
+
+
+def test_to_accepts_a_bc_tagged_source(walled):
+    # Center(DIRICHLET) -> Inner(DIRICHLET): unblocked by the
+    # bounded-staggering relaxation (nodal interp accepts BC-tagged
+    # domains); the BC-free codomain adopts the requested tag
+    grid, mz = walled
+    tagged = mz.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    b = grid.create_field(tagged, init=lambda z: z * (1.0 - z))
+    w_space = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    w = b.to(w_space)
+    assert w.function_space.bare is w_space
+    free = grid.create_field(
+        mz.center, init=lambda z: z * (1.0 - z)).to(mz.inner)
     assert jnp.array_equal(w.data, free.data)
 
 

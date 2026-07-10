@@ -1,6 +1,7 @@
 """Tests for the halo-accounting trace (HaloTracer, trace_halo)."""
 import pytest
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.decomposition.halo import (
     HaloSpec,
     HaloTracer,
@@ -11,6 +12,7 @@ from fridom.framework2.grid.decomposition.layout import Layout
 from fridom.framework2.grid.decomposition.tensor import (
     TensorDecomposition,
 )
+from fridom.framework2.grid.errors import SpaceMismatchError
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.base import (
@@ -23,6 +25,7 @@ from fridom.framework2.grid.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.framework2.grid.operators.movement import Reshard
+from fridom.framework2.grid.spaces.nodal import NodeSet
 from fridom.framework2.grid.spaces.tensor_product import (
     TensorProductSpace,
 )
@@ -129,6 +132,39 @@ def test_to_conversions_trace_through_the_registry(grid, space, mx):
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
     assert widths(spec) == {"x": 1, "y": 0}
+
+
+def test_to_bc_sibling_adoption_mirrors_the_eager_space(grid, space,
+                                                        my):
+    # C8 reconciliation: the eager .to retags the BC-free operator
+    # codomain onto a requested BC-sibling; the tracer must land on
+    # the identical space, or its trace diverges from the runtime
+    tagged = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    target = space.replace(y=tagged)
+    tracer = HaloTracer(space, grid.dispatch).to(target)
+    assert tracer.function_space.bare is target
+    eager = grid.create_field(space, init=lambda x, y: x * y)
+    assert eager.to(target).function_space.bare is target
+    # the retagged axis claims zero validity (free re-sync point),
+    # mirroring the eager retag's halo reset
+    assert widths(tracer.depth)["y"] == 0
+
+
+def test_to_bc_sibling_adoption_on_a_lone_factor(grid, my):
+    # single-factor grids trace through the same retag seam
+    tagged = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    tracer = HaloTracer(my.center, grid.dispatch).to(tagged)
+    assert tracer.function_space.bare is tagged
+
+
+def test_to_non_sibling_codomain_disagreement_raises(grid, space,
+                                                     my):
+    # Center -> Outer: the registered operator lands on Inner free,
+    # not a BC sibling of Outer — the tracer raises like the eager
+    # path instead of silently drifting onto the wrong space
+    tracer = HaloTracer(space, grid.dispatch)
+    with pytest.raises(SpaceMismatchError, match="lands on"):
+        tracer.to(space.replace(y=my.outer))
 
 
 def test_products_trace_through_the_registry(grid, space):

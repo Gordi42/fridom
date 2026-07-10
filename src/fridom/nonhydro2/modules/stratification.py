@@ -10,6 +10,11 @@ b-equation (restoring). It owns the constant ``n2`` leaf and provides
 terms are pure field arithmetic (``.to`` interpolation across the
 staggered w-b face), so their halo stencils are traced normally and
 the module declares no ``extra_halo``.
+
+``b`` is declared BC-free on every grid (topology-driven walls, C8):
+walls enter through grid periodicity alone, the buoyancy's trig
+parity on a walled grid is derived by the physics layers
+(eigenmodes/transforms), never by a declaration knob.
 """
 from __future__ import annotations
 
@@ -30,22 +35,17 @@ class ConstantStratification(fr.Module):
     n2 : float | fr.Ramp, optional
         The constant squared buoyancy frequency ``N^2`` (default: 1.0);
         may be an ``fr.Ramp`` for a spun-up stratification.
-    wall_z : bool, optional
-        Declare a Dirichlet z boundary on ``b`` (default: False — the
-        periodic smoke-test configuration; True for a walled box).
-    vertical : str, optional
-        The vertical coordinate name (default: ``"z"``).
     """
 
-    def __init__(
-        self, n2: float | fr.Ramp = 1.0, *, wall_z: bool = False,
-        vertical: str = "z",
-    ) -> None:
-        """Store the stratification leaf and BC/geometry choices."""
+    def __init__(self, n2: float | fr.Ramp = 1.0) -> None:
+        """Store the stratification leaf."""
         self.n2 = fr.leaf(n2)
-        self._wall_z = wall_z
-        self._vertical = vertical
 
+    field_declarations = (
+        fr.FieldDeclaration.tracer(
+            "b", space=fr.Collocated(),
+            long_name="Buoyancy", units="m/s^2"),
+    )
     field_references = (
         fr.FieldReference(
             "w", hint="buoyancy couples to vertical velocity, "
@@ -59,17 +59,6 @@ class ConstantStratification(fr.Module):
     parameter_references = (
         fr.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
     )
-
-    @property
-    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
-        """The buoyancy tracer (PROGNOSTIC + TRACER + ADVECTED)."""
-        bc = ({self._vertical: fr.grid.BC.DIRICHLET} if self._wall_z
-              else None)
-        return (
-            fr.FieldDeclaration.tracer(
-                "b", space=fr.Collocated(bc=bc),
-                long_name="Buoyancy", units="m/s^2"),
-        )
 
     @fr.term(advances=("w",), linear=True)
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001

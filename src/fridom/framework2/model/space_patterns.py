@@ -86,6 +86,15 @@ class SpacePattern:
         Per-coordinate homogeneous BC structure, keyed by coordinate
         name; enters the resolved space's interning key
         (default: ()).
+    wall_bc : tuple[tuple[str, BC | BCStructure], ...], optional
+        Topology-conditional per-coordinate BCs: an entry applies
+        only where the matched mesh factor is *bounded*
+        (non-periodic) and is ignored on periodic factors, so a
+        fully periodic grid resolves to the identical interned
+        spaces as without it. This is the wall-derivation channel
+        of the topology-driven-walls decision (C8): grid
+        periodicity is the only user-facing switch. A name may not
+        appear in both ``bc`` and ``wall_bc`` (default: ()).
     require : tuple[str, ...], optional
         Names that must match a mesh factor at resolution — the
         typo mitigation adopted at D4 sign-off (default: ()).
@@ -98,6 +107,7 @@ class SpacePattern:
     default: Dof = Dof.COLLOCATED
     tags: tuple[tuple[str, Dof], ...] = ()
     bc: tuple[tuple[str, BC | BCStructure], ...] = ()
+    wall_bc: tuple[tuple[str, BC | BCStructure], ...] = ()
     require: tuple[str, ...] = ()
     scalars: Scalars | None = None
 
@@ -113,7 +123,18 @@ class SpacePattern:
             self, "bc", _normalize_pairs(
                 self.bc, _check_bc, label="bc"))
         object.__setattr__(
+            self, "wall_bc", _normalize_pairs(
+                self.wall_bc, _check_bc, label="wall_bc"))
+        object.__setattr__(
             self, "require", _normalize_names(self.require))
+        overlap = ({name for name, _ in self.bc}
+                   & {name for name, _ in self.wall_bc})
+        if overlap:
+            raise ValueError(
+                f"coordinates {tuple(sorted(overlap))} appear in "
+                "both bc and wall_bc; a coordinate carries either "
+                "an unconditional BC (bc) or a topology-conditional "
+                "one (wall_bc), never both")
         if self.scalars is not None and not isinstance(
                 self.scalars, Scalars):
             raise TypeError(
@@ -126,6 +147,7 @@ class SpacePattern:
         default: Dof = Dof.COLLOCATED,
         tags: Mapping[str, Dof] | None = None,
         bc: Mapping[str, BC | BCStructure] | None = None,
+        wall_bc: Mapping[str, BC | BCStructure] | None = None,
         require: Iterable[str] = (),
         scalars: Scalars | None = None,
     ) -> SpacePattern:
@@ -141,6 +163,9 @@ class SpacePattern:
             Per-coordinate tag overrides (default: None).
         bc : Mapping[str, BC | BCStructure] | None, optional
             Per-coordinate BC structure (default: None).
+        wall_bc : Mapping[str, BC | BCStructure] | None, optional
+            Topology-conditional BCs, applied only on bounded mesh
+            factors (default: None).
         require : Iterable[str], optional
             Names that must match a mesh factor (default: ()).
         scalars : Scalars | None, optional
@@ -155,6 +180,8 @@ class SpacePattern:
             default=default,
             tags=() if tags is None else tuple(tags.items()),
             bc=() if bc is None else tuple(bc.items()),
+            wall_bc=(() if wall_bc is None
+                     else tuple(wall_bc.items())),
             require=tuple(require),
             scalars=scalars)
 
@@ -171,7 +198,11 @@ class SpacePattern:
         coordinate name of the mesh matches) and the BC, and call
         the grid-level resolver row
         ``grid.dispatch[("declared_space", mesh)](tag, bc)``.
-        ``Dof.CONSTANT`` resolves directly to the universal
+        A ``wall_bc`` entry substitutes for an absent ``bc`` entry
+        only where the matched mesh is bounded (topology-driven
+        walls, C8); on periodic factors it is ignored, so periodic
+        grids resolve to the identical interned spaces as without
+        it. ``Dof.CONSTANT`` resolves directly to the universal
         ``mesh.constant`` (no resolver row consulted). The result is
         the flat interned product — bare, pre-layout. Pure: spaces
         are interned, so repeated resolution returns the identical
@@ -201,10 +232,15 @@ class SpacePattern:
         self._check_require(grid)
         tags = dict(self.tags)
         bcs = dict(self.bc)
+        walls = dict(self.wall_bc)
         factors = []
         for mesh in grid.factors:
             tag = _match(mesh, tags, self.default)
             bc = _match(mesh, bcs, None)
+            if bc is None and not getattr(mesh, "periodic", False):
+                # topology-conditional walls: a wall_bc entry bites
+                # only on a bounded mesh factor (C8)
+                bc = _match(mesh, walls, None)
             if tag is Dof.CONSTANT:
                 if bc is not None:
                     raise ValueError(
@@ -259,6 +295,7 @@ class SpacePattern:
 # ================================================================
 def Collocated(  # noqa: N802 — constructor-like factory (spec)
     *, bc: Mapping[str, BC | BCStructure] | None = None,
+    wall_bc: Mapping[str, BC | BCStructure] | None = None,
     require: Iterable[str] = (),
     scalars: Scalars | None = None,
 ) -> SpacePattern:
@@ -269,6 +306,9 @@ def Collocated(  # noqa: N802 — constructor-like factory (spec)
     ----------
     bc : Mapping[str, BC | BCStructure] | None, optional
         Per-coordinate BC structure (default: None).
+    wall_bc : Mapping[str, BC | BCStructure] | None, optional
+        Topology-conditional BCs, applied only on bounded mesh
+        factors (default: None).
     require : Iterable[str], optional
         Names that must match a mesh factor (default: ()).
     scalars : Scalars | None, optional
@@ -279,13 +319,14 @@ def Collocated(  # noqa: N802 — constructor-like factory (spec)
     SpacePattern
         The all-collocated pattern.
     """
-    return SpacePattern.create(bc=bc, require=require,
-                               scalars=scalars)
+    return SpacePattern.create(bc=bc, wall_bc=wall_bc,
+                               require=require, scalars=scalars)
 
 
 def Staggered(  # noqa: N802 — constructor-like factory (spec)
     *names: str,
     bc: Mapping[str, BC | BCStructure] | None = None,
+    wall_bc: Mapping[str, BC | BCStructure] | None = None,
     require: Iterable[str] = (),
     scalars: Scalars | None = None,
 ) -> SpacePattern:
@@ -306,6 +347,9 @@ def Staggered(  # noqa: N802 — constructor-like factory (spec)
         The coordinates to stagger (at least one).
     bc : Mapping[str, BC | BCStructure] | None, optional
         Per-coordinate BC structure (default: None).
+    wall_bc : Mapping[str, BC | BCStructure] | None, optional
+        Topology-conditional BCs, applied only on bounded mesh
+        factors (default: None).
     require : Iterable[str], optional
         Names that must match a mesh factor (default: ()).
     scalars : Scalars | None, optional
@@ -322,12 +366,13 @@ def Staggered(  # noqa: N802 — constructor-like factory (spec)
             "'collocated everywhere' is spelled Collocated()")
     return SpacePattern.create(
         tags=dict.fromkeys(names, Dof.STAGGERED),
-        bc=bc, require=require, scalars=scalars)
+        bc=bc, wall_bc=wall_bc, require=require, scalars=scalars)
 
 
 def Profile(  # noqa: N802 — constructor-like factory (spec)
     *names: str,
     bc: Mapping[str, BC | BCStructure] | None = None,
+    wall_bc: Mapping[str, BC | BCStructure] | None = None,
     require: Iterable[str] = (),
     scalars: Scalars | None = None,
 ) -> SpacePattern:
@@ -347,6 +392,9 @@ def Profile(  # noqa: N802 — constructor-like factory (spec)
         The coordinates the field varies along.
     bc : Mapping[str, BC | BCStructure] | None, optional
         Per-coordinate BC structure (default: None).
+    wall_bc : Mapping[str, BC | BCStructure] | None, optional
+        Topology-conditional BCs, applied only on bounded mesh
+        factors (default: None).
     require : Iterable[str], optional
         Names that must match a mesh factor (default: ()).
     scalars : Scalars | None, optional
@@ -360,7 +408,7 @@ def Profile(  # noqa: N802 — constructor-like factory (spec)
     return SpacePattern.create(
         default=Dof.CONSTANT,
         tags=dict.fromkeys(names, Dof.COLLOCATED),
-        bc=bc, require=require, scalars=scalars)
+        bc=bc, wall_bc=wall_bc, require=require, scalars=scalars)
 
 
 # ================================================================
@@ -455,7 +503,7 @@ class SpaceRule:
 # ================================================================
 def _normalize_pairs(
     pairs: object,
-    check_value: Callable[[str, object], object],
+    check_value: Callable[[str, object, str], object],
     *,
     label: str,
 ) -> tuple[tuple[str, object], ...]:
@@ -475,27 +523,30 @@ def _normalize_pairs(
         if name in normalized:
             raise ValueError(
                 f"duplicate {label} entry for coordinate {name!r}")
-        normalized[name] = check_value(name, value)
+        normalized[name] = check_value(name, value, label)
     return tuple(sorted(normalized.items()))
 
 
-def _check_dof(name: str, value: object) -> Dof:
+def _check_dof(name: str, value: object, label: str) -> Dof:
     """Validate one tags value."""
     if not isinstance(value, Dof):
         raise TypeError(
-            f"tags[{name!r}] must be a Dof member, got {value!r}")
+            f"{label}[{name!r}] must be a Dof member, got "
+            f"{value!r}")
     return value
 
 
-def _check_bc(name: str, value: object) -> BC | BCStructure:
-    """Validate one bc value; normalize component tuples."""
+def _check_bc(
+    name: str, value: object, label: str,
+) -> BC | BCStructure:
+    """Validate one bc / wall_bc value; normalize component tuples."""
     if isinstance(value, BC | BCStructure):
         return value
     if isinstance(value, tuple):
         return BCStructure(value)
     raise TypeError(
-        f"bc[{name!r}] must be a BC member, a BCStructure, or a "
-        f"per-component BC tuple, got {value!r}")
+        f"{label}[{name!r}] must be a BC member, a BCStructure, or "
+        f"a per-component BC tuple, got {value!r}")
 
 
 def _normalize_names(names: object) -> tuple[str, ...]:

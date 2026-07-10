@@ -21,12 +21,14 @@ in assembly (model cluster).
 #    templates), FieldReference
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import numbers
 import warnings
 from enum import Enum, auto
 from typing import TYPE_CHECKING, NamedTuple, final
 
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.fields.metadata import FieldMetadata
 from fridom.framework2.model.roles import ADVECTED, TRACER, Role, Velocity
 from fridom.framework2.model.space_patterns import (
@@ -291,6 +293,20 @@ class FieldDeclaration:
         """
         Template: PROGNOSTIC + {Velocity(component), ADVECTED}.
 
+        Description
+        -----------
+        Derives the universal wall condition (C8, topology-driven
+        walls): the wall-normal velocity is Dirichlet on its own
+        bounded component axis (impermeability), so a ``wall_bc``
+        Dirichlet entry for ``component`` is injected into a
+        ``SpacePattern`` space. The entry is topology-conditional —
+        on periodic grids it is inert and the pattern resolves to
+        the identical interned spaces. A pattern that already pins
+        the component axis (in ``bc`` or ``wall_bc``) is used as
+        given, and a ``SpaceRule`` passes through untouched (the
+        full-power escape hatch stays the declarer's
+        responsibility).
+
         Parameters
         ----------
         name : str
@@ -315,6 +331,8 @@ class FieldDeclaration:
         FieldDeclaration
             The velocity-component declaration.
         """
+        if isinstance(space, SpacePattern):
+            space = _with_wall_dirichlet(space, component)
         return cls(
             name, space=space, lifecycle=Lifecycle.PROGNOSTIC,
             roles=(Velocity(component), ADVECTED),
@@ -421,6 +439,43 @@ class FieldReference(NamedTuple):
 
     name: str
     hint: str = ""
+
+
+# ================================================================
+#  Wall derivation (C8: topology-driven walls)
+# ================================================================
+def _with_wall_dirichlet(
+    space: SpacePattern, component: str,
+) -> SpacePattern:
+    """
+    Inject the impermeability wall BC for one component axis.
+
+    Description
+    -----------
+    Adds ``wall_bc[component] = BC.DIRICHLET`` — applied at
+    resolution only where the component's mesh factor is bounded —
+    unless the pattern already pins that axis in ``bc`` or
+    ``wall_bc`` (the declarer's explicit choice wins).
+
+    Parameters
+    ----------
+    space : SpacePattern
+        The declared velocity space pattern.
+    component : str
+        The velocity component (coordinate) name.
+
+    Returns
+    -------
+    SpacePattern
+        The pattern with the derived wall entry (``space`` itself
+        when the axis is already pinned).
+    """
+    pinned = ({name for name, _ in space.bc}
+              | {name for name, _ in space.wall_bc})
+    if component in pinned:
+        return space
+    return dataclasses.replace(
+        space, wall_bc=(*space.wall_bc, (component, BC.DIRICHLET)))
 
 
 # ================================================================

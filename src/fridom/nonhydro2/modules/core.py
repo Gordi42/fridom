@@ -150,9 +150,13 @@ class DynamicalCore(fr.Module):
             div.grid, div.function_space, vertical=self._vertical)
         p = solver.solve(div, dsqr=dsqr)
         grad = Gradient()(p)
+        # the gradient's vertical entry is BC-free (nodal operator
+        # outputs are BC-free); on a walled grid w carries the derived
+        # Dirichlet wall tag, so adopt it — identity on periodic grids
+        grad_w = grad[self._vertical].retag(state["w"])
         return {
             "u": state["u"] - grad["x"],
             "v": state["v"] - grad["y"],
-            "w": state["w"] - grad[self._vertical] / dsqr,
+            "w": state["w"] - grad_w / dsqr,
             "p": p,
         }

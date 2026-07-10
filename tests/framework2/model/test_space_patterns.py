@@ -133,9 +133,33 @@ def test_repr_round_trips():
                  "BC": BC, "Scalars": Scalars}
     for pattern in (Collocated(), Staggered("z"),
                     Profile("z", bc={"z": BC.NEUMANN}),
+                    SpacePattern(wall_bc=(("z", BC.DIRICHLET),)),
                     Collocated(require=("x",),
                                scalars=Scalars.COMPLEX)):
         assert eval(repr(pattern), namespace) == pattern  # noqa: S307
+
+
+# ================================================================
+#  wall_bc: topology-conditional BCs (C8, topology-driven walls)
+# ================================================================
+def test_wall_bc_value_semantics():
+    direct = SpacePattern(wall_bc=(("z", BC.DIRICHLET),))
+    created = SpacePattern.create(wall_bc={"z": BC.DIRICHLET})
+    assert direct == created
+    assert hash(direct) == hash(created)
+    assert direct != SpacePattern()
+    assert direct != SpacePattern(bc=(("z", BC.DIRICHLET),))
+
+
+def test_wall_bc_construction_validation():
+    with pytest.raises(TypeError, match="wall_bc"):
+        SpacePattern(wall_bc=(("z", "dirichlet"),))
+    with pytest.raises(ValueError, match="duplicate"):
+        SpacePattern(wall_bc=(("z", BC.DIRICHLET),
+                              ("z", BC.NEUMANN)))
+    with pytest.raises(ValueError, match="both bc and wall_bc"):
+        SpacePattern(bc=(("z", BC.NEUMANN),),
+                     wall_bc=(("z", BC.DIRICHLET),))
 
 
 # ================================================================
@@ -210,6 +234,47 @@ def test_bc_enters_the_resolved_space(grid, meshes):
 def test_bc_on_constant_axis_raises(grid):
     with pytest.raises(ValueError, match="constant factor"):
         Profile(bc={"z": BC.DIRICHLET}).resolve(grid)
+
+
+def test_wall_bc_applies_on_the_bounded_factor_only(grid, meshes):
+    # x is periodic, z is bounded: only the z entry bites
+    x, z = meshes
+    pattern = SpacePattern.create(
+        wall_bc={"x": BC.DIRICHLET, "z": BC.DIRICHLET})
+    space = pattern.resolve(grid)
+    assert space.factor("z") is z.nodal(NodeSet.CENTER,
+                                        bc=BC.DIRICHLET)
+    assert space.factor("x") is x.center  # BC-free, tag ignored
+
+
+def test_wall_bc_matches_the_unconditional_bc_on_bounded(grid):
+    # on the bounded axis, wall_bc resolves exactly like bc
+    walled = SpacePattern.create(wall_bc={"z": BC.DIRICHLET})
+    pinned = Collocated(bc={"z": BC.DIRICHLET})
+    assert walled.resolve(grid) is pinned.resolve(grid)
+
+
+def test_wall_bc_periodic_regression_identical_interned_space():
+    # a fully periodic grid resolves to the IDENTICAL interned
+    # spaces with and without wall_bc entries (C8 regression)
+    periodic = Grid((
+        IntervalMesh(8, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(8, (0.0, 1.0), periodic=True, name="z"),
+    ))
+    walled = SpacePattern.create(
+        tags={"z": Dof.STAGGERED},
+        wall_bc={"z": BC.DIRICHLET})
+    plain = Staggered("z")
+    assert walled.resolve(periodic) is plain.resolve(periodic)
+
+
+def test_wall_bc_on_constant_axis(grid):
+    # bounded constant factor: raises like an unconditional bc;
+    # periodic constant factor: the conditional entry is inert
+    with pytest.raises(ValueError, match="constant factor"):
+        Profile(wall_bc={"z": BC.DIRICHLET}).resolve(grid)
+    space = Profile(wall_bc={"x": BC.DIRICHLET}).resolve(grid)
+    assert space is Profile().resolve(grid)
 
 
 def test_resolution_is_interned_pure(grid):

@@ -171,9 +171,46 @@ def test_velocity_template():
     decl = FieldDeclaration.velocity("u", "x", space=Staggered("x"))
     assert decl.lifecycle is Lifecycle.PROGNOSTIC
     assert decl.roles == frozenset({Velocity("x"), ADVECTED})
-    assert decl.space == Staggered("x")
+    # the given pattern plus the derived wall entry (C8)
+    assert decl.space == Staggered("x",
+                                   wall_bc={"x": BC.DIRICHLET})
     with pytest.raises(TypeError):
         FieldDeclaration.velocity("u", "x")  # space is mandatory
+
+
+# ================================================================
+#  The velocity wall derivation (C8, topology-driven walls)
+# ================================================================
+def test_velocity_derives_the_wall_dirichlet():
+    decl = FieldDeclaration.velocity("w", "z", space=Staggered("z"))
+    assert dict(decl.space.wall_bc) == {"z": BC.DIRICHLET}
+    assert decl.space.bc == ()  # unconditional BCs untouched
+    assert decl.space.tags == Staggered("z").tags
+
+
+def test_velocity_wall_derivation_names_the_component_only():
+    # the component axis gets the wall entry, other axes never do
+    decl = FieldDeclaration.velocity(
+        "u", "x", space=Staggered("x", "z"))
+    assert dict(decl.space.wall_bc) == {"x": BC.DIRICHLET}
+
+
+def test_velocity_respects_an_explicit_bc_pin():
+    space = Staggered("z", bc={"z": BC.NEUMANN})
+    decl = FieldDeclaration.velocity("w", "z", space=space)
+    assert decl.space == space  # the declarer's choice wins
+
+
+def test_velocity_respects_an_explicit_wall_pin():
+    space = Staggered("z", wall_bc={"z": BC.NEUMANN})
+    decl = FieldDeclaration.velocity("w", "z", space=space)
+    assert decl.space == space
+
+
+def test_velocity_space_rule_passes_through():
+    rule = SpaceRule(lambda grid: grid.factors[0].center)
+    decl = FieldDeclaration.velocity("w", "z", space=rule)
+    assert decl.space is rule  # the escape hatch is untouched
 
 
 # ================================================================

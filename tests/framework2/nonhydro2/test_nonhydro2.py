@@ -14,10 +14,12 @@ import pytest
 
 import fridom.framework2 as fr
 import fridom.nonhydro2 as nh
+from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.operators.composed import Divergence
+from fridom.framework2.grid.spaces.nodal import NodeSet
 from fridom.framework2.model.eigen import (
     _leray_projector,
     _rest_background,
@@ -385,3 +387,99 @@ def test_model_without_stratification_has_no_buoyancy():
     assert "b" not in model.state.component_names
     with pytest.raises(KeyError, match="stratification module"):
         _ = model.state.b
+
+
+# ================================================================
+#  Walled (rigid-lid) linear runs: topology-driven walls (C8)
+# ================================================================
+LZ = 1.0
+
+
+def make_walled_grid(n=N, lz=LZ):
+    # x, y periodic; z bounded (rigid lids) — periodicity is the
+    # ONLY wall switch, everything else is derived
+    meshes = (
+        IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y"),
+        IntervalMesh(n, (0.0, lz), periodic=False, name="z"),
+    )
+    return Grid(meshes), meshes
+
+
+def walled_coords(n=N, lz=LZ):
+    hor = (np.arange(n) + 0.5) * (2 * np.pi / n)
+    ver = (np.arange(n) + 0.5) * (lz / n)
+    return np.meshgrid(hor, hor, ver, indexing="ij")
+
+
+def make_walled_model(**kwargs):
+    grid, _ = make_walled_grid()
+    return nh.Model(grid=grid, dt=DT, advection=False, **kwargs)
+
+
+def test_walled_grid_derives_the_wall_spaces():
+    grid, (_, _, mz) = make_walled_grid()
+    model = nh.Model(grid=grid, dt=DT, advection=False)
+    # w: Dirichlet on its own bounded component axis (impermeability)
+    w_z = model.state["w"].function_space.bare.factor("z")
+    assert w_z is mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    # u, v, p, b stay BC-free (their parities are physics-derived)
+    for name in ("u", "v", "p", "b"):
+        z = model.state[name].function_space.bare.factor("z")
+        assert z is mz.nodal(NodeSet.CENTER, bc=BC.NONE)
+
+
+def test_walled_linear_run_is_treedef_stable_and_projected():
+    model = make_walled_model()
+    x, y, _ = walled_coords()
+    # a non-divergence-free IC excites the projection genuinely
+    model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x))
+    before = jax.tree_util.tree_structure(model._carry)
+    for _ in range(5):
+        model.advance(1)
+        # the CONSTRAINT stage drives div(u) to machine zero
+        assert np.abs(divergence(model)).max() < 1e-12
+    assert jax.tree_util.tree_structure(model._carry) == before
+
+
+def test_walled_second_advance_compiles_nothing(compile_counter):
+    model = make_walled_model()
+    _, _, z = walled_coords()
+    model.set_fields(b=0.01 * np.cos(np.pi * z / LZ))
+    model.advance(4)
+    compile_counter.reset()
+    model.advance(4)
+    assert compile_counter.count == 0
+
+
+def test_walled_energy_stays_bounded():
+    model = make_walled_model()
+    _, y, z = walled_coords()
+    model.set_fields(u=0.05 * np.sin(y),
+                     b=0.05 * np.cos(np.pi * z / LZ))
+    energies = []
+    for _ in range(40):
+        model.advance(1)
+        e = float(np.asarray(model.diagnostics.ekin().data).sum())
+        energies.append(e)
+    energies = np.asarray(energies)
+    assert np.isfinite(energies).all()
+    assert energies.max() < 5.0 * (energies[:5].max() + 1e-9)
+
+
+def test_walled_diagnostics_smoke():
+    model = make_walled_model()
+    _, y, z = walled_coords()
+    model.set_fields(u=0.01 * np.sin(y),
+                     b=0.01 * np.cos(np.pi * z / LZ))
+    model.advance(1)
+    for name in ("ekin", "epot", "linear_pot_vort"):
+        field = getattr(model.diagnostics, name)()
+        assert bool(np.isfinite(np.asarray(field.data)).all())
+
+
+def test_walled_advection_is_a_taught_error():
+    grid, _ = make_walled_grid()
+    with pytest.raises(NotImplementedError,
+                       match=r"walled grids .*advection=False"):
+        nh.Model(grid=grid, dt=DT)  # default advection module

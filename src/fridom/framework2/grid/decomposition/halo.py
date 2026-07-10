@@ -533,8 +533,22 @@ class HaloTracer:
         return Dispatched("diff")[name](self)
 
     def to(self, target: object) -> HaloTracer:
-        """Convert per axis onto the target's space (traced)."""
+        """
+        Convert per axis onto the target's space (traced).
+
+        Description
+        -----------
+        Mirrors the eager ``ScalarField.to`` exactly, including the
+        BC-sibling seam: where the registered operator's codomain is
+        a BC-sibling of the requested factor (nodal operator outputs
+        are BC-free; owner decision), the eager path adopts the
+        requested tag via ``retag`` — so the tracer relabels its
+        space the same way (``_retag_factor``), keeping the traced
+        space identical to the runtime one. Any other codomain
+        disagreement raises, as it does eagerly.
+        """
         from fridom.framework2.grid.fields.scalar_field import (  # noqa: PLC0415 — fields import the operator base
+            _bc_siblings,
             _conversion_kind,
             _target_space,
         )
@@ -554,8 +568,48 @@ class HaloTracer:
                 continue
             op = self._registry.resolve(
                 _conversion_kind(src, dst), src)[name]
+            resolved = resolve_codomain(
+                op, result.function_space).factor(name)
+            if resolved is not dst:
+                if _bc_siblings(resolved, dst):
+                    # the eager path retags onto the requested
+                    # sibling; mirror it so the traced space agrees
+                    applied: HaloTracer = op(result)
+                    result = applied._retag_factor(name, dst)
+                    continue
+                from fridom.framework2.grid.errors import (  # noqa: PLC0415 — keep errors off the module import path
+                    SpaceMismatchError,
+                )
+                raise SpaceMismatchError(
+                    f"the registered operator lands on {resolved!r},"
+                    f" not the requested {dst!r}; use an explicit "
+                    "operator instance or a registry override",
+                    left=src, right=dst, operation="to")
             result = op(result)
         return result
+
+    def _retag_factor(self, name: str, dst: SpaceLike) -> HaloTracer:
+        """
+        Trace-side twin of the eager BC-sibling ``retag`` adoption.
+
+        Description
+        -----------
+        Replaces the factor ``name`` with its requested BC-sibling
+        ``dst`` and resets the accumulated depth along that axis:
+        the eager ``retag`` resets halo validity on retagged axes
+        (the ghost policy changed with the tag), which is a free
+        re-sync point — no width demand accrues, mirroring the
+        bounded-axis reset of ``_claimed``.
+        """
+        bare = self._space.bare
+        if isinstance(bare, TensorProductSpace):
+            target = bare.replace(**{name: dst})
+        else:
+            target = dst
+        target = _laid_out_like(target, self._space)
+        widths = dict(self._depth.over(tuple(target.names)).widths)
+        widths[name] = 0
+        return self._child(target, HaloSpec(widths))
 
     def _broadcast_factor(
         self, name: str, dst: SpaceLike,
