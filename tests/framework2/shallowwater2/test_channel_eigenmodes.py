@@ -30,6 +30,7 @@ while the engine pairs L q = +i omega q, so a reference mode of
 frequency omega_ref sits in the engine column with
 omega_eng = -omega_ref (measured overlap 1.0 to machine precision).
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -839,3 +840,190 @@ def test_projector_rejects_bad_selections(em):
         em.projector("rossby")
     with pytest.raises(ValueError, match="boolean mask"):
         em.projector(lambda om, _labels: om)
+
+
+# ================================================================
+#  Variable depth csqr(y): the labeler under a varying metric
+# ================================================================
+def csqr_profile(y):
+    """Return a varying, strictly positive csqr(y)."""
+    return 1.0 + 0.5 * jnp.tanh(4.0 * (y - 0.5))
+
+
+def make_varying_model(csqr=csqr_profile, device_ids=None):
+    """Build a varying-depth walled channel (f-plane preset)."""
+    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+                                     name="x")
+    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
+                                     name="y")
+    return sw.Model(
+        grid=fr.grid.Grid((mx, my), device_ids=device_ids),
+        csqr=csqr, rossby_number=0.2, advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+@pytest.fixture(scope="module")
+def varying_model():
+    """One varying-depth channel shared across the module."""
+    return make_varying_model()
+
+
+@pytest.fixture(scope="module")
+def varying_em(varying_model):
+    """Labeled eigenmodes with csqr varying along the dense y axis."""
+    return ChannelEigenmodes(varying_model)
+
+
+def test_varying_labels_follow_the_measured_physics(varying_em):
+    r"""The measured label census under a varying csqr(y).
+
+    - kx = 0: rotation-free y-dynamics — the plane keeps its N + 1
+      steady columns and the 2(N - 1) wave columns, fully labeled;
+    - interior kx: a geostrophic mode over varying depth has
+      div(c^2 u_g) = c^2'(y) v_g != 0, so the steady branch turns
+      into slow TOPOGRAPHIC Rossby modes (the beta analogue) except
+      one structural zero; the Kelvin v-energy criterion genuinely
+      degrades (omega^2 p = kx_hat^2 c^2(y) p has no v = 0 solution
+      unless c^2 is constant), so no kelvin columns exist and — the
+      fast count being off by the blurred pair — the fast band stays
+      UNLABELED per the beta doctrine (predicates are the tool);
+    - kx = Nyquist: rotation decouples (the x-average vanishes) and
+      N - 1 steady columns survive; the fast band stays unlabeled.
+    """
+    labels = np.asarray(varying_em.labels)
+    omega = np.asarray(varying_em.omega)
+    # kx = 0: complete
+    assert (labels[0] == VORTICAL).sum() == N + 1
+    assert (labels[0] == WAVE_PLUS).sum() == N - 1
+    assert (labels[0] == WAVE_MINUS).sum() == N - 1
+    assert (labels[0] != UNLABELED).all()
+    # interior planes: one structural zero; slow topographic band
+    for ikx in range(1, N_KX - 1):
+        zeros = np.abs(omega[ikx]) < 1e-8
+        assert zeros.sum() == 1
+        assert (labels[ikx] == VORTICAL).sum() == 1
+        assert (labels[ikx][zeros] == VORTICAL).all()
+        assert not np.isin(labels[ikx],
+                           (KELVIN_PLUS, KELVIN_MINUS)).any()
+        assert (labels[ikx][~zeros] == UNLABELED).all()
+    # Nyquist: rotation decouples, the steady set survives
+    assert (labels[-1] == VORTICAL).sum() == N - 1
+    assert (np.abs(omega[-1][labels[-1] == VORTICAL]) < 1e-8).all()
+
+
+def test_varying_kelvin_criterion_is_measurably_blurred(varying_em):
+    # the crisp v-energy criterion degrades for genuinely varying
+    # c(y): the smallest v-energy among nonzero columns is O(1e-2),
+    # ten orders above the kelvin_tol crispness scale
+    omega = np.asarray(varying_em.omega)
+    q = np.asarray(varying_em.q)
+    metric = np.asarray(varying_em.metric)
+    v_slice = varying_em.slices["v"]
+    for ikx in range(1, N_KX):
+        nz = np.abs(omega[ikx]) > 1e-8
+        v_energy = np.einsum(
+            "ij,i->j", np.abs(q[ikx][v_slice]) ** 2,
+            metric[v_slice])
+        assert v_energy[nz].min() > 1e-3
+
+
+def test_varying_slow_band_is_a_frequency_predicate(
+        varying_model, varying_em):
+    # the doctrine in action: the unlabeled topographic-Rossby band
+    # is selected by a frequency-threshold predicate — idempotent
+    # and disjoint from the fast band
+    z = random_state(varying_model, seed=31)
+    slow = varying_em.projector(
+        lambda om, _labels: jnp.abs(om) < 1.0)
+    got = slow(z)
+    assert absmax(slow(got), got) < 1e-12
+    fast = varying_em.projector(
+        lambda om, _labels: jnp.abs(om) >= 1.0)
+    total = fast(z)
+    recon = sw.State({c: got[c] + total[c]
+                      for c in varying_em.components})
+    assert absmax(recon, z) < 1e-11
+
+
+def test_varying_constant_profile_projectors_match_the_constant_path(
+        model, em):
+    # csqr(y) = c0 through the varying path: the metric differs by
+    # the overall factor c0^2 only, so frequencies, labels and every
+    # projector application agree with the constant path
+    cv_model = make_varying_model(csqr=lambda y: CSQR + 0.0 * y)
+    cv = ChannelEigenmodes(cv_model)
+    assert np.abs(np.asarray(cv.omega)
+                  - np.asarray(em.omega)).max() < 1e-12
+    assert (np.asarray(cv.labels) == np.asarray(em.labels)).all()
+    z = random_state(model, seed=33)
+    zv = sw.State({c: cv_model.state[c].with_data(z[c].data)
+                   for c in em.components})
+    for family in ("vortical", "wave", "kelvin"):
+        a = em.projector(family)(z)
+        b = cv.projector(family)(zv)
+        assert max(
+            float(np.abs(np.asarray(a[c].data)
+                         - np.asarray(b[c].data)).max())
+            for c in em.components) < 1e-12
+
+
+def test_varying_wave_frequencies_shift_monotonically():
+    # physical sanity: raising c^2(y) pointwise raises every fast
+    # (gravity-wave) frequency; the slow topographic band stays slow
+    lo = ChannelEigenmodes(make_varying_model(
+        csqr=lambda y: 0.5 + 0.2 * jnp.sin(jnp.pi * y / LY)))
+    hi = ChannelEigenmodes(make_varying_model(
+        csqr=lambda y: 1.0 + 0.4 * jnp.sin(jnp.pi * y / LY)))
+    om_lo = np.sort(np.abs(np.asarray(lo.omega)), axis=-1)
+    om_hi = np.sort(np.abs(np.asarray(hi.omega)), axis=-1)
+    # the fast band: the top 2(N - 1) columns per plane
+    fast = slice(D - 2 * (N - 1), D)
+    assert (om_hi[:, fast] > om_lo[:, fast]).all()
+
+
+def test_varying_eigenbasis_surface_routes_to_the_engine():
+    # fresh models per solve: repeated linearization of one instance
+    # trips the module rebind guard by design
+    em = sw.eigenbasis(make_varying_model())
+    assert isinstance(em, ChannelEigenmodes)
+    assert em.basis.hermiticity_error < 1e-13
+    from_model = sw.eigenmodes.from_model(make_varying_model())
+    assert isinstance(from_model, ChannelEigenmodes)
+
+
+def test_varying_periodic_grid_is_a_taught_error():
+    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+                                     name="x")
+    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=True,
+                                     name="y")
+    model = sw.Model(
+        grid=fr.grid.Grid((mx, my)), csqr=csqr_profile,
+        advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    with pytest.raises(ValueError, match=r"sw\.eigenbasis"):
+        sw.eigenmodes.from_model(model)
+
+
+@pytest.mark.multi_device
+def test_varying_projection_is_device_count_invariant(forced_devices):
+    # the sharded gate: the varying-csqr projector application (the
+    # profile-weighted metric contraction included) matches the
+    # explicit one-device grid
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    rng = np.random.default_rng(41)
+    fields = {"u": rng.standard_normal((N, N)),
+              "v": rng.standard_normal((N, N - 1)),
+              "p": rng.standard_normal((N, N))}
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        model = make_varying_model(device_ids=device_ids)
+        model.set_fields(**fields)
+        z = sw.State({c: model.state[c] for c in ("u", "v", "p")})
+        em = sw.eigenbasis(model)
+        results[tag] = em.projector(
+            lambda om, _labels: jnp.abs(om) < 1.0)(z)
+    assert max(
+        float(np.abs(np.asarray(results["many"][c].data)
+                     - np.asarray(results["one"][c].data)).max())
+        for c in ("u", "v", "p")) < 1e-11

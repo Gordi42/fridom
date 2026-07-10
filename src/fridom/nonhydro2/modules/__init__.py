@@ -19,7 +19,10 @@ if TYPE_CHECKING:  # pragma: no cover
     from .advection import CenteredAdvection
     from .core import DynamicalCore
     from .pressure import SpectralPressureSolver
-    from .stratification import ConstantStratification
+    from .stratification import (
+        ConstantStratification,
+        MeridionalStratification,
+    )
 
 base = "fridom.nonhydro2.modules"
 
@@ -32,7 +35,8 @@ all_imports_by_origin = {
     "fridom.framework2.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis"],
     f"{base}.core": ["DynamicalCore"],
-    f"{base}.stratification": ["ConstantStratification"],
+    f"{base}.stratification": [
+        "ConstantStratification", "MeridionalStratification"],
     f"{base}.advection": ["CenteredAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
 }

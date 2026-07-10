@@ -1,4 +1,4 @@
-"""Constant stratification: buoyancy and the linear coupling.
+r"""Stratification modules: buoyancy and the linear coupling.
 
 Description
 -----------
@@ -11,6 +11,27 @@ terms are pure field arithmetic (``.to`` interpolation across the
 staggered w-b face), so their halo stencils are traced normally and
 the module declares no ``extra_halo``.
 
+``MeridionalStratification`` is the varying twin (the
+FPlaneCoriolis/BetaPlaneCoriolis two-type precedent): :math:`N^2(y)`
+is carried as an AUXILIARY ``n2`` field on a meridional
+``fr.Profile("y")`` and the module does **not** provide the constant
+``stratification.n2`` (provides-implies-constancy, 02_rules).
+The restoring term samples :math:`N^2` **at the** ``b`` **nodes**
+(``n2.to(b)`` — a pure broadcast, since the profile and the
+collocated ``b`` share the meridional nodes) so the coupling pair
+
+.. math::
+    \partial_t w = b / \delta^2 , \qquad
+    \partial_t b = -N^2(y)\, w
+
+stays exactly M-skew-adjoint under the varying energy metric
+``diag(1, 1, dsqr, 1/N^2(y))`` by ``.to`` adjointness: the pointwise
+:math:`N^2` at ``b`` cancels the ``1/N^2`` metric weight there,
+leaving the plain measure-weighted interpolation pair — for **any**
+strictly positive profile. Fourier-diagonalizable consumers reject
+the model through the missing provide; the dense-column channel
+engine serves it.
+
 ``b`` is declared BC-free on every grid (topology-driven walls, C8):
 walls enter through grid periodicity alone, the buoyancy's trig
 parity on a walled grid is derived by the physics layers
@@ -18,11 +39,16 @@ parity on a walled grid is derived by the physics layers
 """
 from __future__ import annotations
 
+import inspect
 from functools import partial
+from typing import TYPE_CHECKING
 
 import fridom.framework2 as fr
 from fridom.framework.utils import jaxify
 from fridom.nonhydro2.params import DSQR
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
 
 
 @partial(jaxify, dynamic=("n2",))
@@ -71,3 +97,103 @@ class ConstantStratification(fr.Module):
         """``db/dt += -N^2 w`` (w interpolated onto the b cell)."""
         n2 = ctx.params[fr.params.STRATIFICATION_N2]
         return {"b": -(n2 * state["w"].to(state["b"]))}
+
+
+class MeridionalStratification(fr.Module):
+
+    r"""Registers ``b``; the linear coupling with :math:`N^2(y)`.
+
+    Description
+    -----------
+    The varying twin of :class:`ConstantStratification`: declares
+    the AUXILIARY ``n2`` field on a meridional ``fr.Profile("y")``
+    (materialized from the callable) and contributes both linear
+    coupling terms with :math:`N^2` sampled pointwise at the ``b``
+    nodes — the pairing that keeps ``(dw = b/dsqr, db = -N^2 w)``
+    exactly M-skew under the ``1/N^2(y)`` energy weight. Provides
+    **no** ``stratification.n2`` scalar (its :math:`N^2` is a field,
+    not a constant — provides-implies-constancy).
+
+    Parameters
+    ----------
+    n2 : Callable
+        The squared buoyancy frequency profile ``n2(y)``, evaluated
+        on the meridional coordinate; must be strictly positive for
+        the energy metric.
+    meridional : str, optional
+        The meridional coordinate name (default: ``"y"``).
+    """
+
+    def __init__(
+        self, n2: Callable, *, meridional: str = "y",
+    ) -> None:
+        """Store the profile callable and the coordinate name."""
+        if not callable(n2):
+            raise TypeError(
+                "MeridionalStratification carries a varying "
+                f"stratification profile n2(y); got {n2!r} — a "
+                "constant N^2 is nh.ConstantStratification(n2=...)")
+        self._n2_fn = n2
+        self._meridional = meridional
+
+    field_references = (
+        fr.FieldReference(
+            "w", hint="buoyancy couples to vertical velocity, "
+                      "declared by a dynamical core (nh.DynamicalCore)"),
+    )
+    parameter_references = (
+        fr.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
+    )
+
+    @property
+    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
+        """The ``b`` tracer and the ``n2(y)`` meridional profile."""
+        return (
+            fr.FieldDeclaration.tracer(
+                "b", space=fr.Collocated(),
+                long_name="Buoyancy", units="m/s^2"),
+            fr.FieldDeclaration(
+                "n2", space=fr.Profile(self._meridional),
+                lifecycle=fr.Lifecycle.AUXILIARY,
+                default=self._n2_default,
+                long_name="Squared buoyancy frequency",
+                units="1/s^2"),
+        )
+
+    def _n2_default(
+        self, grid, space,  # noqa: ANN001
+    ) -> fr.grid.ScalarField:
+        """Owner-method default: materialize the ``n2(y)`` profile.
+
+        The meridional profile carries a single non-constant
+        coordinate, so ``init`` names exactly that coordinate; the
+        signature is stamped dynamically to match
+        ``self._meridional`` (the ``BetaPlaneCoriolis._f_default``
+        precedent). No pre-syncing (GAP-B).
+        """
+        fn, mer = self._n2_fn, self._meridional
+
+        def init(**coords: object) -> object:
+            return fn(coords[mer])
+
+        init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+            [inspect.Parameter(
+                mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
+        return grid.create_field(space, init=init, name="n2")
+
+    @fr.term(advances=("w",), linear=True)
+    def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
+        """``dw/dt += b / dsqr`` (buoyancy interpolated onto w)."""
+        dsqr = ctx.params[DSQR]
+        return {"w": state["b"].to(state["w"]) / dsqr}
+
+    @fr.term(advances=("b",), linear=True)
+    def restoring(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
+        """``db/dt += -N^2(y) w``, with ``N^2`` sampled at ``b``.
+
+        The pointwise sampling (``n2.to(b)`` is a broadcast onto the
+        shared meridional nodes) keeps the coupling pair exactly
+        M-skew under the ``1/N^2(y)`` energy weight for any profile.
+        """
+        b = state["b"]
+        return {"b": -(state["n2"].to(b) * state["w"].to(b))}

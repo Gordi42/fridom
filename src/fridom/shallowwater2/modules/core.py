@@ -5,13 +5,28 @@ Description
 -----------
 ``DynamicalCore`` declares the state vocabulary (``u``, ``v``,
 ``p``), owns the squared phase speed :math:`c^2` (the AUXILIARY
-``csqr`` field and the ``shallowwater.csqr`` scalar) and the Rossby
-scaling (``scaling.rossby``), and contributes the single **linear**
-pressure-gradient / geopotential-divergence term:
+``csqr`` field and, when constant, the ``shallowwater.csqr`` scalar)
+and the Rossby scaling (``scaling.rossby``), and contributes the
+single **linear** pressure-gradient / geopotential-divergence term:
 
 .. math::
     \partial_t \boldsymbol{u} = - \nabla p , \qquad
     \partial_t p = -\nabla\cdot\left(c^2 \boldsymbol{u}\right)
+
+**Variable depth**: ``csqr`` accepts a callable :math:`c^2(y)` (the
+coriolis two-type precedent, folded into one core because the core
+also owns the whole state vocabulary): the ``csqr`` field is then
+declared on a meridional ``fr.Profile("y")`` and the constant
+``shallowwater.csqr`` scalar is **not** provided
+(provides-implies-constancy, 02_rules) — analytic consumers keyed on
+the provide reject the model, the dense-column channel engine serves
+it. The tendency terms are untouched either way: they read the
+``csqr`` *field* (:math:`c^2` sits inside the divergence — the flux
+form), which is exactly the sampling the variable-depth energy
+metric ``diag(c^2, c^2, 1)`` pairs with. Pair a varying ``csqr``
+with a Coriolis module carrying ``metric_weight="csqr"`` (the
+thickness-weighted rotation) so the rotation stays energy-conserving
+under that metric; the ``sw.Model`` preset wires this automatically.
 
 The rotation :math:`f\,\underset{\neg}{\boldsymbol{u}}` is **not** a
 core term: it is carried by the shared Coriolis module
@@ -23,7 +38,9 @@ module.
 """
 from __future__ import annotations
 
+import inspect
 from functools import partial
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
@@ -32,6 +49,9 @@ from fridom.framework.utils import jaxify
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.state import State
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
 
 
 @partial(jaxify, dynamic=("csqr", "rossby_number"))
@@ -42,14 +62,21 @@ class DynamicalCore(fr.Module):
 
     Parameters
     ----------
-    csqr : float, optional
-        The squared gravity-wave phase speed :math:`c^2` (constant
-        depth); published as ``shallowwater.csqr`` and materialized
-        into the one-DOF ``csqr`` field (default: 1.0).
+    csqr : float | Callable, optional
+        The squared gravity-wave phase speed :math:`c^2`. A float is
+        the constant depth: published as ``shallowwater.csqr`` and
+        materialized into the one-DOF ``csqr`` field. A callable
+        ``csqr(y)`` (evaluated on the meridional coordinate) is the
+        variable depth: materialized into a ``csqr`` field on
+        ``fr.Profile("y")``, with **no** ``shallowwater.csqr``
+        provide (provides-implies-constancy) (default: 1.0).
     rossby_number : float | fr.Ramp, optional
         The Rossby number scaling the (separate) advection term;
         published as ``scaling.rossby`` (default: 1.0); may be a
         ``fr.Ramp`` for a spun-up nonlinearity.
+    meridional : str, optional
+        The meridional coordinate name a callable ``csqr`` varies
+        along (default: ``"y"``).
     """
 
     #: The vocabulary class this core supplies (D1.3 commitment 4).
@@ -59,11 +86,17 @@ class DynamicalCore(fr.Module):
     diagnostics = DIAGNOSTICS
 
     def __init__(
-        self, csqr: float = 1.0, rossby_number: float | fr.Ramp = 1.0,
+        self,
+        csqr: float | Callable = 1.0,
+        rossby_number: float | fr.Ramp = 1.0,
+        *,
+        meridional: str = "y",
     ) -> None:
-        """Store ``csqr`` and the Rossby number as dynamic leaves."""
-        self.csqr = fr.leaf(csqr)
+        """Store the leaves; a callable ``csqr`` stays static."""
+        self._csqr_fn = csqr if callable(csqr) else None
+        self.csqr = None if callable(csqr) else fr.leaf(csqr)
         self.rossby_number = fr.leaf(rossby_number)
+        self._meridional = meridional
 
     # ================================================================
     #  Declarations
@@ -71,6 +104,18 @@ class DynamicalCore(fr.Module):
     @property
     def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
         """U (east face), v (north face), p (centre), csqr (AUX)."""
+        if self._csqr_fn is None:
+            csqr_decl = fr.FieldDeclaration(
+                "csqr", space=fr.Profile(),
+                lifecycle=fr.Lifecycle.AUXILIARY,
+                default=self._csqr_default,
+                long_name="Squared phase speed", units="m^2/s^2")
+        else:
+            csqr_decl = fr.FieldDeclaration(
+                "csqr", space=fr.Profile(self._meridional),
+                lifecycle=fr.Lifecycle.AUXILIARY,
+                default=self._csqr_profile_default,
+                long_name="Squared phase speed", units="m^2/s^2")
         return (
             fr.FieldDeclaration.velocity(
                 "u", "x", space=fr.Staggered("x"),
@@ -81,18 +126,24 @@ class DynamicalCore(fr.Module):
             fr.FieldDeclaration(
                 "p", space=fr.Collocated(),
                 long_name="Pressure (g*eta)", units="m^2/s^2"),
-            fr.FieldDeclaration(
-                "csqr", space=fr.Profile(),
-                lifecycle=fr.Lifecycle.AUXILIARY,
-                default=self._csqr_default,
-                long_name="Squared phase speed", units="m^2/s^2"),
+            csqr_decl,
         )
 
-    parameter_declarations = (
-        fr.ParameterDeclaration(
-            fr.params.SCALING_ROSSBY, attr="rossby_number"),
-        fr.ParameterDeclaration(
-            sw_params.CSQR, attr="csqr", units="m^2/s^2"))
+    @property
+    def parameter_declarations(
+        self,
+    ) -> tuple[fr.ParameterDeclaration, ...]:
+        """Rossby always; ``shallowwater.csqr`` only when constant."""
+        decls = (
+            fr.ParameterDeclaration(
+                fr.params.SCALING_ROSSBY, attr="rossby_number"),
+        )
+        if self._csqr_fn is None:
+            decls += (
+                fr.ParameterDeclaration(
+                    sw_params.CSQR, attr="csqr", units="m^2/s^2"),
+            )
+        return decls
 
     def _csqr_default(
         self, grid, space,  # noqa: ANN001
@@ -109,6 +160,27 @@ class DynamicalCore(fr.Module):
         return grid.create_field(
             space, data=jnp.full(space.shape, self.csqr),
             name="csqr")
+
+    def _csqr_profile_default(
+        self, grid, space,  # noqa: ANN001
+    ) -> fr.grid.ScalarField:
+        """Owner-method default: materialize the ``csqr(y)`` profile.
+
+        The meridional profile carries a single non-constant
+        coordinate, so ``init`` names exactly that coordinate; the
+        signature is stamped dynamically to match ``self._meridional``
+        (the ``BetaPlaneCoriolis._f_default`` precedent). No
+        pre-syncing (GAP-B).
+        """
+        fn, mer = self._csqr_fn, self._meridional
+
+        def init(**coords: object) -> object:
+            return fn(coords[mer])
+
+        init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+            [inspect.Parameter(
+                mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
+        return grid.create_field(space, init=init, name="csqr")
 
     # ================================================================
     #  Tendency terms (linear)

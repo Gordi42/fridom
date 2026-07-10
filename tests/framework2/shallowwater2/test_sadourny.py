@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 import fridom.framework2 as fr
+import fridom.shallowwater2 as sw
 from fridom.shallowwater2 import params as sw_params
 
 from .conftest import (
@@ -239,3 +240,38 @@ def test_walled_nonlinear_run_is_stable(periodic_x):
             assert not bool(model.state[name].has_nan())
         peak = max(peak, abs(h_energy(model) - e0) / e0)
     assert peak < 5e-3
+
+
+# ================================================================
+#  Variable depth: Sadourny reads the csqr(y) FIELD (verified)
+# ================================================================
+def varying_walled_model(*, f0=0.0, ro=0.4):
+    """Build a variable-depth walled channel (csqr(y) field)."""
+    coriolis = sw.modules.FPlaneCoriolis(
+        f0=f0, metric_weight="csqr")
+    return sw.Model(
+        grid=make_grid(periodic_y=False),
+        csqr=lambda y: 1.0 + 0.5 * np.sin(np.pi * y),
+        rossby_number=ro, coriolis=coriolis, advection=True,
+        time_stepper=fr.time_steppers.AdamBashforth(2e-3, order=3))
+
+
+@pytest.mark.parametrize("seed", [3, 11])
+def test_varying_depth_energy_rate_is_machine_zero(seed):
+    # the h-weighted invariant (h = c^2(y) + Ro p) holds for the
+    # variable depth too: the scheme reads the csqr FIELD (the §8.8
+    # fix), so gravity + advection telescope exactly
+    model = varying_walled_model(f0=0.0)
+    set_random(model, seed=seed)
+    terms = h_energy_terms(model)
+    scale = sum(abs(t) for t in terms)
+    assert abs(sum(terms)) / scale < 1e-13
+
+
+def test_varying_depth_mass_rate_is_machine_zero():
+    model = varying_walled_model(f0=1.0)
+    set_random(model, seed=5)
+    dp = model.tendency(model.state)["p"]
+    rate = float(dp.integrate().data.ravel()[0])
+    scale = float(abs(dp).integrate().data.ravel()[0])
+    assert abs(rate) / scale < 1e-14

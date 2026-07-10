@@ -35,7 +35,10 @@ if TYPE_CHECKING:  # pragma: no cover
     from .model import Model
     from .modules.advection import CenteredAdvection
     from .modules.core import DynamicalCore
-    from .modules.stratification import ConstantStratification
+    from .modules.stratification import (
+        ConstantStratification,
+        MeridionalStratification,
+    )
     from .state import State
 
 base = "fridom.nonhydro2"
@@ -54,7 +57,8 @@ all_imports_by_origin = {
     # the Coriolis family is the shared framework module library
     "fridom.framework2.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis"],
-    f"{base}.modules.stratification": ["ConstantStratification"],
+    f"{base}.modules.stratification": [
+        "ConstantStratification", "MeridionalStratification"],
     f"{base}.modules.advection": ["CenteredAdvection"],
 }
 

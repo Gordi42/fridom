@@ -41,6 +41,7 @@ from fridom.nonhydro2.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
+    MeridionalStratification,
 )
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
@@ -483,3 +484,58 @@ def test_walled_advection_is_a_taught_error():
     with pytest.raises(NotImplementedError,
                        match=r"walled grids .*advection=False"):
         nh.Model(grid=grid, dt=DT)  # default advection module
+
+
+# ================================================================
+#  MeridionalStratification: the varying N^2(y) module type
+# ================================================================
+def make_walled_y_grid(n=N):
+    mx = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x")
+    my = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+    mz = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="z")
+    return Grid((mx, my, mz))
+
+
+def test_meridional_stratification_rejects_a_constant():
+    with pytest.raises(TypeError, match="ConstantStratification"):
+        MeridionalStratification(n2=2.0)
+
+
+def test_meridional_stratification_declares_the_profile():
+    # the two-type precedent: the meridional-profile n2 field is
+    # materialized from the callable; provides-implies-constancy
+    # means the constant scalar is absent
+    model = nh.Model(
+        grid=make_walled_y_grid(), dt=DT, advection=False,
+        stratification=MeridionalStratification(
+            n2=lambda y: 1.0 + 2.0 * y * y))
+    assert STRATIFICATION_N2 not in model.parameters
+    n2 = model.state["n2"]
+    centres = (np.arange(N) + 0.5) / N
+    np.testing.assert_allclose(
+        np.asarray(n2.data).ravel(), 1.0 + 2.0 * centres ** 2)
+
+
+def test_meridional_constant_profile_tendency_matches_constant():
+    # N^2(y) = n0: the profile broadcast multiplies pointwise, so
+    # the coupling terms agree with ConstantStratification bitwise
+    n0 = 3.0
+    varying = nh.Model(
+        grid=make_walled_y_grid(), dt=DT, advection=False,
+        stratification=MeridionalStratification(
+            n2=lambda y: n0 + 0.0 * y))
+    constant = nh.Model(
+        grid=make_walled_y_grid(), dt=DT, advection=False,
+        stratification=ConstantStratification(n2=n0))
+    rng = np.random.default_rng(7)
+    fields = {c: rng.standard_normal(
+        np.asarray(constant.state[c].data).shape)
+        for c in ("u", "v", "w", "b")}
+    varying.set_fields(**fields)
+    constant.set_fields(**fields)
+    tv = varying.tendency(varying.state)
+    tc = constant.tendency(constant.state)
+    for c in ("u", "v", "w", "b"):
+        np.testing.assert_allclose(
+            np.asarray(tv[c].data), np.asarray(tc[c].data),
+            rtol=0.0, atol=0.0)

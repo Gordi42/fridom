@@ -16,12 +16,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom.framework2 as fr
-from fridom.framework2.modules.coriolis import FPlaneCoriolis
+from fridom.framework2.modules.coriolis import (
+    BetaPlaneCoriolis,
+    FPlaneCoriolis,
+)
 from fridom.shallowwater2.modules.core import DynamicalCore
 from fridom.shallowwater2.modules.sadourny import SadournyAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from fridom.framework2.grid.grid import Grid
     from fridom.framework2.model.model import Model as _Model
@@ -31,7 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover
 def Model(  # noqa: N802 — constructor-like factory (D1.3)
     *,
     grid: Grid,
-    csqr: float = 1.0,
+    csqr: float | Callable = 1.0,
     rossby_number: float = 1.0,
     coriolis: fr.Module | None = None,
     advection: bool = True,
@@ -47,13 +50,24 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     ----------
     grid : Grid
         The (periodic, 2-D) grid.
-    csqr : float, optional
-        Squared gravity-wave phase speed :math:`c^2` (default: 1.0).
+    csqr : float | Callable, optional
+        Squared gravity-wave phase speed :math:`c^2`: a float for
+        constant depth, or a callable ``csqr(y)`` for variable
+        depth (materialized into a meridional ``csqr`` profile
+        field; no constant ``shallowwater.csqr`` provide). With a
+        callable the default Coriolis module is built with
+        ``metric_weight="csqr"`` — the thickness-weighted rotation
+        that conserves the :math:`c^2`-weighted energy
+        (default: 1.0).
     rossby_number : float, optional
         Rossby number scaling the advection (default: 1.0).
     coriolis : fr.Module | None, optional
         The Coriolis field provider; default
-        ``FPlaneCoriolis(f0=1.0)``.
+        ``FPlaneCoriolis(f0=1.0)`` (with ``metric_weight="csqr"``
+        when ``csqr`` is callable). An explicit framework Coriolis
+        module combined with a callable ``csqr`` must carry
+        ``metric_weight="csqr"`` itself; the preset raises
+        otherwise.
     advection : bool, optional
         Include the Sadourny nonlinear advection (default: True).
     time_stepper : TimeStepper | None, optional
@@ -72,9 +86,30 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     -------
     fr.Model
         The assembled model.
+
+    Raises
+    ------
+    ValueError
+        A callable ``csqr`` combined with an explicit framework
+        Coriolis module whose ``metric_weight`` is unset.
     """
     core = DynamicalCore(csqr=csqr, rossby_number=rossby_number)
-    cor = FPlaneCoriolis(f0=1.0) if coriolis is None else coriolis
+    if coriolis is None:
+        cor = FPlaneCoriolis(
+            f0=1.0,
+            metric_weight="csqr" if callable(csqr) else None)
+    else:
+        cor = coriolis
+        if (callable(csqr)
+                and isinstance(cor, FPlaneCoriolis | BetaPlaneCoriolis)
+                and cor.metric_weight is None):
+            raise ValueError(
+                "a variable-depth shallow-water model (callable "
+                "csqr) needs the thickness-weighted rotation: "
+                "construct the Coriolis module with "
+                "metric_weight='csqr' (without it the rotation "
+                "does work against the c^2-weighted energy metric "
+                "and the model no longer conserves energy exactly)")
     modules: tuple[fr.Module, ...] = (core, cor)
     if advection:
         modules += (SadournyAdvection(),)

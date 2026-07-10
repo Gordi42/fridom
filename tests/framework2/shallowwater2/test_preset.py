@@ -1,12 +1,14 @@
 """The D4 preset test and the State vocabulary contract."""
 import jax
+import numpy as np
 import pytest
 
 import fridom.framework2 as fr
 import fridom.shallowwater2 as sw
+from fridom.framework2.modules.coriolis import FPlaneCoriolis
 from fridom.shallowwater2.state import MissingComponentError, State
 
-from .conftest import make_grid
+from .conftest import N, make_grid
 
 
 # ================================================================
@@ -63,3 +65,76 @@ def test_missing_component_accessor_raises_hinted():
         fr.Staggered("x").resolve(grid))})
     with pytest.raises(MissingComponentError, match="core"):
         _ = only_u.p
+
+
+# ================================================================
+#  Variable depth: the csqr(y) declaration path
+# ================================================================
+def csqr_profile(y):
+    return 1.0 + 0.5 * np.sin(np.pi * y)
+
+
+def make_varying(coriolis=None):
+    return sw.Model(
+        grid=make_grid(periodic_y=False), csqr=csqr_profile,
+        rossby_number=0.2, coriolis=coriolis, advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+def test_varying_csqr_declares_a_profile_and_drops_the_provide():
+    # provides-implies-constancy: the callable path materializes the
+    # meridional csqr field and provides NO shallowwater.csqr scalar
+    model = make_varying()
+    assert sw.params.CSQR not in model.parameters
+    csqr = model.state["csqr"]
+    centres = (np.arange(N) + 0.5) / N
+    np.testing.assert_allclose(
+        np.asarray(csqr.data).ravel(), csqr_profile(centres))
+
+
+def test_constant_csqr_still_provides_the_scalar():
+    model = sw.Model(
+        grid=make_grid(), csqr=0.7,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    assert float(model.parameters[sw.params.CSQR]) == 0.7
+    # the constant field stays one-DOF
+    assert np.asarray(model.state["csqr"].data).size == 1
+
+
+def test_varying_csqr_default_coriolis_is_thickness_weighted():
+    model = make_varying()
+    assert model.module(FPlaneCoriolis).metric_weight == "csqr"
+
+
+def test_varying_csqr_with_an_unweighted_coriolis_is_taught():
+    with pytest.raises(ValueError, match="metric_weight='csqr'"):
+        make_varying(coriolis=sw.modules.FPlaneCoriolis(f0=1.0))
+    with pytest.raises(ValueError, match="metric_weight='csqr'"):
+        make_varying(coriolis=sw.modules.BetaPlaneCoriolis(
+            f0=1.0, beta=0.5))
+
+
+def test_varying_csqr_with_a_weighted_coriolis_assembles():
+    model = make_varying(coriolis=sw.modules.BetaPlaneCoriolis(
+        f0=1.0, beta=0.5, metric_weight="csqr"))
+    assert type(model) is fr.Model
+
+
+def test_varying_csqr_guard_skips_non_framework_modules():
+    # the guard inspects only the framework Coriolis types; a
+    # rotation-free custom module slot assembles untouched
+    model = make_varying(coriolis=sw.modules.SadournyAdvection())
+    assert type(model) is fr.Model
+
+
+def test_varying_csqr_model_steps():
+    # the tendency terms read the csqr FIELD, so the varying model
+    # integrates as-is (advection included via a separate test)
+    model = make_varying()
+    rng = np.random.default_rng(5)
+    model.set_fields(
+        u=0.01 * rng.standard_normal(model.state["u"].shape),
+        v=0.01 * rng.standard_normal(model.state["v"].shape),
+        p=0.01 * rng.standard_normal(model.state["p"].shape))
+    model.advance(3)
+    assert not bool(model.state["p"].has_nan())

@@ -679,7 +679,10 @@ def from_model(
             raise ValueError(
                 f"eigenmodes need a constant {name!r}; the model does "
                 "not provide it (a beta-plane / profile module is not "
-                "Fourier-diagonalizable)")
+                "Fourier-diagonalizable — the analytic path is "
+                "constant-only; a varying profile is served on the "
+                "single-walled horizontal channel by nh.eigenbasis, "
+                "the numeric engine)")
         value = params[name]
         if isinstance(value, fr.TimeDependent):
             return float(value.at_time(at_time))

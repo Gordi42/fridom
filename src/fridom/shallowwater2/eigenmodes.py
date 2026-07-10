@@ -457,8 +457,10 @@ def from_model(
          "Fourier-diagonalizable); assemble with "
          "sw.modules.FPlaneCoriolis"),
         (sw_params.CSQR,
-         "a constant squared phase speed; assemble with a "
-         "constant-depth DynamicalCore"),
+         "a constant squared phase speed (a variable-depth "
+         "csqr(y) is not Fourier-diagonalizable; it is served "
+         "only on the single-walled channel, by sw.eigenbasis); "
+         "assemble with a constant-depth DynamicalCore"),
     ):
         if name not in view:
             raise ValueError(

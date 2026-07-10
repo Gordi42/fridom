@@ -822,3 +822,175 @@ def test_constraint_overlap_rejects_a_2d_basis():
                                 np.tile(np.eye(7), (2, 1, 1)))
     with pytest.raises(ValueError, match=r"\(n_kx, n_kz, D, D\)"):
         constraint_overlap(object(), flat)
+
+
+# ================================================================
+#  Meridional stratification N^2(y): the varying metric coefficient
+# ================================================================
+def n2_profile(y):
+    """Return a varying, strictly positive N^2(y)."""
+    return 1.0 + 2.0 * y * y
+
+
+def make_varying_channel(n2=n2_profile):
+    """Build the walled-y channel with N^2 varying along y."""
+    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+                                     name="x")
+    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
+                                     name="y")
+    mz = fr.grid.meshes.IntervalMesh(N, (0.0, LZ), periodic=True,
+                                     name="z")
+    return nh.Model(
+        grid=fr.grid.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
+        coriolis=nh.FPlaneCoriolis(f0=F0),
+        stratification=nh.MeridionalStratification(n2=n2),
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+@pytest.fixture(scope="module")
+def varying_em():
+    """Labeled eigenmodes with N^2 varying along the dense y axis."""
+    return ChannelEigenmodes(make_varying_channel())
+
+
+def test_varying_n2_engine_is_hermitian_and_orthonormal(varying_em):
+    assert varying_em.basis.hermiticity_error < 1e-13
+    assert float(varying_em.basis.orthonormality_error()) < 1e-12
+
+
+def test_varying_n2_zero_space_split_stays_crisp(varying_em):
+    r"""Steady balance and the Leray split survive N^2(y).
+
+    The steady branch carries w = 0, so the varying restoring
+    -N^2(y) w never enters it: every plane keeps the constant-N^2
+    zero census, and the constraint/vortical overlap split labels
+    ALL zero columns (machine-crisp {0, 1} eigenvalues — the Leray
+    projector never involves N^2).
+    """
+    omega = np.asarray(varying_em.omega)
+    labels = np.asarray(varying_em.labels)
+    zeros = np.abs(omega) < 1e-8
+    vortical, constraint, _kelvin, _wave = expected_counts()
+    assert (zeros.sum(axis=-1) == vortical + constraint).all()
+    assert (np.isin(labels[zeros], (VORTICAL, CONSTRAINT))).all()
+    assert ((labels == CONSTRAINT).sum(axis=-1) == constraint).all()
+
+
+def test_varying_n2_labels_follow_the_measured_physics(varying_em):
+    r"""The measured label census under a varying N^2(y).
+
+    The kx = 0, kz = 0 and kz-Nyquist planes stay fully labeled
+    (no Kelvin family exists there; the structural wave counts
+    hold — at the z-Nyquist buoyancy decouples entirely and N^2(y)
+    drops out). On the Kelvin-carrying interior planes (kx != 0,
+    0 < kz < Nyquist) the crisp wall-normal-energy criterion
+    genuinely degrades — the trapped-mode structure requires a
+    y-uniform restoring — so the fast band (2(N - 1) waves plus the
+    blurred pair) stays UNLABELED per the beta doctrine.
+    """
+    labels = np.asarray(varying_em.labels)
+    _vortical, _constraint, _kelvin, wave = expected_counts()
+    assert not np.isin(labels, (KELVIN_PLUS, KELVIN_MINUS)).any()
+    for ikx in range(N):
+        for ikz in range(NZH):
+            plane = labels[ikx, ikz]
+            unlabeled = int((plane == UNLABELED).sum())
+            if ikx != 0 and 0 < ikz < NZH - 1:
+                assert unlabeled == 2 * (N - 1) + 2
+                assert (plane == WAVE_PLUS).sum() == 0
+            else:
+                assert unlabeled == 0
+                assert (plane == WAVE_PLUS).sum() == wave[ikx, ikz]
+
+
+def test_varying_n2_kelvin_criterion_is_measurably_blurred(
+        varying_em):
+    # the wall-normal energy of every nonzero column on a
+    # kelvin-eligible plane sits far above the crispness scale
+    omega = np.asarray(varying_em.omega)
+    q = np.asarray(varying_em.q)
+    metric = np.asarray(varying_em.metric)
+    v_slice = varying_em.slices["v"]
+    for ikx, ikz in ((1, 1), (2, 2), (3, 1)):
+        nz = np.abs(omega[ikx, ikz]) > 1e-8
+        energy = np.einsum(
+            "ij,i->j", np.abs(q[ikx, ikz][v_slice]) ** 2,
+            metric[v_slice])
+        assert energy[nz].min() > 1e-8
+
+
+def test_varying_constant_profile_reproduces_the_constant_path(
+        model, em):
+    # N^2(y) = n0 through the varying path is the constant coupling
+    # bit for bit (the profile broadcast multiplies pointwise):
+    # spectrum, labels and projector applications agree
+    cv_model = make_varying_channel(n2=lambda y: N2 + 0.0 * y)
+    cv = ChannelEigenmodes(cv_model)
+    assert np.abs(np.asarray(cv.omega)
+                  - np.asarray(em.omega)).max() < 1e-12
+    assert (np.asarray(cv.labels) == np.asarray(em.labels)).all()
+    rng = np.random.default_rng(51)
+    fields = {c: rng.standard_normal(
+        np.asarray(cv_model.state[c].data).shape)
+        for c in em.components}
+    za = nh.State({c: model.state[c].with_data(
+        jnp.asarray(fields[c])) for c in em.components})
+    zb = nh.State({c: cv_model.state[c].with_data(
+        jnp.asarray(fields[c])) for c in em.components})
+    for family in ("vortical", "wave"):
+        a = em.projector(family)(za)
+        b = cv.projector(family)(zb)
+        assert max(
+            float(np.abs(np.asarray(a[c].data)
+                         - np.asarray(b[c].data)).max())
+            for c in em.components) < 1e-12
+
+
+def test_varying_n2_wave_frequencies_shift_monotonically():
+    # physical sanity: raising N^2(y) pointwise raises the
+    # stratified wave band (the top |omega| per plane); the
+    # z-Nyquist planes tie EXACTLY — the w <-> b interpolation
+    # factor cos(kz dz / 2) vanishes there, buoyancy decouples and
+    # the inertial strata never see N^2(y)
+    lo = ChannelEigenmodes(make_varying_channel(
+        n2=lambda y: 1.0 + y * y))
+    hi = ChannelEigenmodes(make_varying_channel(
+        n2=lambda y: 2.0 + 2.0 * y * y))
+    top_lo = np.sort(np.abs(np.asarray(lo.omega)), axis=-1)[..., -1]
+    top_hi = np.sort(np.abs(np.asarray(hi.omega)), axis=-1)[..., -1]
+    active = top_lo > 1e-8  # skip the all-zero double-Nyquist plane
+    stratified = active.copy()
+    stratified[:, -1] = False
+    assert (top_hi[stratified] > top_lo[stratified]).all()
+    nyquist = active & ~stratified
+    assert np.abs(top_hi[nyquist] - top_lo[nyquist]).max() < 1e-12
+
+
+def test_varying_n2_eigenbasis_surface_routes_to_the_engine():
+    em = nh.eigenbasis(make_varying_channel())
+    assert isinstance(em, ChannelEigenmodes)
+    assert em.basis.hermiticity_error < 1e-13
+
+
+def test_varying_n2_analytic_paths_are_taught_errors():
+    # fully periodic and walled-vertical grids keep the analytic
+    # (constant-only) eigenmodes: a varying N^2 names the engine
+    def build(periodic_z):
+        mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX),
+                                         periodic=True, name="x")
+        my = fr.grid.meshes.IntervalMesh(N, (0.0, LY),
+                                         periodic=True, name="y")
+        mz = fr.grid.meshes.IntervalMesh(N, (0.0, LZ),
+                                         periodic=periodic_z,
+                                         name="z")
+        return nh.Model(
+            grid=fr.grid.Grid((mx, my, mz)), advection=False,
+            dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
+            stratification=nh.MeridionalStratification(
+                n2=n2_profile),
+            time_stepper=fr.time_steppers.AdamBashforth(
+                5e-3, order=3))
+
+    for periodic_z in (True, False):
+        with pytest.raises(ValueError, match=r"nh\.eigenbasis"):
+            nh.eigenmodes.from_model(build(periodic_z))
