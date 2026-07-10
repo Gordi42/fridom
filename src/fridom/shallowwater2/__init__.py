@@ -15,6 +15,8 @@ shallow-water vocabulary and physics:
   (``sw.Model(grid=..., coriolis=..., ...)``);
 - :mod:`~fridom.shallowwater2.eigenmodes` — ``from_model`` and the
   linear dispersion eigenmodes;
+- :mod:`~fridom.shallowwater2.channel_eigenmodes` — the labeled
+  numeric eigenmodes of the walled channel;
 - :mod:`~fridom.shallowwater2.params` — the package parameter names.
 
 Lazy re-exports (mirroring ``fridom.framework2.grid.__init__``): the
@@ -30,9 +32,17 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
-    from . import diagnostics, eigenmodes, modules, params, transforms
+    from . import (
+        channel_eigenmodes,
+        diagnostics,
+        eigenmodes,
+        modules,
+        params,
+        transforms,
+    )
 
     # import all classes
+    from .channel_eigenmodes import ChannelEigenmodes
     from .model import Model
     from .state import State
 
@@ -42,11 +52,12 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.shallowwater2"
 
 all_modules_by_origin = {
-    base: ["modules", "eigenmodes", "diagnostics", "params",
-           "transforms"],
+    base: ["modules", "eigenmodes", "channel_eigenmodes",
+           "diagnostics", "params", "transforms"],
 }
 
 all_imports_by_origin = {
+    f"{base}.channel_eigenmodes": ["ChannelEigenmodes"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
 }

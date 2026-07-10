@@ -44,6 +44,7 @@ from fridom.framework2.grid.symbols import GridSymbols, rayleigh_dual
 from fridom.framework2.model.energy import shallowwater_energy_weights
 from fridom.framework2.model.time_dependent import resolve_at
 from fridom.shallowwater2 import params as sw_params
+from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
 from fridom.shallowwater2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -335,17 +336,25 @@ class Eigenmodes:
         return shallowwater_energy_weights(inv_csqr)
 
 
-def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
+def from_model(
+    model: Model, *, at_time: float = 0.0,
+) -> Eigenmodes | ChannelEigenmodes:
     r"""
     Build the eigenmodes of an assembled shallow-water model.
 
     Description
     -----------
-    Extracts the constant Coriolis parameter and squared phase speed
-    through ``model.parameters`` with structural validation: a
-    beta-plane core provides no ``coriolis.f0`` (its ``f`` is a
-    field, not Fourier-diagonalizable) and raises here. Ramp-valued
-    parameters demand an explicit ``at_time`` (a fixed-time snapshot).
+    Dispatches on the grid topology. A fully periodic grid gets the
+    analytic operator-sourced :class:`Eigenmodes`; the parameters
+    are read through ``model.parameters`` with structural
+    validation — a beta-plane core provides no ``coriolis.f0`` (its
+    ``f`` is a field, not Fourier-diagonalizable) and raises here.
+    A grid with exactly one bounded (walled) axis gets the numeric
+    :class:`~fridom.shallowwater2.channel_eigenmodes.ChannelEigenmodes`
+    (the labeled dense-column channel eigenbasis, beta-plane
+    included). A multi-walled box has no periodic axis left to
+    diagonalize over and is rejected. Ramp-valued parameters demand
+    an explicit ``at_time`` (a fixed-time snapshot).
 
     Parameters
     ----------
@@ -357,15 +366,29 @@ def from_model(model: Model, *, at_time: float = 0.0) -> Eigenmodes:
 
     Returns
     -------
-    Eigenmodes
-        The eigenmode object.
+    Eigenmodes | ChannelEigenmodes
+        The analytic eigenmodes (fully periodic) or the labeled
+        channel eigenmodes (one bounded axis).
 
     Raises
     ------
     ValueError
-        If ``coriolis.f0`` or ``shallowwater.csqr`` is not provided
+        On a multi-walled grid, or — on the fully periodic path —
+        if ``coriolis.f0`` or ``shallowwater.csqr`` is not provided
         (a non-constant-coefficient system).
     """
+    bounded = tuple(
+        name for mesh in model.grid.factors
+        if not getattr(mesh, "periodic", True)
+        for name in mesh.names)
+    if len(bounded) > 1:
+        raise ValueError(
+            "shallow-water eigenmodes serve the fully periodic grid "
+            "(analytic) or the single-walled channel (numeric); "
+            f"this grid bounds {bounded!r} — a multi-walled box has "
+            "no periodic axis left to diagonalize over")
+    if bounded:
+        return ChannelEigenmodes(model, at_time=at_time)
     view = model.parameters
     for name, why in (
         (fr.params.CORIOLIS_F0,

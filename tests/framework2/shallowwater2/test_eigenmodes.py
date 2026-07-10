@@ -243,6 +243,43 @@ def test_mode_family_is_complete_off_the_nyquist_nullspace():
 
 
 # ================================================================
+#  from_model dispatch: topology first, then parameter validation
+# ================================================================
+def _walled_model(*, periodic_x=True, coriolis=None):
+    mx = fr.grid.meshes.IntervalMesh(8, (0.0, 1.0),
+                                     periodic=periodic_x, name="x")
+    my = fr.grid.meshes.IntervalMesh(8, (0.0, 1.0), periodic=False,
+                                     name="y")
+    if coriolis is None:
+        coriolis = sw.modules.FPlaneCoriolis(f0=1.0)
+    return sw.Model(
+        grid=fr.grid.Grid((mx, my)), csqr=1.0, rossby_number=0.2,
+        coriolis=coriolis, advection=False,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+def test_from_model_dispatches_the_walled_channel():
+    # a single bounded axis routes to the numeric channel eigenmodes
+    # (previously a raw DispatchError out of the analytic kit)
+    em = sw.eigenmodes.from_model(_walled_model())
+    assert isinstance(em, sw.ChannelEigenmodes)
+
+
+def test_from_model_routes_a_walled_beta_plane_to_the_channel():
+    # topology dispatch precedes the constant-f0 validation: the
+    # channel path serves the beta plane numerically
+    em = sw.eigenmodes.from_model(_walled_model(
+        coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0)))
+    assert isinstance(em, sw.ChannelEigenmodes)
+
+
+def test_from_model_rejects_a_multi_walled_box():
+    with pytest.raises(ValueError,
+                       match=r"bounds \('x', 'y'\).*multi-walled"):
+        sw.eigenmodes.from_model(_walled_model(periodic_x=False))
+
+
+# ================================================================
 #  from_model structural validation
 # ================================================================
 def test_from_model_rejects_a_beta_plane():
