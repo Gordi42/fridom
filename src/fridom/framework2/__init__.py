@@ -44,6 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover
         ChannelEigenbasis,
         channel_eigenpairs,
     )
+    from .model.eigenbasis import eigenbasis
     from .model.energy import EnergyMetric
     from .model.model import Model
     from .model.module import Module
@@ -119,6 +120,7 @@ all_imports_by_origin = {
     f"{base}.model.eigen": ["NumericEigenmodes", "numeric_eigenpairs"],
     f"{base}.model.eigen_channel": [
         "ChannelEigenbasis", "channel_eigenpairs"],
+    f"{base}.model.eigenbasis": ["eigenbasis"],
     f"{base}.model.energy": ["EnergyMetric"],
     f"{base}.model.term_predicates": ["linearize"],
     f"{base}.transforms.base": ["StateTransform"],

@@ -22,8 +22,9 @@ physics. :func:`label_channel_modes` classifies the columns of a
 :class:`~fridom.framework2.model.eigen_channel.ChannelEigenbasis` —
 exact on the f-plane, best-effort (graceful) under beta — and
 :class:`ChannelEigenmodes` bundles ``channel_eigenpairs`` with that
-labeler behind a passthrough surface for the downstream family
-projections.
+labeler behind the shared
+:class:`~fridom.framework2.model.eigenbasis.ChannelEigenmodesBase`
+passthrough surface for the downstream family projections.
 """
 from __future__ import annotations
 
@@ -36,7 +37,13 @@ import numpy as np
 
 from fridom.framework2.model.eigen_channel import (
     UNLABELED,
-    channel_eigenpairs,
+    ChannelEigenbasis,
+)
+from fridom.framework2.model.eigenbasis import (
+    ChannelEigenmodesBase,
+    recover_crisp_column,
+    segment_energy,
+    split_frequency_bands,
 )
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -44,10 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
-    from fridom.framework2.grid.grid import Grid
-    from fridom.framework2.model.eigen_channel import ChannelEigenbasis
     from fridom.framework2.model.model import Model
-    from fridom.framework2.transforms.base import StateTransform
 
 # ================================================================
 #  The family label codes
@@ -103,11 +107,12 @@ def label_channel_modes(
        near-degenerate frequency cluster (``|d omega| <
        degeneracy_tol`` relative), no column is crisp; the 2-cluster
        is then rotated by the eigenbasis of its 2x2 ``v``-energy
-       Gram (a tiny sub-``eigh``) to expose the ``v``-free
-       direction. The rotation is written back into ``basis.q`` (a
-       unitary column mixing — M-orthonormality is preserved; the
-       eigen-relation residual of the pair changes only at the
-       cluster's frequency splitting).
+       Gram (the shared
+       :func:`~fridom.framework2.model.eigenbasis.recover_crisp_column`
+       helper) to expose the ``v``-free direction. The rotation is
+       written back into ``basis.q`` (a unitary column mixing —
+       M-orthonormality is preserved; the eigen-relation residual of
+       the pair changes only at the cluster's frequency splitting).
     3. The remaining nonzero columns: with ``n_u`` bounded-axis
        ``u`` nodes the wave (Poincaré) branch structurally holds
        ``2 (n_u - 1)`` columns per plane. If exactly that many
@@ -197,14 +202,14 @@ def _label_plane(
     kelvin = np.zeros(omega.shape, dtype=bool)
     rotated = False
     if kelvin_allowed:
-        v_energy = _v_energy(q, metric, v_slice)
+        v_energy = segment_energy(q, metric, v_slice)
         crisp = ~zero & (v_energy < kelvin_tol)
         for sign, code in ((1, KELVIN_PLUS), (-1, KELVIN_MINUS)):
             cand = crisp & (np.sign(omega) == sign)
             if not cand.any():
-                col = _recover_kelvin(
+                col = recover_crisp_column(
                     q, omega, ~zero & (np.sign(omega) == sign),
-                    metric, v_slice, kelvin_tol=kelvin_tol,
+                    metric, v_slice, energy_tol=kelvin_tol,
                     degeneracy_tol=degeneracy_tol)
                 if col is None:
                     continue
@@ -212,117 +217,33 @@ def _label_plane(
                 rotated = True
             labels[cand] = code
             kelvin |= cand
-    _label_wave_bands(labels, omega, ~zero & ~kelvin,
-                      n_wave=n_wave, gap_ratio=gap_ratio)
+    split_frequency_bands(
+        labels, omega, ~zero & ~kelvin, n_fast=n_wave,
+        gap_ratio=gap_ratio, slow_code=VORTICAL,
+        fast_plus_code=WAVE_PLUS, fast_minus_code=WAVE_MINUS)
     return rotated
-
-
-def _v_energy(
-    q: np.ndarray, metric: np.ndarray, v_slice: slice,
-) -> np.ndarray:
-    """Per-column ``v``-segment M-energy of the (unit) columns."""
-    return np.einsum("ij,i->j", np.abs(q[v_slice, :]) ** 2,
-                     metric[v_slice])
-
-
-def _recover_kelvin(
-    q: np.ndarray,
-    omega: np.ndarray,
-    candidates: np.ndarray,
-    metric: np.ndarray,
-    v_slice: slice,
-    *,
-    kelvin_tol: float,
-    degeneracy_tol: float,
-) -> int | None:
-    r"""
-    Rotate a near-degenerate 2-cluster to expose a ``v``-free column.
-
-    Description
-    -----------
-    When a Kelvin column is nearly degenerate with a Poincaré
-    column, ``eigh`` may return an arbitrary mixture of the pair;
-    neither mixed column is then ``v``-crisp. For each adjacent
-    same-sign pair within ``degeneracy_tol`` (relative), the 2x2
-    ``v``-energy Gram is diagonalized: a near-zero smallest
-    eigenvalue means the 2-space contains a ``v``-free direction,
-    and the unitary Gram eigenbasis rotates the two columns of ``q``
-    **in place** to expose it (column ``j`` becomes the minimal-
-    ``v``-energy combination).
-
-    Returns
-    -------
-    int | None
-        The recovered Kelvin column index, or None if no cluster
-        yields a ``v``-free direction.
-    """
-    cols = np.where(candidates)[0]
-    for pos in range(len(cols) - 1):
-        j, k = cols[pos], cols[pos + 1]
-        scale = max(1.0, abs(omega[j]))
-        if abs(omega[k] - omega[j]) > degeneracy_tol * scale:
-            continue
-        pair = q[:, [j, k]]
-        weighted = metric[v_slice, None] * pair[v_slice]
-        gram = pair[v_slice].conj().T @ weighted
-        evals, evecs = np.linalg.eigh(gram)
-        if evals[0] >= kelvin_tol:
-            continue
-        q[:, [j, k]] = pair @ evecs
-        return int(j)
-    return None
-
-
-def _label_wave_bands(
-    labels: np.ndarray,
-    omega: np.ndarray,
-    rest: np.ndarray,
-    *,
-    n_wave: int,
-    gap_ratio: float,
-) -> None:
-    """Split the remaining columns into slow/vortical and wave+/-."""
-    n_slow = int(rest.sum()) - n_wave
-    if n_slow < 0:
-        return  # unexpected plane structure: stay UNLABELED
-    if n_slow > 0:
-        mags = np.sort(np.abs(omega[rest]))
-        if mags[n_slow] < gap_ratio * mags[n_slow - 1]:
-            return  # no clean spectral gap: stay UNLABELED
-        slow = rest & (np.abs(omega)
-                       < 0.5 * (mags[n_slow - 1] + mags[n_slow]))
-        labels[slow] = VORTICAL
-        rest = rest & ~slow
-    labels[rest & (omega > 0)] = WAVE_PLUS
-    labels[rest & (omega < 0)] = WAVE_MINUS
 
 
 # ================================================================
 #  The labeled channel eigenmode surface
 # ================================================================
-class ChannelEigenmodes:
+class ChannelEigenmodes(ChannelEigenmodesBase):
 
     r"""
     Labeled numeric eigenmodes of the walled shallow-water channel.
 
     Description
     -----------
-    Bundles the framework's dense-column channel eigensolve
-    (:func:`fridom.framework2.channel_eigenpairs`) with the
-    shallow-water family labeler (:func:`label_channel_modes`) and
-    exposes the labeled basis: ``omega``/``q``/``labels`` per
-    ``rfft`` plane of the periodic axis, the segment ``slices`` and
-    the diagonal energy ``metric`` (see
-    :class:`~fridom.framework2.model.eigen_channel.ChannelEigenbasis`
-    for the layout conventions). The family vocabulary is the
+    The shallow-water subclass of the shared
+    :class:`~fridom.framework2.model.eigenbasis.ChannelEigenmodesBase`
+    wrapper: the framework's dense-column channel eigensolve labeled
+    by :func:`label_channel_modes`. The family vocabulary is the
     class-level :attr:`families` name -> code map (reverse:
-    :attr:`family_names`).
-
-    A host-side analysis object; :meth:`projector` builds the family
-    / predicate projections on physical states (the ``sw.transforms``
-    engine path consumes ``labels``/``q``/``metric`` — and reads them
-    off this object *after* labeling, because the Kelvin degeneracy
-    recovery may rotate ``basis.q`` in place).
+    :attr:`family_names`); the passthrough surface and the
+    ``projector(sel)`` family / predicate projections come from the
+    base (the engine path reads ``labels``/``q``/``metric`` off this
+    object *after* labeling, because the Kelvin degeneracy recovery
+    may rotate ``basis.q`` in place).
 
     Parameters
     ----------
@@ -362,120 +283,10 @@ class ChannelEigenmodes:
         | None = None,
     ) -> None:
         """Solve the channel eigenproblem and label the families."""
-        self.grid: Grid = model.grid
-        self.basis: ChannelEigenbasis = channel_eigenpairs(
-            model, at_time=at_time, chunk=chunk)
-        self.basis.label_with(partial(
-            label_channel_modes, zero_tol=zero_tol,
-            kelvin_tol=kelvin_tol, degeneracy_tol=degeneracy_tol,
-            gap_ratio=gap_ratio, override=override))
-        self._spaces: Mapping[str, object] = MappingProxyType({
-            name: model.state[name].function_space.bare
-            for name in self.basis.components})
-
-    # ================================================================
-    #  Passthrough surface (the labeled basis)
-    # ================================================================
-    @property
-    def omega(self) -> jax.Array:
-        """Real frequencies, shape ``(n_kx, D)``, ascending per plane."""
-        return self.basis.omega
-
-    @property
-    def q(self) -> jax.Array:
-        """M-orthonormal eigenvector columns, shape ``(n_kx, D, D)``."""
-        return self.basis.q
-
-    @property
-    def labels(self) -> jax.Array:
-        """Per-column family codes (:attr:`families` vocabulary)."""
-        return self.basis.labels
-
-    @property
-    def components(self) -> tuple[str, ...]:
-        """The stacked-column segment order (``u``, ``v``, ``p``)."""
-        return self.basis.components
-
-    @property
-    def slices(self) -> Mapping[str, slice]:
-        """Per-component segment slices into the stacked ``D`` axis."""
-        return self.basis.slices
-
-    @property
-    def spaces(self) -> Mapping[str, object]:
-        """Per-component bare (BC-tagged) physical function spaces."""
-        return self._spaces
-
-    @property
-    def metric(self) -> jax.Array:
-        """The diagonal energy metric ``M``, shape ``(D,)``."""
-        return self.basis.metric
-
-    @property
-    def periodic_axis(self) -> str:
-        """The half-spectrum (``rfft``) periodic axis name."""
-        return self.basis.periodic_axis
-
-    @property
-    def bounded_axis(self) -> str:
-        """The bounded (walled) axis name the columns stack."""
-        return self.basis.bounded_axis
-
-    # ================================================================
-    #  Family / predicate projections on physical states
-    # ================================================================
-    def projector(
-        self,
-        sel: str | Callable[[jax.Array, jax.Array], jax.Array],
-    ) -> StateTransform:
-        r"""
-        Build a mode-family projection on physical states.
-
-        Description
-        -----------
-        The selection is either a **family string** — one of
-        ``"vortical"``, ``"wave"``, ``"wave+"``, ``"wave-"``,
-        ``"kelvin"``, ``"kelvin+"``, ``"kelvin-"`` (the unsigned
-        names cover both branches) — or a **predicate**
-        ``(omega, labels) -> bool mask`` over the ``(n_kx, D)``
-        column planes, evaluated once at build time. Predicates are
-        the primary tool where the named families blur (a beta-plane
-        ``f(y)`` smears the vortical branch into slow Rossby
-        frequencies): a frequency-threshold mask like
-        ``|omega| > c`` is sign-symmetric, hence closed under
-        conjugation, and projects exactly.
-
-        Selections that are **not** conjugation-closed (a single
-        signed branch, or a sign-asymmetric predicate) act on the
-        analytic signal: the stored half-spectrum planes are
-        projected as selected while the implied negative-``kx``
-        planes carry the conjugate selection, and the real synthesis
-        returns the **real part** (the imaginary parts of the
-        self-conjugate ``kx = 0`` / Nyquist planes are discarded).
-        Such projections are idempotent on the analytic signal but
-        only approximately on real states (the self-conjugate
-        planes); closed selections are exactly idempotent.
-
-        Parameters
-        ----------
-        sel : str | Callable[[jax.Array, jax.Array], jax.Array]
-            A family name, or a predicate mapping ``(omega,
-            labels)`` to a boolean mask of shape ``omega.shape``.
-
-        Returns
-        -------
-        StateTransform
-            The projection acting on physical ``(u, v, p)`` states.
-        """
-        from fridom.shallowwater2 import (  # noqa: PLC0415 — avoids the channel_eigenmodes<->transforms import cycle
-            transforms,
-        )
-        if isinstance(sel, str):
-            return transforms.family_projection(self, sel)
-        if callable(sel):
-            return transforms.predicate_projection(self, sel)
-        raise TypeError(
-            "projector takes a family name (one of "
-            f"{', '.join(FAMILIES)}, or the unsigned 'wave' / "
-            "'kelvin') or a predicate (omega, labels) -> bool mask; "
-            f"got {sel!r}")
+        super().__init__(
+            model,
+            labeler=partial(
+                label_channel_modes, zero_tol=zero_tol,
+                kelvin_tol=kelvin_tol, degeneracy_tol=degeneracy_tol,
+                gap_ratio=gap_ratio, override=override),
+            at_time=at_time, chunk=chunk)
