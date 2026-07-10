@@ -37,7 +37,26 @@ negotiation — module-side widening workaround in
 `UpwindAdvection.bind`; the designed tracer-based dry run would
 retire it.
 
-## Wave A2 — background-flow advection (design proposed, awaiting owner)
+## Wave A2 — background-flow advection (MERGED 2026-07-10, option 3)
+
+Owner picked option 3 (difference-form split). Landed: nh2
+Centered/Upwind/WENO `background=` — linear term `S_lin(U,q)`
+(WENO's linear term = its optimal-weight smooth-limit row; upwind
+select by static sign(U), exactly linear), nonlinear term
+`S_full(U+Ro·u',q) − S_lin(U,q)` (telescopes to the full-velocity
+scheme; old-stack parity ~6e-16 at Ro=1); sw2 Sadourny
+`background=` — one V-S3 linear term (old semantics were already
+split), walled grids fully supported (structural impermeability +
+bind validation of wall-normal and discrete solenoidality),
+background term conserves plain quadratic energy exactly.
+Convention change (documented): background is O(1), NOT Ro-scaled
+(old stack scaled it). Doppler verified against the eigen probe in
+both packages (shift = discrete symbol, ≤1e-12). Sheared U: linear
+model works; eigh-based engines refuse via the Hermiticity guard
+(eig backend = future item). A2 gate: full framework2 suite 3775
+passed; ruff clean.
+
+## Original A2 design record (for reference)
 
 Gap (owner, 2026-07-10): advection by a prescribed background flow
 is unported. Ruling V-S3 (06_validation.md:89) settles the shape:
