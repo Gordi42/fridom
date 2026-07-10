@@ -150,13 +150,15 @@ class DynamicalCore(fr.Module):
             div.grid, div.function_space, vertical=self._vertical)
         p = solver.solve(div, dsqr=dsqr)
         grad = Gradient()(p)
-        # the gradient's vertical entry is BC-free (nodal operator
-        # outputs are BC-free); on a walled grid w carries the derived
-        # Dirichlet wall tag, so adopt it — identity on periodic grids
+        # nodal operator outputs are BC-free; on a walled grid every
+        # wall-normal velocity carries the derived Dirichlet tag, so
+        # adopt each target's tag — identity on periodic axes
+        grad_u = grad["x"].retag(state["u"])
+        grad_v = grad["y"].retag(state["v"])
         grad_w = grad[self._vertical].retag(state["w"])
         return {
-            "u": state["u"] - grad["x"],
-            "v": state["v"] - grad["y"],
+            "u": state["u"] - grad_u,
+            "v": state["v"] - grad_v,
             "w": state["w"] - grad_w / dsqr,
             "p": p,
         }
