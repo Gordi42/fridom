@@ -15,6 +15,12 @@ packaged so eigenmode and projection assemblies stop repeating it.
 column ``q`` (the biorthonormal row ``p`` with
 ``sum_c conj(p_c) q_c == 1`` off the structural nullspace) in the
 symbol algebra alone.
+
+``ModeChart`` aligns per-component coefficient data across the
+bounded trig families' different slot lattices: it embeds each
+component's ``(mode_offset, shape)`` layout onto the shared
+``0..n`` union mode lattice (and restricts back), identity on
+periodic / Fourier axes.
 """
 from __future__ import annotations
 
@@ -25,9 +31,16 @@ from typing import TYPE_CHECKING
 from fridom.framework2.grid.operators.base import Identity
 from fridom.framework2.grid.operators.mixed import resolve_transform
 from fridom.framework2.grid.operators.realized import BoundTransform
+from fridom.framework2.grid.operators.symbol import _reindex
+from fridom.framework2.grid.spaces.coefficient import (
+    CosineSpace,
+    SineSpace,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
+
+    import jax
 
     from fridom.framework2.grid.grid import Grid
     from fridom.framework2.grid.operators.mixed import (
@@ -221,6 +234,99 @@ class GridSymbols:
         factor = self._spaces[self._known(on)].factor(axis)
         op = grid.dispatch.resolve(kind, factor)
         return op[axis].eigenvalues(grid, self.coeff(on))
+
+
+class ModeChart:
+
+    r"""
+    Union mode lattice of the bounded trig families, per axis.
+
+    Description
+    -----------
+    On a walled axis the per-component coefficient factors live on
+    *different* slot lattices — DST-I holds modes ``1..n-1``, DST-II
+    modes ``1..n``, DCT-II modes ``0..n-1``, DCT-I modes ``0..n`` —
+    while cross-component accumulations (eigen-projector amplitudes,
+    biorthonormality sums) are indexed by the *physical* mode. The
+    chart is the shared ``0..n`` union lattice per bounded axis:
+    ``embed`` moves component-layout data onto the union lattice
+    (modes the component lacks are exact zero-fills), ``restrict``
+    moves union data back (surplus modes drop). Both are static
+    pad/slice moves derived from ``(mode_offset, shape)`` — the same
+    index maps as the derived-shift ``Symbol`` alignment. Fourier,
+    nodal and constant factors are identity, so on a fully periodic
+    grid both methods return their input unchanged (bitwise).
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid whose bounded axes the chart spans.
+    """
+
+    def __init__(self, grid: Grid) -> None:
+        """Bind the grid (the lattices derive from each space)."""
+        self._grid: Grid = grid
+
+    def embed(self, data: jax.Array, space: SpaceLike) -> jax.Array:
+        """
+        Embed component-layout ``data`` onto the union lattice.
+
+        Parameters
+        ----------
+        data : jax.Array
+            An array in ``space``'s slot layout (size-1 broadcast
+            axes pass through untouched).
+        space : SpaceLike
+            The component's coefficient space.
+
+        Returns
+        -------
+        jax.Array
+            The data on the ``0..n`` union lattice per trig axis;
+            absent modes are exact zeros.
+        """
+        return _reindex(data, self._shifts(space, to_union=True))
+
+    def restrict(self, data: jax.Array, space: SpaceLike) -> jax.Array:
+        """
+        Restrict union-lattice ``data`` to the component layout.
+
+        Parameters
+        ----------
+        data : jax.Array
+            An array on the union lattice (size-1 broadcast axes
+            pass through untouched).
+        space : SpaceLike
+            The component's coefficient space.
+
+        Returns
+        -------
+        jax.Array
+            The data in ``space``'s slot layout; modes the component
+            lacks are dropped.
+        """
+        return _reindex(data, self._shifts(space, to_union=False))
+
+    def _shifts(
+        self, space: SpaceLike, *, to_union: bool,
+    ) -> tuple[tuple[int, int, int, int], ...]:
+        """Per-axis slot moves between ``space`` and union layouts."""
+        factors = space.bare.factors
+        rank = len(factors)
+        shifts = []
+        for i, factor in enumerate(factors):
+            if not isinstance(factor, SineSpace | CosineSpace):
+                continue
+            union = factor.mesh.n_cells + 1
+            offset = factor.mode_offset
+            slots = factor.shape[0]
+            if (offset, slots) == (0, union):
+                continue
+            if to_union:
+                shifts.append((i - rank, offset, slots, union))
+            else:
+                shifts.append((i - rank, -offset, union, slots))
+        return tuple(shifts)
 
 
 def rayleigh_dual(

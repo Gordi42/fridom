@@ -70,11 +70,18 @@ def _project(
     ``sum_s em.projector(s)`` on the coefficient state (diagonal per
     wavenumber), inverse-transforms back, and takes the real part —
     the Hermitian closure of single-branch projections on the stored
-    rfft half-lattice (see :func:`mode_projection`).
+    rfft half-lattice (see :func:`mode_projection`). On a walled
+    grid the kit spaces carry the analysis parity tags while the
+    state arrives on the model's (BC-free ``u``/``v``/``b``) spaces,
+    so each component is retagged onto its kit space before the
+    forward transform and back after the backward one — identity on
+    periodic grids.
     """
     kit = em.kit
+    forward = {name: kit.forward(name) for name in _COMPONENTS}
     coeff = State({
-        name: kit.forward(name)(state[name]) for name in _COMPONENTS})
+        name: forward[name](state[name].retag(forward[name].domain))
+        for name in _COMPONENTS})
     projected = None
     for s in modes:
         contribution = em.projector(s)(coeff)
@@ -82,6 +89,7 @@ def _project(
                      else projected + contribution)
     return State({
         name: kit.backward(name)(projected[name]).real
+        .retag(state[name])
         for name in _COMPONENTS})
 
 
@@ -90,13 +98,14 @@ def _signature(em: Eigenmodes) -> StateSignature:
 
     Description
     -----------
-    Each component on its own physical space — ``u``/``v``/``w`` on
-    the face-staggered spaces, ``b`` collocated — read off the
-    eigenmode kit's bound forward transforms.
+    Each component on its own **model-facing** physical space —
+    ``u``/``v``/``w`` face-staggered, ``b`` collocated, with ``w``'s
+    Dirichlet wall tag on a walled grid (``em.physical_space``); the
+    kit's parity-tagged analysis spaces stay internal to
+    :func:`_project`'s retag round-trip.
     """
-    kit = em.kit
     components = tuple(
-        (name, kit.forward(name).domain) for name in _COMPONENTS)
+        (name, em.physical_space(name)) for name in _COMPONENTS)
     return StateSignature(grid=em.grid, components=components)
 
 

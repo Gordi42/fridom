@@ -36,7 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .immersed_domain import ImmersedDomain, Slip
     from .scalars import Complex, Real
     from .spaces.tensor_product import SpaceLike, TensorProductSpace
-    from .symbols import GridSymbols, rayleigh_dual
+    from .symbols import GridSymbols, ModeChart, rayleigh_dual
 
 # ================================================================
 #  Setup lazy loading
@@ -57,7 +57,7 @@ all_imports_by_origin = {
     f"{base}.fields": ["ScalarField", "FieldMetadata",
                        "VectorField"],
     f"{base}.immersed_domain": ["ImmersedDomain", "Slip"],
-    f"{base}.symbols": ["GridSymbols", "rayleigh_dual"],
+    f"{base}.symbols": ["GridSymbols", "ModeChart", "rayleigh_dual"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

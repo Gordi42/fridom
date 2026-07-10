@@ -20,7 +20,11 @@ from fridom.framework2.grid.spaces.coefficient import (
 )
 from fridom.framework2.grid.spaces.constant import ConstantSpace
 from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.grid.symbols import GridSymbols, rayleigh_dual
+from fridom.framework2.grid.symbols import (
+    GridSymbols,
+    ModeChart,
+    rayleigh_dual,
+)
 
 N2 = 8
 N3 = 4
@@ -224,6 +228,54 @@ def test_unknown_component_raises_a_helpful_key_error(kit_2d):
         kit.forward("b")
     with pytest.raises(KeyError, match="unknown component"):
         kit.backward("b")
+
+
+# ================================================================
+#  ModeChart — the union mode lattice of the trig families
+# ================================================================
+@pytest.mark.parametrize(("name", "offset"), [
+    pytest.param("w", 1, id="sine1-modes-1-to-n-1"),
+    pytest.param("b", 1, id="sine2-modes-1-to-n"),
+    pytest.param("p", 0, id="cosine2-modes-0-to-n-1"),
+])
+def test_mode_chart_embeds_and_restricts_the_trig_lattices(
+        kit_walled, name, offset):
+    grid, kit, _ = kit_walled
+    chart = ModeChart(grid)
+    coeff = kit.coeff(name)
+    slots = coeff.factor("z").shape[0]
+    data = jnp.arange(1.0, slots + 1).reshape(1, 1, slots)
+    up = chart.embed(data, coeff)
+    # slot j (mode j + offset) lands on union slot j + offset ...
+    assert up.shape[-1] == NW + 1
+    assert jnp.array_equal(up[..., offset:offset + slots], data)
+    # ... and the modes the component lacks are exact zeros
+    assert jnp.all(up[..., :offset] == 0.0)
+    assert jnp.all(up[..., offset + slots:] == 0.0)
+    # restrict inverts the embedding
+    assert jnp.array_equal(chart.restrict(up, coeff), data)
+
+
+def test_mode_chart_is_identity_on_the_dct1_lattice(kit_walled):
+    # the DCT-I (Neumann Outer) family already IS the 0..n union
+    # lattice, so the chart passes it through untouched
+    grid, _, _ = kit_walled
+    mz = next(m for m in grid.factors if "z" in m.names)
+    cos1 = mz.cosine(mz.nodal(NodeSet.OUTER, bc=BC.NEUMANN))
+    chart = ModeChart(grid)
+    data = jnp.arange(1.0, NW + 2)
+    assert chart.embed(data, cos1) is data
+    assert chart.restrict(data, cos1) is data
+
+
+def test_mode_chart_is_identity_on_periodic_spaces(kit_2d):
+    grid, kit, _ = kit_2d
+    chart = ModeChart(grid)
+    data = jnp.arange(float(N2 * (N2 // 2 + 1))).reshape(
+        N2 // 2 + 1, N2)
+    # bitwise pass-through: the identical array object comes back
+    assert chart.embed(data, kit.coeff("p")) is data
+    assert chart.restrict(data, kit.coeff("p")) is data
 
 
 # ================================================================

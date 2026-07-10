@@ -18,6 +18,18 @@ no hand-written left vector and no caller-side masking (the ``k = 0``
 mean and the degenerate ``k_h = 0`` / Nyquist modes drop through
 exact structural zeros).
 
+On a **walled** (bounded, rigid-lid) vertical the kit spaces carry
+the physics-fixed parity tags (``w`` Dirichlet, ``u``/``v``/``p``
+Neumann, ``b`` Dirichlet), the same formulas compose under the
+derived-shift trig symbol algebra, and cross-component sums align
+per physical vertical mode through the ``fr.grid.ModeChart`` union
+lattice — the per-component trig families hold different mode
+ranges (``w`` modes ``1..n-1``, ``u``/``v``/``p`` ``0..n-1``, ``b``
+``1..n``). The geostrophic column is re-referenced per component so
+the ``m = 0`` barotropic and ``m = n`` buoyancy-top strata land in
+the vortical family (``N + 1`` steady modes per horizontal
+wavevector).
+
 Surface: ``em.omega(s)`` returns the frequency ``Symbol`` (``.data``
 for the half-spectrum array), ``em.q(s)`` the eigenvector as a
 coefficient-space :class:`~fridom.nonhydro2.state.State`, and
@@ -29,25 +41,81 @@ projection surface for the physical round-trip.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
 import fridom.framework2 as fr
-from fridom.framework2.grid.symbols import GridSymbols, rayleigh_dual
+from fridom.framework2.grid.bc import BC
+from fridom.framework2.grid.operators.symbol import Symbol
+from fridom.framework2.grid.symbols import (
+    GridSymbols,
+    ModeChart,
+    rayleigh_dual,
+)
 from fridom.framework2.model.energy import nonhydro_energy_weights
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     import jax
 
     from fridom.framework2.grid.fields.scalar_field import ScalarField
     from fridom.framework2.grid.grid import Grid
-    from fridom.framework2.grid.operators.symbol import Symbol
+    from fridom.framework2.grid.meshes.mesh import Mesh
+    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
     from fridom.framework2.model.model import Model
+
+
+class _LazySymbols(Mapping):
+
+    """
+    Axis-keyed symbol family, built on first access (memoized).
+
+    Description
+    -----------
+    The public ``k``/``kb``/``a``/``ab`` surface stays dict-like,
+    but entries materialize lazily: on a walled grid the
+    interpolation threaded on the DCT-II pressure factor (``a[z]``)
+    raises the eigen-layer skip signal by design and is unused by
+    the dispersion / eigenvector formulas — it must never be built
+    eagerly.
+
+    Parameters
+    ----------
+    axes : tuple[str, ...]
+        The coordinate names keyed by the mapping.
+    build : Callable[[str], Symbol]
+        The per-axis symbol builder (called once per axis).
+    """
+
+    def __init__(
+        self, axes: tuple[str, ...],
+        build: Callable[[str], Symbol],
+    ) -> None:
+        """Store the axis keys and the memoized builder."""
+        self._axes: tuple[str, ...] = axes
+        self._build: Callable[[str], Symbol] = build
+        self._cache: dict[str, Symbol] = {}
+
+    def __getitem__(self, axis: str) -> Symbol:
+        """Build (once) and return the symbol along ``axis``."""
+        if axis not in self._cache:
+            if axis not in self._axes:
+                raise KeyError(axis)
+            self._cache[axis] = self._build(axis)
+        return self._cache[axis]
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate the axis keys."""
+        return iter(self._axes)
+
+    def __len__(self) -> int:
+        """Count the axis keys."""
+        return len(self._axes)
 
 
 class Eigenmodes:
@@ -61,7 +129,7 @@ class Eigenmodes:
     eigenmode surface: the dispersion ``omega(s)`` (a ``Symbol``),
     the eigenvector column ``q(s)`` (a coefficient-space ``State``),
     and the ``projector(s)`` closure (coefficient ``State ->
-    State``). The per-axis symbol families are public attributes:
+    State``). The per-axis symbol families are public lazy mappings:
     ``k`` (centre -> face derivative), ``kb`` (face -> centre
     derivative), ``a`` (centre -> face interpolation) and ``ab``
     (face -> centre interpolation), keyed by coordinate name.
@@ -69,7 +137,9 @@ class Eigenmodes:
     Parameters
     ----------
     grid : fr.grid.Grid
-        A 3-D periodic grid carrying the vertical coordinate.
+        A 3-D grid carrying the vertical coordinate; the horizontal
+        axes must be periodic, the vertical may be bounded (rigid
+        lids).
     f0 : float
         The (constant) Coriolis parameter.
     n2 : float
@@ -102,26 +172,50 @@ class Eigenmodes:
         z = vertical
         self._axes: tuple[str, str, str] = (x, y, z)
         self._grid: Grid = grid
+        self._mz: Mesh = next(
+            m for m in grid.factors if z in m.names)
+        self._walled: bool = not getattr(self._mz, "periodic", False)
+        self._chart: ModeChart = ModeChart(grid)
 
+        # analysis (kit) spaces: the eigenmode physics fixes the
+        # vertical parity of every component on a walled grid
+        # (impermeable w -> Dirichlet, free-slip u/v and pressure ->
+        # Neumann, buoyancy -> Dirichlet); wall_bc entries are
+        # ignored on periodic factors, so a periodic grid resolves
+        # to the exact BC-free spaces.
         spaces = {
+            "u": fr.Staggered(
+                x, wall_bc={z: BC.NEUMANN}).resolve(grid),
+            "v": fr.Staggered(
+                y, wall_bc={z: BC.NEUMANN}).resolve(grid),
+            "w": fr.Staggered(
+                z, wall_bc={z: BC.DIRICHLET}).resolve(grid),
+            "b": fr.Collocated(
+                wall_bc={z: BC.DIRICHLET}).resolve(grid),
+            "p": fr.Collocated(
+                wall_bc={z: BC.NEUMANN}).resolve(grid),
+        }
+        # the model-facing physical spaces (u, v, b BC-free; w's
+        # Dirichlet wall tag matches the Velocity declaration) —
+        # identical to the kit spaces on a periodic grid
+        self._physical: dict[str, SpaceLike] = {
             "u": fr.Staggered(x).resolve(grid),
             "v": fr.Staggered(y).resolve(grid),
-            "w": fr.Staggered(z).resolve(grid),
+            "w": spaces["w"],
             "b": fr.Collocated().resolve(grid),
-            "p": fr.Collocated().resolve(grid),
         }
         kit = GridSymbols(grid, spaces)
         self._kit: GridSymbols = kit
         face = {x: "u", y: "v", z: "w"}
         axes = (x, y, z)
-        self.k: dict[str, Symbol] = {
-            n: kit.diff(n, on="p") for n in axes}
-        self.kb: dict[str, Symbol] = {
-            n: kit.diff(n, on=face[n]) for n in axes}
-        self.a: dict[str, Symbol] = {
-            n: kit.interp(n, on="p") for n in axes}
-        self.ab: dict[str, Symbol] = {
-            n: kit.interp(n, on=face[n]) for n in axes}
+        self.k: Mapping[str, Symbol] = _LazySymbols(
+            axes, lambda n: kit.diff(n, on="p"))
+        self.kb: Mapping[str, Symbol] = _LazySymbols(
+            axes, lambda n: kit.diff(n, on=face[n]))
+        self.a: Mapping[str, Symbol] = _LazySymbols(
+            axes, lambda n: kit.interp(n, on="p"))
+        self.ab: Mapping[str, Symbol] = _LazySymbols(
+            axes, lambda n: kit.interp(n, on=face[n]))
         self._templates: dict[str, ScalarField] = {
             c: kit.forward(c)(grid.create_field(spaces[c]))
             .with_metadata(name=c)
@@ -139,6 +233,29 @@ class Eigenmodes:
     def kit(self) -> GridSymbols:
         """The per-component transform kit (``forward``/``backward``)."""
         return self._kit
+
+    def physical_space(self, name: str) -> SpaceLike:
+        """
+        Model-facing physical space of a prognostic component.
+
+        Description
+        -----------
+        The bare space the *model* resolves for the component —
+        BC-free for ``u``/``v``/``b``, the Dirichlet wall tag for
+        ``w`` — as opposed to the parity-tagged analysis space the
+        kit transforms on. On a periodic grid the two coincide.
+
+        Parameters
+        ----------
+        name : str
+            The component name (``u``, ``v``, ``w`` or ``b``).
+
+        Returns
+        -------
+        SpaceLike
+            The bare physical space.
+        """
+        return self._physical[name]
 
     # ================================================================
     #  Dispersion
@@ -161,7 +278,11 @@ class Eigenmodes:
         quantities on ``w``'s coefficient space. The ``k = 0`` mean
         mode drops structurally: the numerator and denominator are
         both exact zeros there, and ``Symbol.inverse`` maps the
-        structural zero to zero (no caller-side masking).
+        structural zero to zero (no caller-side masking). On a
+        walled vertical the same composition holds with the trig
+        tables ``|\hat k_z| = 2 \sin(\pi m \Delta z / (2 L_z)) /
+        \Delta z`` and ``|\hat a_z| = \cos(\pi m \Delta z /
+        (2 L_z))`` on ``w``'s DST-I mode lattice ``m = 1..n-1``.
 
         Returns
         -------
@@ -209,9 +330,8 @@ class Eigenmodes:
 
         Description
         -----------
-        Tag-checked operator compositions with common domain = ``w``'s
-        coefficient space (the codomain tags of the entries mix union
-        factors; consumers rely on the data). The degenerate modes
+        Tag-checked operator compositions; each entry's codomain is
+        the component's own coefficient space. The degenerate modes
         (``k_h = 0`` for ``s != 0``, the ``k = 0`` mean, and the
         interpolation-Nyquist zeros for ``s = 0``) are **exact**
         structural zeros of every entry, so the Rayleigh dual
@@ -224,11 +344,39 @@ class Eigenmodes:
         branch ``s`` with the root ``-s`` yields the eigen-relation
         ``L q^s = +i omega^s q^s`` asserted by the tests. This is a
         pure branch relabelling: the projector family is unchanged
-        (``P(0)`` identical, ``P(+1)`` and ``P(-1)`` swap).
+        (``P(0)`` identical, ``P(+1)`` and ``P(-1)`` swap). On a
+        walled vertical the common domain is ``w``'s DST-I lattice
+        and the entries retag onto each component's own trig family
+        through the derived-shift algebra.
+
+        The ``s = 0`` column on a walled vertical is re-referenced
+        per component (each entry endo on its **own** vertical mode
+        lattice): the w-referenced column would structurally miss
+        the ``m = 0`` barotropic and ``m = n`` buoyancy-top strata,
+        which belong to the steady family under rigid lids. The
+        interp magnitude table ``cos(k dz/2)`` (``C``) and the
+        staggered-derivative magnitude table ``2 sin(k dz/2)/dz``
+        (``K``) reproduce the w-referenced column on the interior
+        modes up to a positive per-mode scale (projector-invariant)
+        and extend it to all ``N + 1`` strata with one formula.
         """
         x, y, z = self._axes
         k, kb, a, ab = self.k, self.kb, self.a, self.ab
         if s == 0:
+            if self._walled:
+                # discrete thermal wind: b sits on the sine lattice
+                # of d(cos)/dz, whose derivative sign is -k_hat
+                # (cos -> sin), hence the minus on the b entry
+                return {
+                    "u": -(a[x] @ (ab[y] @ k[y]))
+                    * self._interp_table("u"),
+                    "v": (a[y] @ (ab[x] @ k[x]))
+                    * self._interp_table("v"),
+                    "w": self.omega(0),
+                    "b": -self.f0 * (a[x].magnitude ** 2
+                                     * a[y].magnitude ** 2
+                                     * self._diff_table("b")),
+                }
             return {
                 "u": -(a[x] @ (ab[y] @ k[y]) @ ab[z]),
                 "v": a[y] @ (ab[x] @ k[x]) @ ab[z],
@@ -274,11 +422,15 @@ class Eigenmodes:
 
         Description
         -----------
-        ``P^s z = q^s \langle p^s, z\rangle`` with the Rayleigh dual
-        ``p^s`` derived from ``q^s`` under the nonhydro energy metric
-        (``fr.grid.rayleigh_dual`` + the ``diag(1, 1, dsqr, 1/N^2)``
-        weights): idempotent by biorthonormality, exactly zero on the
-        structurally degenerate modes.
+        ``P^s z = q^s \langle p^s, z\rangle`` with the biorthonormal
+        dual ``p^s`` derived from ``q^s`` under the nonhydro energy
+        metric (``fr.grid.rayleigh_dual`` + the ``diag(1, 1, dsqr,
+        1/N^2)`` weights): idempotent by biorthonormality, exactly
+        zero on the structurally degenerate modes. On a walled
+        vertical the amplitude is accumulated on the
+        ``fr.grid.ModeChart`` union mode lattice (the components'
+        trig families hold different mode ranges); on a periodic
+        grid the chart is identity and the data path is unchanged.
 
         Parameters
         ----------
@@ -291,19 +443,93 @@ class Eigenmodes:
             The projection acting on coefficient-space states.
         """
         q = self._vec_q(s)
-        p = rayleigh_dual(q, self._energy_weights())
+        p = self._dual(q, s)
+        chart = self._chart
+        coeff = {c: self._kit.coeff(c) for c in q}
 
         def project(z: State) -> State:
             """Project ``z`` onto mode ``s`` (pointwise per mode)."""
-            amp = sum(jnp.conj(p[c].data) * z[c].data for c in p)
-            return State({c: self._wrap(c, q[c].data * amp)
-                          for c in q})
+            amp = sum(chart.embed(jnp.conj(p[c]) * z[c].data,
+                                  coeff[c]) for c in p)
+            return State({
+                c: self._wrap(c, q[c].data
+                              * chart.restrict(amp, coeff[c]))
+                for c in q})
 
         return project
 
     # ================================================================
     #  Internals
     # ================================================================
+    def _dual(
+        self, q: dict[str, Symbol], s: int,
+    ) -> dict[str, jax.Array]:
+        r"""Biorthonormal dual diagonals of a column, as data arrays.
+
+        Description
+        -----------
+        The Rayleigh dual under the energy metric. The wave columns
+        (and every periodic column) share one domain lattice, so
+        ``fr.grid.rayleigh_dual`` applies in the symbol algebra.
+        The walled geostrophic column is per-component endo (each
+        entry on its own vertical lattice), so its norm is
+        accumulated on the union mode lattice instead — the same
+        pseudo-inverse with the same exact structural-zero
+        regularization, chart-aligned like ``q``.
+        """
+        weights = self._energy_weights()
+        if not (s == 0 and self._walled):
+            dual = rayleigh_dual(q, weights)
+            return {c: dual[c].data for c in q}
+        chart = self._chart
+        coeff = {c: self._kit.coeff(c) for c in q}
+        norm = sum(
+            chart.embed(weights[c]
+                        * jnp.real(jnp.conj(q[c].data) * q[c].data),
+                        coeff[c])
+            for c in q)
+        zero = norm == 0
+        inv = jnp.where(zero, 0.0,
+                        1.0 / jnp.where(zero, jnp.ones_like(norm),
+                                        norm))
+        return {c: weights[c] * q[c].data
+                * chart.restrict(inv, coeff[c]) for c in q}
+
+    def _interp_table(self, component: str) -> Symbol:
+        r"""Interp magnitude table ``cos(k dz/2)``, endo on ``component``.
+
+        Description
+        -----------
+        The vertical staggering-interpolation magnitude materialized
+        as a plain real diagonal on the component's **own** vertical
+        mode lattice via ``Symbol.from_field(grid.wavenumbers(...))``
+        (the sanctioned coefficient-coordinate crossing) — not a
+        retagging operator symbol.
+        """
+        z = self._axes[2]
+        dz = self._mz.dx
+        kz = self._grid.wavenumbers(self._kit.coeff(component),
+                                    name=z)
+        return Symbol.from_field(
+            kz.with_data(jnp.cos(kz.data * (dz / 2.0))))
+
+    def _diff_table(self, component: str) -> Symbol:
+        r"""Build the ``2 sin(k dz/2)/dz`` derivative table, endo.
+
+        Description
+        -----------
+        The vertical staggered-derivative magnitude on the
+        component's **own** vertical mode lattice (see
+        :meth:`_interp_table`); nonzero at the buoyancy top mode
+        ``m = n`` (``2/dz``), which anchors the pure-``b`` stratum.
+        """
+        z = self._axes[2]
+        dz = self._mz.dx
+        kz = self._grid.wavenumbers(self._kit.coeff(component),
+                                    name=z)
+        return Symbol.from_field(
+            kz.with_data(2.0 * jnp.sin(kz.data * (dz / 2.0)) / dz))
+
     def _wrap(self, name: str, data: jax.Array) -> ScalarField:
         """Broadcast a diagonal onto the component's coefficient field."""
         template = self._templates[name]
