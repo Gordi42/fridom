@@ -54,18 +54,19 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         Squared gravity-wave phase speed :math:`c^2`: a float for
         constant depth, or a callable ``csqr(y)`` for variable
         depth (materialized into a meridional ``csqr`` profile
-        field; no constant ``shallowwater.csqr`` provide). With a
-        callable the default Coriolis module is built with
-        ``metric_weight="csqr"`` — the thickness-weighted rotation
-        that conserves the :math:`c^2`-weighted energy
+        field; no constant ``shallowwater.csqr`` provide)
         (default: 1.0).
     rossby_number : float, optional
         Rossby number scaling the advection (default: 1.0).
     coriolis : fr.Module | None, optional
         The Coriolis field provider; default
-        ``FPlaneCoriolis(f0=1.0)`` (with ``metric_weight="csqr"``
-        when ``csqr`` is callable). An explicit framework Coriolis
-        module combined with a callable ``csqr`` must carry
+        ``FPlaneCoriolis(f0=1.0, metric_weight="csqr")`` — the
+        thickness-weighted rotation is used **always** (it is
+        exactly M-skew for any ``f`` and any positive depth
+        profile, and coincides with the unweighted form for
+        constant depth to rounding — bitwise for power-of-two
+        ``csqr``). An explicit framework Coriolis module combined
+        with a callable ``csqr`` must carry
         ``metric_weight="csqr"`` itself; the preset raises
         otherwise.
     advection : bool, optional
@@ -95,9 +96,11 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     """
     core = DynamicalCore(csqr=csqr, rossby_number=rossby_number)
     if coriolis is None:
-        cor = FPlaneCoriolis(
-            f0=1.0,
-            metric_weight="csqr" if callable(csqr) else None)
+        # always the thickness-weighted rotation: exactly M-skew for
+        # any f and any depth profile, and identical to the unweighted
+        # form for constant depth (to rounding; bitwise for
+        # power-of-two csqr)
+        cor = FPlaneCoriolis(f0=1.0, metric_weight="csqr")
     else:
         cor = coriolis
         if (callable(csqr)

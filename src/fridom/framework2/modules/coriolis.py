@@ -114,7 +114,11 @@ def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
     ``u`` nodes and cancels at the ``v`` nodes), so the pair stays
     M-skew for any ``f`` and any positive ``w`` profile — the
     linearized Sadourny/Arakawa pairing. For a constant ``w`` it
-    coincides with the unweighted form (``.to`` is linear).
+    coincides with the unweighted form mathematically (``.to`` is
+    linear); in floating point the two round differently by up to
+    1 ulp (bitwise-identical only for power-of-two ``w``), so the
+    weighted form is the safe default whenever a weight field
+    exists.
     """
     u, v, f = state["u"], state["v"], state["f_coriolis"]
     f_u = f.to(u)

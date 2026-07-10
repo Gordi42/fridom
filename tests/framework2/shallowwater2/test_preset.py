@@ -101,9 +101,16 @@ def test_constant_csqr_still_provides_the_scalar():
     assert np.asarray(model.state["csqr"].data).size == 1
 
 
-def test_varying_csqr_default_coriolis_is_thickness_weighted():
+def test_default_coriolis_is_always_thickness_weighted():
+    # the weighted rotation is exactly M-skew for any f and any
+    # depth profile and coincides with the unweighted form for
+    # constant depth (to rounding), so the preset always uses it
     model = make_varying()
     assert model.module(FPlaneCoriolis).metric_weight == "csqr"
+    constant = sw.Model(
+        grid=make_grid(), csqr=0.7,
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    assert constant.module(FPlaneCoriolis).metric_weight == "csqr"
 
 
 def test_varying_csqr_with_an_unweighted_coriolis_is_taught():
