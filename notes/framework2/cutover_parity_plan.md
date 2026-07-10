@@ -24,6 +24,27 @@ update imports/examples/docs.
 | Forcings | framework2 `Relaxation`, nonhydro2 `GaussianWaveMaker` + `PolarizedWaveMaker` | agent running |
 | Advection | nonhydro2 `UpwindAdvection` + `WENOAdvection` as model modules over the existing `grid/operators/{weno,reconstruct,…}` layer | agent running |
 
+## Wave A2 — background-flow advection (design proposed, awaiting owner)
+
+Gap (owner, 2026-07-10): advection by a prescribed background flow
+is unported. Ruling V-S3 (06_validation.md:89) settles the shape:
+linearity is a TERM property — the advection module owns a separate
+``linear=True`` background term; no separate linear module.
+Proposed uniform construction (all schemes, incl. WENO):
+``background=`` adds two terms — linear ``L(q) = S_lin(U, q)``
+(centered or static-upwind; upwind selection by sign(U) is fixed at
+bind, hence exactly linear reusing the existing operators) and
+nonlinear ``N = S_full(U + Ro u', q) − S_lin(U, q)``, so the sum is
+exactly the full-velocity scheme and ``fr.linearize`` keeps exactly
+``L``. A "linear WENO" is a category error (smoothness weights
+depend on q) — never needed. Old ``disable_nonlinear`` ≙
+``fr.linearize``. Notes: constant U → Doppler eigenmodes work in
+the whole eigen stack for free; sheared U is non-normal → the
+Hermiticity guard correctly refuses eigh (an ``eig`` backend is a
+separate future item). u'·∇Q production terms stay the province of
+dedicated linear modules (stratification pattern), as in the old
+stack.
+
 ## Wave B — after A merges
 
 - Analytic initial conditions, both packages: jets, coherent eddy,
