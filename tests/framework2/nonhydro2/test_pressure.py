@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom.nonhydro2 as nh
 from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.fields.scalar_field import ScalarField
 from fridom.framework2.grid.fields.vector_field import VectorField
@@ -30,6 +31,9 @@ from fridom.framework2.grid.operators.composed import (
     Laplacian,
 )
 from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.framework2.model.time_steppers.adam_bashforth import (
+    AdamBashforth,
+)
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 
 N = 8
@@ -217,3 +221,68 @@ def test_walled_constant_rhs_is_annihilated():
     solver = SpectralPressureSolver(grid, space, vertical="z")
     p = solver.solve(rhs, dsqr=jnp.asarray(1.0))
     assert float(jnp.abs(p.data).max()) < 1e-13
+
+
+# ================================================================
+#  Project-state == project-tendency (parity audit, Sketch A)
+# ================================================================
+def _rel_l2(a, b):
+    a, b = np.asarray(a), np.asarray(b)
+    denom = np.linalg.norm(a) + np.linalg.norm(b)
+    return 0.0 if denom == 0.0 else 2.0 * np.linalg.norm(a - b) / denom
+
+
+@pytest.mark.parametrize("sign", [1.0, -1.0],
+                         ids=["forward", "backward"])
+def test_project_state_equals_project_tendency(sign):
+    # the Sketch-A exact-equivalence regression (parity audit rows
+    # 1 and 2): for an explicit one-stage scheme (AB1, u* = u + dt F)
+    # started from a divergence-free state, project-the-state
+    # (production, CONSTRAINT stage) coincides with the old stack's
+    # project-the-tendency: div u = 0 => div u* = dt div F =>
+    # phi = dt psi => u* - grad phi == u + dt (F - grad psi). The
+    # stored diagnostic must be the NORMALIZED pressure p = phi/dt
+    # = psi (dt-independent); the backward leg (dt < 0) pins the
+    # sign convention: phi flips with stage_dt, psi does not, so the
+    # stored p keeps its physical sign and value.
+    dt = sign * 0.02
+    dsqr = 0.25  # non-unit so the 1/dsqr vertical weighting bites
+    grid = make_grid()
+    model = nh.Model(grid=grid, dt=dt, dsqr=dsqr, advection=False,
+                     time_stepper=AdamBashforth(dt, order=1))
+    ax = (np.arange(N) + 0.5) * (2 * np.pi / N)
+    x, y, z = np.meshgrid(ax, ax, ax, indexing="ij")
+    # exactly divergence-free IC: u varies only along y, v only
+    # along x (both centered on those axes), w = 0; b varies in x
+    # AND z so the projected w-tendency is genuinely nonzero (a
+    # horizontally uniform b is hydrostatic: w would stay at
+    # roundoff and the relative comparison would be noise-vs-noise)
+    model.set_fields(u=0.01 * np.sin(y), v=0.01 * np.sin(x),
+                     b=0.01 * np.cos(x) * np.cos(z))
+    state0 = model.state
+    # ---- path 2 (reference): project the tendency by hand --------
+    tend = model.tendency(state0, constraints=False)
+    div = Divergence()(VectorField(
+        {c: tend[c] for c in ("u", "v", "w")}))
+    solver = SpectralPressureSolver(
+        div.grid, div.function_space, vertical="z")
+    psi = solver.solve(div, dsqr=jnp.asarray(dsqr))
+    grad = Gradient()(psi)
+    ref = {
+        "u": state0["u"] + (tend["u"]
+                            - grad["x"].retag(state0["u"])) * dt,
+        "v": state0["v"] + (tend["v"]
+                            - grad["y"].retag(state0["v"])) * dt,
+        "w": state0["w"] + (tend["w"]
+                            - grad["z"].retag(state0["w"]) / dsqr) * dt,
+    }
+    # ---- path 1 (production): one composed step ------------------
+    model.advance(1)
+    # tolerance rationale: the two paths are distinct compiled
+    # programs (two spectral solves in a different order), so per the
+    # bitwise-equality umbrella the comparison is tolerance-based;
+    # 1e-12 relative is comfortable for a single step
+    for c in ("u", "v", "w"):
+        assert _rel_l2(model.state[c].data, ref[c].data) < 1e-12
+    # the direct pin of the p = phi/stage_dt normalization
+    assert _rel_l2(model.state["p"].data, psi.data) < 1e-12

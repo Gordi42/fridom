@@ -16,24 +16,25 @@ reading the test body and checking the assertion pins the *claim*
 
 ## Summary counts
 
-- **Covered**: 20 rows pinned by an existing test.
+- **Covered**: 22 rows pinned by an existing test.
 - **Mechanical hole written**: 1 — `test_order2_eps_jitted_matches_eager_within_tolerance`
   (the jitted-tolerance half of the eps'd order-2 row).
-- **Subtle holes sketched**: 2 — the project-state ≡ project-tendency
-  exact-equivalence, and the one-period discrete-eigenmode dispersion
-  regression (Appendix A).
+- **Subtle holes sketched**: 1 — the one-period discrete-eigenmode
+  dispersion regression (Appendix A, Sketch B). Sketch A
+  (project-state ≡ project-tendency) is implemented:
+  `nonhydro2/test_pressure.py::test_project_state_equals_project_tendency`.
 - **Intentional deltas** (new behavior deliberately ≠ old stack): 15
-  rows, signed-off table below; all but the p-normalization item have
-  their *new* behavior pinned by a test.
-- **Flags for owner** (behavior documented but apparently unwired): 2
-  — `p = φ/stage_dt` and the `rest="zero"` runtime application.
+  rows, signed-off table below; every row has its *new* behavior
+  pinned by a test.
+- **Flags for owner** (behavior documented but apparently unwired): 1
+  — the `rest="zero"` runtime application.
 
 ## Main audit table
 
 | # | Claim | Class | Test / pointer | Notes |
 |---|-------|-------|----------------|-------|
-| 1 | Project-the-state (exact-equivalent for explicit schemes) | COVERED (mechanism) / HOLE-SUBTLE (equivalence) | `nonhydro2/test_pressure.py::test_pressure_solve_drives_divergence_to_zero`, `::test_walled_projection_drives_divergence_to_zero`; idempotence + div-free reproduction `model/test_eigen.py::test_constrain_matvec_is_the_idempotent_leray_projector`, `nonhydro2/test_nonhydro2.py::test_eigenmode_projector_is_idempotent` | The project-the-state mechanism (u_new = u* − grad φ, divergence → 0) is pinned. The *exact equivalence* project-state ≡ project-tendency for explicit schemes is not directly asserted → Appendix A, Sketch A. |
-| 2 | `p = φ/stage_dt` | **FLAG / HOLE-SUBTLE** | none | Documented at `framework2/model/context.py:77` but **unwired**: `stage_dt` is threaded into `StepContext` and never divided by (grep-clean); `nonhydro2/modules/core.py::_project` writes the raw potential `"p": p` (u_new = u* − grad p), not φ/stage_dt. Needs owner decision — see Flags. Appendix A, Sketch A resolves it if wired. |
+| 1 | Project-the-state (exact-equivalent for explicit schemes) | COVERED | mechanism: `nonhydro2/test_pressure.py::test_pressure_solve_drives_divergence_to_zero`, `::test_walled_projection_drives_divergence_to_zero`; idempotence + div-free reproduction `model/test_eigen.py::test_constrain_matvec_is_the_idempotent_leray_projector`, `nonhydro2/test_nonhydro2.py::test_eigenmode_projector_is_idempotent`; exact equivalence: `nonhydro2/test_pressure.py::test_project_state_equals_project_tendency` | The Sketch-A regression: AB1 one-step u₁ matches the hand-built project-the-tendency u₁′ per component (rel L2 < 1e-12; measured ≤ 3e-15), forward and backward (dt < 0). |
+| 2 | `p = φ/stage_dt` | COVERED | `nonhydro2/test_pressure.py::test_project_state_equals_project_tendency` — stored `p ≈ ψ` (the projected-tendency potential, rel L2 < 1e-12); the backward leg pins the sign convention (φ flips with stage_dt, ψ does not) | Wired in `nonhydro2/modules/core.py::_project` (`"p": p / ctx.stage_dt`); the velocity update still subtracts the gradient of the RAW potential — dynamics unchanged, only the stored diagnostic is normalized. With a multistep stepper the diagnosed p is the pressure of the stepper's weighted tendency combination (O(dt²) time-filtered, inherent to projection methods). |
 | 3 | Continuous Ramp vs piecewise-constant θ=n/N | COVERED | `model/test_time_dependent.py::test_linear_ramp_values` (exact interior value at t=2.5), `::test_backward_window_signed_t0` | New continuous behavior pinned by exact-value equality; the "vs old θ=n/N" is the delta (sign-off table). |
 | 4 | `stop_best` (old returned the diverged iterate) | COVERED | `transforms/test_fixed_point.py::test_divergence_stop_best` — `info.returned_iteration == 1`, out == argmin-error iterate, not the diverged last | Intentional delta. |
 | 5 | TimeAverage twin drops Smagorinsky (old kept it) | COVERED (two composed tests) | `transforms/test_time_average.py::test_default_filter_drops_the_nonlinear_term` (default `fr.terms.linear` drops the nonlinear term) + `nonhydro2/test_smagorinsky_lilly.py::test_smagorinsky_terms_are_nonlinear_and_linearize_drops_them` and `::test_stress/mixing terms .linear is False` | Caveat: no single end-to-end Smagorinsky-inside-TimeAverage test; covered by proxy (generic nonlinear term) + Smagorinsky-is-nonlinear. Intentional delta. |
@@ -83,19 +84,7 @@ sign-off is the owner's confirmation the delta is intended.
 
 ## Flags for owner (documented but apparently unwired)
 
-1. **`p = φ/stage_dt` (#2).** The normalization is documented in
-   `framework2/model/context.py:77` and `stage_dt` is passed into
-   every `StepContext`, but **no code divides by `stage_dt`** and
-   `nonhydro2/modules/core.py::_project` stores the raw projection
-   potential (`"p": p`, with u_new = u* − grad p). If the stored `p`
-   is meant to be the physical pressure for old-stack parity it is
-   off by a factor 1/dt; if the raw potential is intended, the
-   docstring/§8.8 claim is stale. **Decision needed**: normalize the
-   stored pressure (and add the regression in Sketch A), or retract
-   the claim. Not testable as written (the current code would fail an
-   assertion that `p == φ/dt`).
-
-2. **`rest="zero"` runtime application (#7).** The signature default
+1. **`rest="zero"` runtime application (#7).** The signature default
    and its exclusion-from-equality are pinned, but the *zeroing* of
    extra input components is delegated to "the owning transform"
    (`signature.py:141`) and `.rest` is never read outside `__repr__`.
@@ -105,30 +94,15 @@ sign-off is the owner's confirmation the delta is intended.
 
 ## Appendix A — subtle-hole sketches (for a stronger pass)
 
-### Sketch A — project-state ≡ project-tendency exact-equivalence (item 1; also resolves #2)
+### Sketch A — project-state ≡ project-tendency exact-equivalence (items 1 + 2) — IMPLEMENTED
 
-- **Model**: a minimal explicit (AB1 or RK1) nonhydro2 linear model
-  on a small periodic grid, seeded with an already-divergence-free
-  state (e.g. a discrete eigenmode IC, or any state after one
-  projection).
-- **Two one-step evolutions**:
-  1. *project-the-state* (production): apply the increment
-     u* = u + dt·Σf, then the CONSTRAINT-stage projection
-     u₁ = P(u*) = u* − grad Φ, lap Φ = div u*.
-  2. *project-the-tendency* (reference): solve lap ψ = div Σf,
-     u₁′ = u + dt·(Σf − grad ψ).
-- **Assertion**: `relative_l2(u₁, u₁′) < 1e-12`. Algebraically equal
-  because u is divergence-free ⇒ div u* = dt·div Σf ⇒ Φ = dt·ψ ⇒
-  grad Φ = dt·grad ψ; the two paths coincide. This *also* pins
-  `p = φ/stage_dt` (ψ = Φ/dt): if the model stored `p = Φ`, dividing
-  by dt recovers ψ, so the same fixture validates item #2 once wired.
-- **Tolerance rationale**: the two paths are distinct compiled
-  programs (two spectral solves in a different order), so per the
-  umbrella rule the comparison is tolerance-based at ≤ a few ulp;
-  1e-12 relative is comfortable for a single step.
-- **Why subtle**: requires standing up the two projection wirings
-  and the divergence-free-precondition; and it exposes the #2
-  decision (whether stored `p` is Φ or Φ/dt).
+Implemented as
+`nonhydro2/test_pressure.py::test_project_state_equals_project_tendency`
+(AB1, periodic grid, divergence-free IC, forward + backward dt): the
+production one-step u₁ matches the hand-built project-the-tendency
+u₁′ per component and the stored `p` matches ψ (rel L2 < 1e-12;
+measured ≤ 3e-15). The normalization is wired in
+`nonhydro2/modules/core.py::_project` (`"p": p / ctx.stage_dt`).
 
 ### Sketch B — one-period discrete-eigenmode dispersion regression (item 17)
 
