@@ -1,12 +1,16 @@
-"""Dense-column channel eigenbasis on the walled shallow water model.
+"""Dense-column channel eigenbasis on the walled channel models.
 
 Validates the C3 engine (``fridom.framework2.model.eigen_channel``) on
 the linear rotating channel: gates, Hermiticity, M-orthonormality, the
 per-plane zero-mode counts, and the strong per-column eigen relation
 ``L Re(q e^{i kx x}) = Re(i omega q e^{i kx x})`` evaluated through the
-real model matvec ``model.tendency`` — on both the f-plane channel and
-the beta-plane channel (coefficients varying along the dense axis).
+real model matvec ``model.tendency`` — on the shallow-water f-plane
+channel, the beta-plane channel (coefficients varying along the dense
+axis), and the CONSTRAINED 3-D nonhydro channel (walled y, the
+``P L P`` probe through ``model.constrain`` + the constrained
+tendency, cross-checked against the trig-analytic f0 = 0 oracle).
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -120,23 +124,6 @@ def test_rejects_two_bounded_axes():
     with pytest.raises(ValueError,
                        match=r"exactly one bounded axis.*'x', 'y'"):
         channel_eigenpairs(box)
-
-
-def test_rejects_a_constraint_stage():
-    # the walled 3-D nonhydro carries the pressure CONSTRAINT stage;
-    # its channel eigenbasis is a later phase (taught error)
-    mx = fr.grid.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
-                                     name="x")
-    my = fr.grid.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
-                                     name="y")
-    mz = fr.grid.meshes.IntervalMesh(4, (0.0, 1.0), periodic=False,
-                                     name="z")
-    model = nh.Model(
-        grid=fr.grid.Grid((mx, my, mz)), advection=False,
-        coriolis=nh.FPlaneCoriolis(f0=F0),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
-    with pytest.raises(ValueError, match=r"CONSTRAINT.*later phase"):
-        channel_eigenpairs(model)
 
 
 def test_a_non_hermitian_pencil_is_a_taught_error(monkeypatch):
@@ -285,6 +272,218 @@ def test_multi_device_probe_runs_serially_with_a_host_gather(
     residual, scale = eigen_relation_residual(fresh, serial, kx=1,
                                               col=D - 1)
     assert residual < 1e-11 * scale
+
+
+# ================================================================
+#  The constrained 3-D nonhydro channel (the P L P probe)
+# ================================================================
+NZ_HALF = N // 2 + 1
+D_NH = 4 * N - 1  # u: N, v: N - 1 (inner y faces), w: N, b: N
+F0_NH, N2_NH, DSQR_NH = 1.5, 3.0, 2.0
+
+
+def make_nh_channel(f0=F0_NH, device_ids=None):
+    """Walled-y nonhydro channel: x, z periodic, y bounded."""
+    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                     periodic=True, name="x")
+    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=False, name="y")
+    mz = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                     periodic=True, name="z")
+    grid = fr.grid.Grid((mx, my, mz), device_ids=device_ids)
+    return nh.Model(
+        grid=grid, advection=False, dsqr=DSQR_NH,
+        coriolis=nh.FPlaneCoriolis(f0=f0),
+        stratification=nh.ConstantStratification(n2=N2_NH),
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+
+
+@pytest.fixture(scope="module")
+def nh_channel():
+    """One walled-y nonhydro channel shared across the module."""
+    return make_nh_channel()
+
+
+@pytest.fixture(scope="module")
+def nh_basis(nh_channel):
+    """Compute the constrained channel eigenbasis (P L P)."""
+    return channel_eigenpairs(nh_channel)
+
+
+def nh_eigen_relation_residual(model, basis, kx, kz, col):
+    """Drive ``P L P`` with one column; return (residual, scale).
+
+    Builds the real physical state ``Re(q(y) e^{i(kx x + kz z)})``,
+    projects it (``model.constrain``) and applies the constrained
+    tendency — together exactly the probed ``P L P`` — then compares
+    the rfftn ``(kx, kz)`` plane against ``i omega q``. With two
+    periodic axes the half-spectrum amplitude is ``Nx * Nz / 2``
+    whenever ``(kx, kz)`` is not self-conjugate (not BOTH indices in
+    {0, Nyquist}); the sampled planes respect that.
+    """
+    q_col = np.asarray(basis.q[kx, kz, :, col])
+    omega = float(basis.omega[kx, kz, col])
+    px = np.exp(2j * np.pi * kx * np.arange(N) / N)
+    pz = np.exp(2j * np.pi * kz * np.arange(N) / N)
+    model.set_fields(**{
+        name: np.real(px[:, None, None] * pz[None, None, :]
+                      * q_col[basis.slices[name]][None, :, None])
+        for name in basis.components})
+    projected = model.constrain(model.state)
+    tendency = model.tendency(projected, constraints=True)
+    amp = N * N / 2
+    residual = 0.0
+    for name in basis.components:
+        plane = np.fft.rfftn(np.asarray(tendency[name].data),
+                             axes=(0, 2))[kx, :, kz]
+        expect = 1j * omega * amp * q_col[basis.slices[name]]
+        residual = max(residual, float(np.abs(plane - expect).max()))
+    return residual, (1.0 + abs(omega)) * amp
+
+
+def test_nh_layout_conventions(nh_basis):
+    assert nh_basis.components == ("u", "v", "w", "b")
+    assert nh_basis.slices["u"] == slice(0, N)
+    assert nh_basis.slices["v"] == slice(N, 2 * N - 1)
+    assert nh_basis.slices["w"] == slice(2 * N - 1, 3 * N - 1)
+    assert nh_basis.slices["b"] == slice(3 * N - 1, D_NH)
+    assert nh_basis.periodic_axis == "z"
+    assert nh_basis.bounded_axis == "y"
+    assert nh_basis.omega.shape == (N, NZ_HALF, D_NH)
+    assert nh_basis.q.shape == (N, NZ_HALF, D_NH, D_NH)
+    assert not np.iscomplexobj(np.asarray(nh_basis.omega))
+
+
+def test_nh_pencil_is_hermitian_before_symmetrization(nh_basis):
+    # the P L P sandwich is M-skew (probing P L or L P alone would
+    # not be); the pre-symmetrization residual is the safety net
+    assert nh_basis.hermiticity_error < 1e-13
+
+
+def test_nh_eigenvectors_are_m_orthonormal(nh_basis):
+    assert float(nh_basis.orthonormality_error()) < 1e-12
+
+
+def test_nh_spectrum_is_plus_minus_paired(nh_basis):
+    omega = np.asarray(nh_basis.omega)
+    assert np.abs(omega + omega[..., ::-1]).max() < 1e-10
+
+
+def test_nh_zero_mode_counts_per_plane(nh_basis):
+    # P L P per (kx, kz) plane: the div-complement zeros (the discrete
+    # pressure-gradient directions: rank(grad) = N, except N - 1 at
+    # the kx = kz = 0 plane, where the constant pressure drops out)
+    # plus the steady (geostrophic) kernel:
+    #   * generic plane: N - 1 balanced strata          -> 2N - 1
+    #   * kx = 0, kz != 0: steady set = the full u column (N; the
+    #     boundary Kelvin branches join the steady set at kx = 0)
+    #     plus the constant-p stratum (b = dp/dz only)  -> 2N + 1
+    #   * kz = z-Nyquist: the w<->b interpolation factor cos(kz dz/2)
+    #     vanishes, so buoyancy decouples: N steady b-columns plus
+    #     one velocity stratum (the y-alternating u with its
+    #     compensating w)                               -> 2N + 1
+    #   * kx = x-Nyquist AND kz = z-Nyquist: the rotation (x-average)
+    #     and buoyancy (z-average) factors both vanish, L = 0 on the
+    #     plane and every column is a zero mode         -> D
+    #   * kx = kz = 0: N - 1 complement + N mean-flow u -> 2N - 1
+    omega = np.asarray(nh_basis.omega)
+    zeros = np.sum(np.abs(omega) < 1e-8, axis=-1)
+    expected = np.full((N, NZ_HALF), 2 * N - 1)
+    expected[0, 1:] = 2 * N + 1
+    expected[1:, -1] = 2 * N + 1
+    expected[N // 2, -1] = D_NH
+    assert (zeros == expected).all()
+
+
+@pytest.fixture(scope="module")
+def nh_norot_basis():
+    """Compute the f0 = 0 channel eigenbasis (trig-analytic)."""
+    return channel_eigenpairs(make_nh_channel(f0=0.0))
+
+
+def test_nh_trig_oracle_without_rotation(nh_norot_basis):
+    # with f0 = 0 there is no parity obstruction: the walled-y
+    # spectrum is trig-analytic, omega^2 = N^2 a_z^2 kh^2 /
+    # (dsqr kh^2 + kz^2) with the exact trig y-wavenumber
+    # k_y = 2 sin(pi m dy / (2 Ly)) / dy on the cosine strata
+    # m = 0..N-1, the staggered-difference periodic wavenumbers
+    # k_x/k_z, and the w<->b interpolation factor a_z = cos(kz dz/2)
+    # (the same discrete table nh.eigenmodes uses on the walled-z
+    # grid, with the y and z roles swapped); each plane additionally
+    # carries 2N - 1 exact zeros (N div-complement + N - 1 vortical)
+    dx, dy, dz = 2 * np.pi / N, 1.0 / N, 2 * np.pi / N
+    kx = 2 * np.pi * np.fft.fftfreq(N, dx)
+    kz = np.arange(NZ_HALF, dtype=float)  # Lz = 2 pi
+    m = np.arange(N, dtype=float)
+    khx = 2 * np.sin(kx * dx / 2) / dx
+    khy = 2 * np.sin(np.pi * m * dy / 2) / dy  # Ly = 1
+    khz = 2 * np.sin(kz * dz / 2) / dz
+    ahz = np.cos(kz * dz / 2)
+    kh2 = khx[:, None, None] ** 2 + khy[None, None, :] ** 2
+    num = N2_NH * ahz[None, :, None] ** 2 * kh2
+    den = DSQR_NH * kh2 + khz[None, :, None] ** 2
+    om2 = np.where(den > 0, num / np.where(den > 0, den, 1.0),
+                   N2_NH / DSQR_NH)  # the kh = kz = 0 limit
+    om = np.sqrt(om2)
+    expected = np.sort(np.concatenate(
+        [-om, om, np.zeros((N, NZ_HALF, 2 * N - 1))], axis=-1),
+        axis=-1)
+    got = np.sort(np.asarray(nh_norot_basis.omega), axis=-1)
+    assert np.abs(got - expected).max() < 1e-12
+
+
+@pytest.mark.parametrize(("kx", "kz", "col"), [
+    pytest.param(1, 1, 0, id="kx1-kz1-bottom"),
+    pytest.param(2, 1, D_NH - 1, id="kx2-kz1-top"),
+    pytest.param(3, 2, D_NH // 2, id="kx3-kz2-zero"),
+    pytest.param(1, 3, 5, id="kx1-kz3-low-branch"),
+    pytest.param(0, 2, D_NH - 1, id="kx0-kz2-top"),
+    pytest.param(2, 0, D_NH - 1, id="kx2-kz0-top"),
+])
+def test_nh_columns_satisfy_the_eigen_relation(
+        nh_channel, nh_basis, kx, kz, col):
+    residual, scale = nh_eigen_relation_residual(
+        nh_channel, nh_basis, kx, kz, col)
+    assert residual < 1e-12 * scale
+
+
+def test_nh_chunked_run_matches_the_vmapped(nh_channel, nh_basis):
+    chunked = channel_eigenpairs(nh_channel, chunk=7)
+    assert np.allclose(chunked.omega, nh_basis.omega, atol=1e-10)
+    assert float(chunked.orthonormality_error()) < 1e-12
+
+
+def test_nh_multi_device_probe_runs_serially_with_a_host_gather(
+        nh_basis, monkeypatch):
+    # the constrained probe path shares the serial host-gather
+    # fallback (see the sw twin above); faking the device count on
+    # one device exercises exactly that branch
+    monkeypatch.setattr(TensorDecomposition, "device_count",
+                        property(lambda _self: 4))
+    fresh = make_nh_channel()
+    serial = channel_eigenpairs(fresh)
+    assert np.allclose(serial.omega, nh_basis.omega, atol=1e-10)
+    assert float(serial.orthonormality_error()) < 1e-12
+    residual, scale = nh_eigen_relation_residual(
+        fresh, serial, kx=1, kz=1, col=D_NH - 1)
+    assert residual < 1e-12 * scale
+
+
+@pytest.mark.multi_device
+def test_nh_constrained_probe_is_device_count_invariant(
+        forced_devices):
+    # the genuinely sharded gate: the constrained probe (impulse ->
+    # constrain -> constrained tendency, serial host gather) matches
+    # the explicit one-device grid
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        results[tag] = channel_eigenpairs(
+            make_nh_channel(device_ids=device_ids))
+    assert np.allclose(np.asarray(results["many"].omega),
+                       np.asarray(results["one"].omega), atol=1e-10)
+    assert float(results["many"].orthonormality_error()) < 1e-12
 
 
 # ================================================================

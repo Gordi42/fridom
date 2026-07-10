@@ -39,6 +39,23 @@ on the walled-``y`` channel (pointwise rotation does no work for any
 a *periodic* axis breaks the per-mode block structure and is out of
 scope (the Hermiticity assertion is the safety net, not a guarantee).
 
+Constrained models (the nonhydro pressure)
+------------------------------------------
+A model carrying a ``CONSTRAINT`` stage (the nonhydro pressure
+projection) is served by probing the **projected** linearization
+:math:`S = P L P` — ``P`` the M-orthogonal Leray projector the
+pressure stage realizes, applied through the public
+``model.constrain`` matvec: each impulse is projected first (one
+extra pressure solve per impulse), then the constrained tendency
+``model.tendency(constraints=True)`` supplies :math:`P L`. Probing
+:math:`P L` or :math:`L P` alone would **not** be M-skew off the
+divergence-free subspace; only the symmetric sandwich keeps
+``H = iMS`` Hermitian. The M-orthogonal complement of the
+divergence-free subspace (the discrete pressure-gradient directions)
+lies in the kernel of both ``P`` factors, so per mode plane it shows
+up as **extra exact zero modes** on top of the physical steady
+(geostrophic) modes — a labeler's concern, not the basis's.
+
 The framework stays agnostic about the physics of the columns
 (vortical / Kelvin / Poincaré families): :class:`ChannelEigenbasis`
 carries an **empty** integer label slot that a model package fills
@@ -107,7 +124,11 @@ class ChannelEigenbasis:
     empty until :meth:`label_with`) — deliberately, because with
     coefficients varying along the bounded axis (a beta-plane
     ``f(y)``) the mode families blur and only a model package can
-    judge the boundaries.
+    judge the boundaries. On a constrained model (the nonhydro
+    pressure) the basis diagonalizes the projected linearization
+    ``P L P``, so each plane carries the divergence-complement
+    directions as extra exact zero modes next to the physical steady
+    modes (the labeler owns telling them apart).
 
     Parameters
     ----------
@@ -232,9 +253,12 @@ def channel_eigenpairs(
     measure-weighted energy metric (``fr.EnergyMetric`` times the
     bounded-axis measure), and solves the whitened batched ``eigh``
     per mode plane. Requires exactly one bounded grid factor (all
-    others periodic) and an unconstrained model — the 3-D nonhydro
-    channel (a CONSTRAINT stage eliminating the pressure) is a later
-    phase.
+    others periodic). On a model carrying a CONSTRAINT stage (the 3-D
+    nonhydro channel) the probed operator is the projected
+    linearization ``P L P`` — each impulse passes through the public
+    ``model.constrain`` matvec, then the constrained tendency — so
+    the divergence-complement directions appear as extra exact zero
+    modes (see the module docstring).
 
     Coefficients may vary arbitrarily **along the bounded axis** (the
     probe reads whatever the tendency carries — a beta-plane ``f(y)``
@@ -280,12 +304,7 @@ def channel_eigenpairs(
             "multi-walled box has no periodic axis to block-"
             "diagonalize over and is out of scope")
     schedule = model._artifacts.schedule  # noqa: SLF001 — host probe
-    if schedule.kind_entries(StageKind.CONSTRAINT):
-        raise ValueError(
-            "channel_eigenpairs currently serves unconstrained "
-            "models; this model carries a CONSTRAINT stage (the "
-            "nonhydro pressure projection). The walled 3-D nonhydro "
-            "eigenbasis is a later phase")
+    constrained = bool(schedule.kind_entries(StageKind.CONSTRAINT))
 
     names = model.grid.names
     bounded_axis = bounded[0]
@@ -303,7 +322,7 @@ def channel_eigenpairs(
     metric_diag = _metric_diagonal(base0, prog, weights, bounded_axis)
     symbol = _probe_block(
         lin, base0, prog, slices, bounded_index, periodic_axes,
-        at_time, chunk)
+        at_time, chunk, constrained=constrained)
 
     hamiltonian, residual = _hermitian_pencil(symbol, metric_diag)
     hermiticity_error = float(residual)
@@ -374,6 +393,8 @@ def _probe_block(
     periodic_axes: tuple[int, ...],
     at_time: float,
     chunk: int | None,
+    *,
+    constrained: bool = False,
 ) -> jax.Array:
     r"""
     Probe the linearized tendency into per-mode dense blocks.
@@ -386,6 +407,10 @@ def _probe_block(
     axes only (``rfftn`` half spectrum — the operator is real), and
     stacks the segments, so
     ``S[..., (c', j'), (c, j)] = rfftn(L e_{(c,j)})_{c'}[..., j']``.
+    On a ``constrained`` model each impulse is projected first through
+    ``model.constrain`` and the tendency runs with
+    ``constraints=True``, so the probed operator is the Hermitian
+    sandwich :math:`P L P` (one extra pressure solve per impulse).
 
     Returns
     -------
@@ -396,11 +421,17 @@ def _probe_block(
     batch = _impulse_batch(base0, prog, slices, bounded_index, dim)
 
     def apply_one(arrays: dict[str, jax.Array]) -> dict[str, jax.Array]:
-        """Embed one impulse and apply the linearized tendency."""
+        """Embed one impulse; apply the (projected) linearization."""
         state = base0.replace(**{
             name: base0[name].with_data(arrays[name])
             for name in prog})
-        out = lin.tendency(state, t=at_time, constraints=False)
+        if constrained:
+            # S = P L P: project the impulse (one pressure solve),
+            # then the constrained tendency supplies P after L
+            state = lin.constrain(state, t=at_time)
+            out = lin.tendency(state, t=at_time, constraints=True)
+        else:
+            out = lin.tendency(state, t=at_time, constraints=False)
         return {name: out[name].data for name in prog}
 
     if base0.grid.decomposition.device_count > 1:
