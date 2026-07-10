@@ -31,16 +31,14 @@ degenerate eigenspace) for free.
 Constraints (nonhydro pressure)
 -------------------------------
 The nonhydro pressure is eliminated by the Leray projection ``P``,
-carried by a ``CONSTRAINT`` stage. ``model.tendency(constraints=True)``
-does **not** currently expose it as a matvec — it writes the diagnostic
-``p`` into the prognostic-only tendency accumulator and raises (a
-framework wall recorded for H1). So this probe assembles the raw
-operator ``S`` with ``constraints=False`` and probes the linear Leray
-projector ``P`` separately (through the assembled schedule's
-``constrain`` stage), forming the constrained, energy-conserving
-operator :math:`P S P`. Its ``eigh`` spectrum reproduces the analytic
-discrete inertia-gravity frequencies to machine precision (the
-divergence-free nullspace shows up as exact extra zeros).
+carried by a ``CONSTRAINT`` stage and exposed as the public matvec
+``model.constrain`` (the H1 accumulator fix). This probe assembles the
+raw operator ``S`` with ``constraints=False`` and probes ``P``
+separately through ``model.constrain``, forming the constrained,
+energy-conserving operator :math:`P S P`. Its ``eigh`` spectrum
+reproduces the analytic discrete inertia-gravity frequencies to
+machine precision (the divergence-free nullspace shows up as exact
+extra zeros).
 """
 from __future__ import annotations
 
@@ -49,7 +47,6 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_comp, dtype_real
-from fridom.framework2.model.context import StepContext
 from fridom.framework2.model.energy import EnergyMetric
 from fridom.framework2.model.stages import StageKind
 from fridom.framework2.model.term_predicates import linearize
@@ -177,11 +174,10 @@ def numeric_eigenpairs(
     prog, base0 = _rest_background(lin, at_time)
     weights = _metric_weights(metric, prog)
 
-    t = jnp.asarray(at_time, dtype=dtype_real())
     symbol = _probe_symbol(
         lambda z: lin.tendency(z, t=at_time, constraints=False),
         base0, prog)
-    projector = _leray_projector(lin, base0, prog, t)
+    projector = _leray_projector(lin, base0, prog, at_time)
     if projector is not None:
         symbol = projector @ symbol @ projector
 
@@ -242,39 +238,22 @@ def _leray_projector(
     lin: Model,
     base0: VectorField,
     prog: tuple[str, ...],
-    t: jax.Array,
+    at_time: float,
 ) -> jax.Array | None:
     r"""
     Probe the linear CONSTRAINT (Leray) projector, or ``None``.
 
     Description
     -----------
-    ``model.tendency(constraints=True)`` cannot serve the constrained
-    matvec (it writes the diagnostic ``p`` into the prognostic-only
-    accumulator and raises), so the projector is probed directly through
-    the assembled schedule's ``constrain`` stage — a read-only use of
-    the linear variant's internals until a public ``constrain`` matvec
-    (H1) exists. Returns ``None`` for an unconstrained model (e.g.
-    shallow water).
+    The projector is probed through the public ``model.constrain``
+    matvec (the H1 surface). Returns ``None`` for an unconstrained
+    model (e.g. shallow water).
     """
     schedule = lin._artifacts.schedule  # noqa: SLF001 — host-side probe
     if not schedule.kind_entries(StageKind.CONSTRAINT):
         return None
-    modules = lin._carry.modules  # noqa: SLF001 — host-side probe
-    stepper = lin._stepper  # noqa: SLF001 — host-side probe
-    table = schedule.binding_table
-    params = (table.eval_params(modules, stepper, t)
-              if table is not None else {})
-    ctx = StepContext(params=params, clock=t, dt=stepper.dt,
-                      stage_dt=stepper.dt)
-    bound = schedule.bind(modules)
-
-    def constrain(state: VectorField) -> VectorField:
-        """Embed the prognostic perturbation and run CONSTRAINT."""
-        full = base0.replace(**{name: state[name] for name in prog})
-        return bound.constrain(full, ctx)
-
-    return _probe_symbol(constrain, base0, prog)
+    return _probe_symbol(
+        lambda z: lin.constrain(z, t=at_time), base0, prog)
 
 
 # ================================================================

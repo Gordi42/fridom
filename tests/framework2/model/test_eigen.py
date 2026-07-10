@@ -19,8 +19,10 @@ import pytest
 
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
+from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.composed import Divergence
 from fridom.framework2.model.eigen import (
     NumericEigenmodes,
     numeric_eigenpairs,
@@ -184,7 +186,7 @@ def test_nonhydro_eigenvectors_are_m_orthonormal():
 
 
 # ================================================================
-#  Structural gate + the recorded H0 constraint-tendency wall
+#  Structural gates + the H1 constrained-matvec surface
 # ================================================================
 def test_rejects_a_walled_grid():
     mx = IntervalMesh(8, (0.0, 1.0), periodic=True, name="x")
@@ -211,14 +213,38 @@ def test_rejects_a_beta_plane_model():
         numeric_eigenpairs(model)
 
 
-def test_constraint_tendency_wall_is_present():
-    # H0 records this framework wall (and probes the Leray projector
-    # around it): tendency(constraints=True) writes the diagnostic 'p'
-    # into the prognostic-only accumulator and raises. When H1 fixes
-    # the accumulator this test flips and is removed.
+def test_constrained_tendency_is_the_projected_tendency():
+    # the H1 accumulator fix: tendency(constraints=True) returns the
+    # PROJECTED prognostic tendency — the diagnostic 'p' stays on the
+    # internal overlay — with a machine-zero discrete divergence
     model = nh_model()
-    with pytest.raises(KeyError, match="no component named 'p'"):
-        model.tendency(model.state, constraints=True)
+    rng = np.random.default_rng(7)
+    model.set_fields(**{c: rng.standard_normal(
+        model.state[c].data.shape) for c in ("u", "v", "w", "b")})
+    tau = model.tendency(model.state, constraints=True)
+    assert tau.component_names == ("u", "v", "w", "b")
+    div = Divergence()(VectorField(
+        {c: tau[c] for c in ("u", "v", "w")}))
+    assert np.abs(np.asarray(div.data)).max() < 1e-12
+
+
+def test_constrain_matvec_is_the_idempotent_leray_projector():
+    # the H1 public projector surface: model.constrain projects onto
+    # the divergence-free subspace and is idempotent
+    model = nh_model()
+    rng = np.random.default_rng(8)
+    model.set_fields(**{c: rng.standard_normal(
+        model.state[c].data.shape) for c in ("u", "v", "w", "b")})
+    pz = model.constrain(model.state)
+    assert pz.component_names == ("u", "v", "w", "b")
+    div = Divergence()(VectorField(
+        {c: pz[c] for c in ("u", "v", "w")}))
+    assert np.abs(np.asarray(div.data)).max() < 1e-12
+    twice = model.constrain(pz)
+    err = max(float(np.abs(np.asarray(twice[c].data)
+                           - np.asarray(pz[c].data)).max())
+              for c in ("u", "v", "w", "b"))
+    assert err < 1e-12
 
 
 def test_betaplane_coriolis_module_is_shared():

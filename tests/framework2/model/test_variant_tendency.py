@@ -16,7 +16,10 @@ from fridom.framework.utils import dtype_real, jaxify
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.model import term_predicates as terms
-from fridom.framework2.model.declarations import FieldDeclaration
+from fridom.framework2.model.declarations import (
+    FieldDeclaration,
+    Lifecycle,
+)
 from fridom.framework2.model.errors import AssemblyError
 from fridom.framework2.model.model import Model
 from fridom.framework2.model.module import Module
@@ -212,6 +215,45 @@ def test_tendency_plain_callable_filter():
     u, v = state["u"].data, state["v"].data
     assert jnp.allclose(td["u"].data, v * F0)
     assert jnp.allclose(td["v"].data, -u * F0)
+
+
+# ================================================================
+#  model.constrain (the H1 public projector matvec)
+# ================================================================
+def test_constrain_without_constraint_stages_is_identity():
+    # the toy carries no CONSTRAINT stage: the matvec returns the
+    # input's PROGNOSTIC subset unchanged (and never the carry)
+    model = make_model()
+    state = _ic(model)
+    out = model.constrain(state)
+    assert out.component_names == ("u", "v")
+    assert jnp.array_equal(out["u"].data, state["u"].data)
+    assert jnp.array_equal(out["v"].data, state["v"].data)
+
+
+def test_constrain_reuses_one_compiled_entry():
+    model = make_model()
+    state = _ic(model)
+    model.constrain(state)
+    model.constrain(state, t=0.0)  # same executable -> cache hit
+    assert ("constrain",) in model._tendency_cache
+    assert len(model._tendency_cache) == 1
+
+
+def test_constrain_needs_prognostic_fields():
+    class AuxOnly(Module):
+        field_declarations = (
+            FieldDeclaration("q", space=Collocated(),
+                             lifecycle=Lifecycle.AUXILIARY,
+                             default=lambda x: 0.0 * x),
+        )
+
+    grid = Grid((IntervalMesh(N, (0.0, 1.0), periodic=True,
+                              name="x"),))
+    model = Model(grid=grid, modules=(AuxOnly(),),
+                  time_stepper=AdamBashforth(DT, order=2))
+    with pytest.raises(NotImplementedError, match="PROGNOSTIC"):
+        model.constrain(model.state)
 
 
 # ================================================================

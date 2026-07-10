@@ -1659,9 +1659,14 @@ class Model:
         V-H8 — the result reflects recomputed diagnostics), the
         filtered EXPLICIT terms accumulate (IMPLICIT terms via their
         forward apply ``L @ state``), and the CONSTRAINT stages apply
-        to the result iff ``constraints``. **Never advances the
-        carry.** The composed tendency is jitted separately, keyed by
-        the kept-term set and ``constraints`` (its own cache entry).
+        to the result iff ``constraints`` — the accumulated PROGNOSTIC
+        sums overlay the prepared full state (so auxiliary reads
+        resolve) and diagnostic stage writes (e.g. the nonhydro
+        pressure ``p``) stay on that overlay, never entering the
+        returned PROGNOSTIC-only tendency (the H1 accumulator fix).
+        **Never advances the carry.** The composed tendency is jitted
+        separately, keyed by the kept-term set and ``constraints``
+        (its own cache entry).
 
         Parameters
         ----------
@@ -1770,8 +1775,107 @@ class Model:
                     result = evaluate_entry(entry, module, full, ctx)
                 sums = apply_add(entry, sums, result)
             if do_constrain:
-                sums = bound.constrain(sums, ctx)
+                # the CONSTRAINT stages see the accumulated PROGNOSTIC
+                # sums overlaid on the prepared full state (auxiliary
+                # reads resolve; diagnostic writes such as the nonhydro
+                # pressure land on the overlay and are dropped from the
+                # PROGNOSTIC-only result — the H1 accumulator fix)
+                constrained = bound.constrain(
+                    full.replace(**{name: sums[name]
+                                    for name in prognostic}), ctx)
+                sums = VectorField({name: constrained[name]
+                                    for name in prognostic})
             return sums
+
+        jitted = jax.jit(run)
+        self._tendency_cache[cache_key] = jitted
+        return jitted
+
+    def constrain(
+        self,
+        state: VectorField,
+        *,
+        t: float | None = None,
+    ) -> VectorField:
+        """
+        Host-callable, jitted, read-only CONSTRAINT application (H1).
+
+        Description
+        -----------
+        The public projector matvec the numeric eigenmode probes
+        compose around the raw tendency: the input's PROGNOSTIC
+        components are overlaid onto the carry's current full state
+        (so AUXILIARY inputs are available), the CONSTRAINT stages run
+        at ``t``, and the PROGNOSTIC subset of the constrained state
+        is returned — diagnostic stage writes (e.g. the nonhydro
+        pressure ``p``) stay on the internal overlay. For the nonhydro
+        pressure projection this realizes the (M-orthogonal) Leray
+        projector; a model without CONSTRAINT stages returns the
+        input's PROGNOSTIC subset unchanged. **Never advances the
+        carry.**
+
+        Parameters
+        ----------
+        state : VectorField
+            The state to constrain; its declared components overlay
+            the carry's current state.
+        t : float | None, optional
+            The stage time for parameter evaluation; ``None`` reads
+            the carry clock (default: None).
+
+        Returns
+        -------
+        VectorField
+            The PROGNOSTIC-only constrained state.
+        """
+        schedule = self._artifacts.schedule
+        if not schedule.prognostic:
+            raise NotImplementedError(
+                "model.constrain needs PROGNOSTIC fields; a stage-"
+                "only / field-free composition has no state to "
+                "constrain")
+        base_state = self._carry.state
+        if base_state is None:  # pragma: no cover — prognostic implies state
+            raise AttributeError("this composition declares no fields")
+        run = self._constrain_executable()
+        t_val = (self._carry.clock.time if t is None
+                 else jnp.asarray(t, dtype=dtype_real()))
+        return run(state, base_state, self._carry.modules,
+                   self._stepper, t_val)
+
+    def _constrain_executable(self) -> Callable:
+        """Build (memoized) the jitted CONSTRAINT-stage function."""
+        cache_key = ("constrain",)
+        cached = self._tendency_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        schedule = self._artifacts.schedule
+        prognostic = schedule.prognostic
+        has_constraint = bool(
+            schedule.kind_entries(StageKind.CONSTRAINT))
+
+        def run(
+            state: VectorField,
+            base_state: VectorField,
+            modules: tuple,
+            stepper: TimeStepper,
+            t: Any,
+        ) -> VectorField:
+            """Overlay, run the CONSTRAINT stages, strip to PROG."""
+            overlay = {name: state[name]
+                       for name in state.component_names
+                       if name in base_state}
+            full = base_state.replace(**overlay)
+            if has_constraint:
+                table = schedule.binding_table
+                params = (table.eval_params(modules, stepper, t)
+                          if table is not None else {})
+                ctx = StepContext(params=params, clock=t,
+                                  dt=stepper.dt, stage_dt=stepper.dt)
+                bound = schedule.bind(modules)
+                full = bound.constrain(full, ctx)
+            return VectorField(
+                {name: full[name] for name in prognostic})
 
         jitted = jax.jit(run)
         self._tendency_cache[cache_key] = jitted
