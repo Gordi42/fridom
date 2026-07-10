@@ -133,14 +133,27 @@ class DynamicalCore(fr.Module):
     def _project(
         self, state: State, ctx: StepContext,
     ) -> dict[str, object]:
-        """Project u, v, w divergence-free; write the pressure p.
+        r"""Project u, v, w divergence-free; write the pressure p.
 
         Description
         -----------
-        Solve ``lap(p) = div(u*)`` spectrally (the discrete C-grid
-        eigenvalue), then subtract ``grad p`` from the provisional
+        Solve ``lap(phi) = div(u*)`` spectrally (the discrete C-grid
+        eigenvalue), then subtract ``grad phi`` from the provisional
         velocity (the vertical component carries the ``1/dsqr``
-        weighting of the nonhydrostatic pressure gradient).
+        weighting of the nonhydrostatic pressure gradient). The
+        stored diagnostic is the **normalized** pressure
+        ``p = phi / ctx.stage_dt``: for an explicit one-stage scheme
+        (``u* = u + dt * F`` on a divergence-free ``u``) this is
+        exactly the potential of the projected *tendency*
+        (``lap(p) = div(F)``), i.e. the physical, dt-independent
+        pressure of the old stack's project-the-tendency form; on a
+        backward leg ``stage_dt`` and ``phi`` flip sign together, so
+        ``p`` keeps its physical sign. With a multistep stepper the
+        diagnosed ``p`` is the pressure consistent with the stepper's
+        weighted tendency combination — slightly time-filtered,
+        O(dt^2), inherent to projection methods. The velocity update
+        subtracts the gradient of the RAW potential ``phi``; the
+        normalization only rescales the stored diagnostic.
         """
         dsqr = ctx.params[DSQR]
         vel = VectorField({
@@ -160,5 +173,5 @@ class DynamicalCore(fr.Module):
             "u": state["u"] - grad_u,
             "v": state["v"] - grad_v,
             "w": state["w"] - grad_w / dsqr,
-            "p": p,
+            "p": p / ctx.stage_dt,
         }
