@@ -1,6 +1,8 @@
-"""Walled (channel) shallow water: linear assembly + skew-adjointness."""
+"""Walled (channel) shallow water: linear assembly + skew-adjointness.
+
+The nonlinear (Sadourny) walled coverage lives in test_sadourny.py.
+"""
 import numpy as np
-import pytest
 
 from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.spaces.nodal import NodeSet
@@ -108,12 +110,3 @@ def test_walled_linear_run_is_stable_with_bounded_energy():
     # the exact invariant of the skew-adjoint operator: AB3 leaves
     # only a bounded time-discretization drift
     assert np.all(np.abs(energies - e0) / e0 < 5e-3)
-
-
-# ================================================================
-#  The nonlinear advection stays behind a taught error
-# ================================================================
-def test_walled_sadourny_is_a_taught_error():
-    with pytest.raises(NotImplementedError,
-                       match=r"walled grids .*advection=False"):
-        make_model(make_grid(periodic_y=False))  # default advection
