@@ -19,6 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .advection import CenteredAdvection
     from .core import DynamicalCore
     from .pressure import SpectralPressureSolver
+    from .smagorinsky_lilly import SmagorinskyLilly
     from .stratification import (
         ConstantStratification,
         MeridionalStratification,
@@ -39,6 +40,7 @@ all_imports_by_origin = {
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.advection": ["CenteredAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
+    f"{base}.smagorinsky_lilly": ["SmagorinskyLilly"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
