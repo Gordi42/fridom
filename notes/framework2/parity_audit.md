@@ -16,7 +16,7 @@ reading the test body and checking the assertion pins the *claim*
 
 ## Summary counts
 
-- **Covered**: 22 rows pinned by an existing test.
+- **Covered**: 23 rows pinned by an existing test.
 - **Mechanical hole written**: 1 — `test_order2_eps_jitted_matches_eager_within_tolerance`
   (the jitted-tolerance half of the eps'd order-2 row).
 - **Subtle holes sketched**: 1 — the one-period discrete-eigenmode
@@ -26,8 +26,8 @@ reading the test body and checking the assertion pins the *claim*
 - **Intentional deltas** (new behavior deliberately ≠ old stack): 15
   rows, signed-off table below; every row has its *new* behavior
   pinned by a test.
-- **Flags for owner** (behavior documented but apparently unwired): 1
-  — the `rest="zero"` runtime application.
+- **Flags for owner**: none — both original flags (`p = φ/stage_dt`,
+  `rest="zero"` application) are wired and covered (rows 2 and 7).
 
 ## Main audit table
 
@@ -39,7 +39,7 @@ reading the test body and checking the assertion pins the *claim*
 | 4 | `stop_best` (old returned the diverged iterate) | COVERED | `transforms/test_fixed_point.py::test_divergence_stop_best` — `info.returned_iteration == 1`, out == argmin-error iterate, not the diverged last | Intentional delta. |
 | 5 | TimeAverage twin drops Smagorinsky (old kept it) | COVERED (two composed tests) | `transforms/test_time_average.py::test_default_filter_drops_the_nonlinear_term` (default `fr.terms.linear` drops the nonlinear term) + `nonhydro2/test_smagorinsky_lilly.py::test_smagorinsky_terms_are_nonlinear_and_linearize_drops_them` and `::test_stress/mixing terms .linear is False` | Caveat: no single end-to-end Smagorinsky-inside-TimeAverage test; covered by proxy (generic nonlinear term) + Smagorinsky-is-nonlinear. Intentional delta. |
 | 6 | Sadourny reads the csqr *field* (old used the scalar in h_full — old bug) | COVERED | `shallowwater2/test_sadourny.py::test_csqr_is_a_state_field_not_a_scalar`; `::test_varying_depth_energy_rate_is_machine_zero` uses a y-varying csqr and telescopes to machine zero only if h_full reads the field | Intentional delta (bug fix). |
-| 7 | `rest="zero"` | COVERED (default/metadata) / FLAG (application) | `transforms/test_signature.py::test_of_prognostic_from_state` (default == "zero"), `::test_rest_excluded_from_equality`, `::test_validate_input_allows_extra_components` | The default policy and signature semantics are pinned. The runtime zeroing *application* is unwired: `.rest` is consumed only in `signature.py::__repr__` (grep-confirmed). See Flags. |
+| 7 | `rest="zero"` | COVERED (default/metadata + application) | metadata: `transforms/test_signature.py::test_of_prognostic_from_state` (default == "zero"), `::test_rest_excluded_from_equality`, `::test_validate_input_allows_extra_components`; application (central wiring in `transforms/base.py::_apply_rest`): `transforms/test_base.py::test_rest_zero_attaches_zero_field_on_own_space`, `::test_rest_pass_passes_the_input_component_through`, `::test_state_minus_projection_carries_the_full_tracer`, `::test_complement_carries_the_full_tracer` (+ the algebra tests in that file); integration: `shallowwater2/test_transforms.py::test_projection_rest_zero_completes_a_passive_tracer`, `nonhydro2/test_transforms.py::test_projection_rest_zero_completes_a_passive_tracer` | The policy is applied once in `StateTransform.call_with_info` (output completion after `_evaluate`): extras the payload did not emit are attached — zero field on their own space (`"zero"`) or passed through (`"pass"`); algebra nodes inherit completion from their children. |
 | 8 | Empty-implicit CNAB2 = textbook AB2 (no eps) | COVERED | `model/time_steppers/test_imex.py::test_cnab2_empty_implicit_is_textbook_ab2` — rtol 1e-11 vs an eps-free `1.5 f − 0.5 f_prev` reference | |
 | 9 | `epot` N²=0 → hinted error (old silent formula switch) | COVERED | `model/test_energy.py::test_from_model_rejects_zero_stratification` (`match="1/N"`); sw twin `::test_from_model_rejects_zero_phase_speed` | Enforcement lives in `EnergyMetric.from_model` (the 1/N² weight). Residual: the `epot` diagnostic function itself (`nonhydro2/diagnostics.py:65`) does not guard n2=0 — it returns inf. Intentional delta. |
 | 10 | Nyquist zeroing relocated into em.q/p | COVERED | `shallowwater2/test_eigenmodes.py::test_eigenmode_biorthonormality_and_structural_zeros` (geostrophic column of `em.q(0)` exactly zero on Nyquist planes); `nonhydro2/test_walled_eigenmodes.py::test_vortical_alive_count_is_n_plus_1` | Caveat: pins that the zeros *are* carried by em.q, not that a duplicate zeroing was removed from the former call-site. |
@@ -82,15 +82,15 @@ sign-off is the owner's confirmation the delta is intended.
 | Relaxation rate=1/tau (#22) | Constructor took the timescale τ | Constructor takes the rate r = 1/τ | Rate composes linearly and is the natural leaf for `update_parameters` sweeps. |
 | Wave-maker param names (#23) | old kwargs | `position/width/frequency/amplitude/variable` (Gaussian); `k/position/width/amplitude/s` (Polarized) | Consistent dict-of-coordinate spellings across makers. |
 
-## Flags for owner (documented but apparently unwired)
+## Flags for owner — all resolved (2026-07-11)
 
-1. **`rest="zero"` runtime application (#7).** The signature default
-   and its exclusion-from-equality are pinned, but the *zeroing* of
-   extra input components is delegated to "the owning transform"
-   (`signature.py:141`) and `.rest` is never read outside `__repr__`.
-   Either wire the zero-vs-pass application (then add a mechanical
-   test asserting `"zero"` zeros an extra component and `"pass"`
-   passes it through) or note it as a not-yet-implemented policy slot.
+1. **`p = φ/stage_dt` (#2)** — wired in
+   `nonhydro2/modules/core.py::_project` (`"p": p / ctx.stage_dt`;
+   velocities still subtract the raw-potential gradient, dynamics
+   unchanged); pinned by the Sketch-A regression (row 2).
+2. **`rest="zero"` runtime application (#7)** — wired centrally in
+   `transforms/base.py::_apply_rest` (fill-only completion after the
+   payload; leaf-level, algebra-safe) and covered (row 7).
 
 ## Appendix A — subtle-hole sketches (for a stronger pass)
 

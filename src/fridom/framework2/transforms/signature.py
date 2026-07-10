@@ -14,9 +14,11 @@ class spec: ``notes/framework2/model/classes/transforms.md``
 §10.7.2 (mapped subset + rest) / S6 (signature != treedef).
 
 ``rest`` is **excluded** from equality/hash (spec completion 4): it
-is call-time behavior of the owning transform, not type identity —
-including it would break ``Identity`` polymorphism and the
-mapped-subset interop law 2 exists to provide.
+is call-time output-completion behavior — applied centrally by the
+shared application path (``StateTransform.call_with_info`` ->
+``_apply_rest``) — not type identity; including it would break
+``Identity`` polymorphism and the mapped-subset interop law 2
+exists to provide.
 """
 from __future__ import annotations
 
@@ -53,7 +55,8 @@ class StateSignature:
     components : tuple[tuple[str, SpaceLike], ...]
         The ordered mapped ``(name, bare space)`` subset.
     rest : {"zero", "pass"}, optional
-        Policy for extra input components at call time; **excluded**
+        Policy for extra input components at call time, applied
+        centrally by ``StateTransform.call_with_info``; **excluded**
         from equality/hash (default: "zero").
     """
 
@@ -138,7 +141,8 @@ class StateSignature:
         The call-time check (trace-time under jit — zero steady
         cost): the input must contain every mapped component (name +
         bare space) in the mapped order; extra PROGNOSTIC components
-        are legal and handled per ``rest`` by the owning transform.
+        are legal and completed per ``rest`` by the shared
+        application path (``StateTransform.call_with_info``).
         Raises ``SignatureMismatchError`` with the composition-tree
         path, a componentwise diff, and the grid-identity verdict.
 
