@@ -10,7 +10,7 @@ from fridom.framework2.grid.errors import (
     SpaceMismatchError,
 )
 from fridom.framework2.grid.fields.metadata import FieldMetadata
-from fridom.framework2.grid.grid import Grid
+from fridom.framework2.grid.grid import Grid, _tagged_trig_origins
 from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
 from fridom.framework2.grid.meshes.interval import IntervalMesh
 from fridom.framework2.grid.meshes.point import PointMesh
@@ -140,6 +140,45 @@ def test_seeded_registry_covers_the_bc_tagged_trig_origins(grid, my):
         # Dirichlet-Outer drops DOFs: deliberately no row
         registry.resolve("diff",
                          my.nodal(NodeSet.OUTER, bc=BC.DIRICHLET))
+
+
+def test_seeded_registry_covers_tagged_elementwise_rows(grid, my):
+    # walled-grid fields must interoperate pointwise: the elementwise
+    # and integrate rows are seeded on the BC-tagged trig origins too
+    # (e.g. the flux form ``csqr.to(v) * v`` on a Dirichlet face
+    # space), sharing the one instance per kind of the BC-free family
+    registry = grid.dispatch
+    for kind in ("multiply", "divide", "power", "select", "abs",
+                 "integrate"):
+        shared = registry.resolve(kind, my.center)
+        for space in (my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET),
+                      my.nodal(NodeSet.INNER, bc=BC.DIRICHLET),
+                      my.nodal(NodeSet.CENTER, bc=BC.NEUMANN),
+                      my.nodal(NodeSet.OUTER, bc=BC.NEUMANN)):
+            assert registry.resolve(kind, space) is shared
+            assert registry.resolve(kind,
+                                    space.as_complex()) is shared
+
+
+def test_tagged_product_keeps_the_tagged_space(grid, mx, my):
+    tagged = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    space = mx.center * tagged
+    f = grid.create_field(space, init=lambda x, y: x + y)
+    g = grid.create_field(space, init=lambda x, y: x * y + 1.0)
+    product = f * g
+    assert product.function_space.bare is space
+    # the tag governs only the ghost fill: the true-shape payload is
+    # byte-identical to the BC-free product of the same samples
+    bare = mx.center * my.inner
+    fb = grid.create_field(bare, data=jnp.asarray(f.data))
+    gb = grid.create_field(bare, data=jnp.asarray(g.data))
+    assert jnp.array_equal(product.data, (fb * gb).data)
+
+
+def test_periodic_meshes_ground_no_tagged_rows(mx):
+    # regression: the tagged elementwise seeding is a no-op on
+    # periodic meshes — their registry stays the BC-free family
+    assert _tagged_trig_origins(mx) == ()
 
 
 def test_seeded_registry_covers_the_spectral_rows(grid, mx, my):

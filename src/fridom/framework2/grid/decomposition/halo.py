@@ -588,6 +588,68 @@ class HaloTracer:
             result = op(result)
         return result
 
+    def retag(self, target: object) -> HaloTracer:
+        """
+        Relabel onto a BC-sibling space (traced ``retag``).
+
+        Description
+        -----------
+        Mirrors the eager ``ScalarField.retag`` exactly: per axis the
+        target factor must differ from the source factor **only** in
+        BC structure — same mesh, same node-set class, same shape,
+        same scalars — anything else raises ``SpaceMismatchError``.
+        The accumulated depth resets on the retagged axes (the eager
+        ``retag`` resets halo validity there — the ghost policy
+        changed with the tag, a free re-sync point) and carries over
+        on the others, so a module's traced retag (e.g. adopting a
+        velocity's wall tag onto a BC-free stencil output) keeps the
+        traced space identical to the runtime one.
+
+        Parameters
+        ----------
+        target : object
+            A field/tracer, a full product space, or a single factor
+            space (shorthand: retag that factor, keep the rest).
+
+        Returns
+        -------
+        HaloTracer
+            The retagged tracer (``self`` when already on target).
+        """
+        from fridom.framework2.grid.errors import (  # noqa: PLC0415 — keep errors off the module import path
+            SpaceMismatchError,
+        )
+        from fridom.framework2.grid.fields.scalar_field import (  # noqa: PLC0415 — fields import the operator base
+            _bc_siblings,
+            _target_space,
+        )
+        space = _target_space(self._space, target)
+        src_bare = self._space.bare
+        dst_bare = space.bare
+        if dst_bare is src_bare:
+            return self
+        if src_bare.names != dst_bare.names:
+            raise SpaceMismatchError(
+                f"cannot retag {src_bare!r} onto {dst_bare!r}: "
+                "the coordinate names differ",
+                left=src_bare, right=dst_bare, operation="retag")
+        result: HaloTracer = self
+        for name in dst_bare.names:
+            src = src_bare.factor(name)
+            dst = dst_bare.factor(name)
+            if src is dst:
+                continue
+            if not _bc_siblings(src, dst):
+                raise SpaceMismatchError(
+                    f"retag changes BC structure only: at {name!r} "
+                    f"the factors {src!r} and {dst!r} differ beyond "
+                    "their BC tags (mesh, node-set class, shape and "
+                    "scalars must match); use .to for a conversion",
+                    left=src, right=dst, operation="retag",
+                    mismatched_names=(name,))
+            result = result._retag_factor(name, dst)
+        return result
+
     def _retag_factor(self, name: str, dst: SpaceLike) -> HaloTracer:
         """
         Trace-side twin of the eager BC-sibling ``retag`` adoption.

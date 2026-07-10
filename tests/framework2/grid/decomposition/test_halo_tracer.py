@@ -167,6 +167,51 @@ def test_to_non_sibling_codomain_disagreement_raises(grid, space,
         tracer.to(space.replace(y=my.outer))
 
 
+def test_retag_mirrors_the_eager_retag(grid, space, my):
+    # the public tracer retag: same space relabelling as the eager
+    # ScalarField.retag, depth reset on the retagged axis only (the
+    # eager retag resets halo validity there — a free re-sync point)
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    target = space.replace(y=tagged)
+    tracer = HaloTracer(space, grid.dispatch,
+                        HaloSpec({"x": 2, "y": 1}))
+    result = tracer.retag(target)
+    assert result.function_space.bare is target
+    assert widths(result.depth) == {"x": 2, "y": 0}
+    eager = grid.create_field(space, init=lambda x, y: x * y)
+    retagged = eager.retag(target)
+    assert retagged.function_space.bare is target
+    assert widths(retagged.halo_valid)["y"] == 0
+
+
+def test_retag_accepts_a_field_like_target(grid, space, my):
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    target = HaloTracer(space.replace(y=tagged), grid.dispatch)
+    result = HaloTracer(space, grid.dispatch).retag(target)
+    assert result.function_space.bare is target.function_space.bare
+
+
+def test_retag_on_the_same_space_returns_self(grid, space):
+    tracer = HaloTracer(space, grid.dispatch)
+    assert tracer.retag(space) is tracer
+
+
+def test_retag_rejects_non_siblings(grid, space, my):
+    tracer = HaloTracer(space, grid.dispatch)
+    with pytest.raises(SpaceMismatchError,
+                       match="BC structure only"):
+        # Center -> Inner changes the node set, not just the tag
+        tracer.retag(space.replace(y=my.inner))
+
+
+def test_retag_rejects_differing_names(grid, space, mx):
+    mz = IntervalMesh(8, (0.0, 1.0), name="z")
+    tracer = HaloTracer(space, grid.dispatch)
+    with pytest.raises(SpaceMismatchError,
+                       match="coordinate names differ"):
+        tracer.retag(TensorProductSpace.of(mx.center, mz.center))
+
+
 def test_products_trace_through_the_registry(grid, space):
     spec = trace_halo(lambda f: f * f + f / f - abs(f) + f**2,
                       (space,), grid.dispatch)

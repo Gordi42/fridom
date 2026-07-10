@@ -1543,11 +1543,12 @@ def _default_registry(
     ``Dispatched("reconstruct")`` hole is baked by the trailing
     ``merge({})`` (the iteration-1 assembly moment; module override
     merging happens later through ``grid.merge_overrides``);
-    ``("integrate", nodal/average)`` -> one shared ``Integral()``;
-    the elementwise ``multiply``/``divide``/``power``/``select``
-    rows on nodal *and* average factors (one shared instance per
-    kind — the registry's form-2 product resolution requires it),
-    ``abs`` on nodal factors only, each seeded for the real space
+    ``("integrate", nodal/average/tagged)`` -> one shared
+    ``Integral()``;
+    the elementwise ``multiply``/``divide``/``power``/``select``/
+    ``abs`` rows on nodal, average *and* BC-tagged trig-origin
+    factors (one shared instance per kind — the registry's form-2
+    product resolution requires it), each seeded for the real space
     and its complex variant; the kind-only ``"grad"``/``"div"``/``"curl"``/
     ``"laplacian"`` builder rows; the coefficient-space rows —
     ``("diff", coefficient)`` -> ``SpectralDerivative()`` and the
@@ -1597,7 +1598,15 @@ def _default_registry(
         _seed_signature_rows(entries, nodal + tagged, (fd, interp))
         _seed_reconstruct_rows(entries, nodal + average, reconstruct)
         _seed_signature_rows(entries, nodal + average, flux_ops)
-        for space in nodal + average:
+        # The elementwise + integrate rows are seeded on the tagged
+        # origins too, so walled-grid fields interoperate (e.g. the
+        # flux form ``csqr.to(v) * v`` on a Dirichlet face space).
+        # The product keeps the common operand tag, which is correct
+        # when at most one operand is odd (the linear-model uses:
+        # even*odd flux, even*even); genuinely odd*odd products
+        # (walled advection) need a parity-aware codomain — future
+        # work behind the advection modules' walled-grid guards.
+        for space in nodal + average + tagged:
             if isinstance(space, CellAvg):
                 entries[("diff", space)] = fv_derivative
             for variant in (space, space.as_complex()):
