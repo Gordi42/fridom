@@ -114,6 +114,7 @@ and plans behind each task.
 
 | File | Status | Description |
 |------|--------|-------------|
+| [`spatial_model_split_plan.md`](plans/active/spatial_model_split_plan.md) | active | Split framework2 into fridom.spatial + fridom.model (owner-approved names & mapping). |
 | [`cutover_parity_plan.md`](plans/active/cutover_parity_plan.md) | active | Cutover-parity work plan: drop the old framework/nonhydro/shallowwater stack. |
 | [`docs_examples_plan.md`](plans/active/docs_examples_plan.md) | active | Docs & examples rebuild plan. |
 | [`fallback_operator_plan.md`](plans/active/fallback_operator_plan.md) | active | Graded-order boundary fallback operator — implementation plan. |
