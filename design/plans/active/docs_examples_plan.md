@@ -50,21 +50,29 @@ AGENTS.md, git workflow):
 
 - One local `docs/<topic>` branch per page or chapter, small enough to
   review in one sitting; **never pushed until approved**, so the
-  public history shows clean merges only.
-- The agent builds a local preview (`make html`, later
-  `sphinx-autobuild` for live reload) so review happens on rendered
-  pages plus the git diff, not rst source alone.
-- Feedback channels: Silvano edits the text directly on the branch
-  (authoritative), or drops anchored markers at the exact spot —
-  `.. REVIEW: sentence A should be B` in rst (a comment, invisible in
-  the rendered page), `# REVIEW: ...` in example scripts,
-  `<!-- REVIEW: ... -->` in Markdown. Agents sweep with
-  `grep -rn "REVIEW:" docs examples`, apply each marker, delete it,
-  and fold generalizable corrections into the style guide on the same
-  branch.
+  public history shows clean merges only. The branch (with its
+  checkpoint commits) is the agent's safety net; the owner never has
+  to look at it.
+- Review handoff (owner preference, 2026-07-11): the agent builds a
+  local preview (`make html`, later `sphinx-autobuild` for live
+  reload) and **projects the branch onto the main checkout as
+  unstaged changes** — `git restore --source=docs/<topic> -- docs/
+  examples/` with the checkout on dev. Silvano reviews a plain
+  working-tree diff in his own tools (lazygit) next to the rendered
+  pages; nothing is committed or merged at this point.
+- Feedback channels, all inside the projected working tree: direct
+  edits and discarded hunks (authoritative), or anchored markers at
+  the exact spot — `.. REVIEW: sentence A should be B` in rst (a
+  comment, invisible in the rendered page), `# REVIEW: ...` in
+  example scripts, `<!-- REVIEW: ... -->` in Markdown. Agents sweep
+  with `grep -rn "REVIEW:" docs examples`, apply each marker, delete
+  it, fold generalizable corrections into the style guide, and
+  reconcile the reviewed tree back onto the branch (the tree state
+  wins).
 - **Merge gate:** zero open markers and an explicit approval from
   Silvano in chat; the agent then does the mechanical merge onto dev,
-  push, and branch cleanup.
+  push, branch cleanup, and clears the projection from the working
+  tree.
 - Purpose beyond quality: reviewing the docs is how the owner audits
   the public API surface; expect review to produce upstream
   change requests against `src/` semantics, which spin off as separate
