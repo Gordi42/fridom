@@ -4,7 +4,7 @@ The acceptance criterion of the projections phase: the
 operator-sourced eigenmodes on a grid with a bounded vertical.
 Stage A — parity-tagged kit spaces, lazy symbol families, the wave
 branches (analytic rigid-lid dispersion, union-lattice
-biorthonormality, the strong ``L q = i omega q`` test through the
+biorthonormality, the strong ``L q = -i omega q`` test through the
 model's own constrain stage). Stage B — the re-referenced
 geostrophic column (all ``N + 1`` steady strata: the interior
 geostrophic modes, the ``m = 0`` barotropic and the ``m = N``
@@ -312,7 +312,7 @@ def test_walled_projector_reproduces_and_is_idempotent(walled):
 
 
 # ================================================================
-#  The strong test: L q(s) = i omega(s) q(s) through the model's
+#  The strong test: L q(s) = -i omega(s) q(s) through the model's
 #  own linearized tendency + constrain stage (state-wise, no probe)
 # ================================================================
 @pytest.mark.parametrize("s", [1, -1, 0])
@@ -358,7 +358,7 @@ def test_walled_strong_eigenrelation(walled, linearized, s):
     for c in COMPONENTS:
         got = _union(em, c, kit.forward(c)(
             nodal[c].with_data(constrained[c].data)).data)
-        want = 1j * om_union * _union(em, c, zeta[c])
+        want = -1j * om_union * _union(em, c, zeta[c])
         assert np.abs(got - want).max() / scale < 1e-11
 
 

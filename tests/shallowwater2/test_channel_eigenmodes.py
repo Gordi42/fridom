@@ -26,9 +26,10 @@ per-array (r)fft amplitudes on the same right-face C-grid stagger
 (u on Right(x), v on Right(y) interior faces, p collocated).
 
 Time convention: the reference modes evolve as e^{i(kx x - omega t)}
-while the engine pairs L q = +i omega q, so a reference mode of
-frequency omega_ref sits in the engine column with
-omega_eng = -omega_ref (measured overlap 1.0 to machine precision).
+and the engine pairs L q = -i omega q (the same oceanographic
+convention), so a reference mode of frequency omega_ref sits in the
+engine column with omega_eng = omega_ref (measured overlap 1.0 to
+machine precision).
 """
 import jax
 import jax.numpy as jnp
@@ -260,13 +261,13 @@ def m_inner(em, a, b):
 def engine_column(em, ikx, omega_ref):
     """Engine column carrying the reference mode of omega_ref.
 
-    The time-convention flip: the reference evolves as e^{-i omega t}
-    while the engine pairs L q = +i omega q, so the match is at
-    omega_eng = -omega_ref.
+    The reference evolves as e^{-i omega t} and the engine pairs
+    L q = -i omega q (the same convention), so the match is at
+    omega_eng = omega_ref.
     """
     omega = np.asarray(em.omega[ikx])
-    col = int(np.argmin(np.abs(omega + omega_ref)))
-    assert abs(omega[col] + omega_ref) < 1e-11
+    col = int(np.argmin(np.abs(omega - omega_ref)))
+    assert abs(omega[col] - omega_ref) < 1e-11
     return col
 
 
@@ -307,7 +308,7 @@ def eigen_relation_residual(model, em, ikx, col):
 
     Builds the real physical state ``Re(q(y) e^{i kx x})``, applies
     ``model.tendency`` and compares the rfft ``ikx`` plane against
-    ``i omega q`` (interior-plane half-spectrum amplitude ``N/2``).
+    ``-i omega q`` (interior-plane half-spectrum amplitude ``N/2``).
     """
     q_col = np.asarray(em.q[ikx, :, col])
     omega = float(em.omega[ikx, col])
@@ -322,7 +323,7 @@ def eigen_relation_residual(model, em, ikx, col):
     for name in em.components:
         plane = np.fft.rfft(np.asarray(tendency[name].data),
                             axis=0)[ikx]
-        expect = 1j * omega * (N / 2) * q_col[em.slices[name]]
+        expect = -1j * omega * (N / 2) * q_col[em.slices[name]]
         residual = max(residual, float(np.abs(plane - expect).max()))
     return residual, (1.0 + abs(omega)) * (N / 2)
 
@@ -477,9 +478,9 @@ def test_kelvin_columns_match(em, ikx, mode):
     ref, om, _lam = ref_kelvin(ikx, mode)
     col = engine_column(em, ikx, om)
     assert column_overlap(em, ikx, col, ref) > 1 - 1e-12
-    # the reference +omega branch is the engine's kelvin- (the
-    # e^{-i omega t} vs L q = +i omega q time-convention flip)
-    expect = KELVIN_MINUS if mode == 1 else KELVIN_PLUS
+    # the reference +omega branch is the engine's kelvin+ (both
+    # sides use the e^{i(kx - omega t)} convention)
+    expect = KELVIN_PLUS if mode == 1 else KELVIN_MINUS
     assert np.asarray(em.labels)[ikx, col] == expect
 
 
@@ -590,6 +591,40 @@ def test_equatorial_f0_zero_labels_fully():
     den = abs(om) * max(float(np.abs(np.asarray(z1[c].data)).max())
                         for c in ("u", "v", "p"))
     assert num / den < 1e-6
+
+
+def test_positive_omega_propagates_eastward():
+    # THE sign-convention pin (owner decision 2026-07-12): positive
+    # omega propagates eastward for positive kx. The equatorial
+    # kelvin+ mode (f0 = 0 at the channel centre) is the eastward
+    # equatorially trapped Kelvin wave: advance the LIVE model and
+    # track the complex kx = 1 Fourier coefficient of p — the
+    # pattern is cos(kx x + phi(t)) with crest at x = -phi/kx, so
+    # eastward propagation means DECREASING phi.
+    dt = 5e-3
+    equator = make_walled_model(
+        coriolis=sw.modules.BetaPlaneCoriolis(f0=-BETA * LY / 2,
+                                              beta=BETA))
+    em_eq = ChannelEigenmodes(equator)
+    omega, z0 = em_eq.mode("kelvin+", {"x": 1, "y": 0})
+    assert omega > 0
+    equator.set_state(z0)
+
+    def coefficient(model):
+        # kx = 1 rfft plane of p, projected on the initial
+        # meridional profile (an energy-weighted y average)
+        return np.fft.rfft(
+            np.asarray(model.state["p"].data), axis=0)[1]
+
+    profile = coefficient(equator)
+    a0 = np.sum(profile * np.conj(profile))
+    steps = 60
+    equator.advance(steps)
+    a1 = np.sum(coefficient(equator) * np.conj(profile))
+    dphi = float(np.angle(a1 / a0))
+    assert dphi < 0.0  # decreasing phase: the crest moved east
+    # ... and by exactly the mode's own rotation rate
+    assert dphi == pytest.approx(-omega * steps * dt, rel=5e-2)
 
 
 def test_labeler_without_a_clean_gap_leaves_unlabeled():

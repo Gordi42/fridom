@@ -126,7 +126,7 @@ class ChannelEigenbasis:
     stacked bounded-axis column of length ``D``, ordered by
     ``components`` with the per-component :attr:`slices` segments.
     ``q[..., :, j]`` is the M-orthonormal eigenvector for
-    ``omega[..., j]`` (``L q = i omega q``), sorted ascending per
+    ``omega[..., j]`` (``L q = -i omega q``), sorted ascending per
     plane. The operator is real, so the negative-``kx`` planes are the
     conjugates of the stored half spectrum.
 
@@ -586,7 +586,10 @@ def _generalized_eigh_diag(
     \sqrt{M}`), runs a batched ``eigh`` on :math:`R^{-H} H R^{-1}`
     (optionally ``lax.map``-chunked over the mode planes),
     back-substitutes :math:`q = R^{-1}\tilde q`, sets
-    :math:`\omega = -\mu`, and sorts each plane ascending.
+    :math:`\omega = \mu` (the oceanographic sign convention:
+    ``L q = -i omega q``, so a mode ``q e^{i k x}`` evolves as
+    :math:`e^{i(kx - \omega t)}` — positive ``omega`` propagates
+    along ``+k``), and sorts each plane ascending.
 
     Returns
     -------
@@ -604,7 +607,7 @@ def _generalized_eigh_diag(
             jnp.linalg.eigh, planes, batch_size=chunk)
         mu = mu.reshape(whitened.shape[:-1])
         q_white = q_white.reshape(whitened.shape)
-    omega = -mu
+    omega = mu
     order = jnp.argsort(omega, axis=-1)
     omega = jnp.take_along_axis(omega, order, axis=-1)
     q_white = jnp.take_along_axis(q_white, order[..., None, :], axis=-1)

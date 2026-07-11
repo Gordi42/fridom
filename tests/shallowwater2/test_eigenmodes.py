@@ -92,9 +92,9 @@ def test_dispersion_continuum_limit_at_the_fundamental():
 # ================================================================
 #  The strong operator-level eigenrelation
 # ================================================================
-def test_tendency_eigenrelation_lq_equals_i_omega_q():
+def test_tendency_eigenrelation_lq_equals_minus_i_omega_q():
     # for the linearized tendency (no constraint stage in shallow
-    # water), L q(s) = i omega(s) q(s) — asserted through physical
+    # water), L q(s) = -i omega(s) q(s) — asserted through physical
     # space on seeded random amplitudes.
     em, model = _eig(f0=1.5, csqr=2.0)
     kit = em._kit
@@ -127,7 +127,7 @@ def test_tendency_eigenrelation_lq_equals_i_omega_q():
         scale = max(np.abs(zeta[c]).max() for c in prog)
         for c in prog:
             got = np.asarray(kit.forward(c)(tau[c]).data)
-            want = 1j * omega * zeta[c]
+            want = -1j * omega * zeta[c]
             assert np.abs(got - want).max() / scale < 1e-11
 
 
@@ -239,10 +239,10 @@ def test_projector_is_idempotent_and_reproduces_its_eigenvector():
 def test_k0_inertial_patch_completes_the_mean_triple():
     f0 = 1.5
     em, _ = _eig(f0=f0, csqr=2.0)
-    # the patched inertial entries (u, v, p) = (-i s, 1, 0) at k = 0
+    # the patched inertial entries (u, v, p) = (i s, 1, 0) at k = 0
     for s in (1, -1):
         q = _mode_data(em.q(s))
-        assert q["u"][0, 0] == -1j * s
+        assert q["u"][0, 0] == 1j * s
         assert q["v"][0, 0] == 1.0
         assert q["p"][0, 0] == 0.0
     # the geostrophic mean is the pressure mode
@@ -576,7 +576,7 @@ def test_function_with_unit_f_reproduces_the_projectors(
 
 
 def test_function_inverse_wave_strong_test(mode_setup):
-    # THE STRONG TEST: with invL = function(1/(i omega), (1, -1)),
+    # THE STRONG TEST: with invL = function(-1/(i omega), (1, -1)),
     # L(invL(z)) == P_wave(z) through the model's linearized
     # tendency, asserted in coefficient space (self-conjugate kx
     # planes zeroed so the physical round-trip is exact)
@@ -598,7 +598,7 @@ def test_function_inverse_wave_strong_test(mode_setup):
 
     z = sw.State({c: template[c].with_data(jnp.asarray(make_amp()))
                   for c in COMPONENTS})
-    w_hat = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    w_hat = em.function(lambda om: -1.0 / (1j * om), (1, -1))(z)
     nodal = {c: kit.backward(c)(w_hat[c]) for c in prog}
     phys = base0.replace(**{
         c: base0[c].with_data(nodal[c].data) for c in prog})
@@ -614,7 +614,7 @@ def test_function_inverse_wave_strong_test(mode_setup):
 
 
 def test_function_inverse_wave_is_real_safe(mode_setup):
-    # 1/(i omega) satisfies f(-omega) == conj(f(omega)) and (1, -1)
+    # -1/(i omega) satisfies f(-omega) == conj(f(omega)) and (1, -1)
     # is conjugation-closed: the coefficients of a real state stay
     # Hermitian and the backward synthesis stays real
     model, em = mode_setup
@@ -624,7 +624,7 @@ def test_function_inverse_wave_is_real_safe(mode_setup):
         c: kit.forward(c)(model.state[c].with_data(jnp.asarray(
             rng.standard_normal(model.state[c].data.shape))))
         for c in COMPONENTS})
-    out = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    out = em.function(lambda om: -1.0 / (1j * om), (1, -1))(z)
     for c in COMPONENTS:
         back = np.asarray(kit.backward(c)(out[c]).data)
         scale = float(np.abs(back).max())

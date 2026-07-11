@@ -3,7 +3,7 @@
 Validates the C3 engine (``fridom.model.eigen_channel``) on
 the linear rotating channel: gates, Hermiticity, M-orthonormality, the
 per-plane zero-mode counts, and the strong per-column eigen relation
-``L Re(q e^{i kx x}) = Re(i omega q e^{i kx x})`` evaluated through the
+``L Re(q e^{i kx x}) = Re(-i omega q e^{i kx x})`` evaluated through the
 real model matvec ``model.tendency`` — on the shallow-water f-plane
 channel, the beta-plane channel (coefficients varying along the dense
 axis), and the CONSTRAINED 3-D nonhydro channel (walled y, the
@@ -89,7 +89,7 @@ def eigen_relation_residual(model, basis, kx, col):
 
     Builds the real physical state ``Re(q(y) e^{i kx x})`` on the true
     component shapes, applies ``model.tendency``, and compares the
-    rfft ``kx`` plane against ``i omega q`` (half-spectrum amplitude
+    rfft ``kx`` plane against ``-i omega q`` (half-spectrum amplitude
     ``N/2``).
     """
     q_col = np.asarray(basis.q[kx, :, col])
@@ -105,7 +105,7 @@ def eigen_relation_residual(model, basis, kx, col):
     for name in basis.components:
         plane = np.fft.rfft(np.asarray(tendency[name].data),
                             axis=0)[kx]
-        expect = 1j * omega * (N / 2) * q_col[basis.slices[name]]
+        expect = -1j * omega * (N / 2) * q_col[basis.slices[name]]
         residual = max(residual, float(np.abs(plane - expect).max()))
     return residual, (1.0 + abs(omega)) * (N / 2)
 
@@ -240,7 +240,7 @@ def test_beta_vortical_branch_acquires_rossby_frequencies(beta_basis):
 def test_beta_columns_satisfy_the_eigen_relation(
         beta_model, beta_basis, kx, col):
     # the strong test is coefficient-agnostic: no analytic oracle,
-    # just L q = i omega q through the real model matvec
+    # just L q = -i omega q through the real model matvec
     residual, scale = eigen_relation_residual(
         beta_model, beta_basis, kx, col)
     assert residual < 1e-11 * scale
@@ -316,7 +316,7 @@ def nh_eigen_relation_residual(model, basis, kx, kz, col):
     Builds the real physical state ``Re(q(y) e^{i(kx x + kz z)})``,
     projects it (``model.constrain``) and applies the constrained
     tendency — together exactly the probed ``P L P`` — then compares
-    the rfftn ``(kx, kz)`` plane against ``i omega q``. With two
+    the rfftn ``(kx, kz)`` plane against ``-i omega q``. With two
     periodic axes the half-spectrum amplitude is ``Nx * Nz / 2``
     whenever ``(kx, kz)`` is not self-conjugate (not BOTH indices in
     {0, Nyquist}); the sampled planes respect that.
@@ -336,7 +336,7 @@ def nh_eigen_relation_residual(model, basis, kx, kz, col):
     for name in basis.components:
         plane = np.fft.rfftn(np.asarray(tendency[name].data),
                              axes=(0, 2))[kx, :, kz]
-        expect = 1j * omega * amp * q_col[basis.slices[name]]
+        expect = -1j * omega * amp * q_col[basis.slices[name]]
         residual = max(residual, float(np.abs(plane - expect).max()))
     return residual, (1.0 + abs(omega)) * amp
 

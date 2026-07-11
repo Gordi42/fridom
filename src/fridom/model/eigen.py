@@ -19,12 +19,15 @@ DFT is unity at every mode) and read
 
 Because ``L`` is ``M``-skew-adjoint under the energy metric
 (``fr.EnergyMetric``), :math:`H := iML` is Hermitian and
-:math:`L q = i\omega q \Leftrightarrow H q = -\omega M q`. We solve the
-**generalized Hermitian eigenproblem** :math:`H q = \mu M q` batched
-over modes: Cholesky-whiten the (diagonal, positive) metric
-:math:`M = R^{H}R`, run a standard ``eigh`` on
-:math:`R^{-H} H R^{-1}`, back-substitute :math:`q = R^{-1}\tilde q`,
-and set :math:`\omega = -\mu`. This returns **real** frequencies and
+:math:`L q = -i\omega q \Leftrightarrow H q = \omega M q` (the
+oceanographic sign convention: a mode ``q e^{i k x}`` evolves as
+:math:`e^{i(kx - \omega t)}`, so positive ``omega`` propagates along
+``+k``). We solve the **generalized Hermitian eigenproblem**
+:math:`H q = \mu M q` batched over modes: Cholesky-whiten the
+(diagonal, positive) metric :math:`M = R^{H}R`, run a standard
+``eigh`` on :math:`R^{-H} H R^{-1}`, back-substitute
+:math:`q = R^{-1}\tilde q`,
+and set :math:`\omega = \mu`. This returns **real** frequencies and
 **M-orthonormal** eigenvectors (including an orthonormal basis of every
 degenerate eigenspace) for free.
 
@@ -77,7 +80,7 @@ class NumericEigenmodes:
     ----------
     omega : jax.Array
         Real frequencies, shape ``(*modes, m)``, sorted ascending per
-        mode (``L q = i omega q``).
+        mode (``L q = -i omega q``).
     q : jax.Array
         Eigenvectors, shape ``(*modes, m, m)``; ``q[..., :, j]`` is the
         M-orthonormal eigenvector for ``omega[..., j]``.
@@ -271,7 +274,8 @@ def _generalized_eigh(
     Whitens the diagonal positive metric (:math:`R = \mathrm{diag}
     \sqrt{w}`), runs a batched ``eigh`` on :math:`R^{-H} H R^{-1}`,
     back-substitutes :math:`q = R^{-1}\tilde q`, sets
-    :math:`\omega = -\mu`, and sorts each mode ascending.
+    :math:`\omega = \mu` (``L q = -i omega q``), and sorts each mode
+    ascending.
 
     Returns
     -------
@@ -285,7 +289,7 @@ def _generalized_eigh(
     whitened = inv_sqrt[:, None] * hamiltonian * inv_sqrt[None, :]
     mu, q_white = jnp.linalg.eigh(whitened)
 
-    omega = -mu
+    omega = mu
     order = jnp.argsort(omega, axis=-1)
     omega = jnp.take_along_axis(omega, order, axis=-1)
     q_white = jnp.take_along_axis(q_white, order[..., None, :], axis=-1)

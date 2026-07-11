@@ -17,8 +17,9 @@ them apart; the family vocabulary per ``(kx, kz)`` plane is:
 - **vortical** — the physical steady (thermal-wind balanced)
   columns, :math:`P q = q` and :math:`\omega \approx 0` on the
   f-plane (including the ``kx = 0`` exponential wall modes); under a
-  beta-plane ``f(y)`` the ``kx != 0`` branch acquires slow westward
-  Rossby frequencies;
+  beta-plane ``f(y)`` the ``kx != 0`` branch acquires slow
+  westward-propagating Rossby frequencies — negative ``omega`` for
+  positive ``kx`` (positive ``omega`` propagates eastward);
 - **constraint** — the divergence-complement columns,
   :math:`P q = 0`: non-physical directions a divergence-free state
   never excites. Excluded from every physical projector and from

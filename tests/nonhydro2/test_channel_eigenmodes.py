@@ -21,10 +21,10 @@ sides are per-array (r)fft amplitudes on the same right-face C-grid
 stagger.
 
 Time convention: the reference modes evolve as
-``e^{i(kx x + kz z - omega t)}`` while the engine pairs
-``L q = +i omega q``, so a reference mode of frequency ``omega_ref``
-sits in the engine column with ``omega_eng = -omega_ref`` (the
-labeled branch signs flip accordingly).
+``e^{i(kx x + kz z - omega t)}`` and the engine pairs
+``L q = -i omega q`` (the same oceanographic convention), so a
+reference mode of frequency ``omega_ref`` sits in the engine column
+with ``omega_eng = omega_ref`` (the labeled branch signs agree).
 """
 import jax.numpy as jnp
 import numpy as np
@@ -266,8 +266,8 @@ def m_inner(em, a, b):
 def engine_column(em, ikx, ikz, omega_ref):
     """Engine column carrying the reference mode of omega_ref."""
     omega = np.asarray(em.omega[ikx, ikz])
-    col = int(np.argmin(np.abs(omega + omega_ref)))
-    assert abs(omega[col] + omega_ref) < 1e-11
+    col = int(np.argmin(np.abs(omega - omega_ref)))
+    assert abs(omega[col] - omega_ref) < 1e-11
     return col
 
 
@@ -443,9 +443,9 @@ def test_kelvin_columns_match(em, ikx, ikz, mode):
     ref, om = ref_kelvin(ikx, ikz, mode)
     col = engine_column(em, ikx, ikz, om)
     assert column_overlap(em, ikx, ikz, col, ref) > 1 - 1e-12
-    # the reference +omega branch is the engine's kelvin- (the
-    # e^{-i omega t} vs L q = +i omega q time-convention flip)
-    expect = KELVIN_MINUS if mode == 1 else KELVIN_PLUS
+    # the reference +omega branch is the engine's kelvin+ (both
+    # sides use the e^{i(kx - omega t)} convention)
+    expect = KELVIN_PLUS if mode == 1 else KELVIN_MINUS
     assert np.asarray(em.labels)[ikx, ikz, col] == expect
 
 
@@ -499,9 +499,9 @@ def test_wall_modes_lie_in_the_kx0_steady_space(em, ikz, branch):
 def test_buoyancy_strata_lie_in_the_signed_wave_space(em, ikx, n, s):
     # the kz = 0 branch is N-fold degenerate per sign, so the oracle
     # is membership in the (sign-matching) wave eigenspace; the
-    # time-convention flip maps the +omega reference to wave-
+    # +omega reference lands in wave+ (matching conventions)
     ref, _ = ref_buoyancy(n, s)
-    code = WAVE_MINUS if s == 1 else WAVE_PLUS
+    code = WAVE_PLUS if s == 1 else WAVE_MINUS
     assert labeled_membership(em, ikx, 0, ref, (code,)) > 1 - 1e-12
 
 
@@ -1085,12 +1085,12 @@ def test_function_with_unit_f_reproduces_the_projector(model, em):
 
 
 def test_function_inverse_l_strong_test(model, em):
-    # THE STRONG TEST: with invL = function(1/(i omega), wave),
+    # THE STRONG TEST: with invL = function(-1/(i omega), wave),
     # L(invL(z)) == P_wave(z) through the model's Leray-projected
     # tendency (invL(z) lies in the physical wave span, hence is
     # already constraint-compatible)
     z = _random_channel_state(model, em, seed=72)
-    inv = em.function(lambda om: 1.0 / (1j * om), "wave")
+    inv = em.function(lambda om: -1.0 / (1j * om), "wave")
     out = inv(z)
     tau = model.tendency(out, constraints=True)
     want = em.projector("wave")(z)

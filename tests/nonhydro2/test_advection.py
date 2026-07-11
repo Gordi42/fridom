@@ -933,7 +933,8 @@ def test_constant_background_doppler_shifts_the_spectrum():
     omega_bg = np.asarray(numeric_eigenpairs(model).omega)
 
     # the discrete symbol of L from its own impulse response:
-    # sigma(k) = FFT(L delta)(k), L q = i omega q -> shift = Im sigma
+    # sigma(k) = FFT(L delta)(k), L q = -i omega q -> the frequency
+    # shift is -Im sigma
     delta = np.zeros((n, n, n))
     delta[0, 0, 0] = 1.0
     model.set_fields(b=delta)
@@ -954,7 +955,7 @@ def test_constant_background_doppler_shifts_the_spectrum():
     for row0, sigma, row_bg in zip(flat0, flat_shift, flat_bg,
                                    strict=True):
         physical = np.delete(row0, np.argmin(np.abs(row0)))
-        expected = np.sort(np.append(physical + sigma, 0.0))
+        expected = np.sort(np.append(physical - sigma, 0.0))
         errors.append(np.abs(np.sort(row_bg) - expected).max())
     errors = np.asarray(errors).reshape(n, n, n)
     errors[0, 0, 0] = 0.0  # the k = 0 mean (see above)

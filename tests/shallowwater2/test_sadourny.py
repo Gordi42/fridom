@@ -490,7 +490,9 @@ def discrete_advection_symbol(model, mode):
 def test_background_doppler_shifts_the_eigenvalues():
     # a constant background U on a periodic grid Doppler-shifts the
     # whole spectrum by the discrete advection symbol: omega_bg(k) =
-    # omega_0(k) - U sin(kx dx)/dx, uniformly over the branches
+    # omega_0(k) + U sin(kx dx)/dx, uniformly over the branches
+    # (positive omega propagates along +k, so an eastward background
+    # raises every positive-kx frequency)
     u0 = 0.37
     with_bg = background_model({"u": u0})
     without = make_model(make_grid(), csqr=CSQR, rossby_number=0.4,
@@ -504,7 +506,7 @@ def test_background_doppler_shifts_the_eigenvalues():
     for mode in (1, 2, 3):
         probed = discrete_advection_symbol(with_bg, mode)
         assert abs(probed - u0 * ktilde[mode]) < 1e-12
-    expected = omega_0 - u0 * ktilde[:, None, None]
+    expected = omega_0 + u0 * ktilde[:, None, None]
     np.testing.assert_allclose(omega_bg, expected,
                                rtol=0.0, atol=1e-12)
 

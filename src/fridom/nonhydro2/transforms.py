@@ -156,12 +156,11 @@ def mode_projection(
     Description
     -----------
     Branch labelling: ``P(s)`` projects onto the eigenvector
-    ``em.q(s)``, which pairs with the eigenvalue ``+i omega(s)`` of
-    the linearized tendency (the operator-sourced convention; the
-    previous hand-coded modes paired ``q(s)`` with ``-i omega(s)``,
-    so the individual ``+1``/``-1`` branches are swapped relative to
-    that labelling while ``P(0)`` and ``P(+1) + P(-1)`` are
-    unchanged).
+    ``em.q(s)``, which pairs with the eigenvalue ``-i omega(s)`` of
+    the linearized tendency (the oceanographic convention: the
+    branch evolves as :math:`e^{i(kx - \omega t)}`, so ``s = +1``
+    propagates along ``+k``); ``P(0)`` and the merged
+    ``P(+1) + P(-1)`` are labelling-independent.
 
     Single-branch semantics on a real state: the state's spectrum is
     stored on the grid's rfft half-lattice, so ``P(s)`` applies the
