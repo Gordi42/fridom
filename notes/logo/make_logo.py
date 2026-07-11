@@ -1,11 +1,19 @@
 """Generate vector FRIDOM logo drafts from a computed flow field.
 
-The construction mirrors the original raster logo: the word FRIDOM is
+The construction mirrors the original raster logo: each letter is
 turned into a smooth streamfunction (a Gaussian-blurred glyph mask),
 and everything visible in the SVGs is derived from that field —
 streamlines are psi-contours, arrows follow the velocity
-(u, v) = (dpsi/dy, -dpsi/dx).  No shape is drawn by hand; tweak the
-knobs below and re-run.
+(u, v) = (dpsi/dy, -dpsi/dx), and the letter fill is a coarse
+model-grid mosaic colored by a quantized, wider-blurred psi.
+No shape is drawn by hand; tweak the knobs below and re-run.
+
+Each letter is a standalone ``<g id="letter-X" transform="translate(...)">``
+group, so letters can be moved individually in Inkscape.  Letter offsets
+snap to the cell grid so the mosaics of all letters stay aligned.
+
+Earlier iterations are kept as committed files (``fridom-logo-streamlines
+.svg`` is v2); this script writes the ``fridom-logo-v3-*`` variant family.
 
 Usage::
 
@@ -28,15 +36,19 @@ HERE = Path(__file__).parent
 # ================================================================
 #  Knobs
 # ================================================================
-TEXT = " ".join("FRIDOM")  # thin-space tracking between letters
+WORD = "FRIDOM"
 FONT = {"family": "DejaVu Sans", "weight": "bold", "style": "oblique"}
 FONT_SIZE = 100.0   # glyph size in logo units
-PAD = 36.0          # canvas margin around the glyphs
+PAD_L = 26.0        # horizontal margin around each letter
+PAD_V = 30.0        # vertical canvas margin
 DX = 0.4            # grid spacing (logo units)
 SIGMA = 2.6         # Gaussian blur width -> jet thickness
-WARP_AMP = 1.2      # fluid-like domain warp amplitude (0 = off)
-WARP_LAM = 70.0     # domain warp wavelength
-NODE_STEP = 3.0     # arc-length between SVG path nodes (units)
+WARP_AMP = 1.3      # fluid-like domain warp amplitude (0 = off)
+WARP_LAM = 75.0     # domain warp wavelength (long: no small-scale twists)
+NODE_STEP = 9.0     # arc-length between SVG path nodes (units)
+
+# ink-to-ink letter spacing of the generated variants
+SPACINGS = {"tight": 4.0, "mid": 10.0, "wide": 18.0}
 
 # streamlines: (psi level, color, stroke width), outside -> inside.
 # all colors are mid-luminance cyans so one svg works on light and
@@ -62,18 +74,21 @@ CELL_BINS = [           # (min psi_fill, color), brighter towards the core
     (0.75, "#3ecfdf"),
 ]
 
+# faint "inactive" cells outside the letters (the *-cells variants);
+# neutral mid-gray at low opacity reads on light and dark backgrounds
+BG_CELL_COLOR = "#888888"
+BG_CELL_OPACITY = 0.09
+
 
 # ================================================================
-#  Field construction
+#  Field construction (one field per letter)
 # ================================================================
-def domain_warp(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray,
-                                                        np.ndarray]:
+def domain_warp(x: np.ndarray, y: np.ndarray,
+                phase: float) -> tuple[np.ndarray, np.ndarray]:
     """Gentle deterministic warp so contours look advected, not typeset."""
     a, lam = WARP_AMP, WARP_LAM
-    wx = a * (np.sin(2 * np.pi * y / lam + 1.7)
-              + 0.6 * np.sin(2 * np.pi * y / (0.43 * lam) + 4.1))
-    wy = a * (np.sin(2 * np.pi * x / lam + 0.6)
-              + 0.6 * np.sin(2 * np.pi * x / (0.37 * lam) + 2.9))
+    wx = a * np.sin(2 * np.pi * y / lam + 1.7 + phase)
+    wy = a * np.sin(2 * np.pi * x / lam + 0.6 + 2.3 * phase)
     return x + wx, y + wy
 
 
@@ -94,19 +109,28 @@ def rasterize_mask(tp: TextPath, x0: float, y0: float, width: float,
     return (rgba[::-1, :, 0] < 128).astype(float)
 
 
-def build_field() -> dict:
-    """Rasterize the glyph mask, blur it into psi, compute velocity."""
-    prop = FontProperties(**FONT)
-    tp = TextPath((0, 0), TEXT, size=FONT_SIZE, prop=prop)
-    ext = tp.get_extents()
+def interp(field2d: np.ndarray, f: dict, pts: np.ndarray) -> np.ndarray:
+    """Bilinear interpolation of a gridded field at (x, y) points."""
+    fx = np.clip((pts[:, 0] - f["x0"]) / DX, 0, len(f["x"]) - 1.001)
+    fy = np.clip((pts[:, 1] - f["y0"]) / DX, 0, len(f["y"]) - 1.001)
+    i, j = fy.astype(int), fx.astype(int)
+    ty, tx = fy - i, fx - j
+    z = field2d
+    return ((1 - ty) * (1 - tx) * z[i, j] + (1 - ty) * tx * z[i, j + 1]
+            + ty * (1 - tx) * z[i + 1, j] + ty * tx * z[i + 1, j + 1])
 
-    x0, y0 = ext.x0 - PAD, ext.y0 - PAD
-    width, height = ext.width + 2 * PAD, ext.height + 2 * PAD
+
+def build_letter(tp: TextPath, y0: float, height: float,
+                 phase: float) -> dict:
+    """Streamfunction, fill field and velocity for a single letter."""
+    ext = tp.get_extents()
+    x0 = ext.x0 - PAD_L
+    width = ext.width + 2 * PAD_L
     x1 = x0 + np.arange(int(round(width / DX))) * DX
     y1 = y0 + np.arange(int(round(height / DX))) * DX
     mask = rasterize_mask(tp, x0, y0, width, height, len(x1), len(y1))
 
-    # gaussian blur via fft
+    # gaussian blurs via fft
     ky = np.fft.fftfreq(len(y1), d=DX)
     kx = np.fft.rfftfreq(len(x1), d=DX)
     k2 = kx[None, :]**2 + ky[:, None]**2
@@ -121,10 +145,11 @@ def build_field() -> dict:
     psi_fill = blur(SIGMA_FILL)
 
     f = {"x": x1, "y": y1, "x0": x0, "y0": y0,
-         "width": width, "height": height}
+         "width": width, "height": height,
+         "ink_x0": ext.x0, "ink_x1": ext.x1}
     if WARP_AMP > 0:
         xg, yg = np.meshgrid(x1, y1)
-        xw, yw = domain_warp(xg, yg)
+        xw, yw = domain_warp(xg, yg, phase)
         pts = np.column_stack([xw.ravel(), yw.ravel()])
         psi = interp(psi, f, pts).reshape(psi.shape)
         psi_fill = interp(psi_fill, f, pts).reshape(psi_fill.shape)
@@ -134,19 +159,22 @@ def build_field() -> dict:
     return f
 
 
-def interp(field2d: np.ndarray, f: dict, pts: np.ndarray) -> np.ndarray:
-    """Bilinear interpolation of a gridded field at (x, y) points."""
-    fx = np.clip((pts[:, 0] - f["x0"]) / DX, 0, len(f["x"]) - 1.001)
-    fy = np.clip((pts[:, 1] - f["y0"]) / DX, 0, len(f["y"]) - 1.001)
-    i, j = fy.astype(int), fx.astype(int)
-    ty, tx = fy - i, fx - j
-    z = field2d
-    return ((1 - ty) * (1 - tx) * z[i, j] + (1 - ty) * tx * z[i, j + 1]
-            + ty * (1 - tx) * z[i + 1, j] + ty * tx * z[i + 1, j + 1])
+def build_letters() -> list[dict]:
+    """One field per letter of WORD, sharing a common vertical frame."""
+    prop = FontProperties(**FONT)
+    tps = [TextPath((0, 0), ch, size=FONT_SIZE, prop=prop) for ch in WORD]
+    y0 = min(tp.get_extents().y0 for tp in tps) - PAD_V
+    y1 = max(tp.get_extents().y1 for tp in tps) + PAD_V
+    letters = []
+    for idx, (ch, tp) in enumerate(zip(WORD, tps)):
+        f = build_letter(tp, y0, y1 - y0, phase=1.3 * idx)
+        f["char"] = ch
+        letters.append(f)
+    return letters
 
 
 # ================================================================
-#  Geometry -> SVG paths
+#  Geometry -> SVG paths (local letter coordinates)
 # ================================================================
 def contour_loops(f: dict, level: float) -> list[np.ndarray]:
     """Closed psi-contour loops at a level, in data coordinates."""
@@ -169,7 +197,7 @@ def resample(pts: np.ndarray, step: float) -> np.ndarray:
 
 
 def to_svg(pts: np.ndarray, f: dict) -> np.ndarray:
-    """Data coords (y up) -> SVG coords (y down, origin top-left)."""
+    """Data coords (y up) -> local SVG coords (y down, origin top-left)."""
     out = pts.copy()
     out[:, 0] -= f["x0"]
     out[:, 1] = f["height"] - (pts[:, 1] - f["y0"])
@@ -219,23 +247,18 @@ def arrow_transforms(f: dict, level: float,
     return out
 
 
-# ================================================================
-#  SVG documents
-# ================================================================
-def svg_header(f: dict) -> str:
-    w, h = f["width"], f["height"]
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" '
-            f'width="{w:.0f}" height="{h:.0f}" '
-            f'viewBox="0 0 {w:.2f} {h:.2f}">\n')
+def aligned_centers(lo: float, hi: float) -> np.ndarray:
+    """Cell centers k*CELL_STEP + CELL_STEP/2 covering [lo, hi]."""
+    k0 = int(np.ceil((lo - CELL_STEP / 2) / CELL_STEP))
+    k1 = int(np.floor((hi - CELL_STEP / 2) / CELL_STEP))
+    return (np.arange(k0, k1 + 1) + 0.5) * CELL_STEP
 
 
 def cell_rects(f: dict) -> list[tuple[float, float, str]]:
-    """(x, y, color) of discretized-fill cells covering the letters."""
+    """(x, y, color) of discretized-fill cells covering one letter."""
     size = CELL_STEP - CELL_GAP
-    xs = np.arange(f["x0"] + CELL_STEP / 2, f["x0"] + f["width"],
-                   CELL_STEP)
-    ys = np.arange(f["y0"] + CELL_STEP / 2, f["y0"] + f["height"],
-                   CELL_STEP)
+    xs = aligned_centers(f["x0"], f["x0"] + f["width"])
+    ys = aligned_centers(f["y0"], f["y0"] + f["height"])
     out = []
     for yv in ys:
         pts = np.column_stack([xs, np.full_like(xs, yv)])
@@ -253,33 +276,83 @@ def cell_rects(f: dict) -> list[tuple[float, float, str]]:
     return out
 
 
-def wordmark(f: dict, path: Path) -> None:
-    """Streamline wordmark with discretized letter fill."""
+# ================================================================
+#  SVG documents
+# ================================================================
+def letter_group(f: dict, tx: float) -> str:
+    """One letter as a movable group in local coordinates."""
     size = CELL_STEP - CELL_GAP
-    parts = [svg_header(f)]
-    parts.append('  <g id="grid-fill">\n')
+    parts = [f'  <g id="letter-{f["char"]}" '
+             f'transform="translate({tx:.2f} 0)">\n']
+    parts.append('    <g class="grid-fill">\n')
     for x, y, color in cell_rects(f):
-        parts.append(f'    <rect x="{x:.2f}" y="{y:.2f}" '
+        parts.append(f'      <rect x="{x:.2f}" y="{y:.2f}" '
                      f'width="{size}" height="{size}" fill="{color}"/>\n')
-    parts.append("  </g>\n")
+    parts.append("    </g>\n")
     for level, color, width in LEVELS:
-        parts.append(f'  <g id="psi-{level}" fill="none" stroke="{color}" '
-                     f'stroke-width="{width}" stroke-linejoin="round">\n')
-        parts.append(f'    <path d="{level_path(f, level)}"/>\n')
-        parts.append("  </g>\n")
-    parts.append(f'  <g id="arrows" fill="{ARROW_COLOR}">\n')
+        parts.append(f'    <g class="psi-{level}" fill="none" '
+                     f'stroke="{color}" stroke-width="{width}" '
+                     f'stroke-linejoin="round">\n')
+        parts.append(f'      <path d="{level_path(f, level)}"/>\n')
+        parts.append("    </g>\n")
+    parts.append(f'    <g class="arrows" fill="{ARROW_COLOR}">\n')
     for x, y, ang in arrow_transforms(f, ARROW_LEVEL, ARROW_SPACING):
-        parts.append(f'    <path transform="translate({x:.2f} {y:.2f}) '
+        parts.append(f'      <path transform="translate({x:.2f} {y:.2f}) '
                      f'rotate({ang:.1f})" '
                      f'd="M 3.4 0 L -2.5 2.1 L -2.5 -2.1 Z"/>\n')
-    parts.append("  </g>\n</svg>\n")
+    parts.append("    </g>\n  </g>\n")
+    return "".join(parts)
+
+
+def wordmark(letters: list[dict], gap: float, bg_cells: bool,
+             path: Path) -> None:
+    """Assemble one spacing variant; letter offsets snap to the grid."""
+    height = letters[0]["height"]
+    offsets = []
+    cursor = PAD_L
+    for f in letters:
+        tx = cursor - f["ink_x0"] + f["x0"]  # local origin -> global
+        # snap so the mosaics of all letters share one global grid
+        tx = f["x0"] + round((tx - f["x0"]) / CELL_STEP) * CELL_STEP
+        offsets.append(tx)
+        cursor = tx + (f["ink_x1"] - f["x0"]) + gap
+    width = offsets[-1] + letters[-1]["width"]
+
+    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" '
+             f'width="{width:.0f}" height="{height:.0f}" '
+             f'viewBox="0 0 {width:.2f} {height:.2f}">\n']
+    if bg_cells:
+        size = CELL_STEP - CELL_GAP
+        active = set()
+        for f, tx in zip(letters, offsets):
+            for x, y, _ in cell_rects(f):
+                active.add((round(x + tx, 1), round(y, 1)))
+        parts.append(f'  <g id="grid-bg" fill="{BG_CELL_COLOR}" '
+                     f'fill-opacity="{BG_CELL_OPACITY}">\n')
+        y0 = letters[0]["y0"]
+        ys = height - (aligned_centers(y0, y0 + height) - y0)
+        for xc in aligned_centers(0.0, width):
+            for yc in ys:
+                x, y = xc - size / 2, yc - size / 2
+                if (round(x, 1), round(y, 1)) in active:
+                    continue
+                parts.append(f'    <rect x="{x:.2f}" y="{y:.2f}" '
+                             f'width="{size}" height="{size}"/>\n')
+        parts.append("  </g>\n")
+    for f, tx in zip(letters, offsets):
+        parts.append(letter_group(f, tx))
+    parts.append("</svg>\n")
     path.write_text("".join(parts))
 
 
 def main() -> None:
-    f = build_field()
-    wordmark(f, HERE / "fridom-logo-streamlines.svg")
-    print(f"canvas {f['width']:.0f} x {f['height']:.0f} units")
+    letters = build_letters()
+    for name, gap in SPACINGS.items():
+        for bg_cells in (False, True):
+            suffix = f"{name}-cells" if bg_cells else name
+            out = HERE / f"fridom-logo-v3-{suffix}.svg"
+            wordmark(letters, gap, bg_cells, out)
+            print(out.name)
 
 
 if __name__ == "__main__":
