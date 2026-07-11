@@ -171,6 +171,7 @@ are the per-decision research behind `specs/model/` (see
 | [`d5_3_family_ports.md`](research/d5_3_family_ports.md) | frozen | D5.3 — The ported projection family, walked end-to-end. |
 | [`nnmd_literature.md`](research/nnmd_literature.md) | frozen | NNMD literature sweep (R1 of the NNMD rewrite plan). |
 | [`parity_audit.md`](research/parity_audit.md) | frozen | framework2 §8.8 cutover-parity audit. |
+| [`boundary_design_explainer.md`](research/boundary_design_explainer.md) | frozen | Dev's extrapolation-fill vs the framework2-boundaries R1 flip — side-by-side explainer grounding the blocked boundary decision. |
 
 ## `archive/` — held / superseded
 
