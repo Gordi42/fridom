@@ -549,6 +549,9 @@ def _time_attrs(clock: Any) -> dict[str, str]:
     start = float(np.asarray(clock.start))
     reference = np.datetime64(start_date) - np.timedelta64(
         round(start * _NS_PER_S), "ns")
+    # Whole-second reference date: ns precision breaks CF readers
+    # (e.g. Julia's CFTime overflows on nanosecond epochs).
+    reference = reference.astype("datetime64[s]")
     attrs["units"] = f"seconds since {reference}"
     attrs["calendar"] = "proleptic_gregorian"
     return attrs
