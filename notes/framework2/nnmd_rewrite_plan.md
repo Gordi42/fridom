@@ -205,10 +205,21 @@ BalanceExpansion docstring.
    finite-difference slow-derivative branch (Euler step + recursive
    sub-NNMD). Analytic derivatives only; revisit only if T2/T5 show
    the analytic recursion limiting.
-2. Telescoping variant — decide AFTER M2/R2: ship as a second
-   selectable scheme in framework2 (only if the corrected toy
-   comparison shows it winning somewhere), or keep it toy-harness-only
-   and document the conclusion (default).
+2. **RESOLVED BY DATA (P1, 2026-07-11): telescoping is the SAME
+   truncation as the direct recursion** — consistent implementations
+   coincide to machine precision at every order (1-5), both closures,
+   both toys, with and without detuning (it is an exact term-by-term
+   resummation). Per the pre-agreed rule ("ships only if it wins
+   somewhere"): document-and-drop. The historical "worse at order ≥3"
+   is thereby conclusively an implementation bug (§0.2). Both schemes
+   stay in the private core/toy harness as the proof; only the direct
+   recursion ships in BalanceExpansion.
+   Closure gate (design note §1.4) also RESOLVED BY DATA: the
+   leading-order closure saturates at residual slope 3 from order 3
+   on (generic detuned triad; system-dependent — L-K stays clean —
+   but consistent closure is uniformly N+1 through order 4).
+   Per the pre-agreed gate: **order-consistent closure is the
+   shipping default.**
 3. **DECIDED (owner, 2026-07-11): `fr.transforms.BalanceExpansion`**
    (framework-level only, no package factories; NNMD stays in the
    docstring as the literature name). Slow space via family/predicate

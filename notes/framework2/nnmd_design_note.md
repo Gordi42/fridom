@@ -148,10 +148,18 @@ Two cheap residuals, both exposed:
   byproducts: spectral filters, `exp(iωt)` propagators, the deferred
   `omega_field`. Structural-zero guard: singular f on a selected
   zero-ω mode is an error, not a floored division.
-- **D — closure: empirical gate.** Implement the leading-order
-  closure (v1 bookkeeping); the toy harness measures both convergence
-  slopes; promote the order-consistent closure (same recursion shape)
-  only if leading-order saturates below the advertised order.
+- **D — closure: empirical gate → RESOLVED (P1 toy data,
+  2026-07-11): order-consistent is the shipping default.** The
+  leading-order closure saturates at residual slope 3 from order 3 on
+  (generic detuned triad; the wave feedback is required, not a
+  constant shift), while the order-consistent closure is uniformly
+  slope N+1 through order 4 on both toys. The private core keeps both
+  closures (tests, forensics); BalanceExpansion ships
+  order-consistent.
+  Same P1 run: direct and telescoping schemes are the SAME truncation
+  (machine-precision identical at every order) — telescoping is
+  documented in the core and does not ship as a user option
+  (plan §5.2).
 
 ### Decided sketch
 
