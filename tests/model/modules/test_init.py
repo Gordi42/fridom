@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/framework2/modules/__init__.py file."""
+"""Test the imports in the fridom/model/modules/__init__.py file."""
 import pytest
 
 import fridom.model.modules as test_module
