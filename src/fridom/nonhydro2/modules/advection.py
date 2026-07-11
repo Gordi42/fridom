@@ -67,11 +67,33 @@ advecting velocity (background included) by the nonlinear scaling
 factor (``mset.tendencies.advection.scaling = rossby_number``), i.e.
 ``Ro * S(u' + U, q)`` — old users passed pre-scaled backgrounds.
 
-**Walled grids are future work**: the advective flux stencils near
-rigid walls (bounded, non-periodic mesh factors) are not covered
-yet, so ``bind`` rejects walled grids with a taught error — build a
-linear model (``advection=False`` in ``nh.Model``) instead. The
-background option inherits the restriction.
+**Walled grids (centered scheme)**: ``CenteredAdvection`` supports
+bounded mesh factors (channel walls, rigid lids, and their
+combinations) with **no boundary-condition physics choice** — no
+free-slip/no-slip knob. The argument is structural: every advective
+flux through a wall face carries the wall-normal velocity as a
+factor, and that value is an exact zero by impermeability (the
+wall-normal velocity lives on the interior ``Inner`` faces with the
+Dirichlet wall tag; the wall face is a boundary condition, not a
+DOF). The wall-specific work is pure bookkeeping: along a walled
+axis the flux space adopts the wall-normal velocity's Dirichlet tag
+(a BC-sibling substitution), so the flux divergence closes with the
+exact-zero wall flux, and the divergence is retagged back onto the
+advected component's space — both identities on periodic axes, so
+the periodic path is reproduced bit for bit. The two-point centered
+stencils read no beyond-wall values at all: the only wall read is
+the wall-normal velocity's own interpolation onto the centers,
+whose Dirichlet fill *is* the impermeability zero. A genuine
+free-slip choice enters only for PV/vector-invariant schemes (the
+shallow-water Sadourny module), wide biased stencils, and viscous
+closures. Consequently ``UpwindAdvection`` / ``WENOAdvection``
+still reject walled grids at ``bind`` with a taught error: their
+order-wide biased windows reach across the wall and need a
+one-sided near-wall treatment — future work. With a background
+flow, ``bind`` additionally validates that the wall-normal
+background component vanishes on its walls (the sampled field is
+structurally impermeable, so the check runs on the user's input —
+the shallow-water background precedent).
 """
 from __future__ import annotations
 
@@ -79,10 +101,15 @@ import inspect
 from functools import cache
 from typing import TYPE_CHECKING, ClassVar, Literal, final
 
+import numpy as np
+
 import fridom.framework2 as fr
 from fridom.framework2.grid.bc import BC
 from fridom.framework2.grid.decomposition.halo import HaloSpec
 from fridom.framework2.grid.errors import SpaceMismatchError
+from fridom.framework2.grid.fields.scalar_field import (
+    _bc_siblings,  # the BC-sibling seam of retag/.to (framework2)
+)
 from fridom.framework2.grid.operators.base import (
     OperatorRequirements,
     SeparableOperator,
@@ -121,6 +148,10 @@ _SUPPORTED_ORDERS = (3, 5)
 
 #: the velocity components' staggering axes (the nh C-grid)
 _VELOCITY_AXES = {"u": "x", "v": "y", "w": "z"}
+
+#: wall-normal background components must vanish at the wall to this
+#: relative tolerance (impermeability; the shallow-water precedent)
+_WALL_TOL = 1e-12
 
 
 def _check_background(
@@ -244,6 +275,55 @@ def _profile_default(name: str) -> Callable:
     return _default
 
 
+def _wall_profile_values(
+    grid: object, space: object, fn: Callable, axis: str,
+    extent: tuple[float, float],
+) -> float:
+    """
+    Largest ``|fn|`` over both walls of ``axis`` (host-side).
+
+    Description
+    -----------
+    Evaluates the background callable at the two wall positions of
+    the bounded ``axis``, gridded over the tangential evaluation
+    nodes it names (the shallow-water wall-check precedent, lifted
+    to any number of tangential coordinates via a meshgrid).
+
+    Parameters
+    ----------
+    grid : fr.grid.Grid
+        The grid supplying the tangential evaluation nodes.
+    space : SpaceLike
+        The background sample's own space (node positions).
+    fn : Callable
+        The user profile; parameters name grid coordinates.
+    axis : str
+        The bounded (wall-normal) coordinate.
+    extent : tuple[float, float]
+        The wall positions of ``axis``.
+
+    Returns
+    -------
+    float
+        The largest absolute wall value of the profile.
+    """
+    wanted = tuple(inspect.signature(fn).parameters)
+    others = [name for name in wanted if name != axis]
+    worst = 0.0
+    for wall in extent:
+        arrays = [
+            np.asarray(grid.evaluation_nodes(space, name).data)
+            .ravel() for name in others]
+        coords: dict[str, object] = dict(zip(
+            others, np.meshgrid(*arrays, indexing="ij"),
+            strict=True))
+        if axis in wanted:
+            coords[axis] = wall
+        worst = max(worst, float(np.max(np.abs(
+            np.asarray(fn(**coords))))))
+    return worst
+
+
 # ================================================================
 #  The linear (optimal-weight) upwind rows
 # ================================================================
@@ -358,9 +438,9 @@ def _face_codomain(
     ``Center -> Right`` and ``Right -> Center`` on periodic real
     nodal factors — exactly the two C-grid flux positions of the
     flux-form advection modules. Everything else (average spaces,
-    bounded axes, complex scalars) raises: the modules reject
-    walled grids at bind, so a bounded factor here is a genuine
-    misuse.
+    bounded axes, complex scalars) raises: the biased modules that
+    hold these kernels reject walled grids at bind (module
+    docstring), so a bounded factor here is a genuine misuse.
 
     Parameters
     ----------
@@ -382,8 +462,8 @@ def _face_codomain(
     mesh = domain.mesh
     if not mesh.periodic:
         raise SpaceMismatchError(
-            f"{label} is periodic-only (walled grids are rejected "
-            f"at module bind), got {domain!r}",
+            f"{label} is periodic-only (the biased advection "
+            f"modules reject walled grids at bind), got {domain!r}",
             left=domain, operation="reconstruct")
     if domain.node_set is NodeSet.CENTER:
         return mesh.right
@@ -669,11 +749,14 @@ class _FluxFormAdvection(fr.Module):
     Description
     -----------
     The private scaffolding of the advection family (never exported):
-    role selection and the walled-grid rejection at bind, the
-    tendency terms, and the per-axis flux loop. Subclasses choose
-    the face value of the advected quantity through the
-    `_face_value` / `_linear_face_value` hooks (centered by
-    default).
+    role selection and the walled-grid vetting at bind, the tendency
+    terms, and the per-axis flux loop. Subclasses choose the face
+    value of the advected quantity through the `_face_value` /
+    `_linear_face_value` hooks (centered by default) and declare
+    wall capability through `_supports_walled`: the centered hooks
+    work on walled grids through the structural-zero wall flux
+    (module docstring), the biased subclasses opt out (their wide
+    stencils need a one-sided near-wall treatment — future work).
 
     Without a background the module contributes the single
     Rossby-scaled ``advection`` term. With ``background=`` set it
@@ -691,6 +774,10 @@ class _FluxFormAdvection(fr.Module):
             fr.params.SCALING_ROSSBY, default=1.0,
             hint="Rossby number (nh.DynamicalCore)"),
     )
+
+    #: whether the scheme's face values work on walled grids (the
+    #: centered hooks do; the biased subclasses override to False)
+    _supports_walled: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -713,12 +800,14 @@ class _FluxFormAdvection(fr.Module):
 
         One AUXILIARY field ``background_<component>`` per mapped
         component, declared on the velocity template's own pattern
-        (staggered along the component axis; the topology-conditional
-        wall Dirichlet is inert on the periodic grids this family
-        accepts), so the profile is sampled at that component's own
-        staggered nodes when materialized. The user value rides the
-        declaration ``default=`` untouched: a constant fills, a
-        coordinate callable is discretized by ``grid.create_field``.
+        (staggered along the component axis; on a walled axis the
+        topology-conditional wall Dirichlet makes the sample
+        structurally impermeable — its wall face is an exact-zero
+        boundary condition, not a DOF), so the profile is sampled at
+        that component's own staggered nodes when materialized. The
+        user value rides the declaration ``default=`` untouched: a
+        constant fills, a coordinate callable is discretized by
+        ``grid.create_field``.
         """
         return tuple(
             fr.FieldDeclaration(
@@ -750,28 +839,32 @@ class _FluxFormAdvection(fr.Module):
         Raises
         ------
         NotImplementedError
-            On a walled grid (any bounded mesh factor): the
-            advective flux stencils near rigid walls are future
-            work, and the natural downstream failure (an operator
-            dispatch mismatch deep in the flux chain) would be
-            cryptic.
+            On a walled grid (any bounded mesh factor) when the
+            scheme opts out through `_supports_walled` (the biased
+            subclasses): the order-wide biased face stencils need a
+            one-sided near-wall treatment — future work — and the
+            natural downstream failure (an operator dispatch
+            mismatch deep in the flux chain) would be cryptic.
         ValueError
             If a background sample does not resolve on its velocity
             component's own space (a component outside the nh
-            ``u``/``v``/``w`` staggering vocabulary).
+            ``u``/``v``/``w`` staggering vocabulary), or if a
+            wall-normal background component does not vanish on its
+            walls (impermeability).
         """
         factors = getattr(table.grid, "factors", ())
         walled = tuple(
             name for mesh in factors for name in mesh.names
             if not getattr(mesh, "periodic", True))
-        if walled:
+        if walled and not self._supports_walled:
             raise NotImplementedError(
                 f"{type(self).__name__} does not support walled "
-                f"grids yet (bounded coordinates: {walled}); the "
-                "advective flux stencils near rigid walls are "
-                "future work. Build a linear model instead "
-                "(advection=False in nh.Model) or drop the "
-                "advection module")
+                f"grids (bounded coordinates: {walled}): its "
+                "order-wide biased face stencils reach across the "
+                "wall and need a one-sided near-wall treatment — "
+                "future work. Use CenteredAdvection (walled-"
+                "capable) or a linear model (advection=False in "
+                "nh.Model)")
         self._advected = table.select(fr.roles.ADVECTED)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
@@ -803,6 +896,47 @@ class _FluxFormAdvection(fr.Module):
             by_axis[axis] = sample
         self._background_by_axis = by_axis
         self._background_axes = tuple(by_axis.items())
+        self._check_background_walls(table)
+
+    def _check_background_walls(self, table: object) -> None:
+        """Impermeability: wall-normal background zero at the wall.
+
+        The sampled field is structurally impermeable (its wall face
+        is a Dirichlet zero, not a DOF), so the check runs on the
+        *user's input* — the shallow-water background precedent: a
+        constant must be zero, a callable must evaluate to zero at
+        the wall positions (over the tangential nodes it names).
+        """
+        grid = table.grid
+        for name, axis in _VELOCITY_AXES.items():
+            if name not in self._background:
+                continue
+            mesh = next(
+                (factor for factor in grid.factors
+                 if axis in factor.names), None)
+            if mesh is None or getattr(mesh, "periodic", True):
+                continue
+            value = self._background[name]
+            if not callable(value):
+                scale = max(1.0, abs(float(value)))
+                worst = abs(float(value))
+            else:
+                space = table[f"background_{name}"].space
+                sample = _sample_profile(
+                    grid, space, value, name=f"background_{name}")
+                scale = max(1.0, float(np.max(np.abs(
+                    np.asarray(sample.data)))))
+                worst = _wall_profile_values(
+                    grid, space, value, axis, mesh.extent)
+            if worst > _WALL_TOL * scale:
+                raise ValueError(
+                    f"background[{name!r}] does not vanish at the "
+                    f"{axis!r} wall (max wall value {worst:.3e}): "
+                    "the walls are impermeable, so the wall-normal "
+                    "background component must be zero on the wall "
+                    "— the sampled field's wall face is a "
+                    "structural (Dirichlet) zero and would silently "
+                    "disagree with the profile")
 
     def tendency_terms(self) -> tuple[fr.TendencyTerm, ...]:
         """Return the advection term(s) of the module.
@@ -834,6 +968,45 @@ class _FluxFormAdvection(fr.Module):
                 linear=True),
         )
 
+    def _flux_space(
+        self, q: ScalarField, v: ScalarField, axis: str,
+    ) -> FunctionSpace:
+        """
+        Flux (control-volume face) space of ``q`` along ``axis``.
+
+        Description
+        -----------
+        The face space ``q`` toggled along ``axis`` — and, on a
+        walled axis where the flux sits on the advecting velocity's
+        staggered faces, with the velocity's wall-normal Dirichlet
+        factor adopted (a BC-sibling substitution): the flux then
+        carries the structural zero-wall-flux claim and its
+        divergence closes with the exact-zero wall value
+        (impermeability — module docstring). On periodic axes the
+        factors are the same interned object and the substitution
+        never fires (the periodic path is bitwise unchanged).
+
+        Parameters
+        ----------
+        q : ScalarField
+            The advected quantity.
+        v : ScalarField
+            The advecting velocity component of ``axis``.
+        axis : str
+            The advection axis.
+
+        Returns
+        -------
+        FunctionSpace
+            The flux space (layout preserved).
+        """
+        space = q.diff(axis).function_space
+        v_factor = v.function_space.bare.factor(axis)
+        factor = space.bare.factor(axis)
+        if factor is not v_factor and _bc_siblings(factor, v_factor):
+            space = space.replace(**{axis: v_factor})
+        return space
+
     def _advect(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
@@ -845,11 +1018,13 @@ class _FluxFormAdvection(fr.Module):
             res = None
             for axis, vname in self._axis_velocity:
                 v = state[vname]
-                flux_space = q.diff(axis).function_space
+                flux_space = self._flux_space(q, v, axis)
                 v_face = self._velocity_face(v, flux_space)
                 flux = v_face * self._face_value(
                     q, v_face, axis, flux_space)
-                divergence = flux.diff(axis)
+                # the retag lands the self-advection divergence back
+                # on q's wall-tagged space (identity when periodic)
+                divergence = flux.diff(axis).retag(q)
                 res = -divergence if res is None else res - divergence
             out[qname] = ro * res
         return out
@@ -930,11 +1105,11 @@ class _FluxFormAdvection(fr.Module):
             sample = self._background_by_axis.get(axis)
             if sample is not None:
                 v = v + state[sample]
-            flux_space = q.diff(axis).function_space
+            flux_space = self._flux_space(q, v, axis)
             v_face = self._velocity_face(v, flux_space)
             flux = v_face * self._face_value(
                 q, v_face, axis, flux_space)
-            divergence = flux.diff(axis)
+            divergence = flux.diff(axis).retag(q)
             res = -divergence if res is None else res - divergence
         return res
 
@@ -965,11 +1140,11 @@ class _FluxFormAdvection(fr.Module):
         """
         res = None
         for axis, sample in self._background_axes:
-            flux_space = q.diff(axis).function_space
+            flux_space = self._flux_space(q, state[sample], axis)
             v_face = self._velocity_face(state[sample], flux_space)
             flux = v_face * self._linear_face_value(
                 q, v_face, axis, flux_space)
-            divergence = flux.diff(axis)
+            divergence = flux.diff(axis).retag(q)
             res = -divergence if res is None else res - divergence
         return res
 
@@ -1080,6 +1255,14 @@ class CenteredAdvection(_FluxFormAdvection):
     r"""
     Flux-form centered advection of every ADVECTED component.
 
+    Description
+    -----------
+    Works on periodic **and walled** grids (channel walls, rigid
+    lids, and their combinations): the wall fluxes are structural
+    zeros through the wall-normal velocity's Dirichlet fill — no
+    boundary-condition physics choice is involved (module
+    docstring).
+
     Parameters
     ----------
     background : Mapping[str, Callable | float] | None, optional
@@ -1114,6 +1297,11 @@ class UpwindAdvection(_FluxFormAdvection):
     faces is order-coupled: ``order - 1`` symmetric points (the
     two-point mean at the default ``order=3``).
 
+    Periodic grids only: the order-wide biased windows reach across
+    a wall and need a one-sided near-wall treatment (future work),
+    so ``bind`` rejects walled grids with a taught error — use
+    `CenteredAdvection` (walled-capable) instead.
+
     Parameters
     ----------
     order : int, optional
@@ -1128,6 +1316,10 @@ class UpwindAdvection(_FluxFormAdvection):
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "linear"
+
+    #: the order-wide biased windows need a one-sided near-wall
+    #: treatment — future work (taught rejection at bind)
+    _supports_walled: ClassVar[bool] = False
 
     def __init__(
         self,

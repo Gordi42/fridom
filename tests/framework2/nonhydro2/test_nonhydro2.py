@@ -701,11 +701,21 @@ def test_walled_diagnostics_smoke():
         assert bool(np.isfinite(np.asarray(field.data)).all())
 
 
-def test_walled_advection_is_a_taught_error():
+def test_walled_default_model_assembles_with_advection():
+    # the default preset (advection=True: CenteredAdvection, which
+    # is walled-capable through the structural-zero wall fluxes)
+    # assembles and steps on the rigid-lid grid; the biased schemes
+    # keep their taught rejection (test_advection.py)
     grid, _ = make_walled_grid()
-    with pytest.raises(NotImplementedError,
-                       match=r"walled grids .*advection=False"):
-        nh.Model(grid=grid, dt=DT)  # default advection module
+    model = nh.Model(grid=grid, dt=DT)  # default advection module
+    _, y, z = walled_coords()
+    model.set_fields(u=0.05 * np.sin(y),
+                     b=0.05 * np.cos(np.pi * z / LZ))
+    model.advance(2)
+    assert not model.panicked
+    assert all(
+        bool(np.isfinite(np.asarray(model.state[c].data)).all())
+        for c in ("u", "v", "w", "b"))
 
 
 # ================================================================

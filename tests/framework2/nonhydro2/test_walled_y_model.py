@@ -6,8 +6,10 @@ pin the topology-driven assembly (the wall-normal ``v`` derives the
 Dirichlet tag on the inner y faces, everything else stays BC-free),
 the walled-y spectral pressure solve (the projection drives the
 discrete divergence to machine zero with no boundary seams), the
-projected-tendency matvec, and time stepping. A walled-x twin guards
-the axis-generic gradient retag in the projection stage.
+projected-tendency matvec, and time stepping. A nonlinear run
+(``advection=True``: the centered scheme's structural-zero wall
+fluxes) and a walled-x twin guarding the axis-generic gradient retag
+in the projection stage ride on top.
 """
 import numpy as np
 import pytest
@@ -114,6 +116,35 @@ def test_constrained_tendency_is_divergence_free(model):
 # ================================================================
 def test_advance_keeps_the_state_divergence_free(model):
     _random_state(model, seed=4)
+    model.advance(3)
+    assert not model.panicked
+    state = model.state
+    assert all(np.isfinite(np.asarray(state[c].data)).all()
+               for c in COMPONENTS)
+    assert _max_divergence(state) < 1e-13
+
+
+# ================================================================
+#  The nonlinear channel (CenteredAdvection on walled grids)
+# ================================================================
+@pytest.mark.parametrize("walled", [
+    pytest.param(("y",), id="channel-y"),
+    pytest.param(("y", "z"), id="channel-and-lid"),
+])
+def test_nonlinear_advance_stays_finite_and_divergence_free(walled):
+    # the walled model assembles WITH advection (the centered
+    # scheme's wall fluxes are structural zeros) and a short
+    # nonlinear run stays finite and divergence-clean
+    meshes = tuple(
+        IntervalMesh(N, (0.0, 1.0 if name in walled else 2 * np.pi),
+                     periodic=(name not in walled), name=name)
+        for name in ("x", "y", "z"))
+    model = nh.Model(
+        grid=Grid(meshes), advection=True, dsqr=DSQR,
+        coriolis=nh.FPlaneCoriolis(f0=F0),
+        stratification=nh.ConstantStratification(n2=N2),
+        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+    _random_state(model, seed=6)
     model.advance(3)
     assert not model.panicked
     state = model.state

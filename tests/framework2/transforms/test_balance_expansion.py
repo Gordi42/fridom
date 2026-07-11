@@ -86,9 +86,9 @@ def make_nh_model(*, ro=0.05, walled=None, n=8, **kwargs):
 def nh_state(model, *, names=NH_COMPONENTS, seed=3):
     """Seed a random state on the given nonhydro components."""
     rng = np.random.default_rng(seed)
-    shape = np.asarray(model.state["u"].data).shape
     model.set_fields(**{
-        c: 0.3 * rng.standard_normal(shape) for c in names})
+        c: 0.3 * rng.standard_normal(
+            np.asarray(model.state[c].data).shape) for c in names})
     return nh.State({c: model.state[c] for c in NH_COMPONENTS})
 
 
@@ -104,33 +104,6 @@ def is_real(state, components):
     """Whether every component carries a real dtype."""
     return all(not np.iscomplexobj(np.asarray(state[c].data))
                for c in components)
-
-
-@jaxify
-class QuadraticCoupling(fr.Module):
-
-    """Wall-safe exactly quadratic couplings on all four components.
-
-    The nonhydro ``CenteredAdvection`` rejects walled grids, so the
-    channel smoke uses this synthetic quadratic term (products of
-    centre-interpolated components; full prognostic coverage keeps
-    the variant assembly lint quiet).
-    """
-
-    field_declarations = ()
-
-    @fr.term(name="quad", advances=("u", "v", "w", "b"))
-    def quad(self, state, _ctx):
-        b = state["b"]
-        centre = b.function_space
-        u_c = state["u"].to(centre)
-        v_c = state["v"].to(centre)
-        w_c = state["w"].to(centre)
-        return {
-            "u": -0.5 * (u_c * b).to(state["u"]).retag(state["u"]),
-            "v": -0.5 * (v_c * b).to(state["v"]).retag(state["v"]),
-            "w": -0.5 * (w_c * b).to(state["w"]).retag(state["w"]),
-            "b": -0.5 * (u_c * b)}
 
 
 @jaxify
@@ -317,14 +290,21 @@ def test_sw_beta_channel_balances_a_predicate_slow_band():
     assert 0.0 < r1 < r0
 
 
-def test_nh_channel_smoke_order_one_runs_real():
-    model = make_nh_model(walled="y", advection=False,
-                          modules_extra=(QuadraticCoupling(),))
-    z = nh_state(model, names=("u", "b"), seed=5)
-    bal = BalanceExpansion(model, order=1)
-    out = bal(z)
-    assert isinstance(out, nh.State)
-    assert is_real(out, NH_COMPONENTS)
+def test_nh_channel_orders_run_and_residual_decreases():
+    # the walled-y nonhydro channel with the REAL CenteredAdvection
+    # (walled-capable: structural-zero wall fluxes) — the payoff of
+    # the walled advection support
+    model = make_nh_model(walled="y", advection=True)
+    z = nh_state(model, seed=5)
+    residuals = []
+    for order in (0, 1):
+        bal = BalanceExpansion(model, order=order)
+        out = bal(z)
+        assert isinstance(out, nh.State)
+        assert is_real(out, NH_COMPONENTS)
+        residuals.append(bal.residual_series(z))
+    assert np.all(np.isfinite(residuals))
+    assert residuals[0] > residuals[1]
 
 
 # ================================================================

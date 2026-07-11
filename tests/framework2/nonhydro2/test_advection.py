@@ -15,8 +15,10 @@ import fridom.framework as frold
 import fridom.framework2 as fr
 import fridom.nonhydro as nhold
 from fridom.framework2.grid.errors import SpaceMismatchError
+from fridom.framework2.grid.fields.vector_field import VectorField
 from fridom.framework2.grid.grid import Grid
 from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.framework2.grid.operators.composed import Divergence
 from fridom.framework2.model.eigen import numeric_eigenpairs
 from fridom.framework2.model.model import Model as FrModel
 from fridom.framework2.model.time_steppers.adam_bashforth import (
@@ -381,7 +383,7 @@ def test_second_advance_compiles_nothing(compile_counter):
 
 
 # ================================================================
-#  Walled grids: taught rejection at bind
+#  Walled grids: taught rejection of the biased schemes at bind
 # ================================================================
 @pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
 def test_walled_grid_is_a_taught_error(cls):
@@ -391,10 +393,212 @@ def test_walled_grid_is_a_taught_error(cls):
         IntervalMesh(8, (0.0, 1.0), periodic=False, name="z"),
     ))
     with pytest.raises(NotImplementedError,
-                       match=r"walled grids .*advection=False"):
+                       match=r"one-sided near-wall treatment"
+                             r".*CenteredAdvection"):
         FrModel(grid=grid,
                 modules=(DynamicalCore(), cls(3)),
                 time_stepper=AdamBashforth(DT, order=3))
+
+
+# ================================================================
+#  Walled grids: the centered scheme (structural-zero wall flux)
+# ================================================================
+WALLED_TOPOLOGIES = [
+    pytest.param(("y",), id="channel-y"),
+    pytest.param(("z",), id="rigid-lid"),
+    pytest.param(("y", "z"), id="channel-and-lid"),
+]
+
+#: relative machine-precision level of the centered scheme's
+#: quadratic invariants (measured ~1e-16 on all topologies)
+CONSERVATION_TOL = 1e-13
+
+
+def make_walled_model(walled, advection, n=8):
+    """Build a small nonhydro model with walls on the given axes."""
+    grid = Grid(tuple(
+        IntervalMesh(n, (0.0, 1.0 if name in walled else L),
+                     periodic=(name not in walled), name=name)
+        for name in ("x", "y", "z")))
+    return FrModel(
+        grid=grid,
+        modules=(DynamicalCore(), ConstantStratification(n2=1.0),
+                 advection),
+        time_stepper=AdamBashforth(DT, order=3))
+
+
+def set_random_state(model, seed):
+    rng = np.random.default_rng(seed)
+    model.set_fields(**{
+        c: rng.standard_normal(model.state[c].data.shape)
+        for c in ("u", "v", "w", "b")})
+
+
+def relative_energy_rates(model):
+    """Per-component |<q, A(q)>| / sum|q A(q)| on a projected state."""
+    state = model.constrain(model.state)
+    tau = model.tendency(state, constraints=False,
+                         filter=fr.terms.owned_by(CenteredAdvection))
+    rates = {}
+    for c in ("u", "v", "w", "b"):
+        product = (np.asarray(state[c].data)
+                   * np.asarray(tau[c].data))
+        rates[c] = abs(float(np.sum(product))) / float(
+            np.sum(np.abs(product)))
+    return state, tau, rates
+
+
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_walled_energy_conservation_matches_the_periodic_level(
+        walled):
+    # the discrete quadratic invariant of the centered flux form on
+    # a discretely divergence-free (projected) state: the PERIODIC
+    # scheme conserves each component's <q, A(q)> to machine
+    # precision, and the walled cases must sit at the same level
+    # (per-component zeros make the statement independent of the
+    # diagonal M-weighting) — the structural-zero wall flux adds no
+    # boundary source
+    periodic = make_walled_model((), CenteredAdvection())
+    set_random_state(periodic, seed=11)
+    _, _, base = relative_energy_rates(periodic)
+    assert all(rate < CONSERVATION_TOL for rate in base.values())
+
+    model = make_walled_model(walled, CenteredAdvection())
+    set_random_state(model, seed=11)
+    _, _, rates = relative_energy_rates(model)
+    assert all(rate < CONSERVATION_TOL for rate in rates.values())
+
+
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_walled_total_buoyancy_is_conserved(walled):
+    # flux form with an exact-zero wall flux: the b tendency sums to
+    # zero over the (uniform) cells to machine precision
+    model = make_walled_model(walled, CenteredAdvection())
+    set_random_state(model, seed=12)
+    state = model.constrain(model.state)
+    tau = model.tendency(state, constraints=False,
+                         filter=fr.terms.owned_by(CenteredAdvection))
+    db = np.asarray(tau["b"].data)
+    assert abs(float(np.sum(db))) < 1e-12 * float(
+        np.sum(np.abs(db)))
+
+
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_walled_projected_tendency_stays_divergence_free(walled):
+    # impermeability: the advective tendency does not push flow
+    # through the walls — after the CONSTRAINT stage the discrete
+    # divergence sits at the walled-solver level everywhere
+    model = make_walled_model(walled, CenteredAdvection())
+    set_random_state(model, seed=13)
+    state = model.constrain(model.state)
+    tau = model.tendency(state, constraints=True)
+    div = Divergence()(VectorField(
+        {c: tau[c] for c in ("u", "v", "w")}))
+    assert float(np.abs(np.asarray(div.data)).max()) < 1e-13
+
+
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_walled_tendency_is_finite_on_a_random_state(walled):
+    # NaN safety: no beyond-wall read survives into the tendency
+    # (the only wall value consumed is the Dirichlet zero)
+    model = make_walled_model(walled, CenteredAdvection())
+    set_random_state(model, seed=14)
+    tau = model.tendency(model.state, constraints=False,
+                         filter=fr.terms.owned_by(CenteredAdvection))
+    assert all(np.isfinite(np.asarray(tau[c].data)).all()
+               for c in ("u", "v", "w", "b"))
+
+
+def test_periodic_tendency_is_bitwise_unchanged():
+    # the walled support must not touch the periodic code path: the
+    # module tendency equals the pre-walls flux loop (verbatim
+    # below) BITWISE — the flux-space substitution and the retags
+    # are interned identities on periodic axes
+    module = CenteredAdvection()
+    model = make_model(8, module)
+    set_random_state(model, seed=15)
+    state = model.state
+
+    class Ctx:
+        params: dict = {fr.params.SCALING_ROSSBY: 1.0}  # noqa: RUF012
+
+    got = module._advect(state, Ctx)
+    for qname in ("u", "v", "w", "b"):
+        q = state[qname]
+        res = None
+        for axis, vname in module._axis_velocity:
+            v = state[vname]
+            flux_space = q.diff(axis).function_space
+            v_face = v.to(flux_space)
+            flux = v_face * q.to(flux_space)
+            divergence = flux.diff(axis)
+            res = -divergence if res is None else res - divergence
+        want = 1.0 * res
+        assert np.array_equal(np.asarray(got[qname].data),
+                              np.asarray(want.data))
+
+
+def test_walled_background_terms_run_and_telescope():
+    # a tangential background on the walled channel: both terms
+    # evaluate finite and their sum telescopes to the single-pass
+    # full-velocity scheme through the module's own hooks
+    module = CenteredAdvection(
+        background={"u": lambda y: 1.0 + 0.5 * np.sin(np.pi * y),
+                    "w": 0.0})
+    model = make_walled_model(("y",), module)
+    set_random_state(model, seed=16)
+    state = model.state
+    total = model.tendency(
+        state, constraints=False,
+        filter=fr.terms.owned_by(CenteredAdvection))
+
+    for qname in ("u", "v", "w", "b"):
+        q = state[qname]
+        res = None
+        for axis, vname in module._axis_velocity:
+            v = 1.0 * state[vname]
+            sample = module._background_by_axis.get(axis)
+            if sample is not None:
+                v = v + state[sample]
+            flux_space = module._flux_space(q, v, axis)
+            v_face = module._velocity_face(v, flux_space)
+            flux = v_face * module._face_value(
+                q, v_face, axis, flux_space)
+            divergence = flux.diff(axis).retag(q)
+            res = -divergence if res is None else res - divergence
+        assert np.isfinite(np.asarray(res.data)).all()
+        np.testing.assert_allclose(
+            np.asarray(total[qname].data), np.asarray(res.data),
+            rtol=0, atol=1e-13)
+
+
+def test_walled_background_wall_normal_must_vanish():
+    # impermeability is a taught bind error on the user's input: a
+    # nonzero wall-normal component (constant or callable) cannot
+    # ride the structurally impermeable sample
+    with pytest.raises(ValueError,
+                       match=r"background\['v'\] does not vanish "
+                             r"at the 'y' wall"):
+        make_walled_model(
+            ("y",), CenteredAdvection(background={"v": 0.3}))
+    with pytest.raises(ValueError,
+                       match=r"background\['w'\] does not vanish "
+                             r"at the 'z' wall"):
+        make_walled_model(
+            ("z",), CenteredAdvection(
+                background={"w": lambda z: np.cos(2.0 * z)}))
+    # a callable that does not name the wall coordinate cannot
+    # vanish there either (it is constant along the wall normal)
+    with pytest.raises(ValueError,
+                       match=r"background\['v'\] does not vanish "
+                             r"at the 'y' wall"):
+        make_walled_model(
+            ("y",), CenteredAdvection(
+                background={"v": lambda x: np.sin(x)}))  # noqa: PLW0108 — must name a coordinate
+    # a wall-normal profile that vanishes on the walls is accepted
+    make_walled_model(
+        ("z",), CenteredAdvection(
+            background={"w": lambda z: np.sin(np.pi * z)}))
 
 
 # ================================================================
@@ -503,7 +707,7 @@ def test_background_inherits_the_walled_grid_rejection():
         IntervalMesh(8, (0.0, 1.0), periodic=False, name="z"),
     ))
     with pytest.raises(NotImplementedError,
-                       match=r"walled grids .*advection=False"):
+                       match=r"one-sided near-wall treatment"):
         FrModel(grid=grid,
                 modules=(DynamicalCore(),
                          UpwindAdvection(3, background={"u": 1.0})),
