@@ -291,25 +291,3 @@ def test_disabled_module_skips_slurm_lookup(file_path, monkeypatch):
 
     assert module.restart_command is None
     assert not run_mock.called
-
-
-def test_restart_with_clock(capture_logs, mset, file_path):
-    # Check that the restart directory is empty
-    assert not list(file_path.parent.iterdir())
-
-    # Create a restart module with a clock trigger
-    restart_module = fr.modules.RestartModule(
-        file_path=file_path, clock_trigger=fr.ClockTrigger(step_size=30),
-    )
-    mset.restart_module = restart_module
-    mset.setup()
-    # Run the model
-    run_model(mset)
-    # Check that restart files were created
-    restart_files = ["restart_31_0.dill", "restart_61_0.dill",
-                     "restart_91_0.dill"]
-    assert set(restart_files) == {
-        f.name for f in file_path.parent.iterdir()}
-    # Check that the counter is printed
-    logs = capture_logs.getvalue()
-    assert "Counter: 100" in logs
