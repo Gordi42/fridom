@@ -41,7 +41,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fridom.spatial.bc import BC
-from fridom.spatial.operators.composed import Laplacian
+from fridom.spatial.operators.composed import (
+    Diag,
+    Divergence,
+    Gradient,
+)
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.spaces.nodal import NodalSpace
 
@@ -89,6 +93,43 @@ def _neumann_sibling(space: SpaceLike) -> SpaceLike:
     if not replacements:
         return space
     return space.replace(**replacements)
+
+
+def _dirichlet_mid(space: SpaceLike, axis: str) -> SpaceLike:
+    r"""
+    Declare the Dirichlet parity of one gradient-output space.
+
+    Description
+    -----------
+    The mid legs of the parity-even chain ``Div @ Diag @ Grad`` on
+    the Neumann solve space: the wall-normal gradient of an even
+    (Neumann) pressure is odd, i.e. it vanishes **at** the wall —
+    the Dirichlet claim on the staggered faces (the free-slip retag
+    precedent). Declaring it here keys the divergence legs on the
+    BC-structured rows; the BC-free ``Inner -> Center`` rows do not
+    exist (R1, boundary_plan.md — a BC-free bounded side defines no
+    exterior values). Periodic factors pass through untouched.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        One per-axis gradient codomain (bare).
+    axis : str
+        The gradient axis of this component.
+
+    Returns
+    -------
+    SpaceLike
+        The interned sibling with the axis factor Dirichlet-tagged
+        (``space`` itself on a periodic axis).
+    """
+    factor = space.factor(axis)
+    if (isinstance(factor, NodalSpace)
+            and not getattr(factor.mesh, "periodic", True)
+            and factor.bc.is_free):
+        return space.replace(**{axis: factor.mesh.nodal(
+            factor.node_set, bc=BC.DIRICHLET)})
+    return space
 
 
 class SpectralPressureSolver:
@@ -150,9 +191,21 @@ class SpectralPressureSolver:
             The pressure on the same (cell-centered) space as ``div``.
         """
         solve_space = self._solve_space
-        laplacian = Laplacian(
-            metric={self._vertical: 1.0 / dsqr},
-        ).expand(solve_space, self._grid).scalar()
+        # div @ Diag @ grad expanded leg by leg: the grad rows key
+        # on the (Neumann-tagged) solve space, the div rows on the
+        # Dirichlet-declared mid parity (see _dirichlet_mid) — the
+        # same interned stencil entries the Laplacian builder used
+        # to resolve through the BC-free mid rows before R1
+        grad_block = Gradient().expand(solve_space, self._grid)
+        axes = solve_space.active_axis_names
+        mid = tuple(
+            _dirichlet_mid(space, axis)
+            for axis, space in zip(
+                axes, grad_block.codomains(solve_space),
+                strict=True))
+        div_block = Divergence().expand(mid, self._grid)
+        diag = Diag({self._vertical: 1.0 / dsqr}, axes=axes)
+        laplacian = (div_block @ diag @ grad_block).scalar()
         solve = SpectralSolve(laplacian, self._grid, solve_space)
         if solve_space is self._space.bare:
             return solve.solve(div)

@@ -169,6 +169,107 @@ def first_node_offset(factor: FunctionSpace) -> float:
         left=factor, operation="stencil alignment")
 
 
+def exterior_reach(
+    domain: FunctionSpace, codomain: FunctionSpace, size: int,
+) -> tuple[int, int]:
+    """
+    Per-side exterior reach (in slots) of an aligned kernel.
+
+    Description
+    -----------
+    How many input slots beyond the true region the true-shape
+    output of a ``size``-point staggered kernel reads on each side
+    — the window-alignment calculus of ``apply_staggered``, applied
+    to the boundary windows. A positive reach means the signature
+    needs exterior values there.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D nodal domain factor.
+    codomain : FunctionSpace
+        The bare 1D nodal codomain factor.
+    size : int
+        The stencil size (number of input points per output).
+
+    Returns
+    -------
+    tuple[int, int]
+        The (left, right) exterior reach in slots (>= 0).
+    """
+    delta = (first_node_offset(codomain)
+             - first_node_offset(domain))
+    m0 = -int(delta - (size - 1) / 2)
+    left = max(0, m0)
+    right = max(
+        0, (codomain.shape[0] - domain.shape[0]) + size - 1 - m0)
+    return left, right
+
+
+def require_grounded_bounded_sides(
+    domain: FunctionSpace,
+    codomain: FunctionSpace,
+    size: int,
+    operation: str,
+    opt_in: str,
+    *,
+    one_sided: bool = False,
+) -> None:
+    """
+    Enforce the R1 legality rule on a bounded signature.
+
+    Description
+    -----------
+    An operator row exists on a bounded operand iff every side its
+    true-shape output needs exterior values from carries declared BC
+    structure (the tag grounds the mirror ghost fill) — a BC-free
+    side defines no exterior values, and the storage layer never
+    invents them (R1, boundary_plan.md). The explicit escape is the
+    per-operator ``boundary="one_sided"`` opt-in (R2), which patches
+    the boundary windows from true DOFs only and is legal on fully
+    BC-free domains.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D nodal domain factor (bounded mesh).
+    codomain : FunctionSpace
+        The resolved 1D codomain factor.
+    size : int
+        The stencil size.
+    operation : str
+        The dispatch kind named in the error message.
+    opt_in : str
+        The spelled-out one-sided opt-in named in the hint.
+    one_sided : bool, optional
+        Whether the operator instance opted into the one-sided
+        boundary closure (default: False).
+
+    Raises
+    ------
+    SpaceMismatchError
+        If a BC-free bounded side is asked for exterior values
+        without the one-sided opt-in.
+    """
+    reach = exterior_reach(domain, codomain, size)
+    components = domain.bc.components
+    needy = tuple(
+        ("left", "right")[side]
+        for side, kind in enumerate(components)
+        if reach[side] > 0 and kind is BC.NONE)
+    if not needy:
+        return
+    if one_sided and domain.bc.is_free:
+        return
+    raise SpaceMismatchError(
+        f"no {operation} signature on {domain!r}: the true-shape "
+        f"output needs exterior values at the {'/'.join(needy)} "
+        "wall, which a BC-free bounded side does not define — "
+        "declare BC structure (mesh.nodal(..., bc=...)) or opt "
+        f"into {opt_in}",
+        left=domain, operation=operation)
+
+
 def uniform_spacing(factor: FunctionSpace) -> float:
     """
     Uniform cell width of the factor's mesh.

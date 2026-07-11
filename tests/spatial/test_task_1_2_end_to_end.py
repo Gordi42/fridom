@@ -17,6 +17,7 @@ from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
+from fridom.spatial.operators.registry import DispatchError
 from fridom.spatial.spaces.nodal import NodeSet
 
 TWO_PI = 2.0 * jnp.pi
@@ -88,7 +89,7 @@ def test_products_route_through_the_real_registry():
 # ================================================================
 #  Bounded mesh: BC-structured fill under the stencils
 # ================================================================
-def test_bounded_diff_exercises_the_bc_structured_fill():
+def test_bounded_diff_is_exterior_free_and_gated():
     mesh = IntervalMesh(16, (0.0, 1.0), periodic=False, name="y")
     grid = Grid((mesh,))
     f = grid.create_field(init=lambda y: y * (1.0 - y))
@@ -96,11 +97,13 @@ def test_bounded_diff_exercises_the_bc_structured_fill():
     assert df.function_space.bare is mesh.inner
     y_inner = grid.evaluation_nodes(mesh.inner).data
     assert jnp.allclose(df.data, 1.0 - 2.0 * y_inner)
-    # the second derivative differences the boundary-face ghosts
-    # produced by the BC-free one-sided extrapolation (exact here)
-    d2 = df.diff("y")
-    assert d2.function_space.bare is mesh.center
-    assert jnp.allclose(d2.data, jnp.full(16, -2.0))
+    # the second derivative needs the wall faces, which a BC-free
+    # bounded space does not define (R1, boundary_plan.md): the
+    # default Inner -> Center row does not exist — declare BC
+    # structure or opt into boundary="one_sided" (the one-sided d2
+    # numerics live in test_boundary_closures)
+    with pytest.raises(DispatchError, match="diff"):
+        df.diff("y")
 
 
 def test_dirichlet_structured_storage_gets_the_odd_extension():

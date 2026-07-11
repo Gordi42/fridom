@@ -83,24 +83,40 @@ def test_diff_chains_periodic_and_bounded(grids):
         lambda f: f.diff("x"),                    # periodic exchange
         lambda f: f.diff("y"),                    # bounded exchange
         lambda f: f.diff("x").diff("x"),          # chained syncs
-        lambda f: f.diff("y").diff("y"),
         lambda f: f.diff("x").diff("y"),          # mixed axes
     ):
         assert bitwise(path(f_many).data, path(f_one).data)
+    # the chained bounded syncs run Outer -> Center -> Inner: the
+    # exterior-free bounded signatures (BC-free Inner -> Center is
+    # gated by R1, boundary_plan.md)
+    def outer_chain(grid):
+        my = grid.factors[1]
+        space = grid.create_field().function_space.bare.replace(
+            y=my.outer)
+        f = grid.create_field(space, init=init)
+        return f.diff("y").diff("y")
+
+    assert bitwise(outer_chain(many).data, outer_chain(one).data)
 
 
 def test_staggered_pair_diffs_are_invariant(grids):
     # Outer (n + 1) and Inner (n - 1) spaces shard unevenly: the
-    # last shard absorbs the surplus/deficit (stagger padding)
+    # last shard absorbs the surplus/deficit (stagger padding).
+    # sin(pi y) vanishes at y = 0 and y = 2 and so does its second
+    # derivative, so the Dirichlet retag of the Inner result is the
+    # declared-structure route back to centers (BC-free
+    # Inner -> Center is gated by R1, boundary_plan.md)
     many, one = grids
 
     def staggered(grid):
         my = grid.factors[1]
         outer = grid.create_field(
-            my.outer, init=lambda y: y**3 - 2.0 * y)
+            my.outer, init=lambda y: jnp.sin(jnp.pi * y))
         back = outer.diff("y")           # Outer -> Center
         inner = back.diff("y")           # Center -> Inner
-        return back, inner, inner.to(my.center)
+        tagged = inner.retag(
+            my.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+        return back, inner, tagged.to(my.center)
 
     for a, b in zip(staggered(many), staggered(one), strict=True):
         assert bitwise(a.data, b.data)

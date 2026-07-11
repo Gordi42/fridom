@@ -263,11 +263,14 @@ class LinearReconstruction(SeparableOperator):
     -----------
     Fixed codomain per rules section 3.4: the registered operator
     fixes its own codomain; alternative codomains are per-instance
-    via the ``target=`` constructor knob (iteration 1 grounds the
-    bounded ``CellAvg -> Outer`` variant, boundary faces filled by
-    the BC-free one-sided ghost extrapolation). ``eigenvalues`` (the
-    sinc-corrected averaging symbol) is designed-for and inherits the
-    raising base until the ``Symbol`` cluster lands (Wave 3B).
+    via the ``target=`` constructor knob. The bounded ``CellAvg ->
+    Outer`` variant is un-grounded under the R1 legality rule
+    (boundary_plan.md): its wall faces need exterior values, which
+    the (always BC-free) average spaces do not define — a one-sided
+    reconstruction variant is designed-for and arrives when a
+    concrete model needs it. ``eigenvalues`` (the sinc-corrected
+    averaging symbol) is designed-for and inherits the raising base
+    until the ``Symbol`` cluster lands (Wave 3B).
 
     Parameters
     ----------
@@ -319,14 +322,24 @@ class LinearReconstruction(SeparableOperator):
         if self._target is not None:
             if (self._target is NodeSet.OUTER and not mesh.periodic
                     and isinstance(domain, CellAvg)):
-                result = "outer"
-            else:
+                # R1 (boundary_plan.md 2c): the Outer wall faces
+                # need exterior values, which the (always BC-free)
+                # CellAvg does not define; a one-sided
+                # reconstruction variant is designed-for
                 raise SpaceMismatchError(
-                    "the target= variant grounds bounded "
-                    "CellAvg -> Outer only in iteration 1; got "
-                    f"target={self._target} on {domain!r}",
+                    f"no reconstruct signature on {domain!r}: the "
+                    "CellAvg -> Outer wall faces need exterior "
+                    "values, which a BC-free bounded space does "
+                    "not define (R1, boundary_plan.md); a "
+                    "one-sided reconstruction variant arrives when "
+                    "a concrete model needs it",
                     left=domain, operation="reconstruct")
-        elif isinstance(domain, CellAvg):
+            raise SpaceMismatchError(
+                "the target= variant grounds bounded "
+                "CellAvg -> Outer only in iteration 1; got "
+                f"target={self._target} on {domain!r}",
+                left=domain, operation="reconstruct")
+        if isinstance(domain, CellAvg):
             result = "right" if mesh.periodic else "inner"
         elif isinstance(domain, FaceAvg):
             result = "center"

@@ -10,8 +10,12 @@ signatures: periodic ``Center -> Right``, ``Right -> Center``;
 bounded ``Center -> Inner``, ``Outer/Inner -> Center``. BC-tagged
 bounded domains are accepted when the tag drops no DOFs (the tag
 governs only the ghost fill); the codomain is always the BC-free
-sibling of the table. Nodal only — the FV derivative on average
-spaces is ``FVDerivative`` (Wave 3).
+sibling of the table. Exterior-needing bounded signatures follow
+the R1 legality rule (boundary_plan.md): every needy side must
+carry BC structure — BC-free ``Inner -> Center`` (and any wider
+boundary window) raises with the ``boundary="one_sided"`` hint.
+Nodal only — the FV derivative on average spaces is
+``FVDerivative`` (Wave 3).
 """
 # Wave 2: FiniteDifference
 from __future__ import annotations
@@ -38,6 +42,7 @@ from fridom.spatial.operators.spectral import (
 from fridom.spatial.operators.staggering import (
     apply_staggered,
     require_dof_preserving_bc,
+    require_grounded_bounded_sides,
     uniform_spacing,
 )
 from fridom.spatial.operators.stencil_kernels import (
@@ -165,6 +170,13 @@ class FiniteDifference(SeparableOperator):
                 f"no diff signature on {domain!r}: {mesh!r} has no "
                 f"{result} space", left=domain,
                 operation="diff") from exc
+        if not mesh.periodic:
+            # R1 legality (boundary_plan.md 2c): exterior-needing
+            # signatures exist only where every needy side carries
+            # BC structure — the row un-seeds itself otherwise
+            require_grounded_bounded_sides(
+                domain, codomain, self._order, "diff",
+                "FiniteDifference(boundary='one_sided')")
         if domain.scalars is Scalars.COMPLEX:
             codomain = codomain.as_complex()
         return codomain

@@ -848,7 +848,7 @@ def _bounded_ghosts(
     width: int,
     factor: FunctionSpace,
     side: int,
-) -> jax.Array:
+) -> jax.Array | None:
     """
     Ghost values of one bounded boundary (BC-structured fill).
 
@@ -857,10 +857,11 @@ def _bounded_ghosts(
     Realizes the halo/storage contract's bounded-edge fill:
     Dirichlet-structured spaces get the odd (zero-value) extension,
     Neumann-structured spaces the even (mirror) extension, and
-    BC-free spaces a one-sided linear extrapolation (consistent with
-    the iteration-1 second-order stencils). Blanket zero-fill is
-    rejected by design. Ghost slot ``k`` counts outward from the
-    true region (k = 1 is adjacent to the first true DOF).
+    BC-free sides return **None** — exterior values are undefined
+    (R1, boundary_plan.md) and the caller leaves the slots
+    untouched. Blanket zero-fill is rejected by design. Ghost slot
+    ``k`` counts outward from the true region (k = 1 is adjacent to
+    the first true DOF).
 
     Parameters
     ----------
@@ -884,6 +885,11 @@ def _bounded_ghosts(
         first on the left side, innermost first on the right).
     """
     kind, distance = _boundary_geometry(factor, side)
+    if kind is BC.NONE:
+        # R1 (boundary_plan.md 2c): a BC-free bounded side defines
+        # no exterior values — nothing is filled, nothing may read
+        # the slots (exterior-needing operator rows do not exist)
+        return None
 
     def dof(k: int) -> jax.Array:
         """Return the k-th true DOF from this side (k=1 nearest)."""
@@ -894,7 +900,7 @@ def _bounded_ghosts(
         index = k - 1 if side == 0 else n - k
         return _take(true, axis, slice(index, index + 1))
 
-    ghosts = _ghost_values(kind, distance, dof, n, width, factor)
+    ghosts = _ghost_values(kind, distance, dof, width, factor)
     if side == 0:
         ghosts.reverse()
     return jnp.concatenate(ghosts, axis=axis)
@@ -904,7 +910,6 @@ def _ghost_values(
     kind: BC,
     distance: float,
     dof: Callable[[int], jax.Array],
-    n: int,
     width: int,
     factor: FunctionSpace,
 ) -> list[jax.Array]:
@@ -914,9 +919,9 @@ def _ghost_values(
     Description
     -----------
     Dirichlet-structured sides get the odd (zero-value) extension,
-    Neumann-structured sides the even (mirror) extension, and
-    BC-free sides a one-sided linear extrapolation (consistent with
-    the iteration-1 second-order stencils). ``BC.ROBIN`` fills are
+    Neumann-structured sides the even (mirror) extension. BC-free
+    sides never reach this helper (the caller returns None: R1,
+    exterior values are undefined). ``BC.ROBIN`` fills are
     data-parameterized and raise, pointing at the stage-2e
     ``("ghost_fill", space)`` data path.
 
@@ -928,8 +933,6 @@ def _ghost_values(
         The nearest-true-DOF distance class (``_boundary_geometry``).
     dof : Callable[[int], jax.Array]
         Accessor for the k-th true DOF from this side (k=1 nearest).
-    n : int
-        The true DOF count along the axis.
     width : int
         The ghost width to fill.
     factor : FunctionSpace
@@ -940,13 +943,10 @@ def _ghost_values(
     list[jax.Array]
         The ``width`` ghost slices, adjacent-to-true first.
     """
-    if kind is BC.NONE:
-        if n < 2:  # noqa: PLR2004 — two-point extrapolation
-            raise NotImplementedError(
-                "the BC-free one-sided extrapolation needs at "
-                f"least two DOFs along the axis, got {n}")
-        return [(1.0 + k) * dof(1) - float(k) * dof(2)
-                for k in range(1, width + 1)]
+    if kind is BC.NONE:  # pragma: no cover — guarded by the caller
+        raise NotImplementedError(
+            "BC-free bounded sides have no ghost fill (R1, "
+            "boundary_plan.md): exterior values are undefined")
     if kind is BC.DIRICHLET and distance == _OFFSET:
         return [-dof(k) for k in range(1, width + 1)]
     if kind is BC.DIRICHLET:
@@ -1018,6 +1018,10 @@ def _fill_axis(
     else:
         left = _bounded_ghosts(true, axis, n, width, factor, 0)
         right = _bounded_ghosts(true, axis, n, trail, factor, 1)
+        if left is None:  # BC-free side: slots stay as they are (R1)
+            left = _take(arr, axis, slice(0, width))
+        if right is None:
+            right = _take(arr, axis, slice(width + n, None))
     return jnp.concatenate([left, true, right], axis=axis)
 
 
@@ -1097,19 +1101,21 @@ def _exchange_block(
 
     # ---- physical boundaries: BC-structured local fill ------------
     if not periodic:
-        # extrapolation needs two DOFs; the boundary-member Neumann
-        # mirror reaches one node past the width (dof(width + 1))
-        depth = max(width + 1, 2)
+        # the boundary-member Neumann mirror reaches one node past
+        # the width (dof(width + 1))
+        depth = width + 1
         lead = _take(block, axis, slice(width, width + depth))
         left_fill = _bounded_ghosts(lead, axis, depth, width,
                                     factor, 0)
-        with_left = _set(block, axis, slice(0, width), left_fill)
-        block = jnp.where(s == 0, with_left, block)
+        if left_fill is not None:  # BC-free side: slots stay (R1)
+            with_left = _set(block, axis, slice(0, width), left_fill)
+            block = jnp.where(s == 0, with_left, block)
         trail_buf = jax.lax.dynamic_slice_in_dim(
             block, width + t - depth, depth, axis)
         right_fill = _bounded_ghosts(trail_buf, axis, depth, width,
                                      factor, 1)
-        with_right = jax.lax.dynamic_update_slice_in_dim(
-            block, right_fill, width + t, axis)
-        block = jnp.where(s == shards - 1, with_right, block)
+        if right_fill is not None:
+            with_right = jax.lax.dynamic_update_slice_in_dim(
+                block, right_fill, width + t, axis)
+            block = jnp.where(s == shards - 1, with_right, block)
     return block

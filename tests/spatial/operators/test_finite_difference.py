@@ -179,7 +179,11 @@ def test_codomain_retags_a_fourier_factor(fd, mx):
 def test_codomain_bounded(fd, my):
     assert fd.codomain(my.center) is my.inner
     assert fd.codomain(my.outer) is my.center
-    assert fd.codomain(my.inner) is my.center
+    # Inner -> Center needs the wall faces, which a BC-free bounded
+    # space does not define (R1, boundary_plan.md): the row demands
+    # BC structure or the boundary="one_sided" opt-in
+    with pytest.raises(SpaceMismatchError, match="one_sided"):
+        fd.codomain(my.inner)
 
 
 def test_codomain_preserves_scalars(fd, mx):
@@ -267,15 +271,17 @@ def test_bounded_outer_to_center(fd, my):
     assert jnp.allclose(df.data, jnp.full(8, 3.0))
 
 
-def test_bounded_inner_to_center_consumes_the_bc_free_fill(fd, my):
+def test_bounded_inner_to_center_demands_a_closure(fd, my):
     grid = Grid((my,))
     # du of y(2 - y) lives on inner faces; differencing it back to
-    # centers needs the boundary-face ghosts, filled by the one-sided
-    # linear extrapolation (exact for the linear du)
+    # centers needs the wall faces, which a BC-free bounded space
+    # does not define (R1, boundary_plan.md) — the legal outs are a
+    # declared BC structure or the boundary="one_sided" opt-in (the
+    # one-sided d2 numerics live in test_boundary_closures)
     f = grid.create_field(init=lambda y: y * (2.0 - y))
-    d2 = fd["y"](fd["y"](f))
-    assert d2.function_space.bare is my.center
-    assert jnp.allclose(d2.data, jnp.full(8, -2.0))
+    df = fd["y"](f)
+    with pytest.raises(SpaceMismatchError, match="one_sided"):
+        fd["y"](df)
 
 
 # ================================================================

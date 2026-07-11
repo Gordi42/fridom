@@ -9,10 +9,12 @@ the default ``("interpolate", ...)`` entry on nodal spaces.
 Per-factor defaults: periodic ``Center <-> Right``; bounded
 ``Center -> Inner``, ``Outer/Inner -> Center`` — BC-tagged bounded
 domains resolve through the same table to the **BC-free** sibling
-(the tag governs only the ghost fill; DOF-dropping tags raise). The
-``target=NodeSet.OUTER`` variant (bounded ``Center -> Outer``,
-boundary faces by one-sided extrapolation through the BC-free ghost
-fill) is per-instance and never a default row.
+(the tag governs only the ghost fill; DOF-dropping tags raise).
+Exterior-needing bounded signatures follow the R1 legality rule
+(boundary_plan.md): every needy side must carry BC structure. The
+``target=NodeSet.OUTER`` variant (bounded ``Center -> Outer``, wall
+faces through the BC-structured ghost fill) is per-instance and
+never a default row.
 """
 # Wave 2: LinearInterp
 from __future__ import annotations
@@ -39,6 +41,7 @@ from fridom.spatial.operators.spectral import (
 from fridom.spatial.operators.staggering import (
     apply_staggered,
     require_dof_preserving_bc,
+    require_grounded_bounded_sides,
 )
 from fridom.spatial.operators.stencil_kernels import (
     linear_interp,
@@ -143,15 +146,7 @@ class LinearInterp(SeparableOperator):
         mesh = domain.mesh
         node_set = domain.node_set
         if self._target is not None:
-            if (self._target is NodeSet.OUTER and not mesh.periodic
-                    and node_set is NodeSet.CENTER):
-                result = "outer"
-            else:
-                raise SpaceMismatchError(
-                    "the target= variant grounds bounded "
-                    "Center -> Outer only in iteration 1; got "
-                    f"target={self._target} on {domain!r}",
-                    left=domain, operation="interpolate")
+            result = self._target_result(domain)
         elif mesh.periodic:
             result = {NodeSet.CENTER: "right",
                       NodeSet.RIGHT: "center"}.get(node_set)
@@ -172,9 +167,40 @@ class LinearInterp(SeparableOperator):
                 f"no interpolate signature on {domain!r}: {mesh!r} "
                 f"has no {result} space", left=domain,
                 operation="interpolate") from exc
+        if not mesh.periodic:
+            # R1 legality (boundary_plan.md 2c): exterior-needing
+            # signatures exist only where every needy side carries
+            # BC structure — the row un-seeds itself otherwise
+            require_grounded_bounded_sides(
+                domain, codomain, _INTERP_SIZE, "interpolate",
+                "LinearInterp(boundary='one_sided')")
         if domain.scalars is Scalars.COMPLEX:
             codomain = codomain.as_complex()
         return codomain
+
+    def _target_result(self, domain: FunctionSpace) -> str:
+        """
+        Resolve the ``target=`` variant's codomain attribute name.
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare 1D nodal factor space.
+
+        Returns
+        -------
+        str
+            The mesh factory attribute of the codomain.
+        """
+        if (self._target is NodeSet.OUTER
+                and not domain.mesh.periodic
+                and domain.node_set is NodeSet.CENTER):
+            return "outer"
+        raise SpaceMismatchError(
+            "the target= variant grounds bounded "
+            "Center -> Outer only in iteration 1; got "
+            f"target={self._target} on {domain!r}",
+            left=domain, operation="interpolate")
 
     def _trig_codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """

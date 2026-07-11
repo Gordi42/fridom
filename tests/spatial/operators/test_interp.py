@@ -99,7 +99,11 @@ def test_codomain_periodic(interp, mx):
 def test_codomain_bounded(interp, my):
     assert interp.codomain(my.center) is my.inner
     assert interp.codomain(my.outer) is my.center
-    assert interp.codomain(my.inner) is my.center
+    # Inner -> Center needs the wall faces, which a BC-free bounded
+    # space does not define (R1, boundary_plan.md): the row demands
+    # BC structure or the boundary="one_sided" opt-in
+    with pytest.raises(SpaceMismatchError, match="one_sided"):
+        interp.codomain(my.inner)
 
 
 def test_codomain_preserves_scalars(interp, mx):
@@ -120,7 +124,14 @@ def test_codomain_retags_a_fourier_factor(interp, mx):
 
 def test_codomain_outer_variant(my):
     outer = LinearInterp(target=NodeSet.OUTER)
-    assert outer.codomain(my.center) is my.outer
+    # the target's wall faces need exterior values: a BC-free
+    # bounded operand raises (R1); a BC-structured operand grounds
+    # them through its mirror fill, the codomain staying the
+    # BC-free sibling (the tag governs only the ghost fill)
+    with pytest.raises(SpaceMismatchError, match="one_sided"):
+        outer.codomain(my.center)
+    assert outer.codomain(
+        my.nodal(NodeSet.CENTER, bc=BC.NEUMANN)) is my.outer
 
 
 def test_codomain_outer_variant_rejects_other_domains(mx, my):
@@ -181,15 +192,16 @@ def test_bounded_center_to_inner(interp, my):
     assert jnp.allclose(g.data, jnp.arange(7) + 0.5)
 
 
-def test_bounded_outer_variant_extrapolates_boundary_faces(my):
+def test_bounded_outer_variant_demands_a_closure(my):
     grid = Grid((my,))
     outer = LinearInterp(target=NodeSet.OUTER)
+    # the wall faces are undefined on a BC-free bounded operand
+    # (R1, boundary_plan.md); the legal outs are a declared BC
+    # structure or the boundary="one_sided" opt-in (the one-sided
+    # numerics live in test_boundary_closures)
     f = grid.create_field(init=lambda y: 2.0 * y + 1.0)
-    g = outer["y"](f)
-    assert g.function_space.bare is my.outer
-    # exact for linear data, including the extrapolated boundaries
-    y_outer = grid.evaluation_nodes(my.outer).data
-    assert jnp.allclose(g.data, 2.0 * y_outer + 1.0)
+    with pytest.raises(SpaceMismatchError, match="one_sided"):
+        outer["y"](f)
 
 
 # ================================================================
