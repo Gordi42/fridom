@@ -24,9 +24,9 @@ from fridom.nonhydro2.modules.stratification import (
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence
 
-    from fridom.spatial.grid import Grid
     from fridom.model.model import Model as _Model
     from fridom.model.time_steppers.base import TimeStepper
+    from fridom.spatial.grid import Grid
 
 
 def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface

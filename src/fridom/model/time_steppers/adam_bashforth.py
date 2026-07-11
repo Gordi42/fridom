@@ -38,10 +38,10 @@ from fridom.model.time_steppers.base import TimeStepper
 if TYPE_CHECKING:  # pragma: no cover
     import jax
 
-    from fridom.spatial.fields.scalar_field import ScalarField
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.clock import Clock
     from fridom.model.schedule import BoundSchedule
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.fields.vector_field import VectorField
 
 # the settled Adams-Bashforth coefficient rows (order 2 gets its
 # eps'd variant at construction; eps is order-2-only, 02_rules)

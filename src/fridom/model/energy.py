@@ -57,22 +57,22 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.spatial.fields.scalar_field import ScalarField
-from fridom.spatial.spaces.coefficient import CoefficientSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
 )
 from fridom.model.time_dependent import resolve_at
+from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.spaces.coefficient import CoefficientSpace
+from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
     import jax
 
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.model import Model
+    from fridom.spatial.fields.vector_field import VectorField
 
 # ----------------------------------------------------------------
 #  Model-owned energy parameter names. The model core cannot import

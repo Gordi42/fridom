@@ -47,18 +47,18 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_comp, dtype_real
-from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.model.energy import EnergyMetric
 from fridom.model.stages import StageKind
 from fridom.model.term_predicates import linearize
+from fridom.spatial.fields.scalar_field import ScalarField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
     import jax
 
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.model import Model
+    from fridom.spatial.fields.vector_field import VectorField
 
 
 class NumericEigenmodes:

@@ -4,7 +4,8 @@ Description
 -----------
 Phase-2 port of the nonhydrostatic model onto ``fridom``
 (renamed onto ``fridom.nonhydro`` at cutover). Consumes the
-framework (``fridom.spatial`` / ``fridom.model``) read-only. The public surface mirrors the API sketches (§7):
+framework (``fridom.spatial`` / ``fridom.model``) read-only. The
+public surface mirrors the API sketches (§7):
 ``nh.Model`` (a preset factory), ``nh.State`` (the vocabulary class),
 ``nh.eigenmodes`` (the discrete-dispersion eigenmodes),
 ``nh.eigenbasis`` / ``nh.channel_eigenmodes`` (the labeled numeric

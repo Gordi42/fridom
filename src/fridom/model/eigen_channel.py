@@ -89,7 +89,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from fridom.framework.utils import dtype_real
-from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.model.eigen import (
     _metric_weights,
     _rest_background,
@@ -97,12 +96,13 @@ from fridom.model.eigen import (
 from fridom.model.energy import EnergyMetric
 from fridom.model.stages import StageKind
 from fridom.model.term_predicates import linearize
+from fridom.spatial.fields.scalar_field import ScalarField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.model import Model
+    from fridom.spatial.fields.vector_field import VectorField
 
 # The value of an unset (empty) mode label.
 UNLABELED = -1

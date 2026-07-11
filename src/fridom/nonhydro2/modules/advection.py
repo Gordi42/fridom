@@ -133,12 +133,12 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from jax import Array
 
+    from fridom.model.context import StepContext
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import FieldLike
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
-    from fridom.model.context import StepContext
 
 #: the biased-reconstruction weightings of the module family
 _WEIGHTINGS = ("linear", "weno")

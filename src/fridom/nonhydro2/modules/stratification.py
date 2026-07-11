@@ -78,9 +78,10 @@ class ConstantStratification(fr.model.Module):
                       "declared by a dynamical core (nh.DynamicalCore)"),
     )
     parameter_declarations = (
-        fr.model.ParameterDeclaration(fr.model.params.STRATIFICATION_N2, attr="n2",
-                                units="1/s^2",
-                                doc="squared buoyancy frequency N^2"),
+        fr.model.ParameterDeclaration(
+            fr.model.params.STRATIFICATION_N2, attr="n2",
+            units="1/s^2",
+            doc="squared buoyancy frequency N^2"),
     )
     parameter_references = (
         fr.model.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),

@@ -66,7 +66,6 @@ from fridom.model.time_dependent import (
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterator
 
-    from fridom.spatial.decomposition.halo import HaloSpec
     from fridom.model.declarations import (
         FieldDeclaration,
         FieldReference,
@@ -75,6 +74,7 @@ if TYPE_CHECKING:  # pragma: no cover
         ParameterDeclaration,
         ParameterReference,
     )
+    from fridom.spatial.decomposition.halo import HaloSpec
     from fridom.spatial.space_patterns import SpacePattern
 
 

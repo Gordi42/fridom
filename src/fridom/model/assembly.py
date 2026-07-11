@@ -33,9 +33,6 @@ from typing import TYPE_CHECKING, Final, Literal, NamedTuple
 import jax.numpy as jnp
 
 from fridom.framework.utils import jaxify
-from fridom.spatial.decomposition.halo import HaloSpec
-from fridom.spatial.fields.scalar_field import ScalarField
-from fridom.spatial.fields.vector_field import VectorField
 from fridom.model.composer import TendencyComposer
 from fridom.model.context import StepContext
 from fridom.model.declarations import (
@@ -67,15 +64,18 @@ from fridom.model.schedule import (
     apply_replace,
     evaluate_entry,
 )
-from fridom.spatial.space_patterns import (
-    SpacePattern,
-    SpaceRule,
-)
 from fridom.model.stages import StageKind
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.model.time_dependent import (
     TimeDependent,
     resolve_at,
+)
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.space_patterns import (
+    SpacePattern,
+    SpaceRule,
 )
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -83,6 +83,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
+    from fridom.model.declarations import FieldDeclaration
+    from fridom.model.stages import Stage
     from fridom.spatial.decomposition.decomposition import (
         ReshardingReport,
     )
@@ -91,8 +93,6 @@ if TYPE_CHECKING:  # pragma: no cover
         SpaceLike,
         TensorProductSpace,
     )
-    from fridom.model.declarations import FieldDeclaration
-    from fridom.model.stages import Stage
 
 # used as "attribute absent" marker (None is a legal leaf value)
 _MISSING = object()

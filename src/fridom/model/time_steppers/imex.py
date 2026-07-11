@@ -47,14 +47,14 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
     import numpy as np
 
-    from fridom.spatial.fields.scalar_field import ScalarField
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.clock import Clock
     from fridom.model.context import StepContext
     from fridom.model.schedule import (
         BoundImplicitOperator,
         BoundSchedule,
     )
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.fields.vector_field import VectorField
 
 # One warm-up level == (explicit_weights, state_weights, apply_weight,
 # gamma), zero-padded to the scheme's history depth (D-3/D-4).

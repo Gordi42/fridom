@@ -36,19 +36,19 @@ from fridom.model.roles import Role, Velocity
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterable, Iterator
 
-    from fridom.spatial.fields.metadata import FieldMetadata
-    from fridom.spatial.fields.vector_field import VectorField
-    from fridom.spatial.grid import Grid
-    from fridom.spatial.spaces.tensor_product import (
-        TensorProductSpace,
-    )
     from fridom.model.declarations import (
         FieldDeclaration,
         FieldReference,
     )
+    from fridom.spatial.fields.metadata import FieldMetadata
+    from fridom.spatial.fields.vector_field import VectorField
+    from fridom.spatial.grid import Grid
     from fridom.spatial.space_patterns import (
         SpacePattern,
         SpaceRule,
+    )
+    from fridom.spatial.spaces.tensor_product import (
+        TensorProductSpace,
     )
 
 

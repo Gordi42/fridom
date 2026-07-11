@@ -47,7 +47,6 @@ if TYPE_CHECKING:  # pragma: no cover
         time_steppers,
         transforms,
     )
-    from .io import slurm
 
     # import all classes (the fr.model.* surface)
     from .clock import Clock
@@ -61,6 +60,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .eigen_channel import ChannelEigenbasis, channel_eigenpairs
     from .eigenbasis import eigenbasis
     from .energy import EnergyMetric
+    from .io import slurm
     from .io.triggers import at, every
     from .model import Model
     from .module import Module

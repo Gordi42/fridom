@@ -40,7 +40,6 @@ import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import jaxify
-from fridom.spatial.fields.vector_field import VectorField
 from fridom.model.context import StepContext
 from fridom.model.errors import (
     AssemblyError,
@@ -48,12 +47,13 @@ from fridom.model.errors import (
 )
 from fridom.model.stages import StageKind
 from fridom.model.terms import Treatment
+from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
-    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.model.implicit import ImplicitOperator
+    from fridom.spatial.fields.scalar_field import ScalarField
 
 
 # ================================================================

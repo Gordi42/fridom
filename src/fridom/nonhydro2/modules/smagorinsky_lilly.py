@@ -44,9 +44,10 @@ always advances the PROGNOSTIC ``Velocity`` family; the **mixing**
 term advances the role-resolved tracer targets (default
 ``fr.model.roles.TRACER``; override with ``fields=`` / ``exclude=``, an
 empty resolution simply drops the mixing term). The two terms split
-under ``fr.model.term_predicates.advancing(...)``; both are nonlinear (dropped by
-``fr.model.linearize``). The Richardson damping reads the constant
-``stratification.n2`` provide (a required reference), so a model
+under ``fr.model.term_predicates.advancing(...)``; both are
+nonlinear (dropped by ``fr.model.linearize``). The Richardson
+damping reads the constant ``stratification.n2`` provide (a
+required reference), so a model
 without a constant-N^2 stratification module rejects the closure at
 assembly.
 
@@ -77,10 +78,10 @@ from fridom.nonhydro2.params import (
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterable
 
-    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.model.context import StepContext
     from fridom.model.field_table import FieldTable
     from fridom.model.roles import Role
+    from fridom.spatial.fields.scalar_field import ScalarField
 
 _VEL_HINT = ("the velocity trio is declared by the dynamical core "
              "(nh.DynamicalCore)")

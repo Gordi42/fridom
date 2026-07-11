@@ -34,9 +34,9 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
     import numpy as np
 
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.clock import Clock
     from fridom.model.schedule import BoundSchedule
+    from fridom.spatial.fields.vector_field import VectorField
 
 
 # ================================================================

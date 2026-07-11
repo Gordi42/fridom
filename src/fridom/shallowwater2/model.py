@@ -26,9 +26,9 @@ from fridom.shallowwater2.modules.sadourny import SadournyAdvection
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Sequence
 
-    from fridom.spatial.grid import Grid
     from fridom.model.model import Model as _Model
     from fridom.model.time_steppers.base import TimeStepper
+    from fridom.spatial.grid import Grid
 
 
 def Model(  # noqa: N802 — constructor-like factory (D1.3)

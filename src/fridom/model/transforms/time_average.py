@@ -24,12 +24,12 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from fridom.spatial.fields.vector_field import VectorField
 from fridom.model import params
 from fridom.model import term_predicates as terms
 from fridom.model.transforms.base import StateTransform
 from fridom.model.transforms.info import TransformCost, TransformInfo
 from fridom.model.transforms.signature import StateSignature
+from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable

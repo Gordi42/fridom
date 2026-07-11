@@ -33,8 +33,8 @@ from fridom.model.transforms.norms import relative_l2
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.transforms.signature import StateSignature
+    from fridom.spatial.fields.vector_field import VectorField
 
 
 class FixedPoint(StateTransform):

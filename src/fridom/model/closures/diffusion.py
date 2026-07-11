@@ -64,10 +64,10 @@ from fridom.model.time_dependent import TimeDependent
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterable
 
-    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.model.context import StepContext
     from fridom.model.field_table import FieldTable
     from fridom.model.roles import Role
+    from fridom.spatial.fields.scalar_field import ScalarField
 
 
 # ================================================================

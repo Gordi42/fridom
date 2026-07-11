@@ -19,10 +19,6 @@ Shared file: orchestrator-owned; raise sites land wave by wave.
 """
 from __future__ import annotations
 
-from fridom.spatial.errors import GridFrozenError
-from fridom.spatial.operators.registry import (
-    DispatchCollisionError,
-)
 from fridom.model.io.streams import (
     IOCollisionError,
     SnapshotMismatchError,
@@ -30,6 +26,10 @@ from fridom.model.io.streams import (
 from fridom.model.results import (
     PanicError,
     RunTargetError,
+)
+from fridom.spatial.errors import GridFrozenError
+from fridom.spatial.operators.registry import (
+    DispatchCollisionError,
 )
 
 __all__ = [

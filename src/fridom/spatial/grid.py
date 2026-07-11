@@ -104,6 +104,12 @@ from fridom.spatial.operators.spectral import (
 from fridom.spatial.operators.trig import Cosine, Sine
 from fridom.spatial.random_fields import RandomFieldFactory
 from fridom.spatial.scalars import Scalars
+
+# the declaration-tag vocabulary of the ("declared_space", mesh)
+# resolver rows (model D1.2); the model layer resolves declared
+# patterns through the rows seeded below, so the grid must speak the
+# tag enum (a same-layer spatial import of pure vocabulary)
+from fridom.spatial.space_patterns import Dof
 from fridom.spatial.spaces.average import (
     AverageSpace,
     CellAvg,
@@ -121,12 +127,6 @@ from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
-
-# the declaration-tag vocabulary of the ("declared_space", mesh)
-# resolver rows (model D1.2); the model layer resolves declared
-# patterns through the rows seeded below, so the grid must speak the
-# tag enum (a same-layer spatial import of pure vocabulary)
-from fridom.spatial.space_patterns import Dof
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable

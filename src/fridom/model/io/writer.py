@@ -52,8 +52,8 @@ from fridom.model.io.streams import reject_walltime_trigger
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
-    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.model.io.triggers import Trigger
+    from fridom.spatial.fields.scalar_field import ScalarField
 
 # nanoseconds per second (the CF reference-date conversion)
 _NS_PER_S = 1_000_000_000

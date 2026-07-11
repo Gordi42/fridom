@@ -61,7 +61,6 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.spatial.fields.vector_field import VectorField
 from fridom.model.eigenbasis import (
     ZERO_FREQUENCY_TOL,
     ChannelEigenmodesBase,
@@ -78,6 +77,7 @@ from fridom.model.transforms._slaving import (
 )
 from fridom.model.transforms.base import StateTransform
 from fridom.model.transforms.info import TransformInfo
+from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable

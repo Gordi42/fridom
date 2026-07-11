@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 
-from fridom.spatial.fields.vector_field import VectorField
 from fridom.model.context import StepContext
 from fridom.model.declarations import Lifecycle
 from fridom.model.errors import (
@@ -53,6 +52,7 @@ from fridom.model.schedule import (
 )
 from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import TendencyTerm, Treatment
+from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Sequence

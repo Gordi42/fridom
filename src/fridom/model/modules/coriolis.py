@@ -78,8 +78,8 @@ from fridom.model.declarations import (
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
 from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
-from fridom.spatial.space_patterns import Profile
 from fridom.model.terms import term
+from fridom.spatial.space_patterns import Profile
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField

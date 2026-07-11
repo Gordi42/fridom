@@ -42,8 +42,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from fridom.framework.utils import dtype_real, jaxify
-from fridom.spatial.fields.scalar_field import ScalarField
-from fridom.spatial.fields.vector_field import VectorField
+from fridom.model.assembly import _collect_terms, assemble
+from fridom.model.clock import Clock
+from fridom.model.context import StepContext
+from fridom.model.declarations import Lifecycle
+from fridom.model.errors import AssemblyError
 from fridom.model.io.snapshots import (
     FORMAT_VERSION,
     SnapshotManifest,
@@ -58,11 +61,6 @@ from fridom.model.io.streams import (
     IOCollisionError,
     SnapshotMismatchError,
 )
-from fridom.model.assembly import _collect_terms, assemble
-from fridom.model.clock import Clock
-from fridom.model.context import StepContext
-from fridom.model.declarations import Lifecycle
-from fridom.model.errors import AssemblyError
 from fridom.model.results import (
     AdvanceResult,
     PanicError,
@@ -78,12 +76,13 @@ from fridom.model.schedule import (
 from fridom.model.stages import StageKind
 from fridom.model.terms import Treatment
 from fridom.model.time_dependent import resolve_at
+from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
-    from fridom.spatial.grid import Grid
     from fridom.model.assembly import (
         AssemblyArtifacts,
         AssemblyRecord,
@@ -99,6 +98,7 @@ if TYPE_CHECKING:  # pragma: no cover
         StepperState,
         TimeStepper,
     )
+    from fridom.spatial.grid import Grid
 
 _log = logging.getLogger(__name__)
 

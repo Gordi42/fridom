@@ -56,15 +56,15 @@ from fridom.model.io.triggers import (
     lower_trigger,
 )
 from fridom.model.model import _CHUNK_COMPILE_LOG
+from fridom.model.ops.protocols import (
+    ChunkStats,
+    WalltimeGuard,
+)
 from fridom.model.results import (
     AdvanceResult,
     PanicError,
     RunResult,
     RunStatus,
-)
-from fridom.model.ops.protocols import (
-    ChunkStats,
-    WalltimeGuard,
 )
 
 if TYPE_CHECKING:  # pragma: no cover

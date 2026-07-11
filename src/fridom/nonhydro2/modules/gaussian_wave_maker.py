@@ -33,10 +33,10 @@ import jax.numpy as jnp
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.params import ParamName
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.spaces.constant import ConstantSpace
-from fridom.model.params import ParamName
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping

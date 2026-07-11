@@ -26,16 +26,16 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.nonhydro2.diagnostics import DIAGNOSTICS
+from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
+from fridom.nonhydro2.params import DSQR, ROSSBY
+from fridom.nonhydro2.state import State
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
 )
-from fridom.nonhydro2.diagnostics import DIAGNOSTICS
-from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
-from fridom.nonhydro2.params import DSQR, ROSSBY
-from fridom.nonhydro2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.context import StepContext

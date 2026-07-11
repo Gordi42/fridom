@@ -49,10 +49,10 @@ from fridom.model.params import TIME_STEP
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.clock import Clock
     from fridom.model.schedule import BoundSchedule
     from fridom.model.terms import Treatment
+    from fridom.spatial.fields.vector_field import VectorField
 
 # Per-family carried numeric state: a convention plus per-family
 # frozen jaxified classes (ABState, IMEXState, RK's ()), not a base

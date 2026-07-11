@@ -48,8 +48,6 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
-from fridom.spatial.operators.symbol import Symbol
-from fridom.spatial.symbols import GridSymbols, rayleigh_dual
 from fridom.model.eigenstates import (
     coefficient_index,
     describe_nonfinite_branch,
@@ -58,20 +56,22 @@ from fridom.model.eigenstates import (
     hermitian_mode_data,
     resolve_mode_branches,
 )
-from fridom.shallowwater2.energy import shallowwater_energy_weights
 from fridom.model.time_dependent import resolve_at
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
+from fridom.shallowwater2.energy import shallowwater_energy_weights
 from fridom.shallowwater2.state import State
+from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.symbols import GridSymbols, rayleigh_dual
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Mapping
 
     import jax
 
+    from fridom.model.model import Model
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
-    from fridom.model.model import Model
 
 
 class Eigenmodes:

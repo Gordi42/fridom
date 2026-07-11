@@ -44,13 +44,13 @@ import jax.numpy as jnp
 
 import fridom as fr
 from fridom.framework.utils import jaxify
-from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
     ParamName,
 )
 from fridom.nonhydro2.params import DSQR
+from fridom.spatial.decomposition.halo import HaloSpec
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping

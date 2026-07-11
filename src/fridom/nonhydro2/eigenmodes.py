@@ -65,13 +65,6 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
-from fridom.spatial.bc import BC
-from fridom.spatial.operators.symbol import Symbol
-from fridom.spatial.symbols import (
-    GridSymbols,
-    ModeChart,
-    rayleigh_dual,
-)
 from fridom.model.eigenstates import (
     coefficient_index,
     describe_nonfinite_branch,
@@ -80,21 +73,28 @@ from fridom.model.eigenstates import (
     hermitian_mode_data,
     resolve_mode_branches,
 )
-from fridom.nonhydro2.energy import nonhydro_energy_weights
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
+from fridom.nonhydro2.energy import nonhydro_energy_weights
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
+from fridom.spatial.bc import BC
+from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.symbols import (
+    GridSymbols,
+    ModeChart,
+    rayleigh_dual,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Iterator
 
     import jax
 
+    from fridom.model.model import Model
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
     from fridom.spatial.meshes.mesh import Mesh
     from fridom.spatial.spaces.tensor_product import SpaceLike
-    from fridom.model.model import Model
 
 
 class _LazySymbols(Mapping):

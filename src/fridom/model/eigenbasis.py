@@ -39,8 +39,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from fridom.framework.utils import dtype_real
-from fridom.spatial.fields.vector_field import VectorField
-from fridom.spatial.operators.fourier import Fourier
 from fridom.model.eigen_channel import channel_eigenpairs
 from fridom.model.eigenstates import (
     envelope_scale,
@@ -52,15 +50,17 @@ from fridom.model.transforms.projection import (
     EigenProjection,
 )
 from fridom.model.transforms.signature import StateSignature
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.operators.fourier import Fourier
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
-    from fridom.spatial.fields.scalar_field import ScalarField
-    from fridom.spatial.grid import Grid
     from fridom.model.eigen_channel import ChannelEigenbasis
     from fridom.model.model import Model
     from fridom.model.transforms.base import StateTransform
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
 
 
 # ================================================================

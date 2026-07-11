@@ -38,7 +38,7 @@ jobs:
         FRIDOM_TEST_FORCED_DEVICES: "4"
       run: |
         uv run pytest tests/framework/domain_decomposition/test_domain_decomposition.py \
-          tests/framework2/grid/decomposition -q \
+          tests/spatial/decomposition -q \
           --cov --cov-append --cov-report=
 
     - name: Generate the coverage report

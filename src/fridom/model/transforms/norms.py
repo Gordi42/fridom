@@ -22,8 +22,8 @@ import jax.numpy as jnp
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
-    from fridom.spatial.fields.vector_field import VectorField
     from fridom.model.transforms.base import StateTransform
+    from fridom.spatial.fields.vector_field import VectorField
 
 
 def _l2_norm(state: VectorField) -> jnp.ndarray:
