@@ -18,7 +18,7 @@ import pytest
 
 import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     ChannelEigenmodesBase,
     _node_count,
     _ordered_family_columns,

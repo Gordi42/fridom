@@ -47,6 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover
         time_steppers,
         transforms,
     )
+    from ._eigenbasis import eigenbasis
 
     # import all classes (the fr.model.* surface)
     from .clock import Clock
@@ -58,7 +59,6 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .eigen import NumericEigenmodes, numeric_eigenpairs
     from .eigen_channel import ChannelEigenbasis, channel_eigenpairs
-    from .eigenbasis import eigenbasis
     from .energy import EnergyMetric
     from .io import slurm
     from .io.triggers import at, every
@@ -127,7 +127,7 @@ all_imports_by_origin = {
     f"{base}.eigen": ["NumericEigenmodes", "numeric_eigenpairs"],
     f"{base}.eigen_channel": [
         "ChannelEigenbasis", "channel_eigenpairs"],
-    f"{base}.eigenbasis": ["eigenbasis"],
+    f"{base}._eigenbasis": ["eigenbasis"],
     f"{base}.energy": ["EnergyMetric"],
     f"{base}.term_predicates": ["linearize"],
     f"{base}.transforms.base": ["StateTransform"],

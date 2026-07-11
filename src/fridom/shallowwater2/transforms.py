@@ -56,7 +56,7 @@ residual" on even grids; that residual no longer exists.)
 
 Per-plane column projection (the engine path). The shared framework
 machinery
-(:mod:`fridom.model.eigenbasis` — re-exported here as
+(:mod:`fridom.model._eigenbasis` — re-exported here as
 :func:`family_projection` / :func:`predicate_projection`): each
 component is forward-transformed along the **periodic axis only**
 (its own partial-axis Fourier space, the bounded axis stays nodal),
@@ -80,10 +80,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     family_projection,
 )
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     predicate_projection as predicate_projection,  # noqa: PLC0414 — re-export
 )
 from fridom.model.transforms.projection import (

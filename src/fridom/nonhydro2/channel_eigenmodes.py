@@ -53,15 +53,15 @@ from typing import TYPE_CHECKING, ClassVar
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.model.eigen_channel import (
-    UNLABELED,
-    ChannelEigenbasis,
-)
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     ChannelEigenmodesBase,
     recover_crisp_column,
     segment_energy,
     split_frequency_bands,
+)
+from fridom.model.eigen_channel import (
+    UNLABELED,
+    ChannelEigenbasis,
 )
 from fridom.nonhydro2.state import State
 
@@ -435,7 +435,7 @@ class ChannelEigenmodes(ChannelEigenmodesBase):
     Description
     -----------
     The nonhydrostatic subclass of the shared
-    :class:`~fridom.model.eigenbasis.ChannelEigenmodesBase`
+    :class:`~fridom.model._eigenbasis.ChannelEigenmodesBase`
     wrapper: the framework's dense-column channel eigensolve of the
     projected linearization ``P L P``, labeled by
     :func:`label_channel_modes` with the Leray overlap probed

@@ -23,7 +23,7 @@ physics. :func:`label_channel_modes` classifies the columns of a
 exact on the f-plane, best-effort (graceful) under beta — and
 :class:`ChannelEigenmodes` bundles ``channel_eigenpairs`` with that
 labeler behind the shared
-:class:`~fridom.model.eigenbasis.ChannelEigenmodesBase`
+:class:`~fridom.model._eigenbasis.ChannelEigenmodesBase`
 passthrough surface for the downstream family projections.
 """
 from __future__ import annotations
@@ -35,15 +35,15 @@ from typing import TYPE_CHECKING, ClassVar
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.model.eigen_channel import (
-    UNLABELED,
-    ChannelEigenbasis,
-)
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     ChannelEigenmodesBase,
     recover_crisp_column,
     segment_energy,
     split_frequency_bands,
+)
+from fridom.model.eigen_channel import (
+    UNLABELED,
+    ChannelEigenbasis,
 )
 from fridom.shallowwater2.state import State
 
@@ -109,7 +109,7 @@ def label_channel_modes(
        degeneracy_tol`` relative), no column is crisp; the 2-cluster
        is then rotated by the eigenbasis of its 2x2 ``v``-energy
        Gram (the shared
-       :func:`~fridom.model.eigenbasis.recover_crisp_column`
+       :func:`~fridom.model._eigenbasis.recover_crisp_column`
        helper) to expose the ``v``-free direction. The rotation is
        written back into ``basis.q`` (a unitary column mixing —
        M-orthonormality is preserved; the eigen-relation residual of
@@ -236,7 +236,7 @@ class ChannelEigenmodes(ChannelEigenmodesBase):
     Description
     -----------
     The shallow-water subclass of the shared
-    :class:`~fridom.model.eigenbasis.ChannelEigenmodesBase`
+    :class:`~fridom.model._eigenbasis.ChannelEigenmodesBase`
     wrapper: the framework's dense-column channel eigensolve labeled
     by :func:`label_channel_modes`. The family vocabulary is the
     class-level :attr:`families` name -> code map (reverse:

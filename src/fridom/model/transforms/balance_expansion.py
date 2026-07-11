@@ -61,7 +61,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     ZERO_FREQUENCY_TOL,
     ChannelEigenmodesBase,
     _family_codes,
@@ -104,7 +104,8 @@ def _eigenmodes_from_model(model: object, at_time: float) -> object:
     module = type(model.state).__module__
     package, _, _ = module.rpartition(".")
     if (not package.startswith("fridom.")
-            or package.startswith("fridom.framework")):
+            or package.startswith(
+                ("fridom.framework", "fridom.spatial", "fridom.model"))):
         raise ValueError(
             "BalanceExpansion dispatches on the model package that "
             "owns the state vocabulary; this model's state is "

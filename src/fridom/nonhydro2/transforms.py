@@ -12,7 +12,7 @@ routed on the eigenmodes object type:
   projector, the original path, bitwise unchanged);
 - the labeled numeric ``nh.ChannelEigenmodes`` of the horizontally
   walled channel (the shared dense-column engine path of
-  :mod:`fridom.model.eigenbasis`: partial-axis Fourier
+  :mod:`fridom.model._eigenbasis`: partial-axis Fourier
   along the two periodic axes, per-plane column projection under
   the energy metric).
 
@@ -66,10 +66,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     family_projection,
 )
-from fridom.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     predicate_projection as predicate_projection,  # noqa: PLC0414 — re-export
 )
 from fridom.model.transforms.projection import (

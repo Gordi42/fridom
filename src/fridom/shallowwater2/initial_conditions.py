@@ -47,7 +47,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
-from fridom.model.eigenbasis import channel_random_state
+from fridom.model._eigenbasis import channel_random_state
 from fridom.model.eigenstates import (
     geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
 )

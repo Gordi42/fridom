@@ -1342,9 +1342,10 @@ def eigenbasis(
     module = type(model.state).__module__
     package, _, _ = module.rpartition(".")
     if (not package.startswith("fridom.")
-            or package.startswith("fridom.framework")):
+            or package.startswith(
+                ("fridom.framework", "fridom.spatial", "fridom.model"))):
         raise ValueError(
-            "fr.eigenbasis dispatches on the model package that owns "
+            "fr.model.eigenbasis dispatches on the model package that owns "
             "the state vocabulary; this model's state is "
             f"{type(model.state).__name__!r} from {module!r} — "
             "assemble with a model package core (e.g. "
