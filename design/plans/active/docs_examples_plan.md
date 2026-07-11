@@ -149,20 +149,45 @@ remaining CI rules:
   previews for public PRs from outside contributors; the owner reviews
   locally.
 
-## Phase 2 — Pilot example, end-to-end
+## Phase 2 — Pilot example, end-to-end (built 2026-07-11, in review)
 
 Port **one** example — `shallowwater/barotropic_instability` (2D,
 cheap) — to the new stack at doc resolution, executing in CI:
 run → `fr.io.Writer` zarr → visible `cdfviewer --record` line → mp4 in
-the built page. The pilot fixes all conventions:
+the built page. Status: infra landed on dev (merge `48649ef9`); the
+example content sits on the local `docs/pilot-barotropic-instability`
+branch awaiting owner review. Conventions the pilot fixed:
 
-- resolution/runtime budget per example (target: ≤ ~2 min each on CI)
-- how the visible cdfviewer line is executed (subprocess call in the
-  example vs. scraper-executed literal block — decide here)
-- the new gallery scraper replacing `copy_media_files`
-- thumbnail selection, short-run env flag mechanics
+- **Budget**: 192² × runlen 120 runs ~60 s + ~15 s render locally
+  (cpu); `FRIDOM_EXAMPLES_FAST` in the environment selects a 96² ×
+  runlen 30 smoke run (~15 s). Budget rule of thumb: a full example
+  should stay under ~90 s locally to survive the CI slowdown factor.
+- **cdfviewer line**: an ordinary `subprocess.run(command, shell=True,
+  check=True)` in the example with the command string assembled
+  visibly right above it; CI wraps the whole build in `xvfb-run` for
+  GLMakie's GL context. No scraper magic executes the command.
+- **Video embedding**: `docs/source/video_scraper.py` moves any video
+  a block created from the example dir into the gallery page's
+  `videos/` and returns the `.. video::` rst (autoplay/muted/loop).
+  `copy_media_files` (pre-rendered LFS media) coexists until the last
+  old example is ported.
+- **Stills/thumbnail**: `field.xr.plot(x=...)` through the stock
+  matplotlib scraper, styled by `docs/source/fridom_docs.mplstyle`
+  via the gallery reset hook (the seed of the Phase 0.5 style file);
+  `# sphinx_gallery_thumbnail_number` picks the payoff figure.
+- **Divergence guard**: `only_warn_on_example_error = False` — a
+  raising example fails the build.
+- **Ruff**: gallery-script patterns (D400 titles, ERA001 config
+  comments, S602 visible shell line) are per-file-ignored for
+  `examples/**`.
 
-Keep it to one example on purpose; every integration surprise lands here.
+API awkwardness found while porting (feeds the framework fixes, not
+example workarounds): `fr.io` root alias missing (io_ops spec spells
+`fr.io.Writer`; today it is `fr.model.io.Writer`); staggered
+coordinate names leak into user plotting (`.xr.plot(x="x_right")` and
+the cdfviewer `-x x_right` flag); `pot_vort` is documented as a bound
+diagnostic in `sw.State`'s docstring but not implemented on
+shallowwater2 (the pilot animates `rel_vort` instead).
 
 ## Phase 3 — Port all examples (parallel, agent-friendly)
 
