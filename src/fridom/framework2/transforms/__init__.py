@@ -26,6 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
         algebra,
+        balance_expansion,
         base,
         errors,
         fixed_point,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     # import all classes
     from .algebra import Compose, Power, Scaled, Sum
+    from .balance_expansion import BalanceExpansion
     from .base import StateTransform
     from .errors import (
         FixedPointDivergenceError,
@@ -86,6 +88,7 @@ all_modules_by_origin = {
         "time_average",
         "optimal_balance",
         "projection",
+        "balance_expansion",
     ],
 }
 
@@ -107,6 +110,7 @@ all_imports_by_origin = {
     f"{pkg}.optimal_balance": ["OptimalBalance"],
     f"{pkg}.projection": [
         "EigenFunction", "EigenProjection", "ProjectionFactory"],
+    f"{pkg}.balance_expansion": ["BalanceExpansion"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
