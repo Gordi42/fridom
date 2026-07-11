@@ -18,8 +18,8 @@ from .conftest import (
 
 CSQR = 0.7
 
-BG_TERM = fr.model.terms.named("SadournyAdvection/background_advection")
-NL_TERM = fr.model.terms.named("SadournyAdvection/advect")
+BG_TERM = fr.model.term_predicates.named("SadournyAdvection/background_advection")
+NL_TERM = fr.model.term_predicates.named("SadournyAdvection/advect")
 
 
 # ================================================================
@@ -440,7 +440,7 @@ def test_linearize_keeps_background_drops_nonlinear():
     lin = fr.model.linearize(model)
     # the linear variant is the linear-filtered tendency (bitwise)
     tl = lin.tendency(z)
-    tf = model.tendency(z, filter=fr.model.terms.linear)
+    tf = model.tendency(z, filter=fr.model.term_predicates.linear)
     for name in ("u", "v", "p"):
         assert np.array_equal(np.asarray(tl[name].data),
                               np.asarray(tf[name].data))
@@ -455,7 +455,7 @@ def test_linearize_keeps_background_drops_nonlinear():
     # coriolis, from the background-free linear terms) + bg term
     tb = model.tendency(z, filter=BG_TERM)
     t0 = model.tendency(
-        z, filter=fr.model.terms.linear & ~BG_TERM)
+        z, filter=fr.model.term_predicates.linear & ~BG_TERM)
     for name in ("u", "v", "p"):
         err = np.abs(np.asarray(
             (tl[name] - t0[name] - tb[name]).data)).max()

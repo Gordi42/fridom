@@ -1,21 +1,14 @@
 """
-Grid abstraction cluster of framework2.
+``fridom.spatial`` — spatial discretization (meshes, spaces, fields).
 
 Description
 -----------
-The re-export table below realizes section 1 of
-``design/specs/grid/classes/grid.md``; at cutover the same entries
-move up to the framework ``__init__``. Entries whose modules are
-still stubs are added wave by wave (see the wave markers in the
-modules):
-
-- Wave 1 adds ``TensorProductSpace`` and ``SpaceLike`` from
-  ``spaces.tensor_product``.
-- Wave 2 adds ``Grid`` from ``grid`` and ``ScalarField`` /
-  ``FieldMetadata`` from ``fields``.
-- Wave 3 adds ``VectorField`` / ``TensorField`` from ``fields``.
-- Wave 4 adds ``ImmersedDomain`` / ``Slip`` from ``immersed_domain``
-  and ``CoordinateMapping`` from ``coordinate_mapping``.
+Everything about discretizing space: meshes, function spaces, fields,
+the shared operator numerics library, domain decomposition, the
+``Grid`` assembly root, and the declaration-tag vocabulary
+(``space_patterns``). The concrete models (``fridom.nonhydro2``,
+``fridom.shallowwater2``) and the temporal layer (``fridom.model``)
+consume this package; it depends on none of them.
 """
 from typing import TYPE_CHECKING
 
@@ -26,7 +19,13 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
-    from . import cartesian, decomposition, meshes, operators
+    from . import (
+        cartesian,
+        decomposition,
+        meshes,
+        operators,
+        space_patterns,
+    )
 
     # import all classes
     from .bc import BC
@@ -35,6 +34,14 @@ if TYPE_CHECKING:  # pragma: no cover
     from .grid import Grid
     from .immersed_domain import ImmersedDomain, Slip
     from .scalars import Complex, Real
+    from .space_patterns import (
+        Collocated,
+        Dof,
+        Profile,
+        SpacePattern,
+        SpaceRule,
+        Staggered,
+    )
     from .spaces.tensor_product import SpaceLike, TensorProductSpace
     from .symbols import GridSymbols, ModeChart, rayleigh_dual
 
@@ -44,7 +51,9 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.spatial"
 
 all_modules_by_origin = {
-    base: ["meshes", "operators", "cartesian", "decomposition"],
+    base: [
+        "meshes", "operators", "cartesian", "decomposition",
+        "space_patterns"],
 }
 
 all_imports_by_origin = {
@@ -58,6 +67,9 @@ all_imports_by_origin = {
                        "VectorField"],
     f"{base}.immersed_domain": ["ImmersedDomain", "Slip"],
     f"{base}.symbols": ["GridSymbols", "ModeChart", "rayleigh_dual"],
+    f"{base}.space_patterns": [
+        "Dof", "SpacePattern", "Collocated", "Staggered", "Profile",
+        "SpaceRule"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

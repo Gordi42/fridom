@@ -293,7 +293,7 @@ def test_failed_bind_leaves_the_closure_unbound():
 #  The owned_by predicate follows free
 # ================================================================
 def test_owned_by_closurebase_matches_any_closure_subclass():
-    predicate = fr.model.terms.owned_by(fr.model.closures.ClosureBase)
+    predicate = fr.model.term_predicates.owned_by(fr.model.closures.ClosureBase)
     term = TendencyTerm(name="t", fn=lambda *_args: {})
     assert predicate("Mixing/t", term, Mixing()) is True
     assert predicate("Other/t", term, object()) is False

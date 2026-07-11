@@ -228,7 +228,7 @@ def test_variant_owned_by_closurebase_drops_all_closure_terms():
     x, z = coords()
     model.set_fields(u=np.sin(2 * np.pi * x), b=np.cos(2 * np.pi * z))
     inviscid = model.variant(
-        term_filter=~fr.model.terms.owned_by(fr.model.closures.ClosureBase))
+        term_filter=~fr.model.term_predicates.owned_by(fr.model.closures.ClosureBase))
     td = inviscid.tendency(model.state)
     for name in ("u", "v", "b", "c"):
         assert np.abs(data(td[name])).max() == 0.0

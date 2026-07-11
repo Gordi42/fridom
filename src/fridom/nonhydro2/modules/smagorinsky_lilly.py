@@ -44,7 +44,7 @@ always advances the PROGNOSTIC ``Velocity`` family; the **mixing**
 term advances the role-resolved tracer targets (default
 ``fr.model.roles.TRACER``; override with ``fields=`` / ``exclude=``, an
 empty resolution simply drops the mixing term). The two terms split
-under ``fr.model.terms.advancing(...)``; both are nonlinear (dropped by
+under ``fr.model.term_predicates.advancing(...)``; both are nonlinear (dropped by
 ``fr.model.linearize``). The Richardson damping reads the constant
 ``stratification.n2`` provide (a required reference), so a model
 without a constant-N^2 stratification module rejects the closure at

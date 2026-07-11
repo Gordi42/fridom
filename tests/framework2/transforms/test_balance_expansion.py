@@ -166,7 +166,7 @@ def test_order_one_matches_the_hand_machenhauer_state(sw_setup):
     em = sw.eigenmodes.from_model(model)
     kit = em._kit
     v = sw.transforms.VorticalProjection(em)(z)
-    quadratic = model.variant(term_filter=~fr.model.terms.linear)
+    quadratic = model.variant(term_filter=~fr.model.term_predicates.linear)
     b_vv = quadratic.tendency(v, t=0.0, constraints=True)
     coeff = fr.spatial.VectorField({
         c: kit.forward(c)(b_vv[c]) for c in SW_COMPONENTS})
@@ -313,7 +313,7 @@ def test_nh_channel_orders_run_and_residual_decreases():
 def test_lint_warns_when_the_filter_keeps_linear_terms(sw_setup):
     model, _ = sw_setup
     with pytest.warns(UserWarning, match="not quadratic"):
-        BalanceExpansion(model, order=0, nonlinear=fr.model.terms.explicit)
+        BalanceExpansion(model, order=0, nonlinear=fr.model.term_predicates.explicit)
 
 
 def test_lint_is_quiet_on_the_default_filter_and_optout(sw_setup):
@@ -323,7 +323,7 @@ def test_lint_is_quiet_on_the_default_filter_and_optout(sw_setup):
         # the default advection-only selection is quadratic
         BalanceExpansion(model, order=0)
         # the opt-out skips the check even on a bad selection
-        BalanceExpansion(model, order=0, nonlinear=fr.model.terms.explicit,
+        BalanceExpansion(model, order=0, nonlinear=fr.model.term_predicates.explicit,
                          lint=False)
 
 
@@ -341,7 +341,7 @@ def test_lint_skips_a_selection_with_zero_nonlinear_tendency():
         warnings.simplefilter("error")
         BalanceExpansion(
             quiet, order=0,
-            nonlinear=fr.model.terms.named("ZeroQuadratic/zero"))
+            nonlinear=fr.model.term_predicates.named("ZeroQuadratic/zero"))
 
 
 # ================================================================

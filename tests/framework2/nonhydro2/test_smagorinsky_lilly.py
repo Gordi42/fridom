@@ -165,8 +165,8 @@ def test_advancing_predicate_splits_stress_from_mixing():
     _, _, z = coords()
     model.set_fields(u=0.1 * np.sin(z), b=0.1 * np.cos(z))
     no_mixing = model.variant(
-        term_filter=~(fr.model.terms.owned_by(SmagorinskyLilly)
-                      & fr.model.terms.advancing("b")))
+        term_filter=~(fr.model.term_predicates.owned_by(SmagorinskyLilly)
+                      & fr.model.term_predicates.advancing("b")))
     td = no_mixing.tendency(model.state)
     # the mixing term is gone (only restoring writes b; w = 0)
     assert np.abs(data(td["b"])).max() == 0.0
@@ -180,7 +180,7 @@ def test_owned_by_closurebase_drops_the_whole_closure():
     model.set_fields(u=0.1 * np.sin(z))
     with pytest.warns(UserWarning, match="coverage lint"):
         inviscid = model.variant(
-            term_filter=~fr.model.terms.owned_by(fr.model.closures.ClosureBase))
+            term_filter=~fr.model.term_predicates.owned_by(fr.model.closures.ClosureBase))
     td = inviscid.tendency(model.state)
     assert np.abs(data(td["u"])).max() == 0.0
 

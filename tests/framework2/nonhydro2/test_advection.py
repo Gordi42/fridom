@@ -78,7 +78,7 @@ def broadcast(profile, nx):
 
 def advection_tendency(model, cls):
     return model.tendency(model.state, constraints=False,
-                          filter=fr.model.terms.owned_by(cls))
+                          filter=fr.model.term_predicates.owned_by(cls))
 
 
 # ================================================================
@@ -438,7 +438,7 @@ def relative_energy_rates(model):
     """Per-component |<q, A(q)>| / sum|q A(q)| on a projected state."""
     state = model.constrain(model.state)
     tau = model.tendency(state, constraints=False,
-                         filter=fr.model.terms.owned_by(CenteredAdvection))
+                         filter=fr.model.term_predicates.owned_by(CenteredAdvection))
     rates = {}
     for c in ("u", "v", "w", "b"):
         product = (np.asarray(state[c].data)
@@ -477,7 +477,7 @@ def test_walled_total_buoyancy_is_conserved(walled):
     set_random_state(model, seed=12)
     state = model.constrain(model.state)
     tau = model.tendency(state, constraints=False,
-                         filter=fr.model.terms.owned_by(CenteredAdvection))
+                         filter=fr.model.term_predicates.owned_by(CenteredAdvection))
     db = np.asarray(tau["b"].data)
     assert abs(float(np.sum(db))) < 1e-12 * float(
         np.sum(np.abs(db)))
@@ -504,7 +504,7 @@ def test_walled_tendency_is_finite_on_a_random_state(walled):
     model = make_walled_model(walled, CenteredAdvection())
     set_random_state(model, seed=14)
     tau = model.tendency(model.state, constraints=False,
-                         filter=fr.model.terms.owned_by(CenteredAdvection))
+                         filter=fr.model.term_predicates.owned_by(CenteredAdvection))
     assert all(np.isfinite(np.asarray(tau[c].data)).all()
                for c in ("u", "v", "w", "b"))
 
@@ -550,7 +550,7 @@ def test_walled_background_terms_run_and_telescope():
     state = model.state
     total = model.tendency(
         state, constraints=False,
-        filter=fr.model.terms.owned_by(CenteredAdvection))
+        filter=fr.model.term_predicates.owned_by(CenteredAdvection))
 
     for qname in ("u", "v", "w", "b"):
         q = state[qname]
@@ -636,7 +636,7 @@ def set_perturbation(model, nx, lx=L):
 def linear_term_tendency(model, cls):
     return model.tendency(
         model.state, constraints=False,
-        filter=fr.model.terms.named(f"{cls.__name__}/background_advection"))
+        filter=fr.model.term_predicates.named(f"{cls.__name__}/background_advection"))
 
 
 # ----------------------------------------------------------------
@@ -890,11 +890,11 @@ def test_linearize_keeps_l_and_drops_n():
     # the linear variant's whole advection contribution is exactly
     # the parent's background_advection term ...
     kept = linear.tendency(state, constraints=False,
-                           filter=fr.model.terms.owned_by(WENOAdvection))
+                           filter=fr.model.term_predicates.owned_by(WENOAdvection))
     parent_l = linear_term_tendency(model, WENOAdvection)
     dropped = linear.tendency(
         state, constraints=False,
-        filter=fr.model.terms.named("WENOAdvection/advection"))
+        filter=fr.model.term_predicates.named("WENOAdvection/advection"))
     total = advection_tendency(model, WENOAdvection)
     for name in ("u", "v", "w", "b"):
         assert np.array_equal(np.asarray(kept[name].data),
