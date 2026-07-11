@@ -73,6 +73,7 @@ script rejects them outside code blocks and directives.
 | Self-praising adjectives: powerful, seamless, robust, comprehensive, blazing, effortless, elegant, "clear error" | Describe the behavior; let the reader judge. |
 | Vocabulary: leverage, delve, utilize, showcase, crucial, "it's worth noting", "keep in mind" | use, examine, use, show, important, (delete), (delete) |
 | Minimizers "simply", "just", "easily" | Delete. If it were simple the sentence would not need the word. |
+| Semicolons joining prose clauses (owner ruling 2026-07-12) | Two sentences, or an explicit connective. Semicolons in code are unaffected. |
 
 Weak/strong pairs:
 
