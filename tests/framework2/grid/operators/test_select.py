@@ -1,16 +1,16 @@
-"""Tests for fridom.framework2.grid.operators.select."""
+"""Tests for fridom.spatial.operators.select."""
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.errors import (
+from fridom.spatial.errors import (
     GridMismatchError,
     SpaceMismatchError,
 )
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.registry import DispatchError
-from fridom.framework2.grid.operators.select import Where
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.registry import DispatchError
+from fridom.spatial.operators.select import Where
 
 
 @pytest.fixture

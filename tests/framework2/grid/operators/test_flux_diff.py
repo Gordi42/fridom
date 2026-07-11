@@ -1,22 +1,22 @@
-"""Tests for fridom.framework2.grid.operators.flux_diff."""
+"""Tests for fridom.spatial.operators.flux_diff."""
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.base import (
     Dispatched,
     EigenbasisError,
     SeparableComposite,
 )
-from fridom.framework2.grid.operators.flux_diff import (
+from fridom.spatial.operators.flux_diff import (
     DualFluxDifference,
     FaceDifference,
     FluxDifference,
     FVDerivative,
 )
-from fridom.framework2.grid.operators.reconstruct import (
+from fridom.spatial.operators.reconstruct import (
     LinearReconstruction,
 )
 

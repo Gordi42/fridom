@@ -2,11 +2,11 @@
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.fourier import Fourier
-from fridom.framework2.grid.scalars import Scalars
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.scalars import Scalars
 
 TWO_PI = 2.0 * jnp.pi
 

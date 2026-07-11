@@ -1,9 +1,9 @@
-"""Tests for fridom.framework2.ops.protocols."""
+"""Tests for fridom.model.ops.protocols."""
 import dataclasses
 
 import pytest
 
-from fridom.framework2.ops.protocols import (
+from fridom.model.ops.protocols import (
     ChunkStats,
     ProgressReporter,
     WalltimeGuard,

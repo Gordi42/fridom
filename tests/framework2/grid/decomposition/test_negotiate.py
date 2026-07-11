@@ -2,19 +2,19 @@
 import jax
 import pytest
 
-from fridom.framework2.grid.decomposition.decomposition import (
+from fridom.spatial.decomposition.decomposition import (
     _cap_for_sharding,
     _registry_halo,
     _shardable_names,
     negotiate,
 )
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.decomposition.tensor import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
 
 
 @pytest.fixture

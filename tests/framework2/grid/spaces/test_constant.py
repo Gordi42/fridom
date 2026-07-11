@@ -1,12 +1,12 @@
 """Tests for ConstantSpace (framework2/grid/spaces/constant.py)."""
 import pytest
 
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.meshes.point import PointMesh
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.spaces.nodal import NodalSpace
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.point import PointMesh
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodalSpace
 
 N = 8
 

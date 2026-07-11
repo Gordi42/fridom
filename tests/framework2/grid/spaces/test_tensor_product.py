@@ -4,13 +4,13 @@ import weakref
 
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import _bindable_names
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.function_space import FunctionSpace
-from fridom.framework2.grid.spaces.tensor_product import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import _bindable_names
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.function_space import FunctionSpace
+from fridom.spatial.spaces.tensor_product import (
     SpaceLike,
     TensorProductSpace,
     join,

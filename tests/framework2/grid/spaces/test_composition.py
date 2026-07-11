@@ -2,10 +2,10 @@
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.symbol import Symbol
-from fridom.framework2.grid.spaces.composition import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.spaces.composition import (
     compose_spaces,
     union_spaces,
 )

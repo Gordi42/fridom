@@ -1,8 +1,8 @@
-"""Tests for fridom.framework2.io.triggers (algebra + lowering)."""
+"""Tests for fridom.model.io.triggers (algebra + lowering)."""
 import numpy as np
 import pytest
 
-from fridom.framework2.io.triggers import (
+from fridom.model.io.triggers import (
     At,
     Every,
     Trigger,

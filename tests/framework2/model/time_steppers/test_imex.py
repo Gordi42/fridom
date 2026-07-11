@@ -18,30 +18,30 @@ import numpy as np
 import pytest
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.clock import Clock
-from fridom.framework2.model.composer import TendencyComposer
-from fridom.framework2.model.declarations import (
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.clock import Clock
+from fridom.model.composer import TendencyComposer
+from fridom.model.declarations import (
     FieldDeclaration,
     Lifecycle,
 )
-from fridom.framework2.model.errors import AssemblyError
-from fridom.framework2.model.implicit import VerticalDiffusion
-from fridom.framework2.model.model import Model
-from fridom.framework2.model.module import Module
-from fridom.framework2.model.space_patterns import Collocated
-from fridom.framework2.model.terms import (
+from fridom.model.errors import AssemblyError
+from fridom.model.implicit import VerticalDiffusion
+from fridom.model.model import Model
+from fridom.model.module import Module
+from fridom.model.space_patterns import Collocated
+from fridom.model.terms import (
     TERM_ATTRIBUTE,
     TendencyTerm,
     Treatment,
     term,
 )
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.framework2.model.time_steppers.imex import (
+from fridom.model.time_steppers.imex import (
     CNAB2,
     SBDF2,
     IMEXMultistep,

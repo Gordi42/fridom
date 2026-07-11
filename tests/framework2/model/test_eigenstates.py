@@ -11,12 +11,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.symbols import GridSymbols
-from fridom.framework2.model.eigenstates import (
+import fridom as fr
+from fridom.spatial.bc import BC
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.symbols import GridSymbols
+from fridom.model.eigenstates import (
     coefficient_index,
     envelope_scale,
     geostrophic_energy_spectrum,
@@ -42,7 +42,7 @@ def trig_space():
     mx = IntervalMesh(N, (0.0, 1.0), periodic=True, name="x")
     mz = IntervalMesh(8, (0.0, 1.0), periodic=False, name="z")
     grid = Grid((mx, mz))
-    space = fr.Staggered(
+    space = fr.spatial.Staggered(
         "z", wall_bc={"z": BC.DIRICHLET}).resolve(grid)
     return GridSymbols(grid, {"w": space}).coeff("w")
 

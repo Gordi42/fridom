@@ -26,7 +26,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 
 
 def rk4(u, dt, tendency):
@@ -44,8 +44,8 @@ def test_state_lives_permanently_in_coefficient_space():
     # linear advection-diffusion stepped entirely on Fourier
     # coefficients; nodal space is touched only at the ends
     n = 32
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     u0 = grid.create_field(
         init=lambda x: jnp.sin(2 * jnp.pi * x)
         + 0.5 * jnp.cos(4 * jnp.pi * x))
@@ -79,8 +79,8 @@ def test_state_lives_permanently_in_coefficient_space():
 def test_collocated_spectral_grid_needs_no_interpolation():
     # a single un-staggered Fourier space: conversions onto the own
     # space are the identity — no interpolation, no phase shift
-    mx = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     f = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
     t = grid.dispatch.resolve("transform", mx.center)
     f_hat = t.forward(f)
@@ -92,8 +92,8 @@ def test_spectral_native_construction():
     # init_coeff assigns coefficients verbatim (assignment, not
     # projection); grid.random draws directly on the coefficient
     # space and transforms back to a real nodal field
-    mx = fr.grid.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     t = grid.dispatch.resolve("transform", mx.center)
     coeff_space = t.forward(grid.create_field()).function_space
     f = grid.create_field(
@@ -115,14 +115,14 @@ def test_dealiased_product_via_the_padded_transform():
     # plain collocation product aliases it onto k = 12, the padded
     # (3/2-rule) route removes it
     n, k0 = 32, 10
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     f = grid.create_field(
         init=lambda x: jnp.cos(2 * jnp.pi * k0 * x))
     plain = grid.dispatch.resolve("transform", mx.center)
     prod_plain = plain.forward(f * f)
-    padded = fr.grid.operators.fourier.Fourier(
-        grid, pad=fr.grid.operators.dealias.degree(2))
+    padded = fr.spatial.operators.fourier.Fourier(
+        grid, pad=fr.spatial.operators.dealias.degree(2))
     fine = padded.backward(plain.forward(f))
     assert fine.function_space.bare.mesh.refined_from is mx
     prod_dealiased = padded.forward(fine * fine)
@@ -137,10 +137,10 @@ def test_volume_penalization_with_the_boolean_mask():
     # masked domains have no spectral route except penalization: a
     # mask-weighted relaxation forcing in the tendency (6.1); the
     # iteration-1 boolean immersed subset supplies the mask
-    mx = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="y")
-    grid = fr.grid.Grid((mx, my))
-    grid.with_immersed(fr.grid.ImmersedDomain(
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="y")
+    grid = fr.spatial.Grid((mx, my))
+    grid.with_immersed(fr.spatial.ImmersedDomain(
         lambda x, y: ((x - 0.5) ** 2 + (y - 0.5) ** 2 > 0.04)
         .astype(jnp.float64)))
     center = grid.create_field().function_space.bare
@@ -168,9 +168,9 @@ def test_volume_penalization_with_the_boolean_mask():
 # ================================================================
 @pytest.fixture
 def mixed():
-    mx = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    mz = fr.grid.meshes.ChebyshevMesh(16, (0.0, 1.0), name="z")
-    return fr.grid.Grid((mx, mz)), mx, mz
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    mz = fr.spatial.meshes.ChebyshevMesh(16, (0.0, 1.0), name="z")
+    return fr.spatial.Grid((mx, mz)), mx, mz
 
 
 def lobatto_nodes(n, lo, hi):
@@ -196,7 +196,7 @@ def test_mixed_grid_derivatives_per_factor(mixed):
     assert float(jnp.abs(dfx.data - exact_dfx).max()) < (
         (2 * np.pi) ** 3 * mx.dx**2)
     # d/dz is a Chebyshev coefficient recurrence (exact on cubics)
-    cheb = fr.grid.operators.chebyshev.Chebyshev(grid, axes=("z",))
+    cheb = fr.spatial.operators.chebyshev.Chebyshev(grid, axes=("z",))
     dfz = cheb.backward(cheb.forward(f).diff("z"))
     assert dfz.function_space.bare is space
     exact_dfz = np.sin(2 * np.pi * x) * (3 * z**2)[None, :]
@@ -232,12 +232,12 @@ def test_mixed_grid_designed_for_gaps(mixed):
     # designed-for until the Symbol algebra lands
     coeff = mz.chebyshev(mz.lobatto)
     diff_op = grid.dispatch.resolve("diff", coeff)
-    with pytest.raises(fr.grid.operators.EigenbasisError):
+    with pytest.raises(fr.spatial.operators.EigenbasisError):
         diff_op.eigenvalues(None, coeff)
     # Shen/Galerkin BC bases (n - 1 free modes) are designed-for:
     # the galerkin factory raises in iteration 1
     with pytest.raises(NotImplementedError, match="designed-for"):
-        mz.galerkin(bc=fr.grid.BC.DIRICHLET)
+        mz.galerkin(bc=fr.spatial.BC.DIRICHLET)
 
 
 # ================================================================
@@ -247,8 +247,8 @@ def test_staggered_pair_summation_by_parts():
     # discrete integration by parts is exact for the staggered
     # two-point pair on the periodic mesh:
     # sum f (dg) dx + sum (df) g dx = 0 (telescoping)
-    mx = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     f = grid.random.normal(mx.center, seed=1)
     g = grid.random.normal(mx.right, seed=2)
     i1 = (f * g.diff("x")).integrate("x").data.ravel()[0]
@@ -259,8 +259,8 @@ def test_staggered_pair_summation_by_parts():
 def test_staggered_interpolation_is_self_adjoint():
     # the two-point mean is its own adjoint under the uniform
     # measure: <f, Ig> = <If, g> exactly
-    mx = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     f = grid.random.normal(mx.center, seed=1)
     g = grid.random.normal(mx.right, seed=2)
     i1 = (f * g.to(mx.center)).integrate("x").data.ravel()[0]

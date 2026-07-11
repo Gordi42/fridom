@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.errors import MissingFieldError
-from fridom.framework2.modules.relaxation import Relaxation
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.errors import MissingFieldError
+from fridom.model.modules.relaxation import Relaxation
 
 N = 8
 LENGTH = 2 * np.pi

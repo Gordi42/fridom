@@ -9,11 +9,11 @@ override, a Helmholtz shift (no nullspace), and the residual check
 import jax.numpy as jnp
 import pytest
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.operators.realized import RealizedComposite
-from fridom.framework2.grid.operators.spectral import SpectralDerivative
-from fridom.framework2.grid.operators.spectral_solve import SpectralSolve
-from fridom.framework2.grid.operators.symbol import Symbol
+import fridom as fr
+from fridom.spatial.operators.realized import RealizedComposite
+from fridom.spatial.operators.spectral import SpectralDerivative
+from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.operators.symbol import Symbol
 
 
 def laplacian_2d():
@@ -23,9 +23,9 @@ def laplacian_2d():
 
 @pytest.fixture
 def grid_2d():
-    mx = fr.grid.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(32, (0.0, 2.0), name="y")
-    return fr.grid.Grid((mx, my))
+    mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(32, (0.0, 2.0), name="y")
+    return fr.spatial.Grid((mx, my))
 
 
 # ================================================================
@@ -76,8 +76,8 @@ def test_solve_alias_matches_call(grid_2d):
 #  The solution actually solves the equation (residual check)
 # ================================================================
 def test_solution_solves_the_equation():
-    mx = fr.grid.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     laplacian = SpectralDerivative()["x"] @ SpectralDerivative()["x"]
     rhs = grid.create_field(
         init=lambda x: jnp.sin(2 * jnp.pi * x)
@@ -96,8 +96,8 @@ def test_solution_solves_the_equation():
 #  The nullspace gauge and its ``where_zero`` override
 # ================================================================
 def test_where_zero_sets_the_nullspace_gauge():
-    mx = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     laplacian = SpectralDerivative()["x"] @ SpectralDerivative()["x"]
     rhs = grid.create_field(init=lambda x: jnp.cos(2 * jnp.pi * x))
     default = SpectralSolve(laplacian, grid, rhs.function_space)
@@ -110,8 +110,8 @@ def test_where_zero_sets_the_nullspace_gauge():
 
 def test_helmholtz_shift_has_no_nullspace():
     # (d_xx - lambda) with lambda != 0 inverts everywhere: no k = 0 zero
-    mx = fr.grid.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     dxx = SpectralDerivative()["x"] @ SpectralDerivative()["x"]
     space = grid.create_field(init=lambda x: x).function_space
     t = grid.dispatch.resolve("transform", space.bare)

@@ -11,16 +11,16 @@ wave merge.
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.base import (
     OperatorRequirements,
     SeparableOperator,
     UnaryOperator,
 )
-from fridom.framework2.grid.spaces.function_space import FunctionSpace
-from fridom.framework2.grid.spaces.nodal import Center, Right
+from fridom.spatial.spaces.function_space import FunctionSpace
+from fridom.spatial.spaces.nodal import Center, Right
 
 
 # ================================================================

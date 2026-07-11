@@ -22,8 +22,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 from fridom.benchmarking import benchmark_case
-from fridom.framework2.grid.operators import stencil_kernels as sk
-from fridom.framework2.grid.operators.weno import weno_reconstruct
+from fridom.spatial.operators import stencil_kernels as sk
+from fridom.spatial.operators.weno import weno_reconstruct
 
 # 4096 provides a compute-bound regime on gpu, where the smaller
 # sizes are dominated by per-call and kernel-launch overhead

@@ -17,25 +17,25 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.base import EigenbasisError
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.bc import BC
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.base import EigenbasisError
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.operators.interp import LinearInterp
-from fridom.framework2.grid.spaces.coefficient import (
+from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.spaces.coefficient import (
     CosineSpace,
     SineSpace,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.grid.symbols import ModeChart, rayleigh_dual
-from fridom.framework2.model.context import StepContext
-from fridom.framework2.model.eigen import _rest_background
-from fridom.framework2.modules.coriolis import FPlaneCoriolis
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.spatial.symbols import ModeChart, rayleigh_dual
+from fridom.model.context import StepContext
+from fridom.model.eigen import _rest_background
+from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -70,7 +70,7 @@ def walled():
 def linearized(walled):
     """Build the linear variant, rest background and constrain map."""
     _, model, _ = walled
-    lin = fr.linearize(model)
+    lin = fr.model.linearize(model)
     prog, base0 = _rest_background(lin, 0.0)
     constrain = _constrain_fn(lin, base0, prog)
     return lin, prog, base0, constrain
@@ -153,11 +153,11 @@ def test_periodic_kit_spaces_are_the_phase1_spaces():
         for name in ("x", "y", "z")))
     em = nh.eigenmodes.Eigenmodes(grid, f0=1.0, n2=3.0, dsqr=2.0)
     phase1 = {
-        "u": fr.Staggered("x").resolve(grid),
-        "v": fr.Staggered("y").resolve(grid),
-        "w": fr.Staggered("z").resolve(grid),
-        "b": fr.Collocated().resolve(grid),
-        "p": fr.Collocated().resolve(grid),
+        "u": fr.spatial.Staggered("x").resolve(grid),
+        "v": fr.spatial.Staggered("y").resolve(grid),
+        "w": fr.spatial.Staggered("z").resolve(grid),
+        "b": fr.spatial.Collocated().resolve(grid),
+        "p": fr.spatial.Collocated().resolve(grid),
     }
     for c, space in phase1.items():
         assert em.kit.forward(c).domain is space.bare

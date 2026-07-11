@@ -15,18 +15,18 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.decomposition.tensor import (
+from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 def build_grid(device_ids):

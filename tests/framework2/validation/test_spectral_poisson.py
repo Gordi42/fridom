@@ -7,14 +7,14 @@ machine precision (the gate asks for ~1e-10).
 """
 import jax.numpy as jnp
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.operators.spectral import SpectralDerivative
+import fridom as fr
+from fridom.spatial.operators.spectral import SpectralDerivative
 
 
 def test_spectral_poisson_solve_2d():
-    mx = fr.grid.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(32, (0.0, 2.0), name="y")
-    grid = fr.grid.Grid((mx, my))
+    mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(32, (0.0, 2.0), name="y")
+    grid = fr.spatial.Grid((mx, my))
     u_exact = grid.create_field(
         init=lambda x, y: jnp.sin(4 * jnp.pi * x)
         * jnp.cos(jnp.pi * y))
@@ -40,8 +40,8 @@ def test_spectral_poisson_solve_2d():
 def test_spectral_poisson_solution_solves_the_equation():
     # apply the spectral Laplacian to the computed solution and
     # recover the (mean-free) right-hand side
-    mx = fr.grid.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     rhs = grid.create_field(
         init=lambda x: jnp.sin(2 * jnp.pi * x)
         + 0.25 * jnp.cos(6 * jnp.pi * x))
@@ -59,9 +59,9 @@ def test_spectral_poisson_solve_via_laplacian_symbol():
     # the same 2-D solve, but the ``-1/k**2`` diagonal now comes from
     # the composed operator algebra: the spectral Laplacian's symbol,
     # pseudo-inverted (k = 0 regularized) and Hadamard-applied
-    mx = fr.grid.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(32, (0.0, 2.0), name="y")
-    grid = fr.grid.Grid((mx, my))
+    mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(32, (0.0, 2.0), name="y")
+    grid = fr.spatial.Grid((mx, my))
     u_exact = grid.create_field(
         init=lambda x, y: jnp.sin(4 * jnp.pi * x)
         * jnp.cos(jnp.pi * y))

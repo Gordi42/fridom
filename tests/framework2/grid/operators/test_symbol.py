@@ -4,20 +4,20 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.bc import BC
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.base import (
     EigenbasisError,
     Identity,
     ScaledOperator,
 )
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.operators.interp import LinearInterp
-from fridom.framework2.grid.operators.spectral import (
+from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.spectral import (
     SpectralDerivative,
     _cosine1_to_sine1,
     _cosine_to_sine,
@@ -25,9 +25,9 @@ from fridom.framework2.grid.operators.spectral import (
     _sine_to_cosine,
     fourier_wavenumbers,
 )
-from fridom.framework2.grid.operators.symbol import Symbol
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodeSet
 
 TWO_PI = 2.0 * jnp.pi
 N = 16

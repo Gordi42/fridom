@@ -1,7 +1,7 @@
 """Tests for the BC markers (framework2/grid/bc.py)."""
 import pytest
 
-from fridom.framework2.grid.bc import BC, BCStructure
+from fridom.spatial.bc import BC, BCStructure
 
 
 # ================================================================

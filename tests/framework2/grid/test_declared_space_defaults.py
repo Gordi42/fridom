@@ -12,11 +12,11 @@ a boundary condition, not a DOF) — and an error on ChebyshevMesh
 """
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.space_patterns import (
+from fridom.spatial.bc import BC
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.space_patterns import (
     Collocated,
     Profile,
     Staggered,
@@ -74,7 +74,7 @@ def test_staggered_resolves_right_periodic_inner_bounded(grid,
 
 
 def test_bounded_staggered_bc_resolves_on_inner(grid, meshes):
-    from fridom.framework2.grid.spaces.nodal import (  # noqa: PLC0415
+    from fridom.spatial.spaces.nodal import (  # noqa: PLC0415
         NodeSet,
     )
     x, z = meshes
@@ -99,7 +99,7 @@ def test_unmatched_names_degrade_gracefully(grid, meshes):
 
 
 def test_bc_entries_reach_the_resolver(grid, meshes):
-    from fridom.framework2.grid.spaces.nodal import (  # noqa: PLC0415
+    from fridom.spatial.spaces.nodal import (  # noqa: PLC0415
         NodeSet,
     )
     x, z = meshes

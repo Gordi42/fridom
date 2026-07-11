@@ -1,4 +1,4 @@
-"""Tests for fridom.framework2.ops.session (fr.ops.Session).
+"""Tests for fridom.model.ops.session (fr.ops.Session).
 
 Covers the single-model iteration-1 surface: constructor keying and
 rejections, the reentrancy/single-use guards, the __enter__ duties
@@ -15,25 +15,25 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import dtype_real, jaxify
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.io import snapshots as snap
-from fridom.framework2.io import triggers
-from fridom.framework2.io.streams import IOCollisionError
-from fridom.framework2.model.declarations import FieldDeclaration
-from fridom.framework2.model.model import Model
-from fridom.framework2.model.module import Module
-from fridom.framework2.model.parameters import ParameterDeclaration
-from fridom.framework2.model.results import PanicError, RunStatus
-from fridom.framework2.model.space_patterns import Collocated
-from fridom.framework2.model.terms import term
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.io import snapshots as snap
+from fridom.model.io import triggers
+from fridom.model.io.streams import IOCollisionError
+from fridom.model.declarations import FieldDeclaration
+from fridom.model.model import Model
+from fridom.model.module import Module
+from fridom.model.parameters import ParameterDeclaration
+from fridom.model.results import PanicError, RunStatus
+from fridom.model.space_patterns import Collocated
+from fridom.model.terms import term
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.framework2.ops import session as session_mod
-from fridom.framework2.ops.protocols import WalltimeGuard
-from fridom.framework2.ops.session import Session
+from fridom.model.ops import session as session_mod
+from fridom.model.ops.protocols import WalltimeGuard
+from fridom.model.ops.session import Session
 
 DT = 0.5
 N = 8

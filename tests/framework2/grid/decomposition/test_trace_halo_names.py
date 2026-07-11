@@ -1,17 +1,17 @@
 """Tests for name-keyed state spaces in trace_halo."""
 import pytest
 
-from fridom.framework2.grid.decomposition.decomposition import (
+from fridom.spatial.decomposition.decomposition import (
     negotiate,
 )
-from fridom.framework2.grid.decomposition.halo import (
+from fridom.spatial.decomposition.halo import (
     HaloTracer,
     VectorTracer,
     trace_halo,
 )
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.spaces.tensor_product import (
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
 

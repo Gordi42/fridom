@@ -3,7 +3,7 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.grid.decomposition.layout import Layout
+from fridom.spatial.decomposition.layout import Layout
 
 
 def test_mapping_normalized_to_sorted_tuple():

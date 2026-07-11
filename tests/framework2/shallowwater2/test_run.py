@@ -2,21 +2,21 @@
 import jax
 import numpy as np
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.model.model import chunk_cache_size
+from fridom.model.model import chunk_cache_size
 
 from .conftest import gaussian_bump, make_grid, make_model, total_energy
 
 
 # ================================================================
-#  The Coriolis modules are the shared fr.modules library
+#  The Coriolis modules are the shared fr.model.modules library
 # ================================================================
 def test_coriolis_is_the_shared_framework_module():
-    assert sw.modules.FPlaneCoriolis is fr.modules.FPlaneCoriolis
-    assert sw.modules.BetaPlaneCoriolis is fr.modules.BetaPlaneCoriolis
+    assert sw.modules.FPlaneCoriolis is fr.model.modules.FPlaneCoriolis
+    assert sw.modules.BetaPlaneCoriolis is fr.model.modules.BetaPlaneCoriolis
     model = make_model()
-    assert any(isinstance(m, fr.modules.FPlaneCoriolis)
+    assert any(isinstance(m, fr.model.modules.FPlaneCoriolis)
                for m in model._carry.modules)
 
 
@@ -24,11 +24,11 @@ def test_betaplane_advances_with_a_profile_f_of_y():
     # the shared beta-plane carries the rotation term as pure field
     # arithmetic (no extra_halo); prove it advances a shallow-water
     # model on a real Profile("y") f(y)
-    cor = fr.modules.BetaPlaneCoriolis(f0=1.0, beta=0.5)
+    cor = fr.model.modules.BetaPlaneCoriolis(f0=1.0, beta=0.5)
     assert cor.extra_halo is None
     model = sw.Model(
         grid=make_grid(), csqr=1.0, rossby_number=0.2, coriolis=cor,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     fc = np.asarray(model.state["f_coriolis"].data)
     assert fc.std() > 0.0
     model.set_fields(p=gaussian_bump())

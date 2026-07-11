@@ -14,7 +14,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import fridom.framework2 as fr
+import fridom as fr
 
 
 def rk4(u, dt, tendency):
@@ -44,8 +44,8 @@ def one_period(u0, dt, tendency, period=1.0):
 #  Centered FD advection (1-D): translation + convergence order
 # ================================================================
 def centered_error_1d(n):
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     u0 = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
     c = 1.0
 
@@ -75,8 +75,8 @@ def upwind_error_1d(n):
     # (u_i - u_{i-1})/dx = centered - (dx/2) * second difference;
     # iteration 1 has no biased nodal stencils, so this is the
     # user-facing spelling of upwinding on nodal fields
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     u0 = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
     c = 1.0
     dx = mx.dx
@@ -109,9 +109,9 @@ def test_upwind_fd_advection_is_first_order_and_dissipative():
 #  Centered FD advection (2-D): diagonal translation
 # ================================================================
 def centered_error_2d(n):
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="y")
-    grid = fr.grid.Grid((mx, my))
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="y")
+    grid = fr.spatial.Grid((mx, my))
     u0 = grid.create_field(
         init=lambda x, y: jnp.sin(2 * jnp.pi * x)
         * jnp.cos(2 * jnp.pi * y))
@@ -136,8 +136,8 @@ def test_centered_fd_advection_is_second_order_2d():
 #  FV-style run: CellAvg + reconstruct/flux_diff, conservation
 # ================================================================
 def fv_setup(n):
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     q0 = grid.create_field(
         mx.cell_avg,
         init=lambda x: 1.0 + 0.5 * jnp.sin(2 * jnp.pi * x))
@@ -183,9 +183,9 @@ def test_fv_advection_conserves_the_integral_each_step():
 
 def test_fv_advection_2d_conserves_the_integral():
     n = 16
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), name="y")
-    grid = fr.grid.Grid((mx, my))
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), name="y")
+    grid = fr.spatial.Grid((mx, my))
     q0 = grid.create_field(
         mx.cell_avg * my.cell_avg,
         init=lambda x, y: 1.0

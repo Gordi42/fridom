@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.model.clock import Clock
+from fridom.model.clock import Clock
 
 
 # ================================================================

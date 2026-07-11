@@ -1,7 +1,7 @@
-"""Test the re-exports of the fridom.framework2.grid.cartesian package."""
+"""Test the re-exports of the fridom.spatial.cartesian package."""
 import pytest
 
-import fridom.framework2.grid.cartesian as test_module
+import fridom.spatial.cartesian as test_module
 
 all_imports = []
 for mod in test_module.all_modules_by_origin.values():

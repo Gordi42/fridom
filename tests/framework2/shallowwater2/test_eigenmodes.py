@@ -17,10 +17,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.grid.symbols import rayleigh_dual
-from fridom.framework2.model.eigen import _rest_background
+from fridom.spatial.symbols import rayleigh_dual
+from fridom.model.eigen import _rest_background
 
 from .conftest import N, make_grid, make_model
 
@@ -70,7 +70,7 @@ def test_dispersion_matches_the_numeric_eigensolve(f0, csqr):
     # eigh(iML, M) spectrum on EVERY mode (k = 0 included) to machine
     # precision.
     em, model = _eig(f0=f0, csqr=csqr)
-    ne = fr.numeric_eigenpairs(model)
+    ne = fr.model.numeric_eigenpairs(model)
     omega = np.asarray(ne.omega)
     analytic = np.sort(np.stack(
         [_full_omega(em, s) for s in (-1, 0, 1)], axis=-1), axis=-1)
@@ -98,7 +98,7 @@ def test_tendency_eigenrelation_lq_equals_i_omega_q():
     # space on seeded random amplitudes.
     em, model = _eig(f0=1.5, csqr=2.0)
     kit = em._kit
-    lin = fr.linearize(model)
+    lin = fr.model.linearize(model)
     prog, base0 = _rest_background(lin, 0.0)
     assert prog == COMPONENTS
     rng = np.random.default_rng(5)
@@ -186,7 +186,7 @@ def test_nyquist_steady_stratum_matches_the_numeric_eigenvectors():
     # numeric zero-frequency eigenvector
     f0, csqr = 1.5, 2.0
     em, model = _eig(f0=f0, csqr=csqr)
-    ne = fr.numeric_eigenpairs(model)
+    ne = fr.model.numeric_eigenpairs(model)
     omega = np.asarray(ne.omega)
     q = np.asarray(ne.q)
     w = np.asarray(ne.weights)
@@ -467,16 +467,16 @@ def test_mode_errors(mode_setup):
 #  from_model dispatch: topology first, then parameter validation
 # ================================================================
 def _walled_model(*, periodic_x=True, coriolis=None):
-    mx = fr.grid.meshes.IntervalMesh(8, (0.0, 1.0),
+    mx = fr.spatial.meshes.IntervalMesh(8, (0.0, 1.0),
                                      periodic=periodic_x, name="x")
-    my = fr.grid.meshes.IntervalMesh(8, (0.0, 1.0), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(8, (0.0, 1.0), periodic=False,
                                      name="y")
     if coriolis is None:
         coriolis = sw.modules.FPlaneCoriolis(f0=1.0)
     return sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=1.0, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=0.2,
         coriolis=coriolis, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 def test_from_model_dispatches_the_walled_channel():
@@ -532,7 +532,7 @@ def test_from_model_rejects_a_beta_plane():
     model = sw.Model(
         grid=grid, csqr=1.0,
         coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match=r"coriolis\.f0"):
         sw.eigenmodes.from_model(model)
 
@@ -541,9 +541,9 @@ def test_degenerate_and_non_2d_grids_are_rejected():
     grid = make_grid()
     with pytest.raises(ValueError, match="degenerate"):
         sw.eigenmodes.Eigenmodes(grid, f0=0.0, csqr=0.0)
-    mz = fr.grid.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
+    mz = fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
                                      name="z")
-    grid3 = fr.grid.Grid((*grid.factors, mz))
+    grid3 = fr.spatial.Grid((*grid.factors, mz))
     with pytest.raises(ValueError, match="2-D"):
         sw.eigenmodes.Eigenmodes(grid3, f0=1.0, csqr=1.0)
 
@@ -582,7 +582,7 @@ def test_function_inverse_wave_strong_test(mode_setup):
     # planes zeroed so the physical round-trip is exact)
     model, em = mode_setup
     kit = em._kit
-    lin = fr.linearize(model)
+    lin = fr.model.linearize(model)
     prog, base0 = _rest_background(lin, 0.0)
     assert prog == COMPONENTS
     rng = np.random.default_rng(42)

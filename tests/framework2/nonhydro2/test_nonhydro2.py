@@ -12,28 +12,28 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import Divergence
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.model.eigen import (
+from fridom.spatial.bc import BC
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import Divergence
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.model.eigen import (
     _leray_projector,
     _rest_background,
 )
-from fridom.framework2.model.model import Model as FrModel
-from fridom.framework2.model.params import (
+from fridom.model.model import Model as FrModel
+from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
 )
-from fridom.framework2.model.roles import ADVECTED, TRACER, Velocity
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.model.roles import ADVECTED, TRACER, Velocity
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.framework2.modules.coriolis import (
+from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
 )
@@ -251,7 +251,7 @@ def test_tendency_eigenrelation_lq_equals_i_omega_q():
         time_stepper=AdamBashforth(DT, order=3))
     em = nh.eigenmodes.from_model(model)
     kit = em._kit
-    lin = fr.linearize(model)
+    lin = fr.model.linearize(model)
     prog, base0 = _rest_background(lin, 0.0)
     leray = np.asarray(
         _leray_projector(lin, base0, prog, jnp.asarray(0.0)))
@@ -304,7 +304,7 @@ def nyquist_setup():
             ConstantStratification(n2=3.0)),
         time_stepper=AdamBashforth(DT, order=3))
     em = nh.eigenmodes.from_model(model)
-    lin = fr.linearize(model)
+    lin = fr.model.linearize(model)
     prog, base0 = _rest_background(lin, 0.0)
     leray = np.asarray(
         _leray_projector(lin, base0, prog, jnp.asarray(0.0)))
@@ -444,7 +444,7 @@ def test_nyquist_strata_agree_with_the_numeric_eigenpairs(
     # zero eigenspace, and the doubly degenerate strata are
     # all-steady
     model, em, *_ = nyquist_setup
-    ne = fr.numeric_eigenpairs(model)
+    ne = fr.model.numeric_eigenpairs(model)
     omega = np.asarray(ne.omega)
     q = np.asarray(ne.q)
     wts = np.asarray(ne.weights)
@@ -530,7 +530,7 @@ def test_fplane_provides_coriolis_f0_betaplane_does_not():
 
 
 def test_betaplane_advances_with_a_profile_f_of_y():
-    # the shared fr.modules beta-plane carries the rotation term as
+    # the shared fr.model.modules beta-plane carries the rotation term as
     # pure field arithmetic (no extra_halo raw-.data bypass); prove it
     # assembles AND advances treedef-stably on a real Profile("y") f(y)
     cor = BetaPlaneCoriolis(f0=1.0, beta=0.5)
@@ -549,12 +549,12 @@ def test_betaplane_advances_with_a_profile_f_of_y():
 
 
 def test_coriolis_is_the_shared_framework_module():
-    assert nh.FPlaneCoriolis is fr.modules.FPlaneCoriolis
-    assert nh.BetaPlaneCoriolis is fr.modules.BetaPlaneCoriolis
+    assert nh.FPlaneCoriolis is fr.model.modules.FPlaneCoriolis
+    assert nh.BetaPlaneCoriolis is fr.model.modules.BetaPlaneCoriolis
     model = nh.Model(grid=make_grid(), dt=DT)
     coriolis_modules = [
         m for m in model._carry.modules
-        if isinstance(m, fr.modules.FPlaneCoriolis)]
+        if isinstance(m, fr.model.modules.FPlaneCoriolis)]
     assert len(coriolis_modules) == 1
 
 
@@ -827,7 +827,7 @@ def test_function_inverse_wave_strong_test(function_setup):
     # coefficient space with the self-conjugate kx planes zeroed
     model, em = function_setup
     kit = em.kit
-    lin = fr.linearize(model)
+    lin = fr.model.linearize(model)
     prog, base0 = _rest_background(lin, 0.0)
     rng = np.random.default_rng(42)
     template = em.q(0)

@@ -17,19 +17,19 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.clock import Clock
-from fridom.framework2.model.composer import TendencyComposer
-from fridom.framework2.model.declarations import Lifecycle
-from fridom.framework2.model.stages import Stage, StageKind
-from fridom.framework2.model.terms import (
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.clock import Clock
+from fridom.model.composer import TendencyComposer
+from fridom.model.declarations import Lifecycle
+from fridom.model.stages import Stage, StageKind
+from fridom.model.terms import (
     TERM_ATTRIBUTE,
     Treatment,
     term,
 )
-from fridom.framework2.model.time_steppers.runge_kutta import (
+from fridom.model.time_steppers.runge_kutta import (
     ButcherTableau,
     ExplicitRungeKutta,
     LowStorageRK3,

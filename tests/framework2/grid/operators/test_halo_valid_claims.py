@@ -16,14 +16,14 @@ the stamps with the negotiated widths — the flip is stage C
 """
 import pytest
 
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.operators.interp import LinearInterp
-from fridom.framework2.grid.operators.products import (
+from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.products import (
     CollocationProduct,
     Divide,
 )

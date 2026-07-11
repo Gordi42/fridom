@@ -5,13 +5,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.dealias import degree
-from fridom.framework2.grid.operators.trig import Cosine, Sine
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.bc import BC
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.dealias import degree
+from fridom.spatial.operators.trig import Cosine, Sine
+from fridom.spatial.spaces.nodal import NodeSet
 
 N = 8
 

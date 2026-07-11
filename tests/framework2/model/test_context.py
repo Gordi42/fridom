@@ -3,8 +3,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.model.context import StepContext
-from fridom.framework2.model.terms import Treatment
+from fridom.model.context import StepContext
+from fridom.model.terms import Treatment
 
 
 def make_context(f0=1e-4, time=0.0, dt=60.0, stage_dt=30.0):

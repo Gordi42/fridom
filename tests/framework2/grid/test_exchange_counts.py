@@ -14,9 +14,9 @@ pointwise work never exchanges.
 import jax
 import pytest
 
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 

@@ -14,7 +14,7 @@ the module declares no ``extra_halo``.
 ``MeridionalStratification`` is the varying twin (the
 FPlaneCoriolis/BetaPlaneCoriolis two-type precedent): :math:`N^2(y)`
 is carried as an AUXILIARY ``n2`` field on a meridional
-``fr.Profile("y")`` and the module does **not** provide the constant
+``fr.spatial.Profile("y")`` and the module does **not** provide the constant
 ``stratification.n2`` (provides-implies-constancy, 02_rules).
 The restoring term samples :math:`N^2` **at the** ``b`` **nodes**
 (``n2.to(b)`` — a pure broadcast, since the profile and the
@@ -43,7 +43,7 @@ import inspect
 from functools import partial
 from typing import TYPE_CHECKING
 
-import fridom.framework2 as fr
+import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.nonhydro2.params import DSQR
 
@@ -52,61 +52,61 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 @partial(jaxify, dynamic=("n2",))
-class ConstantStratification(fr.Module):
+class ConstantStratification(fr.model.Module):
 
     """Registers ``b``; contributes both linear coupling terms.
 
     Parameters
     ----------
-    n2 : float | fr.Ramp, optional
+    n2 : float | fr.model.Ramp, optional
         The constant squared buoyancy frequency ``N^2`` (default: 1.0);
-        may be an ``fr.Ramp`` for a spun-up stratification.
+        may be an ``fr.model.Ramp`` for a spun-up stratification.
     """
 
-    def __init__(self, n2: float | fr.Ramp = 1.0) -> None:
+    def __init__(self, n2: float | fr.model.Ramp = 1.0) -> None:
         """Store the stratification leaf."""
-        self.n2 = fr.leaf(n2)
+        self.n2 = fr.model.leaf(n2)
 
     field_declarations = (
-        fr.FieldDeclaration.tracer(
-            "b", space=fr.Collocated(),
+        fr.model.FieldDeclaration.tracer(
+            "b", space=fr.spatial.Collocated(),
             long_name="Buoyancy", units="m/s^2"),
     )
     field_references = (
-        fr.FieldReference(
+        fr.model.FieldReference(
             "w", hint="buoyancy couples to vertical velocity, "
                       "declared by a dynamical core (nh.DynamicalCore)"),
     )
     parameter_declarations = (
-        fr.ParameterDeclaration(fr.params.STRATIFICATION_N2, attr="n2",
+        fr.model.ParameterDeclaration(fr.model.params.STRATIFICATION_N2, attr="n2",
                                 units="1/s^2",
                                 doc="squared buoyancy frequency N^2"),
     )
     parameter_references = (
-        fr.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
+        fr.model.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
     )
 
-    @fr.term(advances=("w",), linear=True)
+    @fr.model.term(advances=("w",), linear=True)
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
         """``dw/dt += b / dsqr`` (buoyancy interpolated onto the w face)."""
         dsqr = ctx.params[DSQR]
         return {"w": state["b"].to(state["w"]) / dsqr}
 
-    @fr.term(advances=("b",), linear=True)
+    @fr.model.term(advances=("b",), linear=True)
     def restoring(self, state, ctx) -> dict:  # noqa: ANN001
         """``db/dt += -N^2 w`` (w interpolated onto the b cell)."""
-        n2 = ctx.params[fr.params.STRATIFICATION_N2]
+        n2 = ctx.params[fr.model.params.STRATIFICATION_N2]
         return {"b": -(n2 * state["w"].to(state["b"]))}
 
 
-class MeridionalStratification(fr.Module):
+class MeridionalStratification(fr.model.Module):
 
     r"""Registers ``b``; the linear coupling with :math:`N^2(y)`.
 
     Description
     -----------
     The varying twin of :class:`ConstantStratification`: declares
-    the AUXILIARY ``n2`` field on a meridional ``fr.Profile("y")``
+    the AUXILIARY ``n2`` field on a meridional ``fr.spatial.Profile("y")``
     (materialized from the callable) and contributes both linear
     coupling terms with :math:`N^2` sampled pointwise at the ``b``
     nodes — the pairing that keeps ``(dw = b/dsqr, db = -N^2 w)``
@@ -137,24 +137,24 @@ class MeridionalStratification(fr.Module):
         self._meridional = meridional
 
     field_references = (
-        fr.FieldReference(
+        fr.model.FieldReference(
             "w", hint="buoyancy couples to vertical velocity, "
                       "declared by a dynamical core (nh.DynamicalCore)"),
     )
     parameter_references = (
-        fr.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
+        fr.model.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
     )
 
     @property
-    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
+    def field_declarations(self) -> tuple[fr.model.FieldDeclaration, ...]:
         """The ``b`` tracer and the ``n2(y)`` meridional profile."""
         return (
-            fr.FieldDeclaration.tracer(
-                "b", space=fr.Collocated(),
+            fr.model.FieldDeclaration.tracer(
+                "b", space=fr.spatial.Collocated(),
                 long_name="Buoyancy", units="m/s^2"),
-            fr.FieldDeclaration(
-                "n2", space=fr.Profile(self._meridional),
-                lifecycle=fr.Lifecycle.AUXILIARY,
+            fr.model.FieldDeclaration(
+                "n2", space=fr.spatial.Profile(self._meridional),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._n2_default,
                 long_name="Squared buoyancy frequency",
                 units="1/s^2"),
@@ -162,7 +162,7 @@ class MeridionalStratification(fr.Module):
 
     def _n2_default(
         self, grid, space,  # noqa: ANN001
-    ) -> fr.grid.ScalarField:
+    ) -> fr.spatial.ScalarField:
         """Owner-method default: materialize the ``n2(y)`` profile.
 
         The meridional profile carries a single non-constant
@@ -181,13 +181,13 @@ class MeridionalStratification(fr.Module):
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="n2")
 
-    @fr.term(advances=("w",), linear=True)
+    @fr.model.term(advances=("w",), linear=True)
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
         """``dw/dt += b / dsqr`` (buoyancy interpolated onto w)."""
         dsqr = ctx.params[DSQR]
         return {"w": state["b"].to(state["w"]) / dsqr}
 
-    @fr.term(advances=("b",), linear=True)
+    @fr.model.term(advances=("b",), linear=True)
     def restoring(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
         """``db/dt += -N^2(y) w``, with ``N^2`` sampled at ``b``.
 

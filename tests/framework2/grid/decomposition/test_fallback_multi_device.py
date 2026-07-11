@@ -24,10 +24,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.fallback import graded_reconstruction
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.fallback import graded_reconstruction
 
 
 # ================================================================

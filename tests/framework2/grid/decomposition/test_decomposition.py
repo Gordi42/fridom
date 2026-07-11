@@ -4,12 +4,12 @@ from dataclasses import dataclass
 
 import pytest
 
-from fridom.framework2.grid.decomposition.decomposition import (
+from fridom.spatial.decomposition.decomposition import (
     Decomposition,
     ReshardingReport,
     SpaceLike,
 )
-from fridom.framework2.grid.decomposition.layout import Layout
+from fridom.spatial.decomposition.layout import Layout
 
 
 @dataclass(frozen=True)

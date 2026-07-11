@@ -1,19 +1,19 @@
-"""Tests for fridom.framework2.grid.operators.fallback (stage F1)."""
+"""Tests for fridom.spatial.operators.fallback (stage F1)."""
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.fallback import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.fallback import (
     Fallback,
     UpwindOne,
     graded_ladder,
     graded_reconstruction,
 )
-from fridom.framework2.grid.operators.weno import WenoReconstruction
+from fridom.spatial.operators.weno import WenoReconstruction
 
 
 # ================================================================

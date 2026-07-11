@@ -14,41 +14,41 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.errors import GridFrozenError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.errors import GridFrozenError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.model.assembly import (
+from fridom.model.assembly import (
     AssemblyArtifacts,
     Fingerprint,
     assemble,
 )
-from fridom.framework2.model.declarations import (
+from fridom.model.declarations import (
     FieldDeclaration,
     FieldReference,
     Lifecycle,
 )
-from fridom.framework2.model.errors import (
+from fridom.model.errors import (
     AssemblyError,
     DispatchCollisionError,
     FieldCollisionError,
     MissingFieldError,
     TimeDependentParameterError,
 )
-from fridom.framework2.model.module import Module
-from fridom.framework2.model.parameters import ParameterDeclaration
-from fridom.framework2.model.report import AssemblyReport
-from fridom.framework2.model.space_patterns import (
+from fridom.model.module import Module
+from fridom.model.parameters import ParameterDeclaration
+from fridom.model.report import AssemblyReport
+from fridom.model.space_patterns import (
     Collocated,
     Profile,
     Staggered,
 )
-from fridom.framework2.model.stages import StageKind
-from fridom.framework2.model.terms import Treatment, term
-from fridom.framework2.model.time_dependent import Ramp
+from fridom.model.stages import StageKind
+from fridom.model.terms import Treatment, term
+from fridom.model.time_dependent import Ramp
 
 
 # ================================================================
@@ -445,10 +445,10 @@ def test_step_fn_runs_over_a_zero_state(grid):
     arts = make_artifacts(grid)
     import jax.numpy as jnp  # noqa: PLC0415
 
-    from fridom.framework2.grid.fields.vector_field import (  # noqa: PLC0415
+    from fridom.spatial.fields.vector_field import (  # noqa: PLC0415
         VectorField,
     )
-    from fridom.framework2.model.context import (  # noqa: PLC0415
+    from fridom.model.context import (  # noqa: PLC0415
         StepContext,
     )
     state = VectorField({

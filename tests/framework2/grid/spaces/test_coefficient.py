@@ -1,17 +1,17 @@
 """Tests for the coefficient spaces (framework2/grid/spaces/coefficient.py)."""
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.coefficient import (
+from fridom.spatial.bc import BC
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.coefficient import (
     ChebyshevSpace,
     CoefficientSpace,
     CosineSpace,
     SineSpace,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.spaces.nodal import NodeSet
 
 N = 8
 

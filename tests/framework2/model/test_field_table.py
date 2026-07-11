@@ -3,28 +3,28 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.model.declarations import (
+from fridom.spatial.bc import BC
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.model.declarations import (
     FieldDeclaration,
     FieldReference,
     Lifecycle,
 )
-from fridom.framework2.model.errors import (
+from fridom.model.errors import (
     AssemblyError,
     FieldCollisionError,
     MissingFieldError,
 )
-from fridom.framework2.model.field_table import (
+from fridom.model.field_table import (
     FieldRecord,
     FieldTable,
     VelocitySelector,
 )
-from fridom.framework2.model.roles import TRACER, Role, Velocity
-from fridom.framework2.model.space_patterns import (
+from fridom.model.roles import TRACER, Role, Velocity
+from fridom.model.space_patterns import (
     Collocated,
     Dof,
     Profile,

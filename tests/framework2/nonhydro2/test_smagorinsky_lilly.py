@@ -4,21 +4,21 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.declarations import FieldDeclaration
-from fridom.framework2.model.errors import (
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.declarations import FieldDeclaration
+from fridom.model.errors import (
     AssemblyError,
     MissingParameterError,
 )
-from fridom.framework2.model.field_table import (
+from fridom.model.field_table import (
     FieldRecord,
     FieldTable,
 )
-from fridom.framework2.model.model import Model
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.model.model import Model
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
 from fridom.nonhydro2.modules.core import DynamicalCore
@@ -112,7 +112,7 @@ def test_smagorinsky_terms_are_nonlinear_and_linearize_drops_them():
     _, _, z = coords()
     model.set_fields(u=0.1 * np.sin(z))
     with pytest.warns(UserWarning, match="coverage lint"):
-        linear = fr.linearize(model)
+        linear = fr.model.linearize(model)
     td = linear.tendency(model.state)
     assert np.abs(data(td["u"])).max() == 0.0
 
@@ -165,8 +165,8 @@ def test_advancing_predicate_splits_stress_from_mixing():
     _, _, z = coords()
     model.set_fields(u=0.1 * np.sin(z), b=0.1 * np.cos(z))
     no_mixing = model.variant(
-        term_filter=~(fr.terms.owned_by(SmagorinskyLilly)
-                      & fr.terms.advancing("b")))
+        term_filter=~(fr.model.terms.owned_by(SmagorinskyLilly)
+                      & fr.model.terms.advancing("b")))
     td = no_mixing.tendency(model.state)
     # the mixing term is gone (only restoring writes b; w = 0)
     assert np.abs(data(td["b"])).max() == 0.0
@@ -180,7 +180,7 @@ def test_owned_by_closurebase_drops_the_whole_closure():
     model.set_fields(u=0.1 * np.sin(z))
     with pytest.warns(UserWarning, match="coverage lint"):
         inviscid = model.variant(
-            term_filter=~fr.terms.owned_by(fr.closures.ClosureBase))
+            term_filter=~fr.model.terms.owned_by(fr.model.closures.ClosureBase))
     td = inviscid.tendency(model.state)
     assert np.abs(data(td["u"])).max() == 0.0
 
@@ -266,7 +266,7 @@ def test_non_uniform_mesh_factor_is_rejected():
     grid = Grid((IntervalMesh(N, (0.0, LZ), periodic=True,
                               name="z"),))
     records = [FieldRecord.from_declaration(
-        FieldDeclaration.velocity("w", "z", space=fr.Staggered("z")),
+        FieldDeclaration.velocity("w", "z", space=fr.spatial.Staggered("z")),
         owner=0, owner_type="Core", grid=grid)]
     records.append(FieldRecord.from_declaration(
         FieldDeclaration.tracer("b"), owner=0, owner_type="Core",

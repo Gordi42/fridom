@@ -14,14 +14,14 @@ in the projection stage ride on top.
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import Divergence
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.bc import BC
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import Divergence
+from fridom.spatial.spaces.nodal import NodeSet
 
 N = 8
 F0, N2, DSQR = 1.5, 3.0, 2.0
@@ -38,7 +38,7 @@ def make_model(*, walled="y"):
         grid=Grid(meshes), advection=False, dsqr=DSQR,
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -143,7 +143,7 @@ def test_nonlinear_advance_stays_finite_and_divergence_free(walled):
         grid=Grid(meshes), advection=True, dsqr=DSQR,
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     _random_state(model, seed=6)
     model.advance(3)
     assert not model.panicked

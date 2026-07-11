@@ -1,9 +1,9 @@
 """Tests for fr.terms predicates (model/term_predicates.py)."""
 import pytest
 
-from fridom.framework2.model import term_predicates as terms
-from fridom.framework2.model.term_predicates import linearize
-from fridom.framework2.model.terms import TendencyTerm, Treatment
+from fridom.model import term_predicates as terms
+from fridom.model.term_predicates import linearize
+from fridom.model.terms import TendencyTerm, Treatment
 
 
 def _fn(_module, _state, _ctx):

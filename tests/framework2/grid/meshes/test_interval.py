@@ -3,8 +3,8 @@ from fractions import Fraction
 
 import pytest
 
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.meshes.point import PointMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.point import PointMesh
 
 N = 8
 

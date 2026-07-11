@@ -1,14 +1,14 @@
-"""Tests for fridom.framework2.grid.fields.storage."""
+"""Tests for fridom.spatial.fields.storage."""
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.decomposition.tensor import (
+from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
-from fridom.framework2.grid.fields.storage import (
+from fridom.spatial.fields.storage import (
     factor_axes,
     flat_hermitian_applies,
     hermitian_project,
@@ -16,8 +16,8 @@ from fridom.framework2.grid.fields.storage import (
     storage_dtype,
     store,
 )
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 @pytest.fixture

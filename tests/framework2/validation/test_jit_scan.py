@@ -10,7 +10,7 @@ plain Python loop bitwise.
 import jax
 import jax.numpy as jnp
 
-import fridom.framework2 as fr
+import fridom as fr
 
 N = 16
 N_STEPS = 5
@@ -23,9 +23,9 @@ def build():
     # `u + dt * du` on a named field changes the treedef and
     # lax.scan rejects the carry. VectorField preserves component
     # metadata (``_keep_metadata``) exactly so its carries survive.
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), name="y")
-    grid = fr.grid.Grid((mx, my))
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="y")
+    grid = fr.spatial.Grid((mx, my))
     u0 = grid.create_field(
         init=lambda x, y: jnp.sin(2 * jnp.pi * x)
         * jnp.cos(2 * jnp.pi * y))
@@ -111,13 +111,13 @@ def test_scan_over_a_vector_field_matches_the_python_loop(
         compile_counter):
     _, u0, q0, scalar_tendency, dt = build()
     center = u0.function_space.bare
-    state0 = fr.grid.VectorField({"u": u0, "q": q0})
+    state0 = fr.spatial.VectorField({"u": u0, "q": q0})
 
     def tendency(state):
         du = scalar_tendency(state["u"])
         # passive tracer advected by the constant flow
         dq = -1.0 * state["q"].diff("x").to(center)
-        return fr.grid.VectorField({"u": du, "q": dq})
+        return fr.spatial.VectorField({"u": du, "q": dq})
 
     def body(state, _):
         return rk4(state, dt, tendency), None

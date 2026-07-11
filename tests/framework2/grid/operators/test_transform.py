@@ -2,20 +2,20 @@
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.errors import (
+from fridom.spatial.errors import (
     GridMismatchError,
     SpaceMismatchError,
 )
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.dealias import degree
-from fridom.framework2.grid.operators.fourier import Fourier
-from fridom.framework2.grid.operators.transform import (
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.dealias import degree
+from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.operators.transform import (
     Transform,
     TransformPlan,
     TransformStage,
 )
-from fridom.framework2.grid.operators.trig import Sine
+from fridom.spatial.operators.trig import Sine
 
 TWO_PI = 2.0 * jnp.pi
 

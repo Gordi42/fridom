@@ -1,9 +1,9 @@
 """Tests for the mesh-keyed ``("declared_space", mesh)`` resolver rows."""
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.operators.registry import (
+from fridom.spatial.bc import BC
+from fridom.spatial.grid import Grid
+from fridom.spatial.operators.registry import (
     DispatchError,
     OperatorRegistry,
 )

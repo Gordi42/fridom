@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 
 N = 64
 SPEED = 1.0
@@ -32,10 +32,10 @@ def total_variation(data):
 
 @pytest.fixture
 def setup():
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mx,))
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mx,))
     # WENO5 needs halo 3: renegotiate before creating fields
-    grid.negotiate(halo=fr.grid.decomposition.HaloSpec({"x": 3}))
+    grid.negotiate(halo=fr.spatial.decomposition.HaloSpec({"x": 3}))
     q0 = grid.create_field(
         mx.cell_avg,
         init=lambda x: jnp.where((x > 0.25) & (x < 0.75), 1.0, 0.0))
@@ -79,7 +79,7 @@ def exact_translation(grid, mx):
 def test_weno_step_transport_is_non_oscillatory(setup):
     grid, mx, q0 = setup
     # upwind for c > 0 is the left-biased instance
-    weno = fr.grid.operators.WenoReconstruction(5, bias="left")["x"]
+    weno = fr.spatial.operators.WenoReconstruction(5, bias="left")["x"]
     q = march(grid, mx, q0, weno)
     # TV bounded: no oscillations beyond a tiny WENO5 tolerance
     # (measured TV growth ~1.1e-5; WENO is ENO, not strictly TVD)
@@ -92,7 +92,7 @@ def test_weno_step_transport_is_non_oscillatory(setup):
 
 def test_linear_reconstruction_oscillates_weno_does_not(setup):
     grid, mx, q0 = setup
-    weno = fr.grid.operators.WenoReconstruction(5, bias="left")["x"]
+    weno = fr.spatial.operators.WenoReconstruction(5, bias="left")["x"]
     q_weno = march(grid, mx, q0, weno)
     # the seeded default: centered linear reconstruction via f.to
     q_lin = march(grid, mx, q0, lambda q: q.to(mx.right))

@@ -1,9 +1,9 @@
-"""Tests for fridom.framework2.grid.fields.metadata."""
+"""Tests for fridom.spatial.fields.metadata."""
 import dataclasses
 
 import pytest
 
-from fridom.framework2.grid.fields.metadata import FieldMetadata
+from fridom.spatial.fields.metadata import FieldMetadata
 
 
 def test_defaults():

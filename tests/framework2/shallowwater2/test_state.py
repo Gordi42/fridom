@@ -1,17 +1,17 @@
 """Parameter-free State diagnostics on the C-grid."""
 import numpy as np
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.bc import BC
+from fridom.spatial.spaces.nodal import NodeSet
 
 from .conftest import make_grid
 
 
 def _model():
     return sw.Model(grid=make_grid(),
-                    time_stepper=fr.time_steppers.AdamBashforth(
+                    time_stepper=fr.model.time_steppers.AdamBashforth(
                         5e-3, order=3))
 
 
@@ -46,7 +46,7 @@ def test_rest_state_has_zero_diagnostics():
 def test_walled_rel_vort_lands_on_the_free_slip_corner_space():
     model = sw.Model(
         grid=make_grid(periodic_y=False),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     rng = np.random.default_rng(2)
     u = rng.standard_normal(model.state["u"].shape)
     v = rng.standard_normal(model.state["v"].shape)

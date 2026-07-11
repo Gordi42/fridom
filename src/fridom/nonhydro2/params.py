@@ -11,7 +11,7 @@ re-exported here for convenience.
 """
 from __future__ import annotations
 
-from fridom.framework2.model.params import (
+from fridom.model.params import (
     CORIOLIS_BETA,
     CORIOLIS_F0,
     SCALING_ROSSBY,

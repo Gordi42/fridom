@@ -1,7 +1,7 @@
 """Tests for the static scalar markers (framework2/grid/scalars.py)."""
 import pytest
 
-from fridom.framework2.grid.scalars import Complex, Real, Scalars, Variance
+from fridom.spatial.scalars import Complex, Real, Scalars, Variance
 
 
 # ================================================================

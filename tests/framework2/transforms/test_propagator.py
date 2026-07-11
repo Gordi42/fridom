@@ -9,9 +9,9 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.transforms.errors import TraceError
-from fridom.framework2.transforms.norms import relative_l2
-from fridom.framework2.transforms.propagator import Propagator
+from fridom.model.transforms.errors import TraceError
+from fridom.model.transforms.norms import relative_l2
+from fridom.model.transforms.propagator import Propagator
 
 
 # ================================================================

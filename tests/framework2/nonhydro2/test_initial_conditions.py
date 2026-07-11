@@ -14,7 +14,7 @@ coherent eddy is discretely divergence-free.
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
 
 N = 8
@@ -25,17 +25,17 @@ COMPONENTS = ("u", "v", "w", "b")
 
 def make_model(*, periodic_y=True, periodic_z=True):
     """Build a small linear nonhydro model (walls as requested)."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=periodic_y, name="y")
-    mz = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=periodic_z, name="z")
     return nh.Model(
-        grid=fr.grid.Grid((mx, my, mz)), advection=False,
+        grid=fr.spatial.Grid((mx, my, mz)), advection=False,
         dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.time_steppers.AdamBashforth(DT, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 
 
 @pytest.fixture(scope="module")

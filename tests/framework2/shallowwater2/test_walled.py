@@ -4,9 +4,9 @@ The nonlinear (Sadourny) walled coverage lives in test_sadourny.py.
 """
 import numpy as np
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.model.energy import shallowwater_energy_weights
+from fridom.spatial.bc import BC
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.model.energy import shallowwater_energy_weights
 
 from .conftest import N, gaussian_bump, make_grid, make_model
 

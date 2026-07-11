@@ -10,13 +10,13 @@ guard fires. No dependence on the wave-7 C projections.
 import jax
 import pytest
 
-from fridom.framework2.model import term_predicates as terms
-from fridom.framework2.model.time_dependent import Ramp
-from fridom.framework2.transforms.errors import TraceError
-from fridom.framework2.transforms.norms import relative_l2
-from fridom.framework2.transforms.optimal_balance import OptimalBalance
-from fridom.framework2.transforms.propagator import Propagator
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.model import term_predicates as terms
+from fridom.model.time_dependent import Ramp
+from fridom.model.transforms.errors import TraceError
+from fridom.model.transforms.norms import relative_l2
+from fridom.model.transforms.optimal_balance import OptimalBalance
+from fridom.model.transforms.propagator import Propagator
+from fridom.model.transforms.signature import StateSignature
 
 from .conftest import (
     Coriolis,

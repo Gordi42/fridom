@@ -1,6 +1,6 @@
 """Dense-column channel eigenbasis on the walled channel models.
 
-Validates the C3 engine (``fridom.framework2.model.eigen_channel``) on
+Validates the C3 engine (``fridom.model.eigen_channel``) on
 the linear rotating channel: gates, Hermiticity, M-orthonormality, the
 per-plane zero-mode counts, and the strong per-column eigen relation
 ``L Re(q e^{i kx x}) = Re(i omega q e^{i kx x})`` evaluated through the
@@ -15,14 +15,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
-from fridom.framework2.grid.decomposition.tensor import (
+from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
-from fridom.framework2.model import eigen_channel
-from fridom.framework2.model.eigen_channel import (
+from fridom.model import eigen_channel
+from fridom.model.eigen_channel import (
     UNLABELED,
     ChannelEigenbasis,
     channel_eigenpairs,
@@ -41,11 +41,11 @@ BETA = 2.0
 # ================================================================
 def make_grid(n=N, *, periodic_x=True, periodic_y=False):
     """Return a small channel grid (periodic x, walled y by default)."""
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0),
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
                                      periodic=periodic_x, name="x")
-    my = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0),
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
                                      periodic=periodic_y, name="y")
-    return fr.grid.Grid((mx, my))
+    return fr.spatial.Grid((mx, my))
 
 
 def make_walled_model(grid=None, *, coriolis=None):
@@ -56,7 +56,7 @@ def make_walled_model(grid=None, *, coriolis=None):
         grid=grid if grid is not None else make_grid(),
         csqr=CSQR, rossby_number=0.2,
         coriolis=coriolis, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +75,7 @@ def basis(model):
 def beta_model():
     """Build a walled channel with f varying along the dense y axis."""
     return make_walled_model(
-        coriolis=fr.modules.BetaPlaneCoriolis(f0=F0, beta=BETA))
+        coriolis=fr.model.modules.BetaPlaneCoriolis(f0=F0, beta=BETA))
 
 
 @pytest.fixture(scope="module")
@@ -284,18 +284,18 @@ F0_NH, N2_NH, DSQR_NH = 1.5, 3.0, 2.0
 
 def make_nh_channel(f0=F0_NH, device_ids=None):
     """Walled-y nonhydro channel: x, z periodic, y bounded."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=False, name="y")
-    mz = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="z")
-    grid = fr.grid.Grid((mx, my, mz), device_ids=device_ids)
+    grid = fr.spatial.Grid((mx, my, mz), device_ids=device_ids)
     return nh.Model(
         grid=grid, advection=False, dsqr=DSQR_NH,
         coriolis=nh.FPlaneCoriolis(f0=f0),
         stratification=nh.ConstantStratification(n2=N2_NH),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -504,7 +504,7 @@ def make_varying_sw(coriolis=None):
     return sw.Model(
         grid=make_grid(), csqr=csqr_profile, rossby_number=0.2,
         coriolis=coriolis, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -522,7 +522,7 @@ def varying_basis(varying_model):
 @pytest.fixture(scope="module")
 def varying_beta_model():
     """Varying csqr combined with a beta-plane f(y)."""
-    return make_varying_sw(coriolis=fr.modules.BetaPlaneCoriolis(
+    return make_varying_sw(coriolis=fr.model.modules.BetaPlaneCoriolis(
         f0=F0, beta=BETA, metric_weight="csqr"))
 
 
@@ -571,7 +571,7 @@ def test_varying_constant_profile_reproduces_the_constant_path(
     const_var = sw.Model(
         grid=make_grid(), csqr=lambda y: CSQR + 0.0 * y,
         rossby_number=0.2, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     cv = channel_eigenpairs(const_var)
     assert np.abs(np.asarray(cv.omega)
                   - np.asarray(basis.omega)).max() < 1e-12
@@ -631,7 +631,7 @@ def test_varying_metric_must_be_positive():
     model = sw.Model(
         grid=make_grid(), csqr=lambda y: y - 0.5, rossby_number=0.2,
         advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match="positive definite"):
         channel_eigenpairs(model)
 
@@ -639,17 +639,17 @@ def test_varying_metric_must_be_positive():
 @pytest.fixture(scope="module")
 def nh_varying_channel():
     """Walled-y nonhydro channel with N^2 varying along y."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=False, name="y")
-    mz = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="z")
     return nh.Model(
-        grid=fr.grid.Grid((mx, my, mz)), advection=False,
+        grid=fr.spatial.Grid((mx, my, mz)), advection=False,
         dsqr=DSQR_NH, coriolis=nh.FPlaneCoriolis(f0=F0_NH),
         stratification=nh.MeridionalStratification(n2=n2_profile),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -691,18 +691,18 @@ def test_nh_varying_constant_profile_reproduces_the_constant_path(
     # N^2(y) = n0 through the varying path is bitwise the constant
     # coupling (the profile broadcast multiplies pointwise), so the
     # spectrum agrees to machine precision
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=False, name="y")
-    mz = fr.grid.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="z")
     model = nh.Model(
-        grid=fr.grid.Grid((mx, my, mz)), advection=False,
+        grid=fr.spatial.Grid((mx, my, mz)), advection=False,
         dsqr=DSQR_NH, coriolis=nh.FPlaneCoriolis(f0=F0_NH),
         stratification=nh.MeridionalStratification(
             n2=lambda y: N2_NH + 0.0 * y),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     cv = channel_eigenpairs(model)
     assert np.abs(np.asarray(cv.omega)
                   - np.asarray(nh_basis.omega)).max() < 1e-12

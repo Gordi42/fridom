@@ -47,7 +47,7 @@ telescopes to the module's own scheme at the full advecting velocity
   linear operator is not linear in the state and must never carry
   ``linear=True``), the stencil side selected by the sign of the
   static background face velocity — a state-independent mask, so the
-  term is exactly linear in the state and ``fr.linearize`` keeps it.
+  term is exactly linear in the state and ``fr.model.linearize`` keeps it.
 - ``advection`` (nonlinear): :math:`N(u', q) =
   S_\mathrm{full}(U + \mathrm{Ro}\,u', q) - S_\mathrm{lin}(U, q)`,
   the module's own scheme at the full velocity minus the linear
@@ -103,42 +103,42 @@ from typing import TYPE_CHECKING, ClassVar, Literal, final
 
 import numpy as np
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.fields.scalar_field import (
-    _bc_siblings,  # the BC-sibling seam of retag/.to (framework2)
+import fridom as fr
+from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.fields.scalar_field import (
+    _bc_siblings,  # the BC-sibling seam of retag/.to
 )
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.operators.base import (
     OperatorRequirements,
     SeparableOperator,
 )
-from fridom.framework2.grid.operators.interned import interned
-from fridom.framework2.grid.operators.reconstruct import (
+from fridom.spatial.operators.interned import interned
+from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
 )
-from fridom.framework2.grid.operators.select import Where
-from fridom.framework2.grid.operators.weno import (
-    _shu_row,  # the exact-rational coefficient seam (framework2)
+from fridom.spatial.operators.select import Where
+from fridom.spatial.operators.weno import (
+    _shu_row,  # the exact-rational coefficient seam
     weno_reconstruct,
     weno_tables,
 )
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.spaces.nodal import NodalSpace, NodeSet
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
     from jax import Array
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.operators.base import FieldLike
-    from fridom.framework2.grid.spaces.function_space import (
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.operators.base import FieldLike
+    from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
-    from fridom.framework2.model.context import StepContext
+    from fridom.model.context import StepContext
 
 #: the biased-reconstruction weightings of the module family
 _WEIGHTINGS = ("linear", "weno")
@@ -213,7 +213,7 @@ def _sample_profile(
 
     Parameters
     ----------
-    grid : fr.grid.Grid
+    grid : fr.spatial.Grid
         The grid to materialize on.
     space : SpaceLike
         The target function space (the velocity component's space).
@@ -291,7 +291,7 @@ def _wall_profile_values(
 
     Parameters
     ----------
-    grid : fr.grid.Grid
+    grid : fr.spatial.Grid
         The grid supplying the tangential evaluation nodes.
     space : SpaceLike
         The background sample's own space (node positions).
@@ -741,7 +741,7 @@ class _BiasedFaceReconstruction(SeparableOperator):
 # ================================================================
 #  The shared flux-form scaffolding (module-private)
 # ================================================================
-class _FluxFormAdvection(fr.Module):
+class _FluxFormAdvection(fr.model.Module):
 
     r"""
     Shared flux-form transport of every ADVECTED component.
@@ -770,8 +770,8 @@ class _FluxFormAdvection(fr.Module):
     """
 
     parameter_references = (
-        fr.ParameterReference(
-            fr.params.SCALING_ROSSBY, default=1.0,
+        fr.model.ParameterReference(
+            fr.model.params.SCALING_ROSSBY, default=1.0,
             hint="Rossby number (nh.DynamicalCore)"),
     )
 
@@ -795,7 +795,7 @@ class _FluxFormAdvection(fr.Module):
     #  Background declarations (AUXILIARY profile samples)
     # ------------------------------------------------------------
     @property
-    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
+    def field_declarations(self) -> tuple[fr.model.FieldDeclaration, ...]:
         """The background samples on each component's own space.
 
         One AUXILIARY field ``background_<component>`` per mapped
@@ -810,11 +810,11 @@ class _FluxFormAdvection(fr.Module):
         ``grid.create_field``.
         """
         return tuple(
-            fr.FieldDeclaration(
+            fr.model.FieldDeclaration(
                 f"background_{name}",
-                space=fr.Staggered(
+                space=fr.spatial.Staggered(
                     axis, wall_bc={axis: BC.DIRICHLET}),
-                lifecycle=fr.Lifecycle.AUXILIARY,
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=(_profile_default(name)
                          if callable(self._background[name])
                          else self._background[name]),
@@ -824,10 +824,10 @@ class _FluxFormAdvection(fr.Module):
             if name in self._background)
 
     @property
-    def field_references(self) -> tuple[fr.FieldReference, ...]:
+    def field_references(self) -> tuple[fr.model.FieldReference, ...]:
         """The checked claims on the mapped velocity components."""
         return tuple(
-            fr.FieldReference(
+            fr.model.FieldReference(
                 name, hint="the background flow rides the declared "
                            "velocity components (nh.DynamicalCore "
                            "declares u, v, w)")
@@ -865,7 +865,7 @@ class _FluxFormAdvection(fr.Module):
                 "future work. Use CenteredAdvection (walled-"
                 "capable) or a linear model (advection=False in "
                 "nh.Model)")
-        self._advected = table.select(fr.roles.ADVECTED)
+        self._advected = table.select(fr.model.roles.ADVECTED)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
         self._axis_velocity = tuple(
@@ -938,32 +938,32 @@ class _FluxFormAdvection(fr.Module):
                     "structural (Dirichlet) zero and would silently "
                     "disagree with the profile")
 
-    def tendency_terms(self) -> tuple[fr.TendencyTerm, ...]:
+    def tendency_terms(self) -> tuple[fr.model.TendencyTerm, ...]:
         """Return the advection term(s) of the module.
 
         Without a background: the single Rossby-scaled ``advection``
         term (the pre-background code path, literally unchanged).
         With one: the nonlinear ``advection`` difference term plus
         the genuinely separate ``background_advection`` term tagged
-        ``linear=True`` so ``fr.linearize`` keeps exactly it (V-S3).
+        ``linear=True`` so ``fr.model.linearize`` keeps exactly it (V-S3).
         """
         if not self._background:
             return (
-                fr.TendencyTerm(
+                fr.model.TendencyTerm(
                     name="advection", fn=self._advect,
-                    treatment=fr.Treatment.EXPLICIT,
+                    treatment=fr.model.Treatment.EXPLICIT,
                     advances=self._advected,
                     transports=self._advected),
             )
         return (
-            fr.TendencyTerm(
+            fr.model.TendencyTerm(
                 name="advection", fn=self._advect_perturbation,
-                treatment=fr.Treatment.EXPLICIT,
+                treatment=fr.model.Treatment.EXPLICIT,
                 advances=self._advected, transports=self._advected),
-            fr.TendencyTerm(
+            fr.model.TendencyTerm(
                 name="background_advection",
                 fn=self._advect_background,
-                treatment=fr.Treatment.EXPLICIT,
+                treatment=fr.model.Treatment.EXPLICIT,
                 advances=self._advected, transports=self._advected,
                 linear=True),
         )
@@ -1011,7 +1011,7 @@ class _FluxFormAdvection(fr.Module):
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
         """Flux-form transport of every advected component (Ro-scaled)."""
-        ro = ctx.params[fr.params.SCALING_ROSSBY]
+        ro = ctx.params[fr.model.params.SCALING_ROSSBY]
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
@@ -1046,7 +1046,7 @@ class _FluxFormAdvection(fr.Module):
         the two-term sum telescopes to the full-velocity scheme. No
         outer Rossby factor (module docstring, scaling convention).
         """
-        ro = ctx.params[fr.params.SCALING_ROSSBY]
+        ro = ctx.params[fr.model.params.SCALING_ROSSBY]
         return {
             qname: (self._full_transport(state, ro, state[qname])
                     - self._linear_transport(state, state[qname]))
@@ -1066,7 +1066,7 @@ class _FluxFormAdvection(fr.Module):
         discretization of transport by the static background samples
         — exactly linear in the state (the upwind side selection
         reads only the background field, never the state), so
-        ``fr.linearize`` keeps this term and drops the nonlinear
+        ``fr.model.linearize`` keeps this term and drops the nonlinear
         difference.
         """
         return {

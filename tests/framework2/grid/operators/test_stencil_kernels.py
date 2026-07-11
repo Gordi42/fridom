@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.operators import stencil_kernels as sk
+from fridom.spatial.operators import stencil_kernels as sk
 
 ORDERS = [2, 4, 6]
 

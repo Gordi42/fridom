@@ -1,24 +1,24 @@
-"""Tests for fridom.framework2.grid.operators.staggering."""
+"""Tests for fridom.spatial.operators.staggering."""
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.decomposition.tensor import (
+from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.operators.staggering import (
+from fridom.spatial.operators.staggering import (
     first_node_offset,
     uniform_spacing,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 @pytest.fixture

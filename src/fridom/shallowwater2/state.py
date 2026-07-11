@@ -1,10 +1,10 @@
 r"""
-The shallow-water State vocabulary class (framework2 port).
+The shallow-water State vocabulary class.
 
 Description
 -----------
 ``State`` is the shallow-water *vocabulary* subclass of
-``fr.VectorField`` (model.md section 4): curated ``u`` / ``v`` / ``p``
+``fr.spatial.VectorField`` (model.md section 4): curated ``u`` / ``v`` / ``p``
 accessors plus parameter-free diagnostics for the shallow-water
 family. It is **not** a structural entity — it declares no fields and
 owns no assembly logic (the ``DynamicalCore`` module does), and it
@@ -15,11 +15,11 @@ unchanged. A model assembled without a core produces a plain
 
 Component vocabulary (D1.3):
 
-- ``u``: velocity in x, on ``fr.Staggered("x")`` (the C-grid east
+- ``u``: velocity in x, on ``fr.spatial.Staggered("x")`` (the C-grid east
   face);
-- ``v``: velocity in y, on ``fr.Staggered("y")`` (the north face);
+- ``v``: velocity in y, on ``fr.spatial.Staggered("y")`` (the north face);
 - ``p``: the pressure / geopotential perturbation :math:`p = g\\eta`,
-  on ``fr.Collocated()`` (cell centre).
+  on ``fr.spatial.Collocated()`` (cell centre).
 
 Only ``rel_vort`` and ``divergence`` are parameter-free and live
 here; ``ekin`` / ``epot`` / ``pot_vort`` carry :math:`c^2` and the
@@ -30,11 +30,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.framework2.grid.errors import MissingComponentError
-from fridom.framework2.grid.fields.vector_field import VectorField
+from fridom.spatial.errors import MissingComponentError
+from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
-    import fridom.framework2 as fr
+    import fridom as fr
 
 __all__ = ["MissingComponentError", "State"]
 
@@ -56,21 +56,21 @@ class State(VectorField):
     #  Curated component accessors (hinted; no setters)
     # ================================================================
     @property
-    def u(self) -> fr.ScalarField:
+    def u(self) -> fr.spatial.ScalarField:
         """Velocity in x (declared by a shallow-water core)."""
         return self.require(
             "u", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
 
     @property
-    def v(self) -> fr.ScalarField:
+    def v(self) -> fr.spatial.ScalarField:
         """Velocity in y (declared by a shallow-water core)."""
         return self.require(
             "v", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
 
     @property
-    def p(self) -> fr.ScalarField:
+    def p(self) -> fr.spatial.ScalarField:
         r"""Pressure / geopotential perturbation :math:`p = g\eta`."""
         return self.require(
             "p", hint="declared by a shallow-water core module, "
@@ -80,7 +80,7 @@ class State(VectorField):
     #  Parameter-free diagnostics (field algebra; D2.3)
     # ================================================================
     @property
-    def rel_vort(self) -> fr.ScalarField:
+    def rel_vort(self) -> fr.spatial.ScalarField:
         r"""
         Relative vorticity :math:`\zeta = \partial_x v - \partial_y u`.
 
@@ -104,7 +104,7 @@ class State(VectorField):
             units="1/s")
 
     @property
-    def divergence(self) -> fr.ScalarField:
+    def divergence(self) -> fr.spatial.ScalarField:
         r"""
         Horizontal divergence :math:`\nabla\cdot\boldsymbol{u}`.
 

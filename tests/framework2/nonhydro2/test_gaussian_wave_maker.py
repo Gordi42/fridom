@@ -8,11 +8,11 @@ checks against the mask sampled at the variable's own nodes.
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.errors import MissingFieldError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.errors import MissingFieldError
 from fridom.nonhydro2.modules.gaussian_wave_maker import (
     GaussianWaveMaker,
 )
@@ -83,20 +83,20 @@ def test_diagnostic_variable_is_rejected_at_bind():
 
 
 def test_non_collocated_unknown_variable_space_is_rejected():
-    class StaggeredTracer(fr.Module):
+    class StaggeredTracer(fr.model.Module):
         field_declarations = (
-            fr.FieldDeclaration("q", space=fr.Staggered("x"),
+            fr.model.FieldDeclaration("q", space=fr.spatial.Staggered("x"),
                                 long_name="Staggered tracer"),
         )
 
     maker = GaussianWaveMaker({}, {}, FREQ, AMP, variable="q")
     with pytest.raises(ValueError, match="samples its envelope"):
-        fr.Model(
+        fr.model.Model(
             grid=make_grid(),
             modules=(nh.DynamicalCore(), nh.FPlaneCoriolis(),
                      nh.ConstantStratification(), StaggeredTracer(),
                      maker),
-            time_stepper=fr.time_steppers.AdamBashforth(DT, order=3))
+            time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 
 
 # ================================================================

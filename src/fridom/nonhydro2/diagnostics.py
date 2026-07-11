@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.framework2.model.params import (
+from fridom.model.params import (
     CORIOLIS_F0,
     SCALING_ROSSBY,
     STRATIFICATION_N2,
@@ -25,8 +25,8 @@ from fridom.nonhydro2.params import DSQR
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.fields.vector_field import VectorField
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.fields.vector_field import VectorField
 
 
 def ekin(

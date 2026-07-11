@@ -3,8 +3,8 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.operators.base import (
     BinaryOperator,
     Block,
     EigenbasisError,

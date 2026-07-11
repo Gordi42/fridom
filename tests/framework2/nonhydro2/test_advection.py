@@ -1,8 +1,8 @@
 """Tests for the nonhydro2 upwind-biased and WENO advection modules.
 
 The load-bearing checks are the OLD-stack parity tests: the new
-modules reproduce ``fr.modules.advection.UpwindAdvection`` /
-``fr.modules.advection.WENO`` tendencies to machine precision on
+modules reproduce ``fr.model.modules.advection.UpwindAdvection`` /
+``fr.model.modules.advection.WENO`` tendencies to machine precision on
 both C-grid flux paths (tracer and velocity self-advection), both
 bias sides, and both grounded orders. Physics sanity (zero tendency,
 convergence order, ENO step transport, Rossby scaling, divergence
@@ -12,19 +12,19 @@ import numpy as np
 import pytest
 
 import fridom.framework as frold
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro as nhold
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import Divergence
-from fridom.framework2.model.eigen import numeric_eigenpairs
-from fridom.framework2.model.model import Model as FrModel
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import Divergence
+from fridom.model.eigen import numeric_eigenpairs
+from fridom.model.model import Model as FrModel
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.framework2.modules.coriolis import FPlaneCoriolis
+from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.nonhydro2.modules.advection import (
     CenteredAdvection,
     UpwindAdvection,
@@ -78,7 +78,7 @@ def broadcast(profile, nx):
 
 def advection_tendency(model, cls):
     return model.tendency(model.state, constraints=False,
-                          filter=fr.terms.owned_by(cls))
+                          filter=fr.model.terms.owned_by(cls))
 
 
 # ================================================================
@@ -438,7 +438,7 @@ def relative_energy_rates(model):
     """Per-component |<q, A(q)>| / sum|q A(q)| on a projected state."""
     state = model.constrain(model.state)
     tau = model.tendency(state, constraints=False,
-                         filter=fr.terms.owned_by(CenteredAdvection))
+                         filter=fr.model.terms.owned_by(CenteredAdvection))
     rates = {}
     for c in ("u", "v", "w", "b"):
         product = (np.asarray(state[c].data)
@@ -477,7 +477,7 @@ def test_walled_total_buoyancy_is_conserved(walled):
     set_random_state(model, seed=12)
     state = model.constrain(model.state)
     tau = model.tendency(state, constraints=False,
-                         filter=fr.terms.owned_by(CenteredAdvection))
+                         filter=fr.model.terms.owned_by(CenteredAdvection))
     db = np.asarray(tau["b"].data)
     assert abs(float(np.sum(db))) < 1e-12 * float(
         np.sum(np.abs(db)))
@@ -504,7 +504,7 @@ def test_walled_tendency_is_finite_on_a_random_state(walled):
     model = make_walled_model(walled, CenteredAdvection())
     set_random_state(model, seed=14)
     tau = model.tendency(model.state, constraints=False,
-                         filter=fr.terms.owned_by(CenteredAdvection))
+                         filter=fr.model.terms.owned_by(CenteredAdvection))
     assert all(np.isfinite(np.asarray(tau[c].data)).all()
                for c in ("u", "v", "w", "b"))
 
@@ -520,7 +520,7 @@ def test_periodic_tendency_is_bitwise_unchanged():
     state = model.state
 
     class Ctx:
-        params: dict = {fr.params.SCALING_ROSSBY: 1.0}  # noqa: RUF012
+        params: dict = {fr.model.params.SCALING_ROSSBY: 1.0}  # noqa: RUF012
 
     got = module._advect(state, Ctx)
     for qname in ("u", "v", "w", "b"):
@@ -550,7 +550,7 @@ def test_walled_background_terms_run_and_telescope():
     state = model.state
     total = model.tendency(
         state, constraints=False,
-        filter=fr.terms.owned_by(CenteredAdvection))
+        filter=fr.model.terms.owned_by(CenteredAdvection))
 
     for qname in ("u", "v", "w", "b"):
         q = state[qname]
@@ -636,7 +636,7 @@ def set_perturbation(model, nx, lx=L):
 def linear_term_tendency(model, cls):
     return model.tendency(
         model.state, constraints=False,
-        filter=fr.terms.named(f"{cls.__name__}/background_advection"))
+        filter=fr.model.terms.named(f"{cls.__name__}/background_advection"))
 
 
 # ----------------------------------------------------------------
@@ -717,14 +717,14 @@ def test_background_inherits_the_walled_grid_rejection():
 def test_background_off_c_grid_staggering_is_taught():
     # a core declaring "u" as the y-velocity: the background sample
     # (declared on the x-staggered nh pattern) cannot ride it
-    class _SwappedCore(fr.Module):
+    class _SwappedCore(fr.model.Module):
         field_declarations = (
-            fr.FieldDeclaration.velocity(
-                "u", "y", space=fr.Staggered("y"), units="m/s"),
-            fr.FieldDeclaration.velocity(
-                "v", "x", space=fr.Staggered("x"), units="m/s"),
-            fr.FieldDeclaration.velocity(
-                "w", "z", space=fr.Staggered("z"), units="m/s"),
+            fr.model.FieldDeclaration.velocity(
+                "u", "y", space=fr.spatial.Staggered("y"), units="m/s"),
+            fr.model.FieldDeclaration.velocity(
+                "v", "x", space=fr.spatial.Staggered("x"), units="m/s"),
+            fr.model.FieldDeclaration.velocity(
+                "w", "z", space=fr.spatial.Staggered("z"), units="m/s"),
         )
 
     with pytest.raises(ValueError, match="nh C-grid staggering"):
@@ -885,16 +885,16 @@ def test_linearize_keeps_l_and_drops_n():
         3, background={"u": u_shear, "w": W_BG}))
     set_perturbation(model, n)
     state = model.state
-    linear = fr.linearize(model)
+    linear = fr.model.linearize(model)
 
     # the linear variant's whole advection contribution is exactly
     # the parent's background_advection term ...
     kept = linear.tendency(state, constraints=False,
-                           filter=fr.terms.owned_by(WENOAdvection))
+                           filter=fr.model.terms.owned_by(WENOAdvection))
     parent_l = linear_term_tendency(model, WENOAdvection)
     dropped = linear.tendency(
         state, constraints=False,
-        filter=fr.terms.named("WENOAdvection/advection"))
+        filter=fr.model.terms.named("WENOAdvection/advection"))
     total = advection_tendency(model, WENOAdvection)
     for name in ("u", "v", "w", "b"):
         assert np.array_equal(np.asarray(kept[name].data),

@@ -6,22 +6,22 @@ import numpy as np
 import pytest
 
 from fridom.framework.utils import dtype_real, jaxify
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.declarations import FieldDeclaration
-from fridom.framework2.model.model import Model
-from fridom.framework2.model.module import Module
-from fridom.framework2.model.parameters import ParameterDeclaration
-from fridom.framework2.model.space_patterns import Collocated
-from fridom.framework2.model.terms import term
-from fridom.framework2.model.time_steppers.runge_kutta import (
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.declarations import FieldDeclaration
+from fridom.model.model import Model
+from fridom.model.module import Module
+from fridom.model.parameters import ParameterDeclaration
+from fridom.model.space_patterns import Collocated
+from fridom.model.terms import term
+from fridom.model.time_steppers.runge_kutta import (
     ExplicitRungeKutta,
     tableaus,
 )
-from fridom.framework2.transforms.base import StateTransform
-from fridom.framework2.transforms.info import TransformInfo
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.model.transforms.base import StateTransform
+from fridom.model.transforms.info import TransformInfo
+from fridom.model.transforms.signature import StateSignature
 
 N = 8
 

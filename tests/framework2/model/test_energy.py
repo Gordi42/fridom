@@ -13,25 +13,25 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
-from fridom.framework2.grid.fields.scalar_field import ScalarField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.fourier import Fourier
-from fridom.framework2.model.energy import (
+from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.fourier import Fourier
+from fridom.model.energy import (
     EnergyMetric,
     _read_scalar,
     nonhydro_energy_weights,
     shallowwater_energy_weights,
     shallowwater_varying_energy_weights,
 )
-from fridom.framework2.model.params import (
+from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
 )
-from fridom.framework2.modules.coriolis import BetaPlaneCoriolis
+from fridom.model.modules.coriolis import BetaPlaneCoriolis
 from fridom.nonhydro2.diagnostics import ekin as nh_ekin
 from fridom.nonhydro2.diagnostics import epot as nh_epot
 from fridom.shallowwater2.diagnostics import ekin as sw_ekin
@@ -90,19 +90,19 @@ def sw_model(grid=None, *, csqr=4.0, f0=1.0):
     return sw.Model(
         grid=grid, csqr=csqr, rossby_number=0.2,
         coriolis=sw.modules.FPlaneCoriolis(f0=f0),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 # --- full-complex spectral helpers (Parseval-exact) --------------
 def _transform(grid):
-    center = fr.Collocated().resolve(grid)
+    center = fr.spatial.Collocated().resolve(grid)
     return grid.dispatch.resolve("transform", center)
 
 
 def full_complex(grid, transform, fn, name):
     """Return a full (complex) spectrum of a physical field."""
     real = grid.create_field(
-        fr.Collocated().resolve(grid), init=fn, name=name)
+        fr.spatial.Collocated().resolve(grid), init=fn, name=name)
     return real, transform.forward(real.as_complex())
 
 
@@ -151,7 +151,7 @@ def test_from_model_shallowwater_weights():
 
 
 def test_from_model_is_fr_exported():
-    assert fr.EnergyMetric is EnergyMetric
+    assert fr.model.EnergyMetric is EnergyMetric
 
 
 def test_from_model_rejects_beta_plane():
@@ -175,7 +175,7 @@ def test_from_model_beta_plane_without_the_coriolis_gate():
 
 def test_from_model_freezes_ramp_at_time():
     # a Ramp-valued dsqr must be frozen at at_time (constancy snapshot)
-    ramp = fr.Ramp(0.0, 1.0, period=1.0)
+    ramp = fr.model.Ramp(0.0, 1.0, period=1.0)
     params = {CORIOLIS_F0: 1.0, "nonhydro.dsqr": ramp,
               STRATIFICATION_N2: 1.0}
     model = SimpleNamespace(parameters=params)
@@ -361,7 +361,7 @@ def varying_sw_model(csqr_fn, grid=None):
     return sw.Model(
         grid=_walled_sw_grid() if grid is None else grid,
         csqr=csqr_fn, rossby_number=0.2, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 def varying_nh_model(n2_fn):
@@ -385,7 +385,7 @@ def csqr_tanh(y):
 def test_shallowwater_varying_energy_weights_builder():
     grid = sw_grid()
     csqr = grid.create_field(
-        fr.Profile().resolve(grid), data=jnp.full((1, 1), 4.0),
+        fr.spatial.Profile().resolve(grid), data=jnp.full((1, 1), 4.0),
         name="csqr")
     weights = shallowwater_varying_energy_weights(csqr)
     assert weights["u"] is csqr
@@ -408,7 +408,7 @@ def test_from_model_varying_shallowwater_assembles_field_weights():
 
 def test_from_model_varying_nonhydro_assembles_the_reciprocal():
     model = varying_nh_model(lambda y: 1.0 + 2.0 * y * y)
-    assert fr.params.STRATIFICATION_N2 not in model.parameters
+    assert fr.model.params.STRATIFICATION_N2 not in model.parameters
     metric = EnergyMetric.from_model(
         model, allow_field_weights=True)
     inv_n2 = metric.weights["b"]
@@ -493,7 +493,7 @@ def test_spectral_inner_rejects_a_field_weight():
     grid = sw_grid()
     transform = _transform(grid)
     csqr = grid.create_field(
-        fr.Profile().resolve(grid), data=jnp.full((1, 1), 4.0),
+        fr.spatial.Profile().resolve(grid), data=jnp.full((1, 1), 4.0),
         name="csqr")
     metric = EnergyMetric({"u": csqr})
     _, template = full_complex(
@@ -511,7 +511,7 @@ def test_inner_rejects_mixed_space():
     # transform only the x axis -> a mixed coefficient/physical space
     fourier_x = Fourier(grid, axes=("x",))
     real = grid.create_field(
-        fr.Collocated().resolve(grid),
+        fr.spatial.Collocated().resolve(grid),
         init=lambda x, y: np.cos(2 * np.pi * x) * np.cos(2 * np.pi * y),
         name="u")
     mixed = fourier_x.forward(real)

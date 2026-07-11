@@ -19,9 +19,9 @@ import jax
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.model.eigenstates import (
+from fridom.model.eigenstates import (
     geostrophic_energy_spectrum,
 )
 
@@ -367,17 +367,17 @@ def _beta_model(grid, beta=BETA):
         coriolis=sw.modules.BetaPlaneCoriolis(f0=-2.0 * beta,
                                               beta=beta),
         advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(1e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
 
 
 @pytest.fixture(scope="module")
 def equatorial():
     """One linear beta-plane model with the equator mid-domain."""
-    mx = fr.grid.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
+    mx = fr.spatial.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
                                      periodic=True, name="x")
-    my = fr.grid.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
+    my = fr.spatial.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
                                      periodic=True, name="y")
-    return _beta_model(fr.grid.Grid((mx, my)))
+    return _beta_model(fr.spatial.Grid((mx, my)))
 
 
 def test_equatorial_wave_satisfies_the_eigen_relation(equatorial):
@@ -456,12 +456,12 @@ def test_random_state_is_device_count_invariant(forced_devices):
         assert jax.device_count() == forced_devices
     results = {}
     for tag, device_ids in (("many", None), ("one", (0,))):
-        mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                          periodic=True, name="x")
-        my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+        my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                          periodic=True, name="y")
         model = make_model(
-            fr.grid.Grid((mx, my), device_ids=device_ids),
+            fr.spatial.Grid((mx, my), device_ids=device_ids),
             csqr=CSQR, f0=1.5, advection=False)
         em = sw.eigenmodes.from_model(model)
         results[tag] = sw.random_vortical(em, seed=21)

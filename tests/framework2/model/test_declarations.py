@@ -1,15 +1,15 @@
 """Tests for the field-declaration surface (model/declarations.py)."""
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.fields.metadata import FieldMetadata
-from fridom.framework2.model.declarations import (
+from fridom.spatial.bc import BC
+from fridom.spatial.fields.metadata import FieldMetadata
+from fridom.model.declarations import (
     FieldDeclaration,
     FieldReference,
     Lifecycle,
 )
-from fridom.framework2.model.roles import ADVECTED, TRACER, Role, Velocity
-from fridom.framework2.model.space_patterns import (
+from fridom.model.roles import ADVECTED, TRACER, Role, Velocity
+from fridom.model.space_patterns import (
     Collocated,
     Profile,
     SpaceRule,

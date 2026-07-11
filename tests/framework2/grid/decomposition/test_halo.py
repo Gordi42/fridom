@@ -3,7 +3,7 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.grid.decomposition.halo import HaloSpec
+from fridom.spatial.decomposition.halo import HaloSpec
 
 
 def test_mapping_normalized_to_sorted_tuple():

@@ -1,15 +1,15 @@
-"""Tests for fridom.framework2.grid.immersed_domain."""
+"""Tests for fridom.spatial.immersed_domain."""
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.immersed_domain import ImmersedDomain, Slip
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.bc import BC
+from fridom.spatial.grid import Grid
+from fridom.spatial.immersed_domain import ImmersedDomain, Slip
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 def indicator(x, y):

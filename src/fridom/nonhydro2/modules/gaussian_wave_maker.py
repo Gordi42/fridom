@@ -2,7 +2,7 @@ r"""A Gaussian wave maker: time-periodic, spatially localized forcing.
 
 Description
 -----------
-The framework2 port of the v1 ``nh.modules.forcings.GaussianWaveMaker``:
+The port of the v1 ``nh.modules.forcings.GaussianWaveMaker``:
 a source term with a Gaussian envelope in space and a sinusoid in time,
 
 .. math::
@@ -31,20 +31,20 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-import fridom.framework2 as fr
+import fridom as fr
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.model.params import ParamName
+from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.model.params import ParamName
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
     import jax
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.model.space_patterns import SpacePattern
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.model.space_patterns import SpacePattern
 
 #: The velocity components' staggering axes (the nh C-grid).
 _VELOCITY_AXES = {"u": "x", "v": "y", "w": "z"}
@@ -76,7 +76,7 @@ def sample_gaussian_mask(
 
     Parameters
     ----------
-    grid : fr.grid.Grid
+    grid : fr.spatial.Grid
         The grid to materialize on.
     space : SpaceLike
         The target function space (the forced component's space).
@@ -122,12 +122,12 @@ def _variable_pattern(variable: str) -> SpacePattern:
     """
     axis = _VELOCITY_AXES.get(variable)
     if axis is None:
-        return fr.Collocated()
-    return fr.Staggered(axis, wall_bc={axis: BC.DIRICHLET})
+        return fr.spatial.Collocated()
+    return fr.spatial.Staggered(axis, wall_bc={axis: BC.DIRICHLET})
 
 
 @partial(jaxify, dynamic=("frequency", "amplitude"))
-class GaussianWaveMaker(fr.Module):
+class GaussianWaveMaker(fr.model.Module):
 
     r"""
     Force one variable with a Gaussian envelope and a sinusoid.
@@ -152,10 +152,10 @@ class GaussianWaveMaker(fr.Module):
         unnamed axes are constant.
     width : Mapping[str, float]
         Width :math:`w_i` of the Gaussian; same keys as ``position``.
-    frequency : float | fr.Ramp
+    frequency : float | fr.model.Ramp
         The forcing frequency :math:`f` (the sinusoid runs at
         :math:`2\pi f`).
-    amplitude : float | fr.Ramp
+    amplitude : float | fr.model.Ramp
         The forcing amplitude :math:`A`.
     variable : str, optional
         The prognostic variable to force (default: "u").
@@ -165,8 +165,8 @@ class GaussianWaveMaker(fr.Module):
         self,
         position: Mapping[str, float],
         width: Mapping[str, float],
-        frequency: float | fr.Ramp,
-        amplitude: float | fr.Ramp,
+        frequency: float | fr.model.Ramp,
+        amplitude: float | fr.model.Ramp,
         variable: str = "u",
     ) -> None:
         """Store the leaves; freeze the envelope and target names."""
@@ -186,8 +186,8 @@ class GaussianWaveMaker(fr.Module):
         self._width: dict[str, float] = width
         self._variable: str = variable
         self._mask_name: str = f"wavemaker_{variable}_mask"
-        self.frequency = fr.leaf(frequency)
-        self.amplitude = fr.leaf(amplitude)
+        self.frequency = fr.model.leaf(frequency)
+        self.amplitude = fr.model.leaf(amplitude)
         self._frequency_name: ParamName = ParamName(
             f"wavemaker.{variable}.frequency", units="1/s",
             hint="provided by the nh.GaussianWaveMaker forcing "
@@ -209,19 +209,19 @@ class GaussianWaveMaker(fr.Module):
     #  Declarations
     # ================================================================
     @property
-    def field_references(self) -> tuple[fr.FieldReference, ...]:
+    def field_references(self) -> tuple[fr.model.FieldReference, ...]:
         """The checked claim on the forced variable."""
-        return (fr.FieldReference(self._variable,
+        return (fr.model.FieldReference(self._variable,
                                   hint=_VARIABLE_HINT),)
 
     @property
-    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
+    def field_declarations(self) -> tuple[fr.model.FieldDeclaration, ...]:
         """The Gaussian mask on the forced variable's own pattern."""
         return (
-            fr.FieldDeclaration(
+            fr.model.FieldDeclaration(
                 self._mask_name,
                 space=_variable_pattern(self._variable),
-                lifecycle=fr.Lifecycle.AUXILIARY,
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._mask_default,
                 long_name=f"Wave-maker mask on {self._variable}",
                 units="1"),
@@ -230,14 +230,14 @@ class GaussianWaveMaker(fr.Module):
     @property
     def parameter_declarations(
         self,
-    ) -> tuple[fr.ParameterDeclaration, ...]:
+    ) -> tuple[fr.model.ParameterDeclaration, ...]:
         """Publish the live frequency and amplitude leaves."""
         return (
-            fr.ParameterDeclaration(
+            fr.model.ParameterDeclaration(
                 self._frequency_name, attr="frequency",
                 units="1/s",
                 doc=f"wave-maker frequency on {self._variable}"),
-            fr.ParameterDeclaration(
+            fr.model.ParameterDeclaration(
                 self._amplitude_name, attr="amplitude",
                 doc=f"wave-maker amplitude on {self._variable}"),
         )
@@ -276,7 +276,7 @@ class GaussianWaveMaker(fr.Module):
                 f"coordinate(s) {unknown}, which the grid does not "
                 f"have (coordinates: {table.grid.names})")
         record = table[self._variable]
-        if record.lifecycle is not fr.Lifecycle.PROGNOSTIC:
+        if record.lifecycle is not fr.model.Lifecycle.PROGNOSTIC:
             raise ValueError(
                 f"GaussianWaveMaker forces {self._variable!r}, "
                 f"which is {record.lifecycle.name}: only PROGNOSTIC "
@@ -298,12 +298,12 @@ class GaussianWaveMaker(fr.Module):
     #: (V-N2) — declare the substitute instead of being traced.
     extra_halo = HaloSpec({})
 
-    def tendency_terms(self) -> tuple[fr.TendencyTerm, ...]:
+    def tendency_terms(self) -> tuple[fr.model.TendencyTerm, ...]:
         """One term forcing the configured variable."""
         return (
-            fr.TendencyTerm(
+            fr.model.TendencyTerm(
                 name="wave_maker", fn=self._force,
-                treatment=fr.Treatment.EXPLICIT,
+                treatment=fr.model.Treatment.EXPLICIT,
                 advances=(self._variable,)),
         )
 

@@ -1,10 +1,10 @@
 """Tests for PointMesh (framework2/grid/meshes/point.py)."""
 import pytest
 
-from fridom.framework2.grid.decomposition.traits import HaloStrategy
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.meshes.point import PointMesh
-from fridom.framework2.grid.spaces.nodal import NodeSet, PointValues
+from fridom.spatial.decomposition.traits import HaloStrategy
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.point import PointMesh
+from fridom.spatial.spaces.nodal import NodeSet, PointValues
 
 
 @pytest.fixture

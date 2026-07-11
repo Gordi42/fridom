@@ -14,10 +14,10 @@ import numpy as np
 import pytest
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.model.assembly import ParameterBindingTable
-from fridom.framework2.model.params import TIME_STEP
-from fridom.framework2.model.terms import Treatment
-from fridom.framework2.model.time_steppers.base import (
+from fridom.model.assembly import ParameterBindingTable
+from fridom.model.params import TIME_STEP
+from fridom.model.terms import Treatment
+from fridom.model.time_steppers.base import (
     StepperState,
     TimeStepper,
 )

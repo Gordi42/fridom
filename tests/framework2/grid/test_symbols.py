@@ -2,25 +2,25 @@
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.bc import BC
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.operators.interp import LinearInterp
-from fridom.framework2.grid.operators.mixed import (
+from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.mixed import (
     ComposedTransform,
     resolve_transform,
 )
-from fridom.framework2.grid.spaces.coefficient import (
+from fridom.spatial.spaces.coefficient import (
     CosineSpace,
     FourierSpace,
     SineSpace,
 )
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.grid.symbols import (
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.spatial.symbols import (
     GridSymbols,
     ModeChart,
     rayleigh_dual,

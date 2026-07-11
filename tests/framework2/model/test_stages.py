@@ -3,7 +3,7 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.model.stages import (
+from fridom.model.stages import (
     STAGE_ATTRIBUTE,
     Stage,
     StageKind,

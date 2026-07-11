@@ -15,33 +15,33 @@ import copy
 import jax
 import pytest
 
-from fridom.framework2.grid.operators.fallback import UpwindOne
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.operators.fallback import UpwindOne
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.operators.flux_diff import (
+from fridom.spatial.operators.flux_diff import (
     DualFluxDifference,
     FaceDifference,
     FluxDifference,
 )
-from fridom.framework2.grid.operators.integrate import Integral
-from fridom.framework2.grid.operators.interp import LinearInterp
-from fridom.framework2.grid.operators.products import (
+from fridom.spatial.operators.integrate import Integral
+from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.products import (
     Abs,
     CollocationProduct,
     Divide,
     Power,
 )
-from fridom.framework2.grid.operators.reconstruct import (
+from fridom.spatial.operators.reconstruct import (
     LinearReconstruction,
 )
-from fridom.framework2.grid.operators.select import Where
-from fridom.framework2.grid.operators.spectral import (
+from fridom.spatial.operators.select import Where
+from fridom.spatial.operators.spectral import (
     PhaseShift,
     SincShift,
     SpectralDerivative,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.spaces.nodal import NodeSet
 
 # ================================================================
 #  Specs: id, a builder for the interned instance, and a builder

@@ -3,14 +3,14 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.transforms.errors import (
+from fridom.model.transforms.errors import (
     FixedPointDivergenceError,
     SignatureMismatchError,
     TraceError,
 )
-from fridom.framework2.transforms.fixed_point import FixedPoint
-from fridom.framework2.transforms.identity import Identity
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.model.transforms.fixed_point import FixedPoint
+from fridom.model.transforms.identity import Identity
+from fridom.model.transforms.signature import StateSignature
 
 from .conftest import Scale, build_state, make_cross
 

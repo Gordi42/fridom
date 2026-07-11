@@ -1,14 +1,14 @@
 """Tests for the average spaces (framework2/grid/spaces/average.py)."""
 import pytest
 
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.average import (
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.average import (
     AverageSpace,
     CellAvg,
     FaceAvg,
 )
-from fridom.framework2.grid.spaces.nodal import NodalSpace
+from fridom.spatial.spaces.nodal import NodalSpace
 
 N = 8
 

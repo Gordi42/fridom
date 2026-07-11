@@ -3,9 +3,9 @@ import types
 
 import pytest
 
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.transforms.errors import SignatureMismatchError
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.model.transforms.errors import SignatureMismatchError
+from fridom.model.transforms.signature import StateSignature
 
 from .conftest import build_state
 

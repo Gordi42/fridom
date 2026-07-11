@@ -1,7 +1,7 @@
 """Phase-H0 numeric eigenmodes: eigh(iML, M) vs the analytic modes.
 
 The transfer-function probe + generalized Hermitian eigensolve
-(``fridom.framework2.model.eigen``) is validated against the analytic
+(``fridom.model.eigen``) is validated against the analytic
 Tier-0 eigenmode ports on BOTH a shallow-water and a nonhydro periodic
 model:
 
@@ -19,19 +19,19 @@ import pytest
 
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import Divergence
-from fridom.framework2.model.eigen import (
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import Divergence
+from fridom.model.eigen import (
     NumericEigenmodes,
     numeric_eigenpairs,
 )
-from fridom.framework2.model.model import Model
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.model.model import Model
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.framework2.modules.coriolis import (
+from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
 )

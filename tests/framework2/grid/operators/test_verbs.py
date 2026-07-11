@@ -1,12 +1,12 @@
-"""Tests for fridom.framework2.grid.operators.verbs (D3b)."""
+"""Tests for fridom.spatial.operators.verbs (D3b)."""
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators import verbs
-from fridom.framework2.grid.operators.base import Dispatched
-from fridom.framework2.grid.operators.registry import DispatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators import verbs
+from fridom.spatial.operators.base import Dispatched
+from fridom.spatial.operators.registry import DispatchError
 
 
 @pytest.fixture

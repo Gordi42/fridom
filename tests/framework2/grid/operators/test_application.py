@@ -2,19 +2,19 @@
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.errors import (
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.errors import (
     GridMismatchError,
     SpaceMismatchError,
 )
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.operators.base import (
     BinaryOperator,
     Dispatched,
     Identity,
     OperatorRequirements,
     Zero,
 )
-from fridom.framework2.grid.operators.registry import (
+from fridom.spatial.operators.registry import (
     DispatchError,
     OperatorRegistry,
 )

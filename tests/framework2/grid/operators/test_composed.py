@@ -1,19 +1,19 @@
-"""Tests for fridom.framework2.grid.operators.composed."""
+"""Tests for fridom.spatial.operators.composed."""
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.base import (
     Identity,
     OperatorSum,
     ScaledOperator,
     SeparableComposite,
     Zero,
 )
-from fridom.framework2.grid.operators.composed import (
+from fridom.spatial.operators.composed import (
     BlockMatrix,
     Curl,
     Diag,
@@ -21,7 +21,7 @@ from fridom.framework2.grid.operators.composed import (
     Gradient,
     Laplacian,
 )
-from fridom.framework2.grid.operators.registry import DispatchError
+from fridom.spatial.operators.registry import DispatchError
 
 
 @pytest.fixture

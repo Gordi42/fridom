@@ -1,7 +1,7 @@
 """Tests for the role markers (model/roles.py)."""
 import pytest
 
-from fridom.framework2.model.roles import ADVECTED, TRACER, Role, Velocity
+from fridom.model.roles import ADVECTED, TRACER, Role, Velocity
 
 
 # ================================================================

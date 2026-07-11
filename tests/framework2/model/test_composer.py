@@ -12,20 +12,20 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.composer import TendencyComposer
-from fridom.framework2.model.context import StepContext
-from fridom.framework2.model.declarations import Lifecycle
-from fridom.framework2.model.errors import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.composer import TendencyComposer
+from fridom.model.context import StepContext
+from fridom.model.declarations import Lifecycle
+from fridom.model.errors import (
     AssemblyError,
     ImplicitCollisionError,
     TermEvaluationError,
 )
-from fridom.framework2.model.stages import Stage, StageKind
-from fridom.framework2.model.terms import TendencyTerm, Treatment
+from fridom.model.stages import Stage, StageKind
+from fridom.model.terms import TendencyTerm, Treatment
 
 
 # ================================================================

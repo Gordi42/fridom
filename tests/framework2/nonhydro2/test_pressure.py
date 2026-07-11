@@ -20,18 +20,18 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.fields.scalar_field import ScalarField
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import (
+from fridom.spatial.bc import BC
+from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
     Laplacian,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver

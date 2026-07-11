@@ -1,7 +1,7 @@
-"""Test the re-exports of the fridom.framework2.grid.meshes package."""
+"""Test the re-exports of the fridom.spatial.meshes package."""
 import pytest
 
-import fridom.framework2.grid.meshes as test_module
+import fridom.spatial.meshes as test_module
 
 all_imports = []
 for mod in test_module.all_modules_by_origin.values():

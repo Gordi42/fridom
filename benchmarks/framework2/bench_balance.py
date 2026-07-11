@@ -40,8 +40,8 @@ OptimalBalance through its vortical base projection), so it is a
 discretization artifact of the diagnosis, not wave imbalance, and
 is excluded from the reported number (raw floors are printed too).
 
-Methods: ``fr.transforms.BalanceExpansion`` orders 0-3 and
-``fr.transforms.OptimalBalance`` (vortical base projection, exp
+Methods: ``fr.model.transforms.BalanceExpansion`` orders 0-3 and
+``fr.model.transforms.OptimalBalance`` (vortical base projection, exp
 ramp over 2 inertial periods per leg, ``max_it = 2``). Optionally
 one walled-channel f-plane column (orders 0-2, labeled channel
 eigenbasis) at the middle Rossby number.
@@ -64,7 +64,7 @@ import time
 
 import numpy as np
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
 
 
@@ -92,14 +92,14 @@ def table(header: list[str], rows: list[list[str]]) -> str:
 def make_model(args: argparse.Namespace, *, periodic_y: bool = True):
     """Doubly (or zonally) periodic f-plane shallow-water model."""
     length = 2.0 * np.pi
-    mx = fr.grid.meshes.IntervalMesh(
+    mx = fr.spatial.meshes.IntervalMesh(
         args.size, (0.0, length), periodic=True, name="x")
-    my = fr.grid.meshes.IntervalMesh(
+    my = fr.spatial.meshes.IntervalMesh(
         args.size, (0.0, length), periodic=periodic_y, name="y")
     return sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=1.0, rossby_number=1.0,
+        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=1.0,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
-        time_stepper=fr.time_steppers.AdamBashforth(
+        time_stepper=fr.model.time_steppers.AdamBashforth(
             args.dt, order=3))
 
 
@@ -138,7 +138,7 @@ def ranking(values: dict[int, float]) -> list[int]:
 def run_periodic(args: argparse.Namespace) -> None:
     """Run the main sweep: methods x Rossby numbers, two tables."""
     model = make_model(args)
-    metric = fr.EnergyMetric.from_model(model)
+    metric = fr.model.EnergyMetric.from_model(model)
     structural = sw.transforms.DivergenceProjection.from_model(model)
     unit = sw.initial_conditions.random_vortical(model, seed=args.seed)
     echo(f"periodic 2pi domain, {args.size}^2, dt={args.dt}, "
@@ -148,10 +148,10 @@ def run_periodic(args: argparse.Namespace) -> None:
     echo()
 
     balances = {
-        order: fr.transforms.BalanceExpansion(
+        order: fr.model.transforms.BalanceExpansion(
             model, order=order, lint=False)
         for order in args.orders}
-    optimal = fr.transforms.OptimalBalance(
+    optimal = fr.model.transforms.OptimalBalance(
         model,
         sw.transforms.VorticalProjection.from_model(model),
         ramp_period=args.ob_ramp * 2.0 * np.pi,
@@ -163,7 +163,7 @@ def run_periodic(args: argparse.Namespace) -> None:
         order: {} for order in args.orders}
     for ro in args.rossby:
         z = ro * unit
-        propagator = fr.transforms.Propagator(
+        propagator = fr.model.transforms.Propagator(
             model, runlen=args.turnover / ro)
         for order, balance in balances.items():
             imb, raw = diagnosed_imbalance(
@@ -229,17 +229,17 @@ def run_channel(args: argparse.Namespace) -> None:
     """Run one walled-channel column (orders 0-2, middle Rossby)."""
     ro = args.rossby[len(args.rossby) // 2]
     model = make_model(args, periodic_y=False)
-    metric = fr.EnergyMetric.from_model(model)
+    metric = fr.model.EnergyMetric.from_model(model)
     structural = sw.transforms.DivergenceProjection.from_model(model)
     unit = sw.initial_conditions.random_vortical(model, seed=args.seed)
     z = ro * unit
-    propagator = fr.transforms.Propagator(
+    propagator = fr.model.transforms.Propagator(
         model, runlen=args.turnover / ro)
     orders = [order for order in args.orders
               if order <= _CHANNEL_MAX_ORDER]
     rows = []
     for order in orders:
-        balance = fr.transforms.BalanceExpansion(
+        balance = fr.model.transforms.BalanceExpansion(
             model, order=order, lint=False)
         imb, raw = diagnosed_imbalance(
             balance, propagator, structural, metric, z)

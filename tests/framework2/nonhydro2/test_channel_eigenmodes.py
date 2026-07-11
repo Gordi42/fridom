@@ -30,9 +30,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.framework2.model.eigen_channel import (
+from fridom.model.eigen_channel import (
     UNLABELED,
     ChannelEigenbasis,
 )
@@ -68,19 +68,19 @@ Y_CENTER = DY * (np.arange(N) + 0.5)
 # ================================================================
 def make_channel(f0=F0, beta=None):
     """Build the linear walled-y nonhydro channel model."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
                                      name="y")
-    mz = fr.grid.meshes.IntervalMesh(N, (0.0, LZ), periodic=True,
+    mz = fr.spatial.meshes.IntervalMesh(N, (0.0, LZ), periodic=True,
                                      name="z")
     coriolis = (nh.FPlaneCoriolis(f0=f0) if beta is None
                 else nh.BetaPlaneCoriolis(f0=f0, beta=beta))
     return nh.Model(
-        grid=fr.grid.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
+        grid=fr.spatial.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
         coriolis=coriolis,
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -657,17 +657,17 @@ def test_odd_nz_channel_labels_and_completeness():
     # Nyquist slot, the overlap probe recombines only the kz = 0
     # planes, and every interior kz plane carries a Kelvin pair
     nz = 5
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
                                      name="y")
-    mz = fr.grid.meshes.IntervalMesh(nz, (0.0, LZ), periodic=True,
+    mz = fr.spatial.meshes.IntervalMesh(nz, (0.0, LZ), periodic=True,
                                      name="z")
     model = nh.Model(
-        grid=fr.grid.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
+        grid=fr.spatial.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     em = ChannelEigenmodes(model)
     labels = np.asarray(em.labels)
     assert em.omega.shape == (N, nz // 2 + 1, D)
@@ -834,17 +834,17 @@ def n2_profile(y):
 
 def make_varying_channel(n2=n2_profile):
     """Build the walled-y channel with N^2 varying along y."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
                                      name="y")
-    mz = fr.grid.meshes.IntervalMesh(N, (0.0, LZ), periodic=True,
+    mz = fr.spatial.meshes.IntervalMesh(N, (0.0, LZ), periodic=True,
                                      name="z")
     return nh.Model(
-        grid=fr.grid.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
+        grid=fr.spatial.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.MeridionalStratification(n2=n2),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -976,19 +976,19 @@ def test_varying_n2_analytic_paths_are_taught_errors():
     # fully periodic and walled-vertical grids keep the analytic
     # (constant-only) eigenmodes: a varying N^2 names the engine
     def build(periodic_z):
-        mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX),
+        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX),
                                          periodic=True, name="x")
-        my = fr.grid.meshes.IntervalMesh(N, (0.0, LY),
+        my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY),
                                          periodic=True, name="y")
-        mz = fr.grid.meshes.IntervalMesh(N, (0.0, LZ),
+        mz = fr.spatial.meshes.IntervalMesh(N, (0.0, LZ),
                                          periodic=periodic_z,
                                          name="z")
         return nh.Model(
-            grid=fr.grid.Grid((mx, my, mz)), advection=False,
+            grid=fr.spatial.Grid((mx, my, mz)), advection=False,
             dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
             stratification=nh.MeridionalStratification(
                 n2=n2_profile),
-            time_stepper=fr.time_steppers.AdamBashforth(
+            time_stepper=fr.model.time_steppers.AdamBashforth(
                 5e-3, order=3))
 
     for periodic_z in (True, False):

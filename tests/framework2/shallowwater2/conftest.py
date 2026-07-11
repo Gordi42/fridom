@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
 
 N = 16
@@ -11,11 +11,11 @@ DT = 5e-3
 
 def make_grid(n=N, *, periodic_x=True, periodic_y=True):
     """Return a tiny square grid (walled along non-periodic axes)."""
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0),
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
                                      periodic=periodic_x, name="x")
-    my = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0),
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
                                      periodic=periodic_y, name="y")
-    return fr.grid.Grid((mx, my))
+    return fr.spatial.Grid((mx, my))
 
 
 def make_model(grid=None, *, csqr=1.0, rossby_number=0.2, f0=1.0,
@@ -27,7 +27,7 @@ def make_model(grid=None, *, csqr=1.0, rossby_number=0.2, f0=1.0,
         grid=grid, csqr=csqr, rossby_number=rossby_number,
         coriolis=sw.modules.FPlaneCoriolis(f0=f0),
         advection=advection,
-        time_stepper=fr.time_steppers.AdamBashforth(dt, order=order),
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order),
         **kwargs)
 
 
@@ -47,7 +47,7 @@ def total_energy(model):
     evaluated on cell centres.
     """
     state = model.state
-    ro = float(model.parameters[fr.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
     c = state["csqr"]
     p = state["p"]
     centre = p.function_space

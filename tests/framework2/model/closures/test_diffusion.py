@@ -4,24 +4,24 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.closures.diffusion import (
+import fridom as fr
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.closures.diffusion import (
     BiharmonicDiffusion,
     BiharmonicFriction,
     HarmonicDiffusion,
     HarmonicFriction,
 )
-from fridom.framework2.model.declarations import Lifecycle
-from fridom.framework2.model.errors import AssemblyError
-from fridom.framework2.model.field_table import (
+from fridom.model.declarations import Lifecycle
+from fridom.model.errors import AssemblyError
+from fridom.model.field_table import (
     FieldRecord,
     FieldTable,
 )
-from fridom.framework2.model.model import Model
-from fridom.framework2.model.module import Module
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.model.model import Model
+from fridom.model.module import Module
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
 
@@ -36,13 +36,13 @@ class Core(Module):
     """Toy core: velocities u/v, tracers b/c, one trivial term."""
 
     field_declarations = (
-        fr.FieldDeclaration.velocity("u", "x", space=fr.Staggered("x")),
-        fr.FieldDeclaration.velocity("v", "z", space=fr.Staggered("z")),
-        fr.FieldDeclaration.tracer("b"),
-        fr.FieldDeclaration.tracer("c"),
+        fr.model.FieldDeclaration.velocity("u", "x", space=fr.spatial.Staggered("x")),
+        fr.model.FieldDeclaration.velocity("v", "z", space=fr.spatial.Staggered("z")),
+        fr.model.FieldDeclaration.tracer("b"),
+        fr.model.FieldDeclaration.tracer("c"),
     )
 
-    @fr.term(advances=("u", "v", "b", "c"), linear=True,
+    @fr.model.term(advances=("u", "v", "b", "c"), linear=True,
              transports=("u", "v", "b", "c"))
     def zero(self, state, _ctx):
         return {name: 0.0 * state[name]
@@ -114,7 +114,7 @@ def test_biharmonic_anisotropic_vertical_coefficient():
     kh, kv = 1e-5, 3e-5
     model = make_model(
         BiharmonicFriction(kh, nu_v=kv, vertical="z",
-                           fields=fr.roles.Velocity("x")))
+                           fields=fr.model.roles.Velocity("x")))
     x, z = coords()
     model.set_fields(u=np.sin(2 * np.pi * x) + np.cos(2 * np.pi * z))
     td = model.tendency(model.state)
@@ -143,7 +143,7 @@ def test_per_field_coefficient_mapping():
 
 def test_ramped_scalar_coefficient_resolves_in_step():
     k0 = 4e-3
-    ramp = fr.Ramp(k0, 0.0, period=1.0)
+    ramp = fr.model.Ramp(k0, 0.0, period=1.0)
     model = make_model(HarmonicDiffusion(ramp))
     x, _ = coords()
     model.set_fields(c=np.sin(2 * np.pi * x))
@@ -228,7 +228,7 @@ def test_variant_owned_by_closurebase_drops_all_closure_terms():
     x, z = coords()
     model.set_fields(u=np.sin(2 * np.pi * x), b=np.cos(2 * np.pi * z))
     inviscid = model.variant(
-        term_filter=~fr.terms.owned_by(fr.closures.ClosureBase))
+        term_filter=~fr.model.terms.owned_by(fr.model.closures.ClosureBase))
     td = inviscid.tendency(model.state)
     for name in ("u", "v", "b", "c"):
         assert np.abs(data(td[name])).max() == 0.0
@@ -239,7 +239,7 @@ def test_diffusion_terms_are_tagged_linear():
     model = make_model(HarmonicDiffusion(1e-3))
     x, _ = coords()
     model.set_fields(b=np.sin(2 * np.pi * x))
-    linear = fr.linearize(model)
+    linear = fr.model.linearize(model)
     np.testing.assert_allclose(
         data(linear.tendency(model.state)["b"]),
         data(model.tendency(model.state)["b"]), atol=0.0)
@@ -264,7 +264,7 @@ def test_negative_harmonic_coefficient_is_allowed():
 
 def test_ramp_inside_a_mapping_is_rejected():
     with pytest.raises(TypeError, match="plain numbers"):
-        HarmonicDiffusion({"b": fr.Ramp(0.0, 1.0, period=1.0)})
+        HarmonicDiffusion({"b": fr.model.Ramp(0.0, 1.0, period=1.0)})
 
 
 def test_empty_mapping_is_rejected():
@@ -315,10 +315,10 @@ def test_target_without_coordinate_axes_is_rejected():
     grid = make_grid()
     record = FieldRecord(
         name="s", owner=0, owner_type="Core",
-        pattern=fr.Collocated(),
+        pattern=fr.spatial.Collocated(),
         space=SimpleNamespace(names=()),
         lifecycle=Lifecycle.PROGNOSTIC,
-        roles=frozenset({fr.roles.TRACER}),
+        roles=frozenset({fr.model.roles.TRACER}),
         host_writable=False, metadata=None)
     closure = HarmonicDiffusion(1e-3)
     with pytest.raises(AssemblyError, match="no coordinate axes"):

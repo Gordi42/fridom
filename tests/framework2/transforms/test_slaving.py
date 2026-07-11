@@ -27,7 +27,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
-from fridom.framework2.transforms._slaving import (
+from fridom.model.transforms._slaving import (
     SlavingOps,
     balance_expansion,
 )

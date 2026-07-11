@@ -1,16 +1,16 @@
-"""Tests for fridom.framework2.grid.export (the ``f.xr`` surface)."""
+"""Tests for fridom.spatial.export (the ``f.xr`` surface)."""
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 import xarray as xr
 
-from fridom.framework2.grid.fields.metadata import FieldMetadata
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.fourier import Fourier
+from fridom.spatial.fields.metadata import FieldMetadata
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.fourier import Fourier
 
 
 @pytest.fixture

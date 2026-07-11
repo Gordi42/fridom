@@ -14,13 +14,13 @@ seam on real spaces.
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.decomposition.decomposition import SpaceLike
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.decomposition.tensor import TensorDecomposition
-from fridom.framework2.grid.decomposition.traits import HaloStrategy
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.spaces.tensor_product import TensorProductSpace
+from fridom.spatial.decomposition.decomposition import SpaceLike
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.decomposition.tensor import TensorDecomposition
+from fridom.spatial.decomposition.traits import HaloStrategy
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
 
 @pytest.fixture

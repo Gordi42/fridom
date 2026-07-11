@@ -12,32 +12,32 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.model.assembly import assemble
-from fridom.framework2.model.declarations import (
+from fridom.model.assembly import assemble
+from fridom.model.declarations import (
     FieldDeclaration,
     Lifecycle,
 )
-from fridom.framework2.model.module import Module
-from fridom.framework2.model.parameters import (
+from fridom.model.module import Module
+from fridom.model.parameters import (
     ParameterDeclaration,
     ParameterReference,
 )
-from fridom.framework2.model.report import (
+from fridom.model.report import (
     RUN_START_PLACEHOLDER,
     SECTION_ORDER,
     AssemblyReport,
 )
-from fridom.framework2.model.space_patterns import (
+from fridom.model.space_patterns import (
     Collocated,
     Profile,
     Staggered,
 )
-from fridom.framework2.model.terms import Treatment, term
+from fridom.model.terms import Treatment, term
 
 
 # ================================================================

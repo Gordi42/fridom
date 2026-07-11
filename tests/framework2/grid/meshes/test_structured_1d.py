@@ -1,21 +1,21 @@
 """Tests for StructuredMesh1D (framework2/grid/meshes/structured_1d.py)."""
 import pytest
 
-from fridom.framework2.grid.bc import BC, BCStructure
-from fridom.framework2.grid.decomposition.traits import HaloStrategy
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.average import (
+from fridom.spatial.bc import BC, BCStructure
+from fridom.spatial.decomposition.traits import HaloStrategy
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.average import (
     AverageSpace,
     CellAvg,
     FaceAvg,
 )
-from fridom.framework2.grid.spaces.coefficient import (
+from fridom.spatial.spaces.coefficient import (
     CosineSpace,
     FourierSpace,
     SineSpace,
 )
-from fridom.framework2.grid.spaces.nodal import (
+from fridom.spatial.spaces.nodal import (
     Center,
     Inner,
     Left,

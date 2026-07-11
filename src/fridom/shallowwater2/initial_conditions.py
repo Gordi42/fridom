@@ -46,18 +46,18 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.symbols import GridSymbols, ModeChart
-from fridom.framework2.model.eigenbasis import channel_random_state
-from fridom.framework2.model.eigenstates import (
+import fridom as fr
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.symbols import GridSymbols, ModeChart
+from fridom.model.eigenbasis import channel_random_state
+from fridom.model.eigenstates import (
     geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
 )
-from fridom.framework2.model.eigenstates import (
+from fridom.model.eigenstates import (
     normalize_max_component,
     prescribed_spectra_coefficients,
 )
-from fridom.framework2.model.time_dependent import resolve_at
+from fridom.model.time_dependent import resolve_at
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
 from fridom.shallowwater2.eigenmodes import Eigenmodes, from_model
@@ -69,10 +69,10 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.grid import Grid
-    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
-    from fridom.framework2.model.model import Model
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
+    from fridom.spatial.spaces.tensor_product import SpaceLike
+    from fridom.model.model import Model
 
 #: The analytic-tier family vocabulary -> eigenmode branches.
 _ANALYTIC_BRANCHES = {"vortical": (0,), "wave": (1, -1)}
@@ -298,9 +298,9 @@ def _spaces(grid: Grid) -> dict[str, SpaceLike]:
     """Canonical C-grid component spaces of the periodic grid."""
     x, y = grid.names
     return {
-        "u": fr.Staggered(x).resolve(grid),
-        "v": fr.Staggered(y).resolve(grid),
-        "p": fr.Collocated().resolve(grid),
+        "u": fr.spatial.Staggered(x).resolve(grid),
+        "v": fr.spatial.Staggered(y).resolve(grid),
+        "p": fr.spatial.Collocated().resolve(grid),
     }
 
 
@@ -611,9 +611,9 @@ def _beta_plane_parameters(
     """Read the validated ``(beta, csqr)`` of a beta-plane model."""
     view = model.parameters
     for name, why in (
-        (fr.params.CORIOLIS_BETA,
+        (fr.model.params.CORIOLIS_BETA,
          "the equatorial beta plane (assemble with "
-         "fr.modules.BetaPlaneCoriolis)"),
+         "fr.model.modules.BetaPlaneCoriolis)"),
         (sw_params.CSQR,
          "a constant squared phase speed (assemble with a "
          "constant-depth DynamicalCore)"),
@@ -622,7 +622,7 @@ def _beta_plane_parameters(
             raise ValueError(
                 f"equatorial waves need {why}: no {name!r} "
                 "provider on this model")
-    beta = float(resolve_at(view[fr.params.CORIOLIS_BETA], at_time))
+    beta = float(resolve_at(view[fr.model.params.CORIOLIS_BETA], at_time))
     csqr = float(resolve_at(view[sw_params.CSQR], at_time))
     if beta <= 0.0 or csqr <= 0.0:
         raise ValueError(

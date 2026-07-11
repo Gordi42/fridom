@@ -1,12 +1,12 @@
 """Tests for freeze(): fingerprint, verify path, GridFrozenError."""
 import pytest
 
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.errors import GridFrozenError
-from fridom.framework2.grid.grid import Grid, NegotiationFingerprint
-from fridom.framework2.grid.immersed_domain import ImmersedDomain
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.errors import GridFrozenError
+from fridom.spatial.grid import Grid, NegotiationFingerprint
+from fridom.spatial.immersed_domain import ImmersedDomain
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 

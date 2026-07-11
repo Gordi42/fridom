@@ -3,14 +3,14 @@ from fractions import Fraction
 
 import pytest
 
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.operators.base import (
     Dispatched,
     OperatorRequirements,
     SeparableComposite,
 )
-from fridom.framework2.grid.operators.registry import (
+from fridom.spatial.operators.registry import (
     DispatchError,
     LazyEntry,
     OperatorRegistry,

@@ -1,7 +1,7 @@
 """Tests for relative_l2 and assert_idempotent."""
 import pytest
 
-from fridom.framework2.transforms.norms import assert_idempotent, relative_l2
+from fridom.model.transforms.norms import assert_idempotent, relative_l2
 
 from .conftest import KeepFirst, Scale
 

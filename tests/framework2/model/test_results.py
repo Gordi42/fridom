@@ -8,7 +8,7 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.model.results import (
+from fridom.model.results import (
     AdvanceResult,
     PanicError,
     RunResult,

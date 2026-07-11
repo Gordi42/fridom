@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 
 N = 16
 N_STEPS = 3  # per half, around the mid-run round trips
@@ -38,9 +38,9 @@ def device_check(forced_devices):
 
 
 def run_advection_diffusion(device_ids):
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), name="y")
-    grid = fr.grid.Grid((mx, my), device_ids=device_ids)
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="y")
+    grid = fr.spatial.Grid((mx, my), device_ids=device_ids)
     u0 = grid.create_field(
         init=lambda x, y: jnp.sin(2 * jnp.pi * x)
         * jnp.cos(2 * jnp.pi * y))

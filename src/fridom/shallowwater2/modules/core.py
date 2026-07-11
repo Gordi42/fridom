@@ -16,7 +16,7 @@ single **linear** pressure-gradient / geopotential-divergence term:
 **Variable depth**: ``csqr`` accepts a callable :math:`c^2(y)` (the
 coriolis two-type precedent, folded into one core because the core
 also owns the whole state vocabulary): the ``csqr`` field is then
-declared on a meridional ``fr.Profile("y")`` and the constant
+declared on a meridional ``fr.spatial.Profile("y")`` and the constant
 ``shallowwater.csqr`` scalar is **not** provided
 (provides-implies-constancy, 02_rules) — analytic consumers keyed on
 the provide reject the model, the dense-column channel engine serves
@@ -30,7 +30,7 @@ under that metric; the ``sw.Model`` preset wires this automatically.
 
 The rotation :math:`f\,\underset{\neg}{\boldsymbol{u}}` is **not** a
 core term: it is carried by the shared Coriolis module
-(``fr.modules.FPlaneCoriolis`` / ``BetaPlaneCoriolis``), which declares
+(``fr.model.modules.FPlaneCoriolis`` / ``BetaPlaneCoriolis``), which declares
 the ``f_coriolis`` field and the ``+f v`` / ``-f u`` coupling. The
 gravity term here is unscaled (the Rossby number multiplies only the
 advection, D2.2). The nonlinear Sadourny advection is a separate
@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-import fridom.framework2 as fr
+import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
@@ -55,7 +55,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 
 @partial(jaxify, dynamic=("csqr", "rossby_number"))
-class DynamicalCore(fr.Module):
+class DynamicalCore(fr.model.Module):
 
     r"""
     Shallow-water core: declares ``u``, ``v``, ``p``; linear physics.
@@ -68,12 +68,12 @@ class DynamicalCore(fr.Module):
         materialized into the one-DOF ``csqr`` field. A callable
         ``csqr(y)`` (evaluated on the meridional coordinate) is the
         variable depth: materialized into a ``csqr`` field on
-        ``fr.Profile("y")``, with **no** ``shallowwater.csqr``
+        ``fr.spatial.Profile("y")``, with **no** ``shallowwater.csqr``
         provide (provides-implies-constancy) (default: 1.0).
-    rossby_number : float | fr.Ramp, optional
+    rossby_number : float | fr.model.Ramp, optional
         The Rossby number scaling the (separate) advection term;
         published as ``scaling.rossby`` (default: 1.0); may be a
-        ``fr.Ramp`` for a spun-up nonlinearity.
+        ``fr.model.Ramp`` for a spun-up nonlinearity.
     meridional : str, optional
         The meridional coordinate name a callable ``csqr`` varies
         along (default: ``"y"``).
@@ -88,43 +88,43 @@ class DynamicalCore(fr.Module):
     def __init__(
         self,
         csqr: float | Callable = 1.0,
-        rossby_number: float | fr.Ramp = 1.0,
+        rossby_number: float | fr.model.Ramp = 1.0,
         *,
         meridional: str = "y",
     ) -> None:
         """Store the leaves; a callable ``csqr`` stays static."""
         self._csqr_fn = csqr if callable(csqr) else None
-        self.csqr = None if callable(csqr) else fr.leaf(csqr)
-        self.rossby_number = fr.leaf(rossby_number)
+        self.csqr = None if callable(csqr) else fr.model.leaf(csqr)
+        self.rossby_number = fr.model.leaf(rossby_number)
         self._meridional = meridional
 
     # ================================================================
     #  Declarations
     # ================================================================
     @property
-    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
+    def field_declarations(self) -> tuple[fr.model.FieldDeclaration, ...]:
         """U (east face), v (north face), p (centre), csqr (AUX)."""
         if self._csqr_fn is None:
-            csqr_decl = fr.FieldDeclaration(
-                "csqr", space=fr.Profile(),
-                lifecycle=fr.Lifecycle.AUXILIARY,
+            csqr_decl = fr.model.FieldDeclaration(
+                "csqr", space=fr.spatial.Profile(),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._csqr_default,
                 long_name="Squared phase speed", units="m^2/s^2")
         else:
-            csqr_decl = fr.FieldDeclaration(
-                "csqr", space=fr.Profile(self._meridional),
-                lifecycle=fr.Lifecycle.AUXILIARY,
+            csqr_decl = fr.model.FieldDeclaration(
+                "csqr", space=fr.spatial.Profile(self._meridional),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._csqr_profile_default,
                 long_name="Squared phase speed", units="m^2/s^2")
         return (
-            fr.FieldDeclaration.velocity(
-                "u", "x", space=fr.Staggered("x"),
+            fr.model.FieldDeclaration.velocity(
+                "u", "x", space=fr.spatial.Staggered("x"),
                 long_name="Velocity (x)", units="m/s"),
-            fr.FieldDeclaration.velocity(
-                "v", "y", space=fr.Staggered("y"),
+            fr.model.FieldDeclaration.velocity(
+                "v", "y", space=fr.spatial.Staggered("y"),
                 long_name="Velocity (y)", units="m/s"),
-            fr.FieldDeclaration(
-                "p", space=fr.Collocated(),
+            fr.model.FieldDeclaration(
+                "p", space=fr.spatial.Collocated(),
                 long_name="Pressure (g*eta)", units="m^2/s^2"),
             csqr_decl,
         )
@@ -132,25 +132,25 @@ class DynamicalCore(fr.Module):
     @property
     def parameter_declarations(
         self,
-    ) -> tuple[fr.ParameterDeclaration, ...]:
+    ) -> tuple[fr.model.ParameterDeclaration, ...]:
         """Rossby always; ``shallowwater.csqr`` only when constant."""
         decls = (
-            fr.ParameterDeclaration(
-                fr.params.SCALING_ROSSBY, attr="rossby_number"),
+            fr.model.ParameterDeclaration(
+                fr.model.params.SCALING_ROSSBY, attr="rossby_number"),
         )
         if self._csqr_fn is None:
             decls += (
-                fr.ParameterDeclaration(
+                fr.model.ParameterDeclaration(
                     sw_params.CSQR, attr="csqr", units="m^2/s^2"),
             )
         return decls
 
     def _csqr_default(
         self, grid, space,  # noqa: ANN001
-    ) -> fr.grid.ScalarField:
+    ) -> fr.spatial.ScalarField:
         """Owner-method default: fill the one-DOF profile with ``csqr``.
 
-        The field is declared on ``fr.Profile()`` (constant depth is a
+        The field is declared on ``fr.spatial.Profile()`` (constant depth is a
         single degree of freedom); the GAP-A ConstantSpace/Profile
         broadcast lifts it to the nodal join wherever a term multiplies
         it (``c.to(u) * u``). No ``grid.sync``
@@ -163,7 +163,7 @@ class DynamicalCore(fr.Module):
 
     def _csqr_profile_default(
         self, grid, space,  # noqa: ANN001
-    ) -> fr.grid.ScalarField:
+    ) -> fr.spatial.ScalarField:
         """Owner-method default: materialize the ``csqr(y)`` profile.
 
         The meridional profile carries a single non-constant
@@ -185,7 +185,7 @@ class DynamicalCore(fr.Module):
     # ================================================================
     #  Tendency terms (linear)
     # ================================================================
-    @fr.term(advances=("u", "v", "p"), linear=True)
+    @fr.model.term(advances=("u", "v", "p"), linear=True)
     def gravity(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
         r"""Pressure gradient and geopotential divergence.
 
@@ -196,7 +196,7 @@ class DynamicalCore(fr.Module):
         Pure field arithmetic: ``c^2`` sits INSIDE the divergence
         (``(c.to(u) * u).diff("x")``, the flux form) so the discrete
         stencil matches ``diff(c^2 u)``. The ``csqr`` field lifts from
-        its one-DOF ``fr.Profile()`` onto each velocity face via the
+        its one-DOF ``fr.spatial.Profile()`` onto each velocity face via the
         ConstantSpace broadcast in ``.to``.
 
         The pressure-gradient entries retag onto their velocities:

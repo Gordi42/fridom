@@ -5,7 +5,7 @@ Description
 The analytic closed-form eigenmodes of the discrete nonhydrostatic
 C-grid linear operator, assembled **from the grid's own operator
 symbols** instead of hand-coded trigonometric formulas: a
-``fr.grid.GridSymbols`` kit names the staggered component spaces
+``fr.spatial.GridSymbols`` kit names the staggered component spaces
 (``u``, ``v``, ``w``, ``b``, ``p``) once, and every derivative /
 interpolation diagonal (``k``, ``kb``, ``a``, ``ab``) is the
 corresponding operator's ``eigenvalues`` query on the matching
@@ -13,7 +13,7 @@ coefficient space. The dispersion relation is the symbol algebra
 (``magnitude ** 2`` quantities composed with a structural-zero
 ``inverse``), the eigenvector column ``q^s`` is a tag-checked
 composition of the same symbols, and the biorthonormal dual is the
-derived ``fr.grid.rayleigh_dual`` under the nonhydro energy metric —
+derived ``fr.spatial.rayleigh_dual`` under the nonhydro energy metric —
 no hand-written left vector and no caller-side masking (the ``k = 0``
 mean and the degenerate ``k_h = 0`` wave strata drop through exact
 structural zeros).
@@ -39,7 +39,7 @@ On a **walled** (bounded, rigid-lid) vertical the kit spaces carry
 the physics-fixed parity tags (``w`` Dirichlet, ``u``/``v``/``p``
 Neumann, ``b`` Dirichlet), the same formulas compose under the
 derived-shift trig symbol algebra, and cross-component sums align
-per physical vertical mode through the ``fr.grid.ModeChart`` union
+per physical vertical mode through the ``fr.spatial.ModeChart`` union
 lattice — the per-component trig families hold different mode
 ranges (``w`` modes ``1..n-1``, ``u``/``v``/``p`` ``0..n-1``, ``b``
 ``1..n``). The geostrophic column is re-referenced per component so
@@ -64,15 +64,15 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.operators.symbol import Symbol
-from fridom.framework2.grid.symbols import (
+import fridom as fr
+from fridom.spatial.bc import BC
+from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.symbols import (
     GridSymbols,
     ModeChart,
     rayleigh_dual,
 )
-from fridom.framework2.model.eigenstates import (
+from fridom.model.eigenstates import (
     coefficient_index,
     describe_nonfinite_branch,
     envelope_scale,
@@ -80,7 +80,7 @@ from fridom.framework2.model.eigenstates import (
     hermitian_mode_data,
     resolve_mode_branches,
 )
-from fridom.framework2.model.energy import nonhydro_energy_weights
+from fridom.model.energy import nonhydro_energy_weights
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
@@ -90,11 +90,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.grid import Grid
-    from fridom.framework2.grid.meshes.mesh import Mesh
-    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
-    from fridom.framework2.model.model import Model
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
+    from fridom.spatial.meshes.mesh import Mesh
+    from fridom.spatial.spaces.tensor_product import SpaceLike
+    from fridom.model.model import Model
 
 
 class _LazySymbols(Mapping):
@@ -151,7 +151,7 @@ class Eigenmodes:
 
     Description
     -----------
-    Binds a :class:`~fridom.framework2.grid.symbols.GridSymbols` kit
+    Binds a :class:`~fridom.spatial.symbols.GridSymbols` kit
     on the canonical C-grid component spaces and exposes the analytic
     eigenmode surface: the dispersion ``omega(s)`` (a ``Symbol``),
     the eigenvector column ``q(s)`` (a coefficient-space ``State``),
@@ -163,7 +163,7 @@ class Eigenmodes:
 
     Parameters
     ----------
-    grid : fr.grid.Grid
+    grid : fr.spatial.Grid
         A 3-D grid carrying the vertical coordinate; the horizontal
         axes must be periodic, the vertical may be bounded (rigid
         lids).
@@ -211,25 +211,25 @@ class Eigenmodes:
         # ignored on periodic factors, so a periodic grid resolves
         # to the exact BC-free spaces.
         spaces = {
-            "u": fr.Staggered(
+            "u": fr.spatial.Staggered(
                 x, wall_bc={z: BC.NEUMANN}).resolve(grid),
-            "v": fr.Staggered(
+            "v": fr.spatial.Staggered(
                 y, wall_bc={z: BC.NEUMANN}).resolve(grid),
-            "w": fr.Staggered(
+            "w": fr.spatial.Staggered(
                 z, wall_bc={z: BC.DIRICHLET}).resolve(grid),
-            "b": fr.Collocated(
+            "b": fr.spatial.Collocated(
                 wall_bc={z: BC.DIRICHLET}).resolve(grid),
-            "p": fr.Collocated(
+            "p": fr.spatial.Collocated(
                 wall_bc={z: BC.NEUMANN}).resolve(grid),
         }
         # the model-facing physical spaces (u, v, b BC-free; w's
         # Dirichlet wall tag matches the Velocity declaration) —
         # identical to the kit spaces on a periodic grid
         self._physical: dict[str, SpaceLike] = {
-            "u": fr.Staggered(x).resolve(grid),
-            "v": fr.Staggered(y).resolve(grid),
+            "u": fr.spatial.Staggered(x).resolve(grid),
+            "v": fr.spatial.Staggered(y).resolve(grid),
             "w": spaces["w"],
-            "b": fr.Collocated().resolve(grid),
+            "b": fr.spatial.Collocated().resolve(grid),
         }
         kit = GridSymbols(grid, spaces)
         self._kit: GridSymbols = kit
@@ -591,11 +591,11 @@ class Eigenmodes:
         -----------
         ``P^s z = q^s \langle p^s, z\rangle`` with the biorthonormal
         dual ``p^s`` derived from ``q^s`` under the nonhydro energy
-        metric (``fr.grid.rayleigh_dual`` + the ``diag(1, 1, dsqr,
+        metric (``fr.spatial.rayleigh_dual`` + the ``diag(1, 1, dsqr,
         1/N^2)`` weights): idempotent by biorthonormality, exactly
         zero on the structurally degenerate modes. On a walled
         vertical the amplitude is accumulated on the
-        ``fr.grid.ModeChart`` union mode lattice (the components'
+        ``fr.spatial.ModeChart`` union mode lattice (the components'
         trig families hold different mode ranges); on a periodic
         grid the chart is identity and the data path is unchanged.
         The vortical branch of an even periodic-vertical grid sums
@@ -650,7 +650,7 @@ class Eigenmodes:
 
         with :math:`P^s` the branch projector of :meth:`projector`
         and :math:`\omega^s` the branch's pointwise dispersion
-        diagonal on the ``fr.grid.ModeChart`` union mode lattice —
+        diagonal on the ``fr.spatial.ModeChart`` union mode lattice —
         ``f = 1`` on a selection reproduces the summed projectors
         exactly. A branch with an internal column family (the
         vortical branch of an even periodic-vertical grid, see
@@ -847,7 +847,7 @@ class Eigenmodes:
         -----------
         The Rayleigh dual under the energy metric. The wave columns
         (and every periodic column) share one domain lattice, so
-        ``fr.grid.rayleigh_dual`` applies in the symbol algebra.
+        ``fr.spatial.rayleigh_dual`` applies in the symbol algebra.
         The walled geostrophic column is per-component endo (each
         entry on its own vertical lattice), so its norm is
         accumulated on the union mode lattice instead — the same
@@ -914,16 +914,16 @@ class Eigenmodes:
         return template.with_data(full.astype(template.data.dtype))
 
     def _energy_weights(self) -> dict[str, float]:
-        r"""Per-component energy weights (the ``fr.EnergyMetric`` diag).
+        r"""Per-component energy weights (the ``fr.model.EnergyMetric`` diag).
 
         Description
         -----------
         ``diag(1, 1, dsqr, 1/N^2)`` on ``(u, v, w, b)`` -- the
         canonical nonhydro energy metric ``M`` (a single source of
-        truth with ``fr.EnergyMetric.from_model``). The ``1/N^2``
+        truth with ``fr.model.EnergyMetric.from_model``). The ``1/N^2``
         reciprocal falls back to ``1`` for the degenerate ``N^2 = 0``
         (pure-inertial) grid the constructor permits -- the metric
-        proper (and ``fr.EnergyMetric``) needs ``N^2 != 0``.
+        proper (and ``fr.model.EnergyMetric``) needs ``N^2 != 0``.
         """
         inv_n2 = 1.0 / self.n2 if self.n2 != 0.0 else 1.0
         return nonhydro_energy_weights(self.dsqr, inv_n2)
@@ -1026,7 +1026,7 @@ def from_model(
 
     Parameters
     ----------
-    model : fr.Model
+    model : fr.model.Model
         An assembled nonhydrostatic model.
     at_time : float, optional
         Evaluation time for time-dependent parameters (default: 0.0).
@@ -1060,12 +1060,12 @@ def from_model(
                 "single-walled horizontal channel by nh.eigenbasis, "
                 "the numeric engine)")
         value = params[name]
-        if isinstance(value, fr.TimeDependent):
+        if isinstance(value, fr.model.TimeDependent):
             return float(value.at_time(at_time))
         return float(value)
 
     return Eigenmodes(
         model.grid,
-        f0=_read(fr.params.CORIOLIS_F0),
-        n2=_read(fr.params.STRATIFICATION_N2),
+        f0=_read(fr.model.params.CORIOLIS_F0),
+        n2=_read(fr.model.params.STRATIFICATION_N2),
         dsqr=_read(DSQR))

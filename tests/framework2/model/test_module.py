@@ -7,28 +7,28 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.declarations import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.declarations import (
     FieldDeclaration,
     FieldReference,
     Lifecycle,
 )
-from fridom.framework2.model.errors import (
+from fridom.model.errors import (
     ImmutableParameterError,
     TimeDependentParameterError,
 )
-from fridom.framework2.model.module import BindParameterView, Module
-from fridom.framework2.model.parameters import (
+from fridom.model.module import BindParameterView, Module
+from fridom.model.parameters import (
     ParameterDeclaration,
     ParameterReference,
 )
-from fridom.framework2.model.roles import ADVECTED
-from fridom.framework2.model.space_patterns import Profile
-from fridom.framework2.model.stages import Stage, StageKind, self_update
-from fridom.framework2.model.terms import term
-from fridom.framework2.model.time_dependent import Ramp, resolve_at
+from fridom.model.roles import ADVECTED
+from fridom.model.space_patterns import Profile
+from fridom.model.stages import Stage, StageKind, self_update
+from fridom.model.terms import term
+from fridom.model.time_dependent import Ramp, resolve_at
 
 
 # ================================================================

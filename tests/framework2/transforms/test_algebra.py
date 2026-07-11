@@ -9,18 +9,18 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.model.time_dependent import Ramp
-from fridom.framework2.transforms.algebra import (
+from fridom.model.time_dependent import Ramp
+from fridom.model.transforms.algebra import (
     Compose,
     Power,
     Scaled,
     Sum,
 )
-from fridom.framework2.transforms.errors import SignatureMismatchError
-from fridom.framework2.transforms.identity import Identity
-from fridom.framework2.transforms.info import TransformInfo
-from fridom.framework2.transforms.shift import Shift
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.model.transforms.errors import SignatureMismatchError
+from fridom.model.transforms.identity import Identity
+from fridom.model.transforms.info import TransformInfo
+from fridom.model.transforms.shift import Shift
+from fridom.model.transforms.signature import StateSignature
 
 from .conftest import KeepFirst, Scale, build_state, make_cross
 

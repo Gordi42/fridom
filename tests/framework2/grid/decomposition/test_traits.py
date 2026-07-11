@@ -3,7 +3,7 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.grid.decomposition.traits import (
+from fridom.spatial.decomposition.traits import (
     HaloStrategy,
     MeshDecompositionTraits,
 )

@@ -1,5 +1,5 @@
 """
-Shallow-water tendency modules (framework2 port).
+Shallow-water tendency modules.
 
 Description
 -----------
@@ -7,8 +7,8 @@ The module library for the shallow-water model:
 
 - :class:`DynamicalCore` — declares ``u``/``v``/``p``, owns
   ``csqr`` and the Rossby scaling, contributes the linear physics;
-- :class:`~fridom.framework2.modules.FPlaneCoriolis` /
-  :class:`~fridom.framework2.modules.BetaPlaneCoriolis` — the shared
+- :class:`~fridom.model.modules.FPlaneCoriolis` /
+  :class:`~fridom.model.modules.BetaPlaneCoriolis` — the shared
   framework Coriolis modules (re-exported from ``fr.modules``), which
   declare ``f_coriolis`` and carry the rotation term;
 - :class:`SadournyAdvection` — the energy/enstrophy-conserving
@@ -22,7 +22,7 @@ from lazypimp import setup
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework2.modules import (
+    from fridom.model.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
     )
@@ -41,7 +41,7 @@ all_modules_by_origin: dict[str, list[str]] = {}
 # (fr.modules), re-exported here so sw.modules.FPlaneCoriolis keeps
 # working.
 all_imports_by_origin = {
-    "fridom.framework2.modules": [
+    "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis"],
     f"{base}.core": ["DynamicalCore"],
     f"{base}.sadourny": ["SadournyAdvection"],

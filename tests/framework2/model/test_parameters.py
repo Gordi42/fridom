@@ -1,9 +1,9 @@
-"""Tests for fridom.framework2.model.parameters (declaration surface)."""
+"""Tests for fridom.model.parameters (declaration surface)."""
 import dataclasses
 
 import pytest
 
-from fridom.framework2.model.parameters import (
+from fridom.model.parameters import (
     REQUIRED,
     USE_PROVIDED,
     Param,
@@ -11,8 +11,8 @@ from fridom.framework2.model.parameters import (
     ParameterReference,
     leaf,
 )
-from fridom.framework2.model.params import SCALING_ROSSBY, ParamName
-from fridom.framework2.model.time_dependent import Ramp
+from fridom.model.params import SCALING_ROSSBY, ParamName
+from fridom.model.time_dependent import Ramp
 
 
 # ================================================================

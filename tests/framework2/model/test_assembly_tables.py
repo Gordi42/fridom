@@ -6,39 +6,39 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.model import params
-from fridom.framework2.model.assembly import (
+from fridom.spatial.bc import BC
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.model import params
+from fridom.model.assembly import (
     ParameterBinding,
     ParameterBindingTable,
     Params,
     RematerializationEntry,
     RematerializationTable,
 )
-from fridom.framework2.model.declarations import (
+from fridom.model.declarations import (
     FieldDeclaration,
     Lifecycle,
 )
-from fridom.framework2.model.errors import (
+from fridom.model.errors import (
     AssemblyError,
     MissingParameterError,
     ParameterCollisionError,
 )
-from fridom.framework2.model.parameters import (
+from fridom.model.parameters import (
     USE_PROVIDED,
     Param,
     ParameterDeclaration,
     ParameterReference,
 )
-from fridom.framework2.model.space_patterns import (
+from fridom.model.space_patterns import (
     Collocated,
     Dof,
     Profile,
 )
-from fridom.framework2.model.time_dependent import Ramp
+from fridom.model.time_dependent import Ramp
 
 
 # ================================================================

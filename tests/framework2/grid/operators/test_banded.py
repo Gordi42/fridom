@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.operators.banded import (
+from fridom.spatial.operators.banded import (
     apply_along_axis,
     second_difference_matrix,
     solve_along_axis,

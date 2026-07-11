@@ -88,7 +88,7 @@ Prescribed background flow (``background=``)
 --------------------------------------------
 With a prescribed, stationary, divergence-free background
 :math:`\boldsymbol{u}_b` the scheme contributes a **second, linear**
-term (V-S3: a separate ``linear=True`` term, so ``fr.linearize``
+term (V-S3: a separate ``linear=True`` term, so ``fr.model.linearize``
 keeps it while dropping the nonlinear self-advection):
 
 .. math::
@@ -150,16 +150,16 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.spaces.constant import ConstantSpace
+import fridom as fr
+from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.grid import Grid
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
 
 #: wall-normal background components must vanish at the wall to this
 #: relative tolerance (impermeability)
@@ -173,7 +173,7 @@ _BG_COMPONENTS = ("u", "v")
 _BG_AXES = {"u": "x", "v": "y"}
 
 
-class SadournyAdvection(fr.Module):
+class SadournyAdvection(fr.model.Module):
 
     r"""
     Energy/enstrophy-conserving advection for ``u``, ``v``, ``p``.
@@ -214,13 +214,13 @@ class SadournyAdvection(fr.Module):
     extra_halo = HaloSpec({"x": 2, "y": 2})
 
     field_references = (
-        fr.FieldReference("u", hint="a shallow-water core"),
-        fr.FieldReference("v", hint="a shallow-water core"),
-        fr.FieldReference("p", hint="a shallow-water core"),
-        fr.FieldReference("csqr", hint="a shallow-water core"))
+        fr.model.FieldReference("u", hint="a shallow-water core"),
+        fr.model.FieldReference("v", hint="a shallow-water core"),
+        fr.model.FieldReference("p", hint="a shallow-water core"),
+        fr.model.FieldReference("csqr", hint="a shallow-water core"))
 
     parameter_references = (
-        fr.Param(fr.params.SCALING_ROSSBY, default=1.0),)
+        fr.model.Param(fr.model.params.SCALING_ROSSBY, default=1.0),)
 
     def __init__(
         self,
@@ -264,21 +264,21 @@ class SadournyAdvection(fr.Module):
     #  Background declarations (AUXILIARY, materialized at assembly)
     # ================================================================
     @property
-    def field_declarations(self) -> tuple[fr.FieldDeclaration, ...]:
+    def field_declarations(self) -> tuple[fr.model.FieldDeclaration, ...]:
         """The sampled background velocities (when prescribed)."""
         if self._background is None:
             return ()
         return (
-            fr.FieldDeclaration(
+            fr.model.FieldDeclaration(
                 "u_background",
-                space=fr.Staggered("x", wall_bc={"x": BC.DIRICHLET}),
-                lifecycle=fr.Lifecycle.AUXILIARY,
+                space=fr.spatial.Staggered("x", wall_bc={"x": BC.DIRICHLET}),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._u_background_default,
                 long_name="Background velocity (x)", units="m/s"),
-            fr.FieldDeclaration(
+            fr.model.FieldDeclaration(
                 "v_background",
-                space=fr.Staggered("y", wall_bc={"y": BC.DIRICHLET}),
-                lifecycle=fr.Lifecycle.AUXILIARY,
+                space=fr.spatial.Staggered("y", wall_bc={"y": BC.DIRICHLET}),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._v_background_default,
                 long_name="Background velocity (y)", units="m/s"),
         )
@@ -464,7 +464,7 @@ class SadournyAdvection(fr.Module):
                 "v_b = +d(psi)/dx from a streamfunction psi sampled "
                 "at the vorticity corners")
 
-    @fr.term(advances=("u", "v", "p"),
+    @fr.model.term(advances=("u", "v", "p"),
              transports=("u", "v", "p"), linear=False)
     def advect(self, state, ctx) -> dict:  # noqa: ANN001
         """Return the Sadourny vector-invariant tendency (Ro-scaled).
@@ -478,7 +478,7 @@ class SadournyAdvection(fr.Module):
         is the identity on periodic axes, so the periodic scheme is
         reproduced bit for bit.
         """
-        rossby = ctx.params[fr.params.SCALING_ROSSBY]
+        rossby = ctx.params[fr.model.params.SCALING_ROSSBY]
         u, v, p = state["u"], state["v"], state["p"]
         c = state["csqr"]
 
@@ -512,7 +512,7 @@ class SadournyAdvection(fr.Module):
                        - ekin.diff("y").retag(v))
         return {"u": du, "v": dv, "p": dp}
 
-    @fr.term(name="background_advection",
+    @fr.model.term(name="background_advection",
              advances=("u", "v", "p"), linear=True)
     def background_advection(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
         r"""Flux-form transport by the prescribed background flow.
@@ -554,7 +554,7 @@ class SadournyAdvection(fr.Module):
                + fy_v.diff("y").retag(v))
         return {"u": du, "v": dv, "p": dp}
 
-    def tendency_terms(self) -> tuple[fr.TendencyTerm, ...]:
+    def tendency_terms(self) -> tuple[fr.model.TendencyTerm, ...]:
         """Collect the terms; drop the unused background term."""
         terms = super().tendency_terms()
         if self._background is None:

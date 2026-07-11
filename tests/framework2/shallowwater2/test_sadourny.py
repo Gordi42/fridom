@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater as swold
 import fridom.shallowwater2 as sw
 from fridom.shallowwater2 import params as sw_params
@@ -18,8 +18,8 @@ from .conftest import (
 
 CSQR = 0.7
 
-BG_TERM = fr.terms.named("SadournyAdvection/background_advection")
-NL_TERM = fr.terms.named("SadournyAdvection/advect")
+BG_TERM = fr.model.terms.named("SadournyAdvection/background_advection")
+NL_TERM = fr.model.terms.named("SadournyAdvection/advect")
 
 
 # ================================================================
@@ -56,7 +56,7 @@ def h_energy_terms(model):
     """
     z = model.state
     dz = model.tendency(z)
-    ro = float(model.parameters[fr.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
     u, v, p = z["u"], z["v"], z["p"]
     du, dv, dp = dz["u"], dz["v"], dz["p"]
     h = z["csqr"].to(p) + ro * p
@@ -73,7 +73,7 @@ def h_energy_terms(model):
 def h_energy(model):
     """Evaluate the conserved discrete energy functional."""
     z = model.state
-    ro = float(model.parameters[fr.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
     u, v, p = z["u"], z["v"], z["p"]
     h = z["csqr"].to(p) + ro * p
     parts = (0.5 * u * u * h.to(u), 0.5 * v * v * h.to(v),
@@ -89,9 +89,9 @@ def test_csqr_is_a_state_field_not_a_scalar():
     c = model.state["csqr"]
     # a one-DOF Profile() field (constant depth) that broadcasts to the
     # nodal join in the tendency terms — still a field, not a scalar
-    assert isinstance(c, fr.grid.ScalarField)
+    assert isinstance(c, fr.spatial.ScalarField)
     assert c.function_space.bare is (
-        fr.Profile().resolve(model.grid))
+        fr.spatial.Profile().resolve(model.grid))
     np.testing.assert_allclose(np.asarray(c.data), 1.5)
 
 
@@ -258,7 +258,7 @@ def varying_walled_model(*, f0=0.0, ro=0.4):
         grid=make_grid(periodic_y=False),
         csqr=lambda y: 1.0 + 0.5 * np.sin(np.pi * y),
         rossby_number=ro, coriolis=coriolis, advection=True,
-        time_stepper=fr.time_steppers.AdamBashforth(2e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
 
 
 @pytest.mark.parametrize("seed", [3, 11])
@@ -296,7 +296,7 @@ def background_model(background, *, grid=None, ro=0.4, f0=1.0,
         advection=False,
         modules_extra=(
             sw.modules.SadournyAdvection(background=background),),
-        time_stepper=fr.time_steppers.AdamBashforth(dt, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 
 def streamfunction_background(amp=0.3, n=N):
@@ -437,10 +437,10 @@ def test_linearize_keeps_background_drops_nonlinear():
     model = background_model(streamfunction_background(), grid=grid)
     set_random(model, seed=5)
     z = model.state
-    lin = fr.linearize(model)
+    lin = fr.model.linearize(model)
     # the linear variant is the linear-filtered tendency (bitwise)
     tl = lin.tendency(z)
-    tf = model.tendency(z, filter=fr.terms.linear)
+    tf = model.tendency(z, filter=fr.model.terms.linear)
     for name in ("u", "v", "p"):
         assert np.array_equal(np.asarray(tl[name].data),
                               np.asarray(tf[name].data))
@@ -455,7 +455,7 @@ def test_linearize_keeps_background_drops_nonlinear():
     # coriolis, from the background-free linear terms) + bg term
     tb = model.tendency(z, filter=BG_TERM)
     t0 = model.tendency(
-        z, filter=fr.terms.linear & ~BG_TERM)
+        z, filter=fr.model.terms.linear & ~BG_TERM)
     for name in ("u", "v", "p"):
         err = np.abs(np.asarray(
             (tl[name] - t0[name] - tb[name]).data)).max()
@@ -494,8 +494,8 @@ def test_background_doppler_shifts_the_eigenvalues():
     with_bg = background_model({"u": u0})
     without = make_model(make_grid(), csqr=CSQR, rossby_number=0.4,
                          advection=True, dt=2e-3)
-    omega_bg = np.asarray(fr.numeric_eigenpairs(with_bg).omega)
-    omega_0 = np.asarray(fr.numeric_eigenpairs(without).omega)
+    omega_bg = np.asarray(fr.model.numeric_eigenpairs(with_bg).omega)
+    omega_0 = np.asarray(fr.model.numeric_eigenpairs(without).omega)
     dx = 1.0 / N
     kx = 2 * np.pi * np.fft.fftfreq(N, d=dx)
     ktilde = np.sin(kx * dx) / dx
@@ -618,12 +618,12 @@ def test_old_stack_background_parity():
     dz_old = adv.advect_state(z_old, swold.State(mset))
 
     # new stack: the background term (any Rossby number)
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, lx), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, lx), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(n, (0.0, lx), periodic=True,
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, lx), periodic=True,
                                      name="y")
     model = background_model({"u": ub_fn, "v": vb_fn},
-                             grid=fr.grid.Grid((mx, my)))
+                             grid=fr.spatial.Grid((mx, my)))
     model.set_fields(u=u_fn, v=v_fn, p=p_fn)
     dz_new = model.tendency(model.state, filter=BG_TERM)
 

@@ -1,7 +1,7 @@
 """Tests for the grid-cluster error types (framework2/grid/errors.py)."""
 import pytest
 
-from fridom.framework2.grid.errors import (
+from fridom.spatial.errors import (
     GridMismatchError,
     SpaceMismatchError,
 )

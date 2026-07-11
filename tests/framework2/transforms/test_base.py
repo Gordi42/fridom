@@ -2,12 +2,12 @@
 import numpy as np
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.transforms.base import StateTransform
-from fridom.framework2.transforms.identity import Identity
-from fridom.framework2.transforms.info import TransformInfo
-from fridom.framework2.transforms.shift import Shift
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.model.transforms.base import StateTransform
+from fridom.model.transforms.identity import Identity
+from fridom.model.transforms.info import TransformInfo
+from fridom.model.transforms.shift import Shift
+from fridom.model.transforms.signature import StateSignature
 
 from .conftest import Scale, build_state
 

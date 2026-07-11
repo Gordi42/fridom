@@ -1,10 +1,10 @@
 """Tests for the ``Grid.merge_overrides`` facade (grid.md)."""
 import pytest
 
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.errors import GridFrozenError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.operators.registry import (
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.errors import GridFrozenError
+from fridom.spatial.grid import Grid
+from fridom.spatial.operators.registry import (
     DispatchCollisionError,
     DispatchError,
     OperatorRegistry,

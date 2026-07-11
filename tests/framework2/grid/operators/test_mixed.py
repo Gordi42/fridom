@@ -2,23 +2,23 @@
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.errors import GridMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.fourier import Fourier
-from fridom.framework2.grid.operators.mixed import (
+from fridom.spatial.bc import BC
+from fridom.spatial.errors import GridMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.operators.mixed import (
     ComposedTransform,
     resolve_transform,
 )
-from fridom.framework2.grid.operators.registry import DispatchError
-from fridom.framework2.grid.operators.trig import Cosine, Sine
-from fridom.framework2.grid.spaces.coefficient import (
+from fridom.spatial.operators.registry import DispatchError
+from fridom.spatial.operators.trig import Cosine, Sine
+from fridom.spatial.spaces.coefficient import (
     CosineSpace,
     FourierSpace,
     SineSpace,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.spaces.nodal import NodeSet
 
 N = 8
 

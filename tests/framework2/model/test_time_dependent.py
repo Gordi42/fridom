@@ -1,4 +1,4 @@
-"""Tests for fridom.framework2.model.time_dependent (Ramp & co)."""
+"""Tests for fridom.model.time_dependent (Ramp & co)."""
 import math
 
 import jax
@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.model.time_dependent import (
+from fridom.model.time_dependent import (
     Ramp,
     TimeDependent,
     resolve_at,

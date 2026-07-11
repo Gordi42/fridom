@@ -1,7 +1,7 @@
 """Tests for TransformInfo / TransformCost / TransformProgress."""
 import pytest
 
-from fridom.framework2.transforms.info import (
+from fridom.model.transforms.info import (
     TransformCost,
     TransformInfo,
     TransformProgress,

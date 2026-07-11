@@ -1,29 +1,29 @@
 """ClosureBase: role-target resolution, V-H2, per-field options."""
 import pytest
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.closures.base import ClosureBase
-from fridom.framework2.model.declarations import (
+import fridom as fr
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.closures.base import ClosureBase
+from fridom.model.declarations import (
     FieldDeclaration,
     Lifecycle,
 )
-from fridom.framework2.model.errors import (
+from fridom.model.errors import (
     AssemblyError,
     ImmutableParameterError,
     MissingFieldError,
 )
-from fridom.framework2.model.field_table import (
+from fridom.model.field_table import (
     FieldRecord,
     FieldTable,
 )
-from fridom.framework2.model.roles import TRACER, Velocity
-from fridom.framework2.model.space_patterns import (
+from fridom.model.roles import TRACER, Velocity
+from fridom.model.space_patterns import (
     Collocated,
     Staggered,
 )
-from fridom.framework2.model.terms import TendencyTerm
+from fridom.model.terms import TendencyTerm
 
 
 # ================================================================
@@ -293,11 +293,11 @@ def test_failed_bind_leaves_the_closure_unbound():
 #  The owned_by predicate follows free
 # ================================================================
 def test_owned_by_closurebase_matches_any_closure_subclass():
-    predicate = fr.terms.owned_by(fr.closures.ClosureBase)
+    predicate = fr.model.terms.owned_by(fr.model.closures.ClosureBase)
     term = TendencyTerm(name="t", fn=lambda *_args: {})
     assert predicate("Mixing/t", term, Mixing()) is True
     assert predicate("Other/t", term, object()) is False
 
 
 def test_fr_closures_namespace_exposes_the_base():
-    assert fr.closures.ClosureBase is ClosureBase
+    assert fr.model.closures.ClosureBase is ClosureBase

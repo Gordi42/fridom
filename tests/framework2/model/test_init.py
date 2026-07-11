@@ -4,12 +4,12 @@ import importlib
 import pytest
 
 PACKAGES = [
-    "fridom.framework2.model",
-    "fridom.framework2.model.time_steppers",
-    "fridom.framework2.model.closures",
-    "fridom.framework2.transforms",
-    "fridom.framework2.io",
-    "fridom.framework2.ops",
+    "fridom.model",
+    "fridom.model.time_steppers",
+    "fridom.model.closures",
+    "fridom.model.transforms",
+    "fridom.model.io",
+    "fridom.model.ops",
 ]
 
 

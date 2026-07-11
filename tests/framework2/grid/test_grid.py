@@ -1,31 +1,31 @@
-"""Tests for fridom.framework2.grid.grid."""
+"""Tests for fridom.spatial.grid."""
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.errors import (
+from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.errors import (
     GridFrozenError,
     GridMismatchError,
     SpaceMismatchError,
 )
-from fridom.framework2.grid.fields.metadata import FieldMetadata
-from fridom.framework2.grid.grid import Grid, _tagged_trig_origins
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.meshes.point import PointMesh
-from fridom.framework2.grid.operators.base import (
+from fridom.spatial.fields.metadata import FieldMetadata
+from fridom.spatial.grid import Grid, _tagged_trig_origins
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.point import PointMesh
+from fridom.spatial.operators.base import (
     OperatorRequirements,
 )
-from fridom.framework2.grid.operators.finite_difference import (
+from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
-from fridom.framework2.grid.operators.interp import LinearInterp
-from fridom.framework2.grid.operators.registry import (
+from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.registry import (
     DispatchError,
     OperatorRegistry,
 )
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 @pytest.fixture

@@ -1,8 +1,8 @@
-"""Tests for fridom.framework2.model.params (ParamName + registry)."""
+"""Tests for fridom.model.params (ParamName + registry)."""
 import pytest
 
-from fridom.framework2.model import params
-from fridom.framework2.model.params import ParamName
+from fridom.model import params
+from fridom.model.params import ParamName
 
 
 # ================================================================

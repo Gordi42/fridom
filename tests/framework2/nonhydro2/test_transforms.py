@@ -22,13 +22,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.model.terms import term
-from fridom.framework2.transforms.errors import SignatureMismatchError
-from fridom.framework2.transforms.projection import EigenProjection
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.terms import term
+from fridom.model.transforms.errors import SignatureMismatchError
+from fridom.model.transforms.projection import EigenProjection
 
 DT = 0.02
 
@@ -72,7 +72,7 @@ def test_all_three_projections_are_idempotent():
     for build in (nh.transforms.VorticalProjection,
                   nh.transforms.WaveProjection,
                   nh.transforms.DivergenceProjection):
-        fr.transforms.assert_idempotent(build.from_model(model), z)
+        fr.model.transforms.assert_idempotent(build.from_model(model), z)
 
 
 # ================================================================
@@ -163,10 +163,10 @@ def test_projections_carry_the_staggered_signature():
     # b collocated (bare spaces are interned, == is identity)
     grid = model.grid
     spaces = dict(sig.components)
-    assert spaces["u"] == fr.Staggered("x").resolve(grid).bare
-    assert spaces["v"] == fr.Staggered("y").resolve(grid).bare
-    assert spaces["w"] == fr.Staggered("z").resolve(grid).bare
-    assert spaces["b"] == fr.Collocated().resolve(grid).bare
+    assert spaces["u"] == fr.spatial.Staggered("x").resolve(grid).bare
+    assert spaces["v"] == fr.spatial.Staggered("y").resolve(grid).bare
+    assert spaces["w"] == fr.spatial.Staggered("z").resolve(grid).bare
+    assert spaces["b"] == fr.spatial.Collocated().resolve(grid).bare
 
 
 def test_call_rejects_a_state_missing_a_mapped_component():
@@ -181,7 +181,7 @@ def test_call_rejects_a_component_on_the_wrong_space():
     model = _model()
     em = nh.eigenmodes.from_model(model)
     grid = model.grid
-    center = fr.Collocated().resolve(grid)
+    center = fr.spatial.Collocated().resolve(grid)
     collocated = nh.State({
         c: grid.create_field(center, name=c) for c in COMPONENTS})
     with pytest.raises(SignatureMismatchError,
@@ -205,11 +205,11 @@ def test_from_model_and_explicit_agree():
 # ================================================================
 #  The rest policy on a tracer-carrying state
 # ================================================================
-class _PassiveTracer(fr.Module):
+class _PassiveTracer(fr.model.Module):
 
     """A module declaring one prognostic passive tracer ``c``."""
 
-    field_declarations = (fr.FieldDeclaration.tracer("c"),)
+    field_declarations = (fr.model.FieldDeclaration.tracer("c"),)
 
     @term(name="c_hold", advances=("c",))
     def hold(self, state, _ctx):
@@ -257,7 +257,7 @@ def make_channel_model(*, walled="y", beta=None, device_ids=None,
         grid=Grid(meshes, device_ids=device_ids), advection=False,
         dsqr=DSQR, coriolis=coriolis,
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -329,7 +329,7 @@ def test_channel_projections_are_idempotent_and_annihilating(
         "kelvin": nh.transforms.KelvinProjection(eb),
         "constraint": eb.projector("constraint")}
     for proj in projections.values():
-        fr.transforms.assert_idempotent(proj, z)
+        fr.model.transforms.assert_idempotent(proj, z)
     parts = {name: proj(z) for name, proj in projections.items()}
     for a, proj in projections.items():
         for b, part in parts.items():
@@ -475,7 +475,7 @@ def test_multiwalled_grids_are_rejected():
         grid=Grid(meshes), advection=False, dsqr=DSQR,
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match="multi-walled"):
         nh.eigenbasis(model)
     with pytest.raises(ValueError, match="multi-walled"):

@@ -3,7 +3,7 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.model.implicit import (
+from fridom.model.implicit import (
     ImplicitOperator,
     VerticalDiffusion,
 )

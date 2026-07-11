@@ -1,9 +1,9 @@
 """Tests for the nodal spaces (framework2/grid/spaces/nodal.py)."""
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.spaces.nodal import (
+from fridom.spatial.bc import BC
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.spaces.nodal import (
     NODAL_CLASS,
     Center,
     Inner,

@@ -17,8 +17,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.spaces.nodal import NodeSet
+import fridom as fr
+from fridom.spatial.spaces.nodal import NodeSet
 
 N = 32
 LENGTH = 2.0
@@ -53,9 +53,9 @@ def transform_laplacian(grid, space):
 
 @pytest.fixture
 def bounded():
-    mesh = fr.grid.meshes.IntervalMesh(
+    mesh = fr.spatial.meshes.IntervalMesh(
         N, (0.0, LENGTH), periodic=False, name="x")
-    return fr.grid.Grid((mesh,)), mesh
+    return fr.spatial.Grid((mesh,)), mesh
 
 
 def decay(t_end, wavenumber=np.pi / LENGTH):
@@ -67,7 +67,7 @@ def decay(t_end, wavenumber=np.pi / LENGTH):
 # ================================================================
 def test_dirichlet_decaying_mode(bounded):
     grid, mesh = bounded
-    space = mesh.nodal(NodeSet.CENTER, bc=fr.grid.BC.DIRICHLET)
+    space = mesh.nodal(NodeSet.CENTER, bc=fr.spatial.BC.DIRICHLET)
     # Dirichlet drops no Center DOF: n cells -> n DOFs, n sine modes
     assert space.shape == (N,)
     u0 = grid.create_field(
@@ -87,7 +87,7 @@ def test_dirichlet_decaying_mode(bounded):
 # ================================================================
 def test_neumann_decaying_mode_and_preserved_mean(bounded):
     grid, mesh = bounded
-    space = mesh.nodal(NodeSet.CENTER, bc=fr.grid.BC.NEUMANN)
+    space = mesh.nodal(NodeSet.CENTER, bc=fr.spatial.BC.NEUMANN)
     # Neumann keeps every Center DOF: n DOFs and n cosine modes
     # including the k = 0 constant (the Neumann shape decision)
     assert space.shape == (N,)
@@ -113,7 +113,7 @@ def test_neumann_decaying_mode_and_preserved_mean(bounded):
 
 def test_neumann_outer_dct1_variant(bounded):
     grid, mesh = bounded
-    space = mesh.nodal(NodeSet.OUTER, bc=fr.grid.BC.NEUMANN)
+    space = mesh.nodal(NodeSet.OUTER, bc=fr.spatial.BC.NEUMANN)
     # boundary nodes stay true DOFs under Neumann: n + 1 DOFs
     assert space.shape == (N + 1,)
     u0 = grid.create_field(
@@ -127,8 +127,8 @@ def test_neumann_outer_dct1_variant(bounded):
 #  Spectral variant on the periodic mesh (Fourier)
 # ================================================================
 def test_periodic_spectral_diffusion_is_spectrally_accurate():
-    mesh = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
-    grid = fr.grid.Grid((mesh,))
+    mesh = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
+    grid = fr.spatial.Grid((mesh,))
     u0 = grid.create_field(
         init=lambda x: jnp.sin(2 * jnp.pi * x)
         + 0.5 * jnp.cos(4 * jnp.pi * x))

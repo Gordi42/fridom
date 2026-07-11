@@ -26,18 +26,18 @@ import numpy as np
 import pytest
 
 from fridom.framework.utils import dtype_real, jaxify
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.io.streams import SnapshotMismatchError
-from fridom.framework2.model.declarations import FieldDeclaration
-from fridom.framework2.model.model import Model, chunk_cache_size
-from fridom.framework2.model.module import Module
-from fridom.framework2.model.parameters import ParameterDeclaration
-from fridom.framework2.model.results import PanicError
-from fridom.framework2.model.space_patterns import Collocated
-from fridom.framework2.model.terms import term
-from fridom.framework2.model.time_steppers.adam_bashforth import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.io.streams import SnapshotMismatchError
+from fridom.model.declarations import FieldDeclaration
+from fridom.model.model import Model, chunk_cache_size
+from fridom.model.module import Module
+from fridom.model.parameters import ParameterDeclaration
+from fridom.model.results import PanicError
+from fridom.model.space_patterns import Collocated
+from fridom.model.terms import term
+from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
 

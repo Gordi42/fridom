@@ -11,20 +11,20 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import Laplacian
-from fridom.framework2.grid.operators.realized import (
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import Laplacian
+from fridom.spatial.operators.realized import (
     BoundTransform,
     RealizedComposite,
     RealizedMap,
     RealizedSum,
     compose_realized,
 )
-from fridom.framework2.grid.operators.spectral import SpectralDerivative
-from fridom.framework2.grid.operators.spectral_solve import SpectralSolve
-from fridom.framework2.grid.operators.symbol import Symbol
+from fridom.spatial.operators.spectral import SpectralDerivative
+from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.operators.symbol import Symbol
 
 TWO_PI = 2.0 * jnp.pi
 N = 16

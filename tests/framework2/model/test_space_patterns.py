@@ -1,20 +1,20 @@
 """Tests for the grid-free space descriptors (model/space_patterns.py)."""
 import pytest
 
-from fridom.framework2.grid.bc import BC, BCStructure
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.registry import (
+from fridom.spatial.bc import BC, BCStructure
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.registry import (
     DispatchError,
     OperatorRegistry,
 )
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.spaces.nodal import NodeSet
-from fridom.framework2.grid.spaces.tensor_product import (
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodeSet
+from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
-from fridom.framework2.model.space_patterns import (
+from fridom.model.space_patterns import (
     Collocated,
     Dof,
     Profile,

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from fridom.framework2.model.params import (
+from fridom.model.params import (
     CORIOLIS_F0,
     SCALING_ROSSBY,
     ParamName,

@@ -1,4 +1,4 @@
-"""Tests for fridom.framework2.io.writer (the tensorstore zarr sink).
+"""Tests for fridom.model.io.writer (the tensorstore zarr sink).
 
 The round-trip and resume oracles: the written store opens in xarray
 with the ``f.xr`` layout (xgcm dims, coords, attrs) plus a CF time
@@ -13,13 +13,13 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.io import writer as writer_module
-from fridom.framework2.io.triggers import every
-from fridom.framework2.io.writer import Writer
-from fridom.framework2.model.clock import Clock
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.model.io import writer as writer_module
+from fridom.model.io.triggers import every
+from fridom.model.io.writer import Writer
+from fridom.model.clock import Clock
 
 DT = 0.5
 

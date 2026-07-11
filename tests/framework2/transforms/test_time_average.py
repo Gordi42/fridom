@@ -9,10 +9,10 @@ the Tier-2 trace guard.
 import jax
 import pytest
 
-from fridom.framework2.model import term_predicates as terms
-from fridom.framework2.transforms.errors import TraceError
-from fridom.framework2.transforms.norms import _l2_norm
-from fridom.framework2.transforms.time_average import TimeAverage
+from fridom.model import term_predicates as terms
+from fridom.model.transforms.errors import TraceError
+from fridom.model.transforms.norms import _l2_norm
+from fridom.model.transforms.time_average import TimeAverage
 
 from .conftest import (
     F0,

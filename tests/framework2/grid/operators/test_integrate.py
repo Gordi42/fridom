@@ -1,4 +1,4 @@
-"""Tests for fridom.framework2.grid.operators.integrate.
+"""Tests for fridom.spatial.operators.integrate.
 
 Also covers the two seams this cluster wires for it: the
 ``grid.measure`` accessor and the ``f.integrate`` / ``f.mean``
@@ -7,15 +7,15 @@ forwarders on ``ScalarField``.
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.errors import SpaceMismatchError
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.chebyshev import ChebyshevMesh
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.integrate import Integral
-from fridom.framework2.grid.operators.registry import DispatchError
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.spaces.nodal import NodeSet
+from fridom.spatial.bc import BC
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.integrate import Integral
+from fridom.spatial.operators.registry import DispatchError
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 @pytest.fixture

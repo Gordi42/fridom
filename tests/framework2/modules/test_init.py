@@ -1,7 +1,7 @@
 """Test the imports in the fridom/framework2/modules/__init__.py file."""
 import pytest
 
-import fridom.framework2.modules as test_module
+import fridom.model.modules as test_module
 
 
 def _names(items):

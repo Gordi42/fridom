@@ -13,11 +13,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.framework2.grid.decomposition.halo import trace_halo
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.dealias import degree
-from fridom.framework2.grid.operators.fourier import Fourier
+from fridom.spatial.decomposition.halo import trace_halo
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.dealias import degree
+from fridom.spatial.operators.fourier import Fourier
 
 
 def bitwise(a, b):

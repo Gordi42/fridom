@@ -2,15 +2,15 @@
 import jax.numpy as jnp
 import pytest
 
-from fridom.framework2.grid.decomposition.layout import Layout
-from fridom.framework2.grid.errors import (
+from fridom.spatial.decomposition.layout import Layout
+from fridom.spatial.errors import (
     GridMismatchError,
     SpaceMismatchError,
 )
-from fridom.framework2.grid.fields.scalar_field import ScalarField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.movement import Reshard, Sync
+from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.movement import Reshard, Sync
 
 
 @pytest.fixture

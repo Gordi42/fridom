@@ -1,14 +1,14 @@
 """Tests for the Mesh ABC (framework2/grid/meshes/mesh.py)."""
 import pytest
 
-from fridom.framework2.grid.decomposition.traits import (
+from fridom.spatial.decomposition.traits import (
     HaloStrategy,
     MeshDecompositionTraits,
 )
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.meshes.mesh import Mesh
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.constant import ConstantSpace
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mesh import Mesh
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.constant import ConstantSpace
 
 
 class TwoNameMesh(Mesh):

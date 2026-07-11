@@ -1,6 +1,6 @@
 """Oracle battery: SW channel eigenmodes vs certified closed forms.
 
-The C4 test: the numeric channel eigenbasis (fr.channel_eigenpairs)
+The C4 test: the numeric channel eigenbasis (fr.model.channel_eigenpairs)
 on the walled shallow-water model against the audited analytic
 eigenfunctions of the SAME discretization (vortical sines + the
 kx = 0 exponential wall-mode pair, boundary-trapped Kelvin pairs,
@@ -35,9 +35,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.model.eigen_channel import (
+from fridom.model.eigen_channel import (
     UNLABELED,
     ChannelEigenbasis,
 )
@@ -76,14 +76,14 @@ def make_walled_model(*, csqr=CSQR, coriolis=None):
     """Build the linear walled (channel) shallow-water model."""
     if coriolis is None:
         coriolis = sw.modules.FPlaneCoriolis(f0=F0)
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
                                      name="y")
     return sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=csqr, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my)), csqr=csqr, rossby_number=0.2,
         coriolis=coriolis, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -852,14 +852,14 @@ def csqr_profile(y):
 
 def make_varying_model(csqr=csqr_profile, device_ids=None):
     """Build a varying-depth walled channel (f-plane preset)."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
                                      name="y")
     return sw.Model(
-        grid=fr.grid.Grid((mx, my), device_ids=device_ids),
+        grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
         csqr=csqr, rossby_number=0.2, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -992,14 +992,14 @@ def test_varying_eigenbasis_surface_routes_to_the_engine():
 
 
 def test_varying_periodic_grid_is_a_taught_error():
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, LY), periodic=True,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=True,
                                      name="y")
     model = sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=csqr_profile,
+        grid=fr.spatial.Grid((mx, my)), csqr=csqr_profile,
         advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match=r"sw\.eigenbasis"):
         sw.eigenmodes.from_model(model)
 

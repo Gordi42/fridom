@@ -4,7 +4,7 @@ Covers the host-side labeling helpers the package labelers share
 (segment energy, degenerate-cluster recovery, slow/fast band split),
 the selection-string vocabulary derivation, the wrapper base's
 projector and ``function(f, sel)`` entries, and the
-``fr.eigenbasis`` package dispatch. The engine projection apply
+``fr.model.eigenbasis`` package dispatch. The engine projection apply
 itself is exercised end to end by the package suites
 (``tests/framework2/shallowwater2`` and
 ``tests/framework2/nonhydro2``).
@@ -16,9 +16,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.model.eigenbasis import (
+from fridom.model.eigenbasis import (
     ChannelEigenmodesBase,
     _node_count,
     _ordered_family_columns,
@@ -30,7 +30,7 @@ from fridom.framework2.model.eigenbasis import (
     segment_energy,
     split_frequency_bands,
 )
-from fridom.framework2.transforms.projection import EigenFunction
+from fridom.model.transforms.projection import EigenFunction
 
 N = 8
 SEG = slice(2, 4)  # the "wall-normal" segment of the toy columns
@@ -50,20 +50,20 @@ def unit(d, idx):
 
 def make_model(device_ids=None):
     """Build a small walled shallow-water channel model."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
     return sw.Model(
-        grid=fr.grid.Grid((mx, my), device_ids=device_ids),
+        grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
         csqr=0.7, rossby_number=0.2,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
 def channel():
-    """One labeled sw channel eigenbasis through fr.eigenbasis."""
+    """One labeled sw channel eigenbasis through fr.model.eigenbasis."""
     model = make_model()
     return model, eigenbasis(model)
 
@@ -317,7 +317,7 @@ def test_random_state_engine_rejects_unknown_selections(channel):
 
 
 # ================================================================
-#  fr.eigenbasis: the package dispatch
+#  fr.model.eigenbasis: the package dispatch
 # ================================================================
 def test_dispatch_returns_the_package_wrapper(channel):
     _, em = channel
@@ -340,7 +340,7 @@ def test_dispatch_forwards_at_time(monkeypatch):
 def test_dispatch_rejects_a_vocabulary_free_state():
     # a plain VectorField state carries no model-package vocabulary
     model = make_model()
-    plain = fr.grid.VectorField(
+    plain = fr.spatial.VectorField(
         {"u": model.state["u"], "v": model.state["v"],
          "p": model.state["p"]})
     stub = SimpleNamespace(state=plain)
@@ -355,7 +355,7 @@ def test_dispatch_rejects_a_package_without_the_surface(monkeypatch):
 
 
 def test_fr_top_level_export_is_the_dispatcher():
-    assert fr.eigenbasis is eigenbasis
+    assert fr.model.eigenbasis is eigenbasis
 
 
 # ================================================================

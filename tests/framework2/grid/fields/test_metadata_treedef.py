@@ -13,9 +13,9 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
 
 
 @pytest.fixture

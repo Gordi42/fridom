@@ -1,12 +1,12 @@
 """Tests for FunctionSpace (framework2/grid/spaces/function_space.py)."""
 import pytest
 
-from fridom.framework2.grid.bc import BC, BCStructure
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.composed import _bindable_names
-from fridom.framework2.grid.scalars import Scalars
-from fridom.framework2.grid.spaces.nodal import Center, NodeSet
-from fridom.framework2.grid.spaces.tensor_product import (
+from fridom.spatial.bc import BC, BCStructure
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.composed import _bindable_names
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.nodal import Center, NodeSet
+from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
 

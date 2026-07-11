@@ -22,11 +22,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
 from fridom.framework.utils import jaxify
-from fridom.framework2.transforms.balance_expansion import (
+from fridom.model.transforms.balance_expansion import (
     BalanceExpansion,
 )
 
@@ -42,16 +42,16 @@ NH_COMPONENTS = ("u", "v", "w", "b")
 # ================================================================
 def make_sw_model(*, ro=0.1, periodic_y=True, coriolis=None, n=N):
     """Build a small shallow-water model (walled y if requested)."""
-    mx = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(n, (0.0, 1.0),
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
                                      periodic=periodic_y, name="y")
     if coriolis is None:
         coriolis = sw.modules.FPlaneCoriolis(f0=1.0)
     return sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=1.0, rossby_number=ro,
+        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=ro,
         coriolis=coriolis, advection=True,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 def sw_state(model, *, walled=False, n=N):
@@ -74,11 +74,11 @@ def sw_state(model, *, walled=False, n=N):
 def make_nh_model(*, ro=0.05, walled=None, n=8, **kwargs):
     """Build a small nonhydro model (optionally walled along y)."""
     meshes = tuple(
-        fr.grid.meshes.IntervalMesh(
+        fr.spatial.meshes.IntervalMesh(
             n, (0.0, 2 * np.pi), periodic=(name != walled), name=name)
         for name in ("x", "y", "z"))
     return nh.Model(
-        grid=fr.grid.Grid(meshes), dt=0.02, rossby_number=ro,
+        grid=fr.spatial.Grid(meshes), dt=0.02, rossby_number=ro,
         dsqr=1.0, coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=4.0), **kwargs)
 
@@ -107,13 +107,13 @@ def is_real(state, components):
 
 
 @jaxify
-class ZeroQuadratic(fr.Module):
+class ZeroQuadratic(fr.model.Module):
 
     """A term selected as nonlinear whose tendency is identically 0."""
 
     field_declarations = ()
 
-    @fr.term(name="zero", advances=("u", "v", "p"))
+    @fr.model.term(name="zero", advances=("u", "v", "p"))
     def zero(self, state, _ctx):
         return {c: state[c] * 0.0 for c in ("u", "v", "p")}
 
@@ -166,9 +166,9 @@ def test_order_one_matches_the_hand_machenhauer_state(sw_setup):
     em = sw.eigenmodes.from_model(model)
     kit = em._kit
     v = sw.transforms.VorticalProjection(em)(z)
-    quadratic = model.variant(term_filter=~fr.terms.linear)
+    quadratic = model.variant(term_filter=~fr.model.terms.linear)
     b_vv = quadratic.tendency(v, t=0.0, constraints=True)
-    coeff = fr.grid.VectorField({
+    coeff = fr.spatial.VectorField({
         c: kit.forward(c)(b_vv[c]) for c in SW_COMPONENTS})
     corr = em.function(lambda w: 1.0 / (1j * w), (1, -1))(coeff)
     want = sw.State({
@@ -313,7 +313,7 @@ def test_nh_channel_orders_run_and_residual_decreases():
 def test_lint_warns_when_the_filter_keeps_linear_terms(sw_setup):
     model, _ = sw_setup
     with pytest.warns(UserWarning, match="not quadratic"):
-        BalanceExpansion(model, order=0, nonlinear=fr.terms.explicit)
+        BalanceExpansion(model, order=0, nonlinear=fr.model.terms.explicit)
 
 
 def test_lint_is_quiet_on_the_default_filter_and_optout(sw_setup):
@@ -323,25 +323,25 @@ def test_lint_is_quiet_on_the_default_filter_and_optout(sw_setup):
         # the default advection-only selection is quadratic
         BalanceExpansion(model, order=0)
         # the opt-out skips the check even on a bad selection
-        BalanceExpansion(model, order=0, nonlinear=fr.terms.explicit,
+        BalanceExpansion(model, order=0, nonlinear=fr.model.terms.explicit,
                          lint=False)
 
 
 def test_lint_skips_a_selection_with_zero_nonlinear_tendency():
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
                                      name="y")
     quiet = sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=1.0, rossby_number=0.1,
+        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=0.1,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
         modules_extra=(ZeroQuadratic(),),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         BalanceExpansion(
             quiet, order=0,
-            nonlinear=fr.terms.named("ZeroQuadratic/zero"))
+            nonlinear=fr.model.terms.named("ZeroQuadratic/zero"))
 
 
 # ================================================================
@@ -442,7 +442,7 @@ def test_declared_structure_and_repr(sw_setup, sw_channel_setup):
 
 
 def test_export_is_public():
-    assert fr.transforms.BalanceExpansion is BalanceExpansion
+    assert fr.model.transforms.BalanceExpansion is BalanceExpansion
 
 
 def test_validation_errors(sw_setup, sw_channel_setup):

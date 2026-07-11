@@ -3,7 +3,7 @@ import dataclasses
 
 import pytest
 
-from fridom.framework2.model.terms import (
+from fridom.model.terms import (
     EXPLICIT,
     IMPLICIT,
     TERM_ATTRIBUTE,

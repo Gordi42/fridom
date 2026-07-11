@@ -12,10 +12,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.model.energy import EnergyMetric
-from fridom.framework2.modules.coriolis import (
+from fridom.model.energy import EnergyMetric
+from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
 )
@@ -30,14 +30,14 @@ def csqr_fn(y):
 
 def make_channel(csqr, coriolis):
     """Build a linear walled channel with the given modules."""
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
     return sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=csqr, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my)), csqr=csqr, rossby_number=0.2,
         coriolis=coriolis, advection=False,
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
 def random_state(model, seed):
@@ -119,17 +119,17 @@ def test_unweighted_rotation_does_work_against_a_varying_metric():
     # the documented failure mode the knob repairs: without the
     # thickness weighting the rotation energy leak is O(dy c^2').
     # Explicit assembly (the sw.Model preset refuses this pairing).
-    mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
                                      name="x")
-    my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
-    model = fr.Model(
-        grid=fr.grid.Grid((mx, my)),
+    model = fr.model.Model(
+        grid=fr.spatial.Grid((mx, my)),
         modules=(
             sw.modules.DynamicalCore(csqr=csqr_fn,
                                      rossby_number=0.2),
             FPlaneCoriolis(f0=F0)),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     assert energy_rate(model, seed=2) > 1e-6
 
 

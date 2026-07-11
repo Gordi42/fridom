@@ -23,11 +23,11 @@ import jax
 import numpy as np
 import pytest
 
-import fridom.framework2 as fr
+import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.framework2.model.terms import term
-from fridom.framework2.transforms.errors import SignatureMismatchError
-from fridom.framework2.transforms.projection import EigenProjection
+from fridom.model.terms import term
+from fridom.model.transforms.errors import SignatureMismatchError
+from fridom.model.transforms.projection import EigenProjection
 
 from .conftest import N, make_grid, make_model
 
@@ -74,8 +74,8 @@ def _absmax(a, b):
 def test_vortical_and_wave_are_idempotent():
     em, model = _eig()
     z = _state(model, seed=1)
-    fr.transforms.assert_idempotent(sw.transforms.VorticalProjection(em), z)
-    fr.transforms.assert_idempotent(sw.transforms.WaveProjection(em), z)
+    fr.model.transforms.assert_idempotent(sw.transforms.VorticalProjection(em), z)
+    fr.model.transforms.assert_idempotent(sw.transforms.WaveProjection(em), z)
 
 
 def test_divergence_is_the_zero_map_on_band_limited_states():
@@ -89,7 +89,7 @@ def test_divergence_is_the_zero_map_on_band_limited_states():
                for c in COMPONENTS) < 1e-10
     # trivially idempotent (relative_l2 is ill-defined at zero, so an
     # absolute distance is used here)
-    fr.transforms.assert_idempotent(div, z, norm=_absmax)
+    fr.model.transforms.assert_idempotent(div, z, norm=_absmax)
 
 
 def test_divergence_is_the_structural_zero_map_on_random_states():
@@ -103,7 +103,7 @@ def test_divergence_is_the_structural_zero_map_on_random_states():
     once = div(z)
     assert max(float(np.abs(np.asarray(once[c].data)).max())
                for c in COMPONENTS) < 1e-12
-    fr.transforms.assert_idempotent(div, z, norm=_absmax)
+    fr.model.transforms.assert_idempotent(div, z, norm=_absmax)
 
 
 # ================================================================
@@ -174,7 +174,7 @@ def test_from_model_rejects_a_beta_plane():
     model = sw.Model(
         grid=grid, csqr=1.0,
         coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0),
-        time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match=r"coriolis\.f0"):
         sw.transforms.VorticalProjection.from_model(model)
 
@@ -301,7 +301,7 @@ def test_channel_projections_are_idempotent_and_annihilating(channel):
         "wave": sw.transforms.WaveProjection(eb),
         "kelvin": sw.transforms.KelvinProjection(eb)}
     for proj in projections.values():
-        fr.transforms.assert_idempotent(proj, z)
+        fr.model.transforms.assert_idempotent(proj, z)
     parts = {name: proj(z) for name, proj in projections.items()}
     for a, proj in projections.items():
         for b, part in parts.items():
@@ -371,11 +371,11 @@ def test_periodic_analytic_path_is_unchanged_by_the_dispatch():
 # ================================================================
 #  The rest policy on a tracer-carrying state
 # ================================================================
-class _PassiveTracer(fr.Module):
+class _PassiveTracer(fr.model.Module):
 
     """A module declaring one prognostic passive tracer ``c``."""
 
-    field_declarations = (fr.FieldDeclaration.tracer("c"),)
+    field_declarations = (fr.model.FieldDeclaration.tracer("c"),)
 
     @term(name="c_hold", advances=("c",))
     def hold(self, state, _ctx):
@@ -420,11 +420,11 @@ def test_channel_projection_is_device_count_invariant(forced_devices):
         assert jax.device_count() == forced_devices
 
     def build(device_ids):
-        mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                          periodic=True, name="x")
-        my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0),
+        my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                          periodic=False, name="y")
-        return make_model(fr.grid.Grid((mx, my),
+        return make_model(fr.spatial.Grid((mx, my),
                                        device_ids=device_ids),
                           advection=False)
 
