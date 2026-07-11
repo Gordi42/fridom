@@ -9,12 +9,22 @@ date: 2026-07-11
 > of `framework2-boundaries` (7 files conflict; dev built graded
 > Fallback + BC-aware staggering after the fork). Sequencing: after
 > the spatial/model split lands, on the new `fridom.spatial` paths.
-> Open sub-decision for the rework: dev sends bounded staggered
-> outputs to **Inner** ("wall-normal velocity's boundary faces are
-> not DOFs", commit 0041c30) while the branch kind-flips
-> BC-structured operands to **Outer** — reconcile the two (they may
-> be compatible: declared-field resolution vs operator codomains) or
-> escalate. Grounding analysis:
+> REVISED 2026-07-11 (owner): the rework is **repackaged on
+> wall-value semantics**. The reconciliation attempt found the
+> branch's stage-2b machinery (kind-flipped `Outer` codomains,
+> product BC-drop) encodes tags as *parity/extension claims*, which
+> the owner had already overruled during the walled-Sadourny work
+> ("a BC tag is a wall-value claim, not a parity statement") — dev's
+> kept-tag products and `Inner` codomains are load-bearing for the
+> machine-precision walled conservation. Therefore: **2b is
+> superseded and will not land.** What lands instead, on dev's
+> existing BC semantics: 2a ROBIN (landed, ea0b7bf7), 2c' the R1
+> flip (BC-free bounded exterior reads raise; BC-structured operands
+> keep today's tag-governed ghost-fill behavior unchanged), and 2d
+> one-sided opt-in rows. Honest consequence: a tagged field's
+> derivative output is BC-free (no tag can claim its wall value), so
+> chained exterior-needing ops require an explicit
+> `boundary="one_sided"` opt-in. Grounding analysis:
 > [`../../research/boundary_design_explainer.md`](../../research/boundary_design_explainer.md).
 > The branch stays as reference until the rework lands, then is
 > deleted (local + origin).
