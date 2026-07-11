@@ -163,9 +163,16 @@ of them must still be able to follow the page.
 
 Gallery-script rules (owner review of the Phase 2 pilot, 2026-07-11):
 
-- **Config comments live inside a code block**, never between the
-  module docstring and the first `# %%` section (a stray line there
-  renders as an empty leading code cell).
+- **Config comments follow real code.** A `# sphinx_gallery_...`
+  comment placed between the docstring and the first `# %%` renders
+  as an empty leading cell, and one at the tail of an rst comment
+  block renders as prose; put it after at least one code line (e.g.
+  between import groups), where `remove_config_comments` strips it.
+- **Imports go through the root alias** (`import fridom as fr`), as
+  everywhere. Importing a class directly is the exception, not the
+  rule: use it only where the aliased path forces awkward wrapping
+  and the direct import genuinely reads better (e.g. `IntervalMesh`
+  constructor lines).
 - **Suppress bare object reprs** at the end of a code block
   (`_ = field.xr.plot(...)`); reprs that inform the reader (a
   `RunResult` after `model.run`) stay unsuppressed.
