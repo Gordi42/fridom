@@ -19,8 +19,9 @@ wavenumber ``kx``:
 
 The framework engine stays family-agnostic; this module owns the
 physics. :func:`label_channel_modes` classifies the columns of a
-:class:`~fridom.model.eigen_channel.ChannelEigenbasis` —
-exact on the f-plane, best-effort (graceful) under beta — and
+:class:`~fridom.model.eigen_channel.ChannelEigenbasis` through the
+Kelvin separatrix (exact for any Coriolis profile ``f(y)``,
+including the equatorial ``f0 = 0`` beta plane), and
 :class:`ChannelEigenmodes` bundles ``channel_eigenpairs`` with that
 labeler behind the shared
 :class:`~fridom.model._eigenbasis.ChannelEigenmodesBase`
@@ -114,17 +115,23 @@ def label_channel_modes(
        written back into ``basis.q`` (a unitary column mixing —
        M-orthonormality is preserved; the eigen-relation residual of
        the pair changes only at the cluster's frequency splitting).
-    3. The remaining nonzero columns: with ``n_u`` bounded-axis
-       ``u`` nodes the wave (Poincaré) branch structurally holds
-       ``2 (n_u - 1)`` columns per plane. If exactly that many
-       remain (the f-plane case) they are **wave+/-** by sign.
-       Under beta the vortical branch acquires slow Rossby
-       frequencies and extra columns remain; they are split from
-       the wave band only if a clean spectral gap exists (smallest
-       wave ``|omega|`` at least ``gap_ratio`` times the largest
-       slow ``|omega|``): the slow band -> **vortical**, the fast
-       band -> **wave+/-**. Without a clean gap (or with fewer
-       columns than the wave count) the remainder stays
+    3. The remaining nonzero columns split at the **Kelvin
+       separatrix**: the Kelvin eigenspaces are one-dimensional for
+       any Coriolis profile ``f(y)``, so no other eigenvalue can
+       coincide with a Kelvin frequency. Columns slower than the
+       slowest Kelvin branch -> **vortical** (the steady f-plane
+       family; slow westward Rossby modes under beta), faster
+       columns -> **wave+/-** by frequency sign. The rule is exact
+       on the f-plane and for any beta, including the equatorial
+       ``f0 = 0`` regime, where it reproduces the adiabatic
+       fast--slow prescription (the Rossby--Yanai branch counts as
+       fast exactly when ``beta >= 2 k^2``).
+    4. On Kelvin-less planes (``kx = 0``) the frequency-band
+       fallback applies: with ``n_u`` bounded-axis ``u`` nodes the
+       wave branch structurally holds ``2 (n_u - 1)`` columns; an
+       exact count labels by sign, extra columns split off across a
+       clean spectral gap (``gap_ratio``), and without one the
+       remainder stays
        :data:`~fridom.model.eigen_channel.UNLABELED` —
        predicates are the primary tool there.
 
@@ -218,10 +225,29 @@ def _label_plane(
                 rotated = True
             labels[cand] = code
             kelvin |= cand
-    split_frequency_bands(
-        labels, omega, ~zero & ~kelvin, n_fast=n_wave,
-        gap_ratio=gap_ratio, slow_code=VORTICAL,
-        fast_plus_code=WAVE_PLUS, fast_minus_code=WAVE_MINUS)
+    rest = ~zero & ~kelvin
+    if kelvin.any():
+        # The Kelvin separatrix: the Kelvin eigenspaces are strictly
+        # one-dimensional for ANY Coriolis profile f(y), so no other
+        # eigenvalue can coincide with a Kelvin frequency. Everything
+        # slower than the slowest Kelvin branch is therefore the slow
+        # (vortical; Rossby under beta) family, everything faster the
+        # inertia-gravity branches. Exact on the f-plane (the Poincare
+        # minimum sqrt(f^2 + c^2 k^2) exceeds |omega_K| = c k) and for
+        # any beta including the equatorial f0 = 0 regime, where the
+        # Rossby-Yanai branch classifies fast iff beta >= 2 k^2 (the
+        # adiabatic fast-slow mode-mapping prescription).
+        separatrix = np.abs(omega[kelvin]).min()
+        slow = rest & (np.abs(omega) < separatrix)
+        labels[slow] = VORTICAL
+        labels[rest & ~slow & (omega > 0)] = WAVE_PLUS
+        labels[rest & ~slow & (omega < 0)] = WAVE_MINUS
+    else:
+        # Kelvin-less planes (kx = 0): the frequency-band fallback
+        split_frequency_bands(
+            labels, omega, rest, n_fast=n_wave,
+            gap_ratio=gap_ratio, slow_code=VORTICAL,
+            fast_plus_code=WAVE_PLUS, fast_minus_code=WAVE_MINUS)
     return rotated
 
 
