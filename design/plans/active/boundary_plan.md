@@ -1,14 +1,28 @@
 ---
-status: blocked
-date: 2026-07-07
+status: active
+date: 2026-07-11
 ---
 
-> BLOCKED: conflicting boundary designs on dev vs branch framework2-boundaries — owner decision pending (2026-07-11).
+> DECIDED 2026-07-11: **R1 adopted** (owner re-confirmed the 07-07
+> sign-off). BC-free exterior reads at walls raise; the extrapolation
+> fill goes. Execution is a **rework onto current dev**, not a merge
+> of `framework2-boundaries` (7 files conflict; dev built graded
+> Fallback + BC-aware staggering after the fork). Sequencing: after
+> the spatial/model split lands, on the new `fridom.spatial` paths.
+> Open sub-decision for the rework: dev sends bounded staggered
+> outputs to **Inner** ("wall-normal velocity's boundary faces are
+> not DOFs", commit 0041c30) while the branch kind-flips
+> BC-structured operands to **Outer** — reconcile the two (they may
+> be compatible: declared-field resolution vs operator codomains) or
+> escalate. Grounding analysis:
+> [`../../research/boundary_design_explainer.md`](../../research/boundary_design_explainer.md).
+> The branch stays as reference until the rework lands, then is
+> deleted (local + origin).
 
 # Boundary-closure plan — resolving the two open boundary problems
 
-**Status: options analysis + staged plan, awaiting owner sign-off on
-R1–R4 below (2026-07-07).** The two problems, opened as
+**Status: R1–R4 signed off (2026-07-07, re-confirmed 2026-07-11);
+rework-onto-dev pending.** The two problems, opened as
 [`../../specs/grid/classes/spaces.md`](../../specs/grid/classes/spaces.md) open questions 4 and 1:
 
 1. **BC-free bounded spaces** — exterior values must be untouchable
