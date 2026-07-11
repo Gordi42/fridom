@@ -13,6 +13,16 @@ Owning class doc: ``design/specs/grid/classes/grid.md``, section 4
   comodo ``c_grid_axis_shift`` attribute on shifted positions
   (-0.5 for ``left``, +0.5 for the face family; ``outer``/``inner``
   are disambiguated by their length, comodo-style).
+- **Single-field exports use plain axis names**
+  (``positions_in_names=False``, the ``ScalarField.xr`` default,
+  owner decision 2026-07-11): a lone ``DataArray`` has no sibling
+  variable to collide with, so its staggered dims export under the
+  plain coordinate name (``x``) and the position survives in the
+  ``c_grid_axis_shift`` attribute. Multi-variable exports
+  (``VectorField.xr``, the ``fr.model.io.Writer`` store) keep the
+  position-suffixed names: two components staggered differently
+  along the same axis carry different coordinate values and cannot
+  share a dim name in one ``Dataset``.
 - **Average spaces export coordinate labels, not positions**:
   ``CellAvg`` under the cell-center label, ``FaceAvg`` under the
   face label, each carrying ``representation: "cell_mean"`` so
@@ -105,19 +115,31 @@ def _position(factor: FunctionSpace) -> str:
         f"xarray export of {factor!r} is not defined in iteration 1")
 
 
-def scalar_to_dataarray(field: ScalarField) -> xr.DataArray:
+def scalar_to_dataarray(
+    field: ScalarField,
+    *,
+    positions_in_names: bool = True,
+) -> xr.DataArray:
     """
     Export a ``ScalarField`` to an ``xarray.DataArray``.
 
     Description
     -----------
     Realizes the export rules in the module docstring; the entry
-    point is the ``ScalarField.xr`` property.
+    point is the ``ScalarField.xr`` property (which passes
+    ``positions_in_names=False``).
 
     Parameters
     ----------
     field : ScalarField
         The field to export.
+    positions_in_names : bool, optional
+        Suffix staggered dims xgcm-style (``x_right``); False
+        exports every position under the plain axis name, keeping
+        the position in the ``c_grid_axis_shift`` attribute. Plain
+        names are only safe for a lone ``DataArray``; datasets
+        combining differently staggered variables need the suffixed
+        names (default: True).
 
     Returns
     -------
@@ -150,7 +172,7 @@ def scalar_to_dataarray(field: ScalarField) -> xr.DataArray:
                 else "wavenumber")
         else:
             position = _position(factor)
-            dim = (name if position == "center"
+            dim = (name if position == "center" or not positions_in_names
                    else f"{name}_{position}")
             vector = grid.evaluation_nodes(space, name=name)
             if position in _AXIS_SHIFT:

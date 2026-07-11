@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from fridom.spatial.export import scalar_to_dataarray
 from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -77,12 +78,12 @@ def test_nc_attrs_are_mapped(grid):
 
 
 # ================================================================
-#  Staggered node sets (xgcm-style dim naming)
+#  Staggered node sets (xgcm-style dim naming, the dataset form)
 # ================================================================
 def test_right_outer_dims_and_shifts(grid, mx, my):
     space = mx.right * my.outer
     field = grid.create_field(space, init=lambda x, y: x * y)
-    da = field.xr
+    da = scalar_to_dataarray(field)
     assert da.dims == ("x_right", "y_outer")
     assert da.shape == (8, 7)
     assert np.array_equal(da.values, np.asarray(field.data))
@@ -95,11 +96,38 @@ def test_right_outer_dims_and_shifts(grid, mx, my):
 
 
 def test_left_and_inner_dims(grid, mx, my):
-    da = grid.create_field(mx.left * my.inner,
-                           init=lambda x, y: x + y).xr
+    da = scalar_to_dataarray(
+        grid.create_field(mx.left * my.inner,
+                          init=lambda x, y: x + y))
     assert da.dims == ("x_left", "y_inner")
     assert da.coords["x_left"].attrs["c_grid_axis_shift"] == -0.5
     assert da.coords["y_inner"].attrs["c_grid_axis_shift"] == 0.5
+
+
+# ================================================================
+#  Single-field .xr export uses plain axis names
+# ================================================================
+def test_scalar_xr_uses_plain_names(grid, mx, my):
+    space = mx.right * my.outer
+    field = grid.create_field(space, init=lambda x, y: x * y)
+    da = field.xr
+    # a lone DataArray has nothing to collide with: plain names,
+    # position preserved in the comodo shift attribute
+    assert da.dims == ("x", "y")
+    assert np.array_equal(da.coords["x"].values,
+                          nodes(grid, space, "x"))
+    assert np.array_equal(da.coords["y"].values,
+                          nodes(grid, space, "y"))
+    assert da.coords["x"].attrs["c_grid_axis_shift"] == 0.5
+    assert da.coords["y"].attrs["c_grid_axis_shift"] == 0.5
+
+
+def test_scalar_xr_plain_names_left_inner(grid, mx, my):
+    da = grid.create_field(mx.left * my.inner,
+                           init=lambda x, y: x + y).xr
+    assert da.dims == ("x", "y")
+    assert da.coords["x"].attrs["c_grid_axis_shift"] == -0.5
+    assert da.coords["y"].attrs["c_grid_axis_shift"] == 0.5
 
 
 # ================================================================
@@ -122,7 +150,8 @@ def test_cell_avg_labels(grid, mx, my):
 
 def test_face_avg_labels(grid, mx, my):
     space = mx.face_avg * my.face_avg
-    da = grid.create_field(space, init=lambda x, y: x * y).xr
+    da = scalar_to_dataarray(
+        grid.create_field(space, init=lambda x, y: x * y))
     # face labels: right faces on the periodic axis, inner faces on
     # the bounded one
     assert da.dims == ("x_right", "y_inner")
