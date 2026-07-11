@@ -40,20 +40,31 @@ code.
   (`nonhydro2 → nonhydro`, `framework2 → framework`) is a mechanical
   find/replace pass over `examples/` and `docs/`.
 
-## Review workflow (owner-mandated, 2026-07-11)
+## Review workflow (owner-mandated, 2026-07-11; made private same day)
 
 All reader-facing content (`docs/` pages, `examples/` scripts) is
-**100% owner-reviewed**: every change lands via a GitHub PR that only
-Silvano merges (see AGENTS.md, git workflow). Mechanics:
+**100% owner-reviewed before it reaches dev**, and the review happens
+**off GitHub**: the repo is public, and review discussion must not be
+(this superseded a same-day PR-based design). Mechanics (also in
+AGENTS.md, git workflow):
 
-- One PR per page or chapter — small enough to review rendered, in one
-  sitting. The thin RTD project builds a preview of each PR, so review
-  happens on built pages, not rst source.
-- Feedback channels, in increasing directness: inline PR comments,
-  GitHub suggested changes (one-click commit), or Silvano pushes edits
-  onto the PR branch himself. Agents poll with `gh`, address comments
-  on the branch, and fold any generalizable correction into the style
-  guide in the same PR.
+- One local `docs/<topic>` branch per page or chapter, small enough to
+  review in one sitting; **never pushed until approved**, so the
+  public history shows clean merges only.
+- The agent builds a local preview (`make html`, later
+  `sphinx-autobuild` for live reload) so review happens on rendered
+  pages plus the git diff, not rst source alone.
+- Feedback channels: Silvano edits the text directly on the branch
+  (authoritative), or drops anchored markers at the exact spot —
+  `.. REVIEW: sentence A should be B` in rst (a comment, invisible in
+  the rendered page), `# REVIEW: ...` in example scripts,
+  `<!-- REVIEW: ... -->` in Markdown. Agents sweep with
+  `grep -rn "REVIEW:" docs examples`, apply each marker, delete it,
+  and fold generalizable corrections into the style guide on the same
+  branch.
+- **Merge gate:** zero open markers and an explicit approval from
+  Silvano in chat; the agent then does the mechanical merge onto dev,
+  push, and branch cleanup.
 - Purpose beyond quality: reviewing the docs is how the owner audits
   the public API surface; expect review to produce upstream
   change requests against `src/` semantics, which spin off as separate
@@ -61,6 +72,8 @@ Silvano merges (see AGENTS.md, git workflow). Mechanics:
 
 Docs *infrastructure* (conf.py, CI workflows, templates, scrapers) is
 exempt and follows the normal branch-merge workflow.
+
+## Prerequisites (state, 2026-07-11)
 
 - CDFViewer zarr support: **done**, draft PR
   [Gordi42/CDFViewer.jl#1](https://github.com/Gordi42/CDFViewer.jl/pull/1)
@@ -93,23 +106,25 @@ New `.github/workflows/docs.yml`:
 Budget check: GHA public runners are 4 vCPU / 16 GB, 6 h/job, free;
 Pages site ≤ 1 GB (a dozen low-res mp4s at 5–20 MB is fine).
 
-### CI cost per docs-review push (settled 2026-07-11)
+### CI cost (settled 2026-07-11)
 
-A docs-review PR must stay cheap through many feedback round-trips:
+Owner review round-trips cost **zero CI**: the review loop is local
+(local branch, local preview build; see Review workflow above), so
+nothing runs on GitHub until the approved merge lands on dev. The
+remaining CI rules:
 
 - `tests.yml` skips docs-only changes (`paths-ignore` on `docs/**`,
   `examples/**`, `design/**`, `assets/**`, `**.md`; done 2026-07-11)
-  and cancels superseded runs per branch. The test suite never runs
-  for a prose iteration.
-- `docs.yml` triggers on PRs only for `docs/**`/`examples/**` paths,
-  and there runs the *cheap* leg: quick build (no execution) or
-  changed-examples-only per item 5. The full executed build runs on
-  push to dev, the weekly cron, and `workflow_dispatch` (for an
-  on-demand full preview before a merge).
-- The per-push review artifact is the thin RTD preview
-  (`SPHINX_QUICK_BUILD`, a few minutes, renders prose and layout);
-  executed media is reviewed via the changed-example run or the
-  post-merge full build.
+  and cancels superseded runs per branch — this keeps docs-only
+  *merges to dev* from running the test suite.
+- `docs.yml` runs the full executed build on push to dev, the weekly
+  cron, and `workflow_dispatch`. Its PR trigger (paths-limited to
+  `docs/**`/`examples/**`, cheap leg only: quick build or
+  changed-examples per item 5) exists for **outside-contributor PRs**,
+  not for owner review.
+- The thin RTD project is likewise re-scoped: it provides rendered
+  previews for public PRs from outside contributors; the owner reviews
+  locally.
 
 ## Phase 2 — Pilot example, end-to-end
 
