@@ -1,8 +1,29 @@
-# This workflow will run the tests on every push and pull request to the repository.
+# This workflow will run the tests on every push and pull request that
+# touches code; docs/examples/design-only changes are skipped.
 
 name: Tests
 
-on: [push, pull_request]
+on:
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "examples/**"
+      - "design/**"
+      - "assets/**"
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "examples/**"
+      - "design/**"
+      - "assets/**"
+      - "**.md"
+
+# Rapid back-and-forth pushes (e.g. docs-review PRs) cancel superseded
+# runs; runs on dev are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' && github.ref != 'refs/heads/main' }}
 
 jobs:
   build:
