@@ -8,11 +8,11 @@ from fridom.spatial.bc import BC, BCStructure
 #  BC
 # ================================================================
 def test_bc_members():
-    assert list(BC) == [BC.NONE, BC.DIRICHLET, BC.NEUMANN]
+    assert list(BC) == [BC.NONE, BC.DIRICHLET, BC.NEUMANN, BC.ROBIN]
 
 
 def test_bc_is_hashable():
-    assert len(set(BC)) == 3
+    assert len(set(BC)) == 4
 
 
 def test_periodicity_is_not_a_bc_member():

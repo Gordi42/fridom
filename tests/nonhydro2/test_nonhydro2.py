@@ -696,6 +696,9 @@ def test_walled_diagnostics_smoke():
     model.set_fields(u=0.01 * np.sin(y),
                      b=0.01 * np.cos(np.pi * z / LZ))
     model.advance(1)
+    # linear_pot_vort interpolates BC-free staggered derivatives
+    # back to centers through the one-sided diagnostics closure
+    # (R2, boundary_plan.md 2d)
     for name in ("ekin", "epot", "linear_pot_vort"):
         field = getattr(model.diagnostics, name)()
         assert bool(np.isfinite(np.asarray(field.data)).all())

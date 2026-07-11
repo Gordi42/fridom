@@ -35,6 +35,7 @@ the post-application sync. This is what lets un-synced
 # Wave 2C: staggered window alignment (FiniteDifference, LinearInterp)
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -45,6 +46,9 @@ from fridom.spatial.operators.base import (
     FieldLike,
     Operator,
     resolve_codomain,
+)
+from fridom.spatial.operators.stencil_kernels import (
+    one_sided_weights,
 )
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
@@ -167,6 +171,241 @@ def first_node_offset(factor: FunctionSpace) -> float:
         "iteration-1 stencil kernels cover the "
         "Center/Left/Right/Outer/Inner node sets only",
         left=factor, operation="stencil alignment")
+
+
+def exterior_reach(
+    domain: FunctionSpace, codomain: FunctionSpace, size: int,
+) -> tuple[int, int]:
+    """
+    Per-side exterior reach (in slots) of an aligned kernel.
+
+    Description
+    -----------
+    How many input slots beyond the true region the true-shape
+    output of a ``size``-point staggered kernel reads on each side
+    — the window-alignment calculus of ``apply_staggered``, applied
+    to the boundary windows. A positive reach means the signature
+    needs exterior values there.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D nodal domain factor.
+    codomain : FunctionSpace
+        The bare 1D nodal codomain factor.
+    size : int
+        The stencil size (number of input points per output).
+
+    Returns
+    -------
+    tuple[int, int]
+        The (left, right) exterior reach in slots (>= 0).
+    """
+    delta = (first_node_offset(codomain)
+             - first_node_offset(domain))
+    m0 = -int(delta - (size - 1) / 2)
+    left = max(0, m0)
+    right = max(
+        0, (codomain.shape[0] - domain.shape[0]) + size - 1 - m0)
+    return left, right
+
+
+def require_grounded_bounded_sides(
+    domain: FunctionSpace,
+    codomain: FunctionSpace,
+    size: int,
+    operation: str,
+    opt_in: str,
+    *,
+    one_sided: bool = False,
+) -> None:
+    """
+    Enforce the R1 legality rule on a bounded signature.
+
+    Description
+    -----------
+    An operator row exists on a bounded operand iff every side its
+    true-shape output needs exterior values from carries declared BC
+    structure (the tag grounds the mirror ghost fill) — a BC-free
+    side defines no exterior values, and the storage layer never
+    invents them (R1, boundary_plan.md). The explicit escape is the
+    per-operator ``boundary="one_sided"`` opt-in (R2), which patches
+    the boundary windows from true DOFs only and is legal on fully
+    BC-free domains.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D nodal domain factor (bounded mesh).
+    codomain : FunctionSpace
+        The resolved 1D codomain factor.
+    size : int
+        The stencil size.
+    operation : str
+        The dispatch kind named in the error message.
+    opt_in : str
+        The spelled-out one-sided opt-in named in the hint.
+    one_sided : bool, optional
+        Whether the operator instance opted into the one-sided
+        boundary closure (default: False).
+
+    Raises
+    ------
+    SpaceMismatchError
+        If a BC-free bounded side is asked for exterior values
+        without the one-sided opt-in.
+    """
+    reach = exterior_reach(domain, codomain, size)
+    components = domain.bc.components
+    needy = tuple(
+        ("left", "right")[side]
+        for side, kind in enumerate(components)
+        if reach[side] > 0 and kind is BC.NONE)
+    if not needy:
+        return
+    if one_sided and domain.bc.is_free:
+        return
+    raise SpaceMismatchError(
+        f"no {operation} signature on {domain!r}: the true-shape "
+        f"output needs exterior values at the {'/'.join(needy)} "
+        "wall, which a BC-free bounded side does not define — "
+        "declare BC structure (mesh.nodal(..., bc=...)) or opt "
+        f"into {opt_in}",
+        left=domain, operation=operation)
+
+
+def patch_one_sided_edges(
+    f: FieldLike,
+    result: FieldLike,
+    axis: str,
+    *,
+    size: int,
+    points: int,
+    derivative: int,
+    spacing: float,
+) -> FieldLike:
+    """
+    Overwrite boundary outputs with one-sided stencils (2d, R2).
+
+    Description
+    -----------
+    The explicit opt-in closure of the ``boundary="one_sided"``
+    operator variants (boundary_plan.md): every output of the
+    standard window kernel whose window reaches beyond the true
+    region of a bounded BC-free axis is recomputed from the
+    ``points`` nearest **true** DOFs, with exact moment-solved
+    weights at the output's actual offset. Interior outputs are
+    untouched, so the interior order is preserved; the boundary
+    patches are accurate to degree ``points - 1``.
+
+    The patches write at static storage indices of the physical
+    edges, so the applied axis must be **undistributed** — the
+    variants declare ``layout="local"`` and the caller guards
+    through :func:`require_local_axis`.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field (storage-shaped ``_data``).
+    result : FieldLike
+        The standard kernel's result field (bare codomain).
+    axis : str
+        The resolved coordinate axis.
+    size : int
+        The standard window size (determines the patched counts).
+    points : int
+        One-sided stencil size of the patches.
+    derivative : int
+        0 (value) or 1 (first derivative).
+    spacing : float
+        The uniform cell width (scales derivative weights).
+
+    Returns
+    -------
+    FieldLike
+        The result field with the boundary windows patched.
+    """
+    bare = f.function_space.bare
+    domain_factor = bare.factor(axis)
+    codomain_factor = result.function_space.bare.factor(axis)
+    o_in = Fraction(
+        first_node_offset(domain_factor)).limit_denominator(2)
+    o_out = Fraction(
+        first_node_offset(codomain_factor)).limit_denominator(2)
+    i0 = (o_out - o_in) - Fraction(size - 1, 2)
+    m0 = -int(i0)
+    n_in = domain_factor.shape[0]
+    n_out = codomain_factor.shape[0]
+    left_count = max(0, m0)
+    right_count = max(0, (n_out - n_in) + size - 1 - m0)
+    if n_in < points:
+        raise NotImplementedError(
+            f"the one-sided boundary patch needs {points} true DOFs "
+            f"along {axis!r}, got {n_in}")
+
+    axis_index = bare.names.index(axis)
+    try:
+        width = f.grid.decomposition.halo[axis]
+    except KeyError:
+        width = 0
+    storage = f._data  # noqa: SLF001 — documented storage seam
+    out = result._data  # noqa: SLF001 — documented storage seam
+
+    def take(arr: Array, index: int) -> Array:
+        slices: list[object] = [slice(None)] * arr.ndim
+        slices[axis_index] = index
+        return arr[tuple(slices)]
+
+    def put(arr: Array, index: int, value: Array) -> Array:
+        slices: list[object] = [slice(None)] * arr.ndim
+        slices[axis_index] = index
+        return arr.at[tuple(slices)].set(value)
+
+    scale = spacing ** (-derivative)
+    for t in range(left_count):
+        offsets = tuple(o_in + j - (o_out + t) for j in range(points))
+        weights = one_sided_weights(offsets, derivative)
+        value = sum(w * take(storage, width + j)
+                    for w, j in zip(weights, range(points),
+                                    strict=True)) * scale
+        out = put(out, width + t, value)
+    for t in range(right_count):
+        target = n_out - 1 - t
+        offsets = tuple(
+            o_in + (n_in - points + j) - (o_out + target)
+            for j in range(points))
+        weights = one_sided_weights(offsets, derivative)
+        value = sum(w * take(storage, width + n_in - points + j)
+                    for w, j in zip(weights, range(points),
+                                    strict=True)) * scale
+        out = put(out, width + target, value)
+    return type(result)(result.grid, result.function_space,
+                        out, result.metadata,
+                        halo_valid=result.halo_valid)
+
+
+def require_local_axis(f: FieldLike, axis: str) -> None:
+    """
+    Raise unless ``axis`` is undistributed on ``f``'s layout.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    axis : str
+        The applied coordinate axis.
+
+    Raises
+    ------
+    NotImplementedError
+        If the axis is device-distributed.
+    """
+    layout = f.function_space.layout
+    if layout is not None and dict(layout.device_axes).get(axis):
+        raise NotImplementedError(
+            "one-sided boundary variants patch the physical edges "
+            f"at static indices, so {axis!r} must be undistributed "
+            "(layout='local'); reshard first")
 
 
 def uniform_spacing(factor: FunctionSpace) -> float:

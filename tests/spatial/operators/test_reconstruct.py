@@ -85,7 +85,11 @@ def test_codomain_bounded(recon, my):
 
 def test_codomain_outer_variant(my, mx):
     outer = LinearReconstruction(target=NodeSet.OUTER)
-    assert outer.codomain(my.cell_avg) is my.outer
+    # the Outer wall faces need exterior values, which the (always
+    # BC-free) CellAvg does not define (R1, boundary_plan.md); a
+    # one-sided reconstruction variant is designed-for
+    with pytest.raises(SpaceMismatchError, match="one-sided"):
+        outer.codomain(my.cell_avg)
     with pytest.raises(SpaceMismatchError, match="target="):
         outer.codomain(mx.cell_avg)  # periodic mesh
     with pytest.raises(SpaceMismatchError, match="target="):
@@ -158,15 +162,15 @@ def test_bounded_center_to_face_avg_is_exact_on_linears(recon, my):
     assert jnp.allclose(g.data, 2.0 * y_f + 1.0)
 
 
-def test_outer_variant_extrapolates_the_boundary_faces(my):
-    # linear cell averages extrapolate exactly onto the walls
+def test_outer_variant_is_ungrounded_under_r1(my):
+    # the wall faces are undefined on the (always BC-free) CellAvg
+    # (R1, boundary_plan.md): the application raises loudly; a
+    # one-sided reconstruction variant is designed-for
     grid = Grid((my,))
     outer = LinearReconstruction(target=NodeSet.OUTER)
     f = grid.create_field(my.cell_avg, init=lambda y: 4.0 * y)
-    g = outer["y"](f)
-    assert g.function_space.bare is my.outer
-    y_o = grid.evaluation_nodes(my.outer).data
-    assert jnp.allclose(g.data, 4.0 * y_o)
+    with pytest.raises(SpaceMismatchError, match="one-sided"):
+        outer["y"](f)
 
 
 def test_metadata_is_kept(recon, mx):

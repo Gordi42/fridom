@@ -326,12 +326,15 @@ def test_periodic_wrap_fill_real_space():
         out, jnp.array([3.0, 4.0, 1.0, 2.0, 3.0, 4.0, 1.0, 2.0]))
 
 
-def test_bc_free_fill_is_linear_extrapolation(bounded):
+def test_bc_free_walled_sides_are_left_untouched(bounded):
+    # R1 (boundary_plan.md): a BC-free bounded side defines no
+    # exterior values — the sync fills nothing there (no invented
+    # extrapolation, no blanket zeros: the slots simply stay)
     decomp = _mesh_decomp(bounded, 1)
-    out = _filled(decomp, bounded.center, [1.0, 2.0, 3.0, 4.0])
-    # one-sided linear extrapolation, never blanket zeros
-    assert jnp.array_equal(
-        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
+    padded = decomp.pad(jnp.asarray([1.0, 2.0, 3.0, 4.0]),
+                        bounded.center)
+    out = decomp.sync(padded, bounded.center)
+    assert jnp.array_equal(out, padded)
 
 
 def test_dirichlet_fill_is_the_odd_extension(bounded):
@@ -360,25 +363,24 @@ def test_dirichlet_fill_on_face_lattice_zeroes_the_boundary(bounded):
         out, jnp.array([-1.0, 0.0, 1.0, 2.0, 3.0, 0.0, -3.0]))
 
 
-def test_bc_free_fill_on_inner_extrapolates_boundary_faces(bounded):
+def test_bc_free_inner_walled_sides_are_left_untouched(bounded):
     decomp = _mesh_decomp(bounded, 1)
-    out = _filled(decomp, bounded.inner, [1.0, 2.0, 3.0])
-    assert jnp.array_equal(
-        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0]))
+    padded = decomp.pad(jnp.asarray([1.0, 2.0, 3.0]), bounded.inner)
+    out = decomp.sync(padded, bounded.inner)
+    assert jnp.array_equal(out, padded)
 
 
-def test_face_avg_fill_uses_the_vacant_boundary_geometry(bounded):
+def test_average_spaces_are_bc_free_and_skip_walled_sides(bounded):
+    # average spaces carry no BC structure, so their walled sides
+    # are never filled (R1) — the FV boundary story closes through
+    # declared physics (FluxDifference INNER) or graded Fallback,
+    # never through a storage-layer fill
     decomp = _mesh_decomp(bounded, 1)
-    out = _filled(decomp, bounded.face_avg, [1.0, 2.0, 3.0])
-    assert jnp.array_equal(
-        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0]))
-
-
-def test_cell_avg_fill_uses_the_offset_geometry(bounded):
-    decomp = _mesh_decomp(bounded, 1)
-    out = _filled(decomp, bounded.cell_avg, [1.0, 2.0, 3.0, 4.0])
-    assert jnp.array_equal(
-        out, jnp.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]))
+    for space, values in ((bounded.face_avg, [1.0, 2.0, 3.0]),
+                          (bounded.cell_avg, [1.0, 2.0, 3.0, 4.0])):
+        padded = decomp.pad(jnp.asarray(values), space)
+        out = decomp.sync(padded, space)
+        assert jnp.array_equal(out, padded)
 
 
 def test_neumann_fill_on_vacant_boundary_not_grounded(bounded):
@@ -388,6 +390,23 @@ def test_neumann_fill_on_vacant_boundary_not_grounded(bounded):
     decomp = _mesh_decomp(bounded, 1)
     with pytest.raises(NotImplementedError, match="Neumann"):
         _filled(decomp, space, [1.0, 2.0, 3.0])
+
+
+def test_robin_fill_points_at_the_data_path(bounded):
+    # Robin fills are data-parameterized (alpha, g dynamic) and
+    # arrive with the ('ghost_fill', space) path (stage 2e); until
+    # then a sync on a Robin space is a loud, guiding error
+    space = bounded.nodal(NodeSet.CENTER, bc=BC.ROBIN)
+    decomp = _mesh_decomp(bounded, 1)
+    with pytest.raises(NotImplementedError, match="ghost_fill"):
+        _filled(decomp, space, [1.0, 2.0, 3.0, 4.0])
+
+
+def test_robin_keeps_boundary_dofs_like_neumann(bounded):
+    # Robin constrains a derivative combination, not a nodal value:
+    # it never drops a DOF (unlike Dirichlet)
+    assert bounded.nodal(NodeSet.OUTER, bc=BC.ROBIN).shape == (5,)
+    assert bounded.nodal(NodeSet.CENTER, bc=BC.ROBIN).shape == (4,)
 
 
 def test_neumann_outer_keeps_nodes_and_mirrors_about_them(bounded):
@@ -433,11 +452,14 @@ def test_dirichlet_outer_drops_and_fills_like_inner(bounded):
         out, jnp.array([0.0, 1.0, 2.0, 3.0, 0.0]))
 
 
-def test_bc_free_fill_needs_two_dofs():
+def test_bc_free_single_cell_axis_syncs_untouched():
+    # no extrapolation means no minimum-DOF demand: a one-cell
+    # BC-free bounded axis syncs (and fills nothing)
     mesh = IntervalMesh(1, (0.0, 1.0), periodic=False, name="y")
     decomp = _mesh_decomp(mesh, 1)
-    with pytest.raises(NotImplementedError, match="two DOFs"):
-        _filled(decomp, mesh.center, [1.0])
+    padded = decomp.pad(jnp.asarray([1.0]), mesh.center)
+    out = decomp.sync(padded, mesh.center)
+    assert jnp.array_equal(out, padded)
 
 
 def test_bounded_fill_deeper_than_the_axis_raises(bounded):

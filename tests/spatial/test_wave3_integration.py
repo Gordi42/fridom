@@ -209,7 +209,10 @@ def test_trace_halo_over_a_mixed_tendency():
     my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
     grid = Grid((mx, my))
     t = Fourier(grid, axes=("x",))
-    spaces = (mx.center * my.center, mx.cell_avg * my.center)
+    # u's y-factor is Outer so the bounded FD chain runs through
+    # the exterior-free Outer -> Center -> Inner signatures
+    # (BC-free Inner -> Center is gated by R1, boundary_plan.md)
+    spaces = (mx.center * my.outer, mx.cell_avg * my.center)
 
     def tendency(state):
         u, q = state[0], state[1]

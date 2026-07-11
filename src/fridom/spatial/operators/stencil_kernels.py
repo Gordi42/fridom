@@ -131,6 +131,47 @@ def staggered_diff_weights(order: int) -> tuple[float, ...]:
     return tuple(float(w) for w in _solve_exact(matrix, rhs))
 
 
+@cache
+def one_sided_weights(
+    offsets: tuple[Fraction, ...], derivative: int,
+) -> tuple[float, ...]:
+    """
+    Exact stencil weights at arbitrary (one-sided) node offsets.
+
+    Description
+    -----------
+    Solves the moment system ``sum_j w_j x_j^m = m! * [m ==
+    derivative]`` over the rationals: with ``p`` nodes the stencil
+    reproduces the value (``derivative=0``) or first derivative
+    (``derivative=1``) of polynomials up to degree ``p - 1`` at the
+    origin of the offsets. The boundary patches of the one-sided
+    operator variants (boundary_plan.md 2d) are built from these —
+    static Python constants baked into the jaxpr, never traced.
+
+    Parameters
+    ----------
+    offsets : tuple[Fraction, ...]
+        Node positions relative to the evaluation point, in cell
+        widths (hashable Fractions: the weights are cached).
+    derivative : int
+        0 for value reconstruction, 1 for the first derivative.
+
+    Returns
+    -------
+    tuple[float, ...]
+        One weight per offset.
+    """
+    p = len(offsets)
+    matrix = [[offset**row for offset in offsets] for row in range(p)]
+    factorial = Fraction(1)
+    rhs = []
+    for row in range(p):
+        if row > 0:
+            factorial *= row
+        rhs.append(factorial if row == derivative else Fraction(0))
+    return tuple(float(w) for w in _solve_exact(matrix, rhs))
+
+
 # ================================================================
 #  Slice-window machinery
 # ================================================================

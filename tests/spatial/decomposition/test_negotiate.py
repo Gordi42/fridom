@@ -96,10 +96,14 @@ def test_traced_chains_accumulate_the_sync_free_demand(grid):
     assert decomp.halo["y"] == 0
 
 
-def test_traced_bounded_chains_demand_the_per_application_max(grid):
+def test_traced_bounded_chains_demand_the_per_application_max(
+        grid, my):
     # bounded axes re-sync at every stencil (kernel claims reset
-    # there), so the sync-free demand is the per-application max
-    space = grid.create_field().function_space
+    # there), so the sync-free demand is the per-application max.
+    # The chain runs Outer -> Center -> Inner: the exterior-free
+    # bounded signatures (BC-free Inner -> Center is gated by R1)
+    space = grid.create_field().function_space.bare.replace(
+        y=my.outer)
 
     def tendency(state):
         return state.diff("y").diff("y")

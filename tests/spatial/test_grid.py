@@ -111,7 +111,11 @@ def test_seeded_registry_covers_the_default_rows(grid, mx, my):
     fd = registry.resolve("diff", mx.center)
     assert fd is registry.resolve("diff", mx.right)
     assert fd is registry.resolve("diff", my.outer)
-    assert fd is registry.resolve("diff", my.inner)
+    # BC-free bounded Inner -> Center needs the wall faces: the row
+    # un-seeds itself under R1 (boundary_plan.md) — declare BC
+    # structure or opt into boundary="one_sided"
+    with pytest.raises(DispatchError, match="diff"):
+        registry.resolve("diff", my.inner)
     multiply = registry.resolve("multiply", mx.center)
     assert multiply is registry.resolve("multiply", mx.cell_avg)
     assert multiply is registry.resolve(
