@@ -90,9 +90,24 @@ exempt and follows the normal branch-merge workflow.
 - Writer CF reference-date fix (whole seconds, DateTime-decodable):
   **done**, draft PR
   [Gordi42/fridom#1](https://github.com/Gordi42/fridom/pull/1) — merge.
-- CDFViewer Linux release binaries: **in progress** (separate agent).
+- CDFViewer Linux release binaries: **done** — `v2026.7.0` ships
+  `cdfviewer-linux-x86_64.tar.zst` (~750 MB; needs OpenGL via
+  xvfb + Mesa, glibc >= 2.35). Install + smoke test take ~35 s in CI.
 
-## Phase 1 — CI skeleton (content-independent, start now)
+## Phase 1 — CI skeleton (done 2026-07-11)
+
+Landed as `.github/workflows/docs.yml`; the site is live at
+<https://gordi42.github.io/fridom/>. Items 1–4 are in as specified
+(CDFViewer via the release binary; the setup-julia fallback was never
+needed; full build job ~3.5 min). For item 5 the PR leg is the quick
+build (`SPHINX_QUICK_BUILD`, no gallery/autodoc); the changed-examples
+`filename_pattern` trick is deferred to Phase 2, when examples actually
+execute. Fixed on the way: `conf.py` now mocks only dependencies that
+are **not installed** (the blanket mock list broke full-env builds at
+`zarr_writer.py` import). One-time repo settings: Pages enabled with
+`build_type=workflow`; the `github-pages` environment got a deployment
+branch policy for `dev` (only `main` is allowed by default — deploys
+fail otherwise).
 
 New `.github/workflows/docs.yml`:
 
