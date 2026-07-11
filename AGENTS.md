@@ -281,3 +281,31 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
 - Use `@pytest.fixture` (including `params=`/`autouse`) and
   `@pytest.mark.parametrize` with `pytest.param(..., id=...)`.
 - Use plain `assert` and `pytest.raises(..., match=...)`.
+
+## Git workflow (binding for agents)
+
+- `dev` is the integration branch. `main` advances only by merging `dev`
+  (releases); never commit to `main` directly.
+- **Direct-to-dev** is allowed only for changes that touch nothing under
+  `src/`, `tests/`, `benchmarks/`, or `examples/` — i.e. `design/`,
+  `docs/` prose, `notes`-style records, comment/markdown fixes.
+- **Everything else goes on a short-lived branch** named
+  `<type>/<kebab-topic>` with
+  `type` in `{feat, fix, refactor, perf, test, chore, docs}`
+  (e.g. `feat/robin-boundaries`, `refactor/operators-split`). No other
+  branch-name forms (no `worktree-agent-*`, no bare topic names).
+- Parallel agents never share a checkout: one branch + one worktree per
+  agent, and the worktree branch carries the proper `<type>/<topic>`
+  name.
+- **Merge gate:** the mirrored tests for every edited source file (see
+  Testing policy) and `uv run ruff check src tests` must pass before
+  merging.
+- Land with `git merge --no-ff <branch>` onto `dev`, then **delete the
+  branch and remove its worktree in the same session**. Never end a
+  session with a leftover branch or worktree.
+- GitHub PRs are the exception, not the rule: open one only when Silvano
+  explicitly asks for a reviewable record. Push the branch, open the PR
+  with `gh`, and delete the remote branch after the merge.
+- Commit messages: `<scope>: <short lowercase summary>` where scope is
+  the affected package or area (`framework2: ...`, `nonhydro2: ...`,
+  `tests: ...`, `design: ...`), matching the existing history style.
