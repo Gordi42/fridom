@@ -15,6 +15,8 @@ nodal operator outputs are BC-free). Landed here:
 - **2c'** — the R1 flip: BC-free bounded sides define no exterior
   values; exterior-needing signatures demand BC structure on every
   needy side and un-seed themselves otherwise.
+- **2d** — the one-sided opt-in rows (R2): the explicit per-operator
+  ``boundary="one_sided"`` closure over true DOFs only.
 
 The principle under test: the space key carries per-side closure
 *structure* only, boundary *values* are dynamic, and the storage
@@ -31,6 +33,8 @@ from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
+from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.registry import DispatchError
 from fridom.spatial.spaces.nodal import NodeSet
 
 N = 8
@@ -153,3 +157,81 @@ def test_partially_tagged_domains_are_gated_per_side(mesh):
     space = mesh.nodal(NodeSet.INNER, bc=(BC.DIRICHLET, BC.NONE))
     with pytest.raises(SpaceMismatchError, match="right wall"):
         fd.codomain(space)
+
+
+# ================================================================
+#  Stage 2d: one-sided opt-in rows (R2)
+# ================================================================
+def test_one_sided_fd_reopens_inner_to_center():
+    mesh = IntervalMesh(16, (0.0, 1.0), periodic=False, name="y")
+    grid = Grid((mesh,), device_ids=(0,))
+    f = grid.create_field(init=lambda y: y * (1.0 - y))
+    df = f.diff("y")  # Center -> Inner: exterior-free, legal
+    closed = FiniteDifference(order=2)
+    with pytest.raises(SpaceMismatchError, match="one_sided"):
+        closed["y"](df)
+    one_sided = FiniteDifference(order=2, boundary="one_sided")
+    d2 = one_sided["y"](df)
+    assert d2.function_space.bare is mesh.center
+    # 3-point one-sided patches are exact on the quadratic — the
+    # explicit form of what the old extrapolation fill could only
+    # deliver for a single consumption
+    assert jnp.allclose(d2.data, jnp.full(16, -2.0))
+
+
+def test_one_sided_interp_grounds_the_outer_target():
+    mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
+    grid = Grid((mesh,), device_ids=(0,))
+    f = grid.create_field(init=lambda y: 2.0 * y + 1.0)
+    outer = LinearInterp(target=NodeSet.OUTER, boundary="one_sided")
+    g = outer["y"](f)
+    assert g.function_space.bare is mesh.outer
+    y_outer = grid.evaluation_nodes(mesh.outer).data
+    assert jnp.allclose(g.data, 2.0 * y_outer + 1.0)
+
+
+def test_one_sided_variants_demand_a_local_axis(mesh):
+    one_sided = FiniteDifference(order=2, boundary="one_sided")
+    req = one_sided.requirements(mesh.center)
+    assert req.layout == "local"
+    assert req.halo == 1
+    closed = FiniteDifference(order=2)
+    assert closed.requirements(mesh.center).layout == "any"
+    interp = LinearInterp(boundary="one_sided")
+    assert interp.requirements(mesh.center).layout == "local"
+
+
+def test_one_sided_is_an_override_row_never_a_default(grid, mesh):
+    # the seeded default keeps the R1-closed signature; users opt in
+    # per registry override (the merge mechanism) or per instance
+    with pytest.raises(DispatchError):
+        grid.dispatch.resolve("diff", mesh.inner)
+    override = grid.dispatch.merge(
+        {("diff", mesh.inner):
+         FiniteDifference(order=2, boundary="one_sided")})
+    resolved = override.resolve("diff", mesh.inner)
+    assert resolved.boundary == "one_sided"
+
+
+def test_one_sided_rejects_unknown_modes():
+    with pytest.raises(ValueError, match="one_sided"):
+        FiniteDifference(order=2, boundary="extrapolate")
+    with pytest.raises(ValueError, match="one_sided"):
+        LinearInterp(boundary="extrapolate")
+
+
+def test_one_sided_convergence_order():
+    one_sided = FiniteDifference(order=2, boundary="one_sided")
+    errors = []
+    for n in (16, 32, 64):
+        mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+        grid = Grid((mesh,), device_ids=(0,))
+        f = grid.create_field(
+            init=lambda y: jnp.sin(jnp.pi * y / 2))
+        d2 = one_sided["y"](f.diff("y"))
+        y = np.asarray(grid.evaluation_nodes(mesh.center).data)
+        exact = -(np.pi / 2) ** 2 * np.sin(np.pi * y / 2)
+        errors.append(np.abs(np.asarray(d2.data) - exact).max())
+    # documented order: second order including the patched cells
+    assert errors[0] / errors[1] > 3.0
+    assert errors[1] / errors[2] > 3.0

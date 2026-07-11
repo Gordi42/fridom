@@ -136,6 +136,38 @@ def test_interpolation_and_products_are_invariant(grids):
         assert bitwise(a.data, b.data)
 
 
+def test_one_sided_rows_hold_on_the_local_axis(grids):
+    # boundary="one_sided" (R2) patches static physical-edge
+    # indices: legal on the undistributed bounded y-axis of the
+    # default layout, and device-count invariant (the patch reads
+    # true DOFs only, never exchanged ghosts)
+    many, one = grids
+    one_sided = FiniteDifference(order=2, boundary="one_sided")
+
+    def d2(grid):
+        f = grid.create_field(init=init)
+        return one_sided["y"](f.diff("y"))
+
+    assert bitwise(d2(many).data, d2(one).data)
+
+
+@pytest.mark.multi_device
+def test_one_sided_rows_refuse_a_distributed_axis():
+    # a bounded first factor is the sharded axis of the default
+    # layout: the one-sided patch must refuse it loudly (the
+    # layout="local" requirement, boundary_plan.md 2d)
+    my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = Grid((my, mx))
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "y": "devices"}
+    f = grid.create_field(init=lambda y, x: y * (2.0 - y) + x)
+    df = f.diff("y")
+    one_sided = FiniteDifference(order=2, boundary="one_sided")
+    with pytest.raises(NotImplementedError, match="undistributed"):
+        one_sided["y"](df)
+
+
 def test_reshard_round_trip_is_invariant(grids):
     many, one = grids
     f_many = many.create_field(init=init)

@@ -41,8 +41,10 @@ from fridom.spatial.operators.spectral import (
 )
 from fridom.spatial.operators.staggering import (
     apply_staggered,
+    patch_one_sided_edges,
     require_dof_preserving_bc,
     require_grounded_bounded_sides,
+    require_local_axis,
     uniform_spacing,
 )
 from fridom.spatial.operators.stencil_kernels import (
@@ -93,23 +95,43 @@ class FiniteDifference(SeparableOperator):
     ----------
     order : int, optional
         The even order of accuracy = stencil size (default: 2).
+    boundary : str, optional
+        ``"closed"`` (default): bounded signatures follow the R1
+        legality rule (exterior-needing windows exist where every
+        needy side carries BC structure). ``"one_sided"``: the
+        explicit opt-in closure of boundary_plan.md 2d — BC-free
+        bounded exterior-needing signatures become legal, with the
+        boundary outputs patched from ``order + 1`` one-sided
+        true-DOF stencils; demands the applied axis undistributed
+        (``layout="local"``).
     """
 
     dispatch_kind: ClassVar[str | None] = "diff"
 
-    def __init__(self, order: int = 2) -> None:
+    def __init__(self, order: int = 2,
+                 boundary: str = "closed") -> None:
         """Create an FD kernel of the given even order."""
         staggered_diff_weights(order)  # validates even, >= 2
+        if boundary not in ("closed", "one_sided"):
+            raise ValueError(
+                f"boundary must be 'closed' or 'one_sided', got "
+                f"{boundary!r}")
         self._order: int = order
+        self._boundary: str = boundary
 
     def _intern_key(self) -> tuple:
-        """Structural key: the stencil order (D6)."""
-        return (self._order,)
+        """Structural key: the order and boundary mode (D6)."""
+        return (self._order, self._boundary)
 
     @property
     def order(self) -> int:
         """Order of accuracy of the stencil."""
         return self._order
+
+    @property
+    def boundary(self) -> str:
+        """The bounded-boundary closure mode."""
+        return self._boundary
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """
@@ -173,10 +195,12 @@ class FiniteDifference(SeparableOperator):
         if not mesh.periodic:
             # R1 legality (boundary_plan.md 2c): exterior-needing
             # signatures exist only where every needy side carries
-            # BC structure — the row un-seeds itself otherwise
+            # BC structure — the row un-seeds itself otherwise; the
+            # one-sided variant (R2) reopens the BC-free rows
             require_grounded_bounded_sides(
                 domain, codomain, self._order, "diff",
-                "FiniteDifference(boundary='one_sided')")
+                "FiniteDifference(boundary='one_sided')",
+                one_sided=self._boundary == "one_sided")
         if domain.scalars is Scalars.COMPLEX:
             codomain = codomain.as_complex()
         return codomain
@@ -198,6 +222,11 @@ class FiniteDifference(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
+        if self._boundary == "one_sided":
+            # the boundary patches write static physical-edge
+            # indices: negotiation must keep the axis undistributed
+            return OperatorRequirements(halo=self._order // 2,
+                                        layout="local")
         return OperatorRequirements(halo=self._order // 2)
 
     def eigenvalues(
@@ -268,12 +297,20 @@ class FiniteDifference(SeparableOperator):
         FieldLike
             The derivative field (default metadata: new quantity).
         """
-        spacing = uniform_spacing(f.function_space.bare.factor(axis))
+        factor = f.function_space.bare.factor(axis)
+        spacing = uniform_spacing(factor)
         order = self._order
 
         def kernel(arr: Array, axis_index: int) -> Array:
             return staggered_diff(arr, axis_index, spacing=spacing,
                                   order=order)
 
-        return apply_staggered(self, f, axis, order, kernel,
-                               metadata=None)
+        result = apply_staggered(self, f, axis, order, kernel,
+                                 metadata=None)
+        if (self._boundary == "one_sided" and factor.bc.is_free
+                and not factor.mesh.periodic):
+            require_local_axis(f, axis)
+            result = patch_one_sided_edges(
+                f, result, axis, size=order, points=order + 1,
+                derivative=1, spacing=spacing)
+        return result

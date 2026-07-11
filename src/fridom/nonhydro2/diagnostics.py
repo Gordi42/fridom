@@ -21,12 +21,51 @@ from fridom.model.params import (
     STRATIFICATION_N2,
 )
 from fridom.nonhydro2.params import DSQR
+from fridom.spatial.operators.interp import LinearInterp
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.fields.vector_field import VectorField
+    from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+def _to_center_one_sided(
+    field: ScalarField, center: SpaceLike,
+) -> ScalarField:
+    """
+    Interpolate onto the center space, one-sided at BC-free walls.
+
+    Description
+    -----------
+    Diagnostics interpolate staggered derivative outputs whose
+    wall-normal factors carry no declared BC structure (the PV's
+    ``d_z b``, the vorticity's mixed-tag meet). Diagnostics are
+    exactly the sanctioned use of the explicit one-sided closure
+    (R2, boundary_plan.md): interior windows unchanged, wall-window
+    outputs recomputed from true DOFs only. On periodic or
+    BC-tagged axes the variant is identical to the default row.
+
+    Parameters
+    ----------
+    field : ScalarField
+        The (possibly staggered) diagnostic field.
+    center : SpaceLike
+        The target cell-center product space.
+
+    Returns
+    -------
+    ScalarField
+        The field interpolated onto ``center``.
+    """
+    interp = LinearInterp(boundary="one_sided")
+    out = field
+    for axis in center.bare.names:
+        if (out.function_space.bare.factor(axis)
+                is not center.bare.factor(axis)):
+            out = interp[axis](out)
+    return out
 
 
 def ekin(
@@ -79,8 +118,14 @@ def linear_pot_vort(
     n2 = params[STRATIFICATION_N2]
     ro = params[SCALING_ROSSBY]
     center = state["p"].function_space
-    dbdz = state["b"].diff("z").to(center).data
-    zeta = (state["v"].diff("x") - state["u"].diff("y")).to(center)
+    # the derivative outputs carry no declared wall structure (b is
+    # BC-free; the vorticity difference joins to the BC-free meet),
+    # so the interpolation back to centers is the explicit one-sided
+    # diagnostics closure (R2, boundary_plan.md)
+    dbdz = _to_center_one_sided(
+        state["b"].diff("z"), center).data
+    zeta = _to_center_one_sided(
+        state["v"].diff("x") - state["u"].diff("y"), center)
     return state["p"].with_data(ro * (f0 / n2 * dbdz + zeta.data))
 
 

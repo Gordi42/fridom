@@ -35,6 +35,7 @@ the post-application sync. This is what lets un-synced
 # Wave 2C: staggered window alignment (FiniteDifference, LinearInterp)
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -45,6 +46,9 @@ from fridom.spatial.operators.base import (
     FieldLike,
     Operator,
     resolve_codomain,
+)
+from fridom.spatial.operators.stencil_kernels import (
+    one_sided_weights,
 )
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
@@ -268,6 +272,140 @@ def require_grounded_bounded_sides(
         "declare BC structure (mesh.nodal(..., bc=...)) or opt "
         f"into {opt_in}",
         left=domain, operation=operation)
+
+
+def patch_one_sided_edges(
+    f: FieldLike,
+    result: FieldLike,
+    axis: str,
+    *,
+    size: int,
+    points: int,
+    derivative: int,
+    spacing: float,
+) -> FieldLike:
+    """
+    Overwrite boundary outputs with one-sided stencils (2d, R2).
+
+    Description
+    -----------
+    The explicit opt-in closure of the ``boundary="one_sided"``
+    operator variants (boundary_plan.md): every output of the
+    standard window kernel whose window reaches beyond the true
+    region of a bounded BC-free axis is recomputed from the
+    ``points`` nearest **true** DOFs, with exact moment-solved
+    weights at the output's actual offset. Interior outputs are
+    untouched, so the interior order is preserved; the boundary
+    patches are accurate to degree ``points - 1``.
+
+    The patches write at static storage indices of the physical
+    edges, so the applied axis must be **undistributed** — the
+    variants declare ``layout="local"`` and the caller guards
+    through :func:`require_local_axis`.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field (storage-shaped ``_data``).
+    result : FieldLike
+        The standard kernel's result field (bare codomain).
+    axis : str
+        The resolved coordinate axis.
+    size : int
+        The standard window size (determines the patched counts).
+    points : int
+        One-sided stencil size of the patches.
+    derivative : int
+        0 (value) or 1 (first derivative).
+    spacing : float
+        The uniform cell width (scales derivative weights).
+
+    Returns
+    -------
+    FieldLike
+        The result field with the boundary windows patched.
+    """
+    bare = f.function_space.bare
+    domain_factor = bare.factor(axis)
+    codomain_factor = result.function_space.bare.factor(axis)
+    o_in = Fraction(
+        first_node_offset(domain_factor)).limit_denominator(2)
+    o_out = Fraction(
+        first_node_offset(codomain_factor)).limit_denominator(2)
+    i0 = (o_out - o_in) - Fraction(size - 1, 2)
+    m0 = -int(i0)
+    n_in = domain_factor.shape[0]
+    n_out = codomain_factor.shape[0]
+    left_count = max(0, m0)
+    right_count = max(0, (n_out - n_in) + size - 1 - m0)
+    if n_in < points:
+        raise NotImplementedError(
+            f"the one-sided boundary patch needs {points} true DOFs "
+            f"along {axis!r}, got {n_in}")
+
+    axis_index = bare.names.index(axis)
+    try:
+        width = f.grid.decomposition.halo[axis]
+    except KeyError:
+        width = 0
+    storage = f._data  # noqa: SLF001 — documented storage seam
+    out = result._data  # noqa: SLF001 — documented storage seam
+
+    def take(arr: Array, index: int) -> Array:
+        slices: list[object] = [slice(None)] * arr.ndim
+        slices[axis_index] = index
+        return arr[tuple(slices)]
+
+    def put(arr: Array, index: int, value: Array) -> Array:
+        slices: list[object] = [slice(None)] * arr.ndim
+        slices[axis_index] = index
+        return arr.at[tuple(slices)].set(value)
+
+    scale = spacing ** (-derivative)
+    for t in range(left_count):
+        offsets = tuple(o_in + j - (o_out + t) for j in range(points))
+        weights = one_sided_weights(offsets, derivative)
+        value = sum(w * take(storage, width + j)
+                    for w, j in zip(weights, range(points),
+                                    strict=True)) * scale
+        out = put(out, width + t, value)
+    for t in range(right_count):
+        target = n_out - 1 - t
+        offsets = tuple(
+            o_in + (n_in - points + j) - (o_out + target)
+            for j in range(points))
+        weights = one_sided_weights(offsets, derivative)
+        value = sum(w * take(storage, width + n_in - points + j)
+                    for w, j in zip(weights, range(points),
+                                    strict=True)) * scale
+        out = put(out, width + target, value)
+    return type(result)(result.grid, result.function_space,
+                        out, result.metadata,
+                        halo_valid=result.halo_valid)
+
+
+def require_local_axis(f: FieldLike, axis: str) -> None:
+    """
+    Raise unless ``axis`` is undistributed on ``f``'s layout.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    axis : str
+        The applied coordinate axis.
+
+    Raises
+    ------
+    NotImplementedError
+        If the axis is device-distributed.
+    """
+    layout = f.function_space.layout
+    if layout is not None and dict(layout.device_axes).get(axis):
+        raise NotImplementedError(
+            "one-sided boundary variants patch the physical edges "
+            f"at static indices, so {axis!r} must be undistributed "
+            "(layout='local'); reshard first")
 
 
 def uniform_spacing(factor: FunctionSpace) -> float:
