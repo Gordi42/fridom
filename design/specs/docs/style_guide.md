@@ -50,9 +50,10 @@ Phase 2 pilot gets rewritten here, not silently ignored.
   limitations honestly with their cause. Never oversell the framework;
   state what a feature does and where it stops.
 - **Section openers forecast structure** when a section is long ("We
-  start by ..., then ..., and finally ..."). Openers use "We start
-  by ...", not "Let's ..." (provisional ruling, owner may flip it;
-  the old tutorials used "Let's" throughout).
+  start by ..., then ..., and finally ..."). "Let's ..." is allowed
+  and in-voice (owner ruling 2026-07-11; his own tutorials use it);
+  vary it with "We start by ..." rather than opening every section
+  the same way.
 - **Skip guidance for heavy material.** A derivation-heavy section
   opens by saying what can be skipped: "The derivation below is not
   needed to use the API; readers can skip to Section X."
@@ -72,7 +73,6 @@ script rejects them outside code blocks and directives.
 | Self-praising adjectives: powerful, seamless, robust, comprehensive, blazing, effortless, elegant, "clear error" | Describe the behavior; let the reader judge. |
 | Vocabulary: leverage, delve, utilize, showcase, crucial, "it's worth noting", "keep in mind" | use, examine, use, show, important, (delete), (delete) |
 | Minimizers "simply", "just", "easily" | Delete. If it were simple the sentence would not need the word. |
-| "Let's ..." | "We start by ...", "We now ..." (see §1). |
 
 Weak/strong pairs:
 
@@ -81,9 +81,9 @@ Weak/strong pairs:
   *Strong:* "Operators compose with `@`. The composition is itself an
   operator and can be applied, transposed, or differentiated like any
   other."
-- *Weak:* "Let's create a grid! We'll simply call `Grid(...)`."
-  *Strong:* "We start by creating a grid. `Grid` takes the mesh and
-  the periodicity of each axis:"
+- *Weak:* "Creating a grid is easy! Simply call `Grid(...)`."
+  *Strong:* "Let's create a grid. `Grid` takes the mesh and the
+  periodicity of each axis:"
 
 ## 3. Page anatomy
 
