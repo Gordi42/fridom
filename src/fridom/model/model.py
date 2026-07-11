@@ -440,13 +440,6 @@ def _chunk_body(
     return out
 
 
-#: the ONE jitted entry — one per process, never a per-assembly
-#: closure (which would silently defeat the shared jit cache); the
-#: assembly record and the chunk length are static, the carry is
-#: donated, the stepper is a loop-invariant NON-donated input
-_JITTED_CHUNK = jax.jit(
-    _chunk_body, static_argnums=(0, 1), donate_argnums=(2,))
-
 #: AOT-compiled chunk executables, keyed by (record, n, structure)
 _CHUNK_EXECUTABLES: Final[dict[tuple, Any]] = {}
 
@@ -460,6 +453,46 @@ def _leaf_signature(leaf: object) -> tuple:
         return (tuple(leaf.shape), str(leaf.dtype),
                 bool(leaf.weak_type), str(leaf.sharding))
     return ("host", type(leaf).__name__)
+
+
+def _leaf_sharding(leaf: object) -> jax.sharding.Sharding | None:
+    """One carry leaf's sharding (None for a non-array leaf)."""
+    return leaf.sharding if isinstance(leaf, jax.Array) else None
+
+
+def _compile_chunk(
+    record: AssemblyRecord,
+    carry: ModelState,
+    stepper: TimeStepper,
+    n: int,
+) -> Any:
+    """
+    Lower + compile one chunk, pinned to the carry's shardings.
+
+    Description
+    -----------
+    The chunk is compiled as a sharding **fixed-point**: its output
+    carry is pinned (``out_shardings``) to the INPUT carry's per-leaf
+    shardings. Without the pin a scan-internal reshard — e.g. the
+    replicated tendency XLA produces for a spatially-uniform term,
+    shifted into the AdamBashforth history ring — leaves the ring
+    ``P()`` while the setup ring is ``P('devices')``, so the next
+    ``advance``/``set_fields`` re-keys the cache and recompiles under
+    multi-device (the wave-4.1 discipline holds the state field but
+    not the stepper carry). The pin keeps every committed carry on the
+    negotiated layout, so repeated advances key ONE entry on any
+    device count.
+
+    The record and chunk length are static; the carry is donated; the
+    stepper is a loop-invariant NON-donated input. The jit object is
+    ephemeral (one per cache miss) — the shared cache is
+    :data:`_CHUNK_EXECUTABLES`, keyed below, not jax's internal one.
+    """
+    out_shardings = jax.tree_util.tree_map(_leaf_sharding, carry)
+    jitted = jax.jit(
+        _chunk_body, static_argnums=(0, 1), donate_argnums=(2,),
+        out_shardings=out_shardings)
+    return jitted.lower(record, n, carry, stepper).compile()
 
 
 def _chunk_key(
@@ -515,8 +548,7 @@ def step_chunk(
     compiled = _CHUNK_EXECUTABLES.get(key)
     if compiled is None:
         started = time.perf_counter()
-        compiled = _JITTED_CHUNK.lower(
-            record, n, carry, stepper).compile()
+        compiled = _compile_chunk(record, carry, stepper, n)
         seconds = time.perf_counter() - started
         try:
             memory = compiled.memory_analysis()
