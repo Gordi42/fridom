@@ -74,13 +74,12 @@ z = sw.initial_conditions.jet(
     model, width=jet_width / L, wavenum=2, waveamp=1e-2)
 model.set_state(u_jet * z)
 
-_ = model.state.u.xr.plot(x="x_right")
+_ = model.state.u.xr.plot(x="x")
 
 # %%
 # The plot shows the unperturbed picture: a narrow band of eastward
-# velocity centered at :math:`y = L/2` (``u`` lives on the staggered
-# x faces of the C-grid, hence its coordinate name ``x_right``). The
-# perturbation is far too weak to be visible at this stage.
+# velocity centered at :math:`y = L/2`. The perturbation is far too
+# weak to be visible at this stage.
 #
 # Running and Writing Output
 # --------------------------
@@ -101,7 +100,7 @@ model.run(runlen=runlen, outputs=(writer,), progress=False)
 # By the end of the run the instability has saturated: the jet has
 # broken up into a wavenumber-two street of coherent vortices,
 # connected by filaments of vorticity:
-_ = model.state.rel_vort.xr.plot(x="x_right")
+_ = model.state.rel_vort.xr.plot(x="x")
 
 # %%
 # Rendering the Animation
