@@ -322,20 +322,26 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
   content — `docs/` pages and `examples/` scripts — is reviewed by
   Silvano **before** it reaches `dev`, and the review stays off
   GitHub (the repo is public; review discussion is not). Mechanics:
-  the `docs/<topic>` branch stays **local** (never pushed) until
-  approved; the agent builds a local preview (`make html` /
-  `sphinx-autobuild`) and Silvano reviews rendered pages plus the
-  diff. Feedback arrives as direct edits on the branch
-  (authoritative) or as anchored markers at the exact spot:
-  `.. REVIEW: ...` in rst, `# REVIEW: ...` in Python examples,
-  `<!-- REVIEW: ... -->` in Markdown. Agents sweep markers
-  (`grep -rn "REVIEW:" docs examples`), apply each, delete it, and
-  fold generalizable corrections into the docs style guide
-  (`design/specs/docs/style_guide.md`, later `docs/STYLE.md`).
-  **Merge gate:** zero open markers AND Silvano's explicit approval
-  in chat; only then merge onto `dev` and push. Design records under
-  `design/` and docs build *infrastructure* (`conf.py`, CI, templates)
-  follow the normal workflow above.
+  the agent works on a local `docs/<topic>` branch (**never pushed**
+  until approved), builds a local preview (`make html` /
+  `sphinx-autobuild`), and hands off for review by **projecting the
+  branch onto the main checkout as unstaged changes**:
+  `git restore --source=docs/<topic> -- docs/ examples/` with the
+  checkout on `dev` (owner preference 2026-07-11: he reviews
+  working-tree diffs in lazygit). Feedback arrives in that projected
+  working tree: direct edits and discarded hunks (authoritative), or
+  anchored markers at the exact spot: `.. REVIEW: ...` in rst,
+  `# REVIEW: ...` in Python examples, `<!-- REVIEW: ... -->` in
+  Markdown. Agents sweep markers (`grep -rn "REVIEW:" docs examples`),
+  apply each, delete it, fold generalizable corrections into the docs
+  style guide (`design/specs/docs/style_guide.md`, later
+  `docs/STYLE.md`), and reconcile the reviewed working tree back onto
+  the branch (his tree state wins over the branch). **Merge gate:**
+  zero open markers AND Silvano's explicit approval in chat; only
+  then merge onto `dev`, push, and clean the projection out of the
+  working tree. Design records under `design/` and docs build
+  *infrastructure* (`conf.py`, CI, templates) follow the normal
+  workflow above.
 - Commit messages: `<scope>: <short lowercase summary>` where scope is
   the affected package or area (`spatial: ...`, `model: ...`,
   `nonhydro2: ...`, `tests: ...`, `design: ...`), matching the existing
