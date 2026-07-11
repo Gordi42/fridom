@@ -161,6 +161,22 @@ of them must still be able to follow the page.
 - Code follows the house style (double quotes, 79 chars); comments in
   snippets are rare because the surrounding prose does that job.
 
+Gallery-script rules (owner review of the Phase 2 pilot, 2026-07-11):
+
+- **Config comments live inside a code block**, never between the
+  module docstring and the first `# %%` section (a stray line there
+  renders as an empty leading code cell).
+- **Suppress bare object reprs** at the end of a code block
+  (`_ = field.xr.plot(...)`); reprs that inform the reader (a
+  `RunResult` after `model.run`) stay unsuppressed.
+- **Build mechanics stay out of the prose.** The
+  `FRIDOM_EXAMPLES_FAST` resolution switch appears as plain code in
+  the settings block, without a paragraph explaining CI; the
+  convention is documented in the build plan, not to readers.
+- **Name tools in one working sentence** ("We use CDFViewer to render
+  the vorticity animation from the zarr store"), not a capability
+  pitch. §2's promotional-language ban applies to tools we ship too.
+
 ## 8. Figures (plots)
 
 - Every figure is produced at build time by the executing page, styled
