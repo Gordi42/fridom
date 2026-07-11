@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/grid.md``. Meshes +
+Owning class doc: ``design/specs/grid/classes/grid.md``. Meshes +
 decomposition + dispatch + field factory: ergonomics and wiring only,
 all mathematics lives in spaces and operators. Iteration-1 subset:
 ``__init__`` seeds the default ``OperatorRegistry`` with the

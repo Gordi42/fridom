@@ -4,7 +4,7 @@ Generic slaving-expansion core for balance recursions (private).
 Description
 -----------
 Array-agnostic implementation of the balance (nonlinear normal mode
-decomposition) recursion of ``notes/framework2/nnmd_design_note.md``
+decomposition) recursion of ``design/specs/nnmd/nnmd_design_note.md``
 S1.2, for systems
 
 .. math::
@@ -317,7 +317,7 @@ def balance_expansion(
     Computes the balanced state ``z_b = sum_{n=0}^{order} phi_n``
     with base point ``phi_0 = V z`` (the fast content of ``z`` is
     discarded) by the recursion stated in the module docstring
-    (``notes/framework2/nnmd_design_note.md`` S1.2). All tables are
+    (``design/specs/nnmd/nnmd_design_note.md`` S1.2). All tables are
     memoized per call.
 
     Parameters

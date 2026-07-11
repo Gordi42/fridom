@@ -9,7 +9,7 @@ declarations and references (D1), provided/consumed parameters (D2),
 dispatch overrides (D4), tendency terms and stages (D3), and the
 per-substage ``self_update`` of its own dynamic state. "Computes a
 tendency" is one capability, not the definition of a module. Owning
-class spec: ``notes/framework2/model/classes/module.md``.
+class spec: ``design/specs/model/classes/module.md``.
 
 Modules ride the traced carry: subclasses are jaxify-registered
 pytrees (``@partial(fr.utils.jaxify, dynamic=(...))``; registration

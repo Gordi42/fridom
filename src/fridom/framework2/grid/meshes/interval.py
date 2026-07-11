@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md``. The
+Owning class doc: ``design/specs/grid/classes/meshes.md``. The
 iteration-1 workhorse: n equal cells on a physical interval,
 periodic or bounded.
 """

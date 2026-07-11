@@ -3,8 +3,8 @@ The state-transform namespace (``fr.transforms``).
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/transforms.md``;
-design source ``notes/framework2/model/08_state_transforms.md``
+Owning class spec: ``design/specs/model/classes/transforms.md``;
+design source ``design/specs/model/08_state_transforms.md``
 (§10.1-10.8). Wave 7 A populates the base + algebra: the
 ``StateTransform`` base (re-exported top-level as ``fr.StateTransform``),
 the signature/info/cost/progress vocabulary, the error types, the

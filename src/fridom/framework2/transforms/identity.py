@@ -4,7 +4,7 @@ Identity: the signature-polymorphic unit of the algebra (2.8).
 Description
 -----------
 ``s -> s``; signature-polymorphic until composed or called (§10.2;
-owning class spec ``notes/framework2/model/classes/transforms.md``
+owning class spec ``design/specs/model/classes/transforms.md``
 §"Identity"). ``traceable=True``, ``idempotent=True``; **elided in
 Compose chains** during structural normalization (so ``Identity() -
 P`` is a real ``Sum`` but ``A @ Identity() @ B`` is ``A @ B``). While

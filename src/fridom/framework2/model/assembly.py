@@ -3,7 +3,7 @@ The assembly pipeline and its static artifacts.
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/model.md``
+Owning class spec: ``design/specs/model/classes/model.md``
 (sections "ParameterBindingTable (+ Params)" and
 "RematerializationTable"). `ParameterBindingTable` is the
 assembly-frozen resolution of provides/requires (step 2): binding

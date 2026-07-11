@@ -3,7 +3,7 @@ The ``Decomposition`` ABC and the resharding report.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/decomposition.md``. The
+Owning class doc: ``design/specs/grid/classes/decomposition.md``. The
 grid owns exactly one ``Decomposition``; fields and operators reach
 it only through the grid. Backends implement the abstract surface;
 ``TensorDecomposition`` is the iteration-1 jax-sharding backend and
@@ -43,7 +43,7 @@ class SpaceLike(Protocol):
     -----------
     The duck-typing seam between the decomposition and the space
     clusters: the shared product protocol of
-    ``notes/framework2/classes/product_spaces.md``, restricted to
+    ``design/specs/grid/classes/product_spaces.md``, restricted to
     the members the decomposition consumes. ``FunctionSpace`` and
     ``TensorProductSpace`` satisfy it structurally; the decomposition
     never imports them.

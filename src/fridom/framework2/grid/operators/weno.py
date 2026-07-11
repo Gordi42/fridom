@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_stencils.md``
+Owning class doc: ``design/specs/grid/classes/operators_stencils.md``
 (WenoReconstruction section; the class doc places it in the
 ``reconstruct`` module — it lives in this sibling module because the
 Wave-3 ``reconstruct.py`` is read-only for the Wave-4 cluster).
@@ -28,7 +28,7 @@ left-biased ones (window index and candidate order reversed), so one
 fused kernel body serves both biases.
 
 The kernel follows the slice-window rules of
-``notes/framework2/02_rules.md`` section 3.5: static Python-float
+``design/specs/grid/02_rules.md`` section 3.5: static Python-float
 coefficients baked into the jaxpr, one fused arithmetic expression
 over slice views of the halo-extended storage, no ``roll``/gather,
 no data-dependent Python branching (the smoothness weighting is

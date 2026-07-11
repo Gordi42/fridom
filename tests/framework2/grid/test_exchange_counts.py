@@ -3,7 +3,7 @@ Exchange-count gate of the consumption-side sync contract (task 1.8).
 
 Description
 -----------
-The point of the redo (``notes/framework2/sync_redo_plan.md``): the
+The point of the redo (``design/plans/done/sync_redo_plan.md``): the
 composed step pays roughly one exchange per state component per
 step, not one per operator application and field ``+``/``-``. Every
 ``grid.sync`` call is one (potential) communication round, so the

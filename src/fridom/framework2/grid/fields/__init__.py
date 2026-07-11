@@ -3,7 +3,7 @@ Field types of the grid cluster.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/fields.md``.
+Owning class doc: ``design/specs/grid/classes/fields.md``.
 Waves 2/3 re-export ``FieldMetadata``, ``ScalarField``,
 ``VectorField``, and ``TensorField`` here.
 """

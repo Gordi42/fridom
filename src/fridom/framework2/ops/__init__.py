@@ -3,7 +3,7 @@ The operations namespace (``fr.ops``).
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/io_ops.md``.
+Owning class spec: ``design/specs/model/classes/io_ops.md``.
 Wave 4 C added ``WalltimeGuard``/``ProgressReporter``/``ChunkStats``
 from ``protocols``; Wave 5 A adds ``Session``. ``PendingAdvance``
 stays reserved (CS-5), never built in iteration 1.

@@ -3,7 +3,7 @@ Average spaces: cell-mean functionals (the FV representation).
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/spaces.md``
+Owning class doc: ``design/specs/grid/classes/spaces.md``
 (``AverageSpace`` and friends). A ``CellAvg`` DOF is the functional
 ``(1/dx) ∫_cell u dx``, not a value at any point — "averages have no
 position". The average family mirrors the nodal family: ``CellAvg``

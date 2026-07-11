@@ -3,7 +3,7 @@ The ``FunctionSpace`` ABC: interned static space descriptors.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/spaces.md``. A
+Owning class doc: ``design/specs/grid/classes/spaces.md``. A
 ``FunctionSpace`` describes how a continuous field is represented on
 one mesh. Spaces are static, hashable, identity-compared, and
 interned in their owning mesh's registry; construction is guarded by
@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # The private factory token: mesh factories pass it to space
 # constructors; direct construction without it raises, because it
 # would silently void the identity-equality guarantee of the strict
-# algebra (cluster rules in notes/framework2/classes/meshes.md).
+# algebra (cluster rules in design/specs/grid/classes/meshes.md).
 _FACTORY_TOKEN: object = object()
 
 # Sentinel for "keep the current layout" in variant lookups.

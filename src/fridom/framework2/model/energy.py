@@ -13,7 +13,7 @@ positive-definite **energy inner product**
 
 a per-component weight :math:`w_c` times the quadrature measure. This
 is the missing load-bearing surface for the energy-metric projections
-(``notes/framework2/projection_eigenmode_plan.md`` §0-1): under
+(``design/plans/active/projection_eigenmode_plan.md`` §0-1): under
 :math:`M` the linearized operator is skew-adjoint, so eigenmodes are
 :math:`M`-orthogonal and every spectral projector reads
 :math:`P_s z = q_s\,\langle q_s, z\rangle_M / \langle q_s, q_s\rangle_M`

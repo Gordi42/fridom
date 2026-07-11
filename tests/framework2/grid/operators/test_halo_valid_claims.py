@@ -12,7 +12,7 @@ rebuilt through ``store`` claims zero. These tests exercise the
 kernel seams directly (``_apply``): while the iteration-1
 post-application sync is still live, the public surface overwrites
 the stamps with the negotiated widths — the flip is stage C
-(``notes/framework2/sync_redo_plan.md``).
+(``design/plans/done/sync_redo_plan.md``).
 """
 import pytest
 

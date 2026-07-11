@@ -4,7 +4,7 @@ Per-mesh domain-decomposition layer.
 Description
 -----------
 Owning class doc:
-``notes/framework2/classes/decomposition.md``. Public for
+``design/specs/grid/classes/decomposition.md``. Public for
 transform/solver authors as ``fr.grid.decomposition``; not
 re-exported at ``fr.*`` level. Waves 1/3 re-export the
 decomposition classes here.

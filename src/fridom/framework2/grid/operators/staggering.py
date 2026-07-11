@@ -4,7 +4,7 @@ Shared window-alignment plumbing of the staggered stencil operators.
 Description
 -----------
 Support module behind ``FiniteDifference`` and ``LinearInterp``
-(owning class doc: ``notes/framework2/classes/operators_stencils.md``).
+(owning class doc: ``design/specs/grid/classes/operators_stencils.md``).
 It owns the one piece of logic both kernels share: aligning a
 ``size``-point slice-based kernel (``operators.stencil_kernels``)
 over the **storage-shaped** (halo-extended) local array so that the

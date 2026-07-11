@@ -12,8 +12,8 @@ progress ``on_chunk`` -> walltime check). ``run()`` is reimplemented
 as a single-model Session loop (the facade law:
 ``run() == a hand-written Session loop``, chunk for chunk, bitwise,
 same jit-cache entries). Owning class spec:
-``notes/framework2/model/classes/io_ops.md`` (the ``fr.ops.Session``
-section) and ``notes/framework2/model/04_run_loop_io.md`` §6.3.
+``design/specs/model/classes/io_ops.md`` (the ``fr.ops.Session``
+section) and ``design/specs/model/04_run_loop_io.md`` §6.3.
 
 The constructor signature is PROVISIONAL (normative note, §6.3): the
 protocols and the ``__enter__``/``advance``/``__exit__`` duties are

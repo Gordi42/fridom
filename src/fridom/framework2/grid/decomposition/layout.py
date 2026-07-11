@@ -3,7 +3,7 @@ The device layout descriptor.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/decomposition.md``
+Owning class doc: ``design/specs/grid/classes/decomposition.md``
 (section 5.1 of ``04_decomposition.md``). A ``Layout`` is the value
 that enters the function-space interning key when set; the space
 clusters import it from here as an opaque hashable value, so this

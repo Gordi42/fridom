@@ -6,8 +6,8 @@ Description
 Wave 5 B: ``ButcherTableau``, the ``tableaus`` presets,
 ``ExplicitRungeKutta`` (fixed-step, over a tableau), and
 ``LowStorageRK3`` (the flagship 2N-register RK3). Owning class spec:
-``notes/framework2/model/classes/time_steppers.md`` ("The explicit RK
-family"); design source ``notes/framework2/model/03_time_stepping.md``
+``design/specs/model/classes/time_steppers.md`` ("The explicit RK
+family"); design source ``design/specs/model/03_time_stepping.md``
 sections 5.2/5.3/5.6/5.7.
 
 Explicit fixed-step RK carries the unit pytree ``()`` — only multistep

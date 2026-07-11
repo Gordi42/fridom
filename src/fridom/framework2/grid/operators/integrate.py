@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_products.md``
+Owning class doc: ``design/specs/grid/classes/operators_products.md``
 ("Reductions"). The default ``("integrate", ...)`` entry on nodal and
 average factors: contracts the field against the space's
 quadrature-weight measure field (``grid.measure(space, name=...)``,

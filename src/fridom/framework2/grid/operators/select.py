@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_products.md``
+Owning class doc: ``design/specs/grid/classes/operators_products.md``
 (Where section; the class doc places it in the ``products`` module —
 it lives in this sibling module because the Wave-2 ``products.py`` is
 read-only for the Wave-4 cluster).

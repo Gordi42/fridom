@@ -158,7 +158,7 @@ of scope for this pass.
 Consumption-side sync with halo-validity tracking replaced the
 iteration-1 sync-after-every-operator placement (branch
 `framework2-sync-redo`; plan and mechanism in
-`notes/framework2/sync_redo_plan.md`). This closes the "remaining
+`design/plans/done/sync_redo_plan.md`). This closes the "remaining
 gap on chained tendencies" the conclusion above left open — the
 chain-level elision is now the shipped contract, generalized to the
 whole composed step.

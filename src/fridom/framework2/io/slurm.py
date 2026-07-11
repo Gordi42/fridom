@@ -11,7 +11,7 @@ autodetection, and ``resubmit()`` is the factory for the
 acceptance-surface spelling — re-exported by the io namespace).
 Subprocess and executable lookups sit behind the small mockable
 seams ``_run``/``_which``. Owning class spec:
-``notes/framework2/model/classes/io_ops.md``.
+``design/specs/model/classes/io_ops.md``.
 """
 # Wave 4 C: in_job, job_id, resubmit_current, resubmit
 from __future__ import annotations

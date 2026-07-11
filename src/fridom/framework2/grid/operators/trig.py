@@ -3,7 +3,7 @@ r"""
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_transforms.md``
+Owning class doc: ``design/specs/grid/classes/operators_transforms.md``
 ("Sine / Cosine"). The DST/DCT type is **not a parameter**: it
 follows from the origin space (rules sections 3.2/3.5) —
 

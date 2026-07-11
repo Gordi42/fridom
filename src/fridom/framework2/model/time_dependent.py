@@ -3,7 +3,7 @@ Time-dependent scalar values: ``TimeDependent``, ``Ramp``, ``resolve_at``.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/model/classes/declarations.md``
+Owning class doc: ``design/specs/model/classes/declarations.md``
 (section "TimeDependent, fr.Ramp, and resolve_at"). A time-dependent
 scalar value is a frozen callable pytree, never a module: it
 *describes* a curve and never writes (D2.2). Scalars get time

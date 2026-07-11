@@ -3,7 +3,7 @@ Physical roles of state components (``fr.roles``).
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/declarations.md``
+Owning class spec: ``design/specs/model/classes/declarations.md``
 ("Role, ``Velocity``, and the ``fr.roles`` namespace"). Roles are
 opt-in, typed, namespaced marker objects tagging what a PROGNOSTIC
 field *is*, physically (model D1.4) — with the one signed exception

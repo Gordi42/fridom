@@ -8,8 +8,8 @@ Description
 x64-on run), a static host-only ``start_date`` calendar anchor, and
 purely functional advancement (``tick``/``shifted``/``reset``).
 Owning class spec:
-``notes/framework2/model/classes/time_steppers.md`` ("Clock");
-precision rules: ``notes/framework2/model/02_rules.md`` ("Clock
+``design/specs/model/classes/time_steppers.md`` ("Clock");
+precision rules: ``design/specs/model/02_rules.md`` ("Clock
 precision").
 
 The *authoritative* clock is host-side float64 numpy always —

@@ -3,7 +3,7 @@ Pointwise product operators behind the field arithmetic dunders.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_products.md``.
+Owning class doc: ``design/specs/grid/classes/operators_products.md``.
 Iteration-1 subset: the elementwise family the default table
 registers on nodal and average spaces — ``CollocationProduct``
 (``"multiply"``; on average spaces the documented second-order

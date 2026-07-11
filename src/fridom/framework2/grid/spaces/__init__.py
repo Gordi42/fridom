@@ -3,8 +3,8 @@ Function-space families of the grid cluster.
 
 Description
 -----------
-Owning class docs: ``notes/framework2/classes/spaces.md`` and
-``notes/framework2/classes/product_spaces.md``. Spaces get no
+Owning class docs: ``design/specs/grid/classes/spaces.md`` and
+``design/specs/grid/classes/product_spaces.md``. Spaces get no
 top-level namespace (they are produced by mesh factories);
 these modules are importable for ``isinstance`` checks in
 operator/dispatch code, not for construction.

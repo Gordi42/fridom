@@ -3,7 +3,7 @@ The IO namespace (``fr.io``).
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/io_ops.md``.
+Owning class spec: ``design/specs/model/classes/io_ops.md``.
 Wave 4 C adds the trigger factories (``every``/``at`` — also
 re-exported at the framework top level), ``lower_trigger``, the
 stream protocol + IO errors, ``Snapshots`` + the snapshot store, and

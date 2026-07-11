@@ -4,9 +4,9 @@ The state-transform base: composable ``State -> State`` maps (2.8).
 Description
 -----------
 ``StateTransform`` is the decision-D5 base; the algebra mirrors the
-operator algebra (``notes/framework2/model/08_state_transforms.md``
+operator algebra (``design/specs/model/08_state_transforms.md``
 §10.1/§10.2, laws §10.3). Owning class spec:
-``notes/framework2/model/classes/transforms.md`` §"fr.StateTransform".
+``design/specs/model/classes/transforms.md`` §"fr.StateTransform".
 
 Two tiers, one abstraction: Tier 1 (closed-form) subclasses are
 ``fr.utils.jaxify``-registered frozen pytrees (jit/vmap-able); Tier 2

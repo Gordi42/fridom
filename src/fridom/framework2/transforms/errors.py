@@ -4,8 +4,8 @@ Transform error types (``fr.transforms`` cluster, task 2.8).
 Description
 -----------
 The two error entries of the state-transform algebra
-(``notes/framework2/model/classes/transforms.md`` §"SignatureMismatchError,
-TraceError"; design source ``notes/framework2/model/08_state_transforms.md``
+(``design/specs/model/classes/transforms.md`` §"SignatureMismatchError,
+TraceError"; design source ``design/specs/model/08_state_transforms.md``
 §10.3 laws 2/3). Both also register in the model-layer error surface
 (``fridom.framework2.model.errors``).
 """

@@ -3,7 +3,7 @@ Grid-free space descriptors.
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/declarations.md``
+Owning class spec: ``design/specs/model/classes/declarations.md``
 ("Dof, SpacePattern, and the sugar constructors"; "SpaceRule").
 ``SpacePattern`` is the name-keyed semantic space tag of model D1.2:
 declarations stay grid-free, and the model resolves each pattern per

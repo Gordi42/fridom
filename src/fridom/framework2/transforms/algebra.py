@@ -5,8 +5,8 @@ Description
 -----------
 The internal node classes built by ``StateTransform``'s dunders —
 never user-constructed; named so reprs and info paths stay
-addressable (``notes/framework2/model/08_state_transforms.md`` §10.2;
-owning class spec ``notes/framework2/model/classes/transforms.md``
+addressable (``design/specs/model/08_state_transforms.md`` §10.2;
+owning class spec ``design/specs/model/classes/transforms.md``
 §"The algebra nodes"). Normalization is **structural only**: flatten
 nested ``Compose``/``Sum`` and elide ``Identity`` — no rewriting, no
 idempotent folding (what you wrote is what runs). All signatures are

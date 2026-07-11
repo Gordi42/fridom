@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md``. Host of
+Owning class doc: ``design/specs/grid/classes/meshes.md``. Host of
 the Chebyshev space family. The space family is restricted (owner
 decision): ``outer``/``lobatto``, the ``chebyshev``/``galerkin``
 coefficient spaces, and ``constant`` — no cell family. The nodal

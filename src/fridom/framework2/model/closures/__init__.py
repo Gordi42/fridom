@@ -3,7 +3,7 @@ The closure namespace (``fr.closures``).
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/module.md``.
+Owning class spec: ``design/specs/model/classes/module.md``.
 ``ClosureBase`` hosts the role-target resolution (D1.4, V-H2) and is
 the ``fr.terms.owned_by`` predicate target; the concrete diffusion
 family (harmonic/biharmonic mixing and friction) ports the old

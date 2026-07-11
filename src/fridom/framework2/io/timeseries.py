@@ -4,7 +4,7 @@ Scalar time-series output (``fr.io.TimeSeries``).
 Description
 -----------
 Wave 5 C: ``TimeSeries`` (CSV sink, ``truncate_after`` resume). Owning
-class spec: ``notes/framework2/model/classes/io_ops.md`` (the
+class spec: ``design/specs/model/classes/io_ops.md`` (the
 TimeSeries section).
 
 A ``TimeSeries`` writes named scalar expressions to a tail-able CSV:

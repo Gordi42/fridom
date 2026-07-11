@@ -3,7 +3,7 @@ Spectral (coefficient-space) operators.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_stencils.md``
+Owning class doc: ``design/specs/grid/classes/operators_stencils.md``
 ("Spectral (coefficient-space) operators"). ``SpectralDerivative`` is
 the exact derivative on coefficient spaces — the only ``"diff"``
 choice there; ``PhaseShift`` and ``SincShift`` are the exact

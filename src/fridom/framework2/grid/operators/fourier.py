@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_transforms.md``
+Owning class doc: ``design/specs/grid/classes/operators_transforms.md``
 ("Fourier"). Scalars drive the realization with no special-casing
 (rules section 3.1): ``fr.Real`` origins produce the Hermitian
 half-spectrum coefficient space via ``rfft`` (the rfft layout *is*

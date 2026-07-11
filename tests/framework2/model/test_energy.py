@@ -1,6 +1,6 @@
 """The energy metric ``M``: apply, inner product, norm, from_model.
 
-Covers the Phase-A surface (``notes/framework2/projection_eigenmode_
+Covers the Phase-A surface (``design/plans/active/projection_eigenmode_
 roadmap.md``): the Hermitian, positive-definite energy inner product in
 both the physical/nodal (``grid.measure`` quadrature) and coefficient-
 space (Parseval) reductions, the ``½⟨z,z⟩_M == ∫(ekin+epot)`` identity

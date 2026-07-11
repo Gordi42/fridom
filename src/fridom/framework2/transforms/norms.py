@@ -9,7 +9,7 @@ transforms layer (respecting D1's eviction of norms from fields;
 why it is the explicit-kwarg default and the energy norm cannot be.
 ``assert_idempotent`` is idempotency's third declared consumer
 (§10.2/§10.3). Owning class spec:
-``notes/framework2/model/classes/transforms.md`` §"relative_l2,
+``design/specs/model/classes/transforms.md`` §"relative_l2,
 assert_idempotent". ``norm=nh.diagnostics.energy_norm(model)`` is one
 kwarg away for dimensional stratified runs.
 """

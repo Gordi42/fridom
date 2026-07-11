@@ -5,9 +5,9 @@ Description
 -----------
 ``TimeStepper`` (the scan-body stepper ABC) and the ``StepperState``
 conventions. Owning class spec:
-``notes/framework2/model/classes/time_steppers.md`` ("TimeStepper",
+``design/specs/model/classes/time_steppers.md`` ("TimeStepper",
 "StepperState (conventions)"); design source
-``notes/framework2/model/03_time_stepping.md`` section 5.3.
+``design/specs/model/03_time_stepping.md`` section 5.3.
 
 The stepper is **not a Module but is a pytree** whose only dynamic
 leaf is ``dt`` — every concrete class applies

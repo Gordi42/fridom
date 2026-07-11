@@ -10,7 +10,7 @@ it. Also home to the cluster's error types (``IOCollisionError``,
 registry) and the small bind-time helpers the run machinery calls:
 walltime-trigger rejection on data streams, ``Snapshots`` rejection
 outside ``snapshots=``, and dedupe-by-resolved-path. Owning class
-spec: ``notes/framework2/model/classes/io_ops.md``.
+spec: ``design/specs/model/classes/io_ops.md``.
 """
 # Wave 4 C: OutputStream, IOCollisionError, SnapshotMismatchError
 from __future__ import annotations

@@ -3,7 +3,7 @@ The ``Transform`` ABC: grid-bound changes of representation.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_transforms.md``
+Owning class doc: ``design/specs/grid/classes/operators_transforms.md``
 (planner rules: section 5.1 of ``04_decomposition.md``). Transforms
 are the deliberate exception to grid-freedom: they bind the grid at
 construction (plans, layouts, refined meshes are static structure)

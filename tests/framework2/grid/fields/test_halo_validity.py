@@ -10,7 +10,7 @@ behavior-neutral — every exchange still happens — so these tests pin
 the plumbing only: the zero default, the ``grid.sync`` stamp, the
 preserving functional updates, and the pytree contract. The
 consumption-side placement lands in stage C
-(``notes/framework2/sync_redo_plan.md``).
+(``design/plans/done/sync_redo_plan.md``).
 """
 import jax
 import jax.numpy as jnp

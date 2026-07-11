@@ -5,10 +5,10 @@ Description
 -----------
 ``AdamBashforth`` (explicit AB, orders 1-4, at cutover parity) and
 ``ABState`` (its carry: tendency ring + warm-up counter). Owning
-class spec: ``notes/framework2/model/classes/time_steppers.md``
+class spec: ``design/specs/model/classes/time_steppers.md``
 ("AdamBashforth"); design source
-``notes/framework2/model/03_time_stepping.md`` sections 5.3/5.7;
-eps rule: ``notes/framework2/model/02_rules.md`` ("eps is
+``design/specs/model/03_time_stepping.md`` sections 5.3/5.7;
+eps rule: ``design/specs/model/02_rules.md`` ("eps is
 order-2-only").
 
 The step body is the bitwise-parity algorithm (the traced

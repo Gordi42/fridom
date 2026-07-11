@@ -3,7 +3,7 @@ Coefficient spaces: modal coefficients relative to a basis.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/spaces.md``
+Owning class doc: ``design/specs/grid/classes/spaces.md``
 (``CoefficientSpace`` and friends). A coefficient space is defined
 by (basis, origin): the origin space is constitutive, fixing the
 inverse transform and the shape. The class names carry a ``Space``

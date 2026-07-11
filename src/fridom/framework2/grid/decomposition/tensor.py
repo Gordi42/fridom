@@ -3,7 +3,7 @@ The jax-sharding decomposition of tensor-product grids.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/decomposition.md``.
+Owning class doc: ``design/specs/grid/classes/decomposition.md``.
 One code path for any device count: single-device runs use a
 one-device ``jax.make_mesh`` (no separate ``SingleDecomposition``;
 ``jax.sharding`` degrades gracefully). The iteration-1 multi-device

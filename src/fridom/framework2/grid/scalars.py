@@ -3,7 +3,7 @@ Static scalar markers of the grid cluster.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md`` (static
+Owning class doc: ``design/specs/grid/classes/meshes.md`` (static
 markers). ``Scalars`` is the field of scalars (Körper) marker with the
 module-level aliases ``Real`` / ``Complex`` (re-exported at top level
 as ``fr.Real`` / ``fr.Complex``); ``Variance`` is the designed-for

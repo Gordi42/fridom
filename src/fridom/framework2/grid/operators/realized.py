@@ -3,9 +3,9 @@ The realized-map category: ``RealizedMap`` and lazy compositions.
 
 Description
 -----------
-Owning design: ``notes/framework2/symbol_stack_design.md`` (the
+Owning design: ``design/decisions/symbol_stack_design.md`` (the
 realized-map algebra, grades, explicit materialization) and
-``notes/framework2/composition_refactor_plan.md`` (section 4, "The
+``design/plans/active/composition_refactor_plan.md`` (section 4, "The
 ``RealizedMap`` category"; stage S1). A **realized map** is anything
 that maps ``ScalarField -> ScalarField`` with a *fixed, already-
 resolved* ``(domain, codomain)`` coefficient-space tag pair: the

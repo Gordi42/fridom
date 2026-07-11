@@ -4,12 +4,12 @@ Info, cost, and progress records for state transforms (task 2.8).
 Description
 -----------
 The info/cost/progress vocabulary of
-``notes/framework2/model/08_state_transforms.md`` §10.1: everything
+``design/specs/model/08_state_transforms.md`` §10.1: everything
 is **returned** or **observed**, nothing mutates the transform. The
 one law: ``T(s) == call_with_info(s)[0]`` bitwise; info composes
 structurally (a tree mirroring the composition tree). No mutating
 ``last_info`` attribute, no ``return_details=True`` (both rejected).
-Owning class spec: ``notes/framework2/model/classes/transforms.md``
+Owning class spec: ``design/specs/model/classes/transforms.md``
 §"TransformInfo, TransformCost, TransformProgress".
 """
 from __future__ import annotations

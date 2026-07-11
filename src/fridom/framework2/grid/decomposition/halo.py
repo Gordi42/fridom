@@ -3,7 +3,7 @@ Halo machinery: negotiated ghost-layer widths and the halo trace.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/decomposition.md``.
+Owning class doc: ``design/specs/grid/classes/decomposition.md``.
 ``HaloSpec`` is the negotiated replacement of the global halo
 integer: per-coordinate-name ghost widths, keyed by name because
 names are the stable addressing scheme of the flat product. It is a

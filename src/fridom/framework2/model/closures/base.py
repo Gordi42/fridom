@@ -6,7 +6,7 @@ Description
 The framework closure base (D1.4, V-H2): the ``fr.terms.owned_by``
 predicate target that hosts the role-target resolution boilerplate
 shared by every dissipative closure. Owning class spec:
-``notes/framework2/model/classes/module.md`` (section
+``design/specs/model/classes/module.md`` (section
 "fr.closures.ClosureBase").
 
 Closures default their target set *by role* — mixing closures declare

@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/spaces.md``
+Owning class doc: ``design/specs/grid/classes/spaces.md``
 (``ConstantSpace``). Replaces ``topo=False`` axes: broadcasting a
 ``ConstantSpace`` factor against a full factor is exact and
 unambiguous — one of the two sanctioned exceptions to strict

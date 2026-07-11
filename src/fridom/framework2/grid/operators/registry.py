@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_composed.md``
+Owning class doc: ``design/specs/grid/classes/operators_composed.md``
 ("The operator dispatch registry"). The registry is the dispatch
 table behind ``f.diff("x")``, ``f.to(...)``, ``f * g`` and every
 other kind (rules 3.4). Its *placement* — the grid owns one as

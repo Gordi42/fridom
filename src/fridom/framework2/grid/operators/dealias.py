@@ -3,7 +3,7 @@ Dealiasing helpers: ``PadFactor`` and the ``degree`` factory.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_transforms.md``
+Owning class doc: ``design/specs/grid/classes/operators_transforms.md``
 ("PadFactor and ``dealias.degree``"; rules section 3.12). A
 ``PadFactor`` parameterizes the padded transform variants: with
 ``pad=degree(p)`` a transform's ``backward`` lands in the finer nodal

@@ -3,9 +3,9 @@ Nodal spaces: the ``NodeSet`` marker and the nodal space family.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/spaces.md`` (``NodalSpace``
+Owning class doc: ``design/specs/grid/classes/spaces.md`` (``NodalSpace``
 and friends); the ``NodeSet`` enum is specified with the static
-markers in ``notes/framework2/classes/meshes.md``. Node-set names are
+markers in ``design/specs/grid/classes/meshes.md``. Node-set names are
 topological; the mesh fixes physical placement (equispaced on an
 ``IntervalMesh``, Gauss-Lobatto on a ``ChebyshevMesh``).
 """

@@ -7,7 +7,7 @@ The numerical core wrapped by the Wave-2 operator classes
 (``FiniteDifference``, ``LinearInterp``): pure functions on arrays —
 no spaces, no fields, no operators. All kernels follow the
 slice-based shape-changing stencil rule of
-``notes/framework2/02_rules.md`` section 3.5: a ``size``-point kernel
+``design/specs/grid/02_rules.md`` section 3.5: a ``size``-point kernel
 maps length m to m - size + 1 along the stencil axis by summing
 weighted slice windows into the (halo-extended) input — never a
 ``roll``, never a gather. Output entry ``i`` sits at the midpoint of

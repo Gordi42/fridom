@@ -3,7 +3,7 @@ The ``StructuredMesh1D`` ABC: shared 1D cell structure.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md``. Owns the
+Owning class doc: ``design/specs/grid/classes/meshes.md``. Owns the
 full space-factory surface of interval-like meshes: node-set,
 average, and coefficient space factories. Node-set names are
 topological; the concrete mesh fixes physical placement.

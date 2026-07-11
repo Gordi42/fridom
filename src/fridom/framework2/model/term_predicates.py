@@ -3,7 +3,7 @@ Composable term predicates (``fr.terms``) — task 2.8.
 
 Description
 -----------
-The five predicate leaves of ``notes/framework2/model/08_state_transforms.md``
+The five predicate leaves of ``design/specs/model/08_state_transforms.md``
 §10.4 — ``linear``, ``explicit``/``implicit``, ``owned_by(Type)``,
 ``named(*keys)``, ``advancing(*fields)`` — combined with ``& | ~`` into
 frozen, reprable expression trees with a stable ``fingerprint_token``.
@@ -19,7 +19,7 @@ signals the composer/host to pass the third argument; the composer's
 legacy two-argument callables keep working. ``fr.linearize(model)``
 is ``model.variant(term_filter=fr.terms.linear)``.
 
-Owning class spec: ``notes/framework2/model/classes/declarations.md``
+Owning class spec: ``design/specs/model/classes/declarations.md``
 (``fr.terms`` = ``fr.model.term_predicates``).
 """
 # Wave 7 A: TermPredicate + linear/explicit/implicit/owned_by/named/

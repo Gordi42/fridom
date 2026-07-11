@@ -3,7 +3,7 @@ The ``@interned`` class decorator for leaf operators (D6).
 
 Description
 -----------
-Owning discipline: ``notes/framework2/classes/operators_base.md`` (the
+Owning discipline: ``design/specs/grid/classes/operators_base.md`` (the
 D6 interning rule). Operators are identity-hashed (``base.py``:
 ``__eq__`` is ``self is other``, ``__hash__`` is ``id``), which is only
 sound if structurally-equal operators are the *same object*. The

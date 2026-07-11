@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning plan: ``notes/framework2/fallback_operator_plan.md`` (stage
+Owning plan: ``design/plans/active/fallback_operator_plan.md`` (stage
 F1). ``Fallback`` runs a wide high-order reconstruction kernel in the
 interior and, at the ``K`` output faces adjacent to each physical
 wall, substitutes progressively narrower interior-only stencils

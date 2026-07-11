@@ -3,7 +3,7 @@ The resolved field table.
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/model.md``
+Owning class spec: ``design/specs/model/classes/model.md``
 (sections "FieldTable (+ FieldRecord)" and "VelocitySelector").
 `FieldRecord` is one resolved declaration row (owner, declared
 pattern, resolved bare space, lifecycle, roles); `FieldTable` is the

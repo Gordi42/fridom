@@ -3,7 +3,7 @@ The ``Operator`` hierarchy and the operator algebra.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_base.md``
+Owning class doc: ``design/specs/grid/classes/operators_base.md``
 (with the decision log ``operator_algebra_merge.md`` as normative
 parent). This module owns the base hierarchy (``Operator``,
 ``UnaryOperator``, ``BinaryOperator``, ``SeparableOperator``,
@@ -15,7 +15,7 @@ objects built by the dunders (``Identity``, ``Zero``, ``Composite``,
 Operators are static structure: identity-hashed, interned on their
 static structure (D6), and free of per-grid arrays. Fields are
 consumed through the documented duck surface of
-``notes/framework2/classes/fields.md`` only (see ``FieldLike``): the
+``design/specs/grid/classes/fields.md`` only (see ``FieldLike``): the
 shared application path reads ``f.function_space``, ``f.grid``
 (``grid.sync``, ``grid.dispatch``), ``f.data`` / ``f._data``,
 ``f.metadata``, ``f.halo_valid``, ``f.with_data``, and rebuilds

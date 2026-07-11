@@ -3,8 +3,8 @@ r"""
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_base.md``
-(section "Symbol") and ``notes/framework2/operator_symbols_plan.md``
+Owning class doc: ``design/specs/grid/classes/operators_base.md``
+(section "Symbol") and ``design/plans/active/operator_symbols_plan.md``
 (sections 3-4). The eigenvalue / filter / mask primitive: a thin
 wrapper over one materialized per-mode diagonal array, carrying the
 ``(space, codomain)`` coefficient tags as static pytree aux and the

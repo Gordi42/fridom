@@ -3,9 +3,9 @@ Exception types of the grid cluster.
 
 Description
 -----------
-Owning class docs: ``notes/framework2/classes/product_spaces.md``
+Owning class docs: ``design/specs/grid/classes/product_spaces.md``
 (``SpaceMismatchError``, ``GridMismatchError``) and
-``notes/framework2/classes/grid.md`` ("Merge call site" resolution,
+``design/specs/grid/classes/grid.md`` ("Merge call site" resolution,
 ``GridFrozenError``). The mismatch errors subclass ``TypeError``: the
 operand *combination* is unsupported, the moral analogue of
 ``unsupported operand type(s)``. ``GridFrozenError`` subclasses

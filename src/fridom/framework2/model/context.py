@@ -5,8 +5,8 @@ Description
 -----------
 ``StepContext``: the frozen context bundle every in-trace hook
 receives — kwargs at the notebook boundary, ctx inside the trace.
-Owning class spec: ``notes/framework2/model/classes/module.md``;
-design source ``notes/framework2/model/03_time_stepping.md``
+Owning class spec: ``design/specs/model/classes/module.md``;
+design source ``design/specs/model/03_time_stepping.md``
 section 5.5.
 """
 # Wave 2 C: StepContext

@@ -1,6 +1,6 @@
 """Multi-device forced-4 gate for the graded ``Fallback`` operator.
 
-Stage F6, plan ``notes/framework2/fallback_operator_plan.md`` section 8:
+Stage F6, plan ``design/plans/active/fallback_operator_plan.md`` section 8:
 drop ``layout="local"`` -- make the graded reconstruction bitwise-correct
 when the BOUNDED axis it grades is genuinely SHARDED across devices. The
 wall rows are patched behind the decomposition seam

@@ -8,7 +8,7 @@ The declarative trigger algebra — the ``every``/``at`` factories
 ``after=``/``until=`` windows — plus ``lower_trigger``, the public
 plan-time lowering from a trigger to a sorted step-index set (CS-7:
 importable by drivers, no model or clock access). Owning class spec:
-``notes/framework2/model/classes/io_ops.md``.
+``design/specs/model/classes/io_ops.md``.
 
 Triggers are frozen host-side data: never callbacks, never traced,
 never pytrees. The lowering works in step space,

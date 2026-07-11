@@ -10,7 +10,7 @@ and the ``ProgressReporter`` protocol with its ``ChunkStats``
 payload. The three reporter hook NAMES are the normative
 commitment; the payload dataclass is provisional and grows
 compatibly. Owning class spec:
-``notes/framework2/model/classes/io_ops.md``.
+``design/specs/model/classes/io_ops.md``.
 """
 # Wave 4 C: WalltimeGuard, ProgressReporter, ChunkStats
 from __future__ import annotations

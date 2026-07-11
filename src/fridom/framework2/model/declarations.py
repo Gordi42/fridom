@@ -3,7 +3,7 @@ Field declarations of the model layer.
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/declarations.md``
+Owning class spec: ``design/specs/model/classes/declarations.md``
 ("Lifecycle"; "FieldDeclaration"; "FieldReference").
 ``FieldDeclaration`` is a module's claim on one state component —
 plain frozen host data (never a pytree, never in the carry),

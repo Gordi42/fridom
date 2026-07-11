@@ -1,7 +1,7 @@
 """Validation gates for the graded ``Fallback`` operator (stage F3).
 
 The gates F1's ``test_fallback.py`` did NOT cover (plan
-``notes/framework2/fallback_operator_plan.md`` section 5):
+``design/plans/active/fallback_operator_plan.md`` section 5):
 
 1. jit single-compile — sweeping field VALUES retraces exactly once.
 2. Multi-device forced-4 — the graded operator on a bounded axis kept

@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_stencils.md``.
+Owning class doc: ``design/specs/grid/classes/operators_stencils.md``.
 A ``SeparableOperator`` wrapping the pure ``staggered_diff`` kernel;
 the default ``("diff", ...)`` entry on nodal spaces. Per-factor
 signatures: periodic ``Center -> Right``, ``Right -> Center``;

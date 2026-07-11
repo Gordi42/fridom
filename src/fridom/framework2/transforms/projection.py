@@ -10,8 +10,8 @@ projector (``em.projector(s)``) as a composable ``State -> State``
 transform: the projector onto the span of a *set* of eigenmodes is the
 sum of the single-mode projectors, and — the modes being
 :math:`M`-orthogonal — that sum is itself an orthogonal projector
-(idempotent). ``notes/framework2/projection_eigenmode_plan.md`` §4.3;
-``notes/framework2/model/08_state_transforms.md`` §10.5.
+(idempotent). ``design/plans/active/projection_eigenmode_plan.md`` §4.3;
+``design/specs/model/08_state_transforms.md`` §10.5.
 
 Two design notes:
 

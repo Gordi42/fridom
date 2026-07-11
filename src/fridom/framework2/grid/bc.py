@@ -3,7 +3,7 @@ Homogeneous boundary-condition structure markers.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md`` (static
+Owning class doc: ``design/specs/grid/classes/meshes.md`` (static
 markers). ``BC`` is the per-boundary-component condition kind
 (re-exported at top level as ``fr.BC``); ``BCStructure`` is the
 normalized per-component tuple used inside the mesh interning keys.

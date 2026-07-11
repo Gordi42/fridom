@@ -7,8 +7,8 @@ Wave 4.2: ``Model`` (the host-side composition root and driver),
 ``ModelState`` (the full dynamic carry), ``step_chunk`` (THE one
 framework-level jitted entry), ``ParameterView``,
 ``DiagnosticsNamespace`` and ``BoundDiagnostic``. Owning class spec:
-``notes/framework2/model/classes/model.md``; run-loop rules:
-``notes/framework2/model/02_rules.md`` (Clock precision, the
+``design/specs/model/classes/model.md``; run-loop rules:
+``design/specs/model/02_rules.md`` (Clock precision, the
 three-operation matrix, the panic-flag ledger).
 
 The Model is a **host object, never a pytree**: it holds the frozen

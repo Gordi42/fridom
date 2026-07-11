@@ -3,7 +3,7 @@ The seeded operator verbs: ``diff``, ``interpolate``, ``integrate``.
 
 Description
 -----------
-Owning decision: ``notes/framework2/classes/operator_algebra_merge.md``
+Owning decision: ``design/specs/grid/classes/operator_algebra_merge.md``
 (D3b). The standard single-kind verbs are module-level ``Dispatched``
 singletons on ``fr.operators`` — the discoverable surface the field
 forwarders route through (``f.diff("x")`` is

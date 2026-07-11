@@ -6,7 +6,7 @@ Description
 The typed run-loop returns (CS-3): ``RunStatus``, ``AdvanceResult``,
 ``RunResult``, the ``PanicError``/``RunTargetError`` exceptions, and
 the reserved ``PendingAdvance`` slot. Owning class spec:
-``notes/framework2/model/classes/model.md`` (section 5, "Run-loop
+``design/specs/model/classes/model.md`` (section 5, "Run-loop
 result types", and the error registry, section 7).
 
 All host values — no pytrees, nothing traced. ``advance()`` raises

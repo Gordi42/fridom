@@ -3,7 +3,7 @@ The time-stepper namespace (``fr.time_steppers``).
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/time_steppers.md``.
+Owning class spec: ``design/specs/model/classes/time_steppers.md``.
 Wave 4 added ``TimeStepper``/``StepperState`` and ``AdamBashforth``;
 Wave 5 adds the explicit RK family (``ExplicitRungeKutta``,
 ``LowStorageRK3``, ``ButcherTableau``, ``tableaus``) and the IMEX

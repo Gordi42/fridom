@@ -3,7 +3,7 @@ The printable assembly report.
 
 Description
 -----------
-Owning class spec: ``notes/framework2/model/classes/model.md``
+Owning class spec: ``design/specs/model/classes/model.md``
 (section "AssemblyReport (+ Fingerprint)"). ``model.report`` — a
 host object printable without device sync, logged at INFO. The
 section structure is fixed (the d4_1 mock is the format reference),

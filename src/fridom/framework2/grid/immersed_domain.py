@@ -3,8 +3,8 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/grid.md``; rules in
-``notes/framework2/02_rules.md`` section 3.7. A static descriptor of
+Owning class doc: ``design/specs/grid/classes/grid.md``; rules in
+``design/specs/grid/02_rules.md`` section 3.7. A static descriptor of
 the wet region (successor of ``WaterMask``): it holds the declaring
 callable and static parameters only — no arrays, no fields — and
 materializes per-space masks/fractions on demand at trace time,

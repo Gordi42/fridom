@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/fields.md``. Thin means
+Owning class doc: ``design/specs/grid/classes/fields.md``. Thin means
 thin (section 2.4): no metric, no axis semantics, no inner product —
 the coordinate association and variance of a component are carried by
 its *space*. Consequently there is no ``dot`` and no ``div`` method

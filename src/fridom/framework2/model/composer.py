@@ -7,8 +7,8 @@ Description
 collection consumption, ``"Module/term"`` attribution, write-gate
 validation, deterministic accumulation order, implicit merge
 grouping, and the dry-run validation. Owning class spec:
-``notes/framework2/model/classes/model.md`` ("TendencyComposer");
-design source ``notes/framework2/model/03_time_stepping.md``
+``design/specs/model/classes/model.md`` ("TendencyComposer");
+design source ``design/specs/model/03_time_stepping.md``
 sections 5.1/5.2/5.5.
 
 The composer is assembly-internal and host-side; its *products* are

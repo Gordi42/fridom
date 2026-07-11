@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_stencils.md``.
+Owning class doc: ``design/specs/grid/classes/operators_stencils.md``.
 Second-order conversions inside the average family — the default
 ``("reconstruct", ...)`` entry, also seeded under ``("average", ...)``
 for the nodal -> average direction that ``f.to`` resolves. At second

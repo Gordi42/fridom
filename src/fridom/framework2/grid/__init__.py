@@ -4,7 +4,7 @@ Grid abstraction cluster of framework2.
 Description
 -----------
 The re-export table below realizes section 1 of
-``notes/framework2/classes/grid.md``; at cutover the same entries
+``design/specs/grid/classes/grid.md``; at cutover the same entries
 move up to the framework ``__init__``. Entries whose modules are
 still stubs are added wave by wave (see the wave markers in the
 modules):

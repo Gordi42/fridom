@@ -4,7 +4,7 @@ The model-layer error registry.
 Description
 -----------
 The concrete model-layer errors of
-``notes/framework2/model/classes/model.md`` section 7. Assembly-time
+``design/specs/model/classes/model.md`` section 7. Assembly-time
 errors subclass the common ``AssemblyError``; teaching shims
 subclass ``TypeError``-flavored bases so they read as API misuse.
 Errors owned by other clusters (``GridFrozenError``,

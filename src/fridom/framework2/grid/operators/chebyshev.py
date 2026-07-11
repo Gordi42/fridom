@@ -3,7 +3,7 @@ r"""
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_transforms.md``
+Owning class doc: ``design/specs/grid/classes/operators_transforms.md``
 ("Chebyshev"). The transform pairs the ``ChebyshevMesh``'s Lobatto
 (outer) space with its ``ChebyshevSpace``: values at the n + 1
 Gauss-Lobatto points and coefficients ``a_k`` of

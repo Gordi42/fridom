@@ -3,7 +3,7 @@ xarray export of framework2 fields (``f.xr``).
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/grid.md``, section 4
+Owning class doc: ``design/specs/grid/classes/grid.md``, section 4
 (Export). The field-side ``xr`` properties delegate here. Rules:
 
 - **Axis-position labels are xgcm-style**, derived from the node

@@ -3,7 +3,7 @@ Cartesian convenience grid.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/grid.md``.
+Owning class doc: ``design/specs/grid/classes/grid.md``.
 Wave 2 re-exports the cartesian ``Grid`` class here.
 """
 from typing import TYPE_CHECKING

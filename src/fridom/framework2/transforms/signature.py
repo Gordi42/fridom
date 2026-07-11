@@ -8,9 +8,9 @@ domain/codomain: grid **object identity** plus the mapped
 ``(name, space)`` subset (names by equality, spaces by identity —
 bare spaces are interned, so ``==`` is identity — order included),
 plus a call-time ``rest`` policy for extra input components. Owning
-class spec: ``notes/framework2/model/classes/transforms.md``
+class spec: ``design/specs/model/classes/transforms.md``
 §"StateSignature"; design source
-``notes/framework2/model/08_state_transforms.md`` §10.3 law 2 /
+``design/specs/model/08_state_transforms.md`` §10.3 law 2 /
 §10.7.2 (mapped subset + rest) / S6 (signature != treedef).
 
 ``rest`` is **excluded** from equality/hash (spec completion 4): it

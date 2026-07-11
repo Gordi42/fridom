@@ -3,7 +3,7 @@ The ``Mesh`` ABC: atomic factor of the domain geometry.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md``. A mesh owns
+Owning class doc: ``design/specs/grid/classes/meshes.md``. A mesh owns
 geometry and topology only — no discretization, no arrays. It is the
 factory and interning registry of its function spaces: value-equal
 factory requests return the identical space object, so the strict

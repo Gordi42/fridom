@@ -6,8 +6,8 @@ Description
 ``StageKind`` (the closed schedule vocabulary), ``Stage`` (a
 module-owned stage declaration), and the ``fr.self_update``
 decorator. Owning class spec:
-``notes/framework2/model/classes/module.md``; design source
-``notes/framework2/model/03_time_stepping.md`` sections 5.2/5.5.
+``design/specs/model/classes/module.md``; design source
+``design/specs/model/03_time_stepping.md`` sections 5.2/5.5.
 
 Stages are transient assembly inputs mirroring ``TendencyTerm``:
 plain frozen host objects consumed at assembly and discarded; the

@@ -4,8 +4,8 @@ Weak intern table for identity-hashed static objects.
 Description
 -----------
 Shared interning helper for the meshes and spaces clusters (cluster
-rules in ``notes/framework2/classes/meshes.md`` and the intern-table
-notes in ``notes/framework2/classes/product_spaces.md``): interning
+rules in ``design/specs/grid/classes/meshes.md`` and the intern-table
+notes in ``design/specs/grid/classes/product_spaces.md``): interning
 turns value equality into identity — value-equal requests return the
 identical object, so the strict-algebra equality check is ``a is b``.
 The table holds its entries through weak references, so unreferenced

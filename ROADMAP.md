@@ -45,9 +45,9 @@ existing `framework`.
 
 The function-space core, decoupled from the model and testable
 standalone. Direct implementation of the class designs in
-[`notes/framework2/classes/`](notes/framework2/classes/README.md)
-(concepts in [`notes/framework2/`](notes/framework2/), operator
-algebra in [`notes/framework2/operator_algebra/`](notes/framework2/operator_algebra/00_overview.md));
+[`design/specs/grid/classes/`](design/specs/grid/classes/README.md)
+(concepts in [`design/specs/grid/`](design/specs/grid/), operator
+algebra in [`design/specs/operator_algebra/`](design/specs/operator_algebra/00_overview.md));
 the `classes/README` staging section is the basis for the breakdown.
 
 | #   | Task | Notes |
@@ -58,8 +58,8 @@ the `classes/README` staging section is the basis for the breakdown.
 | 1.4 | **Transforms** | `Fourier`, `Sine`/`Cosine`, `Chebyshev`, and `refined()` padding as space-mapping operators; `Symbol` eigenvalues and spectral solves. Spectral differentiation returns here as a function-space operator. |
 | 1.5 | **Domain decomposition** | `negotiate` + `MeshDecompositionTraits` + `HaloSpec`/`HaloTracer` (halo accounting by tracing operator requirements) + multi-device shard maps (class doc 04). The grid is a static pytree aux with per-coordinate halos. |
 | 1.6 | **Immersed subset + export** | `grid.immersed` (per-space boolean masks derived on demand) and `f.xr` export to xarray. |
-| 1.7 | **Standalone validation** | A hand-rolled PDE (advection / diffusion) driven by fields + operators + decomposition under a plain loop, single and multi device, plus the numerical checks in [`05_validation.md`](notes/framework2/05_validation.md). The correctness gate before the model layer exists. |
-| 1.8 | **Sync-strategy redo: consumption-side halo-validity tracking** — *done (2026-07-07)* | *Decided 2026-07-08; implemented on `framework2-sync-redo`.* Replace the iteration-1 sync-after-every-operator placement: fields carry a trace-time valid-halo depth (static attribute, zero runtime cost); operators sync iff input depth < requirement; `store` stops syncing. Cuts the composed model step from one exchange per operator application *and per field `+`/`-`* to ~one per state component per step; results-neutral by construction (syncs only rewrite ghost cells). Decision record: [decomposition open questions](notes/framework2/classes/decomposition.md#open-questions); work item 8 in [`phase2_grid_followups.md`](notes/framework2/phase2_grid_followups.md). Not blocking 2.2–2.3; land before performance-sensitive multi-device work (2.7 benchmarks, 3.3). Implementation plan: [`notes/framework2/sync_redo_plan.md`](notes/framework2/sync_redo_plan.md). |
+| 1.7 | **Standalone validation** | A hand-rolled PDE (advection / diffusion) driven by fields + operators + decomposition under a plain loop, single and multi device, plus the numerical checks in [`05_validation.md`](design/specs/grid/05_validation.md). The correctness gate before the model layer exists. |
+| 1.8 | **Sync-strategy redo: consumption-side halo-validity tracking** — *done (2026-07-07)* | *Decided 2026-07-08; implemented on `framework2-sync-redo`.* Replace the iteration-1 sync-after-every-operator placement: fields carry a trace-time valid-halo depth (static attribute, zero runtime cost); operators sync iff input depth < requirement; `store` stops syncing. Cuts the composed model step from one exchange per operator application *and per field `+`/`-`* to ~one per state component per step; results-neutral by construction (syncs only rewrite ghost cells). Decision record: [decomposition open questions](design/specs/grid/classes/decomposition.md#open-questions); work item 8 in [`phase2_grid_followups.md`](design/plans/active/phase2_grid_followups.md). Not blocking 2.2–2.3; land before performance-sensitive multi-device work (2.7 benchmarks, 3.3). Implementation plan: [`design/plans/done/sync_redo_plan.md`](design/plans/done/sync_redo_plan.md). |
 
 Grid extensions specified as `designed-for` (may defer): stretched /
 coordinate-map grids, terrain-following coordinates, spherical grids with
@@ -71,28 +71,28 @@ The model layer, built on the Phase 1 grid. **The design is complete
 (2026-07-08)**: five resolved decisions (field registration,
 parameter ownership, staged/split stepping, composition/run-loop/IO,
 and the state-transform algebra) in
-[`notes/framework2/model/`](notes/framework2/model/00_overview.md) —
+[`design/specs/model/`](design/specs/model/00_overview.md) —
 task 2.1's design doc, grown into the full note set covering
 2.1–2.6 plus the transforms. The rows below are now implementation
 tasks against that design.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 2.1 | **Design doc: model composition** — *done (2026-07-08)* | Resolved as decisions D1–D5 in `notes/framework2/model/` (concepts, rules, full designs for stepping/run-loop/transforms, API sketches, research archive, class specs in `notes/framework2/model/classes/`). Reconciled against the landed Phase-1 code (2026-07-08): the per-step sync-amplification question's model half is discharged (the signed term surface is sync-policy-neutral; the grid-side strategy redo is decided as task 1.8, decision record in the [decomposition open questions](notes/framework2/classes/decomposition.md#open-questions)), the Phase-1 validation findings are consumed (metadata ruling in `notes/framework2/classes/fields.md`, bitwise umbrella in `notes/framework2/model/02_rules.md`, precision ruling in `notes/framework2/model/classes/declarations.md`), and the grid follow-up work items are filed in [notes/framework2/phase2_grid_followups.md](notes/framework2/phase2_grid_followups.md). |
+| 2.1 | **Design doc: model composition** — *done (2026-07-08)* | Resolved as decisions D1–D5 in `design/specs/model/` (concepts, rules, full designs for stepping/run-loop/transforms, API sketches, research archive, class specs in `design/specs/model/classes/`). Reconciled against the landed Phase-1 code (2026-07-08): the per-step sync-amplification question's model half is discharged (the signed term surface is sync-policy-neutral; the grid-side strategy redo is decided as task 1.8, decision record in the [decomposition open questions](design/specs/grid/classes/decomposition.md#open-questions)), the Phase-1 validation findings are consumed (metadata ruling in `design/specs/grid/classes/fields.md`, bitwise umbrella in `design/specs/model/02_rules.md`, precision ruling in `design/specs/model/classes/declarations.md`), and the grid follow-up work items are filed in [design/plans/active/phase2_grid_followups.md](design/plans/active/phase2_grid_followups.md). |
 | 2.2 | **Field registration + parameters in modules** — *implemented (2026-07-08)* | `Module` API to declare `FieldMetadata` for the state; parameters move into modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallowwater `csqr`, Rossby scaling); stratification modules register `b`. Declaration vocabulary + assembly tables landed in Phase-2 waves 2–3; the concrete physics modules land with 2.7. |
 | 2.3 | **Modules modify anything** — *implemented (2026-07-08)* | Modules and grid in the traced state; `Model(grid=..., tendencies=..., diagnostics=..., time_stepper=...)` direct assembly. `Module` base + `fr.Model` + the nine-step assembly (waves 3–4). |
 | 2.4 | **Single `jax.jit` for the full run** — *implemented (2026-07-08)* | Chunked `lax.scan` (`step_chunk`, AOT-compiled, donated carry, lengths {C,1}); trace-friendly `Clock`; scan-body time steppers; per-step S5 NaN reduction + chunk-boundary abort. `fr.ops.Session` + `Model.run()` (wave 5). |
 | 2.5 | **Staged / split time stepping** — *implemented (2026-07-08)* | Ordered stages by `StageKind`; IMEX explicit/implicit partition with `VerticalDiffusion` `(1 − dt·γ·L)^-1`, CNAB2/SBDF2; the RK family + `LowStorageRK3`; by-variable Gauss-Seidel `advance_stages`. Pressure projection (a CONSTRAINT stage) lands with 2.7; IMEX-RK stays designed-for. |
 | 2.6 | **IO: TensorStore writer + diagnostics** — *implemented (2026-07-08)* | `fr.io.Writer` writes a zarr-format store **via tensorstore** (no zarr-python import; xarray/xgcm-openable), `fr.io.TimeSeries` CSV; triggers, the pickle-free snapshot store, restart-under-scan, walltime/progress/NaN under the chunked scan. Follow-up: partial / decomposed-slice output (designed-for behind the sink seam). |
 | 2.7 | **Port nonhydro + shallowwater** | Tendencies, pressure solvers as function-space operators, model-side eigenmode objects (`Eigenmodes` / `from_model`). Update examples, docs, tests. |
-| 2.8 | **State transforms** (design: `notes/framework2/model/08_state_transforms.md`) | `fr.StateTransform` + the algebra (`@`, arithmetic, `FixedPoint`, `Shift`), `model.variant(term_filter=...)` + term predicates + `fr.closures.ClosureBase`, and the ported family: Vortical/Wave/Divergence projections, `Propagator`, `TimeAverage`, `OptimalBalance`. NNMD deferred to its own future rewrite (no model propagator). |
+| 2.8 | **State transforms** (design: `design/specs/model/08_state_transforms.md`) | `fr.StateTransform` + the algebra (`@`, arithmetic, `FixedPoint`, `Shift`), `model.variant(term_filter=...)` + term predicates + `fr.closures.ClosureBase`, and the ported family: Vortical/Wave/Divergence projections, `Propagator`, `TimeAverage`, `OptimalBalance`. NNMD deferred to its own future rewrite (no model propagator). |
 
 ## Phase 3 — Models & coupling
 
 | #   | Task | Notes |
 |-----|------|-------|
 | 3.1 | **Hydrostatic model** | Linear tendency, hydrostatic pressure solver, advection wiring, eigenvectors. Implicit vertical mixing (and optional split-explicit free surface) build on 2.5. |
-| 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. **Pre-designed** in [`notes/framework2/model/09_coupling_designfor.md`](notes/framework2/model/09_coupling_designfor.md) (precedent survey + adversarial A–O walk + architecture; the class specs carry its CS-1..18 constraints so 3.2 stays a pure addition). |
+| 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. **Pre-designed** in [`design/specs/model/09_coupling_designfor.md`](design/specs/model/09_coupling_designfor.md) (precedent survey + adversarial A–O walk + architecture; the class specs carry its CS-1..18 constraints so 3.2 stays a pure addition). |
 | 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. |
 
 ## Cutover

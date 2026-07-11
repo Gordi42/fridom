@@ -3,7 +3,7 @@ Composed vector calculus: the grad/div/curl/laplacian builders.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_composed.md``.
+Owning class doc: ``design/specs/grid/classes/operators_composed.md``.
 The factories are algebra-derived builders (D1/B1/B2), not bespoke
 classes: registered under the generic kinds ``"grad"`` / ``"div"`` /
 ``"curl"`` / ``"laplacian"``, they expand against a domain's axis

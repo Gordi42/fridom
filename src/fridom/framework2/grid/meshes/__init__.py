@@ -3,7 +3,7 @@ Mesh factors of the domain (re-exported as ``fr.meshes``).
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md``.
+Owning class doc: ``design/specs/grid/classes/meshes.md``.
 Wave 1 re-exports the mesh classes (``IntervalMesh``, ...)
 here.
 """

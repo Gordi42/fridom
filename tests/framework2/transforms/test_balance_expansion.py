@@ -1,6 +1,6 @@
 """BalanceExpansion: slaving balance on the model eigenmode tiers.
 
-The P3+P4 acceptance battery of ``notes/framework2/nnmd_rewrite_plan.md``:
+The P3+P4 acceptance battery of ``design/plans/active/nnmd_rewrite_plan.md``:
 
 - order 0 is exactly the package vortical projection (analytic and
   channel tiers);

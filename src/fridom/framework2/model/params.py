@@ -3,7 +3,7 @@ The canonical parameter-name registry (``fr.params``).
 
 Description
 -----------
-Owning class doc: ``notes/framework2/model/classes/declarations.md``
+Owning class doc: ``design/specs/model/classes/declarations.md``
 (section "ParamName and the fr.params registry"). ``ParamName`` is a
 ``str`` subclass carrying registry documentation (units, provider
 hint, the ``no_default`` mark), so ``params["coriolis.f0"]`` and

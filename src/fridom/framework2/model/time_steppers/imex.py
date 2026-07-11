@@ -7,8 +7,8 @@ Wave 5 B: ``IMEXMultistep`` (the one generic IMEX-by-treatment
 multistep driver), ``IMEXState`` (its carry: explicit-F ring, SBDF
 state ring, warm-up counter), and the ``CNAB2`` / ``SBDF2`` thin
 factories (SBDF3 / IMEX-RK are designed-for). Owning class spec:
-``notes/framework2/model/classes/time_steppers.md`` ("IMEXMultistep");
-design source ``notes/framework2/model/03_time_stepping.md`` sections
+``design/specs/model/classes/time_steppers.md`` ("IMEXMultistep");
+design source ``design/specs/model/03_time_stepping.md`` sections
 5.4/5.6/5.7.
 
 One driver; the schemes are static coefficient-level sets. Warm-up

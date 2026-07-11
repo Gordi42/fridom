@@ -5,7 +5,7 @@ Description
 -----------
 Wave 5 C: ``fr.io.Writer`` (front kwargs fixed at the 2.4 spec; sink
 behind the seam). Owning class spec:
-``notes/framework2/model/classes/io_ops.md`` (the Writer section).
+``design/specs/model/classes/io_ops.md`` (the Writer section).
 
 A ``Writer`` is trigger-driven, human-facing gridded output: the
 store it writes is a **zarr-format** store that opens in xarray/xgcm

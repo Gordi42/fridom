@@ -7,9 +7,9 @@ Description
 ``BoundSchedule`` (the ephemeral in-trace view closed over the
 carry's current module pytree), and ``TendencySums`` (the frozen
 jaxified per-treatment tendency sums). Owning class spec:
-``notes/framework2/model/classes/time_steppers.md`` ("Schedule
+``design/specs/model/classes/time_steppers.md`` ("Schedule
 composition"); design source
-``notes/framework2/model/03_time_stepping.md`` sections 5.2/5.5.
+``design/specs/model/03_time_stepping.md`` sections 5.2/5.5.
 
 The ``Schedule`` is built once, by the ``TendencyComposer`` at
 assembly step 5, and joins the hashable assembly record: two

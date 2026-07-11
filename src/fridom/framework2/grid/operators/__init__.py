@@ -4,7 +4,7 @@ Free-standing operators (re-exported as ``fr.operators``).
 Description
 -----------
 Owning class docs: the
-``notes/framework2/classes/operators_*.md`` cluster files.
+``design/specs/grid/classes/operators_*.md`` cluster files.
 Waves 2-4 re-export the operator classes here.
 """
 from typing import TYPE_CHECKING

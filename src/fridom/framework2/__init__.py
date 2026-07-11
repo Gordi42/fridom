@@ -6,15 +6,15 @@ Description
 Hosts the ``framework2.grid`` package and the Phase-2 model layer
 (``model``, ``transforms``, ``io``, ``ops``), all renamed to
 ``fridom.framework.*`` at cutover; see
-``notes/framework2/classes/README.md`` and
-``notes/framework2/model/classes/README.md`` for the design
+``design/specs/grid/classes/README.md`` and
+``design/specs/model/classes/README.md`` for the design
 contracts. ``framework2`` may import ``fridom.framework.utils`` but
 must not import the old model/grid stack.
 
 Top-level re-exports (``fr.Model``, ``fr.Ramp``, ``fr.params``,
 ``fr.StateTransform``, ``fr.every``/``fr.at``, ...) are added wave by
 wave with the Phase-2 implementation plan
-(``notes/framework2/model/implementation_plan.md``).
+(``design/plans/done/phase2_implementation_plan.md``).
 """
 from typing import TYPE_CHECKING
 

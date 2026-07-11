@@ -6,8 +6,8 @@ Description
 ``Treatment``, ``TendencyTerm``, and the ``@fr.term`` decorator: a
 module's tendency contribution as declared frozen data — the
 FieldDeclaration pattern applied to behavior. Owning class spec:
-``notes/framework2/model/classes/declarations.md``; design source
-``notes/framework2/model/03_time_stepping.md`` section 5.1.
+``design/specs/model/classes/declarations.md``; design source
+``design/specs/model/03_time_stepping.md`` section 5.1.
 
 Terms are transient assembly inputs: plain frozen host objects, never
 pytrees, never in the carry, never reaching jit. The composed step

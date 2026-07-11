@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/fields.md``. The single
+Owning class doc: ``design/specs/grid/classes/fields.md``. The single
 concrete field type: a jaxified pytree whose only leaf is the
 storage-shaped ``_data`` array; grid (identity-hashed), space
 (interned), and metadata are static aux data — metadata in the

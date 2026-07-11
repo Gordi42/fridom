@@ -3,7 +3,7 @@ The data-movement operators: ``Reshard`` and ``Sync``.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_base.md``
+Owning class doc: ``design/specs/grid/classes/operators_base.md``
 (section "Reshard / Sync and requirements-driven lowering"; concepts
 in ``04_decomposition.md`` section 5.1). ``Reshard`` is the
 user-reachable explicit layout change (``f.reshard(...)`` sugar) —

@@ -10,9 +10,9 @@ orbax, no pickle: a snapshot directory is a ``manifest.json`` plus
 one ``.npy`` file per carry leaf, and the atomic commit is
 tmp-dir-then-rename (the rename IS the completeness marker).
 Everything here is host-side pure Python + numpy. Owning class
-spec: ``notes/framework2/model/classes/io_ops.md``; fingerprint
+spec: ``design/specs/model/classes/io_ops.md``; fingerprint
 scope and the no-pickled-models rule:
-``notes/framework2/model/02_rules.md``.
+``design/specs/model/02_rules.md``.
 """
 # Wave 4 C: Snapshots, LeafEntry, SnapshotManifest, store functions
 from __future__ import annotations

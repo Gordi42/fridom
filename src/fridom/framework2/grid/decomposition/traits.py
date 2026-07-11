@@ -3,7 +3,7 @@ Per-mesh decomposition traits.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/decomposition.md``. This
+Owning class doc: ``design/specs/grid/classes/decomposition.md``. This
 module owns the single definition of ``HaloStrategy`` and
 ``MeshDecompositionTraits``; the meshes cluster imports from here for
 the per-space declaring seam ``Mesh.decomposition_traits(space)``.

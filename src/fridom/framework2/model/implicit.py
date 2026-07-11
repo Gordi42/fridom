@@ -6,8 +6,8 @@ Description
 ``ImplicitOperator`` (the two-capability structural protocol) and
 ``VerticalDiffusion`` (the framework-owned mergeable tridiagonal
 family). Owning class spec:
-``notes/framework2/model/classes/declarations.md``; design source
-``notes/framework2/model/03_time_stepping.md`` section 5.1.
+``design/specs/model/classes/declarations.md``; design source
+``design/specs/model/03_time_stepping.md`` section 5.1.
 ``SpectralDiagonal`` is designed-for and deliberately not built
 (earliest consumer: the sw semi-implicit gravity-wave pair, 2.7).
 

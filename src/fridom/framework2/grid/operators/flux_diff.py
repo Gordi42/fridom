@@ -3,7 +3,7 @@ The finite-volume flux-difference operators and ``FVDerivative``.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/operators_stencils.md``.
+Owning class doc: ``design/specs/grid/classes/operators_stencils.md``.
 ``FluxDifference`` is the exact discrete Gauss theorem on the primal
 cells (``Outer/Inner -> CellAvg``, periodic ``Right -> CellAvg``);
 ``DualFluxDifference`` its dual-cell twin (``Center/CellAvg ->

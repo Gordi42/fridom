@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/grid.md``. Seeded,
+Owning class doc: ``design/specs/grid/classes/grid.md``. Seeded,
 sharding-consistent random field generators (rules section 3.10):
 values are a pure function of ``(space.shape, seed)`` over the
 **global true-DOF index** — per-DOF ``fold_in(seed, global_index)``

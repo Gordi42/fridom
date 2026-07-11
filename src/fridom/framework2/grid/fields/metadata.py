@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/fields.md``. Pure
+Owning class doc: ``design/specs/grid/classes/fields.md``. Pure
 annotation for naming and I/O (name, units, nc-attrs) with no
 discretization content: metadata never influences dispatch, dtype,
 shape, or algebra. Frozen and hashable, because it sits in the static

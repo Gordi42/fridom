@@ -4,8 +4,8 @@ Model-layer cluster of framework2.
 Description
 -----------
 The re-export table below grows wave by wave with the Phase-2
-implementation plan (``notes/framework2/model/implementation_plan.md``);
-the class specs under ``notes/framework2/model/classes/`` are the
+implementation plan (``design/plans/done/phase2_implementation_plan.md``);
+the class specs under ``design/specs/model/classes/`` are the
 design contract. Names destined for the framework top level
 (``fr.Model``, ``fr.Ramp``, ``fr.params``, ``fr.time_steppers``, ...)
 are re-exported from ``fridom.framework2`` once their wave lands:

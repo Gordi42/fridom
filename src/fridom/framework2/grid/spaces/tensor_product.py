@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/product_spaces.md``.
+Owning class doc: ``design/specs/grid/classes/product_spaces.md``.
 This module owns the flat, associative, weakly interned product of
 per-mesh factor spaces, the ``SpaceLike`` alias, and the shared
 semantics of binary field arithmetic: the two sanctioned per-factor

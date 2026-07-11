@@ -4,7 +4,7 @@ FixedPoint: iteration over a transform (or transform factory) (2.8).
 Description
 -----------
 Iterate ``T`` until the norm of the update converges (§10.2; owning
-class spec ``notes/framework2/model/classes/transforms.md``
+class spec ``design/specs/model/classes/transforms.md``
 §"FixedPoint"). ``T`` is an endo ``StateTransform`` **or** a factory
 ``State -> StateTransform`` evaluated on the current iterate per
 iteration (this absorbs OB's ``update_base_point`` cleanly). Host

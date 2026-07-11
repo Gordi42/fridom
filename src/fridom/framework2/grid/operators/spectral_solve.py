@@ -3,10 +3,10 @@ r"""
 
 Description
 -----------
-Owning design: ``notes/framework2/symbol_stack_design.md`` (the
+Owning design: ``design/decisions/symbol_stack_design.md`` (the
 realized-map algebra — ``SpectralSolve`` "is not a class, it is a
 composition ``backward @ symbol.inverse() @ forward``") and
-``notes/framework2/composition_refactor_plan.md`` (stage S2). The typed
+``design/plans/active/composition_refactor_plan.md`` (stage S2). The typed
 port of the inline ``test_spectral_poisson`` pattern and the
 hand-rolled v1 spectral pressure solver: a grid-bound solve that
 inverts an elliptic operator whose every factor diagonalizes in the

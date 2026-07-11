@@ -16,7 +16,9 @@ which the modern code (e.g. `framework/modules/module.py`,
 - `tests/` — pytest suite; mirrors the `src/fridom` tree.
 - `docs/` — Sphinx docs (sphinx-book-theme + sphinx-gallery).
 - `examples/` — sphinx-gallery example scripts.
-- `notes/` — HPC/ops notes.
+- `design/` — internal design records (specs, decisions, plans, research;
+  see `design/README.md`).
+- `assets/` — project assets (logo).
 
 ## Commands
 

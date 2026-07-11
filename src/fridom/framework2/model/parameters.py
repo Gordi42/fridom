@@ -3,7 +3,7 @@ Parameter declarations, references, and constructor-slot sentinels.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/model/classes/declarations.md``
+Owning class doc: ``design/specs/model/classes/declarations.md``
 (sections "ParameterDeclaration", "ParameterReference (and
 REQUIRED)", "fr.Param and USE_PROVIDED"). All of these are plain
 frozen host objects — never pytrees, never in the carry, never

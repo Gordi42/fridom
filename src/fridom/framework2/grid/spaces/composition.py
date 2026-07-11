@@ -3,7 +3,7 @@ Factor-wise space-tag validators for the composition algebras.
 
 Description
 -----------
-Owning class doc: ``notes/framework2/composition_refactor_plan.md``
+Owning class doc: ``design/plans/active/composition_refactor_plan.md``
 (section 3, "Layer 0 — shared pure utilities" and section 5, stage
 S0a). The **one** factor-wise tag validator shared by the diagonal /
 realized-map algebras (``Symbol`` today; the realized maps next

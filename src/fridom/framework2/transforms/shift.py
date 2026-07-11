@@ -4,7 +4,7 @@ Shift: the affine piece ``s -> s + state0`` (2.8).
 Description
 -----------
 The affine building block (§10.2; owning class spec
-``notes/framework2/model/classes/transforms.md`` §"Shift") — OB's
+``design/specs/model/classes/transforms.md`` §"Shift") — OB's
 base-point exchange. Tier 1: a ``fr.utils.jaxify`` frozen pytree with
 the captured state as the dynamic leaf (the ``fr.Ramp`` pattern);
 ``traceable=True``, ``idempotent=False``; cost zero. The endo

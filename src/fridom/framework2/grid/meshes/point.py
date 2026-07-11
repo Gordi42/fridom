@@ -3,7 +3,7 @@
 
 Description
 -----------
-Owning class doc: ``notes/framework2/classes/meshes.md``. The
+Owning class doc: ``design/specs/grid/classes/meshes.md``. The
 boundary of an interval: two located endpoints, or the empty
 ``PointMesh`` for periodic meshes — one type covers both, and
 "empty boundary" needs no special case. Point positions are a
