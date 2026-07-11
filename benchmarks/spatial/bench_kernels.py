@@ -1,12 +1,12 @@
-"""Kernel benchmarks for framework2.grid (hot stencil kernels).
+"""Kernel benchmarks for fridom.spatial (hot stencil kernels).
 
 Suite convention (same as the top-level ``benchmarks/`` suite): this
 directory is a ``fridom.benchmarking`` suite; cases are declared in
 ``bench_*.py`` files with the ``@bm.benchmark_case`` decorator and
 discovered with
 
-    uv run python -m fridom.benchmarking list benchmarks/framework2
-    uv run python -m fridom.benchmarking run benchmarks/framework2
+    uv run python -m fridom.benchmarking list benchmarks/spatial
+    uv run python -m fridom.benchmarking run benchmarks/spatial
 
 Wave 1 seeds the pure stencil-kernel cases below at the sizes of the
 old-stack cases in ``benchmarks/bench_operators.py`` (n x n points),

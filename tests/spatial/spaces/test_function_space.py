@@ -1,4 +1,4 @@
-"""Tests for FunctionSpace (framework2/grid/spaces/function_space.py)."""
+"""Tests for FunctionSpace (spatial/spaces/function_space.py)."""
 import pytest
 
 from fridom.spatial.bc import BC, BCStructure

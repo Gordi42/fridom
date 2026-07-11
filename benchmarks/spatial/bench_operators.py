@@ -1,4 +1,4 @@
-"""Field-level operator benchmarks for framework2 (application path).
+"""Field-level operator benchmarks for fridom.spatial (application path).
 
 End-to-end companions of the pure-kernel cases in
 ``bench_kernels.py``: every case runs the full operator application
@@ -6,7 +6,7 @@ path (dispatch, consumption-side halo sync, kernel, layout
 re-attachment) on 2-D fields, at the sizes of the old-stack cases in
 ``benchmarks/bench_operators.py`` — so old-vs-new comparisons come
 from the same infrastructure. Note the semantic difference when
-comparing: framework2 applications sync their *operand* at first
+comparing: fridom.spatial applications sync their *operand* at first
 consumption (task-1.8 consumption-side contract; results carry
 validity claims instead of a post-sync), the old stack syncs
 separately (``bench_sync``).

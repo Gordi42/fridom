@@ -10,13 +10,13 @@ wall rows are patched behind the decomposition seam
 
 Lives in the decomposition suite because the forced-4 CI job
 (``.github/workflows/tests.yml:35-42``) only globs
-``tests/framework2/grid/decomposition`` -- a forced-4 gate must live
+``tests/spatial/decomposition`` -- a forced-4 gate must live
 here to be run genuinely sharded (four host devices via
 ``XLA_FLAGS=--xla_force_host_platform_device_count=4`` +
 ``FRIDOM_TEST_FORCED_DEVICES=4``).
 
 Reuses the shared ``forced_devices`` fixture
-(``tests/framework2/conftest.py:66-70``) and the None-vs-(0,)
+(``tests/conftest.py``) and the None-vs-(0,)
 device-count-invariance convention from
 ``test_multi_device.py:38-44`` / ``test_weno.py:459-478``.
 """

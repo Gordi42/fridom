@@ -1,4 +1,4 @@
-"""Tests for the implicit families (framework2/model/implicit.py)."""
+"""Tests for the implicit families (model/implicit.py)."""
 import dataclasses
 
 import pytest
@@ -144,7 +144,7 @@ def test_rejects_non_callable_kappa():
 # The apply/solve tridiagonal kernels landed at wave 5 (ROADMAP 2.5);
 # their numerical oracles (exact 1D decay, the stiff-kappa column,
 # apply/solve against a dense numpy reference) live in
-# ``tests/framework2/model/test_implicit_kernel.py``.
+# ``tests/model/test_implicit_kernel.py``.
 
 
 # ================================================================

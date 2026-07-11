@@ -6,8 +6,8 @@ the selection-string vocabulary derivation, the wrapper base's
 projector and ``function(f, sel)`` entries, and the
 ``fr.model.eigenbasis`` package dispatch. The engine projection apply
 itself is exercised end to end by the package suites
-(``tests/framework2/shallowwater2`` and
-``tests/framework2/nonhydro2``).
+(``tests/shallowwater2`` and
+``tests/nonhydro2``).
 """
 from types import SimpleNamespace
 

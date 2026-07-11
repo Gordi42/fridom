@@ -1,5 +1,7 @@
 # Nonhydrostatic & shallow-water: NEW (framework2) vs OLD (framework)
 
+> **Naming:** these measurements predate the 2026-07-11 package split; "framework2" is today's `fridom.spatial` + `fridom.model`.
+
 A like-for-like **performance** comparison of the new framework2 model
 stack (`fridom.nonhydro2`, `fridom.shallowwater2`) against the shipped
 old stack (`fridom.nonhydro`, `fridom.shallowwater`), at matched

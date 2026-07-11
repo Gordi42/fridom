@@ -1,4 +1,4 @@
-"""Tests for the Module base class (framework2/model/module.py)."""
+"""Tests for the Module base class (model/module.py)."""
 from functools import partial
 from types import SimpleNamespace
 

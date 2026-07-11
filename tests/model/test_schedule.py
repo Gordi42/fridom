@@ -1,4 +1,4 @@
-"""Tests for the static schedule (framework2/model/schedule.py).
+"""Tests for the static schedule (model/schedule.py).
 
 Covers Schedule equality/hash across identical configurations, the
 BoundSchedule stage groups over real state (incl. SELF_UPDATE-first

@@ -1,1 +1,1 @@
-"""Wave-6 smoke tests for the shallowwater2 framework2 port."""
+"""Wave-6 smoke tests for the shallowwater2 port."""

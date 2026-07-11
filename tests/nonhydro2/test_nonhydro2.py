@@ -1,4 +1,4 @@
-"""Basic-correctness + smoke tests for the framework2 nonhydro port.
+"""Basic-correctness + smoke tests for the nonhydro2 port.
 
 Parity vs the OLD model is TICK-2's job (the signed-delta suite); these
 are the wave-6 acceptance smoke tests: preset == explicit assembly, a

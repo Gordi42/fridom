@@ -1,4 +1,4 @@
-"""Tests for the nodal spaces (framework2/grid/spaces/nodal.py)."""
+"""Tests for the nodal spaces (spatial/spaces/nodal.py)."""
 import pytest
 
 from fridom.spatial.bc import BC

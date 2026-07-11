@@ -1,4 +1,4 @@
-"""Tests for the coefficient spaces (framework2/grid/spaces/coefficient.py)."""
+"""Tests for the coefficient spaces (spatial/spaces/coefficient.py)."""
 import pytest
 
 from fridom.spatial.bc import BC

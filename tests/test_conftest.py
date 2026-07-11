@@ -1,4 +1,4 @@
-"""Self-tests for the framework2 suite fixtures (conftest.py)."""
+"""Self-tests for the suite fixtures (conftest.py)."""
 import jax
 import jax.numpy as jnp
 import pytest

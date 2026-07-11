@@ -1,4 +1,4 @@
-"""Tests for the Mesh ABC (framework2/grid/meshes/mesh.py)."""
+"""Tests for the Mesh ABC (spatial/meshes/mesh.py)."""
 import pytest
 
 from fridom.spatial.decomposition.traits import (

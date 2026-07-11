@@ -184,4 +184,3 @@ cython_debug/
 
 # claude session artifacts
 .claude/
-benchmarks/framework2/results/

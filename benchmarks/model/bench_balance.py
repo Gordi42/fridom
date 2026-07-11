@@ -49,13 +49,13 @@ eigenbasis) at the middle Rossby number.
 Usage (CPU, ~1 minute at the defaults)::
 
     JAX_PLATFORMS=cpu uv run python \
-        benchmarks/framework2/bench_balance.py
+        benchmarks/model/bench_balance.py
 
 Knobs: ``--size``, ``--rossby``, ``--dt``, ``--turnover``,
 ``--orders``, ``--ob-ramp``, ``--ob-max-it``, ``--seed``,
 ``--skip-channel``. Deterministic at fixed knobs (fixed seeds, one
 jax cpu device). Results and the acceptance-target comparison:
-``benchmarks/framework2/RESULTS.md``.
+``benchmarks/RESULTS.md``.
 """
 from __future__ import annotations
 

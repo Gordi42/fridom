@@ -1,4 +1,4 @@
-"""Tests for the traced clock (framework2/model/clock.py).
+"""Tests for the traced clock (model/clock.py).
 
 Covers the traced leaf widths (float64/int64 under the default
 x64-on suite), signed tick semantics (it increments on backward

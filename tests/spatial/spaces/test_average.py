@@ -1,4 +1,4 @@
-"""Tests for the average spaces (framework2/grid/spaces/average.py)."""
+"""Tests for the average spaces (spatial/spaces/average.py)."""
 import pytest
 
 from fridom.spatial.meshes.interval import IntervalMesh

@@ -1,4 +1,4 @@
-"""Tests for PointMesh (framework2/grid/meshes/point.py)."""
+"""Tests for PointMesh (spatial/meshes/point.py)."""
 import pytest
 
 from fridom.spatial.decomposition.traits import HaloStrategy

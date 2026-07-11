@@ -1,4 +1,4 @@
-"""Tests for the term vocabulary (framework2/model/terms.py)."""
+"""Tests for the term vocabulary (model/terms.py)."""
 import dataclasses
 
 import pytest
