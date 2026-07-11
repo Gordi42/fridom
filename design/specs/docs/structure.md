@@ -1,5 +1,5 @@
 ---
-status: draft
+status: normative
 date: 2026-07-11
 ---
 
@@ -66,13 +66,13 @@ Advanced Topics (style guide §5). Chapters and scopes:
 |---|---------|--------|-----------------------|
 | 1 | Meshes and Grids | gallery | Creating a mesh and a `Grid`; axes, periodicity, spacing; what the Grid assembles. *Not:* tensor product spaces, decomposition. |
 | 2 | Fields and Function Spaces | gallery | Fields live on function spaces; nodal values vs. what a field *is*; staggered positions; arithmetic; plotting via `.xr`. 1D examples. *Not:* the full space algebra, coefficient/Galerkin spaces. |
-| 3 | Operators | gallery | Applying operators (diff, interpolate); operators map between spaces; composition with `@`. *Not:* the algebra rules, symbols, adjoints. |
+| 3 | Operators | gallery | Applying operators (diff, interpolate); operators map between spaces; composition with `@`; a first taste of the algebra rules (every operator knows its input/output space, compositions are checked, wider stencils demand wider halos). *Not:* the full rule set, symbols, adjoints — the Operator Algebra chapter carries the laws, blocks, and halo accounting in detail. |
 | 4 | State and Initial Conditions | gallery | The State vector; prognostic vs. diagnostic; building initial conditions from fields; the IC library. |
 | 5 | Assembling and Running a Model | gallery | ModelSettings, `Model`, `run()` variants (length, steps, date); inspecting results. |
 | 6 | Tendencies and the Module System | gallery | What a module is; the tendency schedule; enabling/disabling; writing a small custom module (e.g. linear drag). *Not:* time-stepper internals, purity rules in depth. |
 | 7 | Output and Visualization | gallery | `fr.io.Writer` → zarr; reading with xarray; the CDFViewer one-liner for animation; snapshots and triggers. |
 | 8 | Multiple Devices and Clusters | gallery + static | Sharded runs: `jax.distributed.initialize`, device meshes, what changes in user code (little). Executed portion demonstrates sharding on forced host devices (`XLA_FLAGS=--xla_force_host_platform_device_count=4`), so the page cannot go stale; SLURM job scripts are static blocks (carried over from the old cluster tutorial, incl. restart pattern). *Not:* decomposition internals (Advanced). |
-| 9 | One Model, Three Ways | gallery | The same shallow-water setup three times: minimal script (fewest readable lines), configured script (explicit settings, comments on every choice), and a small modular package (multiple files, custom module, run script). Bridges into Advanced Topics and Models. Built once, for shallow water; nonhydro links here. |
+| 9 | One Model, Three Ways | gallery | The same model built three times: minimal script (fewest readable lines), configured script (explicit settings, a comment on every choice), and a small modular package (multiple files, custom modules, run script). The model is a **two-layer QG model** (settled 2026-07-11): fridom does not ship one, so the chapter demonstrates genuinely building a model rather than re-configuring a built-in; it is cheap (2D), and baroclinic instability gives a payoff figure worth the chapter. Opens with a compact statement of the QG equations. Bridges into Advanced Topics and Models. |
 
 ## Advanced Topics
 
@@ -103,6 +103,11 @@ Initial set (v1 candidates marked *):
   pitfalls; benchmarking your own runs.
 - Domain Decomposition — how sharding works underneath chapter 8.
 
+The one-liners above only reserve the slot: before writing starts,
+each Advanced chapter gets its own short planning note (scope outline,
+prerequisites, figures, which spec sections it popularizes), added
+under `design/specs/docs/` and reviewed like any other design record.
+
 ## Models
 
 One chapter per model, same skeleton: continuous equations and
@@ -117,6 +122,17 @@ sphinx-gallery backreferences; pointers to its verification cases.
 Examples remain single-source in `examples/`: the model chapter embeds
 and orders them, the Gallery is generated from the same scripts, and
 nobody maintains two lists.
+
+A few **higher-resolution showcase examples** are wanted and are
+affordable: sphinx-gallery's per-example `.md5` skip re-executes a
+script only when its own content changes, and the gallery output
+directory is cached across CI runs (`actions/cache`, Phase 1 item 3).
+An expensive example therefore executes once when added or edited,
+and otherwise only when the cache is lost or deliberately busted
+(dependency bumps via the cache key, or a scheduled full rebuild). One
+that outgrows even the scheduled-build budget moves to a
+`workflow_dispatch`-only tier via `filename_pattern`, alongside the
+heavy verification cases.
 
 ## Verification
 
