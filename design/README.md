@@ -134,8 +134,7 @@ spec prose keeps the historical names.
 | [`nnmd_rewrite_plan.md`](plans/active/nnmd_rewrite_plan.md) | active | NNMD rewrite plan for framework2. |
 | [`operator_symbols_plan.md`](plans/active/operator_symbols_plan.md) | active | Operator symbols — the spectral-solve substrate (superseded in part by the symbol-stack decision). |
 | [`composition_refactor_plan.md`](plans/active/composition_refactor_plan.md) | active | Composition refactor — realized-map category & one composition core. |
-| [`boundary_plan.md`](plans/active/boundary_plan.md) | blocked | Boundary-closure plan (BC-free spaces, Robin/mixed BCs) — blocked on an owner decision between conflicting designs. |
-| [`bc_free_boundaries.md`](plans/active/bc_free_boundaries.md) | open | BC-free bounded spaces: exterior values are untouchable — owner-flagged open question. |
+| [`boundary_plan.md`](plans/active/boundary_plan.md) | active | Boundary-closure plan — 2a/2c'/2d LANDED (merge 9a95202a); only stage 2e (Robin dynamic data path) remains, gated on the model layer. |
 | [`projection_eigenmode_plan.md`](plans/active/projection_eigenmode_plan.md) | active | Projections & eigenmodes — the energy-metric design (research + plan). |
 | [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build roadmap (dependency-ordered). |
 | [`linear_term_blocks_plan.md`](plans/active/linear_term_blocks_plan.md) | active | Linear-term block signatures (the H1 pivot) — sub-plan. |
@@ -146,6 +145,7 @@ spec prose keeps the historical names.
 | File | Status | Description |
 |------|--------|-------------|
 | [`spatial_model_split_plan.md`](plans/done/spatial_model_split_plan.md) | done | Split framework2 into fridom.spatial + fridom.model — merged 2026-07-11 (639a935). |
+| [`bc_free_boundaries.md`](plans/done/bc_free_boundaries.md) | done | BC-free bounded spaces: resolved by the R1 landing — exterior reads raise; one_sided is the explicit closure. |
 | [`phase1_implementation_plan.md`](plans/done/phase1_implementation_plan.md) | done | Framework2 Phase-1 implementation plan (grid layer). |
 | [`phase2_implementation_plan.md`](plans/done/phase2_implementation_plan.md) | done | Framework2 Phase-2 implementation plan (model layer, wave execution). |
 | [`phase1_findings.md`](plans/done/phase1_findings.md) | done | Phase-1 validation findings (input to Phase 2). |

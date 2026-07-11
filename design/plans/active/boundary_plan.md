@@ -26,8 +26,11 @@ date: 2026-07-11
 > chained exterior-needing ops require an explicit
 > `boundary="one_sided"` opt-in. Grounding analysis:
 > [`../../research/boundary_design_explainer.md`](../../research/boundary_design_explainer.md).
-> The branch stays as reference until the rework lands, then is
-> deleted (local + origin).
+> LANDED 2026-07-11 (merge 9a95202a): 2a ea0b7bf7, 2c' 0730f1a4,
+> 2d ac8d98dd — full suite 7225 green; `framework2-boundaries`
+> deleted (local + origin). The one remaining open stage is **2e**
+> (the Robin dynamic (alpha, g) data path via ("ghost_fill", space)
+> rows), gated on the model-layer 2.2/2.3 machinery.
 
 # Boundary-closure plan — resolving the two open boundary problems
 

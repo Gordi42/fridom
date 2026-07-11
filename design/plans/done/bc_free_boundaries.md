@@ -1,7 +1,9 @@
 ---
-status: open
+status: done
 date: 2026-07-07
 ---
+
+> RESOLVED 2026-07-11: R1 landed on wall-value semantics (merge 9a95202a) — BC-free bounded exterior reads raise; the extrapolation fill is gone; explicit boundary="one_sided" rows are the sanctioned closure. See boundary_plan.md for the record.
 
 # BC-free bounded spaces: exterior values are untouchable
 
