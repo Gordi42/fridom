@@ -168,7 +168,10 @@ ignore = [
   "PLR2004", # magic values in test assertions are fine
 ]
 "__init__.py" = ["F401"]
-"examples/**/*.py" = ["D205", "INP001"]
+# gallery scripts: rst titles are headings not sentences (D400),
+# sphinx-gallery config comments look like commented-out code (ERA001),
+# and the visible cdfviewer one-liner runs through the shell (S602)
+"examples/**/*.py" = ["D205", "D400", "ERA001", "INP001", "S602"]
 # benchmark suite scripts are standalone files, like examples
 "benchmarks/**/*.py" = ["ANN", "INP001"]
 # the benchmarking CLI communicates through stdout by design

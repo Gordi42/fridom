@@ -4,7 +4,7 @@ tomli
 sphinx-book-theme
 sphinx-copybutton
 sphinx-design
-sphinx_gallery
+sphinx_gallery>=0.17
 sphinxcontrib-youtube
 sphinxcontrib-video
 sphinx-codeautolink

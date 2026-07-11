@@ -9,6 +9,7 @@ import shutil
 from unittest.mock import patch, MagicMock
 from jinja2.filters import FILTERS
 from custom_scraper import copy_media_files
+from video_scraper import VideoScraper
 
 src_base_path = "../../src"
 
@@ -70,6 +71,18 @@ if not quick_build:
 
 
 
+# the shared figure style for executed examples (style guide section 8),
+# applied through the reset hook so every example starts from the same
+# rcParams; resolved here because reset hooks run from a different cwd
+DOCS_MPLSTYLE = os.path.abspath("fridom_docs.mplstyle")
+
+
+def apply_docs_mplstyle(gallery_conf, fname):
+    """Apply the shared docs figure style after the matplotlib reset."""
+    import matplotlib.pyplot as plt
+    plt.style.use(DOCS_MPLSTYLE)
+
+
 sphinx_gallery_conf = {
     'examples_dirs': '../../examples',   # path to your example scripts
     'gallery_dirs': 'auto_examples',  # path to where to save gallery generated output
@@ -77,13 +90,19 @@ sphinx_gallery_conf = {
     'plot_gallery': 'True',
     'remove_config_comments': True,  # Removes comments from the config block
     'filename_pattern': '/',
-    'image_scrapers': (copy_media_files),
+    # stills via the stock matplotlib scraper; pre-rendered LFS media via
+    # copy_media_files (old-stack examples, retired with the last port);
+    # build-time rendered videos (cdfviewer --record) via VideoScraper
+    'image_scrapers': ("matplotlib", copy_media_files, VideoScraper()),
+    'reset_modules': ("matplotlib", apply_docs_mplstyle),
     'show_signature': False,
     "notebook_extensions": {},
     "default_thumb_file": "_static/fridom-title.png",
     'backreferences_dir'  : 'gen_modules/backreferences',
     'doc_module'          : ('fridom', ),
-    'only_warn_on_example_error': True
+    # an example that raises must fail the build: executed examples are
+    # the divergence guard between docs and code
+    'only_warn_on_example_error': False
 }
 
 autodoc_default_options = {
