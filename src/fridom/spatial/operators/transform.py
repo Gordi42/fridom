@@ -396,8 +396,12 @@ class Transform(UnaryOperator, ABC):
         self._check_grid(f, "forward")
         plan = self.forward_plan(f.function_space)
         data = jnp.asarray(f.data)
-        for stage in plan.stages:
-            data = self._forward_kernel(data, stage)
+        fused = self._forward_fused_kernel(data, plan)
+        if fused is not None:
+            data = fused
+        else:
+            for stage in plan.stages:
+                data = self._forward_kernel(data, stage)
         data = self._project(data, plan.codomain)
         return self._deliver(f, data, plan.codomain)
 
@@ -419,8 +423,12 @@ class Transform(UnaryOperator, ABC):
         self._check_grid(f, "backward")
         plan = self.backward_plan(f.function_space)
         data = jnp.asarray(f.data)
-        for stage in plan.stages:
-            data = self._backward_kernel(data, stage)
+        fused = self._backward_fused_kernel(data, plan)
+        if fused is not None:
+            data = fused
+        else:
+            for stage in plan.stages:
+                data = self._backward_kernel(data, stage)
         return self._deliver(f, data, plan.codomain)
 
     def _apply(self, f: FieldLike) -> FieldLike:
@@ -666,6 +674,66 @@ class Transform(UnaryOperator, ABC):
             The synthesized (padded, if ``pad``) array.
         """
         ...
+
+    def _forward_fused_kernel(
+        self,
+        data: jax.Array,  # noqa: ARG002 — hook signature
+        plan: TransformPlan,  # noqa: ARG002 — hook signature
+    ) -> jax.Array | None:
+        """
+        Return the whole-plan forward result, or None (default).
+
+        Description
+        -----------
+        Fusion hook consulted by ``forward`` before the per-stage
+        loop: a subclass may run the entire schedule in one call
+        (``Fourier``'s all-axis ``rfftn``/``fftn``) and return the
+        result; returning None runs the staged 1D kernels. A fused
+        kernel must reproduce the staged result exactly — same
+        layout, half-spectrum axis, dtype and normalization — up to
+        floating-point rounding.
+
+        Parameters
+        ----------
+        data : jax.Array
+            The true-shape operand array.
+        plan : TransformPlan
+            The static forward schedule.
+
+        Returns
+        -------
+        jax.Array | None
+            The fully transformed array, or None to run the stages.
+        """
+        return None
+
+    def _backward_fused_kernel(
+        self,
+        data: jax.Array,  # noqa: ARG002 — hook signature
+        plan: TransformPlan,  # noqa: ARG002 — hook signature
+    ) -> jax.Array | None:
+        """
+        Return the whole-plan backward result, or None (default).
+
+        Description
+        -----------
+        The ``backward`` counterpart of ``_forward_fused_kernel``:
+        one call for the entire schedule (``Fourier``'s all-axis
+        ``irfftn``/``ifftn``), or None to run the staged 1D kernels.
+
+        Parameters
+        ----------
+        data : jax.Array
+            The true-shape coefficient array.
+        plan : TransformPlan
+            The static backward schedule.
+
+        Returns
+        -------
+        jax.Array | None
+            The fully synthesized array, or None to run the stages.
+        """
+        return None
 
     def _project(
         self,

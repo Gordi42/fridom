@@ -32,6 +32,7 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.storage import hermitian_project
 from fridom.spatial.operators.transform import (
     Transform,
+    TransformPlan,
     TransformStage,
     axis_concat,
     axis_slice,
@@ -176,6 +177,90 @@ class Fourier(Transform):
             data = (_pad_full(data, axis, n, m)
                     * _origin_phase(stage, data.ndim, sign=1))
         return jnp.fft.ifft(data, axis=axis, norm="forward")
+
+    def _forward_fused_kernel(
+        self, data: jax.Array, plan: TransformPlan,
+    ) -> jax.Array | None:
+        """
+        All-axis ``rfftn``/``fftn`` for unpadded schedules.
+
+        Description
+        -----------
+        An unpadded all-Fourier schedule is exactly one
+        ``jnp.fft.rfftn`` (real origin) or ``jnp.fft.fftn``
+        (complex origin) over the stage axes: the per-stage kernels
+        add nothing (no trims, no phases). The single n-D call lets
+        XLA hand cuFFT one strided batched plan instead of the
+        explicit full-spectrum transpose+fft pairs it emits for 1D
+        FFTs along non-innermost axes. ``rfftn`` halves the *last*
+        axis in ``axes=``, so the half-spectrum stage is passed
+        last — reproducing the staged layout (half spectrum on the
+        first-transformed axis) up to rounding. Padded schedules
+        return None: their trim and phase steps interleave the
+        axes, so they keep the staged path.
+        """
+        stages = _half_last(plan.stages)
+        if self._pad is not None or not stages:
+            return None
+        axes = tuple(stage.index for stage in stages)
+        if stages[-1].half:
+            return jnp.fft.rfftn(data, axes=axes, norm="forward")
+        return jnp.fft.fftn(data, axes=axes, norm="forward")
+
+    def _backward_fused_kernel(
+        self, data: jax.Array, plan: TransformPlan,
+    ) -> jax.Array | None:
+        """
+        All-axis ``irfftn``/``ifftn`` for unpadded schedules.
+
+        Description
+        -----------
+        The synthesis counterpart of ``_forward_fused_kernel``: one
+        ``jnp.fft.irfftn`` (Hermitian half-spectrum operand, passed
+        last in ``axes=`` with the explicit output shape ``s=``) or
+        ``jnp.fft.ifftn`` over the stage axes. Padded schedules
+        return None (staged path).
+        """
+        stages = _half_last(plan.stages)
+        if self._pad is not None or not stages:
+            return None
+        axes = tuple(stage.index for stage in stages)
+        if stages[-1].half:
+            sizes = tuple(stage.nodal.shape[0] for stage in stages)
+            return jnp.fft.irfftn(data, s=sizes, axes=axes,
+                                  norm="forward")
+        return jnp.fft.ifftn(data, axes=axes, norm="forward")
+
+
+# ================================================================
+#  Fused-schedule helper
+# ================================================================
+def _half_last(
+    stages: tuple[TransformStage, ...],
+) -> tuple[TransformStage, ...]:
+    """
+    Reorder stages so the half-spectrum stage comes last.
+
+    Description
+    -----------
+    ``jnp.fft.rfftn``/``irfftn`` treat the last entry of ``axes=``
+    as the real (halved) axis; the planner schedules it first on
+    ``forward`` and last on ``backward``. Full-spectrum stages keep
+    their relative order (their mutual order does not affect the
+    result).
+
+    Parameters
+    ----------
+    stages : tuple[TransformStage, ...]
+        The planned stages, in execution order.
+
+    Returns
+    -------
+    tuple[TransformStage, ...]
+        The stages with the half-spectrum stage (if any) last.
+    """
+    full = tuple(s for s in stages if not s.half)
+    return full + tuple(s for s in stages if s.half)
 
 
 # ================================================================

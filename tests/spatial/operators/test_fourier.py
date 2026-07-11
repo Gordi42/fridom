@@ -5,6 +5,7 @@ import pytest
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.dealias import degree
 from fridom.spatial.operators.fourier import Fourier
 from fridom.spatial.scalars import Scalars
 
@@ -258,3 +259,95 @@ def test_fourier_rejects_bounded_meshes():
     f = grid.create_field(mesh.center)
     with pytest.raises(SpaceMismatchError, match="no Fourier"):
         Fourier(grid).forward(f)
+
+
+# ================================================================
+#  Fused all-Fourier fast path (one rfftn/fftn per plan)
+# ================================================================
+def _grid3d(nx=8, ny=6, nz=5):
+    mx = IntervalMesh(nx, (0.0, 1.0), name="x")
+    my = IntervalMesh(ny, (0.0, 2.0), name="y")
+    mz = IntervalMesh(nz, (0.0, 3.0), name="z")
+    return Grid((mx, my, mz))
+
+
+def _force_staged(monkeypatch):
+    """Disable the fused kernels: force the per-stage path."""
+    monkeypatch.setattr(Fourier, "_forward_fused_kernel",
+                        lambda *_args: None)
+    monkeypatch.setattr(Fourier, "_backward_fused_kernel",
+                        lambda *_args: None)
+
+
+def test_fused_forward_matches_the_staged_stages(monkeypatch):
+    grid = _grid3d()
+    f = grid.random.normal(
+        grid.create_field().function_space, seed=8)
+    fused = Fourier(grid).forward(f)
+    _force_staged(monkeypatch)
+    staged = Fourier(grid).forward(f)
+    assert fused.function_space is staged.function_space
+    assert fused.dtype == staged.dtype
+    scale = jnp.max(jnp.abs(staged.data))
+    assert jnp.max(jnp.abs(fused.data - staged.data)) < 1e-13 * scale
+
+
+def test_fused_backward_matches_the_staged_stages(monkeypatch):
+    grid = _grid3d()
+    op = Fourier(grid)
+    coeff = op.forward(grid.random.normal(
+        grid.create_field().function_space, seed=9))
+    fused = op.backward(coeff)
+    _force_staged(monkeypatch)
+    staged = Fourier(grid).backward(coeff)
+    assert fused.function_space is staged.function_space
+    assert jnp.issubdtype(fused.dtype, jnp.floating)
+    scale = jnp.max(jnp.abs(staged.data))
+    assert jnp.max(jnp.abs(fused.data - staged.data)) < 1e-13 * scale
+
+
+def test_fused_complex_domain_matches_the_staged_stages(monkeypatch):
+    grid, mx, my = _grid2d(8, 6)
+    space = mx.center.as_complex() * my.center.as_complex()
+    data = (jnp.arange(48.0).reshape(8, 6)
+            + 1j * jnp.linspace(-1.0, 1.0, 48).reshape(8, 6))
+    f = grid.create_field(space, data=data)
+    op = Fourier(grid)
+    fused = op.forward(f)
+    back = op.backward(fused)
+    _force_staged(monkeypatch)
+    staged_op = Fourier(grid)
+    staged = staged_op.forward(f)
+    staged_back = staged_op.backward(staged)
+    assert fused.function_space is staged.function_space
+    scale = jnp.max(jnp.abs(staged.data))
+    assert jnp.max(jnp.abs(fused.data - staged.data)) < 1e-13 * scale
+    assert jnp.max(jnp.abs(back.data - staged_back.data)) < 1e-13
+    assert jnp.max(jnp.abs(back.data - data)) < 1e-13
+
+
+def test_padded_plans_return_none_from_the_fused_kernels():
+    grid, mesh = _grid1d(8)
+    plain = Fourier(grid)
+    padded = Fourier(grid, pad=degree(2))
+    coeff = plain.forward(grid.random.normal(mesh.center, seed=10))
+    fine = padded.backward(coeff)  # staged path (trims + phases)
+    plan_b = padded.backward_plan(coeff.function_space)
+    assert padded._backward_fused_kernel(
+        jnp.asarray(coeff.data), plan_b) is None
+    plan_f = padded.forward_plan(fine.function_space)
+    assert padded._forward_fused_kernel(
+        jnp.asarray(fine.data), plan_f) is None
+    # pad-then-trim through the staged path stays exact
+    again = padded.forward(fine)
+    assert jnp.allclose(again.data, coeff.data, atol=1e-14)
+
+
+def test_all_constant_plans_bypass_the_fused_kernels():
+    grid, mx, my = _grid2d(8, 6)
+    f = grid.create_field(mx.constant * my.constant)
+    op = Fourier(grid)
+    coeff = op.forward(f)  # zero stages: fused kernels return None
+    back = op.backward(coeff)
+    assert coeff.function_space is f.function_space
+    assert back.function_space is f.function_space
