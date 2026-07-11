@@ -159,24 +159,31 @@ def _validate_filter_names(
 class PanicState(NamedTuple):
 
     """
-    The carried S5 NaN-seam record: sticky flag + first-failure it.
+    The carried S5 NaN-seam record: sticky flag + detection it.
 
     Description
     -----------
     A NamedTuple (hence automatically a pytree): ``flag`` is the
-    sticky in-trace panic bit (once true, stays true for the rest of
-    the chunk), ``it`` records the clock iteration of the FIRST
-    non-finite step. The chunk body reduces into it per step; the
-    host reads it at chunk boundaries only (the one sanctioned host
-    synchronization, CS-4).
+    sticky panic bit (once true, stays true for the run), ``it``
+    records the clock iteration of the chunk boundary at which the
+    non-finite state was DETECTED. The chunk body reduces into it
+    once per chunk — the 2026-07-12 GPU benchmark priced the
+    per-step reduction at a measurable share of the step, so the
+    sanctioned chunk-boundary-only cadence (04_run_loop_io §6.3) is
+    now the behavior; the exact first-bad step remains recoverable
+    via ``advance(debug_nan=True)`` + ``replay_nan`` (chunk(1)
+    re-stepping). The host reads the pair at chunk boundaries only
+    (the one sanctioned host synchronization, CS-4).
 
     Parameters
     ----------
     flag : jax.Array
-        Sticky boolean: any non-finite value seen so far.
+        Sticky boolean: non-finite values detected so far.
     it : jax.Array
-        First-failure iteration (integer at the global width);
-        meaningful only while ``flag`` is set.
+        Detection iteration — the chunk-end iteration of the first
+        chunk whose final state was non-finite (equals the exact
+        first-bad step for chunk length 1); meaningful only while
+        ``flag`` is set.
     """
 
     flag: jax.Array
@@ -404,12 +411,18 @@ def _chunk_body(
     Description
     -----------
     Per step: ``schedule.bind`` over the carry's current modules
-    (via the live view), ``stepper.step``, then the chunk body's
-    per-step epilogue — the S5 ``isfinite`` reduction into the
-    sticky ``panic`` pair (no ``lax.cond`` no-op wrapper) and the S6
-    DIAGNOSTIC stages. The epilogue is the CHUNK BODY's, never the
-    stepper's. NOTE (wave-5 seam): the S6 ctx carries no tendency
-    sums yet — the treatment partition threads them at 2.5.
+    (via the live view), ``stepper.step``, then the S6 DIAGNOSTIC
+    stages. The S5 ``isfinite`` reduction into the sticky ``panic``
+    pair runs ONCE per chunk, on the scan's final state (the
+    chunk-boundary-only cadence sanctioned in 04_run_loop_io §6.3;
+    priced per-step at a measurable share of the GPU step,
+    2026-07-12 benchmark). Non-finite values propagate through the
+    step algebra, so a mid-chunk blow-up is still caught at the
+    boundary; the exact first-bad step is ``debug_nan``/
+    ``replay_nan`` territory. The epilogue is the CHUNK BODY's,
+    never the stepper's. NOTE (wave-5 seam): the S6 ctx carries no
+    tendency sums yet — the treatment partition threads them at
+    2.5.
     """
     schedule = record.schedule
     run_diagnostics = bool(
@@ -418,26 +431,26 @@ def _chunk_body(
     def one_step(
         carry: ModelState, _: None,
     ) -> tuple[ModelState, None]:
-        """One composed step plus the S5/S6 epilogue."""
+        """One composed step plus the S6 epilogue."""
         bound = _LiveBoundSchedule(schedule, carry.modules, stepper)
         stepper_state, state, clock = stepper.step(
             carry.stepper_state, carry.state, bound, carry.clock)
-        # ---- S5: the isfinite reduction into the sticky pair ----
-        finite = _all_finite(state)
-        newly_bad = jnp.logical_and(~carry.panic.flag, ~finite)
-        panic = PanicState(
-            flag=jnp.logical_or(carry.panic.flag, ~finite),
-            it=jnp.where(newly_bad, clock.it, carry.panic.it))
-        # ---- S6: DIAGNOSTIC stages (post-NaN-seam epilogue) -----
+        # ---- S6: DIAGNOSTIC stages ------------------------------
         if run_diagnostics:
             ctx = bound.context(clock, dt=stepper.dt,
                                 stage_dt=stepper.dt)
             state = bound.diagnostics(state, ctx)
         return ModelState(state, carry.modules, stepper_state,
-                          clock, panic), None
+                          clock, carry.panic), None
 
     out, _ = jax.lax.scan(one_step, model_state, xs=None, length=n)
-    return out
+    # ---- S5: one isfinite reduction into the sticky pair --------
+    finite = _all_finite(out.state)
+    newly_bad = jnp.logical_and(~out.panic.flag, ~finite)
+    panic = PanicState(
+        flag=jnp.logical_or(out.panic.flag, ~finite),
+        it=jnp.where(newly_bad, out.clock.it, out.panic.it))
+    return out.replace(panic=panic)
 
 
 #: AOT-compiled chunk executables, keyed by (record, n, structure)

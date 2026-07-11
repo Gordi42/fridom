@@ -200,7 +200,7 @@ def test_raise_on_nan_true_reraises():
     poison(model)
     with pytest.raises(PanicError) as err:
         model.run(steps=8, progress=False, raise_on_nan=True)
-    assert err.value.first_bad_it == 1
+    assert err.value.first_bad_it == 4   # the detecting boundary
 
 
 # ================================================================

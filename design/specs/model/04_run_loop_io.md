@@ -13,11 +13,18 @@ reports in [`research/`](../../research/README.md) (d4_1–d4_4).
 Status: **resolved (signed off 2026-07-08).** This file is the
 full D4 design (ROADMAP 2.3 + 2.4, and the 2.6 seams); the D4
 section of `01_concepts.md` is the summary. Sign-off note on the
-NaN check: the per-step `isfinite` write is the default **pending
+NaN check: the per-step `isfinite` write was the default **pending
 benchmark** — if it costs measurably on real models, a cadence knob
 (every k steps via a carried counter mask, or chunk-boundary-only
-mode) is sanctioned; the trade is documented in §6.3 and the
-benchmark is a 2.4 item.
+mode) is sanctioned; the trade is documented in §6.3.
+**Benchmark landed (2026-07-12, A100, nonhydro 256³):** the
+per-step reduction was a measurable share of the GPU step, and the
+owner directed the sanctioned chunk-boundary-only mode; S5 now runs
+once per chunk on the scan's final state (non-finite values
+propagate, so mid-chunk blow-ups are still caught at the boundary;
+`panic.it` records the detecting boundary, and the exact first-bad
+step remains `debug_nan`/`replay_nan` territory). No cadence knob
+was added — chunk-boundary-only is the single behavior.
 
 ---
 
@@ -213,10 +220,11 @@ result = model.run(steps=N | runlen=... | end_time=...,   # exactly one
   (auto ~256); remainders via a lazily compiled `chunk(1)` (two
   trace shapes in the common regular-cadence case; pad-and-mask
   rejected). Documented meaning of the knob: host-sync granularity.
-- **NaN mechanism**: per-step S5 `isfinite` reduction into
-  `panic.(flag, it)` (catches Inf; immune to NaN-laundering clamps;
-  records the first-failure iteration) + chunk-boundary abort with
-  a host report; **no `lax.cond` no-op wrapper** (a data-dependent
+- **NaN mechanism**: once-per-chunk S5 `isfinite` reduction (on
+  the scan's final state — per-step was priced out by the
+  2026-07-12 GPU benchmark, see the sign-off note) into
+  `panic.(flag, it)` (catches Inf; records the detecting chunk
+  boundary) + chunk-boundary abort with a host report; **no `lax.cond` no-op wrapper** (a data-dependent
   conditional in the scan forces per-step GPU pipeline syncs and
   blocks whole-loop fusion — it taxes every healthy step; recorded
   as an opt-in retrofit). `debug_nan=True` keeps a chunk-start copy

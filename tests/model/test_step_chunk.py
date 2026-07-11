@@ -133,7 +133,7 @@ def test_scan_chunk_matches_repeated_chunk1():
 
 
 # ================================================================
-#  S5 — the per-step isfinite reduction
+#  S5 — the once-per-chunk isfinite reduction
 # ================================================================
 def poisoned_carry(model):
     state = model._carry.state
@@ -142,18 +142,21 @@ def poisoned_carry(model):
     return model._carry.replace(state=bad)
 
 
-def test_panic_records_the_exact_first_bad_step():
+def test_panic_records_the_detecting_chunk_boundary():
     model = make_model()
     out = chunk(model, 3, carry=poisoned_carry(model))
     assert bool(out.panic.flag)
-    assert int(out.panic.it) == 1        # flagged after step one
+    assert int(out.panic.it) == 3        # the one S5 check per chunk
 
 
-def test_panic_flag_is_sticky_and_it_stays_first():
+def test_panic_flag_is_sticky_and_it_stays_at_detection():
     model = make_model()
     out = chunk(model, 5, carry=poisoned_carry(model))
     assert bool(out.panic.flag)
-    assert int(out.panic.it) == 1        # later steps never move it
+    assert int(out.panic.it) == 5        # the detecting boundary
+    again = chunk(model, 2, carry=out)
+    assert bool(again.panic.flag)
+    assert int(again.panic.it) == 5      # later chunks never move it
 
 
 def test_inf_counts_as_non_finite():
@@ -285,7 +288,7 @@ def test_panic_aborts_at_the_chunk_boundary_not_midchunk():
         model.advance(8)
     # the abort fires AT the first boundary: 4 steps committed
     assert err.value.partial.steps_done == 4
-    assert err.value.first_bad_it == 1
+    assert err.value.first_bad_it == 4
 
 
 # ================================================================

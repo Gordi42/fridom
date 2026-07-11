@@ -146,7 +146,9 @@ class PanicError(RuntimeError):
     model_name : str | None, optional
         The panicking model's ``name=`` (default: None).
     first_bad_it : int | None, optional
-        First-failure iteration, the S5 record (default: None).
+        The S5 detection iteration — the boundary of the chunk
+        whose state was non-finite; the exact first-bad step for
+        chunk length 1 or via ``replay_nan`` (default: None).
     partial : AdvanceResult | None, optional
         Steps completed before the abort (default: None).
     """
@@ -163,7 +165,7 @@ class PanicError(RuntimeError):
         if message is None:
             who = (f"model {model_name!r}" if model_name is not None
                    else "the model")
-            where = (f" (first non-finite values at iteration "
+            where = (f" (non-finite values detected at iteration "
                      f"{first_bad_it})" if first_bad_it is not None
                      else "")
             message = (
