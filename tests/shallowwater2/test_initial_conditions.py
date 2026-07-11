@@ -428,6 +428,18 @@ def test_equatorial_wave_orders_the_dispersion_roots(equatorial):
     assert abs(omegas[1]) < min(abs(omegas[0]), abs(omegas[2]))
 
 
+def test_equatorial_wave_assigns_on_a_walled_channel():
+    # the wave samples on the model's DECLARED spaces: on a walled
+    # meridional axis v carries Dirichlet wall tags, and set_state
+    # validates the incoming spaces against the declaration
+    model = _beta_model(make_grid(periodic_y=False))
+    _omega, z = sw.equatorial_wave(model, 2, 0, 2)
+    model.set_state(z)
+    model.advance(3)
+    p = np.asarray(model.state["p"].data)
+    assert np.isfinite(p).all()
+
+
 def test_equatorial_wave_taught_errors(equatorial, periodic):
     model, _ = periodic
     with pytest.raises(ValueError, match="beta plane"):

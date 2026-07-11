@@ -742,7 +742,11 @@ def equatorial_wave(
             plus / (omega - kx * speed)
             + sign * 2.0 * m * minus / (omega + kx * speed))
 
-    spaces = _spaces(grid)
+    # sample on the model's DECLARED component spaces, not the bare
+    # C-grid ones: on a walled channel the core declares the wall BC
+    # tags (e.g. Dirichlet on v), and set_state validates against them
+    state = model.state
+    spaces = {c: state[c].function_space for c in ("u", "v", "p")}
 
     def wave(component: str) -> ScalarField:
         def values(coords: dict[str, jax.Array]) -> jax.Array:
