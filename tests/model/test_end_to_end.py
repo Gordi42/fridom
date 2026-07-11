@@ -213,7 +213,7 @@ def test_snapshot_refuses_a_different_assembly(tmp_path):
 # ================================================================
 #  Oracle 5 — the NaN abort and the debug replay
 # ================================================================
-def test_nan_abort_at_the_boundary_with_exact_iteration():
+def test_nan_abort_at_the_boundary_with_debug_replay():
     model = make_model(chunk_size=8)
     model.set_fields(c=tracer_ic())
     # a wildly unstable kappa: the explosion overflows to inf
@@ -221,14 +221,16 @@ def test_nan_abort_at_the_boundary_with_exact_iteration():
     model.update_parameters({"tracer.kappa": 1e6})
     with pytest.raises(PanicError) as err:
         model.advance(128, debug_nan=True)
-    first_bad = err.value.first_bad_it
+    detected = err.value.first_bad_it
     boundary = err.value.partial.steps_done
-    assert first_bad is not None
-    # the abort fires at the chunk boundary AFTER the bad step
+    assert detected is not None
+    # S5 runs once per chunk: detection is AT the boundary
     assert boundary % 8 == 0
+    assert detected == boundary
+    # the debug replay pinpoints the exact first-bad step inside
+    # the aborted chunk (chunk(1) checks after every step)
+    first_bad = model.replay_nan()
     assert boundary - 8 < first_bad <= boundary
-    # the debug replay pinpoints the exact same first-bad step
-    assert model.replay_nan() == first_bad
     # entry guard: a panicked carry refuses to advance
     assert model.panicked
     with pytest.raises(PanicError):

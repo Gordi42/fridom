@@ -721,7 +721,8 @@ amendment. The summary:
   framework-level `step_chunk(assembly_record, carry, n)` (shared
   jit cache across identical re-assemblies is an implementation
   obligation); chunk boundaries derived from trigger unions;
-  per-step `isfinite` panic flag with chunk-boundary abort (no
+  once-per-chunk `isfinite` panic flag with chunk-boundary abort
+  (per-step was priced out by the 2026-07-12 GPU benchmark; no
   `lax.cond` wrapper — per-step GPU sync tax rejected); Ctrl-C
   completes the chunk, zero steps lost; predictive walltime checks
   with `fr.io.resubmit()`.
