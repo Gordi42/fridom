@@ -1,12 +1,28 @@
 # NNMD rewrite plan (framework2)
 
-**Status: research synthesis + workplan, 2026-07-11.** Closes the
-"NNMD descoped, future rewrite"
+**Status: SHIPPED through P4, 2026-07-11** (R1 f3048f9, P1 86d807b,
+P2 0338f4e, P3+P4 859eab3 — `fr.transforms.BalanceExpansion`).
+Remaining: P5 only (T5 benchmark in `benchmarks/`, docs/gallery —
+docs deferred by owner request). Closes the "NNMD descoped, future
+rewrite"
 ([`projection_eigenmode_roadmap.md:156`](projection_eigenmode_roadmap.md),
 [`cutover_parity_plan.md:13`](cutover_parity_plan.md)). Port design
 archaeology retained in
 [`model/research/d5_3_family_ports.md`](model/research/d5_3_family_ports.md)
-§4.
+§4. Design: [`nnmd_design_note.md`](nnmd_design_note.md); literature:
+[`nnmd_literature.md`](nnmd_literature.md).
+
+Correction found in P3 (spec-level): the T3 differential-residual
+formula below is dimensionally off as written — the difference
+quotient contains the O(1) slow part v̇; the shipped `residual_fast`
+applies W to the (central) quotient and reports relative to
+‖z_b‖_M. Shipped test results: sw2 slopes exactly N+1 (1.999/2.999);
+walled f-plane channel residuals 7.8e-3/4.9e-5/4.5e-7 (orders
+0/1/2); β predicate band r0 7.6e-3 → r1 1.4e-4; v1 SW NNMD
+regression 3.3e-16/3.3e-16/5.5e-14 (closures first differ at
+order 3). nh2 walled advection is NotImplementedError (pre-existing
+gap): the nh channel test injects a synthetic quadratic module —
+real walled nh advection remains a separate cutover item.
 
 ## 0. Forensics (settled 2026-07-11)
 

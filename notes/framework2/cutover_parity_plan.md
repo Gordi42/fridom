@@ -10,7 +10,11 @@ update imports/examples/docs.
 
 - **Hydrostatic is NOT part of the port.** It will be implemented
   later (ROADMAP 3.1), not as a cutover blocker (owner, 2026-07-10).
-- NNMD stays descoped (ROADMAP 2.8 sign-off; future rewrite).
+- NNMD rewrite SHIPPED 2026-07-11 as `fr.transforms.BalanceExpansion`
+  (859eab3; plan `nnmd_rewrite_plan.md`) — the one descoped item is
+  closed. v1 SW NNMD regression 3e-16..5.5e-14 at orders 0-2; the old
+  `framework/projection/nnmd.py` was broken for nonhydro anyway (SW
+  eigenvector sign convention hard-coded; forensics in the plan §0.1).
 - Still open (owner call, low urgency): NetCDF writer (new stack is
   zarr-only), animation/`VideoWriter`/figure saver, RFFT pressure
   solver variant, old mpi4py multi-host runs (jax.distributed is
