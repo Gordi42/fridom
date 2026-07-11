@@ -12,7 +12,7 @@ routed on the eigenmodes object type:
   projector, the original path, bitwise unchanged);
 - the labeled numeric ``nh.ChannelEigenmodes`` of the horizontally
   walled channel (the shared dense-column engine path of
-  :mod:`fridom.framework2.model.eigenbasis`: partial-axis Fourier
+  :mod:`fridom.model._eigenbasis`: partial-axis Fourier
   along the two periodic axes, per-plane column projection under
   the energy metric).
 
@@ -41,7 +41,7 @@ The public factories:
   (pressure-gradient) content plus any column the labeler left
   ``UNLABELED``.
 
-Each is a :class:`~fridom.framework2.transforms.projection.ProjectionFactory`
+Each is a :class:`~fridom.model.transforms.projection.ProjectionFactory`
 with dual sources — ``VorticalProjection(em)`` from an explicit
 eigenmodes object, or ``VorticalProjection.from_model(model,
 at_time=...)`` (which dispatches on the grid topology).
@@ -66,23 +66,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.framework2.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     family_projection,
 )
-from fridom.framework2.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     predicate_projection as predicate_projection,  # noqa: PLC0414 — re-export
 )
-from fridom.framework2.transforms.projection import (
+from fridom.model.transforms.projection import (
     EigenProjection,
     ProjectionFactory,
 )
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.model.transforms.signature import StateSignature
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.eigenmodes import from_model
 from fridom.nonhydro2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework2.transforms.base import StateTransform
+    from fridom.model.transforms.base import StateTransform
     from fridom.nonhydro2.eigenmodes import Eigenmodes
 
 #: the nonhydro prognostic components the projector acts on.

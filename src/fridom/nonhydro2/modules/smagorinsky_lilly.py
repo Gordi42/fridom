@@ -3,7 +3,7 @@ The Smagorinsky-Lilly closure for the nonhydrostatic model.
 
 Description
 -----------
-The framework2 port of the Smagorinsky (1963) / Lilly (1962)
+The port of the Smagorinsky (1963) / Lilly (1962)
 subgrid-scale closure (after the Oceananigans implementation the old
 ``nonhydro`` module followed). Friction on the velocity trio and
 mixing on the tracer targets share one eddy viscosity built from the
@@ -39,14 +39,15 @@ scalar fields (:math:`|\Sigma|^2`, :math:`N^2`, :math:`\nu_t`) are
 interpolated to the cell centers, replacing the old port's
 ignore-the-position raw-array sums.
 
-Targets follow `fr.closures.ClosureBase` (D1.4): the **stress** term
+Targets follow `fr.model.closures.ClosureBase` (D1.4): the **stress** term
 always advances the PROGNOSTIC ``Velocity`` family; the **mixing**
 term advances the role-resolved tracer targets (default
-``fr.roles.TRACER``; override with ``fields=`` / ``exclude=``, an
+``fr.model.roles.TRACER``; override with ``fields=`` / ``exclude=``, an
 empty resolution simply drops the mixing term). The two terms split
-under ``fr.terms.advancing(...)``; both are nonlinear (dropped by
-``fr.linearize``). The Richardson damping reads the constant
-``stratification.n2`` provide (a required reference), so a model
+under ``fr.model.term_predicates.advancing(...)``; both are
+nonlinear (dropped by ``fr.model.linearize``). The Richardson
+damping reads the constant ``stratification.n2`` provide (a
+required reference), so a model
 without a constant-N^2 stratification module rejects the closure at
 assembly.
 
@@ -61,10 +62,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-import fridom.framework2 as fr
+import fridom as fr
 from fridom.framework.utils import jaxify
-from fridom.framework2.model.closures.base import ClosureBase
-from fridom.framework2.model.errors import AssemblyError
+from fridom.model.closures.base import ClosureBase
+from fridom.model.errors import AssemblyError
 from fridom.nonhydro2.params import (
     SMAG_BACKGROUND_KAPPA,
     SMAG_BACKGROUND_NU,
@@ -77,10 +78,10 @@ from fridom.nonhydro2.params import (
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterable
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.model.context import StepContext
-    from fridom.framework2.model.field_table import FieldTable
-    from fridom.framework2.model.roles import Role
+    from fridom.model.context import StepContext
+    from fridom.model.field_table import FieldTable
+    from fridom.model.roles import Role
+    from fridom.spatial.fields.scalar_field import ScalarField
 
 _VEL_HINT = ("the velocity trio is declared by the dynamical core "
              "(nh.DynamicalCore)")
@@ -125,13 +126,13 @@ class SmagorinskyLilly(ClosureBase):
         The vertical coordinate name, along which :math:`N^2` is
         evaluated (default: ``"z"``).
     fields : Role | type[Role] | str | Iterable[str] | None, optional
-        Mixing-target override; see `fr.closures.ClosureBase`
-        (default: None -> every ``fr.roles.TRACER`` field).
+        Mixing-target override; see `fr.model.closures.ClosureBase`
+        (default: None -> every ``fr.model.roles.TRACER`` field).
     exclude : str | Iterable[str], optional
         Mixing targets removed from the resolution (default: ()).
     """
 
-    default_targets = fr.roles.TRACER
+    default_targets = fr.model.roles.TRACER
     # the stress term is target-independent: a friction-only
     # Smagorinsky (all tracers excluded) is legitimate
     _allow_empty_targets = True
@@ -150,14 +151,14 @@ class SmagorinskyLilly(ClosureBase):
     ) -> None:
         """Store the closure constants as dynamic leaves."""
         super().__init__(fields=fields, exclude=exclude)
-        self.background_viscosity = fr.leaf(background_viscosity)
-        self.background_diffusivity = fr.leaf(background_diffusivity)
-        self.turbulent_prandtl_number = fr.leaf(
+        self.background_viscosity = fr.model.leaf(background_viscosity)
+        self.background_diffusivity = fr.model.leaf(background_diffusivity)
+        self.turbulent_prandtl_number = fr.model.leaf(
             turbulent_prandtl_number)
-        self.smagorinsky_constant = fr.leaf(smagorinsky_constant)
+        self.smagorinsky_constant = fr.model.leaf(smagorinsky_constant)
         if buoyancy_multiplier is None:
             buoyancy_multiplier = 1.0 / float(turbulent_prandtl_number)
-        self.buoyancy_multiplier = fr.leaf(buoyancy_multiplier)
+        self.buoyancy_multiplier = fr.model.leaf(buoyancy_multiplier)
         self._vertical = vertical
         self._vel_axes: tuple[tuple[str, str], ...] = ()
         self._target_axes: tuple[tuple[str, tuple[str, ...]], ...] = ()
@@ -167,33 +168,33 @@ class SmagorinskyLilly(ClosureBase):
     #  Declarations
     # ================================================================
     field_references = (
-        fr.FieldReference("u", hint=_VEL_HINT),
-        fr.FieldReference("v", hint=_VEL_HINT),
-        fr.FieldReference("w", hint=_VEL_HINT),
-        fr.FieldReference(
+        fr.model.FieldReference("u", hint=_VEL_HINT),
+        fr.model.FieldReference("v", hint=_VEL_HINT),
+        fr.model.FieldReference("w", hint=_VEL_HINT),
+        fr.model.FieldReference(
             "b", hint="the Richardson damping reads the buoyancy, "
                       "declared by a stratification module "
                       "(nh.ConstantStratification)"),
     )
     parameter_declarations = (
-        fr.ParameterDeclaration(
+        fr.model.ParameterDeclaration(
             SMAG_BACKGROUND_NU, attr="background_viscosity",
             units="m^2/s", doc="background viscosity"),
-        fr.ParameterDeclaration(
+        fr.model.ParameterDeclaration(
             SMAG_BACKGROUND_KAPPA, attr="background_diffusivity",
             units="m^2/s", doc="background diffusivity"),
-        fr.ParameterDeclaration(
+        fr.model.ParameterDeclaration(
             SMAG_PRANDTL, attr="turbulent_prandtl_number",
             units="1", doc="turbulent Prandtl number"),
-        fr.ParameterDeclaration(
+        fr.model.ParameterDeclaration(
             SMAG_CS, attr="smagorinsky_constant",
             units="1", doc="Smagorinsky constant"),
-        fr.ParameterDeclaration(
+        fr.model.ParameterDeclaration(
             SMAG_BUOYANCY_MULTIPLIER, attr="buoyancy_multiplier",
             units="1", doc="Richardson damping multiplier"),
     )
     parameter_references = (
-        fr.ParameterReference(
+        fr.model.ParameterReference(
             STRATIFICATION_N2,
             hint="the Richardson damping needs the constant "
                  "background N^2 (nh.ConstantStratification)"),
@@ -267,19 +268,19 @@ class SmagorinskyLilly(ClosureBase):
     # ================================================================
     #  Terms (stress always; mixing only with resolved targets)
     # ================================================================
-    def tendency_terms(self) -> tuple[fr.TendencyTerm, ...]:
+    def tendency_terms(self) -> tuple[fr.model.TendencyTerm, ...]:
         """Return the stress term, plus mixing when targets resolved."""
         terms = (
-            fr.TendencyTerm(
+            fr.model.TendencyTerm(
                 name="stress", fn=self._stress,
-                treatment=fr.Treatment.EXPLICIT,
+                treatment=fr.model.Treatment.EXPLICIT,
                 advances=tuple(name for name, _ in self._vel_axes)),
         )
         if self.targets:
             terms += (
-                fr.TendencyTerm(
+                fr.model.TendencyTerm(
                     name="mixing", fn=self._mixing,
-                    treatment=fr.Treatment.EXPLICIT,
+                    treatment=fr.model.Treatment.EXPLICIT,
                     advances=self.targets),
             )
         return terms

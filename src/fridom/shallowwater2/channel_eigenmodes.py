@@ -4,7 +4,7 @@ Channel (walled) shallow-water eigenmodes: engine wrapper + labeler.
 Description
 -----------
 The shallow-water face of the dense-column channel eigenbasis
-(:func:`fridom.framework2.channel_eigenpairs`). The walled-``y``
+(:func:`fridom.channel_eigenpairs`). The walled-``y``
 rotating channel carries three physical mode families per zonal
 wavenumber ``kx``:
 
@@ -19,11 +19,11 @@ wavenumber ``kx``:
 
 The framework engine stays family-agnostic; this module owns the
 physics. :func:`label_channel_modes` classifies the columns of a
-:class:`~fridom.framework2.model.eigen_channel.ChannelEigenbasis` —
+:class:`~fridom.model.eigen_channel.ChannelEigenbasis` —
 exact on the f-plane, best-effort (graceful) under beta — and
 :class:`ChannelEigenmodes` bundles ``channel_eigenpairs`` with that
 labeler behind the shared
-:class:`~fridom.framework2.model.eigenbasis.ChannelEigenmodesBase`
+:class:`~fridom.model._eigenbasis.ChannelEigenmodesBase`
 passthrough surface for the downstream family projections.
 """
 from __future__ import annotations
@@ -35,15 +35,15 @@ from typing import TYPE_CHECKING, ClassVar
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.framework2.model.eigen_channel import (
-    UNLABELED,
-    ChannelEigenbasis,
-)
-from fridom.framework2.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     ChannelEigenmodesBase,
     recover_crisp_column,
     segment_energy,
     split_frequency_bands,
+)
+from fridom.model.eigen_channel import (
+    UNLABELED,
+    ChannelEigenbasis,
 )
 from fridom.shallowwater2.state import State
 
@@ -52,7 +52,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
-    from fridom.framework2.model.model import Model
+    from fridom.model.model import Model
 
 # ================================================================
 #  The family label codes
@@ -109,7 +109,7 @@ def label_channel_modes(
        degeneracy_tol`` relative), no column is crisp; the 2-cluster
        is then rotated by the eigenbasis of its 2x2 ``v``-energy
        Gram (the shared
-       :func:`~fridom.framework2.model.eigenbasis.recover_crisp_column`
+       :func:`~fridom.model._eigenbasis.recover_crisp_column`
        helper) to expose the ``v``-free direction. The rotation is
        written back into ``basis.q`` (a unitary column mixing —
        M-orthonormality is preserved; the eigen-relation residual of
@@ -125,7 +125,7 @@ def label_channel_modes(
        slow ``|omega|``): the slow band -> **vortical**, the fast
        band -> **wave+/-**. Without a clean gap (or with fewer
        columns than the wave count) the remainder stays
-       :data:`~fridom.framework2.model.eigen_channel.UNLABELED` —
+       :data:`~fridom.model.eigen_channel.UNLABELED` —
        predicates are the primary tool there.
 
     Parameters
@@ -236,7 +236,7 @@ class ChannelEigenmodes(ChannelEigenmodesBase):
     Description
     -----------
     The shallow-water subclass of the shared
-    :class:`~fridom.framework2.model.eigenbasis.ChannelEigenmodesBase`
+    :class:`~fridom.model._eigenbasis.ChannelEigenmodesBase`
     wrapper: the framework's dense-column channel eigensolve labeled
     by :func:`label_channel_modes`. The family vocabulary is the
     class-level :attr:`families` name -> code map (reverse:

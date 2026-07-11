@@ -4,7 +4,7 @@ Shallow-water eigenmode projections (``sw.transforms``, wave 7 C).
 Description
 -----------
 The Tier-1 vortical / wave / kelvin / divergence projections as
-composable ``fr.StateTransform``s, with **dual eigenmode backends**
+composable ``fr.model.StateTransform``s, with **dual eigenmode backends**
 routed on the eigenmodes object type:
 
 - the analytic operator-sourced ``sw.eigenmodes.Eigenmodes`` of the
@@ -34,7 +34,7 @@ The public factories:
   labeler left ``UNLABELED`` never land in a named family silently
   — the complement captures exactly them.
 
-Each is a :class:`~fridom.framework2.transforms.projection.ProjectionFactory`
+Each is a :class:`~fridom.model.transforms.projection.ProjectionFactory`
 with **dual sources** — ``VorticalProjection(em)`` from an explicit
 eigenmodes object, or ``VorticalProjection.from_model(model,
 at_time=...)`` (which dispatches on the grid topology).
@@ -56,7 +56,7 @@ residual" on even grids; that residual no longer exists.)
 
 Per-plane column projection (the engine path). The shared framework
 machinery
-(:mod:`fridom.framework2.model.eigenbasis` — re-exported here as
+(:mod:`fridom.model._eigenbasis` — re-exported here as
 :func:`family_projection` / :func:`predicate_projection`): each
 component is forward-transformed along the **periodic axis only**
 (its own partial-axis Fourier space, the bounded axis stays nodal),
@@ -79,24 +79,24 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import fridom.framework2 as fr
-from fridom.framework2.model.eigenbasis import (
+import fridom as fr
+from fridom.model._eigenbasis import (
     family_projection,
 )
-from fridom.framework2.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     predicate_projection as predicate_projection,  # noqa: PLC0414 — re-export
 )
-from fridom.framework2.transforms.projection import (
+from fridom.model.transforms.projection import (
     EigenProjection,
     ProjectionFactory,
 )
-from fridom.framework2.transforms.signature import StateSignature
+from fridom.model.transforms.signature import StateSignature
 from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
 from fridom.shallowwater2.eigenmodes import from_model
 from fridom.shallowwater2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework2.transforms.base import StateTransform
+    from fridom.model.transforms.base import StateTransform
     from fridom.shallowwater2.eigenmodes import Eigenmodes
 
 #: the shallow-water prognostic components, in State order.
@@ -144,8 +144,8 @@ def _signature(em: Eigenmodes) -> StateSignature:
     """
     grid = em.grid
     x, y = grid.names
-    spaces = {"u": fr.Staggered(x), "v": fr.Staggered(y),
-              "p": fr.Collocated()}
+    spaces = {"u": fr.spatial.Staggered(x), "v": fr.spatial.Staggered(y),
+              "p": fr.spatial.Collocated()}
     components = tuple(
         (name, spaces[name].resolve(grid).bare)
         for name in _COMPONENTS)

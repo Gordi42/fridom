@@ -23,8 +23,8 @@ from fridom.shallowwater2.params import CSQR
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.fields.vector_field import VectorField
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.fields.vector_field import VectorField
 
 
 def ekin(

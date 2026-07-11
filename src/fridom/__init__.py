@@ -23,7 +23,14 @@ from lazypimp import setup
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
-    from . import benchmarking, framework, framework2, nonhydro, shallowwater
+    from . import (
+        benchmarking,
+        framework,
+        model,
+        nonhydro,
+        shallowwater,
+        spatial,
+    )
 
 # ================================================================
 #  Setup lazy loading
@@ -33,9 +40,10 @@ all_modules_by_origin = {
     "fridom": [
         "benchmarking",
         "framework",
-        "framework2",
+        "model",
         "nonhydro",
         "shallowwater",
+        "spatial",
     ],
 }
 

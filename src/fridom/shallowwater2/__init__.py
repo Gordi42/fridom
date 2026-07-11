@@ -1,10 +1,10 @@
 """
-The shallow-water model, ported onto framework2.
+The shallow-water model.
 
 Description
 -----------
 A top-level parallel package (renamed onto ``fridom.shallowwater`` at
-cutover) that consumes ``fridom.framework2`` and provides the
+cutover) that consumes ``fridom`` and provides the
 shallow-water vocabulary and physics:
 
 - :class:`~fridom.shallowwater2.state.State` — the ``u``/``v``/``p``
@@ -20,8 +20,8 @@ shallow-water vocabulary and physics:
   numeric eigenmodes of the walled channel;
 - :mod:`~fridom.shallowwater2.params` — the package parameter names.
 
-Lazy re-exports (mirroring ``fridom.framework2.grid.__init__``): the
-framework surface itself stays under ``fridom.framework2`` (imported
+Lazy re-exports (mirroring ``fridom.spatial.__init__``): the
+framework surface itself stays under ``fridom`` (imported
 as ``fr``).
 """
 from typing import TYPE_CHECKING

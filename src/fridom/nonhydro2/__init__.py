@@ -1,10 +1,11 @@
-"""``fridom.nonhydro2`` — the nonhydrostatic model on framework2.
+"""``fridom.nonhydro2`` — the nonhydrostatic model.
 
 Description
 -----------
-Phase-2 port of the nonhydrostatic model onto ``fridom.framework2``
-(renamed onto ``fridom.nonhydro`` at cutover). Consumes framework2
-read-only. The public surface mirrors the API sketches (§7):
+Phase-2 port of the nonhydrostatic model onto ``fridom``
+(renamed onto ``fridom.nonhydro`` at cutover). Consumes the
+framework (``fridom.spatial`` / ``fridom.model``) read-only. The
+public surface mirrors the API sketches (§7):
 ``nh.Model`` (a preset factory), ``nh.State`` (the vocabulary class),
 ``nh.eigenmodes`` (the discrete-dispersion eigenmodes),
 ``nh.eigenbasis`` / ``nh.channel_eigenmodes`` (the labeled numeric
@@ -17,7 +18,7 @@ from typing import TYPE_CHECKING
 from lazypimp import setup
 
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework2.modules import (
+    from fridom.model.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
     )
@@ -79,7 +80,7 @@ all_imports_by_origin = {
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["DynamicalCore"],
     # the Coriolis family is the shared framework module library
-    "fridom.framework2.modules": [
+    "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis"],
     f"{base}.modules.stratification": [
         "ConstantStratification", "MeridionalStratification"],

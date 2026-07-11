@@ -24,36 +24,36 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
-import fridom.framework2 as fr
+import fridom as fr
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.fields.vector_field import VectorField
-from fridom.framework2.grid.operators.composed import (
-    Divergence,
-    Gradient,
-)
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 from fridom.nonhydro2.params import DSQR, ROSSBY
 from fridom.nonhydro2.state import State
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.operators.composed import (
+    Divergence,
+    Gradient,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework2.model.context import StepContext
+    from fridom.model.context import StepContext
 
 
 @partial(jaxify, dynamic=("dsqr", "rossby"))
-class DynamicalCore(fr.Module):
+class DynamicalCore(fr.model.Module):
 
     """Declares u, v, w, p; owns dsqr/rossby and the projection.
 
     Parameters
     ----------
-    dsqr : float | fr.Ramp, optional
+    dsqr : float | fr.model.Ramp, optional
         The squared aspect ratio ``(H/L)^2`` (default: 1.0); may be an
-        ``fr.Ramp`` for a time-dependent aspect ratio.
-    rossby_number : float | fr.Ramp, optional
+        ``fr.model.Ramp`` for a time-dependent aspect ratio.
+    rossby_number : float | fr.model.Ramp, optional
         The Rossby number scaling the nonlinear terms (default: 1.0);
-        may be a ``fr.Ramp`` for a spun-up nonlinearity.
+        may be a ``fr.model.Ramp`` for a spun-up nonlinearity.
     vertical : str, optional
         The vertical coordinate name (default: ``"z"``).
     coords : tuple[str, ...], optional
@@ -66,15 +66,15 @@ class DynamicalCore(fr.Module):
 
     def __init__(
         self,
-        dsqr: float | fr.Ramp = 1.0,
+        dsqr: float | fr.model.Ramp = 1.0,
         *,
-        rossby_number: float | fr.Ramp = 1.0,
+        rossby_number: float | fr.model.Ramp = 1.0,
         vertical: str = "z",
         coords: tuple[str, ...] = ("x", "y", "z"),
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
-        self.dsqr = fr.leaf(dsqr)
-        self.rossby = fr.leaf(rossby_number)
+        self.dsqr = fr.model.leaf(dsqr)
+        self.rossby = fr.model.leaf(rossby_number)
         self._vertical = vertical
         self._coords = coords
 
@@ -82,18 +82,18 @@ class DynamicalCore(fr.Module):
     #  Field declarations
     # ================================================================
     field_declarations = (
-        fr.FieldDeclaration.velocity(
-            "u", "x", space=fr.Staggered("x"),
+        fr.model.FieldDeclaration.velocity(
+            "u", "x", space=fr.spatial.Staggered("x"),
             long_name="Zonal velocity", units="m/s"),
-        fr.FieldDeclaration.velocity(
-            "v", "y", space=fr.Staggered("y"),
+        fr.model.FieldDeclaration.velocity(
+            "v", "y", space=fr.spatial.Staggered("y"),
             long_name="Meridional velocity", units="m/s"),
-        fr.FieldDeclaration.velocity(
-            "w", "z", space=fr.Staggered("z"),
+        fr.model.FieldDeclaration.velocity(
+            "w", "z", space=fr.spatial.Staggered("z"),
             long_name="Vertical velocity", units="m/s"),
-        fr.FieldDeclaration(
-            "p", space=fr.Collocated(),
-            lifecycle=fr.Lifecycle.DIAGNOSTIC,
+        fr.model.FieldDeclaration(
+            "p", space=fr.spatial.Collocated(),
+            lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
             long_name="Pressure", units="m^2/s^2"),
     )
 
@@ -101,9 +101,9 @@ class DynamicalCore(fr.Module):
     #  Parameters -- dsqr and the Rossby number live on the core
     # ================================================================
     parameter_declarations = (
-        fr.ParameterDeclaration(DSQR, attr="dsqr", units="1",
+        fr.model.ParameterDeclaration(DSQR, attr="dsqr", units="1",
                                 doc="squared aspect ratio (H/L)^2"),
-        fr.ParameterDeclaration(ROSSBY, attr="rossby", units="1",
+        fr.model.ParameterDeclaration(ROSSBY, attr="rossby", units="1",
                                 doc="Rossby number (nonlinear scaling)"),
     )
 
@@ -123,10 +123,10 @@ class DynamicalCore(fr.Module):
         return HaloSpec(dict.fromkeys(self._coords, 2))
 
     @property
-    def stages(self) -> tuple[fr.Stage, ...]:
+    def stages(self) -> tuple[fr.model.Stage, ...]:
         """The velocity projection: replace u, v, w and write p."""
         return (
-            fr.Stage(kind=fr.StageKind.CONSTRAINT, fn="_project",
+            fr.model.Stage(kind=fr.model.StageKind.CONSTRAINT, fn="_project",
                      name="projection"),
         )
 

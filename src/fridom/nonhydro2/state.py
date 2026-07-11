@@ -17,10 +17,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.framework2.grid.fields.vector_field import VectorField
+from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
+    from fridom.spatial.fields.scalar_field import ScalarField
 
 
 class State(VectorField):
@@ -33,7 +33,7 @@ class State(VectorField):
     named properties are notebook sugar that raise a hinted
     ``MissingComponentError`` (a ``KeyError`` subclass) when a
     component is absent — the curated-hint contract of D1.5, delegated
-    to :meth:`~fridom.framework2.grid.VectorField.require`.
+    to :meth:`~fridom.spatial.VectorField.require`.
     """
 
     # ================================================================

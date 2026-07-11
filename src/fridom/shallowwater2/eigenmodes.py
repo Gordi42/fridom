@@ -5,14 +5,14 @@ Description
 The analytic closed-form eigenmodes of the discrete shallow-water
 C-grid linear operator, assembled **from the grid's own operator
 symbols** instead of the continuous formulas: a
-``fr.grid.GridSymbols`` kit names the staggered component spaces
+``fr.spatial.GridSymbols`` kit names the staggered component spaces
 (``u``, ``v``, ``p``) once, and every derivative / interpolation
 diagonal (``k``, ``kb``, ``a``, ``ab``) is the corresponding
 operator's ``eigenvalues`` query on the matching coefficient space.
 The dispersion relation is the symbol algebra
 (``magnitude ** 2`` quantities), the eigenvector column ``q^s`` is a
 tag-checked composition of the same symbols, and the biorthonormal
-dual is the derived ``fr.grid.rayleigh_dual`` under the
+dual is the derived ``fr.spatial.rayleigh_dual`` under the
 shallow-water energy metric — no hand-written left vector and no
 caller-side masking.
 
@@ -47,10 +47,8 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import numpy as np
 
-import fridom.framework2 as fr
-from fridom.framework2.grid.operators.symbol import Symbol
-from fridom.framework2.grid.symbols import GridSymbols, rayleigh_dual
-from fridom.framework2.model.eigenstates import (
+import fridom as fr
+from fridom.model.eigenstates import (
     coefficient_index,
     describe_nonfinite_branch,
     envelope_scale,
@@ -58,20 +56,22 @@ from fridom.framework2.model.eigenstates import (
     hermitian_mode_data,
     resolve_mode_branches,
 )
-from fridom.framework2.model.energy import shallowwater_energy_weights
-from fridom.framework2.model.time_dependent import resolve_at
+from fridom.model.time_dependent import resolve_at
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
+from fridom.shallowwater2.energy import shallowwater_energy_weights
 from fridom.shallowwater2.state import State
+from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.symbols import GridSymbols, rayleigh_dual
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Mapping
 
     import jax
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.grid import Grid
-    from fridom.framework2.model.model import Model
+    from fridom.model.model import Model
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
 
 
 class Eigenmodes:
@@ -80,7 +80,7 @@ class Eigenmodes:
 
     Description
     -----------
-    Binds a :class:`~fridom.framework2.grid.symbols.GridSymbols` kit
+    Binds a :class:`~fridom.spatial.symbols.GridSymbols` kit
     on the canonical C-grid component spaces (``u`` staggered along
     the first coordinate, ``v`` along the second, ``p`` collocated)
     and exposes the analytic eigenmode surface: the dispersion
@@ -94,7 +94,7 @@ class Eigenmodes:
 
     Parameters
     ----------
-    grid : fr.grid.Grid
+    grid : fr.spatial.Grid
         A 2-D periodic grid.
     f0 : float
         The (constant) Coriolis parameter.
@@ -120,9 +120,9 @@ class Eigenmodes:
         self._axes: tuple[str, str] = (x, y)
 
         spaces = {
-            "u": fr.Staggered(x).resolve(grid),
-            "v": fr.Staggered(y).resolve(grid),
-            "p": fr.Collocated().resolve(grid),
+            "u": fr.spatial.Staggered(x).resolve(grid),
+            "v": fr.spatial.Staggered(y).resolve(grid),
+            "p": fr.spatial.Collocated().resolve(grid),
         }
         kit = GridSymbols(grid, spaces)
         self._kit: GridSymbols = kit
@@ -358,7 +358,7 @@ class Eigenmodes:
         -----------
         ``P^s z = q^s \langle p^s, z\rangle`` with the Rayleigh dual
         ``p^s`` derived from ``q^s`` under the shallow-water energy
-        metric (``fr.grid.rayleigh_dual`` + the ``diag(1, 1, 1/c^2)``
+        metric (``fr.spatial.rayleigh_dual`` + the ``diag(1, 1, 1/c^2)``
         weights): idempotent by biorthonormality, exactly zero on
         structurally degenerate modes (none on the standard
         ``f_0 != 0``, ``c^2 != 0`` system — the family is complete,
@@ -574,16 +574,16 @@ class Eigenmodes:
         return template.with_data(full.astype(template.data.dtype))
 
     def _energy_weights(self) -> dict[str, float]:
-        r"""Per-component energy weights (the ``fr.EnergyMetric`` diag).
+        r"""Per-component energy weights (the ``fr.model.EnergyMetric`` diag).
 
         Description
         -----------
         ``diag(1, 1, 1/c^2)`` on ``(u, v, p)`` -- the canonical
         shallow-water energy metric ``M`` (a single source of truth
-        with ``fr.EnergyMetric.from_model``). The ``1/c^2``
+        with ``fr.model.EnergyMetric.from_model``). The ``1/c^2``
         reciprocal falls back to ``1`` for the degenerate ``c^2 = 0``
         (no-gravity) grid the constructor permits -- the metric
-        proper (and ``fr.EnergyMetric``) needs ``c^2 != 0``.
+        proper (and ``fr.model.EnergyMetric``) needs ``c^2 != 0``.
         """
         inv_csqr = 1.0 / self.csqr if self.csqr != 0.0 else 1.0
         return shallowwater_energy_weights(inv_csqr)
@@ -705,7 +705,7 @@ def from_model(
         return ChannelEigenmodes(model, at_time=at_time)
     view = model.parameters
     for name, why in (
-        (fr.params.CORIOLIS_F0,
+        (fr.model.params.CORIOLIS_F0,
          "a constant Coriolis parameter (a beta-plane f(y) is not "
          "Fourier-diagonalizable); assemble with "
          "sw.modules.FPlaneCoriolis"),
@@ -719,6 +719,6 @@ def from_model(
             raise ValueError(
                 f"shallow-water eigenmodes need {why}: no {name!r} "
                 "provider on this model")
-    f0 = resolve_at(view[fr.params.CORIOLIS_F0], at_time)
+    f0 = resolve_at(view[fr.model.params.CORIOLIS_F0], at_time)
     csqr = resolve_at(view[sw_params.CSQR], at_time)
     return Eigenmodes(model.grid, f0=f0, csqr=csqr)

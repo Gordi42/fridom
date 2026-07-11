@@ -4,7 +4,7 @@ Channel (walled-horizontal) nonhydro eigenmodes: wrapper + labeler.
 Description
 -----------
 The nonhydrostatic face of the dense-column channel eigenbasis
-(:func:`fridom.framework2.channel_eigenpairs`) on the rotating
+(:func:`fridom.channel_eigenpairs`) on the rotating
 stratified channel — one bounded *horizontal* axis (walls the
 rotation couples to), two periodic axes. The engine probes the
 projected linearization :math:`S = P L P` (the pressure CONSTRAINT
@@ -53,15 +53,15 @@ from typing import TYPE_CHECKING, ClassVar
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.framework2.model.eigen_channel import (
-    UNLABELED,
-    ChannelEigenbasis,
-)
-from fridom.framework2.model.eigenbasis import (
+from fridom.model._eigenbasis import (
     ChannelEigenmodesBase,
     recover_crisp_column,
     segment_energy,
     split_frequency_bands,
+)
+from fridom.model.eigen_channel import (
+    UNLABELED,
+    ChannelEigenbasis,
 )
 from fridom.nonhydro2.state import State
 
@@ -70,7 +70,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
-    from fridom.framework2.model.model import Model
+    from fridom.model.model import Model
 
 # ================================================================
 #  The family label codes
@@ -435,7 +435,7 @@ class ChannelEigenmodes(ChannelEigenmodesBase):
     Description
     -----------
     The nonhydrostatic subclass of the shared
-    :class:`~fridom.framework2.model.eigenbasis.ChannelEigenmodesBase`
+    :class:`~fridom.model._eigenbasis.ChannelEigenmodesBase`
     wrapper: the framework's dense-column channel eigensolve of the
     projected linearization ``P L P``, labeled by
     :func:`label_channel_modes` with the Leray overlap probed

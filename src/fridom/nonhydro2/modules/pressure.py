@@ -40,16 +40,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.framework2.grid.bc import BC
-from fridom.framework2.grid.operators.composed import Laplacian
-from fridom.framework2.grid.operators.spectral_solve import SpectralSolve
-from fridom.framework2.grid.spaces.nodal import NodalSpace
+from fridom.spatial.bc import BC
+from fridom.spatial.operators.composed import Laplacian
+from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     import jax
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.spaces.tensor_product import SpaceLike
 
 
 def _neumann_sibling(space: SpaceLike) -> SpaceLike:

@@ -53,13 +53,11 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.framework2.grid.spaces.constant import ConstantSpace
-from fridom.framework2.grid.symbols import GridSymbols, ModeChart
-from fridom.framework2.model.eigenbasis import channel_random_state
-from fridom.framework2.model.eigenstates import (
+from fridom.model._eigenbasis import channel_random_state
+from fridom.model.eigenstates import (
     geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
 )
-from fridom.framework2.model.eigenstates import (
+from fridom.model.eigenstates import (
     normalize_max_component,
     prescribed_spectra_coefficients,
 )
@@ -73,16 +71,18 @@ from fridom.nonhydro2.transforms import (
     VorticalProjection,
     mode_projection,
 )
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.symbols import GridSymbols, ModeChart
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
     import jax
 
-    from fridom.framework2.grid.fields.scalar_field import ScalarField
-    from fridom.framework2.grid.grid import Grid
-    from fridom.framework2.grid.spaces.tensor_product import SpaceLike
-    from fridom.framework2.model.model import Model
+    from fridom.model.model import Model
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
+    from fridom.spatial.spaces.tensor_product import SpaceLike
 
 #: The analytic-tier family vocabulary -> eigenmode branches.
 _ANALYTIC_BRANCHES = {"vortical": (0,), "wave": (1, -1)}

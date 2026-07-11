@@ -16,13 +16,13 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 from fridom.benchmarking import benchmark_case
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.grid.grid import Grid
-from fridom.framework2.grid.meshes.interval import IntervalMesh
-from fridom.framework2.grid.operators.fourier import Fourier
-from fridom.framework2.grid.operators.select import Where
-from fridom.framework2.grid.operators.weno import WenoReconstruction
-from fridom.framework2.grid.spaces.tensor_product import (
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.operators.select import Where
+from fridom.spatial.operators.weno import WenoReconstruction
+from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
 

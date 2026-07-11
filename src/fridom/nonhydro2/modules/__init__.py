@@ -1,4 +1,4 @@
-"""Nonhydrostatic modules (framework2 port).
+"""Nonhydrostatic modules.
 
 Description
 -----------
@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from lazypimp import setup
 
 if TYPE_CHECKING:  # pragma: no cover
-    from fridom.framework2.modules import (
+    from fridom.model.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
         Relaxation,
@@ -42,7 +42,7 @@ all_modules_by_origin: dict[str, list[str]] = {}
 # nh.modules.FPlaneCoriolis / nh.modules.Relaxation keep working
 # after the wave-6 consolidation.
 all_imports_by_origin = {
-    "fridom.framework2.modules": [
+    "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis", "Relaxation"],
     f"{base}.core": ["DynamicalCore"],
     f"{base}.stratification": [

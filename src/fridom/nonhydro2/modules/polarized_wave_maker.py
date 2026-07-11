@@ -2,7 +2,7 @@ r"""A polarized wave maker: force one internal-wave packet resonantly.
 
 Description
 -----------
-The framework2 port of the v1
+The port of the v1
 ``nh.modules.forcings.PolarizedWaveMaker``: the source term is the
 masked, re-projected single-mode wave packet of the v1 ``WavePackage``
 initial condition, oscillated at the packet's own discrete frequency,
@@ -42,15 +42,15 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-import fridom.framework2 as fr
+import fridom as fr
 from fridom.framework.utils import jaxify
-from fridom.framework2.grid.decomposition.halo import HaloSpec
-from fridom.framework2.model.params import (
+from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
     ParamName,
 )
 from fridom.nonhydro2.params import DSQR
+from fridom.spatial.decomposition.halo import HaloSpec
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -62,10 +62,10 @@ _COMPONENTS = ("u", "v", "w", "b")
 
 #: The components' space patterns (the nh C-grid declarations).
 _PATTERNS = {
-    "u": fr.Staggered("x"),
-    "v": fr.Staggered("y"),
-    "w": fr.Staggered("z"),
-    "b": fr.Collocated(),
+    "u": fr.spatial.Staggered("x"),
+    "v": fr.spatial.Staggered("y"),
+    "w": fr.spatial.Staggered("z"),
+    "b": fr.spatial.Collocated(),
 }
 
 #: The provided amplitude parameter (one polarized maker per model).
@@ -96,7 +96,7 @@ def _source_default(component: str) -> Callable:
 
 
 @partial(jaxify, dynamic=("amplitude", "_omega", "_sources"))
-class PolarizedWaveMaker(fr.Module):
+class PolarizedWaveMaker(fr.model.Module):
 
     r"""
     Force a polarized internal-wave packet at its own frequency.
@@ -128,7 +128,7 @@ class PolarizedWaveMaker(fr.Module):
         unnamed axes are constant.
     width : Mapping[str, float]
         Width of the Gaussian envelope; same keys as ``position``.
-    amplitude : float | fr.Ramp, optional
+    amplitude : float | fr.model.Ramp, optional
         The forcing amplitude :math:`A` (default: 1.0).
     s : int, optional
         The inertia-gravity branch, +1 or -1 (default: 1).
@@ -142,7 +142,7 @@ class PolarizedWaveMaker(fr.Module):
         position: Mapping[str, float],
         width: Mapping[str, float],
         *,
-        amplitude: float | fr.Ramp = 1.0,
+        amplitude: float | fr.model.Ramp = 1.0,
         s: int = 1,
         vertical: str = "z",
     ) -> None:
@@ -166,7 +166,7 @@ class PolarizedWaveMaker(fr.Module):
         self._width: dict[str, float] = width
         self._s: int = s
         self._vertical: str = vertical
-        self.amplitude = fr.leaf(amplitude)
+        self.amplitude = fr.model.leaf(amplitude)
         # bind precomputes the frequency and the packet data arrays
         self._omega: jax.Array | None = None
         self._sources: dict[str, jax.Array] | None = None
@@ -185,33 +185,33 @@ class PolarizedWaveMaker(fr.Module):
     #  Declarations
     # ================================================================
     field_references = tuple(
-        fr.FieldReference(name, hint=_COMPONENT_HINT)
+        fr.model.FieldReference(name, hint=_COMPONENT_HINT)
         for name in _COMPONENTS)
 
     field_declarations = tuple(
-        fr.FieldDeclaration(
+        fr.model.FieldDeclaration(
             f"wavemaker_{name}", space=_PATTERNS[name],
-            lifecycle=fr.Lifecycle.AUXILIARY,
+            lifecycle=fr.model.Lifecycle.AUXILIARY,
             default=_source_default(name),
             long_name=f"Wave-maker source on {name}")
         for name in _COMPONENTS)
 
     parameter_declarations = (
-        fr.ParameterDeclaration(
+        fr.model.ParameterDeclaration(
             POLARIZED_AMPLITUDE, attr="amplitude",
             doc="polarized wave-maker amplitude"),
     )
 
     parameter_references = (
-        fr.ParameterReference(
+        fr.model.ParameterReference(
             CORIOLIS_F0,
             hint="the packet polarization needs a constant f0 "
-                 "(fr.modules.FPlaneCoriolis)"),
-        fr.ParameterReference(
+                 "(fr.model.modules.FPlaneCoriolis)"),
+        fr.model.ParameterReference(
             STRATIFICATION_N2,
             hint="the packet polarization needs a constant N^2 "
                  "(nh.ConstantStratification)"),
-        fr.ParameterReference(
+        fr.model.ParameterReference(
             DSQR, hint="declared by nh.DynamicalCore"),
     )
 
@@ -296,7 +296,7 @@ class PolarizedWaveMaker(fr.Module):
     #: (V-N2) — declare the substitute instead of being traced.
     extra_halo = HaloSpec({})
 
-    @fr.term(advances=_COMPONENTS, name="wave_maker")
+    @fr.model.term(advances=_COMPONENTS, name="wave_maker")
     def _force(self, state, ctx) -> dict:  # noqa: ANN001
         r"""``dz/dt += A sin(omega t) z_W`` off the traced clock."""
         amp = ctx.params[POLARIZED_AMPLITUDE]
