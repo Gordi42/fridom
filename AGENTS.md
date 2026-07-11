@@ -16,8 +16,8 @@ which the modern code (e.g. `framework/modules/module.py`,
   - `nonhydro2/`, `shallowwater2/` — concrete models built on
     `spatial` + `model` (the "2" suffix drops when the old stack is
     removed).
-  - `framework/`, `nonhydro/`, `shallowwater/`, `hydrostatic/` — the **old
-    stack**, kept only until the cutover completes
+  - `framework/`, `nonhydro/`, `shallowwater/` — the **old stack**, kept
+    only until the cutover completes
     (`design/plans/active/cutover_parity_plan.md`); do not build on it.
 - `tests/` — pytest suite; mirrors the `src/fridom` tree.
 - `docs/` — Sphinx docs (sphinx-book-theme + sphinx-gallery).

@@ -15,8 +15,9 @@ enough to develop, test, and merge on its own.
   (stretched, spherical) slot into the same abstraction.
 - **Fields are ergonomic**: init from callables (`f(x, y, z) -> value`),
   dimension reduction (`g = f.sel(x=a)`).
-- **Models**: nonhydro, shallowwater, hydrostatic, and coupled
-  multi-model runs (multi-device, later multi-host).
+- **Models**: nonhydro, shallowwater, and coupled multi-model runs
+  (multi-device, later multi-host); a hydrostatic model is a future
+  greenfield feature (see 3.1).
 
 ## Approach
 
@@ -91,7 +92,7 @@ tasks against that design.
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 3.1 | **Hydrostatic model** | Linear tendency, hydrostatic pressure solver, advection wiring, eigenvectors. Implicit vertical mixing (and optional split-explicit free surface) build on 2.5. |
+| 3.1 | **Hydrostatic model** | **Dropped from the cutover (2026-07-08, executed 2026-07-11): the old `hydrostatic` package is removed and this becomes a greenfield future feature, not a cutover gate.** Scope when picked up: linear tendency, hydrostatic pressure solver, advection wiring, eigenvectors. Implicit vertical mixing (and optional split-explicit free surface) build on 2.5. |
 | 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, synchronization schedule. **Pre-designed** in [`design/specs/model/09_coupling_designfor.md`](design/specs/model/09_coupling_designfor.md) (precedent survey + adversarial A–O walk + architecture; the class specs carry its CS-1..18 constraints so 3.2 stays a pure addition). |
 | 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. |
 
