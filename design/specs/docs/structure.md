@@ -36,7 +36,7 @@ Advanced Topics           self-contained chapters, extensible
 Models                    per-model physics + parameters + examples
 Verification              standard test cases, executed
 Gallery                   auto-generated from examples/
-Benchmarks                static    measured performance numbers
+Benchmarks                static    rendered from committed result JSON
 API Reference             autosummary (lazypimp pipeline)
 References                static    full bibliography
 Glossary & Notation       static    terms and symbols, single source
@@ -142,11 +142,33 @@ regression tests; a failing weekly build is a real signal.
 ## Benchmarks
 
 Performance numbers (wall time, scaling, GPU vs. CPU) are **not**
-executed at doc build time: shared CI runners produce noise, not
-measurements, and have no GPU. The Benchmarks page is static content
-fed by dedicated runs of the `benchmarks/` suite, each table stamped
-with machine, backend, versions, and date. Update cadence: on release,
-or when a change moves a number materially.
+measured at doc build time: shared CI runners produce noise, not
+measurements, and have no GPU. Instead, results are **committed JSON
+artifacts** that the docs build renders into tables and theme-styled
+plots (owner-approved 2026-07-11):
+
+- The `benchmarks/` suite writes one JSON file per run to
+  `benchmarks/results/`: `schema_version`, machine, backend,
+  jax/jaxlib/fridom versions, git commit, date, and a list of cases,
+  each with a stable `name`, its parameters, and the measured
+  quantities. Files are small; history is kept.
+- **The renderer is data-driven and never hard-codes case names.** It
+  renders whatever cases the files contain; across files it takes the
+  union, and a case absent from a run is a gap, not an error. This is
+  what keeps old result files with a different case set from breaking
+  the build.
+- The headline table comes from the latest file per (machine,
+  backend); trend plots over history tolerate gaps. A case whose
+  definition changes while keeping its name bumps a per-case
+  `variant` field so trend lines break instead of comparing different
+  things.
+- The build validates files against a JSON schema (structure, not
+  content); provenance (machine, backend, versions, date) is always
+  rendered next to the numbers, and docs-lint warns when the newest
+  result predates the current release.
+- Results come only from deliberate runs on controlled machines
+  (workstation, Levante nodes), committed and reviewed like any other
+  change; no CI job ever commits numbers.
 
 ## Gallery, API Reference, References, Glossary
 
