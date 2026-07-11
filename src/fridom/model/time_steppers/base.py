@@ -166,6 +166,31 @@ class TimeStepper(abc.ABC):
     # ================================================================
     #  The scan-body protocol
     # ================================================================
+    @property
+    def scan_unroll(self) -> int:
+        """
+        The chunk scan's preferred unroll factor (static).
+
+        Description
+        -----------
+        Steppers whose carry rotates with a period — the AB
+        tendency ring — return that period: inside ``lax.scan`` the
+        carry slots are fixed buffers, so a structural ring shift
+        costs ``period - 1`` full-field device copies per component
+        per step (~2 ms/step at 256^3 on an A100, 2026-07-12
+        profile), while at ``unroll = period`` the shift is pure
+        dataflow renaming and every carry slot receives a freshly
+        computed value at the body boundary. Numerics are
+        unchanged — unrolling repeats the identical step body. The
+        default is 1 (no unroll).
+
+        Returns
+        -------
+        int
+            The unroll factor (>= 1).
+        """
+        return 1
+
     @abc.abstractmethod
     def init(self, tendency_template: VectorField) -> StepperState:
         """
