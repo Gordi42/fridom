@@ -1,0 +1,122 @@
+# Build the documentation and deploy it to GitHub Pages.
+#
+# Full executed builds (sphinx-gallery runs the example scripts) happen
+# on every push to dev, on the weekly cron (which beats the 7-day
+# actions/cache eviction and catches silent code/docs divergence), and
+# on manual dispatch. Pull requests get the cheap leg only: a quick
+# build (SPHINX_QUICK_BUILD, no autodoc/gallery) for outside-contributor
+# PRs — owner review of docs content happens locally, off CI
+# (design/plans/active/docs_examples_plan.md).
+#
+# CDFViewer (renders example animations from zarr stores) is installed
+# from its prebuilt Linux release bundle: no Julia setup, just OpenGL
+# via xvfb + Mesa and glibc >= 2.35 (bundle is built on ubuntu-22.04).
+
+name: Docs
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    paths:
+      - "docs/**"
+      - "examples/**"
+      - ".github/workflows/docs.yml"
+  schedule:
+    # Weekly full build, Monday 05:23 UTC
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
+
+env:
+  CDFVIEWER_VERSION: v2026.7.0
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    # Job-level guard: sphinx-gallery has no per-example timeout, so a
+    # hanging example must be killed here.
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Scheduled runs fire on the default branch; the docs track dev.
+          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+          # Pre-rendered example media (mp4) still lives in git LFS until
+          # the executed-examples rebuild retires it.
+          lfs: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          uv sync --extra dev
+          uv pip install -r docs/requirements.txt
+
+      - name: Install ffmpeg and headless OpenGL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg xvfb mesa-utils libgl1 zstd
+
+      - name: Install CDFViewer (prebuilt Linux bundle)
+        run: |
+          curl -fL -o /tmp/cdfviewer.tar.zst \
+            "https://github.com/Gordi42/CDFViewer.jl/releases/download/${CDFVIEWER_VERSION}/cdfviewer-linux-x86_64.tar.zst"
+          tar --zstd -xf /tmp/cdfviewer.tar.zst -C "$HOME"
+          echo "$HOME/cdfviewer/bin" >> "$GITHUB_PATH"
+
+      - name: Smoke-test CDFViewer
+        run: xvfb-run -s "-screen 0 1024x768x24" cdfviewer --help
+
+      # sphinx-gallery's per-example .md5 skip only hashes the example
+      # script, so the key must also include uv.lock: a dependency bump
+      # busts the whole cache, while example edits fall back to the
+      # restore-key and re-run only the changed examples.
+      - name: Restore gallery cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@v4
+        with:
+          path: docs/source/auto_examples
+          key: gallery-${{ hashFiles('uv.lock') }}-${{ hashFiles('examples/**') }}
+          restore-keys: |
+            gallery-${{ hashFiles('uv.lock') }}-
+
+      - name: Build docs (full, executed examples)
+        if: github.event_name != 'pull_request'
+        run: |
+          cd docs
+          uv run make html
+
+      - name: Build docs (quick, PR check)
+        if: github.event_name == 'pull_request'
+        run: |
+          cd docs
+          uv run make html QUICKBUILD=true
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/build/html
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
