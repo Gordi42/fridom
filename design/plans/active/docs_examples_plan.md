@@ -40,7 +40,27 @@ code.
   (`nonhydro2 → nonhydro`, `framework2 → framework`) is a mechanical
   find/replace pass over `examples/` and `docs/`.
 
-## Prerequisites (state, 2026-07-11)
+## Review workflow (owner-mandated, 2026-07-11)
+
+All reader-facing content (`docs/` pages, `examples/` scripts) is
+**100% owner-reviewed**: every change lands via a GitHub PR that only
+Silvano merges (see AGENTS.md, git workflow). Mechanics:
+
+- One PR per page or chapter — small enough to review rendered, in one
+  sitting. The thin RTD project builds a preview of each PR, so review
+  happens on built pages, not rst source.
+- Feedback channels, in increasing directness: inline PR comments,
+  GitHub suggested changes (one-click commit), or Silvano pushes edits
+  onto the PR branch himself. Agents poll with `gh`, address comments
+  on the branch, and fold any generalizable correction into the style
+  guide in the same PR.
+- Purpose beyond quality: reviewing the docs is how the owner audits
+  the public API surface; expect review to produce upstream
+  change requests against `src/` semantics, which spin off as separate
+  branches, not as workarounds in the page under review.
+
+Docs *infrastructure* (conf.py, CI workflows, templates, scrapers) is
+exempt and follows the normal branch-merge workflow.
 
 - CDFViewer zarr support: **done**, draft PR
   [Gordi42/CDFViewer.jl#1](https://github.com/Gordi42/CDFViewer.jl/pull/1)

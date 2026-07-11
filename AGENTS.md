@@ -317,6 +317,19 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
 - GitHub PRs are the exception, not the rule: open one only when Silvano
   explicitly asks for a reviewable record. Push the branch, open the PR
   with `gh`, and delete the remote branch after the merge.
+- **Exception: docs content is always PR-reviewed** (standing request,
+  2026-07-11). Any change to reader-facing documentation content —
+  `docs/` pages and `examples/` scripts — lands via a GitHub PR that
+  **only Silvano merges**; agents never merge these onto `dev`
+  themselves. Keep such PRs small (one page or chapter each). Feedback
+  arrives as inline PR comments, GitHub suggested changes, or commits
+  Silvano pushes onto the PR branch; poll for it with `gh`, address it
+  on the branch, and treat his own edits as authoritative style
+  signal — fold generalizable corrections into the docs style guide
+  (`design/specs/docs/style_guide.md`, later `docs/STYLE.md`) so the
+  same correction never needs making twice. Design records under
+  `design/` and docs build *infrastructure* (`conf.py`, CI, templates)
+  follow the normal workflow above.
 - Commit messages: `<scope>: <short lowercase summary>` where scope is
   the affected package or area (`spatial: ...`, `model: ...`,
   `nonhydro2: ...`, `tests: ...`, `design: ...`), matching the existing
