@@ -206,6 +206,11 @@ class AdamBashforth(TimeStepper):
         return self._eps
 
     @property
+    def scan_unroll(self) -> int:
+        """The ring period: shift-free at ``unroll = order``."""
+        return self._order
+
+    @property
     def table(self) -> tuple[tuple[float, ...], ...]:
         """
         The dense zero-padded warm-up coefficient table.

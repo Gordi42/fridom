@@ -443,7 +443,12 @@ def _chunk_body(
         return ModelState(state, carry.modules, stepper_state,
                           clock, carry.panic), None
 
-    out, _ = jax.lax.scan(one_step, model_state, xs=None, length=n)
+    # unroll by the stepper's carry period (e.g. the AB tendency
+    # ring): the structural ring shift becomes dataflow renaming
+    # instead of per-step buffer copies (TimeStepper.scan_unroll)
+    unroll = max(1, min(int(stepper.scan_unroll), n))
+    out, _ = jax.lax.scan(one_step, model_state, xs=None, length=n,
+                          unroll=unroll)
     # ---- S5: one isfinite reduction into the sticky pair --------
     finite = _all_finite(out.state)
     newly_bad = jnp.logical_and(~out.panic.flag, ~finite)
