@@ -80,8 +80,8 @@ spec prose keeps the historical names.
 
 | File | Status | Description |
 |------|--------|-------------|
-| [`structure.md`](specs/docs/structure.md) | draft | The docs page tree: per-page scope, authoring format, v1 cut. |
-| [`style_guide.md`](specs/docs/style_guide.md) | draft | Docs style guide: voice, banned patterns, page anatomy, figures, citations, enforcement. |
+| [`structure.md`](specs/docs/structure.md) | normative | The docs page tree: per-page scope, authoring format, v1 cut. |
+| [`style_guide.md`](specs/docs/style_guide.md) | normative | Docs style guide: voice, banned patterns, page anatomy, figures, citations, enforcement. |
 
 ### `specs/model/` — the model layer (Phase 2)
 

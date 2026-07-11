@@ -1,5 +1,5 @@
 ---
-status: draft
+status: normative
 date: 2026-07-11
 ---
 
@@ -168,6 +168,12 @@ of them must still be able to follow the page.
   named palette (Phase 0.5 deliverable). **Individual pages never
   restyle**; a figure that genuinely needs a deviation documents why
   in the script.
+- **Plot through xarray wherever possible** (owner ruling 2026-07-11):
+  `field.xr.plot(...)` with xarray's defaults, themed globally by the
+  shared style file. This keeps snippets short and leaves little
+  plotting code to maintain. Hand-rolled matplotlib appears only where
+  xarray cannot draw the figure (e.g. quiver overlays, custom
+  multi-panel layouts), and then still under the shared style.
 - Palette requirements: colorblind-safe categorical set shared with
   the SVG diagrams; sequential colormap `cmocean`-style or viridis
   family; diverging colormap centered on zero (`RdBu_r` or cmocean
@@ -180,9 +186,15 @@ of them must still be able to follow the page.
 
 ## 9. Hand-drawn diagrams (SVG)
 
-- Sources live in `docs/source/_static/diagrams/`, editable (Inkscape
-  friendly: real text elements, no outlined fonts), using the shared
-  palette tokens and one stroke width scale.
+- Sources live in `docs/source/_static/diagrams/`, editable in
+  Inkscape, using the shared palette tokens and one stroke width
+  scale. Text and math labels are generated via **typst → svg** and
+  placed into the diagram (owner preference, 2026-07-11), rather than
+  written as plain Inkscape text, so diagram typography matches the
+  docs' math.
+- **Agents may draft new diagrams**: propose an svg following these
+  conventions; the owner fine-tunes it in Inkscape. Draft close to the
+  conventions so the fine-tuning stays small.
 - Diagrams stay **concept-level** (staggering, halos, mode structure),
   never API-level (no method names in diagrams), because they are the
   only artifacts the build cannot re-verify.
