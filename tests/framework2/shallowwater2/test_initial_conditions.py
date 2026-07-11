@@ -115,16 +115,18 @@ def test_realized_energy_follows_the_prescribed_spectrum(periodic):
         kx[:, None], ky[None, :]))
     expected = multiplicity * np.where(
         kh > 0, spectra / (np.pi * np.where(kh > 0, kh, 1.0)), 0.0)
-    # the interpolation-Nyquist planes are structural zeros of the
-    # geostrophic family (no vortical mode to populate); the far
-    # spectral tail is excluded against fp leakage
-    represented = np.ones_like(expected, dtype=bool)
-    represented[N // 2, :] = False
-    represented[:, N // 2] = False
-    mask = ((kh > 0) & represented
-            & (expected > 1e-6 * expected.max()))
+    # only the far spectral tail is excluded against fp leakage
+    mask = (kh > 0) & (expected > 1e-6 * expected.max())
     ratio = energy[mask] / expected[mask]
     assert ratio.max() / ratio.min() < 1.0 + 1e-6
+    # the interpolation-Nyquist planes carry the steady
+    # divergence-free stratum of the geostrophic family, so they
+    # are populated with the same per-mode normalization as the
+    # interior (they only sit in the spectral tail here)
+    for pt in ((N // 2, 1), (1, N // 2), (N // 2, 0), (0, N // 2)):
+        assert energy[pt] > 0.0
+        assert abs(energy[pt] / expected[pt] / ratio.mean()
+                   - 1.0) < 1e-6
     # binned 1-D spectrum: shape-correlated with S(k)
     bins = np.arange(0.5, kh.max() / (2 * np.pi)) * 2 * np.pi
     binned, prescribed = [], []

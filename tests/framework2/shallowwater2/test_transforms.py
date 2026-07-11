@@ -6,11 +6,11 @@ Validates the staggered ``sw.transforms`` projections and the shared
 unity ``Vortical + Wave + Divergence == Identity`` on the model's
 staggered state. The discrete ``{vortical, +gravity, -gravity}``
 basis is complete per wavenumber (three modes span the three
-components, the patched ``k = 0`` inertial triple included) except
-the interpolation-Nyquist planes, where the geostrophic column is a
-structural zero — so ``DivergenceProjection`` is the zero map on
-Nyquist-free (band-limited) states and picks up exactly the
-Nyquist-vortical residual otherwise.
+components; the patched ``k = 0`` inertial triple and the even-grid
+interpolation-Nyquist steady strata included) — so
+``DivergenceProjection`` is the structural zero map on any periodic
+state (previously it captured a "Nyquist-vortical residual" on
+even grids; that residual no longer exists).
 
 The channel (engine) path: the same factories on a walled model
 route to the labeled ``sw.ChannelEigenmodes`` families — agreement
@@ -92,17 +92,18 @@ def test_divergence_is_the_zero_map_on_band_limited_states():
     fr.transforms.assert_idempotent(div, z, norm=_absmax)
 
 
-def test_divergence_captures_the_nyquist_vortical_residual():
-    # random data carries interpolation-Nyquist vortical content the
-    # discrete mode family structurally drops; the residual picks it
-    # up (and stays idempotent).
+def test_divergence_is_the_structural_zero_map_on_random_states():
+    # SEMANTICS (Nyquist completion): the interpolation-Nyquist
+    # steady strata joined the vortical family, so the mode family
+    # is complete on the even grid and the residual is the
+    # structural zero map even on random (Nyquist-carrying) states.
     em, model = _eig()
     z = _state(model, seed=7)
     div = sw.transforms.DivergenceProjection(em)
     once = div(z)
     assert max(float(np.abs(np.asarray(once[c].data)).max())
-               for c in ("u", "v")) > 1e-3
-    fr.transforms.assert_idempotent(div, z)
+               for c in COMPONENTS) < 1e-12
+    fr.transforms.assert_idempotent(div, z, norm=_absmax)
 
 
 # ================================================================

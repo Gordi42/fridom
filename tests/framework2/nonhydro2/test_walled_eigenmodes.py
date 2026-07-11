@@ -180,13 +180,18 @@ def test_periodic_projector_path_is_bitwise_phase1():
         for c in COMPONENTS})
     for s in (0, 1, -1):
         got = em.projector(s)(z)
-        # the Phase-1 data plane, verbatim
-        q = em._vec_q(s)
-        p = rayleigh_dual(q, WEIGHTS)
-        amp = sum(jnp.conj(p[c].data) * z[c].data for c in p)
+        # the Phase-1 data plane, verbatim (the even-grid vortical
+        # family iterates its internal Nyquist columns)
+        total = None
+        for q in em._columns(s):
+            p = rayleigh_dual(q, WEIGHTS)
+            amp = sum(jnp.conj(p[c].data) * z[c].data for c in p)
+            part = {c: q[c].data * amp for c in q}
+            total = (part if total is None
+                     else {c: total[c] + part[c] for c in part})
         for c in COMPONENTS:
             want = template[c].with_data(jnp.broadcast_to(
-                q[c].data * amp, shape).astype(template[c].data.dtype))
+                total[c], shape).astype(template[c].data.dtype))
             assert np.array_equal(np.asarray(got[c].data),
                                   np.asarray(want.data))
 
@@ -396,6 +401,36 @@ def test_mode_satisfies_the_strong_eigen_relation(
         assert omega != 0.0
 
 
+@pytest.mark.parametrize(("s", "indices"), [
+    pytest.param(0, {"x": N // 2, "y": 1, "z": 2},
+                 id="steady-nyq-x"),
+    pytest.param(0, {"x": N // 2, "y": 1, "z": 0},
+                 id="steady-nyq-x-barotropic"),
+    pytest.param(0, {"x": N // 2, "y": 1, "z": N},
+                 id="steady-nyq-x-buoyancy-top"),
+    pytest.param(0, {"x": 2, "y": N // 2, "z": 3},
+                 id="steady-nyq-y"),
+    pytest.param(0, {"x": N // 2, "y": N // 2, "z": 3},
+                 id="steady-nyq-corner"),
+    pytest.param(1, {"x": N // 2, "y": 1, "z": 3},
+                 id="wave-nyq-x"),
+])
+def test_nyquist_strata_satisfy_the_strong_eigen_relation(
+        walled, linearized, s, indices):
+    # the horizontal-Nyquist strata of the even walled grid: the
+    # rotation-decoupled steady divergence-free modes (all vertical
+    # strata, the barotropic m = 0 and buoyancy-top m = N included)
+    # join the vortical family; the rotationless gravity pair stays
+    # on the wave branches
+    omega, residual = _mode_tendency_residual(
+        walled, linearized, s, indices)
+    assert residual < 1e-12
+    if s == 0:
+        assert omega == 0.0
+    else:
+        assert omega != 0.0
+
+
 def test_mode_frequency_matches_the_dispersion_table(walled):
     _, _, em = walled
     omega, z = em.mode(1, {"x": 2, "y": 1, "z": 3})
@@ -475,45 +510,47 @@ def test_partition_of_unity_on_the_represented_set(walled,
     for c in COMPONENTS:
         r = (np.asarray(total[c].data)
              - np.asarray(zeta[c].data)) / scale
-        # the unrepresented strata: the horizontal-Nyquist planes
-        # (the vortical column is interp-degenerate there, exactly
-        # like the periodic Phase-1 Nyquist zeros) and, for u/v,
-        # the kh = 0 inertial / mean modes
+        # the horizontal-Nyquist planes are now covered (the steady
+        # divergence-free and buoyancy-top strata joined the
+        # vortical column); the only unrepresented strata left are
+        # the kh = 0 inertial / mean modes of u and v
         masked = r.copy()
-        masked[-1, :, :] = 0.0
-        masked[:, N // 2, :] = 0.0
         if c in ("u", "v"):
             masked[0, 0, :] = 0.0
             # ... which the projections genuinely leave alone
             assert np.abs(
                 np.asarray(total[c].data)[0, 0]).max() == 0.0
-        assert np.abs(masked).max() < 1e-12
-        if c == "w":
-            # w is fully represented (waves cover every alive mode)
-            assert np.abs(r).max() < 1e-12
-        else:
             # the masking is not vacuous: the residual genuinely
-            # lives on the unrepresented strata
+            # lives on the kh = 0 strata
             assert np.abs(r).max() > 1e-3
+        else:
+            # w and b are fully represented
+            assert np.abs(r).max() < 1e-12
+        assert np.abs(masked).max() < 1e-12
 
 
 def test_vortical_alive_count_is_n_plus_1(walled):
     # per horizontal wavevector the steady family holds exactly
     # N + 1 strata: N - 1 interior geostrophic + m = 0 barotropic
-    # + m = N buoyancy-top; kh = 0 holds the N pure-b modes; the
-    # horizontal-Nyquist planes are interp-degenerate (exact zeros)
+    # + m = N buoyancy-top; on the horizontal-Nyquist planes the
+    # rotation-decoupled steady strata (the N divergence-free u/v
+    # modes + the buoyancy-top mode) keep the same count; kh = 0
+    # holds the N pure-b modes
     _, _, em = walled
     q0 = _union_column(em, 0)
     alive = sum(np.abs(q0[c]) ** 2 for c in COMPONENTS) > 0
     counts = alive.sum(axis=-1)
-    nyq = np.zeros_like(counts, dtype=bool)
-    nyq[-1, :] = True
-    nyq[:, N // 2] = True
-    assert (counts[nyq] == 0).all()
     assert counts[0, 0] == N
-    interior = ~nyq
-    interior[0, 0] = False
-    assert (counts[interior] == N + 1).all()
+    everywhere = np.ones_like(counts, dtype=bool)
+    everywhere[0, 0] = False
+    assert (counts[everywhere] == N + 1).all()
+    # ... and on the Nyquist wavevectors the strata are genuinely
+    # the divergence-free u/v modes (0..N-1) plus the b-top (m = N)
+    nyq_col = {c: q0[c][-1, 1] for c in COMPONENTS}
+    assert np.all(np.abs(nyq_col["w"]) == 0.0)
+    assert np.all(np.abs(nyq_col["b"][:N]) == 0.0)
+    assert np.abs(nyq_col["b"][N]) > 0.0
+    assert (np.abs(nyq_col["u"][:N]) > 0.0).all()
 
 
 # ================================================================

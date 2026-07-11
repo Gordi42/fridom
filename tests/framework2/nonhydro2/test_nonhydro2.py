@@ -291,6 +291,228 @@ def test_tendency_eigenrelation_lq_equals_i_omega_q():
 
 
 # ================================================================
+#  Even-grid Nyquist strata: the steady decomposition is complete
+# ================================================================
+@pytest.fixture(scope="module")
+def nyquist_setup():
+    """One linear periodic model + eigenmodes + Leray probe."""
+    model = FrModel(
+        grid=make_grid(),
+        modules=(
+            DynamicalCore(dsqr=2.0, rossby_number=1.0),
+            FPlaneCoriolis(f0=1.5),
+            ConstantStratification(n2=3.0)),
+        time_stepper=AdamBashforth(DT, order=3))
+    em = nh.eigenmodes.from_model(model)
+    lin = fr.linearize(model)
+    prog, base0 = _rest_background(lin, 0.0)
+    leray = np.asarray(
+        _leray_projector(lin, base0, prog, jnp.asarray(0.0)))
+    return model, em, lin, prog, base0, leray
+
+
+def test_nyquist_vortical_columns_are_steady(nyquist_setup):
+    # THE per-stratum strong test: every internal vortical column
+    # (the horizontal-Nyquist divergence-free stratum merged into
+    # the main column, plus the overturning and pure-buoyancy
+    # columns of the doubly degenerate strata) is exactly steady
+    # under the Leray-projected linearized tendency
+    _, em, lin, prog, base0, leray = nyquist_setup
+    kit = em.kit
+    columns = em._columns(0)
+    assert len(columns) == 3
+    rng = np.random.default_rng(7)
+    template = em.q(0)
+    shape = np.asarray(template["u"].data).shape
+    for col in columns:
+        amp = (rng.standard_normal(shape)
+               + 1j * rng.standard_normal(shape))
+        coeff = {c: np.broadcast_to(
+            np.asarray(col[c].data), shape) * amp for c in "uvwb"}
+        state = State({c: template[c].with_data(jnp.asarray(coeff[c]))
+                       for c in "uvwb"})
+        phys = base0.replace(**{
+            c: base0[c].with_data(kit.backward(c)(state[c]).data)
+            for c in "uvwb"})
+        tau = lin.tendency(phys, t=0.0, constraints=False)
+        tau_hat = np.stack(
+            [np.fft.fftn(np.asarray(tau[c].data)) for c in prog],
+            axis=-1)
+        ptau = np.einsum("...ij,...j->...i", leray, tau_hat)
+        scale = max(np.abs(coeff[c]).max() for c in "uvwb")
+        assert np.abs(ptau).max() / scale < 1e-12
+
+
+def test_nyquist_columns_are_mutually_m_orthogonal(nyquist_setup):
+    # the three steady columns and the wave columns are mutually
+    # M-orthogonal on the shared strata (the summed rank-1
+    # projectors stay an orthogonal projector)
+    _, em, *_ = nyquist_setup
+    weights = {"u": 1.0, "v": 1.0, "w": 2.0, "b": 1.0 / 3.0}
+    shape = np.asarray(em.q(0)["u"].data).shape
+    columns = [{c: np.broadcast_to(np.asarray(col[c].data), shape)
+                for c in "uvwb"} for col in em._columns(0)]
+    columns += [{c: np.broadcast_to(np.asarray(em.q(s)[c].data),
+                                    shape) for c in "uvwb"}
+                for s in (1, -1)]
+    for i, a in enumerate(columns):
+        for b in columns[i + 1:]:
+            na = np.sqrt(sum(weights[c] * np.abs(a[c]) ** 2
+                             for c in "uvwb"))
+            nb = np.sqrt(sum(weights[c] * np.abs(b[c]) ** 2
+                             for c in "uvwb"))
+            cross = np.abs(sum(weights[c] * np.conj(a[c]) * b[c]
+                               for c in "uvwb"))
+            denom = np.where((na * nb) == 0, 1.0, na * nb)
+            assert (cross / denom).max() < 1e-13
+
+
+@pytest.mark.parametrize(("s", "indices"), [
+    pytest.param(0, {"x": N // 2, "y": 1, "z": 2},
+                 id="steady-nyq-x"),
+    pytest.param(0, {"x": 1, "y": N // 2, "z": 0},
+                 id="steady-nyq-y-kz0"),
+    pytest.param(0, {"x": N // 2, "y": N // 2, "z": 3},
+                 id="steady-nyq-xy"),
+    pytest.param(0, {"x": N // 2, "y": 2, "z": N // 2},
+                 id="steady-nyq-xz"),
+    pytest.param(1, {"x": N // 2, "y": 1, "z": 2},
+                 id="gravity-nyq-x"),
+    pytest.param(-1, {"x": 2, "y": N // 2, "z": 1},
+                 id="gravity-nyq-y"),
+    pytest.param(1, {"x": 3, "y": 2, "z": N // 2},
+                 id="rotational-nyq-z"),
+])
+def test_nyquist_modes_satisfy_the_strong_eigen_relation(
+        nyquist_setup, s, indices):
+    # d/dt state(phase) == omega * state(phase + pi/2) through the
+    # linearized Leray-projected tendency, per Nyquist stratum
+    _, em, lin, _prog, base0, _leray = nyquist_setup
+    omega, z0 = em.mode(s, indices)
+    _, z1 = em.mode(s, indices, phase=np.pi / 2)
+    phys = base0.replace(**{
+        c: base0[c].with_data(z0[c].data) for c in "uvwb"})
+    tau = lin.tendency(phys, t=0.0, constraints=True)
+    residual = max(
+        float(np.abs(np.asarray(tau[c].data)
+                     - omega * np.asarray(z1[c].data)).max())
+        for c in "uvwb")
+    assert residual < 1e-12 * (1.0 + abs(omega))
+    if s == 0:
+        assert omega == 0.0
+    else:
+        assert omega != 0.0
+
+
+def test_partition_of_unity_covers_the_nyquist_strata(nyquist_setup):
+    # sum_s P(s) == identity on a Leray-projected coefficient state
+    # once the pre-existing exclusions (the kh = 0 inertial u/v
+    # strata and the k = 0 mean) are removed — in particular the
+    # even-grid Nyquist strata are fully covered
+    model, em, *_ = nyquist_setup
+    kit = em.kit
+    rng = np.random.default_rng(5)
+    model.set_fields(**{
+        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in "uvwb"})
+    zc = model.constrain(
+        State({c: model.state[c] for c in "uvwb"}))
+    template = em.q(0)
+    coeff = {c: np.array(kit.forward(c)(zc[c]).data) for c in "uvwb"}
+    for c in ("u", "v"):
+        coeff[c][0, 0, :] = 0.0
+    for c in ("w", "b"):
+        coeff[c][0, 0, 0] = 0.0
+    z = State({c: template[c].with_data(jnp.asarray(coeff[c]))
+               for c in "uvwb"})
+    out = None
+    for s in (0, 1, -1):
+        part = em.projector(s)(z)
+        out = part if out is None else State(
+            {c: out[c] + part[c] for c in "uvwb"})
+    scale = max(np.abs(coeff[c]).max() for c in "uvwb")
+    for c in "uvwb":
+        assert np.abs(np.asarray(out[c].data)
+                      - coeff[c]).max() / scale < 1e-12
+
+
+def test_nyquist_strata_agree_with_the_numeric_eigenpairs(
+        nyquist_setup):
+    # numeric oracle: on a horizontal-Nyquist mode the constrained
+    # spectrum is {-omega, 0, 0, +omega} with the analytic gravity
+    # frequency, the analytic steady stratum lies in the numeric
+    # zero eigenspace, and the doubly degenerate strata are
+    # all-steady
+    model, em, *_ = nyquist_setup
+    ne = fr.numeric_eigenpairs(model)
+    omega = np.asarray(ne.omega)
+    q = np.asarray(ne.q)
+    wts = np.asarray(ne.weights)
+    assert ne.components == ("u", "v", "w", "b")
+    shape = np.asarray(em.q(0)["u"].data).shape
+    table = np.broadcast_to(
+        np.real(np.asarray(em.omega(1).data)), shape)
+    q0 = {c: np.broadcast_to(np.asarray(em.q(0)[c].data), shape)
+          for c in "uvwb"}
+    nyq = N // 2
+    for pt in ((nyq, 3, 2), (nyq, 0, 2), (nyq, nyq, 1),
+               (2, nyq, 0)):
+        want = float(table[pt])
+        assert want > 0.0
+        np.testing.assert_allclose(
+            np.sort(omega[pt]), [-want, 0.0, 0.0, want], atol=1e-9)
+        # the analytic steady stratum lies in the numeric
+        # zero-frequency eigenspace
+        zero = np.abs(omega[pt]) < 1e-9
+        qz = q[pt][:, zero]
+        cand = np.array([q0[c][pt] for c in "uvwb"])
+        coef = qz.conj().T @ (wts * cand)
+        assert np.abs(cand - qz @ coef).max() \
+            < 1e-11 * np.abs(cand).max()
+    for pt in ((nyq, 3, N // 2), (nyq, nyq, N // 2)):
+        # doubly degenerate: the wave pair collapses, everything
+        # is steady (three physical modes + the constraint zero)
+        np.testing.assert_allclose(omega[pt], 0.0, atol=1e-9)
+
+
+def test_doubly_degenerate_wave_modes_are_taught_errors(
+        nyquist_setup):
+    # on the doubly degenerate strata the wave pair collapses to
+    # omega = 0 and its columns vanish structurally: the steady
+    # content lives in the vortical family instead
+    _, em, *_ = nyquist_setup
+    with pytest.raises(ValueError, match="structurally"):
+        em.mode(1, {"x": N // 2, "y": 1, "z": N // 2})
+    # ... while the vortical accessor exposes the primary
+    # (divergence-free) stratum there
+    omega, _ = em.mode(0, {"x": N // 2, "y": 1, "z": N // 2})
+    assert omega == 0.0
+
+
+def test_odd_grid_columns_are_bitwise_the_composed_formula():
+    # regression: an odd grid has no Nyquist stratum — the vortical
+    # family is the single composed column, bitwise
+    grid = Grid(tuple(
+        IntervalMesh(9, (0.0, 2 * np.pi), periodic=True, name=name)
+        for name in ("x", "y", "z")))
+    em = nh.eigenmodes.Eigenmodes(grid, f0=1.5, n2=3.0, dsqr=2.0)
+    columns = em._columns(0)
+    assert len(columns) == 1
+    x, y, z = em._axes
+    k, kb, a, ab = em.k, em.kb, em.a, em.ab
+    old = {
+        "u": -(a[x] @ (ab[y] @ k[y]) @ ab[z]),
+        "v": a[y] @ (ab[x] @ k[x]) @ ab[z],
+        "w": em.omega(0),
+        "b": 1.5 * (a[x].magnitude ** 2
+                    * a[y].magnitude ** 2 * kb[z]),
+    }
+    for c in "uvwb":
+        assert np.array_equal(np.asarray(old[c].data),
+                              np.asarray(columns[0][c].data))
+
+
+# ================================================================
 #  Provides-implies-constancy and the Velocity-role rules
 # ================================================================
 def test_fplane_provides_coriolis_f0_betaplane_does_not():

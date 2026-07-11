@@ -14,16 +14,24 @@ The dispersion relation is the symbol algebra
 tag-checked composition of the same symbols, and the biorthonormal
 dual is the derived ``fr.grid.rayleigh_dual`` under the
 shallow-water energy metric — no hand-written left vector and no
-caller-side masking (the degenerate interpolation-Nyquist
-geostrophic modes drop through exact structural zeros).
+caller-side masking.
 
-The one non-structural degeneracy is the ``k = 0`` mean: every
-symbol-composed wave entry vanishes there while the physical
-inertial pair ``omega = +/- f_0`` survives, so the ``s != 0``
-columns carry an explicit inertial patch ``(u, v, p) =
-(-i s, 1, 0)`` at the mean mode — the ``k = 0`` triple
-``{geostrophic mean pressure, +f_0, -f_0}`` stays complete and
-M-orthogonal.
+Two strata need explicit patches beyond the symbol-composed
+formulas. The ``k = 0`` mean: every symbol-composed wave entry
+vanishes there while the physical inertial pair
+``omega = +/- f_0`` survives, so the ``s != 0`` columns carry an
+explicit inertial patch ``(u, v, p) = (-i s, 1, 0)`` at the mean
+mode — the ``k = 0`` triple ``{geostrophic mean pressure, +f_0,
+-f_0}`` stays complete and M-orthogonal. And the
+interpolation-Nyquist planes of an even grid (where the staggering
+average ``cos(k dx / 2)`` hits its exact structural zero): rotation
+decouples there and the composed geostrophic column vanishes, while
+the plane operator still carries one steady mode — the
+discrete-divergence-free velocity ``(u, v, p) = (conj(k_y),
+-conj(k_x), 0)`` with ``p = 0`` — which the ``s = 0`` column
+carries explicitly, so the discrete ``{vortical, +, -}`` family is
+complete at **every** mode of the lattice (odd grids have no
+Nyquist stratum and are bitwise unaffected).
 
 Surface: ``em.omega(s)`` returns the frequency ``Symbol`` (``.data``
 for the half-spectrum array), ``em.q(s)`` the eigenvector as a
@@ -198,11 +206,13 @@ class Eigenmodes:
         -----------
         Tag-checked operator compositions with common domain = ``p``'s
         coefficient space (the codomain tags of the entries are the
-        per-component coefficient spaces). The interpolation-Nyquist
-        geostrophic modes are **exact** structural zeros of every
-        ``s = 0`` entry, so the Rayleigh dual vanishes there with no
-        masking; the ``s != 0`` columns are patched at the ``k = 0``
-        mean with the inertial pair (see :meth:`_patch_mean`).
+        per-component coefficient spaces). The composed ``s = 0``
+        entries are **exact** structural zeros on the
+        interpolation-Nyquist planes of an even grid, where the
+        column continues as the rotation-decoupled steady
+        divergence-free mode (see :meth:`_extend_nyquist_steady`);
+        the ``s != 0`` columns are patched at the ``k = 0`` mean
+        with the inertial pair (see :meth:`_patch_mean`).
 
         The branch pairing was fixed against the strong test
         ``L q^s = +i omega^s q^s`` (the C4 lesson): relative to the
@@ -214,12 +224,12 @@ class Eigenmodes:
         x, y = self._axes
         k, a, ab = self.k, self.a, self.ab
         if s == 0:
-            return {
+            return self._extend_nyquist_steady({
                 "u": -(a[x] @ (ab[y] @ k[y])),
                 "v": a[y] @ (ab[x] @ k[x]),
                 "p": self.f0 * (a[x].magnitude ** 2
                                 * a[y].magnitude ** 2),
-            }
+            })
         om = self.omega(s)
         kh2 = k[x].magnitude ** 2 + k[y].magnitude ** 2
         column = {
@@ -266,6 +276,59 @@ class Eigenmodes:
         data = data.at[(0,) * len(shape)].set(value)
         return Symbol(sym.space, data, codomain=sym.codomain)
 
+    def _extend_nyquist_steady(
+        self, column: dict[str, Symbol],
+    ) -> dict[str, Symbol]:
+        r"""Merge the Nyquist steady mode into the geostrophic column.
+
+        Description
+        -----------
+        On the interpolation-Nyquist planes of an even grid the
+        staggering average ``|a| = cos(k dx / 2)`` is an exact
+        structural zero, rotation decouples, and every composed
+        geostrophic entry vanishes — yet the plane operator still
+        has one steady mode: the discrete-divergence-free velocity
+
+        .. math::
+
+            (u, v, p) = (\overline{\hat k_y}, -\overline{\hat k_x},
+            0)
+
+        (``kb_x u + kb_y v = 0`` exactly since ``conj(k) = -kb`` in
+        the forward/backward difference symbol pair, and the
+        Coriolis coupling is structurally zero on the stratum). The
+        patch writes that value into the column exactly where the
+        interpolation product ``|a_x|^2 |a_y|^2`` is structurally
+        zero — disjoint from the composed column's support — so the
+        mode family is complete at every mode. On an odd grid the
+        stratum is empty and the column is returned untouched
+        (bitwise the pre-Nyquist path).
+
+        Parameters
+        ----------
+        column : dict[str, Symbol]
+            The composed geostrophic column.
+
+        Returns
+        -------
+        dict[str, Symbol]
+            The column with the Nyquist steady stratum merged.
+        """
+        x, y = self._axes
+        mask = (self.a[x].magnitude ** 2
+                * self.a[y].magnitude ** 2).data == 0
+        if not bool(np.any(np.asarray(mask))):
+            return column
+        supplement = {
+            "u": jnp.where(mask, jnp.conj(self.k[y].data), 0.0),
+            "v": jnp.where(mask, -jnp.conj(self.k[x].data), 0.0),
+        }
+        return {
+            c: (Symbol(sym.space, sym.data + supplement[c],
+                       codomain=sym.codomain)
+                if c in supplement else sym)
+            for c, sym in column.items()}
+
     def q(self, s: int = 1) -> State:
         r"""Eigenvector ``q^s`` as a coefficient-space ``State``.
 
@@ -296,8 +359,10 @@ class Eigenmodes:
         ``P^s z = q^s \langle p^s, z\rangle`` with the Rayleigh dual
         ``p^s`` derived from ``q^s`` under the shallow-water energy
         metric (``fr.grid.rayleigh_dual`` + the ``diag(1, 1, 1/c^2)``
-        weights): idempotent by biorthonormality, exactly zero on the
-        structurally degenerate modes.
+        weights): idempotent by biorthonormality, exactly zero on
+        structurally degenerate modes (none on the standard
+        ``f_0 != 0``, ``c^2 != 0`` system — the family is complete,
+        the even-grid Nyquist strata included).
 
         Parameters
         ----------
@@ -462,7 +527,9 @@ class Eigenmodes:
         ------
         ValueError
             On bad indices, or a structurally unrepresented mode
-            (the geostrophic interpolation-Nyquist planes).
+            (only on degenerate-parameter systems, e.g. the
+            ``f_0 = 0`` geostrophic mean: the standard family is
+            complete, Nyquist strata included).
         """
         components = ("u", "v", "p")
         q = self.q(s)
@@ -472,9 +539,10 @@ class Eigenmodes:
         if all(float(jnp.abs(a)) == 0.0 for a in amps.values()):
             raise ValueError(
                 f"mode s={s} at {dict(indices)!r} is structurally "
-                "unrepresented on the discrete lattice (the "
-                "geostrophic column vanishes exactly on the "
-                "interpolation-Nyquist planes)")
+                "unrepresented on the discrete lattice (the mode "
+                "family is complete on the standard f0 != 0, "
+                "csqr != 0 system; degenerate parameters drop "
+                "strata, e.g. f0 = 0 empties the geostrophic mean)")
 
         def synth(shift: float) -> dict[str, ScalarField]:
             out = {}

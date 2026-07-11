@@ -124,7 +124,10 @@ def random_state(
     ``sw.ChannelEigenmodes.families`` applies (unsigned roots cover
     both signed branches — the realized real state is closed under
     conjugation, so signed selections spread over the mirror
-    branch).
+    branch). On even grid sizes the vortical family includes the
+    interpolation-Nyquist steady strata (the divergence-free modes
+    that joined the geostrophic column), so a ``"vortical"`` state
+    populates the Nyquist planes like every other mode.
 
     Parameters
     ----------

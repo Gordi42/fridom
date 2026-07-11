@@ -227,6 +227,37 @@ def test_epsilon_slope_over_a_rossby_decade():
 
 
 # ================================================================
+#  3b. even-grid Nyquist steady strata land in the SLOW set
+# ================================================================
+def test_nyquist_steady_strata_are_slow():
+    # the even-grid interpolation-Nyquist steady modes joined the
+    # vortical family: order-0 balance (the slow projection) keeps
+    # them verbatim, the internal fast set excludes them (the
+    # 1/(i omega) inverse never meets a represented zero
+    # frequency), and balance runs at higher orders on a random
+    # Nyquist-carrying state with a decreasing series residual
+    model = make_sw_model()
+    em = sw.eigenmodes.from_model(model)
+    _, z = em.mode(0, {"x": N // 2, "y": 3})
+    bal = BalanceExpansion(model, order=0, lint=False)
+    assert absmax(bal(z), z) < 1e-12
+    wave = sw.transforms.WaveProjection(em)(z)
+    assert max(float(np.abs(np.asarray(wave[c].data)).max())
+               for c in SW_COMPONENTS) < 1e-12
+    rng = np.random.default_rng(8)
+    shape = np.asarray(model.state["u"].data).shape
+    model.set_fields(**{
+        c: 0.1 * rng.standard_normal(shape) for c in SW_COMPONENTS})
+    zr = sw.State({c: model.state[c] for c in SW_COMPONENTS})
+    residuals = [
+        BalanceExpansion(model, order=order,
+                         lint=False).residual_series(zr)
+        for order in (0, 1, 2)]
+    assert np.all(np.isfinite(residuals))
+    assert residuals[0] > residuals[1] > residuals[2]
+
+
+# ================================================================
 #  4. nonhydro periodic smoke
 # ================================================================
 def test_nh_periodic_orders_run_and_residual_decreases():

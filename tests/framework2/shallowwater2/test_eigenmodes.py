@@ -5,10 +5,13 @@ relation (validated against the numeric ``eigh(iML, M)`` probe to
 machine precision), the eigenvector columns satisfy the strong
 operator-level relation ``L q(s) = i omega(s) q(s)`` for the
 linearized tendency (shallow water carries no constraint stage), and
-the Rayleigh dual under the energy metric is biorthonormal with
-exact structural zeros on the interpolation-Nyquist geostrophic
-nullspace. The ``k = 0`` mean carries the patched inertial triple
-``{geostrophic pressure, (-i s, 1, 0)}`` — complete and M-orthogonal.
+the Rayleigh dual under the energy metric is biorthonormal. The
+``k = 0`` mean carries the patched inertial triple ``{geostrophic
+pressure, (-i s, 1, 0)}``; the even-grid interpolation-Nyquist
+planes carry the rotation-decoupled steady divergence-free stratum
+in the geostrophic column — the family is complete at every mode
+(odd grids, which have no Nyquist stratum, stay bitwise on the
+composed column).
 """
 import jax.numpy as jnp
 import numpy as np
@@ -16,6 +19,7 @@ import pytest
 
 import fridom.framework2 as fr
 import fridom.shallowwater2 as sw
+from fridom.framework2.grid.symbols import rayleigh_dual
 from fridom.framework2.model.eigen import _rest_background
 
 from .conftest import N, make_grid, make_model
@@ -130,7 +134,7 @@ def test_tendency_eigenrelation_lq_equals_i_omega_q():
 # ================================================================
 #  Biorthonormality via the Rayleigh dual
 # ================================================================
-def test_eigenmode_biorthonormality_and_structural_zeros():
+def test_eigenmode_biorthonormality_and_completeness():
     csqr = 4.0
     em, _ = _eig(csqr=csqr)
     weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
@@ -147,21 +151,59 @@ def test_eigenmode_biorthonormality_and_structural_zeros():
     for s in (0, 1, -1):
         p, good = dual(q[s])
         d = sum(np.conj(p[c]) * q[s][c] for c in COMPONENTS)
-        # sum_c conj(p_c) q_c == 1 wherever the mode is represented
-        assert np.abs(d[good] - 1.0).max() < 1e-12
-        if s == 0:
-            # the geostrophic column drops the interpolation-Nyquist
-            # planes through EXACT structural zeros of every entry
-            assert (~good).any()
-            for c in COMPONENTS:
-                assert np.all(q[s][c][~good] == 0.0)
-        else:
-            # the patched wave columns are represented at every mode
-            assert good.all()
+        # every branch is represented at EVERY mode: the k = 0 mean
+        # via the inertial patch, the even-grid Nyquist planes via
+        # the steady divergence-free stratum of the vortical column
+        assert good.all()
+        assert np.abs(d - 1.0).max() < 1e-12
     for s, t in [(0, 1), (0, -1), (1, -1), (1, 0), (-1, 0), (-1, 1)]:
         p, _ = dual(q[s])
         cross = sum(np.conj(p[c]) * q[t][c] for c in COMPONENTS)
         assert np.abs(cross).max() < 1e-9
+
+
+def test_nyquist_steady_stratum_is_the_divergence_free_mode():
+    # on the interpolation-Nyquist planes the geostrophic column is
+    # the rotation-decoupled steady mode (conj(k_y), -conj(k_x), 0)
+    em, _ = _eig(f0=1.5, csqr=2.0)
+    x, y = em._axes
+    shape = (N // 2 + 1, N)
+    ax2 = np.asarray((em.a[x].magnitude ** 2).data)
+    ay2 = np.asarray((em.a[y].magnitude ** 2).data)
+    mask = np.broadcast_to((ax2 * ay2) == 0.0, shape)
+    assert mask.any()
+    q0 = _mode_data(em.q(0))
+    ky = np.broadcast_to(np.asarray(em.k[y].data), shape)
+    kx = np.broadcast_to(np.asarray(em.k[x].data), shape)
+    assert np.array_equal(q0["u"][mask], np.conj(ky)[mask])
+    assert np.array_equal(q0["v"][mask], -np.conj(kx)[mask])
+    assert np.all(q0["p"][mask] == 0.0)
+
+
+def test_nyquist_steady_stratum_matches_the_numeric_eigenvectors():
+    # numeric oracle: at every Nyquist mode the frequency multiset is
+    # {-omega, 0, +omega} and the analytic steady stratum spans the
+    # numeric zero-frequency eigenvector
+    f0, csqr = 1.5, 2.0
+    em, model = _eig(f0=f0, csqr=csqr)
+    ne = fr.numeric_eigenpairs(model)
+    omega = np.asarray(ne.omega)
+    q = np.asarray(ne.q)
+    w = np.asarray(ne.weights)
+    q0 = _mode_data(em.q(0))
+    nyq = N // 2
+    for pt in ((nyq, 3), (nyq, 0), (0, nyq), (nyq, nyq), (2, nyq)):
+        om = np.sort(omega[pt])
+        khat2 = sum((2.0 * np.sin(np.pi * i / N) * N) ** 2
+                    for i in pt)
+        gravity = np.sqrt(csqr * khat2)
+        np.testing.assert_allclose(
+            om, [-gravity, 0.0, gravity], atol=1e-9)
+        steady = q[pt][:, np.argmin(np.abs(omega[pt]))]
+        cand = np.array([q0[c][pt] for c in COMPONENTS])
+        inner = np.sum(w * np.conj(steady) * cand)
+        assert np.abs(cand - inner * steady).max() < 1e-12 * np.abs(
+            cand).max()
 
 
 # ================================================================
@@ -217,10 +259,10 @@ def test_k0_inertial_patch_completes_the_mean_triple():
         assert abs(inner) == 0.0
 
 
-def test_mode_family_is_complete_off_the_nyquist_nullspace():
-    # sum_s P(s) == identity at every mode (the patched k = 0 mean
-    # included) except the interpolation-Nyquist planes, where the
-    # geostrophic mode is a structural zero of the family.
+def test_mode_family_is_a_partition_of_unity_at_every_mode():
+    # sum_s P(s) == identity EXACTLY at every mode: the patched
+    # k = 0 mean and the even-grid interpolation-Nyquist steady
+    # strata included.
     em, _ = _eig(f0=1.5, csqr=2.0)
     z = _random_coeff_state(em, seed=3)
     out = None
@@ -228,18 +270,65 @@ def test_mode_family_is_complete_off_the_nyquist_nullspace():
         part = em.projector(s)(z)
         out = part if out is None else sw.State(
             {c: out[c] + part[c] for c in COMPONENTS})
-    nyq = N // 2
-    mask = np.ones((N // 2 + 1, N), dtype=bool)
-    mask[nyq, :] = False
-    mask[:, nyq] = False
     for c in COMPONENTS:
         resid = np.abs(np.asarray(out[c].data) - np.asarray(z[c].data))
-        assert resid[0, 0] < 1e-12
-        assert resid[mask].max() < 1e-12
-    # ... and the Nyquist-vortical content is genuinely dropped
-    assert max(np.abs(np.asarray(out[c].data)
-                      - np.asarray(z[c].data))[~mask].max()
-               for c in ("u", "v")) > 1e-2
+        assert resid.max() < 1e-12
+
+
+def test_odd_grid_vortical_column_is_bitwise_the_composed_formula():
+    # regression: an odd grid has no Nyquist stratum, so the
+    # geostrophic column (and hence the projector action) is
+    # bitwise the plain composed pre-Nyquist formula
+    n = 9
+    em = sw.eigenmodes.Eigenmodes(make_grid(n=n), f0=1.5, csqr=2.0)
+    x, y = em._axes
+    k, a, ab = em.k, em.a, em.ab
+    old = {
+        "u": -(a[x] @ (ab[y] @ k[y])),
+        "v": a[y] @ (ab[x] @ k[x]),
+        "p": 1.5 * (a[x].magnitude ** 2 * a[y].magnitude ** 2),
+    }
+    new = em._vec_q(0)
+    for c in COMPONENTS:
+        assert np.array_equal(np.asarray(old[c].data),
+                              np.asarray(new[c].data))
+    # ... and the projector acts bitwise like the explicit
+    # single-column rayleigh-dual formula
+    rng = np.random.default_rng(1)
+    template = em.q(0)
+    shape = np.asarray(template["u"].data).shape
+    z = sw.State({c: template[c].with_data(jnp.asarray(
+        rng.standard_normal(shape) + 1j * rng.standard_normal(shape)))
+        for c in COMPONENTS})
+    p = rayleigh_dual(old, {"u": 1.0, "v": 1.0, "p": 0.5})
+    amp = sum(jnp.conj(p[c].data) * z[c].data for c in p)
+    got = em.projector(0)(z)
+    for c in COMPONENTS:
+        want = np.asarray(jnp.broadcast_to(old[c].data * amp, shape))
+        assert np.array_equal(np.asarray(got[c].data), want)
+
+
+def test_vortical_projection_is_real_safe_on_the_even_grid():
+    # the Nyquist steady stratum is Hermitian-symmetric: the vortical
+    # projection of a real physical state stays exactly real through
+    # the transform round-trip
+    em, model = _eig(f0=1.5, csqr=2.0)
+    kit = em._kit
+    rng = np.random.default_rng(6)
+    z = sw.State({
+        c: kit.forward(c)(model.state[c].with_data(jnp.asarray(
+            rng.standard_normal(model.state[c].data.shape))))
+        for c in COMPONENTS})
+    out = em.projector(0)(z)
+    for c in COMPONENTS:
+        back = kit.backward(c)(out[c])
+        data = np.asarray(back.data)
+        scale = float(np.abs(data).max())
+        assert np.abs(np.imag(data)).max() < 1e-15 * scale
+        # Hermitian coefficients: the real synthesis loses nothing
+        again = np.asarray(kit.forward(c)(back.real).data)
+        assert np.abs(again - np.asarray(out[c].data)).max() \
+            < 1e-13 * scale
 
 
 # ================================================================
@@ -263,6 +352,14 @@ def _mode_pair(em, s, indices, phase=0.0):
     pytest.param(-1, {"x": 2, "y": -3}, id="minus-negative-ky"),
     pytest.param(0, {"x": 1, "y": 4}, id="vortical"),
     pytest.param(1, {"x": 0, "y": 0}, id="inertial-mean"),
+    pytest.param(0, {"x": N // 2, "y": 3}, id="vortical-nyq-x"),
+    pytest.param(0, {"x": 2, "y": N // 2}, id="vortical-nyq-y"),
+    pytest.param(0, {"x": N // 2, "y": N // 2},
+                 id="vortical-nyq-corner"),
+    pytest.param(0, {"x": N // 2, "y": 0}, id="vortical-nyq-axis"),
+    pytest.param(1, {"x": N // 2, "y": 3}, id="plus-nyq-x"),
+    pytest.param(-1, {"x": N // 2, "y": N // 2},
+                 id="minus-nyq-corner"),
 ])
 def test_mode_satisfies_the_strong_eigen_relation(
         mode_setup, s, indices):
@@ -353,8 +450,13 @@ def test_mode_zero_velocity_mean_is_unnormalized(mode_setup):
 
 def test_mode_errors(mode_setup):
     _, em = mode_setup
+    # the standard family is complete, the Nyquist strata included;
+    # only degenerate parameters (f0 = 0 empties the geostrophic
+    # mean) still hit the structural guard
+    degenerate = sw.eigenmodes.Eigenmodes(make_grid(), f0=0.0,
+                                          csqr=1.0)
     with pytest.raises(ValueError, match="structurally"):
-        em.mode(0, {"x": N // 2, "y": 0})  # interpolation Nyquist
+        degenerate.mode(0, {"x": 0, "y": 0})
     with pytest.raises(ValueError, match="half"):
         em.mode(1, {"x": -3, "y": 0})
     with pytest.raises(ValueError, match="keyed by the grid axes"):

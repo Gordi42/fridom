@@ -152,7 +152,12 @@ def random_state(
     on a channel any labeled physical selection of
     ``nh.ChannelEigenmodes.families`` applies (unsigned roots cover
     both signed branches; the ``constraint`` complement is a taught
-    error).
+    error). On even grid sizes the vortical synthesis draws the
+    primary geostrophic column, which includes the
+    horizontal-Nyquist steady divergence-free strata; the extra
+    internal steady columns of the doubly degenerate strata (the
+    overturning and pure-buoyancy modes) are projector-only and
+    carry no random content here.
 
     Parameters
     ----------

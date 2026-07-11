@@ -31,10 +31,15 @@ The public factories:
 - ``DivergenceProjection`` — the residual complement of every named
   physical family. The nonhydro components genuinely carry
   unbalanced content, so this projection is **non-trivial** on both
-  backends: on the channel the physical families sum to the Leray
-  projector ``P`` (NOT the identity), so the complement captures
-  exactly the divergence (pressure-gradient) content plus any
-  column the labeler left ``UNLABELED``.
+  backends: on the analytic tier the family spans exactly the
+  Leray-constrained subspace minus the structurally excluded
+  ``k_h = 0`` inertial strata and the ``k = 0`` mean (the even-grid
+  Nyquist steady strata are covered by the vortical family, so no
+  Nyquist residual lands here); on the channel the physical
+  families sum to the Leray projector ``P`` (NOT the identity), so
+  the complement captures exactly the divergence
+  (pressure-gradient) content plus any column the labeler left
+  ``UNLABELED``.
 
 Each is a :class:`~fridom.framework2.transforms.projection.ProjectionFactory`
 with dual sources — ``VorticalProjection(em)`` from an explicit
@@ -227,12 +232,16 @@ def _build_divergence(
 ) -> StateTransform:
     """Return the residual complement of every named physical family.
 
-    On the channel the named physical families are vortical, wave
-    and kelvin, which together sum to the Leray projector ``P`` (NOT
-    the identity — the ``constraint`` columns are excluded), so the
-    complement captures the divergence (pressure-gradient) content
-    plus any column the labeler left ``UNLABELED`` — no unresolved
-    column ever lands in a named family silently.
+    On the analytic tier the complement carries the divergence
+    (pressure-gradient) content plus the structurally excluded
+    ``k_h = 0`` inertial strata and the ``k = 0`` mean; the
+    even-grid Nyquist steady strata belong to the vortical family
+    and never land here. On the channel the named physical families
+    are vortical, wave and kelvin, which together sum to the Leray
+    projector ``P`` (NOT the identity — the ``constraint`` columns
+    are excluded), so the complement captures the divergence
+    content plus any column the labeler left ``UNLABELED`` — no
+    unresolved column ever lands in a named family silently.
     """
     named = _build_vortical(em) + _build_wave(em)
     if isinstance(em, ChannelEigenmodes):

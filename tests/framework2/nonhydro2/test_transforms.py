@@ -109,6 +109,24 @@ def test_divergence_projection_is_non_trivial():
                for c in COMPONENTS) > 1e-2
 
 
+def test_divergence_projection_annihilates_the_nyquist_strata():
+    # SEMANTICS (Nyquist completion): the even-grid Nyquist steady
+    # strata belong to the vortical family — the divergence
+    # complement no longer captures them
+    model = _model()
+    em = nh.eigenmodes.from_model(model)
+    for indices in ({"x": N // 2, "y": 1, "z": 2},
+                    {"x": N // 2, "y": 2, "z": N // 2}):
+        _, z = em.mode(0, indices)
+        kept = nh.transforms.VorticalProjection(em)(z)
+        div = nh.transforms.DivergenceProjection(em)(z)
+        scale = max(float(np.abs(np.asarray(z[c].data)).max())
+                    for c in COMPONENTS)
+        assert _absmax(kept, z) < 1e-12 * scale
+        assert max(float(np.abs(np.asarray(div[c].data)).max())
+                   for c in COMPONENTS) < 1e-12 * scale
+
+
 # ================================================================
 #  Single branches: Hermitian closure on the rfft half-lattice
 # ================================================================

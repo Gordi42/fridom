@@ -26,10 +26,13 @@ The public factories:
   kelvin-** pair (channel only; the fully periodic grid raises: no
   walls, no Kelvin family);
 - ``DivergenceProjection`` — the residual complement of every named
-  family. On the channel it is the zero map up to floating point
-  wherever the labeler resolved every column (the f-plane channel);
-  columns the labeler left ``UNLABELED`` never land in a named
-  family silently — the complement captures exactly them.
+  family. On the fully periodic grid it is the **structural zero
+  map** (the discrete ``{vortical, +, -}`` family is complete at
+  every mode, the even-grid Nyquist steady strata included). On the
+  channel it is the zero map up to floating point wherever the
+  labeler resolved every column (the f-plane channel); columns the
+  labeler left ``UNLABELED`` never land in a named family silently
+  — the complement captures exactly them.
 
 Each is a :class:`~fridom.framework2.transforms.projection.ProjectionFactory`
 with **dual sources** — ``VorticalProjection(em)`` from an explicit
@@ -43,12 +46,13 @@ on the east face, ``v`` on the north face, ``p`` on the centre): the
 eigenmode kit's per-component transforms carry each component to its
 own coefficient basis, the diagonal per-mode projector applies
 there, and the backward transforms return to the nodal spaces. The
-three modes span the three components at every wavenumber (the
-``k = 0`` mean via the inertial patch), except the
-interpolation-Nyquist planes where the geostrophic column is a
-structural zero — ``DivergenceProjection`` picks up exactly that
-Nyquist-vortical residual and is the zero map on Nyquist-free
-states.
+three modes span the three components at **every** wavenumber: the
+``k = 0`` mean via the inertial patch, and the even-grid
+interpolation-Nyquist planes via the steady divergence-free
+stratum of the geostrophic column — so ``DivergenceProjection`` is
+the structural zero map on any periodic state. (Before the Nyquist
+strata joined the vortical family it captured a "Nyquist-vortical
+residual" on even grids; that residual no longer exists.)
 
 Per-plane column projection (the engine path). The shared framework
 machinery
@@ -207,12 +211,15 @@ def _build_divergence(
 ) -> StateTransform:
     """Return the residual complement of every named family.
 
-    On the channel the named families are vortical, wave (both
-    Poincaré branches) and kelvin (both branches); the complement is
-    the zero map up to floating point wherever the labeler resolved
-    every column (the f-plane channel) and captures exactly the
-    ``UNLABELED`` columns otherwise — no unresolved column ever
-    lands in a named family silently.
+    On the fully periodic grid the analytic family is complete at
+    every mode (even-grid Nyquist steady strata included), so the
+    complement is the structural zero map. On the channel the named
+    families are vortical, wave (both Poincaré branches) and kelvin
+    (both branches); the complement is the zero map up to floating
+    point wherever the labeler resolved every column (the f-plane
+    channel) and captures exactly the ``UNLABELED`` columns
+    otherwise — no unresolved column ever lands in a named family
+    silently.
     """
     named = _build_vortical(em) + _build_wave(em)
     if isinstance(em, ChannelEigenmodes):
