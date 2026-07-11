@@ -227,5 +227,7 @@ Phase 0.5 ships `docs/lint_docs.py` (name tentative), run in CI on
 changed files next to `sphinx-build -W`, linkcheck, and doctest. It
 checks, at minimum: the §2 banned patterns, §4 label uniqueness and
 scheme, §5 admonition vocabulary, §11 citation-key existence, em
-dashes outside literals, and emoji anywhere. Every new renderer quirk
-or style violation we hit once becomes a check.
+dashes outside literals, emoji anywhere, and **no open `REVIEW:`
+markers** (the owner's in-file review comments; an unaddressed marker
+blocks the merge — see the review workflow in AGENTS.md). Every new
+renderer quirk or style violation we hit once becomes a check.

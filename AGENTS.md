@@ -317,17 +317,23 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
 - GitHub PRs are the exception, not the rule: open one only when Silvano
   explicitly asks for a reviewable record. Push the branch, open the PR
   with `gh`, and delete the remote branch after the merge.
-- **Exception: docs content is always PR-reviewed** (standing request,
-  2026-07-11). Any change to reader-facing documentation content —
-  `docs/` pages and `examples/` scripts — lands via a GitHub PR that
-  **only Silvano merges**; agents never merge these onto `dev`
-  themselves. Keep such PRs small (one page or chapter each). Feedback
-  arrives as inline PR comments, GitHub suggested changes, or commits
-  Silvano pushes onto the PR branch; poll for it with `gh`, address it
-  on the branch, and treat his own edits as authoritative style
-  signal — fold generalizable corrections into the docs style guide
-  (`design/specs/docs/style_guide.md`, later `docs/STYLE.md`) so the
-  same correction never needs making twice. Design records under
+- **Exception: docs content is owner-reviewed privately** (standing
+  request, 2026-07-11). Any change to reader-facing documentation
+  content — `docs/` pages and `examples/` scripts — is reviewed by
+  Silvano **before** it reaches `dev`, and the review stays off
+  GitHub (the repo is public; review discussion is not). Mechanics:
+  the `docs/<topic>` branch stays **local** (never pushed) until
+  approved; the agent builds a local preview (`make html` /
+  `sphinx-autobuild`) and Silvano reviews rendered pages plus the
+  diff. Feedback arrives as direct edits on the branch
+  (authoritative) or as anchored markers at the exact spot:
+  `.. REVIEW: ...` in rst, `# REVIEW: ...` in Python examples,
+  `<!-- REVIEW: ... -->` in Markdown. Agents sweep markers
+  (`grep -rn "REVIEW:" docs examples`), apply each, delete it, and
+  fold generalizable corrections into the docs style guide
+  (`design/specs/docs/style_guide.md`, later `docs/STYLE.md`).
+  **Merge gate:** zero open markers AND Silvano's explicit approval
+  in chat; only then merge onto `dev` and push. Design records under
   `design/` and docs build *infrastructure* (`conf.py`, CI, templates)
   follow the normal workflow above.
 - Commit messages: `<scope>: <short lowercase summary>` where scope is
