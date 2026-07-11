@@ -93,6 +93,24 @@ New `.github/workflows/docs.yml`:
 Budget check: GHA public runners are 4 vCPU / 16 GB, 6 h/job, free;
 Pages site ≤ 1 GB (a dozen low-res mp4s at 5–20 MB is fine).
 
+### CI cost per docs-review push (settled 2026-07-11)
+
+A docs-review PR must stay cheap through many feedback round-trips:
+
+- `tests.yml` skips docs-only changes (`paths-ignore` on `docs/**`,
+  `examples/**`, `design/**`, `assets/**`, `**.md`; done 2026-07-11)
+  and cancels superseded runs per branch. The test suite never runs
+  for a prose iteration.
+- `docs.yml` triggers on PRs only for `docs/**`/`examples/**` paths,
+  and there runs the *cheap* leg: quick build (no execution) or
+  changed-examples-only per item 5. The full executed build runs on
+  push to dev, the weekly cron, and `workflow_dispatch` (for an
+  on-demand full preview before a merge).
+- The per-push review artifact is the thin RTD preview
+  (`SPHINX_QUICK_BUILD`, a few minutes, renders prose and layout);
+  executed media is reviewed via the changed-example run or the
+  post-merge full build.
+
 ## Phase 2 — Pilot example, end-to-end
 
 Port **one** example — `shallowwater/barotropic_instability` (2D,
