@@ -123,7 +123,25 @@ html_static_path = ['_static']
 autodoc_mock_imports = pyproject["project"]["dependencies"]
 autodoc_mock_imports += pyproject["project"]["optional-dependencies"]["dev"]
 autodoc_mock_imports += ["imageio", "jax", "jaxdecomp"]
-autodoc_mock_imports = list(set(autodoc_mock_imports))
+
+# Only mock dependencies that are not installed in the build environment:
+# mocking an installed one breaks module-level code that needs real
+# objects (e.g. warnings.filterwarnings(category=...) with a mocked
+# warning class). On a full environment (CI, local) nothing is mocked;
+# on a docs-requirements-only environment (RTD preview) all are.
+import importlib.util
+import re
+
+def _is_installed(requirement):
+    name = re.split(r"[\[<>=!~; ]", requirement, maxsplit=1)[0]
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+autodoc_mock_imports = sorted(
+    {dep for dep in autodoc_mock_imports if not _is_installed(dep)}
+)
 # default_role = 'literal'
 # MyST configuration
 myst_enable_extensions = [
