@@ -171,8 +171,12 @@ ignore = [
 # gallery scripts: reader-facing standalone files — no annotations
 # (ANN, like benchmarks), rst titles are headings not sentences (D400),
 # sphinx-gallery config comments look like commented-out code (ERA001),
-# and the visible cdfviewer one-liner runs through the shell (S602)
-"examples/**/*.py" = ["ANN", "D205", "D400", "ERA001", "INP001", "S602"]
+# the visible cdfviewer one-liner runs through the shell (S602), and
+# captured output is page content: print (T201) and bare display
+# expressions (B018) are the gallery display idioms
+"examples/**/*.py" = [
+  "ANN", "B018", "D205", "D400", "ERA001", "INP001", "S602", "T201",
+]
 # benchmark suite scripts are standalone files, like examples
 "benchmarks/**/*.py" = ["ANN", "INP001"]
 # the benchmarking CLI communicates through stdout by design
