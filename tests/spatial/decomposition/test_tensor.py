@@ -390,6 +390,23 @@ def test_neumann_fill_on_vacant_boundary_not_grounded(bounded):
         _filled(decomp, space, [1.0, 2.0, 3.0])
 
 
+def test_robin_fill_points_at_the_data_path(bounded):
+    # Robin fills are data-parameterized (alpha, g dynamic) and
+    # arrive with the ('ghost_fill', space) path (stage 2e); until
+    # then a sync on a Robin space is a loud, guiding error
+    space = bounded.nodal(NodeSet.CENTER, bc=BC.ROBIN)
+    decomp = _mesh_decomp(bounded, 1)
+    with pytest.raises(NotImplementedError, match="ghost_fill"):
+        _filled(decomp, space, [1.0, 2.0, 3.0, 4.0])
+
+
+def test_robin_keeps_boundary_dofs_like_neumann(bounded):
+    # Robin constrains a derivative combination, not a nodal value:
+    # it never drops a DOF (unlike Dirichlet)
+    assert bounded.nodal(NodeSet.OUTER, bc=BC.ROBIN).shape == (5,)
+    assert bounded.nodal(NodeSet.CENTER, bc=BC.ROBIN).shape == (4,)
+
+
 def test_neumann_outer_keeps_nodes_and_mirrors_about_them(bounded):
     # Neumann never drops the boundary DOF (owner decision
     # 2026-07-07): the even extension reflects about the boundary

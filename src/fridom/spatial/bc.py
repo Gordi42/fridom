@@ -18,11 +18,22 @@ from enum import Enum, auto
 
 class BC(Enum):
 
-    """Homogeneous boundary-condition kind at one boundary component."""
+    """
+    Boundary-condition *kind* at one boundary component.
+
+    Description
+    -----------
+    Kinds only — never a coefficient or inhomogeneity value, which
+    are dynamic data (boundary-closure principle,
+    ``design/plans/active/boundary_plan.md``): a float in the
+    interning key would recompile per value and foreclose autodiff
+    through BC parameters.
+    """
 
     NONE = auto()  # BC-free: boundary DOFs stay in the space
     DIRICHLET = auto()
     NEUMANN = auto()
+    ROBIN = auto()  # u + alpha u' = g; alpha/g are dynamic (2e)
 
 
 class BCStructure:

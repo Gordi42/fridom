@@ -894,37 +894,85 @@ def _bounded_ghosts(
         index = k - 1 if side == 0 else n - k
         return _take(true, axis, slice(index, index + 1))
 
+    ghosts = _ghost_values(kind, distance, dof, n, width, factor)
+    if side == 0:
+        ghosts.reverse()
+    return jnp.concatenate(ghosts, axis=axis)
+
+
+def _ghost_values(
+    kind: BC,
+    distance: float,
+    dof: Callable[[int], jax.Array],
+    n: int,
+    width: int,
+    factor: FunctionSpace,
+) -> list[jax.Array]:
+    """
+    Return one boundary's ghost values, innermost slot first.
+
+    Description
+    -----------
+    Dirichlet-structured sides get the odd (zero-value) extension,
+    Neumann-structured sides the even (mirror) extension, and
+    BC-free sides a one-sided linear extrapolation (consistent with
+    the iteration-1 second-order stencils). ``BC.ROBIN`` fills are
+    data-parameterized and raise, pointing at the stage-2e
+    ``("ghost_fill", space)`` data path.
+
+    Parameters
+    ----------
+    kind : BC
+        The boundary component's BC kind.
+    distance : float
+        The nearest-true-DOF distance class (``_boundary_geometry``).
+    dof : Callable[[int], jax.Array]
+        Accessor for the k-th true DOF from this side (k=1 nearest).
+    n : int
+        The true DOF count along the axis.
+    width : int
+        The ghost width to fill.
+    factor : FunctionSpace
+        The factor space owning the axis (error messages only).
+
+    Returns
+    -------
+    list[jax.Array]
+        The ``width`` ghost slices, adjacent-to-true first.
+    """
     if kind is BC.NONE:
         if n < 2:  # noqa: PLR2004 — two-point extrapolation
             raise NotImplementedError(
                 "the BC-free one-sided extrapolation needs at "
                 f"least two DOFs along the axis, got {n}")
-        ghosts = [(1.0 + k) * dof(1) - float(k) * dof(2)
-                  for k in range(1, width + 1)]
-    elif kind is BC.DIRICHLET and distance == _OFFSET:
-        ghosts = [-dof(k) for k in range(1, width + 1)]
-    elif kind is BC.DIRICHLET:
+        return [(1.0 + k) * dof(1) - float(k) * dof(2)
+                for k in range(1, width + 1)]
+    if kind is BC.DIRICHLET and distance == _OFFSET:
+        return [-dof(k) for k in range(1, width + 1)]
+    if kind is BC.DIRICHLET:
         # _VACANT: the ghost slot k = 1 IS the (zero) boundary DOF;
         # deeper slots odd-reflect about it
-        ghosts = [jnp.zeros_like(dof(1)) if k == 1 else -dof(k - 1)
-                  for k in range(1, width + 1)]
-    elif kind is BC.NEUMANN and distance == _OFFSET:
-        ghosts = [dof(k) for k in range(1, width + 1)]
-    elif kind is BC.NEUMANN and distance == _MEMBER:
+        return [jnp.zeros_like(dof(1)) if k == 1 else -dof(k - 1)
+                for k in range(1, width + 1)]
+    if kind is BC.NEUMANN and distance == _OFFSET:
+        return [dof(k) for k in range(1, width + 1)]
+    if kind is BC.NEUMANN and distance == _MEMBER:
         # the boundary node is a true DOF (Neumann keeps it): the
         # even/mirror extension reflects about that node, which is
         # excluded from the reflection — ghost slot k mirrors the
         # interior node k cells inside, i.e. dof(k + 1)
         # (decomposition.md even-extension contract)
-        ghosts = [dof(k + 1) for k in range(1, width + 1)]
-    else:
+        return [dof(k + 1) for k in range(1, width + 1)]
+    if kind is BC.ROBIN:
         raise NotImplementedError(
-            "the Neumann (even) fill is grounded for node sets whose "
-            "nearest DOF is boundary-offset or on the boundary; got "
-            f"{factor!r} with a vacant lattice node on the boundary")
-    if side == 0:
-        ghosts.reverse()
-    return jnp.concatenate(ghosts, axis=axis)
+            "Robin ghost fills are data-parameterized (alpha, g are "
+            "dynamic) and arrive with the ('ghost_fill', space) "
+            "data path — boundary_plan.md stage 2e; Robin "
+            "derivatives are supported flux-form")
+    raise NotImplementedError(
+        "the Neumann (even) fill is grounded for node sets whose "
+        "nearest DOF is boundary-offset or on the boundary; got "
+        f"{factor!r} with a vacant lattice node on the boundary")
 
 
 def _fill_axis(
