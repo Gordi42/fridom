@@ -120,6 +120,29 @@ def test_real_field_round_trips_to_a_real_field(walled):
     assert jnp.allclose(back.data, f.data, atol=1e-15)
 
 
+def test_walled_grids_keep_the_staged_trig_path(walled):
+    # the all-Fourier rfftn fast path never swallows the trig axis:
+    # the trig part has no fused kernel and stays staged; the
+    # Fourier part fuses only its own (periodic) axes
+    grid, meshes = walled
+    space = _walled_space(meshes, Sine)
+    tf = resolve_transform(grid, space)
+    f = grid.random.normal(space, seed=8)
+    fourier, trig = tf.parts
+    data = jnp.asarray(f.data)
+    plan = trig.forward_plan(space)
+    assert trig._forward_fused_kernel(data, plan) is None
+    coeff = tf.forward(f)
+    plan_b = trig.backward_plan(coeff.function_space)
+    assert trig._backward_fused_kernel(
+        jnp.asarray(coeff.data), plan_b) is None
+    fused = fourier._forward_fused_kernel(
+        data, fourier.forward_plan(space))
+    assert fused.shape == (N // 2 + 1, 6, space.shape[2])
+    back = tf.backward(coeff)
+    assert jnp.allclose(back.data, f.data, atol=1e-13)
+
+
 def test_metadata_is_preserved_through_the_composition(walled):
     grid, meshes = walled
     space = _walled_space(meshes, Cosine)
