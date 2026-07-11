@@ -375,11 +375,14 @@ def single_wave(
     -----------
     The thin wrapper over the analytic mode accessor
     ``em.mode(s, k, phase=...)``: the real Hermitian-closed physical
-    mode :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x + \mathrm{phase})})`
+    mode :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
     with exact discrete dispersion, normalized so the largest
     horizontal-velocity envelope is one. Under the linear model the
     state at time :math:`t` is the same mode at phase
-    ``phase + omega * t``.
+    ``phase + omega * t``, so positive ``omega`` propagates along
+    ``+k``: ``s = +1`` is the positive-frequency branch, moving
+    with the wavevector (eastward for positive ``kx``), ``s = -1``
+    the mirror branch.
 
     Parameters
     ----------

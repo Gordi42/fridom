@@ -418,9 +418,11 @@ class ChannelEigenmodesBase(ABC):
         the projector grammar — a family string or a predicate
         ``(omega, labels) -> bool mask``. ``f`` is evaluated once,
         host-side, on the **real** frequencies of the selected
-        columns only (complex return values allowed):
-        ``f = lambda w: 1 / (1j * w)`` builds :math:`L^{-1}` on the
-        selection, ``f = lambda w: 1j * w`` the forward operator. A
+        columns only (complex return values allowed; the columns
+        satisfy ``L q = -i omega q``):
+        ``f = lambda w: -1.0 / (1j * w)`` builds :math:`L^{-1}` on
+        the selection, ``f = lambda w: -1j * w`` the forward
+        operator. A
         singular ``f`` meeting a zero-frequency column (a vortical /
         constraint column; the engine's zeros are numerical, so
         ``f(0)`` is probed on columns with ``|omega| < 1e-8``, the
@@ -429,7 +431,7 @@ class ChannelEigenmodesBase(ABC):
 
         Real-safety: for a conjugation-closed selection and ``f``
         satisfying :math:`f(-\omega) = \overline{f(\omega)}` (true
-        for :math:`1/(i\omega)` and :math:`i\omega`) the map sends
+        for :math:`-1/(i\omega)` and :math:`-i\omega`) the map sends
         real states to real states — the implied conjugate planes
         carry the conjugate weights, so the real synthesis is exact.
         A non-closed selection or a sign-asymmetric ``f`` acts on
@@ -488,7 +490,10 @@ class ChannelEigenmodesBase(ABC):
         the dominant component segment along the bounded axis.
 
         The state is the real Hermitian-closed physical mode
-        :math:`\mathrm{Re}(q(y)\,e^{i(k\cdot x + \mathrm{phase})})`,
+        :math:`\mathrm{Re}(q(y)\,e^{i(k\cdot x - \mathrm{phase})})`
+        (under the linear model the state at time ``t`` is the same
+        mode at phase ``phase + omega * t``, so positive ``omega``
+        propagates along ``+k`` — eastward for positive ``kx``),
         normalized so the largest horizontal-velocity amplitude
         (the pointwise oscillation envelope over the ``u`` and
         ``v`` nodes) is one; a mode without horizontal velocity is
@@ -542,10 +547,10 @@ class ChannelEigenmodesBase(ABC):
         col = cols[ordinal]
         column = jnp.asarray(q[:, col])
         z0 = _synthesize_column(
-            self, slots, column * jnp.exp(1j * float(phase)))
+            self, slots, column * jnp.exp(-1j * float(phase)))
         z1 = _synthesize_column(
             self, slots,
-            column * jnp.exp(1j * (float(phase) + jnp.pi / 2.0)))
+            column * jnp.exp(-1j * (float(phase) + jnp.pi / 2.0)))
         scale = envelope_scale(z0, z1, _horizontal_velocities(self))
         state = self.state_class(
             {c: z0[c] / scale for c in self.components})

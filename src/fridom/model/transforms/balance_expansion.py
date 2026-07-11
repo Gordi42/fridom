@@ -19,7 +19,8 @@ B(\phi,\phi)` the method needs only the slow projector :math:`V`,
 the fast projector :math:`W`, the inverse :math:`L_w^{-1}` of the
 linear operator on the fast subspace, and the symmetric bilinear
 form :math:`B` of the quadratic term — no per-mode bookkeeping. The
-projectors and :math:`L_w^{-1} = f(L)` with :math:`f = 1/(i\omega)`
+projectors and :math:`L_w^{-1} = f(L)` with :math:`f = -1/(i\omega)`
+(the eigenmode tiers label their columns ``L q = -i omega q``)
 come from the model's eigenmode tier (the ``function(f, sel)``
 applicator), :math:`L` from ``fr.linearize(model)``, and :math:`B`
 from the polarization of the nonlinear tendency. The slow space is
@@ -203,7 +204,7 @@ def _analytic_operators(
         kit, components, em.function(np.ones_like, fast))
     inv_op = _AnalyticOperator(
         kit, components,
-        em.function(lambda w: 1.0 / (1j * w), fast))
+        em.function(lambda w: -1.0 / (1j * w), fast))
     return slow_op, fast_op, inv_op, components, None, label
 
 
@@ -250,7 +251,7 @@ def _channel_operators(
 
     slow_op = em.projector(slow)
     fast_op = predicate_projection(em, fast_selection, name="P[fast]")
-    inv_op = em.function(lambda w: 1.0 / (1j * w), fast_selection)
+    inv_op = em.function(lambda w: -1.0 / (1j * w), fast_selection)
     return (slow_op, fast_op, inv_op, em.components,
             slow_op.domain, label)
 

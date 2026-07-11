@@ -170,7 +170,7 @@ def test_order_one_matches_the_hand_machenhauer_state(sw_setup):
     b_vv = quadratic.tendency(v, t=0.0, constraints=True)
     coeff = fr.spatial.VectorField({
         c: kit.forward(c)(b_vv[c]) for c in SW_COMPONENTS})
-    corr = em.function(lambda w: 1.0 / (1j * w), (1, -1))(coeff)
+    corr = em.function(lambda w: -1.0 / (1j * w), (1, -1))(coeff)
     want = sw.State({
         c: v[c] - kit.backward(c)(corr[c]).real
         for c in SW_COMPONENTS})

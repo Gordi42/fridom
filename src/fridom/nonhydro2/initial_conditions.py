@@ -385,11 +385,14 @@ def single_wave(
     -----------
     The thin wrapper over the analytic mode accessor
     ``em.mode(s, k, phase=...)``: the real Hermitian-closed physical
-    mode :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x + \mathrm{phase})})`
+    mode :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
     with exact discrete dispersion, normalized so the largest
     horizontal-velocity envelope is one. Under the linear model the
     state at time :math:`t` is the same mode at phase
-    ``phase + omega * t``. On a walled vertical the ``z`` index is
+    ``phase + omega * t``, so positive ``omega`` propagates along
+    ``+k``: ``s = +1`` is the positive-frequency branch, moving
+    with the wavevector (eastward for positive ``kx``), ``s = -1``
+    the mirror branch. On a walled vertical the ``z`` index is
     the physical vertical mode on the ``0..n`` union lattice.
 
     Parameters
@@ -443,7 +446,8 @@ def kelvin_wave(
     discrete Kelvin mode trapped at the channel walls, normalized so
     the largest horizontal-velocity envelope is one. ``branch``
     selects the signed frequency branch (the two branches are
-    trapped at opposite walls); the bounded-axis entry of ``k`` is
+    trapped at opposite walls; ``branch=+1`` is the positive-omega,
+    eastward-propagating branch); the bounded-axis entry of ``k`` is
     the within-family mode ordinal and defaults to 0 (the
     fundamental) when absent.
 

@@ -407,12 +407,12 @@ def test_function_with_unit_f_reproduces_the_projector(channel, sel):
 
 
 def test_function_inverse_l_strong_test(channel):
-    # THE STRONG TEST: with invL = function(1/(i omega), wave),
+    # THE STRONG TEST: with invL = function(-1/(i omega), wave),
     # L(invL(z)) == P_wave(z) through the real model tendency (the
     # same operator the engine probed; advection off => linear)
     model, em = channel
     z = random_state(model, seed=52)
-    inv = em.function(lambda om: 1.0 / (1j * om), "wave")
+    inv = em.function(lambda om: -1.0 / (1j * om), "wave")
     tau = model.tendency(inv(z))
     want = em.projector("wave")(z)
     scale = max(float(np.abs(np.asarray(want[c].data)).max())
@@ -421,11 +421,11 @@ def test_function_inverse_l_strong_test(channel):
 
 
 def test_function_output_is_real_on_real_states(channel):
-    # 1/(i omega) satisfies f(-omega) == conj(f(omega)) and the wave
+    # -1/(i omega) satisfies f(-omega) == conj(f(omega)) and the wave
     # selection is conjugation-closed: real states map to real states
     model, em = channel
     z = random_state(model, seed=53)
-    out = em.function(lambda om: 1.0 / (1j * om), "wave")(z)
+    out = em.function(lambda om: -1.0 / (1j * om), "wave")(z)
     for c in COMPONENTS:
         assert not np.iscomplexobj(np.asarray(out[c].data))
 

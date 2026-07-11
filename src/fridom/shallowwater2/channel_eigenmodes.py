@@ -10,10 +10,15 @@ wavenumber ``kx``:
 
 - **vortical** — :math:`\omega \approx 0` on the f-plane (including
   the two exponential wall modes at ``kx = 0``); under a beta-plane
-  ``f(y)`` the branch acquires slow westward Rossby frequencies;
+  ``f(y)`` the branch acquires slow westward-propagating Rossby
+  frequencies — negative ``omega`` for positive ``kx`` (positive
+  ``omega`` propagates eastward);
 - **kelvin+ / kelvin-** — the boundary-trapped Kelvin pair with
   exactly zero meridional-velocity energy (``kx != 0`` planes only;
-  the branch sign is the sign of the engine's ``omega``);
+  the branch sign is the sign of the engine's ``omega``):
+  ``kelvin+`` is the eastward branch — at the equatorial
+  ``f0 = 0`` beta plane the equatorially trapped Kelvin wave —
+  and ``kelvin-`` the westward boundary Kelvin wave;
 - **wave+ / wave-** — the remaining Poincaré (inertia-gravity)
   branches, split by the sign of ``omega``. Wave excludes Kelvin.
 
@@ -120,7 +125,8 @@ def label_channel_modes(
        any Coriolis profile ``f(y)``, so no other eigenvalue can
        coincide with a Kelvin frequency. Columns slower than the
        slowest Kelvin branch -> **vortical** (the steady f-plane
-       family; slow westward Rossby modes under beta), faster
+       family; slow westward Rossby modes — negative ``omega`` —
+       under beta), faster
        columns -> **wave+/-** by frequency sign. The rule is exact
        on the f-plane and for any beta, including the equatorial
        ``f0 = 0`` regime, where it reproduces the adiabatic

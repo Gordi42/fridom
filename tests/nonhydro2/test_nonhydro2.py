@@ -237,9 +237,9 @@ def test_eigenmode_projector_is_idempotent():
                           - np.asarray(once[c].data)).max() < 1e-9
 
 
-def test_tendency_eigenrelation_lq_equals_i_omega_q():
+def test_tendency_eigenrelation_lq_equals_minus_i_omega_q():
     # the strong operator-level check: for the linearized tendency
-    # composed with the Leray projector, L q(s) = i omega(s) q(s).
+    # composed with the Leray projector, L q(s) = -i omega(s) q(s).
     grid = make_grid()
     model = FrModel(
         grid=grid,
@@ -286,7 +286,7 @@ def test_tendency_eigenrelation_lq_equals_i_omega_q():
         for i, c in enumerate(prog):
             got = np.asarray(kit.forward(c)(phys[c].with_data(
                 jnp.asarray(np.fft.ifftn(ptau[..., i]).real))).data)
-            want = 1j * omega * zeta[c]
+            want = -1j * omega * zeta[c]
             assert np.abs(got - want).max() / scale < 1e-11
 
 
@@ -823,7 +823,7 @@ def test_function_with_unit_f_reproduces_the_projectors(
 
 
 def test_function_inverse_wave_strong_test(function_setup):
-    # THE STRONG TEST: with invL = function(1/(i omega), (1, -1)),
+    # THE STRONG TEST: with invL = function(-1/(i omega), (1, -1)),
     # L(invL(z)) == P_wave(z) through the linearized Leray-projected
     # tendency (constraints=True; invL(z) lies in the wave span, so
     # its synthesis is already divergence-free), asserted in
@@ -845,7 +845,7 @@ def test_function_inverse_wave_strong_test(function_setup):
 
     z = State({c: template[c].with_data(jnp.asarray(make_amp()))
                for c in "uvwb"})
-    w_hat = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    w_hat = em.function(lambda om: -1.0 / (1j * om), (1, -1))(z)
     nodal = {c: kit.backward(c)(w_hat[c]) for c in prog}
     phys = base0.replace(**{
         c: base0[c].with_data(nodal[c].data) for c in prog})
@@ -862,7 +862,7 @@ def test_function_inverse_wave_strong_test(function_setup):
 
 
 def test_function_inverse_wave_is_real_safe(function_setup):
-    # 1/(i omega) satisfies f(-omega) == conj(f(omega)) and (1, -1)
+    # -1/(i omega) satisfies f(-omega) == conj(f(omega)) and (1, -1)
     # is conjugation-closed: the coefficients of a real state stay
     # Hermitian and the backward synthesis stays real
     model, em = function_setup
@@ -872,7 +872,7 @@ def test_function_inverse_wave_is_real_safe(function_setup):
         c: kit.forward(c)(model.state[c].with_data(jnp.asarray(
             rng.standard_normal(model.state[c].data.shape))))
         for c in "uvwb"})
-    out = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    out = em.function(lambda om: -1.0 / (1j * om), (1, -1))(z)
     for c in "uvwb":
         back = np.asarray(kit.backward(c)(out[c]).data)
         scale = float(np.abs(back).max())

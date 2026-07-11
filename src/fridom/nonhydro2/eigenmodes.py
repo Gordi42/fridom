@@ -51,8 +51,10 @@ Surface: ``em.omega(s)`` returns the frequency ``Symbol`` (``.data``
 for the half-spectrum array), ``em.q(s)`` the eigenvector as a
 coefficient-space :class:`~fridom.nonhydro2.state.State`, and
 ``em.projector(s)`` a ``State -> State`` callable on coefficient
-states satisfying ``L q^s = i \omega^s q^s`` for the linearized,
-Leray-projected tendency. ``em.grid`` and ``em.kit`` expose the grid
+states satisfying ``L q^s = -i \omega^s q^s`` for the linearized,
+Leray-projected tendency (the oceanographic sign convention: the
+mode evolves as :math:`e^{i(kx - \omega t)}`, so positive ``omega``
+propagates along ``+k``). ``em.grid`` and ``em.kit`` expose the grid
 and the per-component transform kit — the ``nh.transforms``
 projection surface for the physical round-trip.
 """
@@ -367,14 +369,11 @@ class Eigenmodes:
         rotation-decoupled plane operator keeps steady modes (see
         :meth:`_extend_nyquist_steady` and :meth:`_columns`).
 
-        The ``s != 0`` column is built on the opposite dispersion
-        root ``omega(-s)``: the linearized tendency satisfies
+        The ``s != 0`` column is built on its own dispersion root
+        ``omega(s)``: the linearized tendency satisfies
         ``L q = -i omega q`` for the column written with ``omega``
-        (the :math:`e^{i(kx - \omega t)}` convention), so pairing
-        branch ``s`` with the root ``-s`` yields the eigen-relation
-        ``L q^s = +i omega^s q^s`` asserted by the tests. This is a
-        pure branch relabelling: the projector family is unchanged
-        (``P(0)`` identical, ``P(+1)`` and ``P(-1)`` swap). On a
+        — the :math:`e^{i(kx - \omega t)}` convention asserted by
+        the tests, positive ``omega`` propagating along ``+k``. On a
         walled vertical the common domain is ``w``'s DST-I lattice
         and the entries retag onto each component's own trig family
         through the derived-shift algebra.
@@ -414,7 +413,7 @@ class Eigenmodes:
                 "b": self.f0 * (a[x].magnitude ** 2
                                 * a[y].magnitude ** 2 * kb[z]),
             })
-        om = self.omega(-s)
+        om = self.omega(s)
         kh2 = k[x].magnitude ** 2 + k[y].magnitude ** 2
         return {
             "u": kb[z] @ (k[x] @ om
@@ -662,9 +661,11 @@ class Eigenmodes:
         *represented* modes only — the structural zeros of the
         column (the ``k = 0`` mean, the ``k_h = 0`` wave strata,
         the walled strata a component family lacks) never reach
-        ``f``; complex return values are allowed:
-        ``f = lambda w: 1 / (1j * w)`` builds :math:`L^{-1}` on the
-        selection, ``f = lambda w: 1j * w`` the forward operator. A
+        ``f``; complex return values are allowed; the columns
+        satisfy ``L q = -i omega q``:
+        ``f = lambda w: -1.0 / (1j * w)`` builds :math:`L^{-1}` on
+        the selection, ``f = lambda w: -1j * w`` the forward
+        operator. A
         singular ``f`` meeting a structurally represented zero
         frequency (the geostrophic branch ``s = 0``) is a taught
         ``ValueError``, never a floored division.
@@ -672,7 +673,7 @@ class Eigenmodes:
         Real-safety: for the conjugation-closed wave selection
         ``s = (1, -1)`` and ``f`` satisfying
         :math:`f(-\omega) = \overline{f(\omega)}` (true for
-        :math:`1/(i\omega)` and :math:`i\omega`) the map sends
+        :math:`-1/(i\omega)` and :math:`-i\omega`) the map sends
         Hermitian (real-state) coefficients to Hermitian
         coefficients — the backward synthesis stays real.
 
@@ -760,9 +761,12 @@ class Eigenmodes:
         lattice (components whose trig family lacks the stratum
         contribute exact zeros). The state is the real
         Hermitian-closed physical mode
-        :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x + \mathrm{phase})})`
+        :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
         satisfying ``d/dt state(phase) = omega * state(phase +
-        pi/2)`` under the linearized, Leray-projected tendency,
+        pi/2)`` under the linearized, Leray-projected tendency
+        (the state at time ``t`` is the same mode at phase
+        ``phase + omega * t``: positive ``omega`` propagates along
+        ``+k``),
         normalized so the largest horizontal-velocity amplitude
         (the pointwise oscillation envelope over the ``u`` and
         ``v`` nodes) is one; a mode without horizontal velocity is
@@ -816,7 +820,7 @@ class Eigenmodes:
                     data = jnp.zeros_like(q[c].data)
                 else:
                     value = amps[c] * jnp.exp(
-                        1j * (float(phase) + shift))
+                        -1j * (float(phase) + shift))
                     data = hermitian_mode_data(
                         q[c].function_space, slots[c], value)
                 out[c] = self._kit.backward(c)(

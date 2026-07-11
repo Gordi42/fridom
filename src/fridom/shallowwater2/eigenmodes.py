@@ -20,7 +20,7 @@ Two strata need explicit patches beyond the symbol-composed
 formulas. The ``k = 0`` mean: every symbol-composed wave entry
 vanishes there while the physical inertial pair
 ``omega = +/- f_0`` survives, so the ``s != 0`` columns carry an
-explicit inertial patch ``(u, v, p) = (-i s, 1, 0)`` at the mean
+explicit inertial patch ``(u, v, p) = (i s, 1, 0)`` at the mean
 mode — the ``k = 0`` triple ``{geostrophic mean pressure, +f_0,
 -f_0}`` stays complete and M-orthogonal. And the
 interpolation-Nyquist planes of an even grid (where the staggering
@@ -37,8 +37,10 @@ Surface: ``em.omega(s)`` returns the frequency ``Symbol`` (``.data``
 for the half-spectrum array), ``em.q(s)`` the eigenvector as a
 coefficient-space :class:`~fridom.shallowwater2.state.State`, and
 ``em.projector(s)`` a ``State -> State`` callable on coefficient
-states satisfying ``L q^s = i \omega^s q^s`` for the linearized
-tendency (shallow water carries no constraint stage).
+states satisfying ``L q^s = -i \omega^s q^s`` for the linearized
+tendency (the oceanographic sign convention: the mode evolves as
+:math:`e^{i(kx - \omega t)}`, so positive ``omega`` propagates
+along ``+k``; shallow water carries no constraint stage).
 """
 from __future__ import annotations
 
@@ -214,12 +216,14 @@ class Eigenmodes:
         the ``s != 0`` columns are patched at the ``k = 0`` mean
         with the inertial pair (see :meth:`_patch_mean`).
 
-        The branch pairing was fixed against the strong test
-        ``L q^s = +i omega^s q^s`` (the C4 lesson): relative to the
-        naive continuous port, the Coriolis terms flip sign while
-        ``om = omega(s)`` is used directly — the ``omega(-s)``
-        relabelling alone cannot fix the pairing here because the
-        ``p`` entry is om-independent.
+        The ``s != 0`` column is built on the opposite dispersion
+        root ``omega(-s)``: the column written with ``om``
+        satisfies ``L q = i om q`` under the linearized tendency
+        (the Coriolis signs were fixed against that strong test —
+        the C4 lesson), so pairing branch ``s`` with the root
+        ``-s`` yields the eigen-relation ``L q^s = -i omega^s q^s``
+        — the :math:`e^{i(kx - \omega t)}` convention, positive
+        ``omega`` propagating along ``+k``.
         """
         x, y = self._axes
         k, a, ab = self.k, self.a, self.ab
@@ -230,14 +234,14 @@ class Eigenmodes:
                 "p": self.f0 * (a[x].magnitude ** 2
                                 * a[y].magnitude ** 2),
             })
-        om = self.omega(s)
+        om = self.omega(-s)
         kh2 = k[x].magnitude ** 2 + k[y].magnitude ** 2
         column = {
             "u": k[x] @ om - 1j * self.f0 * (a[x] @ (ab[y] @ k[y])),
             "v": k[y] @ om + 1j * self.f0 * (a[y] @ (ab[x] @ k[x])),
             "p": -1j * self.csqr * kh2,
         }
-        inertial = {"u": -1j * s, "v": 1.0 + 0j, "p": 0.0 + 0j}
+        inertial = {"u": 1j * s, "v": 1.0 + 0j, "p": 0.0 + 0j}
         return {c: self._patch_mean(c, column[c], inertial[c])
                 for c in column}
 
@@ -252,7 +256,7 @@ class Eigenmodes:
         the ``k = 0`` mean (``k`` and ``kh2`` are structural zeros
         there), but the physical mean mode is the inertial
         oscillation ``omega = s f_0`` with eigenvector
-        ``(u, v, p) = (-i s, 1, 0)`` (``L q = i s f_0 q`` for the
+        ``(u, v, p) = (i s, 1, 0)`` (``L q = -i s f_0 q`` for the
         pure-rotation ``k = 0`` system). The patch writes that value
         into the mean entry so the ``k = 0`` triple stays complete
         and M-orthogonal (``<q^+, q^->_M = 1 - 1 = 0``).
@@ -409,8 +413,9 @@ class Eigenmodes:
         evaluated once, host-side, on the **real** frequencies of
         the branch's *represented* modes only (structural zeros of
         the column never reach ``f``; complex return values
-        allowed): ``f = lambda w: 1 / (1j * w)`` builds
-        :math:`L^{-1}` on the selection, ``f = lambda w: 1j * w``
+        allowed; the columns satisfy ``L q = -i omega q``):
+        ``f = lambda w: -1.0 / (1j * w)`` builds
+        :math:`L^{-1}` on the selection, ``f = lambda w: -1j * w``
         the forward operator. A singular ``f`` meeting a
         structurally represented zero frequency (the geostrophic
         branch ``s = 0``) is a taught ``ValueError``, never a
@@ -419,7 +424,7 @@ class Eigenmodes:
         Real-safety: for the conjugation-closed wave selection
         ``s = (1, -1)`` and ``f`` satisfying
         :math:`f(-\omega) = \overline{f(\omega)}` (true for
-        :math:`1/(i\omega)` and :math:`i\omega`) the map sends
+        :math:`-1/(i\omega)` and :math:`-i\omega`) the map sends
         Hermitian (real-state) coefficients to Hermitian
         coefficients — the backward synthesis stays real.
 
@@ -497,10 +502,12 @@ class Eigenmodes:
         axis runs ``0..n//2``, full-spectrum axes take any integer
         modulo ``n``. The state is the real Hermitian-closed
         physical mode
-        :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x + \mathrm{phase})})`
+        :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
         satisfying the eigen-relation ``d/dt state(phase) =
         omega * state(phase + pi/2)`` under the linearized
-        tendency, normalized so the largest horizontal-velocity
+        tendency (the state at time ``t`` is the same mode at phase
+        ``phase + omega * t``: positive ``omega`` propagates along
+        ``+k``), normalized so the largest horizontal-velocity
         amplitude (the pointwise oscillation envelope over the
         ``u`` and ``v`` nodes) is one; a mode without horizontal
         velocity (the geostrophic ``k = 0`` mean) is left
@@ -547,8 +554,8 @@ class Eigenmodes:
         def synth(shift: float) -> dict[str, ScalarField]:
             out = {}
             for c in components:
-                value = amps[c] * jnp.exp(1j * (float(phase)
-                                                + shift))
+                value = amps[c] * jnp.exp(-1j * (float(phase)
+                                                 + shift))
                 data = hermitian_mode_data(
                     q[c].function_space, slots[c], value)
                 out[c] = self._kit.backward(c)(
