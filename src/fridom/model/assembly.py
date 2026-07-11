@@ -67,7 +67,7 @@ from fridom.model.schedule import (
     apply_replace,
     evaluate_entry,
 )
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     SpacePattern,
     SpaceRule,
 )

@@ -38,7 +38,7 @@ from fridom.model.model import Model, ModelState
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration
 from fridom.model.results import AdvanceResult, PanicError
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Profile,
     Staggered,

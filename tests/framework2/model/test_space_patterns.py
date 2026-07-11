@@ -14,7 +14,7 @@ from fridom.spatial.spaces.nodal import NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Dof,
     Profile,

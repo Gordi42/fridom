@@ -80,7 +80,7 @@ from fridom.model.eigenstates import (
     hermitian_mode_data,
     resolve_mode_branches,
 )
-from fridom.model.energy import nonhydro_energy_weights
+from fridom.nonhydro2.energy import nonhydro_energy_weights
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State

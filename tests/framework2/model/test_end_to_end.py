@@ -35,7 +35,7 @@ from fridom.model.model import Model, chunk_cache_size
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration
 from fridom.model.results import PanicError
-from fridom.model.space_patterns import Collocated
+from fridom.spatial.space_patterns import Collocated
 from fridom.model.terms import term
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,

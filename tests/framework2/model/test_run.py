@@ -30,7 +30,7 @@ from fridom.model.results import (
     RunStatus,
     RunTargetError,
 )
-from fridom.model.space_patterns import Collocated
+from fridom.spatial.space_patterns import Collocated
 from fridom.model.terms import term
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,

@@ -33,7 +33,7 @@ from fridom.model.parameters import (
     ParameterDeclaration,
     ParameterReference,
 )
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Dof,
     Profile,

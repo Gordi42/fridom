@@ -9,7 +9,7 @@ from fridom.model.declarations import (
     Lifecycle,
 )
 from fridom.model.roles import ADVECTED, TRACER, Role, Velocity
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Profile,
     SpaceRule,

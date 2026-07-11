@@ -125,8 +125,8 @@ from fridom.spatial.spaces.tensor_product import (
 # the declaration-tag vocabulary of the ("declared_space", mesh)
 # resolver rows (model D1.2); the model layer resolves declared
 # patterns through the rows seeded below, so the grid must speak the
-# tag enum (an acknowledged upward import of pure vocabulary)
-from fridom.model.space_patterns import Dof
+# tag enum (a same-layer spatial import of pure vocabulary)
+from fridom.spatial.space_patterns import Dof
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable

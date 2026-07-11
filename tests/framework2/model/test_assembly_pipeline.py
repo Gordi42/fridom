@@ -41,7 +41,7 @@ from fridom.model.errors import (
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration
 from fridom.model.report import AssemblyReport
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Profile,
     Staggered,

@@ -75,7 +75,7 @@ if TYPE_CHECKING:  # pragma: no cover
         ParameterDeclaration,
         ParameterReference,
     )
-    from fridom.model.space_patterns import SpacePattern
+    from fridom.spatial.space_patterns import SpacePattern
 
 
 # ================================================================

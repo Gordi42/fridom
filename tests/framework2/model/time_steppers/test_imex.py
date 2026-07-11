@@ -31,7 +31,7 @@ from fridom.model.errors import AssemblyError
 from fridom.model.implicit import VerticalDiffusion
 from fridom.model.model import Model
 from fridom.model.module import Module
-from fridom.model.space_patterns import Collocated
+from fridom.spatial.space_patterns import Collocated
 from fridom.model.terms import (
     TERM_ATTRIBUTE,
     TendencyTerm,

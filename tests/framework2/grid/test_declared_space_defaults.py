@@ -16,7 +16,7 @@ from fridom.spatial.bc import BC
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Profile,
     Staggered,

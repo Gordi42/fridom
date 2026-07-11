@@ -44,7 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
 
     from fridom.spatial.fields.scalar_field import ScalarField
-    from fridom.model.space_patterns import SpacePattern
+    from fridom.spatial.space_patterns import SpacePattern
 
 #: The velocity components' staggering axes (the nh C-grid).
 _VELOCITY_AXES = {"u": "x", "v": "y", "w": "z"}

@@ -32,7 +32,7 @@ from fridom.model.report import (
     SECTION_ORDER,
     AssemblyReport,
 )
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Profile,
     Staggered,

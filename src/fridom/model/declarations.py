@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, NamedTuple, final
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.model.roles import ADVECTED, TRACER, Role, Velocity
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     SpacePattern,
     SpaceRule,

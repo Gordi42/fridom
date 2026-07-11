@@ -78,8 +78,10 @@ if TYPE_CHECKING:  # pragma: no cover
 #  Model-owned energy parameter names. The model core cannot import
 #  the nonhydro2 / shallowwater2 packages (they depend on it, not the
 #  other way round), so ``from_model`` dispatches on these dotted keys
-#  directly — a deliberate iteration-1 coupling until a per-model
-#  energy-weights hook exists.
+#  directly and builds the ``diag(M)`` dicts inline — a deliberate
+#  iteration-1 coupling until a per-model energy-weights hook exists.
+#  The canonical per-model builders live beside their models
+#  (``nonhydro2.energy`` / ``shallowwater2.energy``).
 # ----------------------------------------------------------------
 _DSQR = "nonhydro.dsqr"
 _CSQR = "shallowwater.csqr"
@@ -87,98 +89,6 @@ _CSQR = "shallowwater.csqr"
 # A component weight is a scalar; ScalarField widens it to a
 # (profile) field, sampled per component through ``.to``.
 Weight = float | int | complex
-
-
-# ================================================================
-#  Per-model energy-weight builders (the single source of truth)
-# ================================================================
-def nonhydro_energy_weights(
-    dsqr: float, inv_n2: float | ScalarField,
-) -> dict[str, float | ScalarField]:
-    r"""Assemble the nonhydro energy weights ``diag(1, 1, dsqr, 1/N^2)``.
-
-    Description
-    -----------
-    The canonical nonhydro energy metric ``M`` on ``(u, v, w, b)``. The
-    caller passes the **already-computed** reciprocal ``inv_n2`` so the
-    degenerate ``N^2 = 0`` path (which the eigenmode classes permit,
-    falling back to ``1``) never divides here. A meridionally
-    stratified model passes the reciprocal **profile field**
-    ``1/N^2(y)`` — the ``b`` weight is then sampled at the ``b``
-    nodes wherever the metric is applied, the pointwise pairing that
-    keeps the buoyancy coupling M-skew for any profile.
-
-    Parameters
-    ----------
-    dsqr : float
-        The squared aspect ratio (the ``w`` weight).
-    inv_n2 : float | ScalarField
-        The reciprocal squared buoyancy frequency ``1/N^2`` (the ``b``
-        weight), computed by the caller; a profile field for a
-        meridionally varying stratification.
-
-    Returns
-    -------
-    dict[str, float | ScalarField]
-        The ``(u, v, w, b)`` energy weights.
-    """
-    return {"u": 1.0, "v": 1.0, "w": dsqr, "b": inv_n2}
-
-
-def shallowwater_energy_weights(inv_csqr: float) -> dict[str, float]:
-    r"""Assemble the shallow-water weights ``diag(1, 1, 1/c^2)``.
-
-    Description
-    -----------
-    The canonical shallow-water energy metric ``M`` on ``(u, v, p)``.
-    The caller passes the **already-computed** reciprocal ``inv_csqr``
-    so the degenerate ``c^2 = 0`` path (which the eigenmode class
-    permits, falling back to ``1``) never divides here.
-
-    Parameters
-    ----------
-    inv_csqr : float
-        The reciprocal squared phase speed ``1/c^2`` (the ``p``
-        weight), computed by the caller.
-
-    Returns
-    -------
-    dict[str, float]
-        The ``(u, v, p)`` energy weights.
-    """
-    return {"u": 1.0, "v": 1.0, "p": inv_csqr}
-
-
-def shallowwater_varying_energy_weights(
-    csqr: ScalarField,
-) -> dict[str, float | ScalarField]:
-    r"""Assemble the variable-depth weights ``diag(c^2, c^2, 1)``.
-
-    Description
-    -----------
-    The shallow-water energy metric for a **varying** :math:`c^2(y)`
-    profile field: :math:`c^2` weights the *velocities* (sampled
-    ``csqr.to(u)`` / ``csqr.to(v)`` wherever the metric is applied),
-    not the pressure — because :math:`c^2` sits inside the
-    divergence flux ``dp = -div(c^2 u)``, skewness pairs
-    :math:`\langle c^2 u, -\nabla p\rangle` with
-    :math:`\langle p, -\mathrm{div}(c^2 u)\rangle` through the
-    discrete div/grad transposes, with the weight sampled exactly
-    where the flux samples it. For a constant :math:`c^2` this
-    convention differs from ``diag(1, 1, 1/c^2)`` by the overall
-    factor :math:`c^2` only (frequencies and projectors agree).
-
-    Parameters
-    ----------
-    csqr : ScalarField
-        The squared phase-speed profile field (strictly positive).
-
-    Returns
-    -------
-    dict[str, float | ScalarField]
-        The ``(u, v, p)`` energy weights.
-    """
-    return {"u": csqr, "v": csqr, "p": 1.0}
 
 
 class EnergyMetric:
@@ -362,8 +272,8 @@ class EnergyMetric:
         ``allow_field_weights=True`` (the dense-column channel
         engine, whose bounded axis needs no translation invariance).
         The varying assemblies are ``diag(c^2, c^2, 1)`` on
-        ``(u,v,p)`` (:func:`shallowwater_varying_energy_weights`)
-        and ``diag(1, 1, dsqr, 1/N^2(y))`` on ``(u,v,w,b)``, with
+        ``(u,v,p)`` and ``diag(1, 1, dsqr, 1/N^2(y))`` on
+        ``(u,v,w,b)``, with
         the field weights sampled per component wherever the metric
         is applied.
 
@@ -412,24 +322,25 @@ class EnergyMetric:
                     raise ValueError(
                         "the nonhydro energy weight 1/N^2 needs a "
                         "nonzero stratification 'stratification.n2'")
-                weights = nonhydro_energy_weights(dsqr, 1.0 / n2)
+                weights = {"u": 1.0, "v": 1.0, "w": dsqr, "b": 1.0 / n2}
             else:
                 n2_field = _profile_field(
                     model, "n2", str(STRATIFICATION_N2),
                     allowed=allow_field_weights)
-                weights = nonhydro_energy_weights(
-                    dsqr, 1.0 / n2_field)
+                weights = {
+                    "u": 1.0, "v": 1.0, "w": dsqr,
+                    "b": 1.0 / n2_field}
         elif _CSQR in params:
             csqr = _read_scalar(params, _CSQR, at_time)
             if csqr == 0.0:
                 raise ValueError(
                     "the shallow-water energy weight 1/c^2 needs a "
                     "nonzero phase speed 'shallowwater.csqr'")
-            weights = shallowwater_energy_weights(1.0 / csqr)
+            weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
         elif _state_field(model, "csqr") is not None:
             csqr_field = _profile_field(
                 model, "csqr", _CSQR, allowed=allow_field_weights)
-            weights = shallowwater_varying_energy_weights(csqr_field)
+            weights = {"u": csqr_field, "v": csqr_field, "p": 1.0}
         else:
             raise ValueError(
                 "unrecognized model energy: expected a "

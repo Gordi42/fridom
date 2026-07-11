@@ -52,7 +52,7 @@ from fridom.model.parameters import (
     leaf,
 )
 from fridom.model.params import ParamName
-from fridom.model.space_patterns import Profile
+from fridom.spatial.space_patterns import Profile
 from fridom.model.terms import TendencyTerm, Treatment
 
 if TYPE_CHECKING:  # pragma: no cover

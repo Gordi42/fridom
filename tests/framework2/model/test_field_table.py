@@ -24,7 +24,7 @@ from fridom.model.field_table import (
     VelocitySelector,
 )
 from fridom.model.roles import TRACER, Role, Velocity
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Dof,
     Profile,

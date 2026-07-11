@@ -25,7 +25,7 @@ from fridom.model.parameters import (
     ParameterReference,
 )
 from fridom.model.roles import ADVECTED
-from fridom.model.space_patterns import Profile
+from fridom.spatial.space_patterns import Profile
 from fridom.model.stages import Stage, StageKind, self_update
 from fridom.model.terms import term
 from fridom.model.time_dependent import Ramp, resolve_at

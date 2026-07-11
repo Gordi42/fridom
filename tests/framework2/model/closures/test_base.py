@@ -19,7 +19,7 @@ from fridom.model.field_table import (
     FieldTable,
 )
 from fridom.model.roles import TRACER, Velocity
-from fridom.model.space_patterns import (
+from fridom.spatial.space_patterns import (
     Collocated,
     Staggered,
 )

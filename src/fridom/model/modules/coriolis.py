@@ -78,7 +78,7 @@ from fridom.model.declarations import (
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
 from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
-from fridom.model.space_patterns import Profile
+from fridom.spatial.space_patterns import Profile
 from fridom.model.terms import term
 
 if TYPE_CHECKING:  # pragma: no cover

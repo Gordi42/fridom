@@ -46,7 +46,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FieldDeclaration,
         FieldReference,
     )
-    from fridom.model.space_patterns import (
+    from fridom.spatial.space_patterns import (
         SpacePattern,
         SpaceRule,
     )
