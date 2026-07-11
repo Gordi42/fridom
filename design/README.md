@@ -121,6 +121,7 @@ spec prose keeps the historical names.
 | File | Status | Description |
 |------|--------|-------------|
 | [`cutover_parity_plan.md`](plans/active/cutover_parity_plan.md) | active | Cutover-parity work plan: drop the old framework/nonhydro/shallowwater stack. |
+| [`cutover_checklist.md`](plans/active/cutover_checklist.md) | active | Cutover mechanics checklist (salvaged 2026-07-11): consumer map + mechanical-swap steps; parity blockers closed. |
 | [`docs_examples_plan.md`](plans/active/docs_examples_plan.md) | active | Docs & examples rebuild plan. |
 | [`fallback_operator_plan.md`](plans/active/fallback_operator_plan.md) | active | Graded-order boundary fallback operator — implementation plan. |
 | [`nnmd_rewrite_plan.md`](plans/active/nnmd_rewrite_plan.md) | active | NNMD rewrite plan for framework2. |
