@@ -20,6 +20,12 @@ where research disagrees with a spec, the spec wins. **Archive**
 open-work tracker; it links into `design/` for the normative designs
 and plans behind each task.
 
+**Naming map:** the specs predate the 2026-07-11 package split
+([`plans/done/spatial_model_split_plan.md`](plans/done/spatial_model_split_plan.md)).
+Read `framework2.grid` as **`fridom.spatial`** and `framework2.model`
+/ `framework2.{transforms,io,ops,modules}` as **`fridom.model`**; the
+spec prose keeps the historical names.
+
 ## Conventions
 
 1. Every new note gets YAML front-matter with at least `status:` and
@@ -114,7 +120,6 @@ and plans behind each task.
 
 | File | Status | Description |
 |------|--------|-------------|
-| [`spatial_model_split_plan.md`](plans/active/spatial_model_split_plan.md) | active | Split framework2 into fridom.spatial + fridom.model (owner-approved names & mapping). |
 | [`cutover_parity_plan.md`](plans/active/cutover_parity_plan.md) | active | Cutover-parity work plan: drop the old framework/nonhydro/shallowwater stack. |
 | [`docs_examples_plan.md`](plans/active/docs_examples_plan.md) | active | Docs & examples rebuild plan. |
 | [`fallback_operator_plan.md`](plans/active/fallback_operator_plan.md) | active | Graded-order boundary fallback operator — implementation plan. |
@@ -132,6 +137,7 @@ and plans behind each task.
 
 | File | Status | Description |
 |------|--------|-------------|
+| [`spatial_model_split_plan.md`](plans/done/spatial_model_split_plan.md) | done | Split framework2 into fridom.spatial + fridom.model — merged 2026-07-11 (639a935). |
 | [`phase1_implementation_plan.md`](plans/done/phase1_implementation_plan.md) | done | Framework2 Phase-1 implementation plan (grid layer). |
 | [`phase2_implementation_plan.md`](plans/done/phase2_implementation_plan.md) | done | Framework2 Phase-2 implementation plan (model layer, wave execution). |
 | [`phase1_findings.md`](plans/done/phase1_findings.md) | done | Phase-1 validation findings (input to Phase 2). |

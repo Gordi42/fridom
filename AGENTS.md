@@ -9,10 +9,16 @@ which the modern code (e.g. `framework/modules/module.py`,
 ## Project layout
 
 - `src/fridom/` — package source (setuptools src-layout).
-  - `framework/` — core base classes and shared machinery (grids, modules,
-    fields, time steppers, projections, jax utilities).
-  - `nonhydro/`, `shallowwater/`, `hydrostatic/` — concrete models built on
-    `framework`.
+  - `spatial/` — spatial discretization: meshes, function spaces, fields,
+    operators, domain decomposition, the `Grid` assembly root.
+  - `model/` — model machinery: model core (assembly, run loop, schedule),
+    tendency modules, time steppers, state transforms, io, ops.
+  - `nonhydro2/`, `shallowwater2/` — concrete models built on
+    `spatial` + `model` (the "2" suffix drops when the old stack is
+    removed).
+  - `framework/`, `nonhydro/`, `shallowwater/`, `hydrostatic/` — the **old
+    stack**, kept only until the cutover completes
+    (`design/plans/active/cutover_parity_plan.md`); do not build on it.
 - `tests/` — pytest suite; mirrors the `src/fridom` tree.
 - `docs/` — Sphinx docs (sphinx-book-theme + sphinx-gallery).
 - `examples/` — sphinx-gallery example scripts.
@@ -127,9 +133,12 @@ import fridom.framework as fr
 ```
 
 - `from __future__ import annotations` is **required** in every source module.
-- Import packages by alias: `import fridom.framework as fr`,
-  `import fridom.nonhydro as nh`, `import fridom.shallowwater as sw`,
-  `import fridom.hydrostatic as hs`.
+- New-stack code uses the **root alias**: `import fridom as fr`, then
+  `fr.spatial.Grid`, `fr.model.Model` (lazy subpackages). Model packages
+  by alias: `import fridom.nonhydro2 as nh`,
+  `import fridom.shallowwater2 as sw`.
+- Old-stack code (only) keeps `import fridom.framework as fr`,
+  `import fridom.nonhydro as nh`, etc.
 - Use **absolute** imports in source modules. Relative imports (`from .`) are
   allowed **only** inside `__init__.py` `TYPE_CHECKING` blocks.
 - Guard annotation-only / circular imports with
@@ -309,5 +318,6 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
   explicitly asks for a reviewable record. Push the branch, open the PR
   with `gh`, and delete the remote branch after the merge.
 - Commit messages: `<scope>: <short lowercase summary>` where scope is
-  the affected package or area (`framework2: ...`, `nonhydro2: ...`,
-  `tests: ...`, `design: ...`), matching the existing history style.
+  the affected package or area (`spatial: ...`, `model: ...`,
+  `nonhydro2: ...`, `tests: ...`, `design: ...`), matching the existing
+  history style.
