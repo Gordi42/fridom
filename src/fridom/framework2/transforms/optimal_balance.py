@@ -6,7 +6,9 @@ Description
 The Tier-2 preset that projects onto the (slow) balanced manifold via
 the optimal-balance method (08 §10.5). Two owned ramped legs — a
 forward Propagator with a Ramp-valued ``scaling.rossby`` up
-(linear -> nonlinear) and a backward Propagator with the
+(linear -> nonlinear, ramping from 0 to the model's own nominal
+rossby value so user parameter choices are preserved) and a
+backward Propagator with the
 ``Ramp.reversed()`` down leg and a flipped ``TIME_STEP`` — form the
 ``ramp_cycle = forward @ base @ backward`` (the algebra at work). The
 iteration is a :class:`FixedPoint` **factory** whose per-iterate
@@ -104,9 +106,25 @@ class OptimalBalance(StateTransform):
         """
         dt = abs(float(model.parameters[params.TIME_STEP]))
         self._ramp_steps = max(1, round(ramp_period / dt))
-        ramp_up = Ramp(0.0, 1.0, period=float(ramp_period), curve=ramp)
-        ramp_down = ramp_up.reversed()
         has_rossby = params.SCALING_ROSSBY in model.parameters
+        ramp_up = ramp_down = None
+        if has_rossby:
+            # ramp to the MODEL's nominal rossby value, preserving the
+            # user's parameter choice (e.g. rossby_number=0.1 ramps
+            # 0 -> 0.1, not 0 -> 1).
+            nominal = model.parameters[params.SCALING_ROSSBY]
+            try:
+                target = float(nominal)
+            except TypeError as exc:
+                msg = (
+                    "OptimalBalance requires a constant "
+                    "'scaling.rossby' on the model to build its ramp; "
+                    f"got the time-dependent value {nominal!r}."
+                )
+                raise TypeError(msg) from exc
+            ramp_up = Ramp(0.0, target, period=float(ramp_period),
+                           curve=ramp)
+            ramp_down = ramp_up.reversed()
         prefix = name or "OptimalBalance"
         self._forward = Propagator(
             model, steps=self._ramp_steps, term_filter=filter,

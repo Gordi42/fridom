@@ -11,6 +11,7 @@ import jax
 import pytest
 
 from fridom.framework2.model import term_predicates as terms
+from fridom.framework2.model.time_dependent import Ramp
 from fridom.framework2.transforms.errors import TraceError
 from fridom.framework2.transforms.norms import relative_l2
 from fridom.framework2.transforms.optimal_balance import OptimalBalance
@@ -102,19 +103,31 @@ def test_ramp_steps_from_period(toy_model):
 # ================================================================
 #  The scaling.rossby ramp branch (Ramp up / Ramp.reversed() down)
 # ================================================================
-def test_rossby_model_applies_the_ramp():
-    model = make_model(modules=(Coriolis(), RossbyProvider()))
+@pytest.mark.parametrize("nominal", [1.0, 0.1])
+def test_rossby_model_applies_the_ramp(nominal):
+    model = make_model(modules=(Coriolis(), RossbyProvider(nominal)))
     ob = OptimalBalance(model, _base(model), ramp_period=RAMP,
                         max_it=2)
-    # the forward leg's scaling.rossby is a ramp (0 -> 1); the
+    # the forward leg's scaling.rossby ramps from 0 to the MODEL's
+    # nominal value (user parameter choices are preserved); the
     # backward leg's is its time-domain reversal (spanning [-T, 0])
     fwd_rossby = ob.forward.model.parameters["scaling.rossby"]
     bwd_rossby = ob.backward.model.parameters["scaling.rossby"]
     assert float(fwd_rossby.at_time(0.0)) == pytest.approx(0.0, abs=1e-9)
-    assert float(fwd_rossby.at_time(RAMP)) == pytest.approx(1.0, abs=1e-9)
-    # reversed leg: nonlinear (1) at clock 0, linear (0) at -T
-    assert float(bwd_rossby.at_time(0.0)) == pytest.approx(1.0, abs=1e-9)
+    assert float(fwd_rossby.at_time(RAMP)) == pytest.approx(
+        nominal, abs=1e-9)
+    # reversed leg: nonlinear (nominal) at clock 0, linear (0) at -T
+    assert float(bwd_rossby.at_time(0.0)) == pytest.approx(
+        nominal, abs=1e-9)
     assert float(bwd_rossby.at_time(-RAMP)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_time_dependent_rossby_is_rejected():
+    model = make_model(modules=(Coriolis(), RossbyProvider()))
+    ramped = model.variant(
+        updates={"scaling.rossby": Ramp(0.0, 1.0, period=1.0)})
+    with pytest.raises(TypeError, match=r"constant 'scaling\.rossby'"):
+        OptimalBalance(ramped, _base(ramped), ramp_period=RAMP)
 
 
 def test_rossby_model_balances():

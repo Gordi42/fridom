@@ -13,10 +13,12 @@ epsilon-slope ladder instead):
 2. take a geostrophically dominated IC — ``random_vortical``
    (Masur & Oliver spectrum, fixed seed), scaled to amplitude Ro.
    The **Rossby number lives in the state amplitude**, not in
-   ``rossby_number=``: the model keeps ``scaling.rossby = 1`` so
-   that ``OptimalBalance``'s hard-wired 0 -> 1 rossby ramp targets
-   exactly the model's nominal nonlinearity (for the quadratic term
-   the two spellings are dynamically equivalent);
+   ``rossby_number=`` (the model keeps ``scaling.rossby = 1``; for
+   the quadratic term the two spellings are dynamically
+   equivalent). Historical note: this started as a workaround for
+   ``OptimalBalance`` hard-coding a 0 -> 1 rossby ramp; OB now ramps
+   to the model's own nominal value, so ``rossby_number=Ro`` with an
+   O(1) amplitude works equally well;
 3. for each balance method M: ``z_b = M(z)``; integrate the FULL
    nonlinear model for one eddy turnover ``T = turnover / Ro``;
    rebalance with the SAME method and report the diagnosed
