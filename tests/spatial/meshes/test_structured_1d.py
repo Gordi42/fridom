@@ -1,4 +1,4 @@
-"""Tests for StructuredMesh1D (framework2/grid/meshes/structured_1d.py)."""
+"""Tests for StructuredMesh1D (spatial/meshes/structured_1d.py)."""
 import pytest
 
 from fridom.spatial.bc import BC, BCStructure

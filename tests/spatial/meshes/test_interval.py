@@ -1,4 +1,4 @@
-"""Tests for IntervalMesh (framework2/grid/meshes/interval.py)."""
+"""Tests for IntervalMesh (spatial/meshes/interval.py)."""
 from fractions import Fraction
 
 import pytest

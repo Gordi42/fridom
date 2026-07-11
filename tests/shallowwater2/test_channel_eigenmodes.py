@@ -8,7 +8,7 @@ Poincare waves), plus the shallow-water family labeler
 (sw.channel_eigenmodes) on the f-plane, the beta plane, and the
 coarse-grid alternating regime.
 
-Index alignment (the reference -> framework2 mapping)
+Index alignment (the reference -> fridom mapping)
 -----------------------------------------------------
 The reference y grid is the shifted cell centres INCLUDING the
 y = Ly wall: y_j = dy (j + 1), j = 0..N-1. Framework2's v holds the

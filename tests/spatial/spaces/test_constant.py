@@ -1,4 +1,4 @@
-"""Tests for ConstantSpace (framework2/grid/spaces/constant.py)."""
+"""Tests for ConstantSpace (spatial/spaces/constant.py)."""
 import pytest
 
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh

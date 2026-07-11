@@ -1,4 +1,4 @@
-"""Tests for the BC markers (framework2/grid/bc.py)."""
+"""Tests for the BC markers (spatial/bc.py)."""
 import pytest
 
 from fridom.spatial.bc import BC, BCStructure

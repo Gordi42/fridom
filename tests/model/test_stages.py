@@ -1,4 +1,4 @@
-"""Tests for the stage vocabulary (framework2/model/stages.py)."""
+"""Tests for the stage vocabulary (model/stages.py)."""
 import dataclasses
 
 import pytest

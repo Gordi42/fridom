@@ -139,7 +139,7 @@ def test_graded_weno3_traces_once(compile_counter):
 
 
 # Gate 2 (multi-device forced-4 bitwise identity) lives in
-# tests/framework2/grid/decomposition/test_fallback_multi_device.py --
+# tests/spatial/decomposition/test_fallback_multi_device.py --
 # the forced-4 CI job (.github/workflows/tests.yml:35-42) only globs the
 # decomposition suite, so a forced-4 gate must live there to be run
 # genuinely sharded.

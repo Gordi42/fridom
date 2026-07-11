@@ -1,4 +1,4 @@
-"""Tests for the weak intern table (framework2/grid/interning.py)."""
+"""Tests for the weak intern table (spatial/interning.py)."""
 import gc
 
 from fridom.spatial.interning import InternTable

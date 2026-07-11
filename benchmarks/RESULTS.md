@@ -1,5 +1,7 @@
 # Framework2 kernel-optimization results (Wave 4B)
 
+> **Naming:** these measurements predate the 2026-07-11 package split; "framework2" is today's `fridom.spatial` + `fridom.model`.
+
 Machine caveat: all numbers are **CPU wall-time medians on one
 8-core desktop machine** (single jax cpu device, float64). Only
 *relative* comparisons are meaningful, and the run-to-run noise
@@ -10,7 +12,7 @@ exclusive back-to-back session (`results/final-oldstack.json` /
 nothing GPU-hostile was introduced (static shapes, no host
 callbacks, no gather/scatter, no roll).
 
-Suites: `benchmarks/framework2/` (kernel cases in
+Suites: `benchmarks/spatial/` + `benchmarks/model/` (kernel cases in
 `bench_kernels.py`, application-path cases in `bench_operators.py`)
 vs the old stack's `benchmarks/bench_operators.py`, both run through
 `fridom.benchmarking` at identical sizes (n x n grids).

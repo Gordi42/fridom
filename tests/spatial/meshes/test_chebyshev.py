@@ -1,4 +1,4 @@
-"""Tests for ChebyshevMesh (framework2/grid/meshes/chebyshev.py)."""
+"""Tests for ChebyshevMesh (spatial/meshes/chebyshev.py)."""
 from fractions import Fraction
 
 import pytest

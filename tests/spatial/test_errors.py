@@ -1,4 +1,4 @@
-"""Tests for the grid-cluster error types (framework2/grid/errors.py)."""
+"""Tests for the grid-cluster error types (spatial/errors.py)."""
 import pytest
 
 from fridom.spatial.errors import (

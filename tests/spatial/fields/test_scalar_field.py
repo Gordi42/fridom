@@ -596,7 +596,7 @@ def test_diff_forwards_to_the_seeded_verb(grid1d, mx):
 
 def test_xr_is_the_export_entry_point(f):
     # thin forwarder to the export module (label rules are tested in
-    # tests/framework2/grid/test_export.py)
+    # tests/spatial/test_export.py)
     da = f.xr
     assert da.name == "f"
     assert da.dims == ("x", "y")

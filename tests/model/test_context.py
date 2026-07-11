@@ -1,4 +1,4 @@
-"""Tests for the step context (framework2/model/context.py)."""
+"""Tests for the step context (model/context.py)."""
 import jax
 import jax.numpy as jnp
 import pytest

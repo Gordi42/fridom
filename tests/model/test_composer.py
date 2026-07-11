@@ -1,4 +1,4 @@
-"""Tests for the tendency composer (framework2/model/composer.py).
+"""Tests for the tendency composer (model/composer.py).
 
 Covers the wave-3 composer surface: deterministic accumulation
 order, the write-gate matrix per kind, the same-kind overlap lint,

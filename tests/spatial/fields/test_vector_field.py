@@ -335,6 +335,6 @@ def test_block_until_ready(vec):
 
 def test_xr_is_the_export_entry_point(vec):
     # thin forwarder to the export module (label rules are tested in
-    # tests/framework2/grid/test_export.py)
+    # tests/spatial/test_export.py)
     ds = vec.xr
     assert sorted(ds.data_vars) == ["u", "v"]

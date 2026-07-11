@@ -1,4 +1,4 @@
-"""Test the imports in the framework2 model-layer __init__ files."""
+"""Test the imports in the fridom.model __init__ files."""
 import importlib
 
 import pytest

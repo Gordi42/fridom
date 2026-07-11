@@ -9,7 +9,7 @@ wavenumber, Poincaré strata, the kz = 0 buoyancy oscillations), plus
 the nonhydro family labeler with its Leray-overlap constraint split
 — on the f-plane and the beta plane.
 
-Index alignment (the reference -> framework2 mapping)
+Index alignment (the reference -> fridom mapping)
 -----------------------------------------------------
 The reference structure functions live on two y grids: the shifted
 centres INCLUDING the y = Ly wall (``Y_FACE``, sine strata) and the

@@ -1,4 +1,4 @@
-"""Tests for the run-loop result types (framework2/model/results.py).
+"""Tests for the run-loop result types (model/results.py).
 
 Covers the RunStatus vocabulary, the frozen result dataclasses, and
 the PanicError/RunTargetError raising surfaces (attribution
