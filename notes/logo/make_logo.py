@@ -12,8 +12,9 @@ Each letter is a standalone ``<g id="letter-X" transform="translate(...)">``
 group, so letters can be moved individually in Inkscape.  Letter offsets
 snap to the cell grid so the mosaics of all letters stay aligned.
 
-Earlier iterations are kept as committed files (``fridom-logo-streamlines
-.svg`` is v2); this script writes the ``fridom-logo-v3-*`` variant family.
+The shipped logo, ``fridom-final.svg``, is a hand-tuned (Inkscape) pick
+from the ``fridom-logo-v3-*`` variant family this script writes;
+regenerated variants are gitignored.
 
 Usage::
 
