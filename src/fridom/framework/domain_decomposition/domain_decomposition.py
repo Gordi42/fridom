@@ -1,94 +1,219 @@
-"""Base class for domain decomposition."""
+"""Domain decomposition based on JAX sharding."""
 from __future__ import annotations
 
-from abc import abstractmethod
+from copy import deepcopy
+from functools import partial
+from typing import TYPE_CHECKING
+
+import jax
+import jax.numpy as jnp
 import numpy as np
-from numpy import ndarray
+from jax import shard_map
+from jax.experimental import multihost_utils
+from jax.sharding import NamedSharding
+from jax.sharding import PartitionSpec as P
+
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 
 @fr.utils.jaxify
 class DomainDecomposition:
+
     """
-    Construct a grid of processors and decompose a global domain into subdomains.
-    
+    Decompose the domain into subdomains and distribute them with JAX.
+
     Description
     -----------
-    Decompose the global domain into subdomains for parallel computing. The
-    domain decomposition is done in a cartesian grid of processors. The
-    decomposition can be done in multiple dimensions. Axes that are shared
-    between processors can be specified (e.g. for fft)
+    The global domain is decomposed along its first axis into one
+    subdomain per available jax device. Arrays are distributed across
+    the devices with jax shardings; halo regions around each subdomain
+    are exchanged with collective permutations:
 
     ::
 
-                   ----------------------------------- 
-                  /                /                /| 
-                 /                /                / | 
-                /                /                /  | 
-               /                /                /   | 
-              /                /                /    | 
-             /                /                /    /| 
-            /                /                /    / | 
-            ----------------------------------    /  | 
-           |                |                |   /   | 
-           |   PROCESSOR    |   PROCESSOR    |  /    | 
-           |     0, 1       |     1, 1       | /    /
-           |                |                |/    /
-           |----------------|----------------|    /     ^
-           |                |                |   /     /
-           |   PROCESSOR    |   PROCESSOR    |  /     / shared_axis
-           |     0, 0       |     1, 0       | /     /
-           |                |                |/
-           ----------------------------------- 
+            ---------------------------------
+           |                                 |
+           |            DEVICE 0             |
+           |                                 |
+           |---------------------------------|
+           |                                 |     ^
+           |            DEVICE 1             |    /  distributed
+           |                                 |   /   axis (0)
+            ---------------------------------
+
+    On a single device, the decomposition degenerates to the trivial
+    case: every sharding is fully replicated and all operations reduce
+    to ordinary local array operations.
 
     Parameters
     ----------
-    `shape` : `tuple[int]`
+    shape : tuple[int]
         The total number of grid points in each dimension.
-    `halo` : `int`, optional (default=0)
+    halo : int, optional
         The number of halo cells (ghost cells) around the local domain
-        for the exchange of boundary values.
-    `periods` : `tuple[bool]`, optional (default=None)
-        A list of booleans indicating whether the domain is periodic in each dimension.
-        If None, all dimensions are periodic.
-    `shared_axes` : `list[int]`, optional (default=None)
-        A list of axes that are shared between processors.
-    `device_ids` : `list[int]`, optional (default=None)
+        for the exchange of boundary values (default: 0).
+    periods : tuple[bool], optional
+        A list of booleans indicating whether the domain is periodic in
+        each dimension. If None, all dimensions are periodic (default: None).
+    shared_axes : list[int], optional
+        A list of axes that are shared between processors (default: None).
+    device_ids : list[int], optional
         Optional list of device ids to use. If None, all devices are used.
-        This option is useful for coupled simulations.
+        This option is useful for coupled simulations (default: None).
     """
+
     def __init__(self,
                  shape: tuple[int],
                  halo: int = 0,
                  periods: tuple[bool] | None = None,
                  shared_axes: tuple[int] | None = None,
-                 device_ids: list[int] | None = None):
+                 device_ids: list[int] | None = None) -> None:
         self._shape = shape
         self._n_dims = len(shape)
         self._halo = halo
         self._periods = periods or tuple(True for _ in range(self.n_dims))
         self._shared_axes = shared_axes or []
-        self._rank = 0
         self._device_ids = device_ids
-        self._p_dims = None
+
+        self._rank = jax.process_index()
+        self.n_ranks = jax.process_count()
+        self.n_devices = (
+            jax.device_count() if self.n_ranks == 1 else self.n_ranks)
+
+        # the first axis is distributed across the devices
+        if shape[0] % self.n_devices != 0:
+            msg = (
+                f"The first dimension of the shape {shape} must be "
+                f"divisible by the number of devices {self.n_devices}.")
+            raise ValueError(msg)
+
+        local_shape = list(self.shape)
+        local_shape[0] //= self.n_devices
+        self._local_shape = tuple(local_shape)
+
+        for dim in range(len(local_shape)):
+            if local_shape[dim] < self.halo:
+                msg = (
+                    f"Local shape {local_shape} is smaller than halo "
+                    f"{self.halo} in dimension {dim}")
+                raise ValueError(msg)
+
+        self._p_dims = (self.n_devices,) + (1,) * (self.n_dims - 1)
+        self._setup_mesh()
+
+        # ----------------------------------------------------------------
+        #  Halo exchange slices and paddings
+        # ----------------------------------------------------------------
+        pw = self.halo
+        self._padding = (((pw, pw),) * self.n_dims)
+
+        inner = slice(self.halo, -self.halo) if self.halo > 0 else slice(None)
+        self._inner_slice = tuple([inner]*self.n_dims)
+
+    def _setup_mesh(self) -> None:
+        """Create the device mesh and the sharding specifications."""
+        self.mesh = jax.make_mesh((self.n_devices,), axis_names=("x",))
+        if self.n_devices == 1:
+            # a single device holds the whole domain: every sharding
+            # is fully replicated, shard maps reduce to plain calls,
+            # and all array operations stay ordinary local operations
+            self._spec_main = P(*(None,) * self.n_dims)
+            self._spec_alt = self._spec_main
+        elif self.n_dims > 1:
+            self._spec_main = P("x", * (self.n_dims - 1) * (None,))
+            # spectral arrays are distributed along the second axis, so
+            # that fourier transforms along the first axis are local
+            self._spec_alt = self._permute_spec(0, 1)
+        else:
+            self._spec_main = P("x")
+            # 1-d domains have no second axis to transpose to; the
+            # alternative sharding replicates the array instead
+            self._spec_alt = P(None)
+        self._shard_main = NamedSharding(self.mesh, self._spec_main)
+        self._shard_alt = NamedSharding(self.mesh, self._spec_alt)
+
+    def _permute_spec(self, dim1: int, dim2: int) -> P:
+        spec_list = list(self._spec_main)
+        spec_list[dim1], spec_list[dim2] = spec_list[dim2], spec_list[dim1]
+        return P(*spec_list)
+
+    # ================================================================
+    #  Pickling
+    # ================================================================
+
+    def __getstate__(self) -> dict:
+        """Return the state for pickling.
+
+        Description
+        -----------
+        The device mesh and the shardings hold device handles that
+        cannot be pickled; they are dropped here and rebuilt from the
+        remaining state when unpickling.
+        """
+        state = self.__dict__.copy()
+        for attr in ("mesh", "_spec_main", "_spec_alt",
+                     "_shard_main", "_shard_alt"):
+            state.pop(attr, None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the state and rebuild the device mesh."""
+        self.__dict__.update(state)
+        self._setup_mesh()
+
+    def __to_numpy__(self, memo: dict) -> DomainDecomposition:
+        """Return a host-side copy (see :py:func:`fr.utils.to_numpy`).
+
+        Description
+        -----------
+        The decomposition holds no device arrays, so a deep copy
+        (which rebuilds the device mesh) is sufficient. Without this
+        hook, the generic attribute walk of ``to_numpy`` would try to
+        deep-copy the raw mesh and fail on its device handles.
+        """
+        return deepcopy(self, memo)
 
     # ================================================================
     #  Halo exchange
     # ================================================================
 
-    @abstractmethod
-    def sync(self, arr: ndarray, flat_axes: list[int] | None = None) -> ndarray:
+    def sync(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
         """
         Synchronize the halo regions of an array across all processes.
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to synchronize.
-        `flat_axes` : list[int] | None
-            Dimensions which are flat (no halo exchange). 
-            If None, all dimensions are exchanged.
+        flat_axes : list[int] | None, optional
+            Dimensions which are flat (no halo exchange).
+            If None, all dimensions are exchanged (default: None).
         """
+        # nothing to do if there are no halo regions
+        if self.halo == 0:
+            return arr
+
+        flat_axes = flat_axes or []
+
+        # the first axis is distributed across the devices and requires
+        # a halo exchange between neighboring devices
+        if 0 not in flat_axes:
+            arr = self._sync_sharded_axis(arr)
+
+        # all other axes are local to each device
+        for axis in range(1, self.n_dims):
+            if axis in flat_axes:
+                continue
+            if self.periods[axis]:
+                arr = self._sync_periodic_axis(arr, axis)
+            else:
+                arr = self._sync_non_periodic_axis(arr, axis)
+        return arr
 
     def sync_multiple(self, arr: list[ndarray]) -> list[ndarray]:
         """
@@ -96,10 +221,68 @@ class DomainDecomposition:
 
         Parameters
         ----------
-        `arr` : list[ndarray]
+        arr : list[ndarray]
             The list of arrays to synchronize.
         """
         return [self.sync(a) for a in arr]
+
+    def _sync_sharded_axis(self, arr: ndarray) -> ndarray:
+        if self.n_devices == 1:
+            # a single device is its own neighbor: the halo exchange
+            # reduces to a periodic wrap (or zero boundaries)
+            if self.periods[0]:
+                return self._sync_periodic_axis(arr, 0)
+            return self._sync_non_periodic_axis(arr, 0)
+
+        halo = self.halo
+        n_devices = self.n_devices
+
+        @self.main_shard_map
+        def halo_exchange(x: ndarray) -> ndarray:
+            left_halo = x[halo : 2 * halo]
+            right_halo = x[-(2 * halo) : -halo]
+
+            permutations_forward = [
+                (i, (i + 1) % n_devices) for i in range(n_devices)]
+            permutations_backward = [
+                (i, (i - 1) % n_devices) for i in range(n_devices)]
+
+            if not self.periods[0]:
+                # last device has no right neighbor
+                permutations_forward = permutations_forward[:-1]
+                # first device has no left neighbor
+                permutations_backward = permutations_backward[1:]
+
+            received_left_halo = jax.lax.ppermute(
+                right_halo,
+                axis_name="x",
+                perm=permutations_forward,
+            )
+            received_right_halo = jax.lax.ppermute(
+                left_halo,
+                axis_name="x",
+                perm=permutations_backward,
+            )
+
+            return jnp.concatenate(
+                [received_left_halo, x[halo:-halo], received_right_halo],
+                axis=0)
+
+        return halo_exchange(arr)
+
+    def _sync_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
+        halo = self.halo
+        x = jnp.swapaxes(x, 0, axis)
+        x = jnp.concatenate(
+            [ x[-2*halo:-halo], x[halo:-halo], x[halo:2*halo] ], axis=0)
+        return jnp.swapaxes(x, 0, axis)
+
+    def _sync_non_periodic_axis(self, x: ndarray, axis: int) -> ndarray:
+        halo = self.halo
+        x = jnp.swapaxes(x, 0, axis)
+        halo_region = jnp.zeros_like(x[:halo])
+        x = jnp.concatenate([halo_region, x[halo:-halo], halo_region], axis=0)
+        return jnp.swapaxes(x, 0, axis)
 
     # ================================================================
     #  Apply Transform (e.g. FFT)
@@ -107,265 +290,430 @@ class DomainDecomposition:
 
     def parallel_forward_transform(self, func: callable) -> callable:
         """
-        Parallel forward transform.
+        Wrap a forward transform to work on distributed arrays.
 
         Parameters
         ----------
-        `func` : callable
+        func : callable
             The function to apply the forward transform to.
             func(arr: ndarray, axes: list[int] | None = None) -> ndarray
         """
-        def wrapper(arr: ndarray, axes: list[int] | None = None) -> ndarray:
+        if self.n_devices == 1:
+            # the whole domain is local: apply the transform directly
+            def _local_forward_transform(
+                arr: ndarray, axes: list[int] | None = None,
+            ) -> ndarray:
+                return func(self.unpad(arr), axes=axes)
+            return _local_forward_transform
+
+        def _my_forward_transform(
+            arr: ndarray, axes: list[int] | None = None,
+        ) -> ndarray:
+            axes = set(axes or list(range(self.n_dims)))
             # unpad the array
             arr = self.unpad(arr)
-            # apply the forward transform
-            arr = func(arr, axes)
+            # apply the forward transform in all but x-axis
+            possible_axes = set(range(1, self.n_dims))
+            matching_axes = possible_axes & axes
+            if matching_axes:
+                @self.main_shard_map
+                def apply_func(arr: ndarray) -> ndarray:
+                    return func(arr, axes=tuple(matching_axes))
+                arr = apply_func(arr)
+            # switch to alternative sharding
+            arr = jax.device_put(arr, self._shard_alt)
+            # apply the forward transform in the x-axis
+            if 0 in axes:
+                @self.alt_shard_map
+                def apply_func(arr: ndarray) -> ndarray:
+                    return func(arr, axes=(0,))
+                arr = apply_func(arr)
             return arr
-        return wrapper
+
+        return _my_forward_transform
 
     def parallel_backward_transform(self, func: callable) -> callable:
         """
-        Parallel backward transform.
+        Wrap a backward transform to work on distributed arrays.
 
         Parameters
         ----------
-        `func` : callable
+        func : callable
             The function to apply the backward transform to.
             func(arr: ndarray, axes: list[int] | None = None) -> ndarray
         """
-        def wrapper(arr: ndarray, axes: list[int] | None = None) -> ndarray:
-            # apply the backward transform
-            arr = func(arr, axes)
-            # pad the array
+        if self.n_devices == 1:
+            # the whole domain is local: apply the transform directly
+            def _local_backward_transform(
+                arr: ndarray, axes: list[int] | None = None,
+            ) -> ndarray:
+                return self.sync(self.pad(func(arr, axes=axes)))
+            return _local_backward_transform
+
+        def _my_backward_transform(
+            arr: ndarray, axes: list[int] | None = None,
+        ) -> ndarray:
+            axes = set(axes or list(range(self.n_dims)))
+            # apply the backward transform in the x-axis
+            if 0 in axes:
+                @self.alt_shard_map
+                def apply_func(arr: ndarray) -> ndarray:
+                    return func(arr, axes=(0,))
+                arr = apply_func(arr)
+
+            # switch to main sharding
+            arr = jax.device_put(arr, self._shard_main)
+
+            # apply the forward transform in all but x-axis
+            possible_axes = set(range(1, self.n_dims))
+            matching_axes = possible_axes & axes
+            if matching_axes:
+                @self.main_shard_map
+                def apply_func(arr: ndarray) -> ndarray:
+                    return func(arr, axes=tuple(matching_axes))
+                arr = apply_func(arr)
             arr = self.pad(arr)
-            return arr
-        return wrapper
+            return self.sync(arr)
+
+        return _my_backward_transform
 
     # ================================================================
     #  Padding
     # ================================================================
 
-    @abstractmethod
-    def pad(self, arr: ndarray) -> ndarray:
+    def pad(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
         """
-        Add padding to an array.
+        Add halo padding to an array.
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to pad.
+        flat_axes : list[int] | None, optional
+            Dimensions which are flat (no padding) (default: None).
         """
+        if self.halo == 0:
+            return arr
 
-    @abstractmethod
-    def unpad(self, arr: ndarray) -> ndarray:
+        # update the paddings for flat axes
+        paddings = list(self._padding)
+        for axis in flat_axes or []:
+            paddings[axis] = (0, 0)
+        paddings = tuple(paddings)
+
+        if self.n_devices == 1 or 0 in (flat_axes or []):
+            # a single device or a flat first axis carries no
+            # distributed halo: all padding is local
+            return jnp.pad(arr, paddings)
+
+        # each device shard carries its own halo region on the
+        # distributed axis
+        @self.main_shard_map
+        def _pad(arr: ndarray) -> ndarray:
+            return jnp.pad(arr, paddings)
+
+        return _pad(arr)
+
+    def unpad(
+        self, arr: ndarray, flat_axes: list[int] | None = None,
+    ) -> ndarray:
         """
-        Remove padding from an array.
+        Remove halo padding from an array.
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to unpad.
+        flat_axes : list[int] | None, optional
+            Dimensions which are flat (no padding) (default: None).
         """
+        if self.halo == 0:
+            return arr
 
-    # ----------------------------------------------------------------
-    #  Spectral paddings
-    # ----------------------------------------------------------------
+        # remove the paddings for flat axes
+        ics = list(self._inner_slice)
+        for axis in flat_axes or []:
+            ics[axis] = slice(None)
+        ics = tuple(ics)
 
-    def pad_extend(self, arr: ndarray) -> ndarray:
-        """
-        Extend the array with zeros (for spectral padding)
+        if self.n_devices == 1 or 0 in (flat_axes or []):
+            # a single device or a flat first axis carries no
+            # distributed halo: all slicing is local
+            return arr[ics]
 
-        Parameters
-        ----------
-        `arr` : ndarray
-            The array to pad.
+        @self.main_shard_map
+        def _unpad(arr: ndarray) -> ndarray:
+            return arr[ics]
 
-        Returns
-        -------
-        ndarray
-            The padded array.
-        """
-
-    def unpad_extend(self, arr: ndarray) -> ndarray:
-        """
-        Remove the extension of the array (for spectral padding)
-
-        Parameters
-        ----------
-        `arr` : ndarray
-            The array to unpad.
-
-        Returns
-        -------
-        ndarray
-            The unpadded array.
-        """
-
-    def pad_trim(self, arr: ndarray) -> ndarray:
-        """
-        Set the padded region to zero (for spectral padding)
-
-        Parameters
-        ----------
-        `arr` : ndarray
-            The array to pad.
-        """
+        return _unpad(arr)
 
     # ================================================================
     #  Gather
     # ================================================================
 
-    @abstractmethod
-    def gather(self, 
-               arr: ndarray, 
+    def gather(self,
+               arr: ndarray,
                slc: tuple[slice] | None = None,
-               dest_rank: int | None = None,
+               dest_rank: int | None = None,  # noqa: ARG002 (interface conformity)
                spectral: bool = False) -> ndarray:
         """
-        Gather an array to a single process.
+        Gather a distributed array on all processes.
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to gather.
-        `slc` : tuple[slice] (default=None)
+        slc : tuple[slice], optional
             The slice of the array to gather.
-            If None, gather the entire array.
-        `dest_rank` : int (default=None)
+            If None, gather the entire array (default: None).
+        dest_rank : int, optional
             The rank of the process to gather to.
-            If None, gather to all processes.
-        `spectral` : bool
-            Whether the array is in spectral space.
+            If None, gather to all processes (default: None).
+        spectral : bool, optional
+            Whether the array is in spectral space (default: False).
         """
+        if slc is None:
+            slc = (slice(None), )*self.n_dims
+        if not spectral:
+            arr = self.unpad(arr)
+        return multihost_utils.process_allgather(arr, tiled=True)[slc]
 
     # ================================================================
     #  Array creation
     # ================================================================
-
-    @abstractmethod
-    def create_array(self, 
-                     pad: bool = True, 
-                     spectral: bool = False,
-                     topo: tuple[bool] | None = None) -> ndarray:
+    def _get_array_attrs(self,
+                         topo: tuple[bool] | None
+                         ) -> tuple[tuple[int], tuple[int]]:
         """
-        Create an array.
+        Return the shape and the flat axes for the given topology.
 
         Parameters
         ----------
-        `pad` : bool
-            Whether to add padding to the array.
-        `spectral` : bool
-            Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
-        """
+        topo : tuple[bool] | None
+            The topology of the array.
 
-    @abstractmethod
-    def create_random_array(self, 
+        Returns
+        -------
+        shape : tuple[int]
+            The shape of the array.
+        flat_axes : tuple[int]
+            The flat axes of the array.
+        """
+        shape = self.shape
+        flat_axes = [
+            i for i, is_extended in enumerate(topo or [])
+            if not is_extended]
+        # we have to adjust the shape for the topology
+        if topo is not None:
+            shape = list(self.shape)
+            # each axis that is not extended has size 1
+            for i, is_extended in enumerate(topo):
+                if not is_extended:
+                    shape[i] = 1
+        return tuple(shape), tuple(flat_axes)
+
+    def create_array(self,
+                     pad: bool = True,
+                     spectral: bool = False,
+                     topo: tuple[bool] | None = None,
+                     ) -> ndarray:
+        """
+        Create a distributed array filled with zeros.
+
+        Parameters
+        ----------
+        pad : bool, optional
+            Whether to add halo padding to the array (default: True).
+        spectral : bool, optional
+            Whether the array is in spectral space (default: False).
+        topo : tuple[bool] | None, optional
+            The topology of the array. Axes with false are flat
+            (only one grid point) (default: None).
+        """
+        dtype = fr.utils.dtype_comp() if spectral else fr.utils.dtype_real()
+        sharding = self._get_sharding(spectral, topo)
+        shape, flat_axes = self._get_array_attrs(topo)
+
+        if self.n_devices == 1:
+            # create the array directly (jitted creation would
+            # retrace on every call)
+            arr = jnp.zeros(shape, dtype=dtype)
+        else:
+            @partial(jax.jit, out_shardings=sharding)
+            def create_zeros() -> ndarray:
+                return jnp.zeros(shape, dtype=dtype)
+            arr = create_zeros()
+            arr = jax.reshard(arr, sharding)
+
+        if pad and not spectral:
+            arr = self.pad(arr, flat_axes)
+            arr = self.sync(arr, flat_axes)
+        return arr
+
+    def create_random_array(self,
                             seed: int = 1234,
                             pad: bool = True,
                             spectral: bool = False,
-                            topo: tuple[bool] | None = None
+                            topo: tuple[bool] | None = None,
                             ) -> ndarray:
         """
-        Create a random array.
+        Create a distributed array filled with random numbers.
 
         Parameters
         ----------
-        `seed` : int
-            The seed for the random number generator.
-        `pad` : bool
-            Whether to add padding to the array.
-        `spectral` : bool
-            Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
-
+        seed : int, optional
+            The seed for the random number generator (default: 1234).
+        pad : bool, optional
+            Whether to add halo padding to the array (default: True).
+        spectral : bool, optional
+            Whether the array is in spectral space (default: False).
+        topo : tuple[bool] | None, optional
+            The topology of the array. Axes with false are flat
+            (only one grid point) (default: None).
         """
+        dtype = fr.utils.dtype_comp() if spectral else fr.utils.dtype_real()
+        sharding = self._get_sharding(spectral, topo)
+        shape, flat_axes = self._get_array_attrs(topo)
 
-    @abstractmethod
-    def create_meshgrid(self, 
-                        *args: ndarray, 
+        def _random_array() -> ndarray:
+            real = jax.random.normal(jax.random.PRNGKey(seed), shape)
+            if not spectral:
+                return real.astype(dtype)
+            imag = jax.random.normal(jax.random.PRNGKey(2*seed+3), shape)
+            return jnp.array(real + 1j*imag, dtype=dtype)
+
+        if self.n_devices == 1:
+            # create the array directly (jitted creation would
+            # retrace on every call)
+            arr = _random_array()
+        else:
+            arr = jax.jit(_random_array, out_shardings=sharding)()
+            arr = jax.reshard(arr, sharding)
+
+        if pad and not spectral:
+            arr = self.pad(arr, flat_axes)
+            arr = self.sync(arr, flat_axes)
+        return arr
+
+    def create_meshgrid(self,
+                        *args: ndarray,
                         pad: bool = True,
                         spectral: bool = False) -> tuple[ndarray]:
         """
-        Create a meshgrid of arrays.
+        Create a distributed meshgrid of arrays.
 
         Parameters
         ----------
-        `args` : ndarray
+        args : ndarray
             The arrays to meshgrid.
-        `pad` : bool
-            Whether to add padding to the meshgrid.
-        `spectral` : bool
-            Whether the meshgrid is in spectral space.
+        pad : bool, optional
+            Whether to add halo padding to the meshgrid (default: True).
+        spectral : bool, optional
+            Whether the meshgrid is in spectral space (default: False).
         """
+        sharding = self._get_sharding(spectral, None)
+        if self.n_devices == 1:
+            # create the meshgrid directly (jitted creation would
+            # retrace on every call)
+            arrs = jnp.meshgrid(*args, indexing="ij")
+        else:
+            shardings = [sharding]*len(args)
+            @partial(jax.jit, out_shardings=shardings)
+            def create_meshgrid() -> list[ndarray]:
+                return jnp.meshgrid(*args, indexing="ij")
+            arrs = create_meshgrid()
+            arrs = [jax.reshard(arr, sharding) for arr in arrs]
+
+        if pad and not spectral:
+            # synchronize so that periodic halo regions carry the
+            # wrapped coordinate values instead of zeros
+            return tuple(self.sync(self.pad(arr)) for arr in arrs)
+        return tuple(arrs)
 
     # ================================================================
     #  Array operations
     # ================================================================
 
-    @abstractmethod
-    def sum(self, 
-            arr: ndarray, 
+    def sum(self,
+            arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """
         Sum an array across specified axes.
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to sum.
-        `axes` : list[int] | None
-            The axes to sum across. 
-            If None, sum across all axes.
-        `spectral` : bool
-            Whether the array is in spectral space.
+        axes : list[int] | None, optional
+            The axes to sum across.
+            If None, sum across all axes (default: None).
+        spectral : bool, optional
+            Whether the array is in spectral space (default: False).
         """
+        # the halo cells must not contribute to the sum
+        arr = self.unpad(arr)
+        return jnp.sum(arr, axis=axes, keepdims=True)
 
-    @abstractmethod
     def max(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """
         Find the maximum value of an array across specified axes.
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to find the maximum value of.
-        `axes` : list[int] | None
-            The axes to find the maximum value across. 
-            If None, find the maximum value across all axes.
-        `spectral` : bool
-            Whether the array is in spectral space.
+        axes : list[int] | None, optional
+            The axes to find the maximum value across.
+            If None, find the maximum value across all axes (default: None).
+        spectral : bool, optional
+            Whether the array is in spectral space (default: False).
         """
+        # the halo cells must not contribute to the maximum
+        arr = self.unpad(arr)
+        return jnp.max(arr, axis=axes, keepdims=True)
 
-    @abstractmethod
     def min(self,
-            arr: ndarray, 
+            arr: ndarray,
             axes: list[int] | None = None,
-            spectral: bool = False) -> ndarray:
+            spectral: bool = False) -> ndarray:  # noqa: ARG002 (interface conformity)
         """
         Find the minimum value of an array across specified axes.
 
         Parameters
         ----------
-        `arr` : ndarray
+        arr : ndarray
             The array to find the minimum value of.
-        `axes` : list[int] | None
-            The axes to find the minimum value across. 
-            If None, find the minimum value across all axes.
-        `spectral` : bool
-            Whether the array is in spectral space.
+        axes : list[int] | None, optional
+            The axes to find the minimum value across.
+            If None, find the minimum value across all axes (default: None).
+        spectral : bool, optional
+            Whether the array is in spectral space (default: False).
         """
+        # the halo cells must not contribute to the minimum
+        arr = self.unpad(arr)
+        return jnp.min(arr, axis=axes, keepdims=True)
 
-    @abstractmethod
+    def _cumsum_along_axis(self, arr: ndarray, axis: int) -> ndarray:
+        """Cumulative sum of an unpadded array along an axis."""
+        if axis > 0:
+            # the axis is local to each device
+            return jnp.cumsum(arr, axis=axis)
+        # a cumulative sum along the distributed axis is computed under
+        # the alternative sharding, where the first axis is local
+        arr = self.to_alterative_sharding(arr)
+        cumsum = jnp.cumsum(arr, axis=axis)
+        return self.to_main_sharding(cumsum)
+
     def cumsum(self,
                arr: ndarray,
-               axis: int) -> ndarray:
+               axis: int,
+               ) -> ndarray:
         """
         Cumulative sum of an array along a specified axis.
 
@@ -375,13 +723,15 @@ class DomainDecomposition:
             The array to cumsum.
         axis : int
             The axis to cumsum along.
-
         """
+        arr = self.unpad(arr)
+        cumsum = self._cumsum_along_axis(arr, axis)
+        return self.sync(self.pad(cumsum))
 
-    @abstractmethod
     def inv_cumsum(self,
                    arr: ndarray,
-                   axis: int) -> ndarray:
+                   axis: int,
+                   ) -> ndarray:
         """
         Inverse cumulative sum of an array along a specified axis.
 
@@ -391,45 +741,97 @@ class DomainDecomposition:
             The array to inv_cumsum.
         axis : int
             The axis to inv_cumsum along.
-
         """
-
-    @abstractmethod
-    def roll(self,
-             arr: ndarray,
-             shift: int | tuple[int],
-             axis: int | tuple[int]) -> ndarray:
-        """
-        Roll an array along specified axes.
-
-        Parameters
-        ----------
-        arr : ndarray
-            The array to roll.
-        shift : int | tuple[int]
-            The number of places by which elements are shifted. Rolling the array
-            [1,2,3,4,5] with shift=1 results in [5,1,2,3,4]. If a tuple is given,
-            the axis must also be a tuple of the same length.
-        axis : int | tuple[int]
-            The axis or axes to roll along. If a tuple is given, the shift must
-            also be a tuple of the same length.
-
-        """
-
+        arr = self.unpad(arr)
+        # reverse the array in the given axis
+        arr = jnp.flip(arr, axis=axis)
+        # calculate the cumsum
+        cumsum = self._cumsum_along_axis(arr, axis)
+        # reverse the array back
+        cumsum = jnp.flip(cumsum, axis=axis)
+        return self.sync(self.pad(cumsum))
 
     # ================================================================
     #  Helper functions
     # ================================================================
+    def _get_sharding(
+        self,
+        spectral: bool = False,
+        topo: tuple[bool] | None = None,
+    ) -> NamedSharding:
+        shard = self._shard_alt if spectral else self._shard_main
+        if topo is not None:
+            new_specs = []
+            for ax, is_extended in zip(shard.spec, topo, strict=False):
+                if is_extended:
+                    new_specs.append(ax)
+                else:
+                    new_specs.append(None)
+            shard = NamedSharding(self.mesh, P(*new_specs))
+        return shard
+
+    def _shard_map_with(self, func: callable,
+                        sharding: NamedSharding) -> callable:
+        """Apply a shard map with the given sharding to a function."""
+        if self.n_devices == 1:
+            # a single shard covers the whole domain: the mapped
+            # function can be applied directly (eager shard maps
+            # carry a large dispatch overhead)
+            return func
+
+        mapped = shard_map(func,
+                           mesh=self.mesh,
+                           in_specs=sharding.spec,
+                           out_specs=sharding.spec)
+
+        def wrapper(*args: ndarray) -> ndarray:
+            # shard_map does not reshard its inputs, so arrays that
+            # carry a different sharding (e.g. plain arrays assigned
+            # directly to a field) are moved to the target sharding
+            args = tuple(jax.device_put(arg, sharding) for arg in args)
+            return mapped(*args)
+        return wrapper
+
+    def main_shard_map(self, func: callable) -> callable:
+        """Apply a shard map with the main sharding to a function."""
+        return self._shard_map_with(func, self._shard_main)
+
+    def alt_shard_map(self, func: callable) -> callable:
+        """Apply a shard map with the alternative sharding to a function."""
+        return self._shard_map_with(func, self._shard_alt)
+
     def shard_map(self, func: callable) -> callable:
         """
-        Decorator to apply a function to the active processes only.
+        Decorate a function to apply it to the local device shards.
 
         Parameters
         ----------
-        `func` : callable
+        func : callable
             The function to apply.
         """
-        return func
+        return self.main_shard_map(func)
+
+    def to_alterative_sharding(self, arr: ndarray) -> ndarray:
+        """
+        Convert an array to the alternative sharding.
+
+        Parameters
+        ----------
+        arr : ndarray
+            The array to convert.
+        """
+        return jax.device_put(arr, self._shard_alt)
+
+    def to_main_sharding(self, arr: ndarray) -> ndarray:
+        """
+        Convert an array to the main sharding.
+
+        Parameters
+        ----------
+        arr : ndarray
+            The array to convert.
+        """
+        return jax.device_put(arr, self._shard_main)
 
     # ================================================================
     #  Properties
@@ -437,102 +839,62 @@ class DomainDecomposition:
 
     @property
     def n_dims(self) -> int:
-        """
-        Number of dimensions.
-        """
+        """Number of dimensions."""
         return self._n_dims
 
     @property
     def shape(self) -> tuple[int]:
-        """
-        Shape of the domain (number of grid points).
-        """
+        """Shape of the domain (number of grid points)."""
         return self._shape
 
     @property
     def halo(self) -> int:
-        """
-        Width of the halo region (same for all dimensions).
-        """
+        """Width of the halo region (same for all dimensions)."""
         return self._halo
 
     @property
     def periods(self) -> tuple[bool] | None:
-        """
-        Periodic boundaries of the domain.
-        """
+        """Periodic boundaries of the domain."""
         return self._periods
 
     @property
     def parallel(self) -> bool:
-        """
-        Whether the domain is parallel.
-        """
+        """Whether the domain is distributed over several devices."""
         return self.size > 1
 
     @property
     def rank(self) -> int:
-        """
-        Rank of the current process.
-        """
+        """Rank of the current process."""
         return self._rank
 
     @property
     def size(self) -> int:
-        """
-        Number of processes.
-        """
-        return np.prod(self.p_dims)
+        """Number of processes."""
+        return int(np.prod(self.p_dims))
 
     @property
     def device_ids(self) -> list[int] | None:
-        """
-        List of device ids.
-        """
+        """List of device ids."""
         return self._device_ids
 
     @property
-    def i_am_active(self) -> bool:
-        """
-        Whether the current process is active in this domain.
-        """
-        return self.rank in self.device_ids
-
-    @property
     def p_dims(self) -> tuple[int]:
-        """
-        Number of processes in each dimension.
-        """
+        """Number of processes in each dimension."""
         return self._p_dims
 
     @property
     def shared_axes(self) -> tuple[int]:
-        """
-        Axes shared by all processes.
-        """
+        """Axes shared by all processes."""
         return [i for i, x in enumerate(self.p_dims) if x == 1]
 
 
 def get_default_domain_decomposition() -> DomainDecomposition:
     """
-    Get the domain decomposition class for the specified backend.
+    Get the default domain decomposition class.
 
-    Parameters
-    ----------
-    `backend` : str
-        The backend to use. Options are 'single' and 'jax'.
+    Description
+    -----------
+    The domain is decomposed across the available devices using the
+    DomainDecomposition (which also handles the single-device case).
     """
-    fall_back = fr.domain_decomposition.SingleDecomposition
-    # if the parallel flag is not set, use the fall back
-    if not fr.config.enable_parallel:
-        return fall_back
-    # if the backend is jax, use the jax decomposition
-    if fr.config.backend_is_jax:
-        # count the number of devices
-        import jax
-        n_devices = jax.device_count()
-        # if we only have one available device, we use single decomposition
-        if n_devices == 1:
-            return fall_back
-        # otherwise, we use the jax decomposition
-        return fr.domain_decomposition.JaxDecomposition
+    return fr.domain_decomposition.DomainDecomposition

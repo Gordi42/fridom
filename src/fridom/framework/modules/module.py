@@ -25,7 +25,7 @@ def module_method(method: T) -> T:
             # if the log level is set, change the log level for the module
             if self.log_level is not None:
                 old_log_level = fr.log.level
-                fr.config.set_log_level(self.log_level.value)
+                fr.log.setLevel(self.log_level.value)
 
             fr.log.debug(
                 f"Calling '{method.__name__}' of: {self.name}")
@@ -39,7 +39,7 @@ def module_method(method: T) -> T:
 
             # if the log level was set, change it back to the old log level
             if self.log_level is not None:
-                fr.config.set_log_level(old_log_level)
+                fr.log.setLevel(old_log_level)
             return result
         # if the module is disabled and the method is the update method, return
         # the model state
@@ -48,6 +48,7 @@ def module_method(method: T) -> T:
         return None
     return wrapper
 
+@fr.utils.jaxify
 class Module:
 
     """
@@ -60,19 +61,20 @@ class Module:
     as for example outputting the model state to a file.
 
     Required methods:
-    1. `__init__(self, ...) -> None`: The constructor only takes keyword 
-    argument which are stored as attributes. Always call the parent constructor 
-    with `super().__init__(name, **kwargs)`. The name of the module is stored in
-    the timing module and should not be too long.
+    1. `__init__(self, ...) -> None`: The constructor only takes keyword
+    argument which are stored as attributes. Always call the parent
+    constructor with `super().__init__(name, **kwargs)`. The name of the
+    module is stored in the timing module and should not be too long.
     2. `update(self, mz: ModelState) -> None`: This method is
-    called by the model at each time step. It can for example update the 
-    tendency state `mz.dz` based on the model state `mz`. Or write the model state
-    to a file. Make sure to wrap the method with the `@update_module` decorator.
+    called by the model at each time step. It can for example update the
+    tendency state `mz.dz` based on the model state `mz`. Or write the
+    model state to a file. Make sure to wrap the method with the
+    `@update_module` decorator.
 
     Optional methods:
-    1. `start(self, mset: ModelSettingsBase) -> None`: 
-    This method is called by the model when the module is started. It can for 
-    example open an output file. Make sure to wrap the method with the 
+    1. `start(self, mset: ModelSettingsBase) -> None`:
+    This method is called by the model when the module is started. It can for
+    example open an output file. Make sure to wrap the method with the
     `@start_module` decorator.
     2. `stop(self) -> None`: This method is called by the model when the module
     is stopped. It can for example close an output file. Make sure to wrap the
@@ -126,7 +128,8 @@ class Module:
         self.log_level: str | int | None = None
 
         # Set the flags
-        self._required_halo = None  # The number of halo points required by the module
+        # The number of halo points required by the module
+        self._required_halo = None
         self.mpi_available = True  # Whether the module can be run in parallel
         self.execute_at_start = False
 
@@ -144,7 +147,7 @@ class Module:
     def setup(self,
               mset: fr.ModelSettingsBase,
               setup_mode: Literal["default", "forced"] = "default",
-              ) -> None:
+              ) -> Module:
         """
         Set the module up.
 
@@ -158,13 +161,13 @@ class Module:
         mset : fr.ModelSettingsBase
             The model settings object.
         setup_mode : Literal["default", "forced"]
-            The setup mode. If the setup mode is "default" and the module is
-            already setup, the method will return. If the setup mode is "forced",
-            the module will be setup again.
+            The setup mode. If the setup mode is "default" and the module
+            is already setup, the method will return. If the setup mode is
+            "forced", the module will be setup again.
 
         """
         if self.is_setup and setup_mode == "default":
-            return
+            return None
 
         self.is_setup = True
         self.mset = mset
@@ -173,6 +176,8 @@ class Module:
             self._setup_submodule("diff_module", mset)
             self._setup_submodule("interp_module", mset)
         self._on_setup()
+
+        return self
 
     def _setup_submodule(self, name: str, mset: fr.ModelSettingsBase) -> None:
         submodule = getattr(self, name)
@@ -192,7 +197,7 @@ class Module:
 
         Description
         -----------
-        This method is called at the beginning of the model run. Child classes 
+        This method is called at the beginning of the model run. Child classes
         that require a start method (for example to start an output writer)
         should overwrite this method. Make sure to decorate the method with
         the `@module_method` decorator.
@@ -205,7 +210,7 @@ class Module:
         Description
         -----------
         This method is called by the model at the end of the model run or
-        when the model is reset. Child classes that require a stop method 
+        when the model is reset. Child classes that require a stop method
         (for example to close an output file) should overwrite this method.
         Make sure to decorate the method with the `@module_method` decorator.
         """
@@ -229,8 +234,8 @@ class Module:
         Description
         -----------
         This method is called by the model at each time step. Child classes
-        should overwrite this method to update the module. Make sure to decorate
-        the method with the `@module_method` decorator.
+        should overwrite this method to update the module. Make sure to
+        decorate the method with the `@module_method` decorator.
 
         Parameters
         ----------
@@ -299,21 +304,6 @@ class Module:
         used to print the time stepper in the `__repr__` method.
         """
         info = {}
-        # # ----------------------------------------------------------------
-        # #  Check if the differentiation module should be printed
-        # # ----------------------------------------------------------------
-        # if ( (self.is_setup and self.diff_module is not self.grid.diff_module) or
-        #      (not self.is_setup and self.diff_module is not None) ):
-        #     info["Diff. Module"] = self.diff_module.name
-
-        # # ----------------------------------------------------------------
-        # #  Check if the differentiation module should be printed
-        # # ----------------------------------------------------------------
-        # if ( (self.is_setup and
-        #       self.interp_module is not self.grid.interp_module) or
-        #      (not self.is_setup and self.interp_module is not None) ):
-        #     info["Interp. Module"] = self.interp_module.name
-
         # ----------------------------------------------------------------
         #  Check if the required halo should be printed
         # ----------------------------------------------------------------

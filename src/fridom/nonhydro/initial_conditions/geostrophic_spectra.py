@@ -1,26 +1,44 @@
+"""Random geostrophic initial condition with a given energy spectrum."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
-def geostrophic_energy_spectrum(kx, ky, kz, d=7, k0=6, c=2):
-    """
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from numpy import ndarray
+
+
+def geostrophic_energy_spectrum(kx: ndarray,
+                                ky: ndarray,
+                                kz: ndarray,
+                                d: float = 7,
+                                k0: float = 6,
+                                c: float = 2) -> ndarray:
+    r"""
     Geostrophic energy spectrum.
-    
+
     Description
     -----------
     The geostrophic energy spectrum is separated into horizontal and vertical
-    components. Following the work of Masur & Oliver [2020], the horizontal 
+    components. Following the work of Masur & Oliver [2020], the horizontal
     energy spectrum :math:`S_h` is given by:
 
     .. math::
         S_h = \\frac{k^7}{\\left(k^2 + a k_0^2\\right)^{2b}}
 
-    where :math:`k = \sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber, :math:`a`
-    and :math:`b` are constants:
+    where :math:`k = \\sqrt{k_x^2 + k_y^2}` is the horizontal wavenumber,
+    :math:`a` and :math:`b` are constants:
 
     .. math::
-        a = \\frac{4}{7}b - 1, \quad b = \\frac{7+d}{4}
+        a = \\frac{4}{7}b - 1, \\quad b = \\frac{7+d}{4}
 
     where :math:`d` is the power law exponent for large horizontal wavenumbers
-    (:math:`S_h(k) \sim k^{-d}` for :math:`k \\to \\infty`). The parameter
+    (:math:`S_h(k) \\sim k^{-d}` for :math:`k \\to \\infty`). The parameter
     :math:`k_0` is the wavenumber with the maximum energy.
 
     The vertical component :math:`S_v` is given by:
@@ -30,50 +48,49 @@ def geostrophic_energy_spectrum(kx, ky, kz, d=7, k0=6, c=2):
 
     where :math:`k_z` is the vertical wavenumber and :math:`c` is a constant.
     The total energy spectrum is given by :math:`S = S_h S_v`.
-    
+
     Parameters
     ----------
-    `kx` : `float`
+    kx : float
         The horizontal wavenumber in the x-direction.
-    `ky` : `float`
+    ky : float
         The horizontal wavenumber in the y-direction.
-    `kz` : `float`
+    kz : float
         The vertical wavenumber.
-    `d` : `float`, optional (default=7)
-        The power law exponent for large horizontal wavenumbers 
-        (:math:`S_h(k) \sim k^{-d}` for :math:`k \\to \\infty`).
-    `k0` : `float`, optional (default=6)
-        The wavenumber with the maximum energy.
-    `c` : `float`, optional (default=2)
-        The decay rate of the vertical energy spectrum.
+    d : float, optional
+        The power law exponent for large horizontal wavenumbers
+        (:math:`S_h(k) \\sim k^{-d}` for :math:`k \\to \\infty`) (default: 7).
+    k0 : float, optional
+        The wavenumber with the maximum energy (default: 6).
+    c : float, optional
+        The decay rate of the vertical energy spectrum (default: 2).
     """
-    ncp = nh.config.ncp
-    
     # horizontal spectra
-    kh = ncp.sqrt(kx**2 + ky**2)
+    kh = jnp.sqrt(kx**2 + ky**2)
     b = (7.+d)/4.
     a = (4./7.)*b-1
     h_spetra = kh**7/(kh**2 + a*k0**2)**(2*b)
 
     # vertical spectra
-    v_spectra = ncp.exp(-c*ncp.abs(kz))
+    v_spectra = jnp.exp(-c*jnp.abs(kz))
     return h_spetra * v_spectra
 
 
 class RandomGeostrophicSpectra(nh.State):
+
     """
     Random geostrophic state with a given spectral energy density.
-    
+
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings (need to be set up).
-    `seed` : `int`
+    seed : int
         Seed for the random number generator (for the phase)
-    `spectral_energy_density` : `callable(kx, ky, kz)`
+    spectral_energy_density : callable(kx, ky, kz)
         Callable that returns the spectral energy density as a function of the
         wavenumbers `kx`, `ky`, and `kz`.
-    
+
     Examples
     --------
     .. code-block:: python
@@ -81,48 +98,52 @@ class RandomGeostrophicSpectra(nh.State):
         import fridom.nonhydro as nh
         # Set up the model settings
         grid = nh.grid.cartesian.Grid(
-            N=(128, 128, 32), L=(10, 10, 1), 
+            shape=(128, 128, 32), domain_size=(10, 10, 1),
             periodic_bounds=(False, True, False))
-        mset = nh.ModelSettings(grid=grid, f0=1, N2=1.0, dsqr=0.2**2)
+        mset = nh.ModelSettings(
+            grid=grid, f0=1, stratification_n2=1.0, dsqr=0.2**2)
         mset.time_stepper.dt = 0.1
         mset.setup()
         # Create the initial conditions
         ic = nh.initial_conditions
         def spectra(kx, ky, kz):
-            return ic.geostrophic_energy_spectrum(kx, ky, kz, c=0.2, k0=1.4, d=7)
-        z = ic.RandomGeostrophicSpectra(mset, spectral_energy_density=spectra) * 0.1
+            return ic.geostrophic_energy_spectrum(
+                kx, ky, kz, c=0.2, k0=1.4, d=7)
+        z = ic.RandomGeostrophicSpectra(
+            mset, spectral_energy_density=spectra) * 0.1
         # Create and run the model
         model = nh.Model(mset)
         model.z = z
         model.run(runlen=200.0)
 
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: nh.ModelSettings,
-                 seed=12345,
-                 spectral_energy_density=geostrophic_energy_spectrum):
+                 seed: int = 12345,
+                 spectral_energy_density: Callable = (
+                     geostrophic_energy_spectrum)) -> None:
         super().__init__(mset, is_spectral=False)
 
-        ncp = nh.config.ncp
-        kx, ky, kz = mset.grid.K
+        kx, ky, kz = mset.grid.k_mesh
         shape = kx.shape
 
         # construct the geostrophic eigenvectors
         q = mset.grid.vec_q(s=0, use_discrete=True)
 
         # scale the geostrophic eigenvector such that they have energy 1
-        abs = ncp.absolute
+        absolute = jnp.absolute
         dsqr = self.mset.dsqr
-        N2 = self.mset.N2
+        n2 = self.mset.stratification_n2
         # calculate spectral energy using Parseval's theorem
-        energy = 0.5 * (   abs(q.u.arr)**2 
-                         + abs(q.v.arr)**2 
-                         + abs(q.w.arr)**2 * dsqr
-                         + abs(q.b.arr)**2 / N2 )
+        energy = 0.5 * (   absolute(q.u.arr)**2
+                         + absolute(q.v.arr)**2
+                         + absolute(q.w.arr)**2 * dsqr
+                         + absolute(q.b.arr)**2 / n2 )
 
-        energy = ncp.where(energy == 0, 1, energy)
-        
-        q /= ncp.sqrt(energy)
+        energy = jnp.where(energy == 0, 1, energy)
+
+        q /= jnp.sqrt(energy)
 
         # construct a random phase
         p1 = nh.utils.random_array(shape, seed)
@@ -133,14 +154,13 @@ class RandomGeostrophicSpectra(nh.State):
         spectra = spectral_energy_density(kx, ky, kz)
 
         # construct the geostrophic state
-        z = q * r * ncp.sqrt(spectra)
+        z = q * r * jnp.sqrt(spectra)
 
         # transform to physical space and normalize the state such that the
         # maximum velocity is 1
         z = z.ifft()
-        scal = 1 / ncp.amax(z.u.arr)
+        scal = 1 / jnp.amax(z.u.arr)
         z *= scal
 
         # set the state
         self.fields = z.fields
-        return

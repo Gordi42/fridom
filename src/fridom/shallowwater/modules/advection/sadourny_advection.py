@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
@@ -17,23 +19,28 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
     .. math::
         \partial_t \boldsymbol{u}
-                     = - (\boldsymbol{u} + \boldsymbol{u}_b) \cdot \nabla \boldsymbol{u}
+                     = - (\boldsymbol{u} + \boldsymbol{u}_b)
+                         \cdot \nabla \boldsymbol{u}
                      = - \underset{\neg}{\boldsymbol{u}} \zeta
                        - \frac{1}{2} \nabla \boldsymbol{u}^2
-                       - \nabla \left( \boldsymbol{u_b} \cdot \boldsymbol{u} \right)
+                       - \nabla \left(
+                           \boldsymbol{u_b} \cdot \boldsymbol{u} \right)
 
-        \partial_t p = - \nabla \left\[ (\boldsymbol{u} + \boldsymbol{u}_b) p \right\]
+        \partial_t p = - \nabla \left\[
+            (\boldsymbol{u} + \boldsymbol{u}_b) p \right\]
 
         \partial_t C = - (\boldsymbol{u} + \boldsymbol{u}_b) \cdot \nabla C
 
-    where :math:`\boldsymbol{u_b}` is a divergence free background flow that can
-    be set with the `background` attribute of this module, :math:`\zeta` is the
-    relative vorticity, and :math:`C` is a passive tracer.
+    where :math:`\boldsymbol{u_b}` is a divergence free background flow
+    that can be set with the `background` attribute of this module,
+    :math:`\zeta` is the relative vorticity, and :math:`C` is a passive
+    tracer.
     We express the rotational part of the momentum advection with the potential
     vorticity :math:`q`:
 
     .. math::
-        \underset{\neg}{\boldsymbol{u}} \zeta = \underset{\neg}{\boldsymbol{f_u}} q
+        \underset{\neg}{\boldsymbol{u}} \zeta
+            = \underset{\neg}{\boldsymbol{f_u}} q
 
     with
 
@@ -45,11 +52,14 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
     name = "Sadourny Advection"
 
+    def __init__(self) -> None:
+        super().__init__()
+        self.csqr = None
+
     def _on_setup(self) -> None:
         self._required_halo = 2
         self.csqr = self.mset.csqr
 
-    @fr.utils.jaxjit
     def advect_state(self, z: sw.State, dz: sw.State) -> sw.State:  # noqa: D102
         if self.background is None and self.disable_nonlinear:
             return dz
@@ -67,16 +77,16 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
         #  Define some grid positions
         # ================================================================
 
-        CENTER = z.p.position
-        EAST = z.p.position.shift(0)
-        NORTH = z.p.position.shift(1)
-        NORTHEAST = EAST.shift(1)
+        center = z.p.position
+        east = z.p.position.shift(0)
+        north = z.p.position.shift(1)
+        northeast = east.shift(1)
 
         # ----------------------------------------------------------------
         #  Compute the nonlinear term of the pressure tendency - ∇(vp)
         # ----------------------------------------------------------------
-        fx = zf.u * interp(z.p, EAST)
-        fy = zf.v * interp(z.p, NORTH)
+        fx = zf.u * interp(z.p, east)
+        fy = zf.v * interp(z.p, north)
         dz.p -= scale * diff_mod.div((fx, fy))
 
         # ----------------------------------------------------------------
@@ -92,11 +102,12 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
             if div is None:
                 div = diff_mod.div((zf.u, zf.v))
 
-            fx = zf.u * interp(quantity, EAST)
-            fy = zf.v * interp(quantity, NORTH)
+            fx = zf.u * interp(quantity, east)
+            fy = zf.v * interp(quantity, north)
 
+            # df = -∇(vC) + C ∇v = -v ∇C is the advective tendency
             df = - diff_mod.div((fx, fy)) + quantity * div
-            dz.fields[name] -= scale * df
+            dz.fields[name] += scale * df
 
         # ----------------------------------------------------------------
         #  Advection of momentum
@@ -104,14 +115,15 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
         # start with momentum advection by the background flow
         if self.background is not None:
-            u_b = self.background.u; v_b = self.background.v
+            u_b = self.background.u
+            v_b = self.background.v
             # u-component
-            fx = interp(u_b, CENTER) * interp(z.u, CENTER)
-            fy = interp(v_b, NORTHEAST) * interp(z.u, NORTHEAST)
+            fx = interp(u_b, center) * interp(z.u, center)
+            fy = interp(v_b, northeast) * interp(z.u, northeast)
             dz.u -= scale * diff_mod.div((fx, fy))
             # v-component
-            fx = interp(u_b, NORTHEAST) * interp(z.v, NORTHEAST)
-            fy = interp(v_b, CENTER) * interp(z.v, CENTER)
+            fx = interp(u_b, northeast) * interp(z.v, northeast)
+            fy = interp(v_b, center) * interp(z.v, center)
             dz.v -= scale * diff_mod.div((fx, fy))
 
         # now do the nonlinear advection
@@ -120,21 +132,23 @@ class SadournyAdvection(fr.modules.advection.AdvectionBase):
 
         # compute the potential vorticity
         zeta = z.rel_vort
-        h_full = self.csqr + scale * z.p  # check if we should use scale or Ro here
-        q = zeta / interp(h_full, NORTHEAST)
+        # check if we should use scale or Ro here
+        h_full = self.csqr + scale * z.p
+        q = zeta / interp(h_full, northeast)
 
         # interp set h_full to zero on boundaries, as a result values of q on
         # boundaries are nan. We set them to zero here.
-        q.arr = fr.config.ncp.nan_to_num(q.arr, 0.0)
+        q.arr = jnp.nan_to_num(q.arr, 0.0)
 
-        # compute the fluxes fu and fv at the northeast position (to match the vorticity)
-        fu = interp(z.u * interp(h_full, EAST), NORTHEAST)
-        fv = interp(z.v * interp(h_full, NORTH), NORTHEAST)
+        # compute the fluxes fu and fv at the northeast position
+        # (to match the vorticity)
+        fu = interp(z.u * interp(h_full, east), northeast)
+        fv = interp(z.v * interp(h_full, north), northeast)
 
         # compute the kinetic energy
-        ekin = 0.5 * (interp(z.u**2, CENTER) + interp(z.v**2, CENTER))
+        ekin = 0.5 * (interp(z.u**2, center) + interp(z.v**2, center))
 
         # compute the advection terms
-        dz.u += scale * ( interp(fv * q, EAST ) - diff_mod.diff(ekin, axis=0))
-        dz.v += scale * (-interp(fu * q, NORTH) - diff_mod.diff(ekin, axis=1))
+        dz.u += scale * ( interp(fv * q, east ) - diff_mod.diff(ekin, axis=0))
+        dz.v += scale * (-interp(fu * q, north) - diff_mod.diff(ekin, axis=1))
         return dz

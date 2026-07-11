@@ -64,9 +64,9 @@ class Plotter(nh.modules.animation.ModelPlotter):
 def main():
 
     grid = nh.grid.cartesian.Grid(
-        N=(resolution, 1, resolution), L=(300, 1, 200), 
+        shape=(resolution, 1, resolution), domain_size=(300, 1, 200), 
         periodic_bounds=(True, True, True))
-    mset = nh.ModelSettings(grid=grid, f0=1e-4, N2=2.5e-5)
+    mset = nh.ModelSettings(grid=grid, f0=1e-4, stratification_n2=2.5e-5)
     mset.time_stepper.dt = np.timedelta64(30, 's')
     mset.tendencies.advection.disable()
 
@@ -91,8 +91,8 @@ def main():
         kz = 2 * np.pi / wave_length * np.sin(np.deg2rad(angle))
 
         # convert the wave vector to wavenumber of the grid (k = 2pi/L * kp)
-        wavenum_x = int(kx * grid.L[0] / (2 * np.pi))
-        wavenum_z = int(kz * grid.L[2] / (2 * np.pi))
+        wavenum_x = int(kx * grid.domain_size[0] / (2 * np.pi))
+        wavenum_z = int(kz * grid.domain_size[2] / (2 * np.pi))
 
         mset.tendencies.add_module(nh.modules.forcings.PolarizedWaveMaker(
             position = (x, None, 150),

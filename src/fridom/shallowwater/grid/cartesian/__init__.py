@@ -8,8 +8,12 @@ from lazypimp import setup
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework.grid.cartesian.fft import FFT
-    from fridom.framework.grid.cartesian.finite_differences import FiniteDifferences
-    from fridom.framework.grid.cartesian.linear_interpolation import LinearInterpolation
+    from fridom.framework.grid.cartesian.finite_differences import (
+        FiniteDifferences,
+    )
+    from fridom.framework.grid.cartesian.linear_interpolation import (
+        LinearInterpolation,
+    )
     from fridom.framework.grid.cartesian.polynomial_interpolation import (
         PolynomialInterpolation,
     )

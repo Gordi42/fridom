@@ -1,14 +1,24 @@
-import fridom.framework as fr
-from numpy import ndarray
+"""Water mask for the grid cells (for boundary conditions)."""
+from __future__ import annotations
+
 import itertools
 from functools import partial
+from typing import TYPE_CHECKING
+
+import jax.numpy as jnp
+
+import fridom.framework as fr
+
+if TYPE_CHECKING:  # pragma: no cover
+    from numpy import ndarray
 
 
-@partial(fr.utils.jaxify, dynamic=('_water_mask', '_cache'))
+@partial(fr.utils.jaxify, dynamic=("_water_mask", "_cache"))
 class WaterMask:
+
     """
     Water mask for the grid cells (for boundary conditions).
-    
+
     Description
     -----------
     Let's consider the following staggered grid with periodic boundaries:
@@ -39,47 +49,50 @@ class WaterMask:
             [1, 1, 1]           [1, 1, 1]           [0, 1, 1]
         x = [0, 0, 1]       o = [0, 0, 0]       e = [0, 0, 1]
             [0, 1, 1]           [0, 1, 0]           [0, 0, 1]
-    
+
     """
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.name = "Water Mask"
         self._water_mask = None
         self._cache = {}
-        self._domain_decomposition: fr.domain_decomposition.DomainDecomposition = None
+        self._domain_decomposition: (
+            fr.domain_decomposition.DomainDecomposition) = None
         self._periodic_bounds = None
-        return
 
     def setup(self, mset: fr.ModelSettingsBase) -> None:
+        """Set up the water mask from the model settings."""
         # we can't set mset or grid as attributes due to recursion issues
         # with jaxjit, so we only set the attributes we need
         self._domain_decomposition = mset.grid.domain_decomp
         self._periodic_bounds = mset.grid.periodic_bounds
-        self.water_mask = (mset.grid.domain_decomp.create_array(pad=True)+1).astype(bool)
-        # self.water_mask = fr.config.ncp.ones(mset.grid.X[0].shape, dtype=bool)
-        return
+        self.water_mask = (
+            mset.grid.domain_decomp.create_array(pad=True)+1).astype(bool)
 
     def get_mask(self, position: fr.grid.Position) -> ndarray:
-        """
-        Get the water mask at the given position.
-        """
-        id = hash(position)
-        if id not in self._cache:
-            self._cache[id] = self.create_mask_at_position(position)
-        return self._cache[id]
+        """Get the water mask at the given position."""
+        key = hash(position)
+        if key not in self._cache:
+            self._cache[key] = self.create_mask_at_position(position)
+        return self._cache[key]
+
+    def apply_mask(self, f: fr.ScalarField) -> fr.ScalarField:
+        """Apply the water mask to a field."""
+        mask = self.get_mask(f.position)
+        f.arr *= mask
+        return f
 
     def create_mask_at_position(self, position: fr.grid.Position) -> ndarray:
-        """
-        Create a water mask at the given position.
-        """
+        """Create a water mask at the given position."""
         new_mask = self._water_mask
         for axis, axpos in enumerate(position.positions):
             new_mask = self.shift_mask_along_axis(new_mask, axis, axpos)
         return new_mask
 
     def shift_mask_along_axis(
-            self, 
+            self,
             mask: ndarray,
-            axis: int, 
+            axis: int,
             axpos: fr.grid.AxisPosition) -> ndarray:
         """
         Shift the mask along the given axis to the new position.
@@ -94,11 +107,11 @@ class WaterMask:
 
             _______           _______
                x  |  x  |  x  |  x  |  x  |  x  |
-        
+
         Hence the water mask would be:
 
         ::
-        
+
             [0, 1, 1, 0, 1, 1]
 
         The new mask at the right position is only water if both neighboring
@@ -108,13 +121,13 @@ class WaterMask:
 
             [0, 1, 0, 0, 1, ?]
 
-        where `?` depends on the neighboring cells. To find the new mask 
+        where `?` depends on the neighboring cells. To find the new mask
         algorithmically, we first determine the left and right cell centers
         of the corresponding cell face. And then we check if both neighboring
         cells are water by multiplying the left and right cell centers.
         Finally we synchronize the mask across the processors and fill the
         halo cells with land.
-        
+
         Parameters
         ----------
         mask : ndarray
@@ -132,32 +145,27 @@ class WaterMask:
                 # find out left and right side of the mask
 
                 @self._domain_decomposition.shard_map
-                def roll(arr):
+                def roll(arr: ndarray) -> ndarray:
                     left_side = arr
-                    right_side = fr.config.ncp.roll(arr, -1, axis)
-                    # both sides must be water (True) for the new mask to be water
+                    right_side = jnp.roll(arr, -1, axis)
+                    # both sides must be water (True) for the new mask
+                    # to be water
                     return right_side * left_side
 
                 new_mask = roll(mask)
-        new_mask = self._sync_mask(new_mask)
-        return new_mask
+        return self._sync_mask(new_mask)
 
     def _sync_mask(self, mask: ndarray) -> ndarray:
-        """
-        Synchronize the mask across the processors.
-        """
+        """Synchronize the mask across the processors."""
         # for some reason, sync does not work on boolean arrays
         # so we convert the mask to integers, sync it and then convert it back
         mask = mask.astype(int)
         mask = self._domain_decomposition.sync(mask)
-        mask = mask.astype(bool)
-        return mask
+        return mask.astype(bool)
 
     @property
     def water_mask(self) -> ndarray:
-        """
-        Get the water mask.
-        """
+        """Get the water mask."""
         return self._water_mask
 
     @water_mask.setter
@@ -168,7 +176,7 @@ class WaterMask:
         self._cache = {}
         # construct all possible masks
         ndim = mask.ndim
-        CENTER = fr.grid.AxisPosition.CENTER; FACE = fr.grid.AxisPosition.FACE
-        for position in itertools.product([CENTER, FACE], repeat=ndim):
+        center = fr.grid.AxisPosition.CENTER
+        face = fr.grid.AxisPosition.FACE
+        for position in itertools.product([center, face], repeat=ndim):
             self.get_mask(fr.grid.Position(position))
-        return

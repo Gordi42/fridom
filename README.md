@@ -28,7 +28,7 @@ To install FRIDOM from the source code repository, clone the repository in your 
 ``` bash
 git clone https://github.com/Gordi42/FRIDOM
 cd FRIDOM
-pip install -e '.[jax-cuda]'
+pip install -e '.[cuda]'
 ```
 see [here](https://fridom.readthedocs.io/en/latest/installation.html) for more information on the installation.
 
@@ -39,7 +39,7 @@ The following example showcases a simulation run in the shallow water model. The
 import fridom.shallowwater as sw
 
 # Create the grid and model settings
-grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
 mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
 mset.time_stepper.dt = 0.7e-3
 mset.setup()
@@ -81,11 +81,6 @@ https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc
 
 ## Roadmap
 ### Todos for version 0.1.0:
-- [ ] parallelization using jaxDecomp
-- [x] make mpi4py dependency optional
-- [x] adapt shallowwater to new model structure
-- [x] adapt optimal balance to new model structure
-- [x] make NNMD work
 - [ ] fix the CG pressure solver in nonhydro model
 - [ ] increase test coverage to at least 90%
 - [ ] adjust code to linting standards
@@ -103,9 +98,6 @@ https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc
 
 **Time Steppers:**
 - [ ] Adding implicit and semi implicit time steppers
-
-**Advection Schemes:**
-- [ ] Add higher order advection schemes like WENO
 
 **Others:**
 - [ ] Optimize parallelization for CPUs

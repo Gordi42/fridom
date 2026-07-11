@@ -12,7 +12,7 @@ class ResetTendency(fr.modules.Module):
 
     Description
     -----------
-    Time steppers may reuse tendency states to avoid unnecessary memory 
+    Time steppers may reuse tendency states to avoid unnecessary memory
     deallocation and reallocation. For this reason, it is important to reset
     the tendency state before updating it. It should always be the first module
     of the tendencies list.
@@ -22,11 +22,5 @@ class ResetTendency(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self._set_state_to_zero(mz.dz)
+        mz.dz = mz.dz.set_zero()
         return mz
-
-    @fr.utils.jaxjit
-    def _set_state_to_zero(self, dz: fr.VectorField) -> fr.VectorField:
-        """Set the state to zero."""
-        dz *= 0
-        return dz

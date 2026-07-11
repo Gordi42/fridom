@@ -1,8 +1,14 @@
-"""timing_module.py - Keep track of the time spent in different model components."""
+"""Track the time spent in different model components."""
+from __future__ import annotations
+
 from contextlib import contextmanager
-from typing import Generator
+from time import time
+from typing import TYPE_CHECKING
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Generator
 
 
 class TimingComponent:
@@ -32,7 +38,6 @@ class TimingComponent:
             return
         # start the timer
         self.is_active = True
-        from time import time
         self.start_time = time()
         return
 
@@ -45,7 +50,6 @@ class TimingComponent:
                 "but the component is not active.")
             return
         # stop the timer
-        from time import time
         self.time += time() - self.start_time
         self.is_active = False
         return
@@ -134,8 +138,28 @@ class TimingModule:
         component.stop()
 
 
+    def __eq__(self, other: object) -> bool:
+        """
+        Compare two timing modules (always equal).
+
+        Description
+        -----------
+        The state of a timing module can never influence jit-compiled
+        computations, so all timing modules are considered equal. This
+        keeps the jit-cache keys of objects that contain a timing
+        module (e.g. the model settings) stable.
+        """
+        if not isinstance(other, TimingModule):
+            return NotImplemented
+        return True
+
+    def __hash__(self) -> int:
+        return hash(type(self))
+
     def __str__(self) -> str:
         """Return string representation of the model settings."""
+        if self.total.time == 0:
+            return "TimingModule: No time recorded yet."
         res = "=====================================================\n"
         res += " Timing Summary: \n"
         res += "=====================================================\n"

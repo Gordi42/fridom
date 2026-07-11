@@ -4,6 +4,7 @@ import pytest
 
 import fridom.hydrostatic as hs
 
+
 # ================================================================
 #  Fixtures
 # ================================================================
@@ -28,7 +29,7 @@ def mset(grid):
 def test_init(mset):
     state = hs.State(mset)
     assert state.mset == mset
-    assert state.is_spectral == mset.grid.spectral_grid
+    assert not state.is_spectral
     # check if the vector has 3 fields
     expected_fields = ["u", "v", "b"]
     assert state.vector_dim == len(expected_fields)

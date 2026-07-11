@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/shallowwater/initial_conditions/__init__.py file."""
+"""Test the imports in fridom/shallowwater/initial_conditions/__init__.py."""
 import pytest
 
 import fridom.shallowwater.initial_conditions as test_module

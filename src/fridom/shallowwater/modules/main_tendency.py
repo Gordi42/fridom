@@ -5,6 +5,7 @@ import fridom.framework as fr
 import fridom.shallowwater as sw
 
 
+@fr.utils.jaxify
 class MainTendency(fr.modules.ModuleContainer):
 
     r"""
@@ -14,16 +15,20 @@ class MainTendency(fr.modules.ModuleContainer):
     in the following order:
 
     .. math::
-        \partial_t \boldsymbol{u} = \text{Linear} + \text{Advection} + \text{Additional}
+        \partial_t \boldsymbol{u} =
+            \text{Linear} + \text{Advection} + \text{Additional}
 
     with the default modules being:
-    - `linear_tendency`: :py:class:`LinearTendency <fridom.shallowwater.modules.LinearTendency>`
-    - `advection`: :py:class:`SadournyAdvection <fridom.shallowwater.modules.advection.SadournyAdvection>`
+    - `linear_tendency`: :py:class:`LinearTendency
+      <fridom.shallowwater.modules.LinearTendency>`
+    - `advection`: :py:class:`SadournyAdvection
+      <fridom.shallowwater.modules.advection.SadournyAdvection>`
     """
 
     name = "Main Tendencies: Shallow Water Model"
     def __init__(self) -> None:
         mods = sw.modules
+        self._sync_module = mods.SyncModule()
         self._reset_tendency = mods.ResetTendency()
         self._linear_tendency = mods.LinearTendency()
         self._advection = mods.advection.SadournyAdvection()
@@ -47,6 +52,7 @@ class MainTendency(fr.modules.ModuleContainer):
         gradient tendency are always in the last two positions.
         """
         module_list = []
+        module_list.append(self._sync_module)
         module_list.append(self._reset_tendency)
         module_list.append(self.linear_tendency)
         module_list.append(self.advection)

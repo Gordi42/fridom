@@ -1,6 +1,10 @@
 """Model class for the fridom framework."""
 from __future__ import annotations
 
+from pathlib import Path
+from time import time
+
+import dill
 import numpy as np
 
 import fridom.framework as fr
@@ -54,12 +58,14 @@ class Model:
 
         Description
         -----------
-        This method runs the model backward in time for a given number of steps.
+        This method runs the model backward in time for a given number
+        of steps.
         """
         # Prepare the model for running
         if self.restart_module.should_reload():
             self.load(self.restart_module.file)
-        self.time_stepper.dt = -abs(self.time_stepper.dt)  # ensure dt is negative
+        # ensure dt is negative
+        self.time_stepper.dt = -abs(self.time_stepper.dt)
         start_value = self.model_state.clock.it
         # step count always increases even when running backward
         final_value = start_value + steps
@@ -96,16 +102,16 @@ class Model:
 
         Parameters
         ----------
-        steps : int (default: None)
-            Number of steps to run.
-        runlen : np.timedelta64 | float | int (default: None)
-            Length of the run.
-        start_step : int (default: 0)
-            Start iteration of the run.
-        start_time : np.datetime64 | float | int (default: 0)
-            Start time of the run.
-        end_time : np.datetime64 | float | int (default: None)
-            End time of the run.
+        steps : int, optional
+            Number of steps to run (default: None).
+        runlen : np.timedelta64 | float | int, optional
+            Length of the run (default: None).
+        start_step : int, optional
+            Start iteration of the run (default: 0).
+        start_time : np.datetime64 | float | int, optional
+            Start time of the run (default: 0).
+        end_time : np.datetime64 | float | int, optional
+            End time of the run (default: None).
 
         """
         #  Check input
@@ -192,7 +198,7 @@ class Model:
 
         if steps is not None:
             main_loop_type = "for loop"
-            start_value = self.model_state.clock.it
+            start_value = int(self.model_state.clock.it)
             final_value = start_value + steps
         else:
             main_loop_type = "while loop"
@@ -204,10 +210,8 @@ class Model:
     def _execute_first_time_step(self) -> None:
         """Print the timing of the first time step."""
         # compile the modules
-        from time import time
-        if fr.config.backend_is_jax:
-            fr.log.notice("Compiling modules at first time step")
-            start_time = time()
+        fr.log.notice("Compiling modules at first time step")
+        start_time = time()
 
         # Execute modules that should run at the start
         for module in self.diagnostics.module_list:
@@ -215,14 +219,18 @@ class Model:
                 self.model_state = module.update(self.model_state)
 
         # Execute the first time step
+        was_enabled = self.progress_bar.is_enabled()
         self.progress_bar.disable()
+
         self._safe_step()
-        self.progress_bar.enable()
+
+        # re-enable the progress bar if it was enabled before
+        if was_enabled:
+            self.progress_bar.enable()
 
         # Print the compilation time
-        if fr.config.backend_is_jax:
-            fr.log.notice(
-                f"Compilation finished in {time()-start_time:.2f} seconds")
+        fr.log.notice(
+            f"Compilation finished in {time()-start_time:.2f} seconds")
 
     def _safe_step(self) -> None:
         """Run a single time step and catch any exceptions."""
@@ -265,6 +273,7 @@ class Model:
 
     def _finalize_run(self) -> None:
         """Finalize the model run."""
+        self.progress_bar.print_progress_bar(self.model_state)
         # finalize the model
         self.stop()
 
@@ -281,9 +290,8 @@ class Model:
 
     def step(self) -> None:
         """Update the model state by one time step."""
-        # synchronize the state vector (ghost points)
-        with self.timer["sync"]:
-            self.z.sync()
+        # run the pre-step diagnostics
+        self.model_state = self.pre_step_diagnostics.update(self.model_state)
 
         # perform the time step
         self.model_state = self.time_stepper.update(mz=self.model_state)
@@ -351,6 +359,11 @@ class Model:
         return self.mset.diagnostics
 
     @property
+    def pre_step_diagnostics(self) -> fr.modules.ModuleContainer:
+        """Container for diagnostics that should run before the time step."""
+        return self.mset.pre_step_diagnostics
+
+    @property
     def _modules(self) -> list[fr.modules.Module]:
         """List of all modules."""
         return [
@@ -376,9 +389,7 @@ class Model:
 
         """
         # underscores are not allowed in the filename
-        from pathlib import Path
 
-        import dill
         # get a list of all files in the directory that start with the filename
         with Path(file).open("rb") as f:
             model = dill.load(f)  # noqa: S301
@@ -397,9 +408,6 @@ class Model:
             The filename to save the model to
 
         """
-        from pathlib import Path
-
-        import dill
         with Path(file).open("wb") as f:
             fr.log.verbose(f"Saving model to {file}")
             grid = self.mset.grid

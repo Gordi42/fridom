@@ -7,7 +7,7 @@ import fridom.framework as fr
 
 @pytest.fixture
 def mset():
-    grid = fr.grid.cartesian.Grid(N=(128, 64), L=(1, 1))
+    grid = fr.grid.cartesian.Grid(shape=(128, 64), domain_size=(1, 1))
     mset = fr.ModelSettingsBase(grid=grid)
     mset.setup()
     def _state_constructor() -> fr.VectorField:
@@ -41,7 +41,8 @@ def test_nan_checker_nan(mset):
     "number_of_steps, step_size, expected_panic",
     [(9, 10, False), (10, 10, True)],
 ))
-def test_nan_checker_clock_trigger(number_of_steps, step_size, expected_panic, mset):
+def test_nan_checker_clock_trigger(number_of_steps, step_size,
+                                   expected_panic, mset):
     clock_trigger = fr.ClockTrigger(step_size=step_size)
     nan_checker = fr.modules.NaNChecker(clock_trigger=clock_trigger)
     model_state = fr.ModelState(mset)

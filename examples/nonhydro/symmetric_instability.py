@@ -136,7 +136,7 @@ class Plotter(nh.modules.animation.ModelPlotter):
     def prepare_arguments(mz: nh.ModelState) -> dict:
         return {"b": mz.z.b.xrs[:,0,:],
                 "z": mz.z.xrs[::10,0,::10],
-                "N2": mz.mset.N2,
+                "N2": mz.mset.stratification_n2,
                 "t": mz.clock.time}
 
     def update_figure(fig, b, z, N2, t) -> None:
@@ -165,10 +165,10 @@ def perform_experiment(richardson_number, run_length, make_thumbnail=False):
     #  Create the grid and model settings
     # ----------------------------------------------------------------
     N2 = richardson_number * M2**2 / f0**2
-    grid = nh.grid.cartesian.Grid(N=(Nx, 1, Nz), L=(Lx, 1, Lz), 
+    grid = nh.grid.cartesian.Grid(shape=(Nx, 1, Nz), domain_size=(Lx, 1, Lz), 
                                 periodic_bounds=(True, True, False))
     time_stepper = nh.time_steppers.AdamBashforth(order=2, dt=3)
-    mset = nh.ModelSettings(grid=grid, f0=f0, N2=N2, dsqr=1, time_stepper=time_stepper)
+    mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N2, dsqr=1, time_stepper=time_stepper)
 
     # ----------------------------------------------------------------
     #  Create a tendency module that includes the background state
@@ -178,15 +178,13 @@ def perform_experiment(richardson_number, run_length, make_thumbnail=False):
         name = "Background Advection"
         @nh.modules.module_method
         def update(self, mz: nh.ModelState) -> nh.ModelState:
-            mz.dz = self.advect(mz.z, mz.dz)
-            return mz
-
-        @nh.utils.jaxjit
-        def advect(self, z: nh.State, dz: nh.State) -> nh.State:
             interp = self.interp_module.interpolate
-            dz.v -= interp(z.w, z.v.position) * M2 / f0
-            dz.b -= interp(z.u, z.b.position) * M2
-            return dz
+
+            z = mz.z
+
+            mz.dz.v -= interp(z.w, z.v.position) * M2 / f0
+            mz.dz.b -= interp(z.u, z.b.position) * M2
+            return mz
 
     # ----------------------------------------------------------------
     #  Add custom modules to the model settings

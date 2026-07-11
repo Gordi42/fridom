@@ -11,53 +11,71 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
-        backend: ["numpy", "jax_cpu"]  # TODO: Should also test gpu backends
-    
+
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install pytest coverage pytest-cov
+        uv sync --extra dev
 
-    - name: Install the base package
+    - name: Run the tests (single device)
       run: |
-        pip install -e .
+        uv run pytest tests/ -n 4 --dist loadfile \
+          --cov --cov-report= \
+          --junitxml=junit.xml -o junit_family=legacy
 
-    - name: Install the backends
+    # the multi-device suite covers the distributed code paths of the
+    # domain decomposition; its coverage is appended to the report
+    - name: Run the tests (multiple devices)
+      env:
+        XLA_FLAGS: --xla_force_host_platform_device_count=4
+        FRIDOM_TEST_FORCED_DEVICES: "4"
       run: |
-        if [ "${{ matrix.backend }}" == "jax_cpu" ]; then
-          pip install jax
-        elif [ "${{ matrix.backend }}" == "jax_gpu" ]; then
-          pip install jax["cuda12"]
-        elif [ "${{ matrix.backend }}" == "cupy" ]; then
-          pip install cupy-cuda12
-        fi
-      
-    - name: Install additional dependencies
-      run: |
-        pip install xarray
+        uv run pytest tests/framework/domain_decomposition/test_domain_decomposition.py \
+          tests/framework2/grid/decomposition -q \
+          --cov --cov-append --cov-report=
 
-    - name: Run the tests
+    - name: Generate the coverage report
       run: |
-        export FRIDOM_BACKEND="${{ matrix.backend }}"
-        pytest --cov=src --junitxml=junit.xml -o junit_family=legacy .
+        uv run coverage xml
+        uv run coverage report
 
     - name: Upload test results
       if: ${{ !cancelled() }}
       uses: codecov/test-results-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        flags: ${{ matrix.backend }}
 
     - name: Upload coverage reports to Codecov
+      if: ${{ !cancelled() }}
       uses: codecov/codecov-action@v5
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        flags: ${{ matrix.backend }}
+
+  # Smoke-run the benchmark suite (one repetition, smallest sizes) so
+  # that the suite files cannot go stale. No timing assertions.
+  benchmark-smoke:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        uv sync --extra dev
+
+    - name: Smoke-run the benchmark suite
+      run: |
+        uv run python -m fridom.benchmarking run benchmarks \
+          --first-only --reps 1 --warmup 1

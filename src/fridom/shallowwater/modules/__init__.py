@@ -14,6 +14,8 @@ if TYPE_CHECKING:  # pragma: no cover
         Ramper,
         ResetTendency,
         RestartModule,
+        SyncModule,
+        ZarrWriter,
         animation,
     )
 
@@ -40,6 +42,8 @@ all_imports_by_origin = {
                         "Ramper",
                         "RestartModule",
                         "ResetTendency",
+                        "SyncModule",
+                        "ZarrWriter",
                         "FigureSaver"],
 }
 

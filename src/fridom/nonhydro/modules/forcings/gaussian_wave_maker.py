@@ -1,6 +1,8 @@
 """A gaussian wave maker module."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
@@ -16,13 +18,14 @@ class GaussianWaveMaker(fr.modules.Module):
     Creates a gaussian source term of the form:
 
     .. math::
-        M(\boldsymbol{x}) = \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
+        M(\boldsymbol{x}) =
+            \prod_{i=1}^{3} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
 
     .. math::
         S(\boldsymbol{x}, t) = A \sin(2\pi f t) M(\boldsymbol{x})
 
-    where :math:`A` is the amplitude, :math:`x_i` is the x coordinate, 
-    :math:`p_i` is the position, :math:`w_i` is the width and :math:`f` 
+    where :math:`A` is the amplitude, :math:`x_i` is the x coordinate,
+    :math:`p_i` is the position, :math:`w_i` is the width and :math:`f`
     is the frequency of the wave maker. The source term is added to the
     u-component of the velocity field:
 
@@ -62,26 +65,20 @@ class GaussianWaveMaker(fr.modules.Module):
         self.variable = variable
 
     def _on_setup(self) -> None:
-        ncp = fr.config.ncp
         # Construct mask
-        mask = ncp.ones_like(self.grid.X[0])
-        for x, pos, width in zip(self.grid.X, self.position, self.width):
+        mask = jnp.ones_like(self.grid.x_mesh[0])
+        for x, pos, width in zip(self.grid.x_mesh, self.position,
+                                 self.width, strict=False):
             if pos is not None and width is not None:
-                mask *= ncp.exp(-(x - pos)**2 / width**2)
+                mask *= jnp.exp(-(x - pos)**2 / width**2)
         mask *= self.amplitude
         self.mask = mask
 
-    @fr.utils.jaxjit
-    def add_source_term(self, dz: nh.State, time: float) -> nh.State:
-        """Add the source term to the u-component of the velocity field."""
-        ncp = fr.config.ncp
-        tendency = self.mask * ncp.sin(2 * ncp.pi * self.frequency * time)
-        dz.fields[self.variable] += tendency
-        return dz
-
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
-        mz.dz = self.add_source_term(mz.dz, mz.clock.time)
+        tendency = self.mask * jnp.sin(
+            2 * jnp.pi * self.frequency * mz.clock.time)
+        mz.dz.fields[self.variable] += tendency
         return mz
 
     @property

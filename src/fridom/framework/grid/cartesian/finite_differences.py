@@ -1,10 +1,30 @@
+"""Finite difference differentiation module for Cartesian grids."""
+from __future__ import annotations
+
 from copy import deepcopy
-import fridom.framework as fr
 from functools import partial
 
+import jax.numpy as jnp
 
-@partial(fr.utils.jaxify, dynamic=('_dx1', 'water_mask'))
+import fridom.framework as fr
+
+
+@partial(fr.utils.jaxify, dynamic=("_dx1", ))
 class FiniteDifferences(fr.grid.DiffModule):
+
+    """
+    Finite difference differentiation for Cartesian grids.
+
+    Description
+    -----------
+    If a field is defined at the cell center, the field is differentiated using
+    a forward difference, and the resulting field is defined at the cell face.
+    If a field is defined at the cell face, the field is differentiated
+    using a backward difference, and the resulting field is defined at the
+    cell center.
+
+    """
+
     name = "Finite Differences"
     def __init__(self) -> None:
         super().__init__()
@@ -13,80 +33,29 @@ class FiniteDifferences(fr.grid.DiffModule):
         # ----------------------------------------------------------------
         self.required_halo = 1
         self._dx1 = None
-        self.water_mask = None
 
-    @fr.modules.module_method
-    def setup(self, mset: 'fr.ModelSettingsBase') -> None:
-        super().setup(mset)
-        from .grid import Grid
-        if not isinstance(self.mset.grid, Grid):
-            raise ValueError("Finite differences only work with Cartesian grids.")
-        
-        conf = fr.config
-        self._dx1 = 1 / conf.ncp.array(self.mset.grid.dx, dtype=conf.dtype_real)
-        self.water_mask = self.mset.grid.water_mask
-        return
+    def _on_setup(self) -> None:
+        if not isinstance(self.mset.grid, fr.grid.cartesian.Grid):
+            msg = "Finite differences only work with Cartesian grids."
+            raise TypeError(msg)
 
-    @partial(fr.utils.jaxjit, static_argnames=('axis', 'order'))
-    def diff(self, 
+        self._dx1 = 1 / jnp.array(
+            self.mset.grid.dx, dtype=fr.utils.dtype_real())
+
+    def diff(self,  # noqa: D102
              f: fr.ScalarField,
-             axis: int,
-             order: int = 1) -> fr.ScalarField:
-        # differentiate the field
-        match f.position[axis]:
-            case fr.grid.AxisPosition.CENTER:
-                f = self._diff_forward(f, axis)
-            case fr.grid.AxisPosition.FACE:
-                f = self._diff_backward(f, axis)
+             axis: int) -> fr.ScalarField:
 
-        # check if we need to differentiate more
-        if order == 1:
-            return f
-        else:
-            return self.diff(f, axis, order-1)
+        destination = f.position.shift(axis)
 
-    @partial(fr.utils.jaxjit, static_argnames=('axis',))
-    def _diff_forward(self, 
-                      f: fr.ScalarField, 
-                      axis: int) -> fr.ScalarField:
-        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
-        new_pos = f.position.shift(axis)
-        mask = self.water_mask.get_mask(new_pos)
+        view = fr.grid.Stencil(
+            grid=self.grid, size=2, offset=0, destination=destination[axis],
+        ).view(f.arr, axis=axis)
 
-        next = tuple(slice(1, None) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
-        prev = tuple(slice(None, -1) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
+        diff = (view[1] - view[0]) * self._dx1[axis]
 
-        @self.grid.domain_decomp.shard_map
-        def _diff(arr):
-            diff = (arr[next] - arr[prev]) * self._dx1[axis]
-            return fr.utils.modify_array(arr, prev, diff)
+        # update the metadata
+        mdata = deepcopy(f.mdata)
+        mdata.position = destination
 
-        res.arr = _diff(f.arr) * mask
-        res.position = new_pos
-
-        return res
-
-    @partial(fr.utils.jaxjit, static_argnames=('axis',))
-    def _diff_backward(self,
-                       f: fr.ScalarField, 
-                       axis: int) -> fr.ScalarField:
-        res = fr.ScalarField(mset=f.mset, mdata=deepcopy(f.mdata))
-        new_pos = f.position.shift(axis)
-        mask = self.water_mask.get_mask(new_pos)
-
-        next = tuple(slice(1, None) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
-        prev = tuple(slice(None, -1) if i == axis else slice(None) 
-                     for i in range(f.arr.ndim))
-
-        @self.grid.domain_decomp.shard_map
-        def _diff(arr):
-            diff = (arr[next] - arr[prev]) * self._dx1[axis]
-            return fr.utils.modify_array(arr, next, diff)
-
-        res.arr = _diff(f.arr) * mask
-        res.position = new_pos
-
-        return res
+        return fr.ScalarField(mset=f.mset, mdata=mdata, arr=diff)

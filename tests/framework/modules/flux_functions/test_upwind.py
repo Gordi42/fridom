@@ -1,5 +1,6 @@
 """Tests for the upwind flux function."""
 
+import jax.numpy as jnp
 import pytest
 
 import fridom.framework as fr
@@ -18,7 +19,8 @@ def shape(n_dims):
 
 @pytest.fixture
 def grid(shape):
-    return fr.grid.cartesian.Grid(N=shape, L=(1, 2, 3)[:len(shape)])
+    return fr.grid.cartesian.Grid(shape=shape,
+                                  domain_size=(1, 2, 3)[:len(shape)])
 
 @pytest.fixture
 def mset(grid):
@@ -31,7 +33,7 @@ def mset(grid):
 #  Tests
 # ================================================================
 
-def test_upwind_random(mset, n_dims):
+def test_upwind_random(mset, n_dims):  # noqa: ARG001 (parametrized fixture)
     # create scalar fields for velocity and flux
     velocity = fr.ScalarField(mset)
     flux_left = fr.ScalarField(mset)
@@ -53,7 +55,7 @@ def test_upwind_random(mset, n_dims):
     pos_mask = velocity.arr >= 0
     neg_mask = velocity.arr < 0
     # check that the upwind flux is correct
-    assert fr.config.ncp.allclose(
+    assert jnp.allclose(
         upwind_flux.arr[pos_mask], flux_left.arr[pos_mask])
-    assert fr.config.ncp.allclose(
+    assert jnp.allclose(
         upwind_flux.arr[neg_mask], flux_right.arr[neg_mask])

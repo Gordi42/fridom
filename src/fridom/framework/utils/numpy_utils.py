@@ -1,9 +1,14 @@
-"""numpy_utils.py - Utilities for numpy operations."""
-from copy import deepcopy
+"""Utilities for numpy operations."""
+from __future__ import annotations
+
 import inspect
-from typing import Union
+from copy import deepcopy
+
+import jax
 import numpy as np
+
 import fridom.framework as fr
+
 if fr.utils.MPI_AVAILABLE:
     from mpi4py import MPI
 else:
@@ -16,20 +21,14 @@ def _handle_to_numpy(obj: object, memo: dict) -> object:
 
 def _handle_cpu(obj: object) -> object:
     """Handle objects with a _cpu attribute."""
-    return obj._cpu  # pylint: disable=protected-access
+    return obj._cpu  # noqa: SLF001  # pylint: disable=protected-access
 
-def _handle_ndarray(obj: np.ndarray) -> np.ndarray:
-    """Handle ndarrays based on the backend."""
-    match fr.config.backend:
-        case "numpy":
-            return deepcopy(obj)
-        case "cupy":
-            return fr.config.ncp.asnumpy(obj)
-        case "jax_cpu" | "jax_gpu":
-            return np.array(obj)
+def _handle_ndarray(obj: jax.Array) -> np.ndarray:
+    """Convert a jax array to a numpy array."""
+    return np.array(obj)
 
-def _handle_iterable(obj: Union[dict, list, tuple, set],
-                     memo: dict) -> Union[dict, list, tuple, set]:
+def _handle_iterable(obj: dict | list | tuple | set,
+                     memo: dict) -> dict | list | tuple | set:
     """Handle dictionaries, lists, tuples, and sets."""
     if isinstance(obj, dict):
         return {key: to_numpy(value, memo) for key, value in obj.items()}
@@ -55,16 +54,17 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
     if hasattr(obj, "__to_numpy__"):
         result = _handle_to_numpy(obj, memo)
 
-    elif hasattr(obj, "_cpu") and obj._cpu is not None:  # pylint: disable=protected-access
+    elif hasattr(obj, "_cpu") and obj._cpu is not None:  # noqa: SLF001
         result = _handle_cpu(obj)
 
-    elif isinstance(obj, fr.config.ncp.ndarray):
+    elif isinstance(obj, jax.Array):
         result = _handle_ndarray(obj)
 
     elif isinstance(obj, (np.ndarray, np.generic)):
         result = deepcopy(obj)
 
-    elif inspect.ismodule(obj) or inspect.isfunction(obj) or inspect.ismethod(obj):
+    elif (inspect.ismodule(obj) or inspect.isfunction(obj)
+            or inspect.ismethod(obj)):
         result = obj
 
     elif isinstance(obj, (dict, list, tuple, set)):
@@ -84,10 +84,12 @@ def _create_numpy_copy(obj: object, memo: dict) -> object:
 
     return result
 
-def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object:
+def to_numpy(
+    obj: object, memo: dict | None = None, _nil: list | None = None,
+) -> object:
     """
-    Creates a deep copy of an object with all arrays converted to numpy.
-    
+    Create a deep copy of an object with all arrays converted to numpy.
+
     Description
     -----------
     Some functions require numpy arrays as input, as for example plotting
@@ -98,27 +100,24 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object
     static, i.e. they do not change during the simulation, should have a
     _cpu attribute. If the _cpu attribute is None, the object is converted
     to numpy and cached in the _cpu attribute. If the _cpu attribute is not
-    None, the cached numpy array is returned. Objects that require a 
+    None, the cached numpy array is returned. Objects that require a
     custom conversion should implement a __to_numpy__ method that returns
     the converted object.
-    
+
     Parameters
     ----------
-    `obj` : `Any`
+    obj : Any
         The object to convert to numpy.
-    `memo` : `dict` (default=None)
-        A dictionary to store the converted objects (used for recursion).
-    
+    memo : dict, optional
+        A dictionary to store the converted objects (used for recursion)
+        (default: None).
+
     Returns
     -------
     `Any`
         The object with all arrays converted to numpy.
     """
     _nil = _nil or []
-    # if the backend is numpy, return a deepcopy
-    if fr.config.backend == "numpy":
-        return deepcopy(obj)
-
     # if the object was already converted to numpy, return it (recursive call)
     if memo is None:
         memo = {}
@@ -131,11 +130,11 @@ def to_numpy(obj: object, memo: dict | None = None, _nil: list = None) -> object
     memo[d] = _create_numpy_copy(obj, memo)
 
     if hasattr(obj, "_cpu"):
-        obj._cpu = memo[d]  # pylint: disable=protected-access
+        obj._cpu = memo[d]  # noqa: SLF001  # pylint: disable=protected-access
 
     return memo[d]
 
-def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
+def to_seconds(t: float | np.datetime64 | np.timedelta64) -> float:
     """
     Convert a time to seconds.
 
@@ -146,7 +145,7 @@ def to_seconds(t: Union[float, np.datetime64, np.timedelta64]) -> float:
 
     Parameters
     ----------
-    t : Union[float, np.datetime64, np.timedelta64]
+    t : float | np.datetime64 | np.timedelta64
         The time to convert to seconds.
 
     Returns

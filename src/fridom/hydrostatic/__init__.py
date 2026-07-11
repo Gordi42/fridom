@@ -22,7 +22,8 @@ the momentum equations:
 The buoyancy equation:
 
 .. math::
-    \partial_t b + Ro~, \boldsymbol{u} \cdot \nabla b = -w N^2 + \boldsymbol{F}_b
+    \partial_t b + Ro~, \boldsymbol{u} \cdot \nabla b =
+        -w N^2 + \boldsymbol{F}_b
 
 The vertical velocity is given by the continuity equation:
 
@@ -54,8 +55,9 @@ vertical momentum equation. Which is originally given by:
     \partial_t w + Ro~\, \boldsymbol{u} \cdot \nabla w =
         \delta^{-2} b - \delta^{-2} \partial_z p + \boldsymbol{F}_w
 
-by assuming a small aspect ratio (e.g. :math:`\delta = H/L \ll 1`). The vertical
-momentum equation is then replaced by the hydrostatic balance equation:
+by assuming a small aspect ratio (e.g. :math:`\delta = H/L \ll 1`). The
+vertical momentum equation is then replaced by the hydrostatic balance
+equation:
 
 .. math::
     \partial_z p = b
@@ -93,7 +95,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework import projection, time_steppers, utils
     from fridom.framework.clock import Clock, TimingFormat
     from fridom.framework.clock_trigger import ClockTrigger
-    from fridom.framework.configuration import config
     from fridom.framework.field_metadata import FieldMetadata
     from fridom.framework.logger import log
     from fridom.framework.model import Model
@@ -117,7 +118,6 @@ all_modules_by_origin = {
 hs_base = "fridom.hydrostatic"
 
 all_imports_by_origin = {
-    "fridom.framework.configuration": ["config"],
     "fridom.framework.logger": ["log"],
     "fridom.framework.field_metadata": ["FieldMetadata"],
     "fridom.framework.scalar_field": ["ScalarField"],

@@ -1,8 +1,8 @@
-"""model_settings_base.py - Base class for model settings container."""
+"""Base class for model settings container."""
 from __future__ import annotations
 
 from functools import partial
-from typing import Literal, TypeVar
+from typing import Literal, Self, TypeVar
 
 import fridom.framework as fr
 
@@ -16,8 +16,9 @@ class ModelSettingsBase:
 
     Description
     -----------
-    This class should be used as a base class for all model settings containers.
-    It provides a set of attributes and methods that are common to all models.
+    This class should be used as a base class for all model settings
+    containers. It provides a set of attributes and methods that are
+    common to all models.
     Child classes should override the following attributes:
     - n_dims
     - model_name
@@ -55,8 +56,22 @@ class ModelSettingsBase:
 
     model_name = "Unnamed model"
 
+    # host-side machinery that can never influence jit-compiled
+    # computations; excluded from the structural equality so that the
+    # jit-cache keys of objects referencing the model settings stay
+    # stable (see fr.utils.jaxify)
+    _eq_ignored_attrs = frozenset({
+        "_timer",
+        "_progress_bar",
+        "_pre_step_diagnostics",
+        "_diagnostics",
+        "_restart_module",
+    })
+
     def __init__(self, grid: fr.grid.GridBase, **kwargs: dict) -> None:
         self._tendencies = fr.modules.ModuleContainer("All Tendencies")
+        self._pre_step_diagnostics = fr.modules.ModuleContainer(
+            "Pre-step Diagnostics")
         self._diagnostics = fr.modules.ModuleContainer("All Diagnostics")
         self._time_stepper = fr.time_steppers.AdamBashforth()
         self._progress_bar = fr.modules.ProgressBar()
@@ -94,32 +109,40 @@ class ModelSettingsBase:
                 raise AttributeError(message)
             setattr(self, key, value)
 
-    def setup_grid(self, setup_mode: Literal["default", "forced"] = "default") -> None:
+    def setup_grid(
+        self,
+        setup_mode: Literal["default", "forced"] = "default",  # noqa: ARG002 (interface conformity)
+    ) -> None:
         """Set the grid object up."""
         # TODO(Silvano): Pass the setup mode to the grid setup
         self.grid.setup(mset=self)
 
-    def _setup_all_modules(self,
-                           setup_mode: Literal["default", "forced"] = "default",
-                           ) -> None:
+    def _setup_all_modules(
+        self,
+        setup_mode: Literal["default", "forced"] = "default",
+    ) -> None:
         """Set all modules up."""
         self.grid.water_mask.setup(mset=self)
-        modules = [self.nan_checker, self.progress_bar, self.restart_module,
-                     self.tendencies, self.diagnostics, self.time_stepper]
+        modules = [self.nan_checker, self.progress_bar,
+                   self.restart_module, self.tendencies, self.diagnostics,
+                   self.time_stepper, self.pre_step_diagnostics]
         for module in modules:
             module.setup(mset=self, setup_mode=setup_mode)
 
     def setup_settings_parameters(self) -> None:
         """Set the model settings parameters up."""
 
-    def setup(self: T, setup_mode: Literal["default", "forced"] = "default") -> T:
+    def setup(
+        self, setup_mode: Literal["default", "forced"] = "default",
+    ) -> Self:
         """
         Set the model settings up.
 
         Description
         -----------
         This method will initialize the grid object and setup all modules.
-        It must be called before accessing any attributes of the grid or modules.
+        It must be called before accessing any attributes of the grid or
+        modules.
 
         Returns
         -------
@@ -130,7 +153,7 @@ class ModelSettingsBase:
         if self.is_setup and setup_mode == "default":
             # If the model settings are already set up, return
             return self
-        fr.log.verbose("Setting up model settings")
+        fr.log.verbose("Setting up model settingss")
         self.is_setup = True
         self.setup_grid(setup_mode=setup_mode)
         self.setup_settings_parameters()
@@ -172,9 +195,10 @@ class ModelSettingsBase:
 
         Description
         -----------
-        This method should be overridden by the child class to return a dictionary
-        with all parameters of the model settings. This dictionary is used to print
-        the model settings in the `__repr__` method.
+        This method should be overridden by the child class to return a
+        dictionary with all parameters of the model settings. This
+        dictionary is used to print the model settings in the `__repr__`
+        method.
         """
         return {}
 
@@ -252,6 +276,20 @@ class ModelSettingsBase:
     @diagnostics.setter
     def diagnostics(self, value: fr.modules.ModuleContainer) -> None:
         self._diagnostics = value
+        old_halo = self.halo
+        if self.is_setup and value is not None:
+            value.setup(mset=self)
+        if old_halo != self.halo:
+            self.grid.setup(mset=self)
+
+    @property
+    def pre_step_diagnostics(self) -> fr.modules.ModuleContainer:
+        """Container for diagnostics that should run before the time step."""
+        return self._pre_step_diagnostics
+
+    @pre_step_diagnostics.setter
+    def pre_step_diagnostics(self, value: fr.modules.ModuleContainer) -> None:
+        self._pre_step_diagnostics = value
         old_halo = self.halo
         if self.is_setup and value is not None:
             value.setup(mset=self)

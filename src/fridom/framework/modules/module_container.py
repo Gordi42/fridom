@@ -1,11 +1,16 @@
 """A module container that can hold multiple modules."""
 from __future__ import annotations
 
-from typing import Iterator, Literal
+from functools import partial
+from typing import TYPE_CHECKING, Literal
 
 import fridom.framework as fr
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
+
+@partial(fr.utils.jaxify, dynamic=("module_list", ))
 class ModuleContainer(fr.modules.Module):
 
     """

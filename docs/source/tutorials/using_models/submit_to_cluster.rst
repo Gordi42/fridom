@@ -38,7 +38,7 @@ In this directory, create a Python script named `main.py` with the following con
     sw.log.setLevel("INFO")
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(2048,2048), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(2048,2048), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
     mset.time_stepper.dt = 0.7e-4
 

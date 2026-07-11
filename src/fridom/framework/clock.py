@@ -1,10 +1,11 @@
-"""clock.py - Keep track of the model time."""
+"""Keep track of the model time."""
 
 from __future__ import annotations
 
 from enum import Enum, auto
 from functools import partial
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
@@ -17,7 +18,7 @@ class TimingFormat(Enum):
     SECONDS = auto()
     DATETIME = auto()
 
-@partial(fr.utils.jaxify, dynamic=("_start_time", "_passed_time"))
+@partial(fr.utils.jaxify, dynamic=("_start_time", "_passed_time", "_it"))
 class Clock:
 
     """
@@ -48,19 +49,19 @@ class Clock:
         )
 
         self._timing_format = TimingFormat.SECONDS
-        self.start_time = start_time or 0
+        self.start_time = start_time or jnp.float64(0)
         self.start_date = start_date
-        self._passed_time = 0
-        self._it = 0
+        self._passed_time = jnp.float64(0)
+        self._it = jnp.int64(0)
 
     def reset(self) -> None:
         """Reset the passed time to zero."""
-        self._passed_time = 0
-        self._it = 0
+        self._passed_time = jnp.float64(0)
+        self._it = jnp.int64(0)
 
     def tick(self, time_step: float | np.timedelta64) -> None:
         """
-        Increase the passed time by the time step + increase the iteration step.
+        Increase the passed time and the iteration step.
 
         Parameters
         ----------
@@ -68,21 +69,20 @@ class Clock:
             The time step in seconds.
 
         """
-        # convert the time step to seconds if it is a timedelta
-        if isinstance(time_step, np.timedelta64):
-            time_step = fr.utils.to_seconds(time_step)
-        self._passed_time += time_step
+        self._passed_time += fr.utils.to_seconds(time_step)
         self._it += 1
 
-    def get_total_time(self, passed_time: float | None = None) -> np.datetime64 | float:
+    def get_total_time(
+        self, passed_time: float | None = None,
+    ) -> np.datetime64 | float:
         """
         Get the total time of the model run.
 
         Parameters
         ----------
         passed_time : float | None (optional)
-            The passed time in seconds. If not provided, the current passed time
-            of the model will be used
+            The passed time in seconds. If not provided, the current
+            passed time of the model will be used
 
         Returns
         -------
@@ -107,7 +107,7 @@ class Clock:
 
         Parameters
         ----------
-        time : `np.datetime64` or `float`
+        time : np.datetime64 | float
             The start time of the model run.
 
         """
@@ -133,7 +133,7 @@ class Clock:
 
     @start_time.setter
     def start_time(self, value: float) -> None:
-        self._start_time = value
+        self._start_time = jnp.float64(value)
         self._timing_format = TimingFormat.SECONDS
 
     @property
@@ -146,7 +146,7 @@ class Clock:
         self._start_date = value
         if value is None:
             return
-        self._start_time = fr.utils.to_seconds(value)
+        self._start_time = jnp.float64(fr.utils.to_seconds(value))
         self._timing_format = TimingFormat.DATETIME
 
     @property
@@ -161,7 +161,7 @@ class Clock:
 
     @time.setter
     def time(self, value: float) -> None:
-        self._passed_time = value - self.start_time
+        self._passed_time = jnp.float64(value - self.start_time)
 
     @property
     def it(self) -> int:
@@ -170,4 +170,4 @@ class Clock:
 
     @it.setter
     def it(self, value: int) -> None:
-        self._it = value
+        self._it = jnp.int64(value)

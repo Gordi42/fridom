@@ -15,12 +15,18 @@ class Counter(fr.modules.Module):
     Additionally, a clock trigger can be set to only increment the counter
     for specific clock events.
 
+    .. note::
+        The counter state is a plain Python integer. It can therefore only
+        be used in module containers that are executed outside of
+        jit-compiled code, e.g. the diagnostics. Modules inside the
+        tendencies container are jit-compiled and must be pure.
+
     Parameters
     ----------
     clock_trigger : fr.ClockTrigger, optional
-        A clock trigger to only increment the counter for specific clock events.
-        If not set, the counter is incremented every time the update method is
-        called.
+        A clock trigger to only increment the counter for specific clock
+        events. If not set, the counter is incremented every time the
+        update method is called.
 
     """
 

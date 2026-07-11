@@ -1,8 +1,14 @@
+"""Unstable jet initial condition for the shallow water model."""
+from __future__ import annotations
+
+import jax.numpy as jnp
+
 import fridom.shallowwater as sw
 
 
 class Jet(sw.State):
-    """
+
+    r"""
     Two opposing instable jets.
 
     Description
@@ -11,9 +17,10 @@ class Jet(sw.State):
     on top of it. The jet is given by:
 
     .. math::
-        u = \\exp\\left(-\\left(\\frac{y - p L_y}{\\sigma L_y}\\right)^2\\right)
+        u = \\exp\\left(
+            -\\left(\\frac{y - p L_y}{\\sigma L_y}\\right)^2\\right)
 
-    where :math:`L_y` is the domain length in the y-direction, 
+    where :math:`L_y` is the domain length in the y-direction,
     :math:`p` is the relative position of the jet
     and :math:`\\sigma` is the relative width of the jet. The perturbation
     is given by:
@@ -28,35 +35,35 @@ class Jet(sw.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `wavenum` : `int`
+    wavenum : int
         The relative wavenumber of the perturbation.
-    `waveamp` : `float`
+    waveamp : float
         The amplitude of the perturbation.
-    `pos` : `float`
+    pos : float
         The relative position of the jet in the y-direction
-    `width` : `float`
+    width : float
         The relative width of the jet.
-    `geo_proj` : `bool`
+    geo_proj : bool
         Whether to project the initial condition to the geostrophic subspace.
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: sw.ModelSettings,
                  wavenum: int = 2,
                  waveamp: float = 0.1,
                  pos: float = 0.5,
                  width: float = 0.1,
-                 geo_proj: bool = True):
+                 geo_proj: bool = True) -> None:
         super().__init__(mset)
         # Shortcuts
-        ncp = sw.config.ncp
-        X, Y = self.grid.X
-        Lx, Ly = self.grid.L
+        _x, y = self.grid.x_mesh
+        _lx, ly = self.grid.domain_size
 
         # Construct the zonal jets
         z_jet = sw.State(mset)
-        z_jet.u.arr = ncp.exp(- ((Y - pos * Ly)/(width * Ly))**2)
+        z_jet.u.arr = jnp.exp(- ((y - pos * ly)/(width * ly))**2)
 
         # Project to geostrophic subspace
         if geo_proj:

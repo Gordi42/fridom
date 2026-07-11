@@ -1,105 +1,129 @@
-import fridom.framework as fr
-# Import external modules
-import numpy as np
+"""Fourier transforms (FFT, DCT, DST) for cartesian grids."""
+from __future__ import annotations
+
 from functools import partial
+from typing import TYPE_CHECKING
+
+import jax.numpy as jnp
+import jax.scipy as jsp
+
+import fridom.framework as fr
+
 # Import internal modules
-from fridom.framework import config, utils
+from fridom.framework import utils
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
+    # Import external modules
+    import numpy as np
 
 
-def _create_kn_mesh(N: int):
-    ncp = config.ncp
-    n = ncp.arange(0, N)
-    n, k = ncp.meshgrid(n, n, indexing="ij")
+def _create_kn_mesh(n_points: int) -> tuple[np.ndarray, np.ndarray]:
+    n = jnp.arange(0, n_points)
+    n, k = jnp.meshgrid(n, n, indexing="ij")
     return n, k
 
-def _apply_weights(x, weights, axis):
-    ncp = config.ncp
-    y = ncp.tensordot(x, weights, axes=([axis], [0]))
-    y = ncp.moveaxis(y, -1, axis)
-    return y
+def _apply_weights(x: np.ndarray,
+                   weights: np.ndarray,
+                   axis: int) -> np.ndarray:
+    y = jnp.tensordot(x, weights, axes=([axis], [0]))
+    return jnp.moveaxis(y, -1, axis)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
-def dct_type2(x, axis, N):
-    ncp = config.ncp
-    n, k = _create_kn_mesh(N)
-    weights = 2 * ncp.cos((ncp.pi / N) * k * (n + 0.5))
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def dct_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the type-2 discrete cosine transform along an axis."""
+    n, k = _create_kn_mesh(n_points)
+    weights = 2 * jnp.cos((jnp.pi / n_points) * k * (n + 0.5))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
-def idct_type2(x, axis, N):
-    ncp = config.ncp
-    k, n = _create_kn_mesh(N)
-    weights = 2 * ncp.cos((ncp.pi / N) * k * (n + 0.5))
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def idct_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the inverse type-2 discrete cosine transform."""
+    k, n = _create_kn_mesh(n_points)
+    weights = 2 * jnp.cos((jnp.pi / n_points) * k * (n + 0.5))
     weights = utils.modify_array(weights, (0, slice(None)), 1)
-    return _apply_weights(x, weights, axis) / (2 * N)
+    return _apply_weights(x, weights, axis) / (2 * n_points)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
-def dst_type1(x, axis, N):
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def dst_type1(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the type-1 discrete sine transform along an axis."""
     # we assume that the position of the variable is at the cell edges
     # |-----x-----|-----x-----|-----x-----|-----x-----|
     #             ^           ^           ^           ^
-    #            x0          x1          x2          x(N-1)
+    #            x0          x1          x2          x(n_points-1)
     # A function f with frequency k is given by:
     # f(xi) = sin(k*(xi+dx/2))
     #       = -i/2 * (exp(i*k*(xi+dx/2)) - exp(-i*k*(xi+dx/2)))
     # we only consider positive frequencies in the sine transform
     # f(xi) = -i/2 * exp(i*k*(xi+dx/2))
     #       = -i/2 * exp(i*k*dx/2) * exp(i*k*xi)
-    # the factor 1/2 does not matter, but we need the rotation by -i*exp(i*k*dx/2)
-    # so that the sine transform is consistent with fourier transforms
-    # Note that dx is given by pi/N
-    ncp = config.ncp
-    n, k = _create_kn_mesh(N)
-    weights = 2 * ncp.sin(ncp.pi * k * (n+1) / N)
+    # the factor 1/2 does not matter, but we need the rotation by
+    # -i*exp(i*k*dx/2) so that the sine transform is consistent with
+    # fourier transforms
+    # Note that dx is given by pi/n_points
+    n, k = _create_kn_mesh(n_points)
+    weights = 2 * jnp.sin(jnp.pi * k * (n+1) / n_points)
     # apply the rotation factor
-    weights = weights * -1j * ncp.exp(1j*k*ncp.pi/(2*N))
+    weights = weights * -1j * jnp.exp(1j*k*jnp.pi/(2*n_points))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
-def idst_type1(x, axis, N):
-    ncp = config.ncp
-    k, n = _create_kn_mesh(N)
-    weights = 2 * ncp.sin(ncp.pi * k * (n+1) / N)
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def idst_type1(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the inverse type-1 discrete sine transform."""
+    k, n = _create_kn_mesh(n_points)
+    weights = 2 * jnp.sin(jnp.pi * k * (n+1) / n_points)
     # similar as the dst1, we need to apply the inverse rotation factor
-    weights = weights * 1j * ncp.exp(-1j*k*ncp.pi/(2 * N))
-    return _apply_weights(x, weights, axis) / (2 * N)
+    weights = weights * 1j * jnp.exp(-1j*k*jnp.pi/(2 * n_points))
+    return _apply_weights(x, weights, axis) / (2 * n_points)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
-def dst_type2(x, axis, N):
-    ncp = config.ncp
-    n, k = _create_kn_mesh(N)
-    weights = -2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*N))
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def dst_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the type-2 discrete sine transform along an axis."""
+    n, k = _create_kn_mesh(n_points)
+    weights = -2j * jnp.sin(jnp.pi * k * (2*n+1) / (2*n_points))
     return _apply_weights(x, weights, axis)
 
-@partial(utils.jaxjit, static_argnames=['axis', 'N'])
-def idst_type2(x, axis, N):
-    ncp = config.ncp
-    k, n = _create_kn_mesh(N)
-    weights = 2j * ncp.sin(ncp.pi * k * (2*n+1) / (2*N))
-    return _apply_weights(x, weights, axis) / (2 * N)
+@partial(utils.jaxjit, static_argnames=["axis", "n_points"])
+def idst_type2(x: np.ndarray, axis: int, n_points: int) -> np.ndarray:
+    """Compute the inverse type-2 discrete sine transform."""
+    k, n = _create_kn_mesh(n_points)
+    weights = 2j * jnp.sin(jnp.pi * k * (2*n+1) / (2*n_points))
+    return _apply_weights(x, weights, axis) / (2 * n_points)
 
+def r2r(transform: Callable) -> Callable:
+    """Apply the transform to the real and imaginary parts of the input."""
+    def _r2r(x: np.ndarray,
+             *args: tuple,
+             **kwargs: dict) -> np.ndarray:
+        if jnp.iscomplexobj(x):
+            return ( transform(x.real, *args, **kwargs)
+                    + 1j * transform(x.imag, *args, **kwargs) )
+        return transform(x, *args, **kwargs)
+    return _r2r
 
 @utils.jaxify
 class FFT:
+
     """
     Class for performing fourier transforms on a cartesian grid.
-    
+
     Description
     -----------
-    Model grids that have periodic boundary conditions in some directions, 
+    Model grids that have periodic boundary conditions in some directions,
     and non-periodic boundary conditions in other directions, require a
     combination of fast fourier transforms and discrete cosine transforms.
     This class provides a method to transform an array from physical space to
     spectral space and back. For the discrete cosine transform, the type 2
-    transform is used. This means that the variable must be located at the 
+    transform is used. This means that the variable must be located at the
     cell centers in that direction.
-        
+
     Parameters
     ----------
-    `periodic` : `tuple[bool]`
+    periodic : tuple[bool]
         A list of booleans that indicate whether the axis is periodic.
         If True, the axis is periodic, if False, the axis is non-periodic.
-    
+
     Examples
     --------
     .. code-block:: python
@@ -112,9 +136,10 @@ class FFT:
         w = fft.backward(v).real
         assert np.allclose(u, w)
     """
-    def __init__(self, 
+
+    def __init__(self,
                  periodic: tuple[bool]) -> None:
-        
+
         # --------------------------------------------------------------
         #  Check which axis to apply fft, dct
         # --------------------------------------------------------------
@@ -134,30 +159,29 @@ class FFT:
         self._periodic = periodic
         self._fft_axes = fft_axes
         self._dct_axes = dct_axes
-        return
 
-    def get_freq(self, shape: tuple[int], 
-                 dx: tuple[float], ) -> tuple[np.ndarray]:
+    def get_freq(self, shape: tuple[int],
+                 dx: tuple[float] ) -> tuple[np.ndarray]:
         """
         Get the frequencies for the given shape and dx.
-        
+
         Description
         -----------
-        This method calculates the frequencies for the given shape and dx. The 
+        This method calculates the frequencies for the given shape and dx. The
         returned frequencies could be used to construct wavenumber meshgrids.
-        
+
         Parameters
         ----------
-        `shape` : `tuple[int]`
+        shape : tuple[int]
             The global shape (number of grid points in each direction).
-        `dx` : `tuple[float]`
+        dx : tuple[float]
             The grid spacing in each direction.
-        
+
         Returns
         -------
         `tuple[np.ndarray]`
             The frequencies in each direction.
-        
+
         Examples
         --------
         .. code-block:: python
@@ -170,43 +194,41 @@ class FFT:
             kx, ky, kz = fft.get_freq(shape, dx)
             KX, KY, KZ = np.meshgrid(kx, ky, kz, indexing='ij')
         """
-        ncp = config.ncp
         k = []
         for i in range(len(shape)):
             if self._periodic[i]:
-                k.append(ncp.fft.fftfreq(shape[i], dx[i]/(2*ncp.pi)))
+                k.append(jnp.fft.fftfreq(shape[i], dx[i]/(2*jnp.pi)))
             else:
-                k.append(ncp.linspace(0, ncp.pi/dx[i], shape[i], endpoint=False))
+                k.append(jnp.linspace(
+                    0, jnp.pi/dx[i], shape[i], endpoint=False))
         return tuple(k)
 
-    @partial(utils.jaxjit, static_argnames=['axes', 'bc_types', 'positions'])
-    def forward(self, 
-                u: np.ndarray, 
+    def forward(self,
+                u: np.ndarray,
                 axes: list[int] | None = None,
                 bc_types: tuple[fr.grid.BCType] | None = None,
                 positions: tuple[fr.grid.AxisPosition] | None = None,
                 ) -> np.ndarray:
         """
         Forward transform from physical space to spectral space.
-        
+
         Parameters
         ----------
-        `u` : `np.ndarray`
+        u : np.ndarray
             The array to transform from physical space to spectral space.
-        `axes` : `list[int] | None`
+        axes : list[int] | None
             The axes to transform. If None, all axes are transformed.
-        `bc_types` : `tuple[fr.grid.BCType] | None`
+        bc_types : tuple[fr.grid.BCType] | None
             The type of boundary conditions for each axis.
-        `positions` : `tuple[fr.grid.AxisPosition] | None`
+        positions : tuple[fr.grid.AxisPosition] | None
             The position of the variable in each direction.
-        
+
         Returns
         -------
         `np.ndarray`
             The transformed array in spectral space. If all dimensions are
             periodic, the obtained array is real, else it is complex.
         """
-        ncp = config.ncp; scp = config.scp
         # Get the axes to apply fft, dct
         if axes is None:
             fft_axes = self._fft_axes
@@ -220,16 +242,14 @@ class FFT:
             bc_types = tuple(fr.grid.BCType.NEUMANN for _ in range(u.ndim))
 
         if positions is None:
-            positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
-        
+            positions = tuple(
+                fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
+
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
-                if config.backend_is_jax:
-                    u_hat = dct_type2(u_hat, axis, u_hat.shape[axis])
-                else:
-                    u_hat = scp.fft.dct(u_hat, axis=axis)
-            
+                u_hat = r2r(jsp.fft.dct)(u_hat, axis=axis, type=2)
+
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:
                     u_hat = dst_type2(u_hat, axis, u_hat.shape[axis])
@@ -237,36 +257,33 @@ class FFT:
                     u_hat = dst_type1(u_hat, axis, u_hat.shape[axis])
 
         # fourier transform for periodic boundary conditions
-        u_hat = ncp.fft.fftn(u_hat, axes=fft_axes)
+        return jnp.fft.fftn(u_hat, axes=fft_axes)
 
-        return u_hat
 
-    @partial(utils.jaxjit, static_argnames=['axes', 'bc_types', 'positions'])
-    def backward(self, u_hat: np.ndarray, 
+    def backward(self, u_hat: np.ndarray,
                  axes: list[int] | None = None,
                  bc_types: tuple[fr.grid.BCType] | None = None,
                  positions: tuple[fr.grid.AxisPosition] | None = None,
                  ) -> np.ndarray:
         """
         Backward transform from spectral space to physical space.
-        
+
         Parameters
         ----------
-        `u_hat` : `np.ndarray`
+        u_hat : np.ndarray
             The array to transform from spectral space to physical space.
-        `axes` : `list[int] | None`
+        axes : list[int] | None
             The axes to transform. If None, all axes are transformed.
-        `bc_types` : `tuple[fr.grid.BCType] | None`
+        bc_types : tuple[fr.grid.BCType] | None
             The type of boundary conditions for each axis.
-        `positions` : `tuple[fr.grid.AxisPosition] | None`
+        positions : tuple[fr.grid.AxisPosition] | None
             The position of the variable in each direction.
-        
+
         Returns
         -------
         `np.ndarray`
             The transformed array in physical space.
         """
-        ncp = config.ncp; scp = config.scp
         if axes is None:
             fft_axes = self._fft_axes
             dct_axes = self._dct_axes
@@ -275,22 +292,20 @@ class FFT:
             dct_axes = list(set(axes) & set(self._dct_axes))
 
         # fourier transform for periodic boundary conditions
-        u = ncp.fft.ifftn(u_hat, axes=fft_axes)
+        u = jnp.fft.ifftn(u_hat, axes=fft_axes)
 
         if bc_types is None:
             bc_types = tuple(fr.grid.BCType.NEUMANN for _ in range(u.ndim))
 
         if positions is None:
-            positions = tuple(fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
-        
+            positions = tuple(
+                fr.grid.AxisPosition.CENTER for _ in range(u.ndim))
+
         # discrete cosine transform
         for axis in dct_axes:
             if bc_types[axis] == fr.grid.BCType.NEUMANN:
-                if config.backend_is_jax:
-                    u = idct_type2(u, axis, u.shape[axis])
-                else:
-                    u = scp.fft.idct(u, axis=axis)
-            
+                u = r2r(jsp.fft.idct)(u, axis=axis, type=2)
+
             if bc_types[axis] == fr.grid.BCType.DIRICHLET:
                 if positions[axis] == fr.grid.AxisPosition.CENTER:
                     u = idst_type2(u, axis, u.shape[axis])

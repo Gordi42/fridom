@@ -1,13 +1,20 @@
-"""formatting.py - Utilities for formatting data."""
+"""Utilities for formatting data."""
+from __future__ import annotations
+
 import datetime
 
-def humanize_length(value: float):
+# thresholds for the human readable length formatting
+_ONE_CENTIMETER = 1e-2  # meters
+_ONE_KILOMETER = 1e3    # meters
+
+
+def humanize_length(value: float) -> str:
     """
     Format a length in human readable format [mm, cm, m, km].
 
     Parameters
     ----------
-    `value` : `float`
+    value : float
         The length to format.
 
     Returns
@@ -15,21 +22,21 @@ def humanize_length(value: float):
     `str`
         The formatted length.
     """
-    if value < 1e-2:
+    if value < _ONE_CENTIMETER:
         return f"{value*1e3:.2f} mm"
     if value < 1:
         return f"{value*1e2:.2f} cm"
-    if value < 1e3:
+    if value < _ONE_KILOMETER:
         return f"{value:.2f} m"
     return f"{value/1e3:.2f} km"
 
-def humanize_time(value: float):
+def humanize_time(value: float) -> str:
     """
     Format a time in human readable format.
 
     Parameters
     ----------
-    `value` : `float`
+    value : float
         The time to format.
 
     Returns
@@ -68,7 +75,7 @@ def humanize_time(value: float):
         formatted_time += "ms"
     return formatted_time.strip()
 
-def humanize_number(value: float, unit: str):
+def humanize_number(value: float, unit: str) -> str:
     """
     Format a number in human readable format.
 
@@ -79,9 +86,9 @@ def humanize_number(value: float, unit: str):
 
     Parameters
     ----------
-    `value` : `float`
+    value : float
         The number to format.
-    `unit` : `str`
+    unit : str
         The unit of the number (e.g., meters, seconds).
 
     Returns

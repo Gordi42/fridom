@@ -1,4 +1,5 @@
 import pytest
+
 import fridom.framework as fr
 
 
@@ -18,16 +19,16 @@ class Increment(fr.modules.Module):
         self.number = 0  # sets the number to 0
 
     @fr.modules.module_method
-    def update(self, mz: fr.ModelSettingsBase) -> None:
+    def update(self, mz: fr.ModelSettingsBase) -> None:  # noqa: ARG002
         self.number += 1  # increments the number by 1
 
     @fr.modules.module_method
     def stop(self):
         self.number = None  # sets the number to None
 
-@pytest.fixture()
+@pytest.fixture
 def mset():
-    grid = fr.grid.cartesian.Grid(N=(32, ), L=(1.0, ))
+    grid = fr.grid.cartesian.Grid(shape=(32, ), domain_size=(1.0, ))
     mset = fr.ModelSettingsBase(grid)
     mset.setup()
     return mset
@@ -40,7 +41,7 @@ def test_init():
     # check if the module has the correct name
     assert module.name == "Increment"
     # check if the module has the correct number
-    assert module.number == None
+    assert module.number is None
     assert not module.is_setup
     # check if access to the mset results in an error
     with pytest.raises(fr.exceptions.NotSetUpError):
@@ -49,7 +50,7 @@ def test_init():
 def test_start(mset):
     # create a module
     module = Increment()
-    assert module.number == None
+    assert module.number is None
     # start the module
     module.setup(mset=mset)
     # check if the number is 0
@@ -84,7 +85,7 @@ def test_update(mset):
     module.update(mz=None)
     # check if the number is still 2
     assert module.number == 2
-    
+
 def test_stop(mset):
     # create a module
     module = Increment()
@@ -95,7 +96,7 @@ def test_stop(mset):
     # stop the module
     module.stop()
     # check if the number is None
-    assert module.number == None
+    assert module.number is None
 
 def test_reset(mset):
     # create a module

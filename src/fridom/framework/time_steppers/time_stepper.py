@@ -22,14 +22,14 @@ class TimeStepper(fr.modules.Module):
     with `super().__init__(name, **kwargs)`.
     2. `update(self, mz: ModelState) -> None`: This method is called by the
     model at each time step. It should update the model state `mz` to the next
-    time level. Make sure to wrap the method with the `@update_module` decorator
-    from the `Module` class.
+    time level. Make sure to wrap the method with the `@update_module`
+    decorator from the `Module` class.
 
     Optional methods:
     1. `start(self) -> None`: This method is called by the model before the
     time stepping starts. It can be used to initialize variables or allocate
-    memory. Make sure to wrap the method with the `@start_module` decorator from
-    the `Module` class.
+    memory. Make sure to wrap the method with the `@start_module`
+    decorator from the `Module` class.
     2. `stop(self) -> None`: This method is called by the model after the time
     stepping has finished. It can be used to deallocate memory or clean up.
     Make sure to wrap the method with the `@stop_module` decorator from the
@@ -77,7 +77,7 @@ class TimeStepper(fr.modules.Module):
         if isinstance(value, float | int):
             self._dt = value
         else:
-            self._dt = fr.config.dtype_real(value / np.timedelta64(1, "s"))
+            self._dt = fr.utils.dtype_real()(value / np.timedelta64(1, "s"))
         self._on_time_step_change()
 
     @abstractmethod

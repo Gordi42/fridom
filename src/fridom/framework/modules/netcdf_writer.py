@@ -1,13 +1,17 @@
-"""netcdf_writer.py - Writing model output to NetCDF files."""
+"""Writing model output to NetCDF files."""
 from __future__ import annotations
 
+import time as system_time
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING
 
 import numpy as np
 from netCDF4 import Dataset
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class NetCDFWriter(fr.modules.Module):
@@ -18,8 +22,9 @@ class NetCDFWriter(fr.modules.Module):
     Parameters
     ----------
     write_trigger : fr.ClockTrigger, optional
-        The trigger that determines when the data should be written to the file.
-        Default is None which means that the data will be written at every time step.
+        The trigger that determines when the data should be written to the
+        file. Default is None which means that the data will be written at
+        every time step.
     restart_trigger : fr.ClockTrigger, optional
         The trigger that determines when a new file should be created.
         Default is None which means that only one file will be created.
@@ -27,11 +32,11 @@ class NetCDFWriter(fr.modules.Module):
         The name of the file to write to. Default is "snap" (no directory).
     directory : str, optional
         The directory where the files should be stored. Default is "snapshots".
-    get_variables : callable, (default: None)
+    get_variables : callable, optional
         A function that returns a list of scalar fields that should be written
         to the file. If None, all fields of the State object will be written.
         The function signature of get_variables is:
-        `get_variables(mz: 'ModelState') -> list[ScalarField]`
+        `get_variables(mz: 'ModelState') -> list[ScalarField]` (default: None).
 
     """
 
@@ -105,7 +110,8 @@ class NetCDFWriter(fr.modules.Module):
         # ----------------------------------------------------------------
         #  Check if the file should be restarted
         # ----------------------------------------------------------------
-        if self.restart_trigger is not None and self.restart_trigger.check(mz.clock):
+        if (self.restart_trigger is not None
+                and self.restart_trigger.check(mz.clock)):
             self._close_file()
 
         # ----------------------------------------------------------------
@@ -135,7 +141,8 @@ class NetCDFWriter(fr.modules.Module):
             The formatted filename.
 
         """
-        # we first remove the suffix from the filename, if the suffix is .nc or .cdf
+        # we first remove the suffix from the filename, if the suffix is
+        # .nc or .cdf
         suffix = self.filename.suffix.lower()
         if suffix in [".nc", ".cdf"]:
             base_name = self.filename.parent / self.filename.stem
@@ -171,7 +178,7 @@ class NetCDFWriter(fr.modules.Module):
         parallel = (self.grid.domain_decomp.parallel)
         ncfile = Dataset(filename, "w", format="NETCDF4", parallel=parallel)
 
-        dtype = fr.config.dtype_real
+        dtype = fr.utils.dtype_real()
         n_dims = self.grid.n_dims
         if n_dims <= 3:  # noqa: PLR2004
             x_names = ["x", "y", "z"][:n_dims]
@@ -181,7 +188,6 @@ class NetCDFWriter(fr.modules.Module):
         #  General attributes
         # ----------------------------------------------------------------
         ncfile.description = f"fridom: {self.mset.model_name}"
-        import time as system_time
         ncfile.created = system_time.ctime(system_time.time())
 
         # ----------------------------------------------------------------
@@ -200,7 +206,7 @@ class NetCDFWriter(fr.modules.Module):
         x = [ncfile.createVariable(name, dtype, (name,)) for name in x_names]
         time = ncfile.createVariable("time", dtype, ("time",))
 
-        for xi, name in zip(x, x_names):
+        for xi, name in zip(x, x_names, strict=False):
             xi.units = "m"
             xi.long_name = f"{name} coordinate"
 
@@ -213,7 +219,8 @@ class NetCDFWriter(fr.modules.Module):
 
         # store the coordinates
         for i in range(n_dims):
-            x[i][:] = fr.utils.to_numpy(self.grid.x_global[i][self.snap_slice[i]])
+            x[i][:] = fr.utils.to_numpy(
+                self.grid.x_global[i][self.snap_slice[i]])
 
         # create the output variables
         for var in self.get_variables(mz):

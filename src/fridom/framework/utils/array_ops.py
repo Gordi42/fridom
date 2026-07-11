@@ -1,11 +1,17 @@
-"""array_ops.py - Utilities for array operations."""
+"""Utilities for array operations."""
 from __future__ import annotations
 
-from typing import Callable, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
-import numpy as np
+import jax
+import jax.numpy as jnp
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import numpy as np
 
 T = TypeVar("T")
 
@@ -21,64 +27,65 @@ class SliceableAttribute(Generic[T]):
 
     """
 
-    def __init__(self, slicer: Callable[[int | slice | tuple[int, slice]], T]) -> None:
+    def __init__(
+        self, slicer: Callable[[int | slice | tuple[int, slice]], T],
+    ) -> None:
         self.slicer = slicer
 
     def __getitem__(self, key: int | slice | tuple[int, slice]) -> T:
         return self.slicer(key)
 
-def modify_array(arr: np.ndarray, where: slice, value: np.ndarray) -> np.ndarray:
+def modify_array(
+    arr: np.ndarray, where: slice, value: np.ndarray,
+) -> np.ndarray:
     """
     Return a new array with the modifications.
-    
+
     Description
     -----------
     A fundamental difference between JAX and NumPy is that NumPy allows
-    in-place modification of arrays, while JAX does not. This function does 
+    in-place modification of arrays, while JAX does not. This function does
     not modify the input array in place, but returns a new array with the
     modifications.
-    
+
     Parameters
     ----------
-    `arr` : `np.ndarray`
+    arr : np.ndarray
         The array to modify.
-    `where` : `slice`
+    where : slice
         The slice to modify.
-    `value` : `np.ndarray | float | int`
+    value : np.ndarray | float | int
         The value to set.
-    
+
     Returns
     -------
     `np.ndarray`
         The modified array.
-    
+
     Examples
     --------
+    >>> import jax.numpy as jnp
     >>> import fridom.framework as fr
-    >>> x = fr.config.ncp.arange(10)  # create some array
+    >>> x = jnp.arange(10)  # create some array
     >>> # instead of x[2:5] = 0, we use the modify_array function
     >>> x = fr.utils.modify_array(x, slice(2,5), 0)
 
     """
-    if fr.config.backend_is_jax:
-        return arr.at[where].set(value)
-    res = arr.copy()
-    res[where] = value
-    return res
+    return arr.at[where].set(value)
 
-def random_array(shape: tuple[int], seed=12345, **kwargs) -> np.ndarray:
+def random_array(
+    shape: tuple[int], seed: int = 12345, **kwargs: bool,
+) -> np.ndarray:
     """Create a random array."""
     if "ignore_warning" not in kwargs:
-        fr.log.warning("The random_array function is deprecated and will be removed in the future.")
-        fr.log.warning("Please use the create array method from the grid object instead")
-    if fr.config.backend_is_jax:
-        # we need to import jax here since it is an optional dependency
-        import jax  # pylint: disable=import-outside-toplevel
-        key = jax.random.key(seed)
-        return jax.random.normal(key, shape)
-    ncp = fr.config.ncp
-    default_rng = ncp.random.default_rng
-    return default_rng(seed).standard_normal(shape)
+        fr.log.warning(
+            "The random_array function is deprecated and will be "
+            "removed in the future.")
+        fr.log.warning(
+            "Please use the create array method from the grid object "
+            "instead")
+    key = jax.random.key(seed)
+    return jax.random.normal(key, shape)
 
 def array_is_constant(arr: np.ndarray) -> bool:
     """
@@ -100,13 +107,14 @@ def array_is_constant(arr: np.ndarray) -> bool:
 
     Examples
     --------
+    >>> import jax.numpy as jnp
     >>> import fridom.framework as fr
-    >>> x = fr.config.ncp.ones(10)
+    >>> x = jnp.ones(10)
     >>> fr.utils.array_is_constant(x)
     True
-    >>> x[5] = 0
+    >>> x = x.at[5].set(0)
     >>> fr.utils.array_is_constant(x)
     False
 
     """
-    return fr.config.ncp.allclose(arr, arr.flatten()[0])
+    return jnp.allclose(arr, jnp.mean(arr))

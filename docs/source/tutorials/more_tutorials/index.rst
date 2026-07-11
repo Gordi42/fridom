@@ -7,6 +7,7 @@ More Tutorials
    backend
    precision
    logging
+   benchmarking
    building_the_documentation
 
 
@@ -14,11 +15,12 @@ More Tutorials
    :margin: 4 4 0 0
    :gutter: 2
 
-   .. grid-item-card:: Selecting the backend
+   .. grid-item-card:: Platform and precision
       :link: backend
       :link-type: doc
 
-      Everything about the backend.
+      How to select the compute device (CPU/GPU) and floating point
+      precision through JAX.
 
    .. grid-item-card:: Floating point precision
       :link: precision
@@ -31,6 +33,13 @@ More Tutorials
       :link-type: doc
 
       How to change the log level for more detailed progress updates.
+
+   .. grid-item-card:: Benchmarking
+      :link: benchmarking
+      :link-type: doc
+
+      How to benchmark functions and compare benchmark runs across
+      branches.
 
    .. grid-item-card:: Building the documentation
       :link: building_the_documentation

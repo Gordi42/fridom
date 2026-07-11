@@ -15,20 +15,21 @@ class AdvectionBase(fr.modules.Module):
 
     Description
     -----------
-    This class implements the base interface for 1D, 2D, and 3D advection schemes.
-    For that, it is assumed that the velocity field is stored in the state vector
-    as the components `u`, `v`, and `w`. Child classes must implement the `advection`
-    method to calculate the advection term:
+    This class implements the base interface for 1D, 2D, and 3D advection
+    schemes. For that, it is assumed that the velocity field is stored in
+    the state vector as the components `u`, `v`, and `w`. Child classes
+    must implement the `advection` method to calculate the advection term:
 
     .. math::
         \mathcal{A}(\boldsymbol{v}, q) = -\boldsymbol{v} \cdot \nabla q
 
-    where :math:`q` is the quantity to be advected and :math:`\boldsymbol{v}` is
-    the velocity field, which is the sum of the velocity field in the state vector
-    and the background velocity field, stored in the `background` attribute.
-    This update routine of this module adds the advection term multiplied by the
-    nonlinear scaling factor to the tendency term of all fields that are not flagged
-    with `NO_ADV`:
+    where :math:`q` is the quantity to be advected and
+    :math:`\boldsymbol{v}` is the velocity field, which is the sum of the
+    velocity field in the state vector and the background velocity field,
+    stored in the `background` attribute.
+    This update routine of this module adds the advection term multiplied
+    by the nonlinear scaling factor to the tendency term of all fields
+    that are not flagged with `NO_ADV`:
 
     .. math::
         \partial_t q \leftarrow \partial_t q
@@ -51,8 +52,8 @@ class AdvectionBase(fr.modules.Module):
                   quantity: fr.ScalarField) -> fr.ScalarField:
         """Advect a quantity using the given velocity field."""
 
-    @fr.utils.jaxjit
-    def advect_state(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
+    def advect_state(
+            self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
         """Advect the state vector."""
         if self.background is None and self.disable_nonlinear:
             return dz
@@ -99,9 +100,9 @@ class AdvectionBase(fr.modules.Module):
         Description
         -----------
         Some modules require to scale the nonlinear terms, as for example the
-        optimal balance projection 
-        (:py:class:`fridom.framework.projection.OptimalBalance`). This parameter
-        provides an interface to set this scaling factor.
+        optimal balance projection
+        (:py:class:`fridom.framework.projection.OptimalBalance`). This
+        parameter provides an interface to set this scaling factor.
         """
         return self._scaling
 

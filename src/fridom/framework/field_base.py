@@ -2,13 +2,13 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Callable, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, Self, TypeVar
 
 import numpy as np
 
-from fridom.framework.grid.fft_padding import FFTPadding
-
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
     import xarray as xr
 
     import fridom.framework as fr
@@ -44,22 +44,13 @@ class FieldBase:
     # ================================================================
 
     @abstractmethod
-    def fft(self: T,
-            padding: FFTPadding = FFTPadding.NOPADDING,
-            ) -> T:
+    def fft(self: T) -> T:
         r"""
         Perform a Fast Fourier Transform (FFT) on the field.
 
         Description
         -----------
-        Computes the Fast Fourier Transform (FFT) of the field. The
-        padding parameter can be used to specify the zero-padding
-        strategy.
-
-        Parameters
-        ----------
-        padding : fr.grid.FFTPadding
-            The padding strategy.
+        Computes the Fast Fourier Transform (FFT) of the field.
 
         Returns
         -------
@@ -69,22 +60,13 @@ class FieldBase:
         """
 
     @abstractmethod
-    def ifft(self: T,
-             padding: FFTPadding = FFTPadding.NOPADDING,
-             ) -> T:
+    def ifft(self: T) -> T:
         r"""
         Perform an Inverse Fast Fourier Transform (IFFT) on the field.
 
         Description
         -----------
         Computes the Inverse Fast Fourier Transform (IFFT) of the field.
-        The padding parameter can be used to specify the zero-padding
-        strategy.
-
-        Parameters
-        ----------
-        padding : fr.grid.FFTPadding
-            The padding strategy.
 
         Returns
         -------
@@ -148,7 +130,7 @@ class FieldBase:
     @abstractmethod
     def sync(self: T) -> T:
         r"""
-        Synchronize the field across all MPI ranks and apply boundary conditions.
+        Synchronize the field across MPI ranks and apply boundary conditions.
 
         Description
         -----------
@@ -195,14 +177,31 @@ class FieldBase:
         """
 
     @abstractmethod
+    def set_zero(self: T) -> T:
+        r"""
+        Set the field to zero.
+
+        Description
+        -----------
+        This method sets the field to zero. The field is changed in-place, but
+        also returned.
+
+        Returns
+        -------
+        FieldBase
+            The field with all values set to zero.
+
+        """
+
+    @abstractmethod
     def set_random(self: T, seed: int = 1234) -> T:
         r"""
         Set the field to random values.
 
         Description
         -----------
-        This method sets the field to random values. If the field is in spectral
-        space, the random values are complex.
+        This method sets the field to random values. If the field is in
+        spectral space, the random values are complex.
 
         Parameters
         ----------
@@ -216,6 +215,23 @@ class FieldBase:
 
         """
 
+    @abstractmethod
+    def block_until_ready(self: T) -> T:
+        r"""
+        Block until the field is ready.
+
+        Description
+        -----------
+        This method blocks until the field is ready. This is necessary when
+        using asynchronous operations, such as GPU computations, to ensure that
+        the field is ready before it is used.
+
+        Returns
+        -------
+        FieldBase
+            The field itself.
+
+        """
 
     @abstractmethod
     def __copy__(self: T) -> T:
@@ -248,7 +264,6 @@ class FieldBase:
     @abstractmethod
     def diff(self: T,
              axis: int,
-             order: int = 1,
              ) -> T:
         r"""
         Compute the partial derivative along an axis.
@@ -262,8 +277,6 @@ class FieldBase:
         ----------
         axis : int
             The axis along which to differentiate.
-        order : int
-            The order of the derivative. Default is 1.
 
         Returns
         -------
@@ -292,9 +305,9 @@ class FieldBase:
         Returns
         -------
         fr.VectorField | fr.TensorField
-            The gradient of the field along the specified axes. The list contains
-            the gradient components along each axis. Axis which are not included
-            in `axes` will have a value of `None`.
+            The gradient of the field along the specified axes. The list
+            contains the gradient components along each axis. Axis which
+            are not included in `axes` will have a value of `None`.
             E.g. for a 3D grid, `diff.grad(f, axes=[0, 2])` will return
             `[df/dx, None, df/dz]`.
 
@@ -339,10 +352,11 @@ class FieldBase:
         """
 
     @abstractmethod
-    def cumulative_integral(self: T,
-                            axis: int,
-                            direction: Literal["forward", "backward"] = "forward",
-                            ) -> T:
+    def cumulative_integral(
+        self: T,
+        axis: int,
+        direction: Literal["forward", "backward"] = "forward",
+    ) -> T:
         r"""
         Compute the cumulative integral along an axis.
 
@@ -457,8 +471,8 @@ class FieldBase:
         self.xr.to_netcdf(path, auto_complex=True)
 
     @classmethod
-    def from_netcdf(cls: type[T],
-                    mset: fr.ModelSettingsBase, path: str) -> T:
+    def from_netcdf(cls,
+                    mset: fr.ModelSettingsBase, path: str) -> Self:
         r"""
         Create a field from a NetCDF file.
 
@@ -475,7 +489,7 @@ class FieldBase:
             The field.
 
         """
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         ds = xr.open_dataset(path)
         return cls.from_xarray(mset, ds)
 
@@ -560,9 +574,10 @@ class FieldBase:
         the sum is computed over all axes.
 
         .. note::
-            We recommend using the `f.integrate()` method to integrate the field
-            in certain directions. The `integrate()` method takes the grid spacing
-            into account while the `sum()` method does not.
+            We recommend using the `f.integrate()` method to integrate
+            the field in certain directions. The `integrate()` method
+            takes the grid spacing into account while the `sum()` method
+            does not.
 
         Parameters
         ----------
@@ -746,7 +761,8 @@ class FieldBase:
         Returns
         -------
         FieldBase
-            The complex conjugate. If the field is real, the field itself is returned.
+            The complex conjugate. If the field is real, the field itself
+            is returned.
 
         """
 
@@ -762,10 +778,10 @@ class FieldBase:
 
         """
 
-    def __abs__(self: T) -> T:
+    def __abs__(self) -> Self:
         return self.abs()
 
-    def norm_l2(self: T) -> float:
+    def norm_l2(self) -> float:
         r"""
         Calculate the L2 norm of the field.
 
@@ -794,40 +810,40 @@ class FieldBase:
         field: T,
         other: any) -> T: ...
 
-    def __add__(self: T, other: any) -> T:
+    def __add__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x + y, self, other)
 
-    def __radd__(self: T, other: any) -> T:
+    def __radd__(self, other: any) -> Self:
         return self.__add__(other)
 
-    def __sub__(self: T, other: any) -> T:
+    def __sub__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x - y, self, other)
 
-    def __rsub__(self: T, other: any) -> T:
+    def __rsub__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: y - x, self, other)
 
-    def __mul__(self: T, other: any) -> T:
+    def __mul__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x * y, self, other)
 
-    def __rmul__(self: T, other: any) -> T:
+    def __rmul__(self, other: any) -> Self:
         return self.__mul__(other)
 
-    def __truediv__(self: T, other: any) -> T:
+    def __truediv__(self, other: any) -> Self:
         with np.errstate(divide="ignore", invalid="ignore"):
             return self._apply_operation(lambda x, y: x / y, self, other)
 
-    def __rtruediv__(self: T, other: any) -> T:
+    def __rtruediv__(self, other: any) -> Self:
         with np.errstate(divide="ignore", invalid="ignore"):
             return self._apply_operation(lambda x, y: y / x, self, other)
 
-    def __pow__(self: T, other: any) -> T:
+    def __pow__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: x ** y, self, other)
 
-    def __rpow__(self: T, other: any) -> T:
+    def __rpow__(self, other: any) -> Self:
         return self._apply_operation(lambda x, y: y ** x, self, other)
 
     def __matmul__(self, other: FieldBase) -> FieldBase:
         return self.dot(other)
 
-    def __neg__(self: T) -> T:
+    def __neg__(self) -> Self:
         return self._apply_operation(lambda x, _: -x, self, None)

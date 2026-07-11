@@ -1,4 +1,9 @@
-"""mpi.py - MPI utilities for Fridom framework."""
+"""MPI utilities for Fridom framework."""
+from __future__ import annotations
+
+import jax
+from jax.experimental import multihost_utils
+
 try:
     from mpi4py import MPI
 except ImportError:
@@ -8,33 +13,28 @@ except ImportError:
 MPI_AVAILABLE = MPI is not None
 
 # Check if the current rank is the main rank
-def am_i_main_rank():
+def am_i_main_rank() -> bool:
     """
     Check if the current rank is the main rank.
-    
+
     Returns
     -------
     `bool`
         True if the current rank is the main rank, False otherwise.
     """
-    i_am_main_rank = False
     if MPI_AVAILABLE:
-        i_am_main_rank = MPI.COMM_WORLD
-    else:
-        # if no MPI is available, assume that the current rank is the main rank
-        i_am_main_rank = True
-    return i_am_main_rank
+        return MPI.COMM_WORLD.Get_rank() == 0
+    return jax.process_index() == 0
 
 I_AM_MAIN_RANK = am_i_main_rank()
 
-def mpi_barrier():
-    """
-    Barrier synchronization for MPI.
-    """
+def mpi_barrier() -> None:
+    """Barrier synchronization for MPI."""
     if MPI_AVAILABLE:
         MPI.COMM_WORLD.Barrier()
+    multihost_utils.sync_global_devices("mpi_barrier")
 
-def get_mpi_size():
+def get_mpi_size() -> int:
     """
     Get the number of MPI processes.
 
@@ -45,7 +45,7 @@ def get_mpi_size():
     """
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_size()
-    return 1
+    return jax.process_count()
 
 def get_my_rank() -> int:
     """
@@ -59,4 +59,4 @@ def get_my_rank() -> int:
     """
     if MPI_AVAILABLE:
         return MPI.COMM_WORLD.Get_rank()
-    return 0
+    return jax.process_index()

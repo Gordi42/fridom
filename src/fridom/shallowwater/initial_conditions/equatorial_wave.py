@@ -1,6 +1,7 @@
 """Initial conditions for equatorial waves on the beta-plane."""
 from __future__ import annotations
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.shallowwater as sw
@@ -16,7 +17,8 @@ class EquatorialWave(sw.State):
     mset : ModelSettings
         Model settings.
     longitudinal_mode : int
-        Longitudinal mode of the wave (how many wavelengths in the x-direction).
+        Longitudinal mode of the wave (how many wavelengths in the
+        x-direction).
     equatorial_mode : int
         Equatorial mode of the wave (Hermite polynomial order).
     wave_mode : int
@@ -31,8 +33,8 @@ class EquatorialWave(sw.State):
     -----------
     The equatorial wave solutions follow from solving the eigenvalue problem of
     the linearized shallow water equations on the equatorial beta-plane
-    :math:`f = \beta y`. The frequencies of the m-th eigenmode can be obtained by
-    solving
+    :math:`f = \beta y`. The frequencies of the m-th eigenmode can be
+    obtained by solving
 
     .. math::
 
@@ -58,14 +60,17 @@ class EquatorialWave(sw.State):
     .. math::
 
         \begin{align}
-            u_m &= \frac{i c}{2 R_e} \left( \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
+            u_m &= \frac{i c}{2 R_e} \left(
+                \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
                 + \frac{2 m H_{m-1}(\tilde{y})}{\omega_m + c k} \right) \\
             v_m &= H_m(\tilde{y})  \\
-            p_m &= \frac{i c^2}{2 R_e} \left( \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
+            p_m &= \frac{i c^2}{2 R_e} \left(
+                \frac{H_{m+1}(\tilde{y})}{\omega_m - c k}
                 - \frac{2 m H_{m-1}(\tilde{y})}{\omega_m + c k} \right)
         \end{align}
 
-    where :math:`H_m` is the m-th Hermite polynomial, given by the recursive relation
+    where :math:`H_m` is the m-th Hermite polynomial, given by the
+    recursive relation
 
     .. math::
 
@@ -85,9 +90,8 @@ class EquatorialWave(sw.State):
         super().__init__(mset, is_spectral=False)
 
         # Shortcuts
-        ncp = sw.config.ncp
         grid = mset.grid
-        pi = ncp.pi
+        pi = jnp.pi
 
         # Compute physical parameters
         csqr = mset.csqr
@@ -96,8 +100,8 @@ class EquatorialWave(sw.State):
         rossby_radius = (phase_velocity / beta) ** 0.5
         eigenvalue = (2 * equatorial_mode + 1) / (rossby_radius ** 2)
 
-        y0 = grid.L[1] / 2
-        kx = 2 * pi / grid.L[0] * longitudinal_mode
+        y0 = grid.domain_size[1] / 2
+        kx = 2 * pi / grid.domain_size[0] * longitudinal_mode
 
         # Compute the frequencies of the equatorial wave
         coeffs = [1, 0, -csqr * (kx**2 + eigenvalue), -kx * beta * csqr]
@@ -113,8 +117,9 @@ class EquatorialWave(sw.State):
                 memory = {-1: x * 0, 0: x * 0 + 1}
             if order in memory:
                 return memory[order]
-            memory[order] = ( 2 * x * hermite_polynomial(order-1, x, memory)
-                            - 2 * (order-1) * hermite_polynomial(order-2, x, memory) )
+            memory[order] = (
+                2 * x * hermite_polynomial(order-1, x, memory)
+                - 2 * (order-1) * hermite_polynomial(order-2, x, memory) )
             return memory[order]
 
         def hermite_gaussian(order: int, x: float) -> float:
@@ -128,7 +133,7 @@ class EquatorialWave(sw.State):
         x, y = v.get_mesh()
         y_star = (y - y0) / rossby_radius
         v_structure = hermite_gaussian(equatorial_mode, y_star)
-        v.arr = ( v_structure * ncp.exp(1j * (kx * x + phase)) ).real
+        v.arr = ( v_structure * jnp.exp(1j * (kx * x + phase)) ).real
 
         # u
         x, y = u.get_mesh()
@@ -136,9 +141,10 @@ class EquatorialWave(sw.State):
         psi_np1 = hermite_gaussian(equatorial_mode + 1, y_star)
         psi_nm1 = hermite_gaussian(equatorial_mode - 1, y_star)
         u_structure = 1j * phase_velocity / (2 * rossby_radius) * (
-                        psi_np1 / (omega - kx * phase_velocity)
-                        + 2 * equatorial_mode * psi_nm1 / (omega + kx * phase_velocity))
-        u.arr = ( u_structure * ncp.exp(1j * (kx * x + phase)) ).real
+            psi_np1 / (omega - kx * phase_velocity)
+            + 2 * equatorial_mode * psi_nm1
+            / (omega + kx * phase_velocity))
+        u.arr = ( u_structure * jnp.exp(1j * (kx * x + phase)) ).real
 
         # p
         x, y = p.get_mesh()
@@ -148,7 +154,7 @@ class EquatorialWave(sw.State):
         p_structure = 1j * csqr / (2 * rossby_radius) * (
             psi_np1 / (omega - kx * phase_velocity)
             - 2 * equatorial_mode * psi_nm1 / (omega + kx * phase_velocity))
-        p.arr = ( p_structure * ncp.exp(1j * (kx * x + phase)) ).real
+        p.arr = ( p_structure * jnp.exp(1j * (kx * x + phase)) ).real
 
         # Normalize the state
         u_amp = (u**2 + v**2).max() ** 0.5

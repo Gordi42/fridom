@@ -1,4 +1,6 @@
 """Main Tendency module for the Hydrostatic model."""
+from __future__ import annotations
+
 import fridom.framework as fr
 
 

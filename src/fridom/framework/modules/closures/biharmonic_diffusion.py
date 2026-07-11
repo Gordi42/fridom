@@ -1,10 +1,14 @@
 """Biharmonic diffusion module."""
 from __future__ import annotations
 
+from functools import partial
+
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 
-@fr.utils.jaxify
+@partial(fr.utils.jaxify, dynamic=("_original_coefficients", "_sign"))
 class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
 
     r"""
@@ -12,15 +16,16 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
 
     Description
     -----------
-    Following Griffiies et al. (2000), the biharmonic mixing operator 
+    Following Griffiies et al. (2000), the biharmonic mixing operator
     :math:`\mathcal{B}` iterates twice over the harmonic mixing operator
     :math:`\mathcal{H}`. For a scalar field :math:`u` it is given by:
 
     .. math::
         \mathcal{B}(u) = - \mathcal{H} \left( \mathcal{H}(u) \right)
 
-    where we use the biharmonic diffusion coefficient :math:`\sqrt{|\kappa_i|}`. 
-    The index :math:`i` refers to the direction of the diffusion.
+    where we use the biharmonic diffusion coefficient
+    :math:`\sqrt{|\kappa_i|}`. The index :math:`i` refers to the direction
+    of the diffusion.
 
     Parameters
     ----------
@@ -31,14 +36,24 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
         flags, see :py:mod:`fridom.framework.ScalarField`.
     diffusion_coefficients : tuple[float | fr.ScalarField]
         A tuple of diffusion coefficients. The length of the tuple must match
-        the number of dimensions of the grid.
+        the number of dimensions of the grid. The coefficients must not have
+        mixed signs.
 
     """
 
     name = "Biharmonic Diffusion"
-    @fr.utils.jaxjit
+    def __init__(self,
+                 field_flags: list[str],
+                 diffusion_coefficients: list[float | fr.ScalarField],
+                 ) -> None:
+        super().__init__(field_flags=field_flags,
+                         diffusion_coefficients=diffusion_coefficients)
+        # the biharmonic operator applies two derivatives in each
+        # direction before the fields are synchronized again
+        self.required_halo = 2
+
     def diffusion_operator(self, u: fr.ScalarField) -> fr.ScalarField:
-        """Apply the biharmonic diffusion operator on a scalar field :math:`u`."""
+        r"""Apply the biharmonic diffusion operator on a field :math:`u`."""
         # apply the first harmonic diffusion operator
         div1 = super().diffusion_operator(u)
         # apply the second harmonic diffusion operator
@@ -51,22 +66,30 @@ class BiharmonicDiffusion(fr.modules.closures.HarmonicDiffusion):
     @property
     def diffusion_coefficients(self) -> list[float | fr.ScalarField]:
         """A list of diffusion coefficients."""
-        return self._diffusion_coefficients
+        return self._original_coefficients
 
     @diffusion_coefficients.setter
-    def diffusion_coefficients(self, value: tuple[float | fr.ScalarField]) -> None:
-        # we need to take the square root of the diffusion coefficients
-        ncp = fr.config.ncp
+    def diffusion_coefficients(
+            self, value: tuple[float | fr.ScalarField]) -> None:
+        # the harmonic operator is applied twice, hence we store the
+        # square root of the diffusion coefficients
         coeffs = []
+        sign = 0
         for coeff in value:
+            arr = coeff.arr if isinstance(coeff, fr.ScalarField) else coeff
+            coeff_sign = jnp.sign(arr)
+            if bool(jnp.any(sign * coeff_sign < 0)):
+                msg = ("The biharmonic diffusion coefficients must not "
+                       "have mixed signs.")
+                raise ValueError(msg)
+            # zero coefficients do not contribute to the sign
+            sign = jnp.where(coeff_sign == 0, sign, coeff_sign)
+            kappa = jnp.sqrt(jnp.abs(arr))
             if isinstance(coeff, fr.ScalarField):
-                self._sign = ncp.sign(coeff.arr)
-                kappa = ncp.sqrt(ncp.abs(coeff.arr))
                 kappa = fr.ScalarField(mset=coeff.mset,
-                                         arr=kappa,
-                                         mdata=coeff.mdata)
-            else:
-                self._sign = ncp.sign(coeff)
-                kappa = ncp.sqrt(ncp.abs(coeff))
+                                       arr=kappa,
+                                       mdata=coeff.mdata)
             coeffs.append(kappa)
+        self._sign = sign
+        self._original_coefficients = list(value)
         self._diffusion_coefficients = coeffs

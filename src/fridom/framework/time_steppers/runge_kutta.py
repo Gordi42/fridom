@@ -16,7 +16,7 @@ class ButcherTableau:
 
     Parameters
     ----------
-    A : np.ndarray
+    a : np.ndarray
         Matrix of coefficients.
     b : np.ndarray
         Vector of coefficients.
@@ -26,11 +26,11 @@ class ButcherTableau:
     """
 
     def __init__(self,
-                 A: np.ndarray,
+                 a: np.ndarray,
                  b: np.ndarray,
                  c: np.ndarray,
                  b_error: np.ndarray | None = None) -> None:
-        self.A = A
+        self.a = a
         self.b = b
         self.c = c
         self.b_error = b_error
@@ -45,20 +45,20 @@ class RKMethods(Enum):
     # ----------------------------------------------------------------
 
     Euler = ButcherTableau(
-        A = np.array([0]),
+        a = np.array([0]),
         b = np.array([1]),
         c = np.array([0]),
     )
 
     RK2 = ButcherTableau(
-        A = np.array([[0,   0],
+        a = np.array([[0,   0],
                       [1/2, 0]]),
         b = np.array([0,   1]),
         c = np.array([0, 1/2]),
     )
 
     RK3 = ButcherTableau(
-        A = np.array([[  0, 0, 0],
+        a = np.array([[  0, 0, 0],
                       [1/2, 0, 0],
                       [ -1, 2, 0]]),
         b = np.array([1/6, 2/3, 1/6]),
@@ -66,7 +66,7 @@ class RKMethods(Enum):
     )
 
     RK4 = ButcherTableau(
-        A = np.array([[  0,   0, 0, 0],
+        a = np.array([[  0,   0, 0, 0],
                       [1/2,   0, 0, 0],
                       [  0, 1/2, 0, 0],
                       [  0,   0, 1, 0]]),
@@ -75,7 +75,7 @@ class RKMethods(Enum):
     )
 
     RK4_38 = ButcherTableau(
-        A = np.array([[   0,  0, 0, 0],
+        a = np.array([[   0,  0, 0, 0],
                       [ 1/3,  0, 0, 0],
                       [-1/3,  1, 0, 0],
                       [   1, -1, 1, 0]]),
@@ -88,7 +88,7 @@ class RKMethods(Enum):
     # ----------------------------------------------------------------
 
     HEUN_EULER = ButcherTableau(
-        A = np.array([[0, 0],
+        a = np.array([[0, 0],
                       [1, 0]]),
         b = np.array([1/2, 1/2]),
         c = np.array([  0,   1]),
@@ -96,7 +96,7 @@ class RKMethods(Enum):
     )
 
     BOGACKI_SHAMPINE = ButcherTableau(
-        A = np.array([[  0,   0,   0, 0],
+        a = np.array([[  0,   0,   0, 0],
                       [1/2,   0,   0, 0],
                       [  0, 3/4,   0, 0],
                       [2/9, 1/3, 4/9, 0]]),
@@ -106,23 +106,38 @@ class RKMethods(Enum):
     )
 
     RKF45 = ButcherTableau(
-        A = np.array([[        0,          0,          0,         0,      0, 0],
-                      [      1/4,          0,          0,         0,      0, 0],
-                      [     3/32,       9/32,          0,         0,      0, 0],
-                      [1932/2197, -7200/2197,  7296/2197,         0,      0, 0],
-                      [  439/216,         -8,   3680/513, -845/4104,      0, 0],
-                      [    -8/27,          2, -3544/2565, 1859/4104, -11/40, 0]]),
+        a = np.array([
+            [        0,          0,          0,         0,      0, 0],
+            [      1/4,          0,          0,         0,      0, 0],
+            [     3/32,       9/32,          0,         0,      0, 0],
+            [1932/2197, -7200/2197,  7296/2197,         0,      0, 0],
+            [  439/216,         -8,   3680/513, -845/4104,      0, 0],
+            [    -8/27,          2, -3544/2565, 1859/4104, -11/40, 0]]),
         b = np.array([16/135,   0, 6656/12825, 28561/56430, -9/50, 2/55]),
         c = np.array([     0, 1/4,        3/8,       12/13,     1,  1/2]),
         b_error = np.array([-1/360, 0, 128/4275,  2197/75240, -1/50, -2/55]),
     )
 
 @fr.utils.jaxjit
-def sum_product(coeefs, dt, k):
+def sum_product(
+    coeefs: np.ndarray,
+    dt: float,
+    k: list[fr.VectorField],
+) -> fr.VectorField | float:
+    """Compute the weighted sum of the scaled tendencies."""
     return sum(coeefs[i] * dt * k[i] for i in range(len(k)))
+
+@fr.utils.jaxjit
+def _compute_tendency(
+    tendency: fr.modules.Module,
+    mz: fr.ModelState,
+) -> fr.ModelState:
+    return tendency.update(mz=mz)
 
 #TODO(Silvano): Jaxify this class
 class RungeKutta(fr.time_steppers.TimeStepper):
+
+    """Runge-Kutta time stepping schemes based on Butcher tableaus."""
 
     #TODO(Silvano): Add documentation
 
@@ -140,10 +155,9 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         self.tol = tol
 
     def _on_setup(self) -> None:
-        self.dz_list = [self.mset.state_constructor() for _ in range(self.method.order)]
-
-    def _calculate_tendency(self, mz: fr.ModelState) -> fr.VectorField:
-        return self.mset.tendencies.update(mz).dz
+        self.dz_list = [
+            self.mset.state_constructor()
+            for _ in range(self.method.order)]
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:
@@ -158,32 +172,38 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         """
         method = self.method
         order = method.order
-        # clone the clock
+        # clone the clock so that the stage evaluations do not modify
+        # the model clock
         clock = deepcopy(mz.clock)
         mod_state = fr.ModelState(self.mset, clock=clock)
+        # time at the start of the step; rejected steps retry from here
+        start_time = mz.clock.time
         error = 1
         while error > self.tol:
             k = []
             dt = self.dt
             for i in range(order):
-                mod_state.clock.tick(method.c[i] * dt)
-                mod_state.z = mz.z + sum_product(method.A[i], dt, k)
+                # evaluate stage i at the absolute stage time
+                mod_state.clock.time = start_time + method.c[i] * dt
+                mod_state.z = mz.z + sum_product(method.a[i], dt, k)
                 mod_state.dz = self.dz_list[i]
-                dz = self._calculate_tendency(mod_state)
-                k.append(dz)
+                mod_state = _compute_tendency(self.mset.tendencies, mod_state)
+                k.append(mod_state.dz)
 
             if method.b_error is not None:
                 te = sum_product(method.b_error, dt, k)
                 error = sum(f.norm_l2() for f in te.field_list)
+                new_dt = float(0.9 * dt * (self.tol / error) ** (1 / order))
                 if self.max_dt is not None:
-                    self.dt = min(float(0.9 * dt * (self.tol / error) ** (1 / order)),
-                                  self.max_dt)
+                    self.dt = min(new_dt, self.max_dt)
                 else:
-                    self.dt = float(0.9 * dt * (self.tol / error) ** (1 / order))
+                    self.dt = new_dt
             else:
                 error = 0
 
         mz.z += sum_product(method.b, dt, k)
+        mz.dz = k[-1]
+        mz.z_diag = mod_state.z_diag
         mz.clock.tick(dt)
         return mz
 
@@ -200,5 +220,6 @@ class RungeKutta(fr.time_steppers.TimeStepper):
         if isinstance(value, float | int):
             self._max_dt = value
         else:
-            self._max_dt = fr.config.dtype_real(value / np.timedelta64(1, "s"))
+            self._max_dt = fr.utils.dtype_real()(
+                value / np.timedelta64(1, "s"))
         self.dt = self._max_dt

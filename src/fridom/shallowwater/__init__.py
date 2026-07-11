@@ -6,8 +6,9 @@ System of equations
 
 .. math::
 
-    \partial_t \boldsymbol{u} + Ro~\, \boldsymbol{u} \cdot \nabla \boldsymbol{u}
-        = - f \underset{\neg}{\boldsymbol u} 
+    \partial_t \boldsymbol{u}
+        + Ro~\, \boldsymbol{u} \cdot \nabla \boldsymbol{u}
+        = - f \underset{\neg}{\boldsymbol u}
           - \nabla p + \boldsymbol{F}_\boldsymbol{u}
 
 .. math::
@@ -46,13 +47,13 @@ neglect the source terms:
 
 where :math:`D_t = \partial_t + \boldsymbol{u} \cdot \nabla` is the material
 derivative and :math:`p'` is the pressure.
-Let the free surface displacement be given by :math:`\eta(x,y,t)`. By integrating
-the hydrostatic equation from some depth level :math:`z` to the surface, we
-obtain the pressure:
+Let the free surface displacement be given by :math:`\eta(x,y,t)`. By
+integrating the hydrostatic equation from some depth level :math:`z` to the
+surface, we obtain the pressure:
 
 .. math::
 
-    p'(\boldsymbol{x},z) 
+    p'(\boldsymbol{x},z)
         = p'(\boldsymbol{x}, \eta) + \int_{\eta}^z \partial_{z'} p' dz'
         = p'(\boldsymbol{x}, \eta) + \int_z^{\eta} \rho_0 g dz'
         = p'(\boldsymbol{x}, \eta) + \rho_0 g (\eta + z)
@@ -106,7 +107,8 @@ multiply with the gravitational acceleration :math:`g` yields
 
     D_t p + (p + c^2) \nabla \cdot \boldsymbol{u} = 0
     \quad \Longleftrightarrow \quad
-    \partial_t p + \nabla \cdot (p \boldsymbol{u}) = - c^2 \nabla \cdot \boldsymbol{u}
+    \partial_t p + \nabla \cdot (p \boldsymbol{u}) =
+        - c^2 \nabla \cdot \boldsymbol{u}
 
 with :math:`p = g \eta` and :math:`c^2 = g H`.
 
@@ -117,7 +119,7 @@ We start with the unscaled shallow water equations from above:
 .. math::
 
     \partial_t \boldsymbol{u} + \boldsymbol{u} \cdot \nabla \boldsymbol{u}
-        = - f \underset{\neg}{\boldsymbol u} - \nabla p 
+        = - f \underset{\neg}{\boldsymbol u} - \nabla p
     ~, \quad
     \partial_t p + \nabla \cdot \left( p \boldsymbol{u} \right)
         = - c^2 \nabla \cdot \boldsymbol{u}
@@ -137,8 +139,8 @@ and introduce the following scaling:
     p = P p'
 
 where the variables with a prime are the nondimensional variables.
-we further introduce the Rossby number :math:`Ro`, the Froude number :math:`Fr`,
-and assume geostrophic balance on first order:
+we further introduce the Rossby number :math:`Ro`, the Froude number
+:math:`Fr`, and assume geostrophic balance on first order:
 
 .. math::
 
@@ -152,7 +154,8 @@ Inserting the nondimensional variables into the shallow water equations yields:
 
 .. math::
 
-    \partial_{t'} \boldsymbol{u}' + Ro~\, \boldsymbol{u}' \cdot \nabla' \boldsymbol{u}'
+    \partial_{t'} \boldsymbol{u}'
+        + Ro~\, \boldsymbol{u}' \cdot \nabla' \boldsymbol{u}'
         = - f' \underset{\neg}{\boldsymbol u}' - \nabla' p'
     ~, \quad
     \partial_{t'} p' + Ro~\, \nabla' \cdot \left( p' \boldsymbol{u}' \right)
@@ -173,7 +176,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework import exceptions, projection, time_steppers, utils
     from fridom.framework.clock import Clock, TimingFormat
     from fridom.framework.clock_trigger import ClockTrigger
-    from fridom.framework.configuration import config
     from fridom.framework.field_metadata import FieldMetadata
     from fridom.framework.logger import log
     from fridom.framework.model import Model
@@ -197,7 +199,6 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = {
-    f"{base_fr}.configuration": ["config"],
     f"{base_fr}.logger": ["log"],
     f"{base_sw}.model_settings": ["ModelSettings"],
     f"{base_sw}.state": ["State"],

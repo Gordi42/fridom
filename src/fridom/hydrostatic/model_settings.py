@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.hydrostatic as hs
 
@@ -19,12 +21,12 @@ class ModelSettings(fr.ModelSettingsBase):
     ----------
     grid : Grid
         The grid object.
-    coriolis_parameter : float | fr.ScalarField (default=0)
-        The coriolis parameter. Can be a constant or a field.
-    background_stratification : float | fr.ScalarField (default=0)
-        The background stratification. Also referred to as N².
-    rossby_number : float (default=1)
-        The Rossby number for scaling the nonlinearity.
+    coriolis_parameter : float | fr.ScalarField, optional
+        The coriolis parameter. Can be a constant or a field (default: 0).
+    background_stratification : float | fr.ScalarField, optional
+        The background stratification. Also referred to as N² (default: 0).
+    rossby_number : float, optional
+        The Rossby number for scaling the nonlinearity (default: 1).
 
     """
 
@@ -49,10 +51,10 @@ class ModelSettings(fr.ModelSettingsBase):
         self.background_stratification = self.background_stratification
 
     def state_constructor(self) -> hs.State:  # noqa: D102
-        return hs.State(self, is_spectral=self.grid.spectral_grid)
+        return hs.State(self)
 
     def diagnostic_state_constructor(self) -> None:  # noqa: D102
-        return hs.DiagnosticState(self, is_spectral=self.grid.spectral_grid)
+        return hs.DiagnosticState(self)
 
     # ================================================================
     #  Properties
@@ -62,7 +64,8 @@ class ModelSettings(fr.ModelSettingsBase):
     def parameters(self) -> dict:  # noqa: D102
         res = super().parameters
         res["Coriolis parameter"] = self._format_coriolis_parameter()
-        res["Background stratification"] = self._format_background_stratification()
+        res["Background stratification"] = (
+            self._format_background_stratification())
         res["Rossby number"] = f"{self.rossby_number}"
         return res
 
@@ -78,9 +81,10 @@ class ModelSettings(fr.ModelSettingsBase):
         .. math::
             f = 2 \Omega \sin(\phi)
 
-        where :math:`\Omega` is the Earth's rotation rate and :math:`\phi` is the
-        latitude. The Coriolis parameter is used to account for the Coriolis force
-        in the momentum equations. A typical value for mid-latitudes is
+        where :math:`\Omega` is the Earth's rotation rate and :math:`\phi`
+        is the latitude. The Coriolis parameter is used to account for the
+        Coriolis force in the momentum equations. A typical value for
+        mid-latitudes is
 
         .. math::
             f_0 = 10^{-4} \, \text{s}^{-1}
@@ -98,10 +102,11 @@ class ModelSettings(fr.ModelSettingsBase):
         if not self.is_setup:
             self._coriolis_parameter = value
             return
-        # If the value is a float, and we already have a scalar field, we update it
+        # If the value is a float, and we already have a scalar field,
+        # we update it
         if ( hasattr(self, "_coriolis_parameter") and
              isinstance(self._coriolis_parameter, fr.ScalarField) ):
-            self._coriolis_parameter.arr = fr.config.ncp.full_like(
+            self._coriolis_parameter.arr = jnp.full_like(
                 self._coriolis_parameter.arr, value)
             return
         # Else we have to create a new scalar field
@@ -110,7 +115,8 @@ class ModelSettings(fr.ModelSettingsBase):
             long_name="Coriolis parameter",
             units="1/s",
             position=self.grid.cell_center,
-            topo=(True, True, True),  # TODO(Silvano): don't need topo in x and z
+            # TODO(Silvano): don't need topo in x and z
+            topo=(True, True, True),
         )
         coriolis_parameter += value
         self._coriolis_parameter = coriolis_parameter
@@ -138,8 +144,9 @@ class ModelSettings(fr.ModelSettingsBase):
         .. math::
             N^2 = -\frac{g}{\rho_0} \partial_z \rho_s = \partial_z b_s
 
-        where :math:`g` is the gravity, :math:`\rho_0` is the reference density,
-        and :math:`\rho_s` is the background density. The variable :math:`b_s` would
+        where :math:`g` is the gravity, :math:`\rho_0` is the reference
+        density, and :math:`\rho_s` is the background density. The variable
+        :math:`b_s` would
         correspond to the background buoyancy. A typical value for the
         background stratification in the ocean is
 
@@ -150,8 +157,10 @@ class ModelSettings(fr.ModelSettingsBase):
         return self._background_stratification
 
     @background_stratification.setter
-    def background_stratification(self, value: float | fr.ScalarField) -> None:
-        # We need to make sure that the background stratification is a scalar field
+    def background_stratification(self,
+                                  value: float | fr.ScalarField) -> None:
+        # We need to make sure that the background stratification is a
+        # scalar field
         if isinstance(value, fr.ScalarField):
             self._background_stratification = value
             return
@@ -159,10 +168,11 @@ class ModelSettings(fr.ModelSettingsBase):
         if not self.is_setup:
             self._background_stratification = value
             return
-        # If the value is a float, and we already have a scalar field, we update it
+        # If the value is a float, and we already have a scalar field,
+        # we update it
         if ( hasattr(self, "_background_stratification") and
              isinstance(self._background_stratification, fr.ScalarField) ):
-            self._background_stratification.arr = fr.config.ncp.full_like(
+            self._background_stratification.arr = jnp.full_like(
                 self._background_stratification.arr, value)
             return
         # Else we have to create a new scalar field
@@ -171,7 +181,8 @@ class ModelSettings(fr.ModelSettingsBase):
             long_name="Background stratification",
             units="1/s^2",
             position=self.grid.cell_center.shift(axis=2),
-            topo=(True, True, True),  # TODO(Silvano): don't need topo in x and z
+            # TODO(Silvano): don't need topo in x and z
+            topo=(True, True, True),
         )
         background_stratification += value
         self._background_stratification = background_stratification
@@ -200,9 +211,10 @@ class ModelSettings(fr.ModelSettingsBase):
         .. math::
             Ro = \frac{U}{f L}
 
-        where :math:`U` is the typical velocity, :math:`f` is the Coriolis parameter,
-        and :math:`L` is the typical length scale. A typical value for the Rossby
-        number in the ocean is typically much smaller than 1.
+        where :math:`U` is the typical velocity, :math:`f` is the Coriolis
+        parameter, and :math:`L` is the typical length scale. A typical
+        value for the Rossby number in the ocean is typically much smaller
+        than 1.
 
         """
         return self._rossby_number

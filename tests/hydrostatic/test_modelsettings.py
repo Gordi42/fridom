@@ -48,13 +48,12 @@ def test_state_constructor(grid):
     mset = hs.ModelSettings(grid).setup()
     state = mset.state_constructor()
     assert isinstance(state, hs.State)
-    assert state.is_spectral == grid.spectral_grid
+    assert not state.is_spectral
 
 def test_diagnostic_constructor(grid):
     mset = hs.ModelSettings(grid).setup()
     state = mset.diagnostic_state_constructor()
     assert isinstance(state, hs.DiagnosticState)
-    # assert state.is_spectral == grid.spectral_grid
 
 # ----------------------------------------------------------------
 #  Test formatting methods
@@ -65,7 +64,8 @@ def test_format_coriolis_parameter(grid):
     assert mset._format_coriolis_parameter() == "0 1/s"
     mset.setup()
     assert mset._format_coriolis_parameter() == "Variable"
-    mset.coriolis_parameter = hs.ScalarField(mset, name="f", topo=(False, False, False))
+    mset.coriolis_parameter = hs.ScalarField(
+        mset, name="f", topo=(False, False, False))
     mset.coriolis_parameter += 1
     assert mset._format_coriolis_parameter() == "1.0 1/s"
 
@@ -92,7 +92,8 @@ def test_repr(grid, entry):
 # ----------------------------------------------------------------
 #  Test the properties
 # ----------------------------------------------------------------
-@pytest.mark.parametrize("name", ["coriolis_parameter", "background_stratification"])
+@pytest.mark.parametrize("name", ["coriolis_parameter",
+                                  "background_stratification"])
 def test_scalar_field_properties(grid, name):
     mset = hs.ModelSettings(grid)
     # first the field should be a float or int
@@ -107,7 +108,8 @@ def test_scalar_field_properties(grid, name):
     mset.setup()
     field = getattr(mset, name)
     assert isinstance(field, hs.ScalarField)
-    # when setting it to a float value, it should be a ScalarField with that value
+    # when setting it to a float value, it should be a ScalarField with
+    # that value
     setattr(mset, name, my_value)
     field = getattr(mset, name)
     assert isinstance(field, hs.ScalarField)

@@ -1,4 +1,5 @@
 """Test for the equatorial wave initial condition."""
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -8,7 +9,7 @@ import fridom.shallowwater as sw
 #  Constants
 # ================================================================
 RESOLUTION = 6  # N = 2**RESOLUTION = 64
-PI = sw.config.ncp.pi
+PI = jnp.pi
 
 # Constants related to the Earth
 EARTH_RADIUS = 6371e3
@@ -43,8 +44,8 @@ CSQR = STRATIFICATION_N2 * ( DEPTH / (np.pi * VERTICAL_MODE) ) ** 2
 def mset():
     # setting up the grid
     grid = sw.grid.cartesian.Grid(
-        N=(2**RESOLUTION, 2**RESOLUTION),
-        L=(LENGTH_X, LENGTH_Y),
+        shape=(2**RESOLUTION, 2**RESOLUTION),
+        domain_size=(LENGTH_X, LENGTH_Y),
         periodic_bounds=(True, False),
     )
 
@@ -108,7 +109,7 @@ def test_model_run(mset, z_ini):
     # check if fields are approximately constant
 
     accepted_tolerance = 1e-1  # 10% because of the coarse resolution
-    for f1, f2 in zip(z_ini, z_fin):
+    for f1, f2 in zip(z_ini, z_fin, strict=False):
         amp = f1.abs().mean().arr.item()
         rel_diff = (f1 - f2).abs().mean().arr.item() / amp
         assert rel_diff < accepted_tolerance

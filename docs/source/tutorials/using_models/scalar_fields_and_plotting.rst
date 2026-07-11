@@ -7,7 +7,7 @@ Scalar Fields and Plotting
 
 The ``ScalarField`` class is the fundamental class for all scalar fields used in
 FRIDOM. Essentially, a scalar field is a wrapper around multidimensional arrays
-that can be stored in various backends, such as ``numpy``, ``cupy``, or ``jax.numpy``. 
+that are stored as ``jax.numpy`` arrays. 
 
 In addition to the array itself, a scalar field stores a range of metadata,
 including the field's name, units, coordinate information, and dimensions.
@@ -35,7 +35,7 @@ In the following example, we create a scalar field for temperature:
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -58,7 +58,7 @@ Let's start with arithmetic operations between scalar fields and scalars:
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -103,7 +103,7 @@ We can also perform these arithmetic operations between two scalar fields. When 
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -158,7 +158,7 @@ Fourier transformations are one of the built-in methods that can be applied to s
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -194,7 +194,7 @@ A variety of other methods are available to facilitate working in parallel setti
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -218,7 +218,7 @@ Apply Numpy Functions
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -228,21 +228,21 @@ Apply Numpy Functions
     X, Y = u.get_mesh()
 
     # Access the numpy-like module and apply the sin function
-    ncp = sw.config.ncp
-    u.arr = ncp.sin(2 * ncp.pi * X)  # sin(2*pi*x)
+    import jax.numpy as jnp
+    u.arr = jnp.sin(2 * jnp.pi * X)  # sin(2*pi*x)
 
 .. note::
 
-    Recall that the ``numpy``-like module can be accessed via the ``ncp`` attribute of the ``config`` module.
+    Since scalar fields are backed by ``jax.numpy`` arrays, we use ``jax.numpy`` to create the data.
 
-In a similar manner, most ``numpy`` functions can be applied to scalar fields. However, an exception to this is random fields, as different backends handle them differently. Instead, random arrays can be generated from the grid:
+In a similar manner, most ``numpy`` functions can be applied to scalar fields. However, an exception to this is random fields, as ``jax`` handles random numbers differently. Instead, random arrays can be generated from the grid:
 
 .. code-block:: python
     :caption: Random fields
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -278,7 +278,7 @@ In FRIDOM, positions can be defined in two ways: either by using the cell center
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -299,7 +299,7 @@ In FRIDOM, positions can be defined in two ways: either by using the cell center
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -334,14 +334,14 @@ The easiest way to plot scalar fields is to convert them into an ``xarray`` ``Da
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             u = sw.ScalarField(mset, name="u", long_name="Velocity", units="m/s")
             X, Y = u.get_mesh()
-            u.arr = ncp.sin(2 * ncp.pi * X)
+            u.arr = jnp.sin(2 * jnp.pi * X)
 
             # Convert the entire scalar field to a DataArray and plot it
             u.xr.plot()
@@ -356,14 +356,14 @@ The easiest way to plot scalar fields is to convert them into an ``xarray`` ``Da
 
             import fridom.shallowwater as sw
 
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             u = sw.ScalarField(mset, name="u", long_name="Velocity", units="m/s")
             X, Y = u.get_mesh()
-            u.arr = ncp.sin(2 * ncp.pi * X)
+            u.arr = jnp.sin(2 * jnp.pi * X)
 
             # Convert a slice of the scalar field to a DataArray and plot it
             u.xrs[:, 0].plot()
@@ -390,7 +390,7 @@ You may wonder why we have the ``.xrs`` method if you can achieve the same resul
 Differentiation and Interpolation
 ---------------------------------
 
-When modeling partial differential equations, one is often interested in the derivatives of scalar fields. Simple partial derivatives can be calculated using the ``diff`` method. The method takes as arguments the axis along which the derivative should be computed and the order of the derivative.
+When modeling partial differential equations, one is often interested in the derivatives of scalar fields. Simple partial derivatives can be calculated using the ``diff`` method. The method takes as arguments the axis along which the derivative should be computed.
 
 .. code-block:: python
     :caption: Differentiation
@@ -398,17 +398,17 @@ When modeling partial differential equations, one is often interested in the der
     import matplotlib.pyplot as plt
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
-    ncp = sw.config.ncp
+    import jax.numpy as jnp
     u = sw.ScalarField(mset, name="u")
     X, Y = u.get_mesh()
-    u.arr = ncp.sin(2 * ncp.pi * X)
+    u.arr = jnp.sin(2 * jnp.pi * X)
 
     # Calculate the first derivative in the x-direction
-    du_dx = u.diff(axis=0, order=1)
+    du_dx = u.diff(axis=0)
 
     u.xrs[:, 0].plot(label="u")
     du_dx.xrs[:, 0].plot(label="du/dx")
@@ -468,7 +468,7 @@ Consider the following example, in which we create a 2D scalar field that has an
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -481,7 +481,7 @@ If you add this field to a scalar field that extends in all directions, the resu
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -518,7 +518,7 @@ By default, all boundaries are set to ``NEUMANN``. They can be customized using 
 
     import fridom.shallowwater as sw
 
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 

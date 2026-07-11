@@ -26,7 +26,8 @@ the momentum equations:
 The buoyancy equation:
 
 .. math::
-    \partial_t b + Ro~, \boldsymbol{u} \cdot \nabla b = -w N^2 + \boldsymbol{F}_b
+    \partial_t b + Ro~, \boldsymbol{u} \cdot \nabla b
+        = -w N^2 + \boldsymbol{F}_b
 
 And the continuity equation:
 
@@ -85,7 +86,8 @@ decompose the density into a part that only depends on the vertical coordinate
 .. math::
     \rho(\boldsymbol{x}, t) = \rho_0 + \rho_s(z) + \rho'(\boldsymbol{x}, t)
 
-We now solve the vertical momentum equation for :math:`w=0`, and :math:`\rho' = 0`:
+We now solve the vertical momentum equation for :math:`w=0`, and
+:math:`\rho' = 0`:
 
 .. math::
     \partial_z \pi_s = - g \rho_0 - g \rho_s(z)
@@ -111,7 +113,8 @@ the Boussinesq equations become:
 To obtain a tendency equation for the buoyancy, we compute its differential:
 
 .. math::
-    db = - \frac{g}{\rho_0} d\rho' = - \frac{g}{\rho_0} d\rho + \frac{g}{\rho_0} d\rho_s
+    db = - \frac{g}{\rho_0} d\rho'
+       = - \frac{g}{\rho_0} d\rho + \frac{g}{\rho_0} d\rho_s
        = - \frac{g}{\rho_0} d\rho - N^2 dz
 
 where the buoyancy frequency :math:`N` is defined as:
@@ -124,7 +127,8 @@ Divide the differential by :math:`dt` to obtain the tendency equation:
 .. math::
     D_t b = - \frac{g}{\rho_0} D_t \rho - N^2 w
 
-By further assuming that the density is conserved, we obtain the buoyancy equation:
+By further assuming that the density is conserved, we obtain the buoyancy
+equation:
 
 .. math::
     D_t b = - w N^2
@@ -144,8 +148,9 @@ coordinates:
     ~ , \quad
     t' = \Omega t
 
-where :math:`L` is the horizontal length scale, :math:`H` is the vertical length
-scale, and :math:`\Omega` is the rotation rate. The nondimensional variables are
+where :math:`L` is the horizontal length scale, :math:`H` is the vertical
+length scale, and :math:`\Omega` is the rotation rate. The nondimensional
+variables are
 alwqays denoted with the prime. The nondimensional model parameters are:
 
 .. math::
@@ -181,20 +186,23 @@ buoyancy. We define the scaling parameters as follows:
 
 where :math:`Ro` is the Rossby number, :math:`\delta` is the aspect ratio, and
 :math:`L_r` is the Rossby deformation radius. Inserting the nondimensional
-variables into the continuity equation, we obtain the following scaling relation
+variables into the continuity equation, we obtain the following scaling
+relation
 for the aspect ratio:
 
 .. math::
     \delta = \frac{H}{L} = \frac{W}{U}
 
 We assume a small Rossby number and that the momentum equations are in balance
-(e.g. the time derivatives vanish). This leads to the following scaling relation:
+(e.g. the time derivatives vanish). This leads to the following scaling
+relation:
 
 .. math::
     B = \Omega U = \frac{P}{L}
 
-We further assume that the length scale is of the same order of magnitude as the
-Rossby deformation radius. Or in other words, a Froude number of order one. From
+We further assume that the length scale is of the same order of magnitude
+as the Rossby deformation radius. Or in other words, a Froude number of
+order one. From
 this assumption, we can relate the buoyancy frequency to the rotation rate and
 the aspect ratio:
 
@@ -231,7 +239,8 @@ Hence, the full system of equations can be written as:
     \partial_t \boldsymbol{z} = \boldsymbol{f}(\boldsymbol{z}, t)
 
 where :math:`\boldsymbol{z} = (\boldsymbol{u}, b)` is the state vector, and
-:math:`\boldsymbol{f}` is the right hand side of the equations. For the explicit
+:math:`\boldsymbol{f}` is the right hand side of the equations. For the
+explicit
 time stepping schemes, we must evaluate the right hand side of the equations at
 a given time level. This is done by first computing the tendency terms
 :math:`\Delta_{\boldsymbol{u}}` and :math:`\Delta_b`, and then solving the
@@ -251,7 +260,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.framework import projection, time_steppers, utils
     from fridom.framework.clock import Clock, TimingFormat
     from fridom.framework.clock_trigger import ClockTrigger
-    from fridom.framework.configuration import config
     from fridom.framework.field_metadata import FieldMetadata
     from fridom.framework.logger import log
     from fridom.framework.model import Model
@@ -273,7 +281,6 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = {
-    "fridom.framework.configuration": ["config"],
     "fridom.framework.logger": ["log"],
     "fridom.nonhydro.model_settings": ["ModelSettings"],
     "fridom.nonhydro.state": ["State", "DiagnosticState"],

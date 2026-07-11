@@ -23,18 +23,20 @@ class Ramper(fr.modules.Module):
     ramp_period : float
         The period over which the ramping should occur.
     update_parameters : Callable[[fr.ModelState, float], None], optional
-        A method that updates the model parameters based on the ramped value.
-        It should take the model state and the ramped value which is between 0 and 1.
-    ramp_function : str or Callable[[float], float], optional
+        A method that updates the model parameters based on the ramped
+        value. It should take the model state and the ramped value which
+        is between 0 and 1.
+    ramp_function : str | Callable[[float], float], optional
         The ramp function. It can be one of the following strings:
         "exponential", "power_3", "cosine", "linear" or a custom callable.
         The default is "exponential".
 
     Description
     -----------
-    This module contains a list of ramp functions that can be used to ramp up and down
-    parameters during a simulation. This can be useful for adiabatic processes or
-    for slowly changing parameters. For example to ramp up the nonlinear term.
+    This module contains a list of ramp functions that can be used to ramp
+    up and down parameters during a simulation. This can be useful for
+    adiabatic processes or for slowly changing parameters. For example to
+    ramp up the nonlinear term.
 
     """
 
@@ -60,14 +62,15 @@ class Ramper(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
+        time = float(mz.clock.time)
         # Check if the time is smaller than the start time
-        if mz.clock.time < self.start_time:
+        if time < self.start_time:
             return mz
         # Check if the time is greater than the start time + ramp period
-        if mz.clock.time > self.start_time + self.ramp_period:
+        if time > self.start_time + self.ramp_period:
             return mz
         # get the scaled time value
-        theta = (mz.clock.time - self.start_time) / self.ramp_period
+        theta = (time - self.start_time) / self.ramp_period
         # get the ramped value
         ramped_value = self.ramp_function(theta)
         # call the custom update parameters method
@@ -159,11 +162,13 @@ class Ramper(fr.modules.Module):
         return self._ramp_func
 
     @ramp_function.setter
-    def ramp_function(self, value: Literal["exponential",
-                                           "power_3",
-                                           "cosine",
-                                           "linear"] | Callable[[float], float],
-                      ) -> None:
+    def ramp_function(
+            self,
+            value: Literal["exponential",
+                           "power_3",
+                           "cosine",
+                           "linear"] | Callable[[float], float],
+    ) -> None:
         # If the value is a callable, set the ramp function to that callable
         if callable(value):
             self._ramp_name = value.__name__

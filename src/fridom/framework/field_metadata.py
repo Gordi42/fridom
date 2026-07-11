@@ -119,7 +119,8 @@ class FieldMetadata:
                    _topo=tuple(bool(x) for x in data["topo"]),
                    position=fr.grid.Position(
                        [fr.grid.AxisPosition(x) for x in data["position"]]),
-                   _bc_types=tuple(fr.grid.BCType(x) for x in data["bc_types"]),
+                   _bc_types=tuple(
+                       fr.grid.BCType(x) for x in data["bc_types"]),
                    _flags={key: bool(data[key]) for key in data["flags"]})
 
     # ================================================================
@@ -151,7 +152,8 @@ class FieldMetadata:
 
     @bc_types.setter
     def bc_types(self, bc_types: tuple[fr.grid.BCType] | None) -> None:
-        if bc_types is not None and len(bc_types) != len(self.position.positions):
+        if (bc_types is not None
+                and len(bc_types) != len(self.position.positions)):
             msg = "Number of BCType objects must match the number of positions"
             raise ValueError(msg)
         self._bc_types = tuple(bc_types)

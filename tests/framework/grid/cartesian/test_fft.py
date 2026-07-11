@@ -1,5 +1,8 @@
+import jax.numpy as jnp
 import pytest
+
 import fridom.framework as fr
+
 
 @pytest.fixture(params=[10, 11], ids=["nx=10", "nx=11"])
 def nx(request):
@@ -15,29 +18,28 @@ def kx(request):
 
 def test_dct1D(nx, lx, kx):
     fft = fr.grid.cartesian.FFT((False, ))
-    ncp = fr.config.ncp
 
     # prepare the domain
     dx = lx / nx
-    k_test = kx * ncp.pi / lx
-    x = ncp.linspace(0, lx, nx, endpoint=False) + dx / 2.0
+    k_test = kx * jnp.pi / lx
+    x = jnp.linspace(0, lx, nx, endpoint=False) + dx / 2.0
 
     # set the physical space
-    u = ncp.cos(k_test * x)
+    u = jnp.cos(k_test * x)
 
     # transform to spectral space and back
     u_hat = fft.forward(u)
     v = fft.backward(u_hat)
 
     # check that the result is the same
-    assert ncp.allclose(u, v)
+    assert jnp.allclose(u, v)
 
     # check that u_hat is zero for all but the kx mode
     assert u_hat[kx] != 0
     u_hat = fr.utils.modify_array(u_hat, kx, 0)
-    assert ncp.allclose(u_hat, 0)
+    assert jnp.allclose(u_hat, 0)
 
-@pytest.fixture(params=[(True, True, True), 
+@pytest.fixture(params=[(True, True, True),
                         (False, True, True),
                         (True, False, True),
                         (True, True, False),
@@ -50,7 +52,6 @@ def periodic(request):
 
 def test_fft3D(nx, periodic):
     fft = fr.grid.cartesian.FFT(periodic)
-    ncp = fr.config.ncp
 
     # prepare the domain
     n = [nx] * 3
@@ -63,7 +64,7 @@ def test_fft3D(nx, periodic):
     v = fft.backward(u_hat)
 
     # check that the result is the same
-    assert ncp.allclose(u, v)
+    assert jnp.allclose(u, v)
 
 @pytest.fixture(params=[[], [0], [1], [2], [0, 1], [0, 2], [1, 2], [0, 1, 2]])
 def axes(request):
@@ -71,7 +72,6 @@ def axes(request):
 
 def test_fft3D_axes(nx, axes, periodic):
     fft = fr.grid.cartesian.FFT(periodic)
-    ncp = fr.config.ncp
 
     # prepare the domain
     n = [nx] * 3
@@ -83,4 +83,4 @@ def test_fft3D_axes(nx, axes, periodic):
     v = fft.backward(u_hat, axes=axes)
 
     # check that the result is the same
-    assert ncp.allclose(u, v)
+    assert jnp.allclose(u, v)

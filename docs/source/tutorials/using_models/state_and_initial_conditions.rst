@@ -16,7 +16,7 @@ Let's take a look at the state vector in two different model setups:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -42,7 +42,7 @@ Let's take a look at the state vector in two different model setups:
             import fridom.nonhydro as nh
 
             # Create the grid and model settings
-            grid = nh.grid.cartesian.Grid(N=(256, 256, 16), L=(1, 1, 1), periodic_bounds=(True, True, False))
+            grid = nh.grid.cartesian.Grid(shape=(256, 256, 16), domain_size=(1, 1, 1), periodic_bounds=(True, True, False))
             mset = nh.ModelSettings(grid=grid)
             mset.setup()
 
@@ -105,7 +105,7 @@ Either as a dictionary or as an attribute:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -122,7 +122,7 @@ Either as a dictionary or as an attribute:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -146,7 +146,7 @@ This can be particularly useful in cases where you want to add two state vectors
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -183,7 +183,7 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -191,10 +191,10 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             z = sw.State(mset)
 
             # Create a velocity field
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             X, Y = z.u.get_mesh()
-            z.u.arr = ncp.sin(4 * ncp.pi * X) * ncp.cos(4 * ncp.pi * Y)
-            z.v.arr = -ncp.cos(4 * ncp.pi * X) * ncp.sin(4 * ncp.pi * Y)
+            z.u.arr = jnp.sin(4 * jnp.pi * X) * jnp.cos(4 * jnp.pi * Y)
+            z.v.arr = -jnp.cos(4 * jnp.pi * X) * jnp.sin(4 * jnp.pi * Y)
 
             # Convert the state vector to an xarray dataset and plot the velocity field
             z.xrs[::8, ::8].plot.quiver("x", "y", "u", "v")
@@ -211,7 +211,7 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -219,10 +219,10 @@ This can be particularly useful when creating a quiver plot of the velocity fiel
             z = sw.State(mset)
 
             # Create a velocity field
-            ncp = sw.config.ncp
+            import jax.numpy as jnp
             X, Y = z.u.get_mesh()
-            z.u.arr = ncp.sin(4 * ncp.pi * X) * ncp.cos(4 * ncp.pi * Y)
-            z.v.arr = -ncp.cos(4 * ncp.pi * X) * ncp.sin(4 * ncp.pi * Y)
+            z.u.arr = jnp.sin(4 * jnp.pi * X) * jnp.cos(4 * jnp.pi * Y)
+            z.v.arr = -jnp.cos(4 * jnp.pi * X) * jnp.sin(4 * jnp.pi * Y)
 
             # Convert the state vector to an xarray dataset and plot the velocity field
             z.xr.plot.quiver("x", "y", "u", "v")
@@ -249,7 +249,7 @@ If you want to use a state vector as the initial condition for a model, you can 
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -280,7 +280,7 @@ For example, the shallow water model has a built-in Jet initial condition:
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -338,13 +338,13 @@ The following example shows how to create a custom initial condition that genera
             super().__init__(mset)
 
             x, y = self.p.get_mesh()
-            lx, ly = mset.grid.L
-            ncp = sw.config.ncp
+            lx, ly = mset.grid.domain_size
+            import jax.numpy as jnp
 
-            self.p.arr = height * ncp.exp(-((x - lx/2)**2 + (y - ly/2)**2) / (2 * width**2))
+            self.p.arr = height * jnp.exp(-((x - lx/2)**2 + (y - ly/2)**2) / (2 * width**2))
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -378,7 +378,7 @@ The following example demonstrates how to calculate the potential vorticity of t
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -396,27 +396,28 @@ The following example demonstrates how to calculate the potential vorticity of t
 Adding Custom Scalar Fields to the State Vector
 -----------------------------------------------
 
-.. warning::
-    FIXME: The functionality has changed, code snippet will no longer work
-
 In most cases, there's no need to add custom scalar fields to the state vector. However, there are instances where this might be desired.
 For example, if you want to add tracer scalar fields or additional prognostic variables for turbulence models.
-These variables are added through the model settings. In the following example, we add the CO₂ concentration as a scalar field:
+These variables are added through the model settings by appending a ``FieldMetadata`` object to the ``custom_state_fields`` list.
+In the following example, we add the CO₂ concentration as a scalar field:
 
 .. code-block:: python
     :caption: Adding custom scalar fields
 
+    import fridom.framework as fr
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
-    mset.setup()
 
     # Add the CO2 scalar field to the model settings
-    mset.add_field_to_state({'name': "co2",
-                             'long_name': "CO₂ concentration",
-                             'units': "ppm"})
+    mset.custom_state_fields.append(
+        fr.FieldMetadata(name="co2",
+                         long_name="CO₂ concentration",
+                         units="ppm"))
+
+    mset.setup()
 
     # Create the state vector
     z = sw.State(mset)
@@ -428,26 +429,29 @@ These variables are added through the model settings. In the following example, 
 
     ::
 
-        State with fields:
-        u: u - velocity  [m/s]
-        v: v - velocity  [m/s]
-        p: pressure  [m²/s²]
-        co2: CO₂ concentration  [ppm]
-
-        ScalarField
-        - name: co2
-        - long_name: CO² concentration
-        - units: ppm
-        - is_spectral: False
-        - position: Position: (<AxisPosition.CENTER: 1>, <AxisPosition.CENTER: 1>)
-        - topo: [True, True]
-        - bc_types: (<BCType.NEUMANN: 2>, <BCType.NEUMANN: 2>)
-        - enabled_flags: []
+        State(
+          u=u - velocity  [m/s], 
+          v=v - velocity  [m/s], 
+          p=pressure  [m²/s²], 
+          co2=CO₂ concentration  [ppm], 
+        )
+        ScalarField(
+          name=co2, 
+          long_name=CO₂ concentration, 
+          units=ppm, 
+          is_spectral=False, 
+          position=Position: (<AxisPosition.CENTER: 'center'>, <AxisPosition.CENTER: 'center'>), 
+          topo=(True, True), 
+          bc_types=(<BCType.NEUMANN: 'neumann'>, <BCType.NEUMANN: 'neumann'>), 
+          enabled_flags=[], 
+        )
 
 .. note::
 
-    The dictionary passed to the ``add_field_to_state`` method contains the keyword arguments needed for creating a new scalar field.
-    Scalar fields receive this dictionary as kwargs in their constructor.
+    The ``FieldMetadata`` object collects all metadata needed to create the new scalar field.
+    Besides the ``name``, ``long_name``, and ``units`` shown above, it also accepts, for example, the ``position`` of the field on the staggered grid and the boundary condition types (``bc_types``).
+    Unset options fall back to sensible defaults (cell center position and Neumann boundary conditions).
+    Make sure to add custom fields before calling ``mset.setup()``, so that the model and its modules are set up with the extended state vector.
 
 
 Saving and Loading State Vectors
@@ -466,7 +470,7 @@ The following example shows how to save a state vector to a netCDF file and load
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 
@@ -483,7 +487,7 @@ The following example shows how to save a state vector to a netCDF file and load
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
 

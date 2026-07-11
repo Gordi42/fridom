@@ -12,19 +12,17 @@ class Field(fr.FieldBase):
     def __init__(self,
                  mset,
                  value = 0,
-                 is_spectral = False) -> None:  # noqa: FBT002
+                 is_spectral = False) -> None:
         super().__init__(mset)
         self.value = value
         self._is_spectral = is_spectral
 
-    def fft(self, padding=None):
+    def fft(self):
         super()._fft_possible()
-        _ = padding
         return Field(self.mset, self.value, is_spectral=True)
 
-    def ifft(self, padding=None):
+    def ifft(self):
         super()._ifft_possible()
-        _ = padding
         return Field(self.mset, self.value, is_spectral=False)
 
     @property
@@ -57,7 +55,7 @@ class Field(fr.FieldBase):
 @pytest.fixture
 def grid():
     # the dimension etc. of the grid is not important for this test
-    return fr.grid.cartesian.Grid(N=(1, ), L=(1, ))
+    return fr.grid.cartesian.Grid(shape=(1, ), domain_size=(1, ))
 
 @pytest.fixture
 def mset(grid):

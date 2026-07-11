@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/hydrostatic/grid/cartesian/__init__.py file."""
+"""Test the imports in fridom/hydrostatic/grid/cartesian/__init__.py."""
 import pytest
 
 import fridom.hydrostatic.grid.cartesian as test_module

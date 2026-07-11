@@ -1,6 +1,8 @@
 """A polarized wave maker module for the non-hydrostatic model."""
 from __future__ import annotations
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
@@ -17,9 +19,11 @@ class PolarizedWaveMaker(fr.modules.Module):
     :py:class:`fridom.nonhydro.initial_conditions.WavePackage`):
 
     .. math::
-        S(\boldsymbol{x}, t) = A \sin(\omega t) \boldsymbol{z}_W(\boldsymbol{x})
+        S(\boldsymbol{x}, t) =
+            A \sin(\omega t) \boldsymbol{z}_W(\boldsymbol{x})
 
-    where :math:`A` is the amplitude, :math:`\omega` is the frequency of the wave,
+    where :math:`A` is the amplitude, :math:`\omega` is the frequency of
+    the wave,
     that is computed from the dispersion relation (including
     discretization errors due to spatial and temporal discretization), and
     :math:`\boldsymbol{z}_W` is the WavePackage initial condition. The source
@@ -55,15 +59,9 @@ class PolarizedWaveMaker(fr.modules.Module):
         self.source = source * self.amplitude
         self.frequency = source.omega.real
 
-    @fr.utils.jaxjit
-    def _add_source_term(self, dz: nh.State, time: float) -> nh.State:
-        ncp = fr.config.ncp
-        dz += self.source * ncp.sin(self.frequency * time)
-        return dz
-
     @fr.modules.module_method
     def update(self, mz: nh.ModelState) -> nh.ModelState:  # noqa: D102
-        mz.dz = self._add_source_term(mz.dz, mz.clock.time)
+        mz.dz += self.source * jnp.sin(self.frequency * mz.clock.time)
         return mz
 
     @property

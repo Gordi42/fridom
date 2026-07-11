@@ -44,7 +44,7 @@ object and its attributes.
     import fridom.shallowwater as sw
 
     # Create the grid and model settings as usual
-    grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid)
     mset.setup()
 
@@ -121,7 +121,7 @@ how to access the ``tendencies`` module from both the |ModelSettings| and
             import fridom.shallowwater as sw
 
             # Create the grid and model settings and model as usual
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
             model = sw.Model(mset)
@@ -149,7 +149,7 @@ how to access the ``tendencies`` module from both the |ModelSettings| and
             import fridom.shallowwater as sw
 
             # Create the grid and model settings and model as usual
-            grid = sw.grid.cartesian.Grid(N=(256, 256), L=(1, 1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256, 256), domain_size=(1, 1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid)
             mset.setup()
             model = sw.Model(mset)
@@ -237,7 +237,7 @@ For example the followin code demonstrates how to disable the advection module:
     import fridom.shallowwater as sw
 
     # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
     mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
     mset.time_stepper.dt = 0.7e-3
     mset.tendencies.advection.disable()
@@ -281,7 +281,7 @@ water model:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
             mset.time_stepper.dt = 0.7e-3
 
@@ -313,7 +313,7 @@ water model:
             import fridom.shallowwater as sw
 
             # Create the grid and model settings
-            grid = sw.grid.cartesian.Grid(N=(256,256), L=(1,1), periodic_bounds=(True, True))
+            grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
             mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
             mset.time_stepper.dt = 0.7e-3
 

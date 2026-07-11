@@ -17,11 +17,10 @@ An eddy-dipole collides with a tracer band.
 .. video:: videos/tracer_and_eddies_dipole.mp4
 
 """
+import jax.numpy as jnp
 import fridom.nonhydro as nh
 import os
 import matplotlib.pyplot as plt
-
-ncp = nh.config.ncp
 
 # ----------------------------------------------------------------
 #  Experiment settings
@@ -74,15 +73,15 @@ def create_plotter(skip):
 # ----------------------------------------------------------------
 def create_modelsettings(exp_name, quiver_skip):
     grid = nh.grid.cartesian.Grid(
-        L=(Lx, Lx, Lx), N=(Nx, Nx, 1), periodic_bounds=periodic)
+        domain_size=(Lx, Lx, Lx), shape=(Nx, Nx, 1), periodic_bounds=periodic)
 
-    mset = nh.ModelSettings(grid=grid, f0=f0, N2=N0**2)
+    mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N0**2)
     mset.time_stepper.dt = 0.4 * 1/Nx
 
     # add the passive tracer to the state vector
-    mset.add_field_to_state({'name':"dye", 
-                             'long_name':"Dye concentration",
-                             "flags": {'ENABLE_MIXING': True}})
+    mdata = nh.FieldMetadata(name="dye", long_name="Dye concentration")
+    mdata.flags["ENABLE_MIXING"] = True
+    mset.custom_state_fields.append(mdata)
 
     # ----------------------------------------------------------------
     #  Add custom modules to the model settings
@@ -127,7 +126,7 @@ def experiment_1():
     X, Y, Z = z_ini["dye"].get_mesh()
     band_width = 0.05
     # z_ini['dye'] += ( (Y < 0.5 + band_width/2) & (Y > 0.5 - band_width/2) ) * 1.0
-    z_ini['dye'] += ncp.exp(-((Y-0.5)/band_width)**2)
+    z_ini['dye'] += jnp.exp(-((Y-0.5)/band_width)**2)
 
     # ----------------------------------------------------------------
     #  Create and run the model
@@ -168,7 +167,7 @@ def experiment_2():
     # add the passive tracer
     X, Y, Z = z_ini["dye"].get_mesh()
     band_width = 0.05
-    z_ini['dye'] += ncp.exp(-((Y-0.75)/band_width)**2)
+    z_ini['dye'] += jnp.exp(-((Y-0.75)/band_width)**2)
 
     # ----------------------------------------------------------------
     #  Create and run the model

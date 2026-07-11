@@ -21,6 +21,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from .ramper import Ramper
     from .reset_tendency import ResetTendency
     from .restart_module import RestartModule
+    from .sync_module import SyncModule
+    from .zarr_writer import ZarrWriter
 
 # ================================================================
 #  Setup lazy loading
@@ -44,6 +46,8 @@ all_imports_by_origin = {
     f"{base_path}.netcdf_writer": ["NetCDFWriter"],
     f"{base_path}.reset_tendency": ["ResetTendency"],
     f"{base_path}.figure_saver": ["FigureSaver"],
+    f"{base_path}.sync_module": ["SyncModule"],
+    f"{base_path}.zarr_writer": ["ZarrWriter"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

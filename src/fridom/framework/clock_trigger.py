@@ -1,11 +1,15 @@
-"""clock_trigger.py - Emits signals based on the state of a clock."""
+"""Emits signals based on the state of a clock."""
 from __future__ import annotations
 
-from typing import Callable
+from copy import copy
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ClockTrigger:
@@ -16,9 +20,9 @@ class ClockTrigger:
     Description
     -----------
     Some modules should not be active all the time. For example you may want
-    a module that is only active every 10 time steps. This class provides some
-    basic functionality to check if a start condition is met, if a stop condition
-    is met, and if the module should advance.
+    a module that is only active every 10 time steps. This class provides
+    some basic functionality to check if a start condition is met, if a
+    stop condition is met, and if the module should advance.
 
     Parameters
     ----------
@@ -43,7 +47,7 @@ class ClockTrigger:
 
     """
 
-    def __init__(self,  # noqa: PLR0913
+    def __init__(self,
                  start_date: np.datetime64 | float | None = None,
                  start_step: int | None = None,
                  stop_date: np.datetime64 | float | None = None,
@@ -67,7 +71,8 @@ class ClockTrigger:
         self._started = False
         self._stopped = False
         # convert the time interval to seconds
-        if time_interval is not None and isinstance(time_interval, np.timedelta64):
+        if (time_interval is not None
+                and isinstance(time_interval, np.timedelta64)):
             time_interval = fr.utils.to_seconds(time_interval)
 
         self._trigger_on_first_step = True
@@ -141,9 +146,9 @@ class ClockTrigger:
 
         Description
         -----------
-        This method checks if a start requirement is met. And returns `True` if
-        this requirement is met and the start condition has not been met before.
-        Hence, this method will only return `True` once.
+        This method checks if a start requirement is met. And returns
+        `True` if this requirement is met and the start condition has not
+        been met before. Hence, this method will only return `True` once.
 
         Parameters
         ----------
@@ -159,8 +164,8 @@ class ClockTrigger:
         should_start = not self._started and self._start_callback(clock)
         if should_start:
             self._started = True
-            self._start_it = clock.it
-            self._start_time = clock.time
+            self._start_it = copy(clock.it)
+            self._start_time = copy(clock.time)
         return should_start
 
     def should_stop(self, clock: fr.Clock) -> bool:
@@ -225,7 +230,8 @@ class ClockTrigger:
         if should_advance:
             self._number_of_advanced_steps += 1
 
-            if not self.trigger_on_first_step and self._number_of_advanced_steps == 1:
+            if (not self.trigger_on_first_step
+                    and self._number_of_advanced_steps == 1):
                 should_advance = False
 
         return should_advance
@@ -259,6 +265,33 @@ class ClockTrigger:
         self._number_of_advanced_steps = 0
         self._started = False
         self._stopped = False
+
+    def _configuration(self) -> tuple:
+        """Return the configuration (excluding the mutable state)."""
+        return (self._start_date, self._start_step,
+                self._stop_date, self._stop_step,
+                self._time_interval, self._step_size,
+                self._trigger_on_first_step)
+
+    def __eq__(self, other: object) -> bool:
+        """
+        Compare two clock triggers by their configuration.
+
+        Description
+        -----------
+        Only the configuration (start/stop conditions and intervals) is
+        compared, not the mutable trigger state. Trigger decisions are
+        made on the host side and can never influence jit-compiled
+        computations, so equally configured triggers are considered
+        equal. This keeps the jit-cache keys of objects that contain a
+        clock trigger stable.
+        """
+        if not isinstance(other, ClockTrigger):
+            return NotImplemented
+        return self._configuration() == other._configuration()
+
+    def __hash__(self) -> int:
+        return hash(type(self))
 
     def __repr__(self) -> str:
         res = "ClockTrigger("

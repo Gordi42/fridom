@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/nonhydro/modules/pressure_solvers/__init__.py file."""
+"""Test the imports in fridom/nonhydro/modules/pressure_solvers/__init__.py."""
 import pytest
 
 import fridom.nonhydro.modules.pressure_solvers as test_module

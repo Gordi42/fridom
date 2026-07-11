@@ -48,14 +48,13 @@ Animation
     :loop:
 
 """
+import jax.numpy as jnp
 import fridom.nonhydro as nh
 import os
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 plt.style.use(['dark_background'])
-
-ncp = nh.config.ncp
-PI = ncp.pi
+PI = jnp.pi
 
 # ----------------------------------------------------------------
 #  Experiment settings
@@ -110,10 +109,10 @@ def main():
     #  Create the grid and model settings
     # ----------------------------------------------------------------
     grid = nh.grid.cartesian.Grid(
-        L=(Lx, Lx, Lx), N=(Nx, Nx, 1), periodic_bounds=periodic)
+        domain_size=(Lx, Lx, Lx), shape=(Nx, Nx, 1), periodic_bounds=periodic)
 
     mset = nh.ModelSettings(
-        grid=grid, f0=f0, N2=N0**2, Ro=rossby_number)
+        grid=grid, f0=f0, stratification_n2=N0**2, rossby_number=rossby_number)
     mset.time_stepper.dt = 0.01
     mset.setup()  # This will calculate the grid spacings
 

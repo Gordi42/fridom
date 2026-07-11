@@ -1,8 +1,11 @@
 """Main Tendency module for the nonhydrostatic model."""
+from __future__ import annotations
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
 
+@fr.utils.jaxify
 class MainTendency(fr.modules.ModuleContainer):
     #TODO(Silvano): Add a description of the module.
 
@@ -11,21 +14,17 @@ class MainTendency(fr.modules.ModuleContainer):
     name = "Main Tendencies: Nonhydrostatic Model"
     def __init__(self) -> None:
         mods = nh.modules
+        self._sync_module = mods.SyncModule()
         self._reset_tendency = mods.ResetTendency()
         self._linear_tendency = mods.LinearTendency()
         self._tendency_divergence = mods.TendencyDivergence()
         self._advection = mods.advection.CenteredAdvection()
-        self._pressure_solver = mods.pressure_solvers.SpectralPressureSolver()
+        self._pressure_solver = mods.pressure_solvers.RFFTPressureSolver()
         self._pressure_gradient_tendency = mods.PressureGradientTendency()
         self._additional_modules = []
         self._set_module_list()
 
         super().__init__(module_list=self.module_list)
-
-    def _on_setup(self) -> None:
-        # update the advection module if the grid is spectral
-        if type(self.mset.grid) is nh.grid.spectral.Grid:
-            self.advection = nh.modules.advection.SpectralAdvection()
 
     def add_module(self, module: fr.modules.Module) -> None:  # noqa: D102
         self._additional_modules.append(module)
@@ -42,6 +41,7 @@ class MainTendency(fr.modules.ModuleContainer):
         gradient tendency are always in the last two positions.
         """
         module_list = []
+        module_list.append(self._sync_module)
         module_list.append(self._reset_tendency)
         module_list.append(self.linear_tendency)
         module_list.append(self.advection)
@@ -107,7 +107,8 @@ class MainTendency(fr.modules.ModuleContainer):
             value.setup(mset=self.mset)
 
     @property
-    def pressure_gradient_tendency(self) -> nh.modules.PressureGradientTendency:
+    def pressure_gradient_tendency(
+            self) -> nh.modules.PressureGradientTendency:
         """The pressure gradient tendency module."""
         return self._pressure_gradient_tendency
 

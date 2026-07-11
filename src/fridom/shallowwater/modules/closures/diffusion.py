@@ -12,7 +12,7 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
 
     Description
     -----------
-    Applies the harmonic diffusion operator :math:`\mathcal{H}` 
+    Applies the harmonic diffusion operator :math:`\mathcal{H}`
     (see :py:class:`fridom.framework.modules.closures.HarmonicDiffusion`)
     to all fields with the flag "ENABLE_MIXING".
 
@@ -36,7 +36,7 @@ class HarmonicMixing(fr.modules.closures.HarmonicDiffusion):
 
     @kh.setter
     def kh(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs
 
 
@@ -50,7 +50,8 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
     -----------
     Applies the harmonic diffusion operator :math:`\mathcal{H}`
     (see :py:class:`fridom.framework.modules.closures.HarmonicDiffusion`)
-    to all fields with the flag "ENABLE_FRICTION" (typically the velocity field).
+    to all fields with the flag "ENABLE_FRICTION" (typically the velocity
+    field).
 
     Parameters
     ----------
@@ -72,7 +73,7 @@ class HarmonicFriction(fr.modules.closures.HarmonicDiffusion):
 
     @ah.setter
     def ah(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs
 
 
@@ -108,7 +109,7 @@ class BiharmonicMixing(fr.modules.closures.BiharmonicDiffusion):
 
     @kh.setter
     def kh(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs
 
 
@@ -122,7 +123,8 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
     -----------
     Applies the harmonic diffusion operator :math:`\mathcal{B}`
     (see :py:class:`fridom.framework.modules.closures.BiharmonicDiffusion`)
-    to all fields with the flag "ENABLE_FRICTION" (typically the velocity field).
+    to all fields with the flag "ENABLE_FRICTION" (typically the velocity
+    field).
 
     Parameters
     ----------
@@ -144,5 +146,5 @@ class BiharmonicFriction(fr.modules.closures.BiharmonicDiffusion):
 
     @ah.setter
     def ah(self, value: float | fr.ScalarField) -> None:
-        coeffs = [value, value, self.diffusion_coefficients[2]]
+        coeffs = [value, value]
         self.diffusion_coefficients = coeffs

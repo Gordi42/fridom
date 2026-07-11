@@ -4,12 +4,15 @@ from __future__ import annotations
 from collections import OrderedDict
 from copy import copy
 from functools import partial
-from typing import Callable, Iterator, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, Self, TypeVar
 
+import jax
 import numpy as np
 
 import fridom.framework as fr
-from fridom.framework.grid.fft_padding import FFTPadding
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 T = TypeVar("T", bound="VectorField")
 
@@ -60,17 +63,20 @@ class VectorField(fr.FieldBase):
         if kwargs:
             self._check_for_valid_kwargs(kwargs)
 
-        # if the input is a list, check for duplicated names and convert to dict
+        # if the input is a list, check for duplicated names and convert
+        # to dict
         if isinstance(field_list, list):
             field_names = [field.name for field in field_list]
             if len(field_names) != len(set(field_names)):
                 msg = f"Duplicated field names: {field_names}"
                 raise ValueError(msg)
-            field_list = OrderedDict((field.name, field) for field in field_list)
+            field_list = OrderedDict(
+                (field.name, field) for field in field_list)
         elif isinstance(field_list, OrderedDict):
             pass
         elif field_list is None:
-            field_list = self._create_default_fields(mset, vector_dim, **kwargs)
+            field_list = self._create_default_fields(
+                mset, vector_dim, **kwargs)
         else:
             msg = f"Invalid field list type: {type(field_list)}"
             raise TypeError(msg)
@@ -78,7 +84,9 @@ class VectorField(fr.FieldBase):
         # check the vector dimension
         vector_dim = vector_dim or len(field_list)
         if vector_dim != len(field_list):
-            msg = f"Vector dimension mismatch: {vector_dim} != {len(field_list)}"
+            msg = (
+                f"Vector dimension mismatch: "
+                f"{vector_dim} != {len(field_list)}")
             raise ValueError(msg)
 
         # set the properties
@@ -159,37 +167,32 @@ class VectorField(fr.FieldBase):
     #  General Methods
     # ================================================================
 
-    def fft(self: T,  # noqa: D102
-            padding: FFTPadding = FFTPadding.NOPADDING,
-            ) -> T:
-        return self.apply_elementwise(self,
-                                      lambda field: field.fft(padding=padding))
+    def fft(self) -> Self:  # noqa: D102
+        return self.apply_elementwise(self, lambda field: field.fft())
 
-    def ifft(self: T,  # noqa: D102
-             padding: FFTPadding = FFTPadding.NOPADDING,
-             ) -> T:
-        return self.apply_elementwise(self,
-                                      lambda field: field.ifft(padding=padding))
+    def ifft(self) -> Self:  # noqa: D102
+        return self.apply_elementwise(self, lambda field: field.ifft())
 
-    def project(self: T,
-                p_vec: T,
-                q_vec: T) -> T:
+    def project(self,
+                p_vec: Self,
+                q_vec: Self) -> Self:
         r"""
         Project a Vector Field onto a (spectral) vector.
 
         Description
         -----------
         The projection of the vector :math:`\boldsymbol{z}` on a P-Vector
-        :math:`\boldsymbol{z}` and a Q-Vector :math:`\boldsymbol{q}` is defined as:
+        :math:`\boldsymbol{z}` and a Q-Vector :math:`\boldsymbol{q}` is
+        defined as:
 
         .. math::
             \boldsymbol{z} = \boldsymbol{q} \cdot \left(
                 \boldsymbol{z} \cdot \boldsymbol{p}
             \right)
 
-        The projection is done in spectral space. All vectors are transformed to
-        spectral space before the projection and transformed back to physical space
-        if necessary.
+        The projection is done in spectral space. All vectors are
+        transformed to spectral space before the projection and
+        transformed back to physical space if necessary.
 
         Parameters
         ----------
@@ -219,7 +222,7 @@ class VectorField(fr.FieldBase):
             vec = vec.ifft()
         return vec
 
-    def sync(self: T) -> T:  # noqa: D102
+    def sync(self) -> Self:  # noqa: D102
         # TODO(Silvano): the test for spectral space should not be necessary
         # sync should move to the grid
         if self.vector_dim == 0 or self.is_spectral:
@@ -229,37 +232,46 @@ class VectorField(fr.FieldBase):
         arrs = [field.arr for field in self.fields.values()]
         arrs = self.grid.sync_multi(arrs)
         # set the arrays to the fields
-        for field, arr in zip(self.fields.values(), arrs):
+        for field, arr in zip(self.fields.values(), arrs, strict=False):
             field.arr = arr
-        # apply the water mask
-        return self.apply_water_mask()
+        return self
 
-    def apply_water_mask(self: T) -> T:  # noqa: D102
+    def apply_water_mask(self) -> Self:  # noqa: D102
         for field in self:
             field.apply_water_mask()
         return self
 
+
     def has_nan(self) -> bool:  # noqa: D102
         return any(field.has_nan() for field in self.fields.values())
 
-    def set_random(self: T, seed: int = 1234) -> T:  # noqa: D102
+    def block_until_ready(self) -> T:  # noqa: D102
+        for field in self:
+            field.block_until_ready()
+        return self
+
+    def set_zero(self) -> Self:  # noqa: D102
+        for field in self:
+            field.set_zero()
+        return self
+
+    def set_random(self, seed: int = 1234) -> Self:  # noqa: D102
         for i, field in enumerate(self):
             field.set_random(i * seed)
         return self
 
-    def __copy__(self: T) -> T:
+    def __copy__(self) -> Self:
         # create a new vector field, but copy the fields
-        return self.apply_elementwise(self, lambda field: copy(field))
+        return self.apply_elementwise(self, copy)
 
     # ================================================================
     #  Differential Operators
     # ================================================================
 
-    def diff(self: T,  # noqa: D102
+    def diff(self,  # noqa: D102
              axis: int,
-             order: int = 1,
-             ) -> T:
-        return self.apply_elementwise(self, lambda field: field.diff(axis, order))
+             ) -> Self:
+        return self.apply_elementwise(self, lambda field: field.diff(axis))
 
     def grad(self,  # noqa: D102
              axes: list[int] | None = None,
@@ -267,19 +279,21 @@ class VectorField(fr.FieldBase):
         # TODO(Silvano): add implementation after TensorField is implemented
         raise NotImplementedError("grad not implemented yet")
 
-    def laplacian(self: T,  # noqa: D102
+    def laplacian(self,  # noqa: D102
                   axes: tuple[int] | None = None,
-                  ) -> T:
-        return self.apply_elementwise(self, lambda field: field.laplacian(axes))
+                  ) -> Self:
+        return self.apply_elementwise(
+            self, lambda field: field.laplacian(axes))
 
     def div(self) -> fr.ScalarField:  # noqa: D102
         msg = "div not implemented yet"
         raise NotImplementedError(msg)
 
-    def cumulative_integral(self,  # noqa: D102
-                            axis: int,
-                            direction: Literal["forward", "backward"] = "forward",
-                            ) -> VectorField:
+    def cumulative_integral(  # noqa: D102
+        self,
+        axis: int,
+        direction: Literal["forward", "backward"] = "forward",
+    ) -> VectorField:
         return self.apply_elementwise(
             self, lambda field: field.cumulative_integral(axis, direction))
 
@@ -293,7 +307,7 @@ class VectorField(fr.FieldBase):
 
     @property
     def xrs(self) -> fr.utils.SliceableAttribute[xr.Dataset]:  # noqa: D102
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         def slicer(key: int | slice | tuple[int | slice]) -> xr.Dataset:
             ds = xr.Dataset({f.name: f.xrs[key] for f in self})
             # we need to add the variable names in the correct order
@@ -305,10 +319,10 @@ class VectorField(fr.FieldBase):
         return fr.utils.SliceableAttribute(slicer)
 
     @classmethod
-    def from_xarray(cls: type[T],  # noqa: D102
+    def from_xarray(cls,  # noqa: D102
                     mset: fr.ModelSettingsBase,
                     ds: xr.Dataset,
-                    ) -> T:
+                    ) -> Self:
         # get the list of variable names
         var_names = ds.attrs["var_names"]
         vector_dim = ds.attrs["vector_dim"]
@@ -324,8 +338,9 @@ class VectorField(fr.FieldBase):
     #  Sliceable Interface
     # ================================================================
 
-    def __getitem__(self,
-                    key: str | int | slice[int]) -> fr.ScalarField | fr.VectorField:
+    def __getitem__(
+        self, key: str | int | slice[int],
+    ) -> fr.ScalarField | fr.VectorField:
         """Get a field or slice of the vector field."""
         if isinstance(key, str):
             return self.fields[key]
@@ -359,7 +374,7 @@ class VectorField(fr.FieldBase):
         if isinstance(key, slice):
             # get the names of the fields in the slice
             names = list(self.fields)[key]
-            for name, field in zip(names, value.fields.values()):
+            for name, field in zip(names, value.fields.values(), strict=False):
                 self._check_for_name_mismatch(name, field)
                 # set the fields in the slice
                 self.fields[name] = field
@@ -371,7 +386,9 @@ class VectorField(fr.FieldBase):
         """Iterate over the fields of the vector field."""
         return iter(self.fields.values())
 
-    def _check_for_name_mismatch(self, name: str, field: fr.ScalarField) -> None:
+    def _check_for_name_mismatch(
+        self, name: str, field: fr.ScalarField,
+    ) -> None:
         if field.name != name:
             msg = f"Field name mismatch: {field.name} != {name}"
             raise ValueError(msg)
@@ -414,7 +431,8 @@ class VectorField(fr.FieldBase):
     @property
     def is_spectral(self) -> bool:  # noqa: D102
         if self.vector_dim == 0:
-            msg = "Cannot determine if vector field is spectral with 0 components"
+            msg = ("Cannot determine if vector field is spectral "
+                   "with 0 components")
             raise ValueError(msg)
         return next(iter(self.fields.values())).is_spectral
 
@@ -426,22 +444,23 @@ class VectorField(fr.FieldBase):
     #  Shrink / Extend operations
     # ================================================================
 
-    def extend(self: T, topo: tuple[bool]) -> T:  # noqa: D102
+    def extend(self, topo: tuple[bool]) -> Self:  # noqa: D102
         self.apply_elementwise(self, lambda field: field.extend(topo))
 
-    def sum(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def sum(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.sum(axes))
 
-    def max(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def max(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.max(axes))
 
-    def min(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def min(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.min(axes))
 
-    def integrate(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
-        return self.apply_elementwise(self, lambda field: field.integrate(axes))
+    def integrate(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
+        return self.apply_elementwise(
+            self, lambda field: field.integrate(axes))
 
-    def mean(self: T, axes: tuple[int] | None = None) -> T:  # noqa: D102
+    def mean(self, axes: tuple[int] | None = None) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.mean(axes))
 
     # ================================================================
@@ -476,11 +495,12 @@ class VectorField(fr.FieldBase):
             The norm of difference between the two vector fields
 
         """
-        return 2 * (self - other).norm_l2() / (self.norm_l2() + other.norm_l2())
+        return (2 * (self - other).norm_l2()
+                / (self.norm_l2() + other.norm_l2()))
 
-    def dot(self: T,  # noqa: D102
+    def dot(self,  # noqa: D102
             other: fr.ScalarField | VectorField | fr.TensorField,
-            ) -> fr.ScalarField | VectorField | T:
+            ) -> fr.ScalarField | VectorField | Self:
         # check that the spectral flag is the same
         if self.is_spectral != other.is_spectral:
             msg = "Cannot take dot product of spectral and real fields"
@@ -499,11 +519,11 @@ class VectorField(fr.FieldBase):
         msg = f"Invalid type for dot product: {type(other)}"
         raise TypeError(msg)
 
-    def conj(self: T) -> T:  # noqa: D102
+    def conj(self) -> Self:  # noqa: D102
         return self.apply_elementwise(self, lambda field: field.conj())
 
-    def abs(self: T) -> T:  # noqa: D102
-        return self.apply_elementwise(self, lambda field: abs(field))
+    def abs(self) -> Self:  # noqa: D102
+        return self.apply_elementwise(self, abs)
 
     @staticmethod
     def apply_elementwise(vector_field: T,
@@ -554,13 +574,14 @@ class VectorField(fr.FieldBase):
             fields = OrderedDict(
                 (name, op(field.fields[name], other.fields[name]))
                 for name in names)
-            return cls(field.mset, field_list=fields, vector_dim=field.vector_dim)
+            return cls(field.mset, field_list=fields,
+                       vector_dim=field.vector_dim)
         if isinstance(other, (fr.ScalarField,
                               float,
                               int,
                               complex,
                               np.number,
-                              fr.config.ncp.ndarray)) or other is None:
+                              jax.Array)) or other is None:
             return field.apply_elementwise(field, lambda x: op(x, other))
         return NotImplemented
 

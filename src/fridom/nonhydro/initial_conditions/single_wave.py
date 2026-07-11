@@ -1,10 +1,15 @@
+"""Single wave initial condition."""
+from __future__ import annotations
+
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
-nh.grid.cartesian
+
 
 class SingleWave(nh.State):
+
     r"""
-    An initial condition that consist of a single wave with a
-    given wavenumber and a given mode.
+    An initial condition with a single wave of given wavenumber and mode.
 
     Description
     -----------
@@ -22,71 +27,80 @@ class SingleWave(nh.State):
 
     .. math::
         \delta_{\boldsymbol{k}, \boldsymbol{k}_0} = \begin{cases}
-            1 & \text{if } \boldsymbol{k} = 2\pi\boldsymbol{k}_0/\boldsymbol{L} \\
+            1 & \text{if } \boldsymbol{k} =
+                2\pi\boldsymbol{k}_0/\boldsymbol{L} \\
             0 & \text{otherwise}
         \end{cases}
 
     with :math:`\boldsymbol{L}` the domain size in the x, y, and z directions
     and :math:`\boldsymbol{k}_0` the wavenumber that is passed as an argument.
     The phase :math:`\phi` is also passed as an argument. Finally, the state
-    is fourier transformed to physical space and normalized so that its 
+    is fourier transformed to physical space and normalized so that its
     L2 norm is equal to 1.
-    
+
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `k` : `tuple[int]`
+    k : tuple[int]
         The wavenumber in the x, y, and z directions.
         A wavenumber of one means that the wave has a wavelength equal to the
         domain size in that direction.
-    `s` : `int`
+    s : int
         The mode (0, 1, -1)
         0 => geostrophic mode
         1 => positive inertia-gravity mode
         -1 => negative inertia-gravity mode
-    `phase` : `float`
+    phase : float
         The phase of the wave. (default: 0)
-    `use_discrete` : `bool` (default: True)
-        Whether to use the discrete eigenvectors or the analytical ones.
+    use_discrete : bool, optional
+        Whether to use the discrete eigenvectors or the analytical ones
+        (default: True).
 
     """
-    def __init__(self, 
-                 mset: nh.ModelSettings, 
+
+    def __init__(self,
+                 mset: nh.ModelSettings,
                  k: tuple[int],
-                 s: int = 1, 
-                 phase: float = 0, 
+                 s: int = 1,
+                 phase: float = 0,
                  use_discrete: bool = True) -> None:
         super().__init__(mset, is_spectral=False)
 
         # Shortcuts
-        ncp = nh.config.ncp
         grid = mset.grid
-        Kx, Ky, Kz = grid.K
+        kx_mesh, ky_mesh, kz_mesh = grid.k_mesh
         kx, ky, kz = k
-        Lx, Ly, Lz = grid.L
-        pi = ncp.pi
+        lx, ly, lz = grid.domain_size
+        pi = jnp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)
-        kx = 2*pi*kx/Lx; ky = 2*pi*ky/Ly; kz = 2*pi*kz/Lz
-        is_kx = ncp.isclose(Kx, kx)
-        is_ky = ncp.isclose(Ky, ky)
-        is_kz = ncp.isclose(Kz, kz)
+        kx = 2*pi*kx/lx
+        ky = 2*pi*ky/ly
+        kz = 2*pi*kz/lz
+        is_kx = jnp.isclose(kx_mesh, kx)
+        is_ky = jnp.isclose(ky_mesh, ky)
+        is_kz = jnp.isclose(kz_mesh, kz)
         k_loc = is_kx & is_ky & is_kz
+
+        if not bool(jnp.any(k_loc)):
+            msg = (f"The wavenumber k={k} does not exist on the grid. "
+                   "Please choose a resolvable wavenumber.")
+            raise ValueError(msg)
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
-        mask = ncp.where(k_loc, 1, 0)
+        mask = jnp.where(k_loc, 1, 0)
 
         # Construct the eigenvector of the corresponding mode
         q = mset.grid.vec_q(s, use_discrete=use_discrete)
 
         # Construct the state
-        z = (q * mask * ncp.exp(1j*phase)).ifft()
+        z = (q * mask * jnp.exp(1j*phase)).ifft()
 
         # Normalize the state
         z /= z.norm_l2()
-        
+
         # Set the state
         self.fields = z.fields
 
@@ -100,5 +114,4 @@ class SingleWave(nh.State):
         self.kx = kx
         self.ky = ky
         self.kz = kz
-        return
-        
+

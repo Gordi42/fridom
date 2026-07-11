@@ -83,10 +83,10 @@ def main() -> None:
     # ----------------------------------------------------------------
     #  Create the grid and model settings
     # ----------------------------------------------------------------
-    grid = sw.grid.cartesian.Grid(N=(nx,nx), L=(L,L))
+    grid = sw.grid.cartesian.Grid(shape=(nx,nx), domain_size=(L,L))
     mset = sw.ModelSettings(grid=grid,
                             f0=f0,
-                            Ro=rossby_number,
+                            rossby_number=rossby_number,
                             csqr=burger_number)
     mset.time_stepper.dt = 2 / nx
 

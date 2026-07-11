@@ -89,8 +89,8 @@ class FrontPlotter(nh.modules.animation.ModelPlotter):
 def main():
     # Create the grid and model settings
     grid = nh.grid.cartesian.Grid(
-        N=[64*3, 64, 64], L=[300, 100, 100], periodic_bounds=(True, True, True))
-    mset = nh.ModelSettings(grid=grid, f0=1e-4, N2=2.5e-5)
+        shape=[64*3, 64, 64], domain_size=[300, 100, 100], periodic_bounds=(True, True, True))
+    mset = nh.ModelSettings(grid=grid, f0=1e-4, stratification_n2=2.5e-5)
     mset.time_stepper.dt = np.timedelta64(20, 's')
     mset.tendencies.advection.disable()
 
@@ -99,14 +99,10 @@ def main():
         mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
             TopPlotter,
             model_time_per_second=np.timedelta64(10, "m"),
-            max_jobs=0.05,
-            parallel=False,
             filename=f"{exp_name}_top", fps=fps))
         mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
             FrontPlotter,
             model_time_per_second=np.timedelta64(10, "m"),
-            max_jobs=0.05,
-            parallel=False,
             filename=f"{exp_name}_front", fps=fps))
 
     # create a NetCDF writer to save the output

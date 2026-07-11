@@ -5,10 +5,11 @@ from copy import deepcopy
 from functools import partial
 from typing import TYPE_CHECKING, Literal
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 
 import fridom.framework as fr
-from fridom.framework.grid.fft_padding import FFTPadding
 
 if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
@@ -32,9 +33,11 @@ class ScalarField(fr.FieldBase):
     mset : fr.ModelSettingsBase
         The model settings object.
     mdata : fr.FieldMetadata, optional
-        The metadata object for the field. If not provided, a new one is created.
+        The metadata object for the field. If not provided, a new one is
+        created.
     arr : ndarray, optional
-        The underlying array of the field. If not provided, a new array is created.
+        The underlying array of the field. If not provided, a new array
+        is created.
 
     """
 
@@ -61,57 +64,52 @@ class ScalarField(fr.FieldBase):
                 spectral=mdata.is_spectral,
                 topo=tuple(mdata.topo))
         else:
-            conf = fr.config
-            dtype = conf.dtype_comp if mdata.is_spectral else conf.dtype_real
-            data = conf.ncp.array(arr, dtype=dtype)
+            dtype = (fr.utils.dtype_comp() if mdata.is_spectral
+                     else fr.utils.dtype_real())
+            data = jnp.array(arr, dtype=dtype)
 
         # ----------------------------------------------------------------
         #  Set attributes
         # ----------------------------------------------------------------
         self._mdata = mdata
         self._arr = data
+        self._water_mask = mset.grid.water_mask
 
     # ================================================================
     #  General methods
     # ================================================================
 
-    def fft(self,  # noqa: D102
-            padding: FFTPadding = FFTPadding.NOPADDING,
-            ) -> ScalarField:
+    def fft(self) -> ScalarField:  # noqa: D102
         self._fft_possible()
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
 
         transformed_arr = self.grid.fft(
             arr=self.arr,
-            padding=padding,
             bc_types=self.bc_types,
             positions=self.position.positions)
 
-        conf = fr.config
-        transformed_arr = conf.ncp.array(transformed_arr, dtype=conf.dtype_comp)
+        transformed_arr = jnp.array(
+            transformed_arr, dtype=fr.utils.dtype_comp())
 
         return ScalarField(self.mset,
                            arr=transformed_arr,
                            mdata=deepcopy(self.mdata),
                            is_spectral=True)
 
-    def ifft(self,  # noqa: D102
-             padding: FFTPadding = FFTPadding.NOPADDING,
-             ) -> ScalarField:
+    def ifft(self) -> ScalarField:  # noqa: D102
         self._ifft_possible()
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
 
         transformed_arr = self.grid.ifft(
             arr=self.arr,
-            padding=padding,
             bc_types=self.bc_types,
             positions=self.position.positions)
 
         # only keep the real part
-        conf = fr.config
-        transformed_arr = conf.ncp.array(transformed_arr.real, dtype=conf.dtype_real)
+        transformed_arr = jnp.array(
+            transformed_arr.real, dtype=fr.utils.dtype_real())
 
         return ScalarField(self.mset,
                            arr=transformed_arr,
@@ -126,28 +124,36 @@ class ScalarField(fr.FieldBase):
         self._check_full_domain()
         # synchronize the array
         self.arr = self.grid.sync(self.arr)
-        self.apply_water_mask()
         return self
 
     def apply_water_mask(self) -> ScalarField:  # noqa: D102
         # the water mask is defined on the 3D grid so we can't apply it
         # for non full domain fields
-        # TODO(Silvano): Maybe we can assign custom water masks for scalar fields
-        # so that we can apply them to non full domain fields
+        # TODO(Silvano): Maybe we can assign custom water masks for
+        # scalar fields so that we can apply them to non full domain
+        # fields
         fr.exceptions.PartialDomainError.check(self)
         self._check_not_spectral()
-        self.arr *= self.grid.water_mask.get_mask(self.position)
+        self.arr *= self._water_mask.get_mask(self.position)
         return self
 
     def has_nan(self) -> bool:  # noqa: D102
-        ncp = fr.config.ncp
-        return ncp.any(ncp.isnan(self.arr))
+        return jnp.any(jnp.isnan(self.arr))
+
+    def block_until_ready(self) -> ScalarField:  # noqa: D102
+        self.arr.block_until_ready()
+        return self
+
+    def set_zero(self) -> ScalarField:  # noqa: D102
+        self.arr = jnp.zeros_like(self.arr)
+        return self
 
     def set_random(self, seed: int = 1234) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # create the random array and set it
-        self.arr = self.grid.create_random_array(seed=seed, spectral=self.is_spectral)
+        self.arr = self.grid.create_random_array(
+            seed=seed, spectral=self.is_spectral)
         return self
 
     def __copy__(self) -> ScalarField:
@@ -180,15 +186,16 @@ class ScalarField(fr.FieldBase):
 
         Description
         -----------
-        This method returns the meshgrid of the ScalarField. It returns a tuple
-        of ndarrays, where each ndarray represents the meshgrid in one direction.
-        For example, a 3D field that is extended in x, z but not in y would return
-        a tuple of 2 ndarrays (x, z).
+        This method returns the meshgrid of the ScalarField. It returns
+        a tuple of ndarrays, where each ndarray represents the meshgrid
+        in one direction. For example, a 3D field that is extended in
+        x, z but not in y would return a tuple of 2 ndarrays (x, z).
 
         Returns
         -------
         tuple[ndarray]
-            The meshgrid of the ScalarField for each direction that is extended.
+            The meshgrid of the ScalarField for each direction that is
+            extended.
 
         """
         # TODO(Silvano): Make this work for non full domain fields
@@ -239,12 +246,12 @@ class ScalarField(fr.FieldBase):
     #  Differential Operators
     # ================================================================
 
-    def diff(self, axis: int, order: int = 1) -> ScalarField:  # noqa: D102
+    def diff(self, axis: int) -> ScalarField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
         # TODO(Silvano): Make this work for spectral fields
         self._check_not_spectral()
-        return self.grid.diff_module.diff(self, axis, order)
+        return self.grid.diff_module.diff(self, axis)
 
     def grad(self, axes: list[int] | None = None ) -> fr.VectorField:  # noqa: D102
         # TODO(Silvano): Make this work for non full domain fields
@@ -267,10 +274,11 @@ class ScalarField(fr.FieldBase):
         msg = "Divergence is not defined for scalar fields"
         raise ValueError(msg)
 
-    def cumulative_integral(self,  # noqa: D102
-                            axis: int,
-                            direction: Literal["forward", "backward"] = "forward",
-                            ) -> ScalarField:
+    def cumulative_integral(  # noqa: D102
+        self,
+        axis: int,
+        direction: Literal["forward", "backward"] = "forward",
+    ) -> ScalarField:
         return self.grid.cumulative_integral(self, axis, direction)
 
     # ================================================================
@@ -282,7 +290,7 @@ class ScalarField(fr.FieldBase):
                                  ) -> xr.DataArray:
         # TODO(Silvano): Make this work for non full domain fields
         self._check_full_domain()
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         # normalize the key
         key = self._normalize_slice_key(key)
 
@@ -348,7 +356,8 @@ class ScalarField(fr.FieldBase):
         realistic_dims = 3
         # get the coordinates
         if ndim <= realistic_dims:
-            dim_names = ["kx", "ky", "kz"] if self.is_spectral else ["x", "y", "z"]
+            dim_names = (["kx", "ky", "kz"] if self.is_spectral
+                         else ["x", "y", "z"])
             all_dims = tuple(dim_names[:ndim])
         else:
             prefix = "k" if self.is_spectral else "x"
@@ -379,8 +388,6 @@ class ScalarField(fr.FieldBase):
                     mset: fr.ModelSettingsBase,
                     ds: xr.DataArray,
                     ) -> ScalarField:
-
-        conf = fr.config
         # read in the slice key
         # in general, eval poses a security risk, we eliminate this risk by
         # setting the __builtins__ to None and only allowing the slice function
@@ -392,9 +399,9 @@ class ScalarField(fr.FieldBase):
         # TODO(Silvano): Add option to read from sliced dataarrays
         # This could for example be implemented by creating the full array
         # and then setting the slice region to the values of the dataarray
-        # another option would be to allow for local fields that lives in a subregion
-        # of the domain. For now, we don't allow for sliced dataarrays to be
-        # converted back to ScalarFields
+        # another option would be to allow for local fields that lives in
+        # a subregion of the domain. For now, we don't allow for sliced
+        # dataarrays to be converted back to ScalarFields
         if not isinstance(slice_key, tuple):
             slice_key = (slice_key,)
         for key in slice_key:
@@ -408,19 +415,22 @@ class ScalarField(fr.FieldBase):
         arr = ds.to_numpy().T
         # if the array is loaded with xarray from a netcdf file, complex arrays
         # are stored as two separate arrays for the real and imaginary part
-        # we check if the array has a "r" and "i" key and if so, we combine them
+        # we check if the array has a "r" and "i" key and if so, we
+        # combine them
         try:
             arr["r"]
             separate = True
         except IndexError:
             separate = False
         if separate:
-            arr_real = conf.ncp.array(arr["r"])
-            arr_imag = conf.ncp.array(arr["i"])
-            arr = conf.ncp.array(arr_real + 1j * arr_imag, dtype=conf.dtype_comp)
+            arr_real = jnp.array(arr["r"])
+            arr_imag = jnp.array(arr["i"])
+            arr = jnp.array(
+                arr_real + 1j * arr_imag, dtype=fr.utils.dtype_comp())
         else:
-            dtype = conf.dtype_comp if mdata.is_spectral else conf.dtype_real
-            arr = conf.ncp.array(arr, dtype=dtype)
+            dtype = (fr.utils.dtype_comp() if mdata.is_spectral
+                     else fr.utils.dtype_real())
+            arr = jnp.array(arr, dtype=dtype)
 
         if not mdata.is_spectral:
             # pad the array
@@ -434,7 +444,7 @@ class ScalarField(fr.FieldBase):
     def from_netcdf(cls,  # noqa: D102
                     mset: fr.ModelSettingsBase,
                     path: str) -> ScalarField:
-        import xarray as xr
+        import xarray as xr  # noqa: PLC0415 (deferred import of optional/heavy dependency)
         ds = xr.open_dataarray(path)
         return cls.from_xarray(mset, ds)
 
@@ -547,7 +557,7 @@ class ScalarField(fr.FieldBase):
 
     @property
     def nc_attrs(self) -> dict:
-        """Dictionary with additional attributes for the NetCDF file or xarray."""
+        """Additional attributes for the NetCDF file or xarray."""
         return self.mdata.nc_attrs
 
     @nc_attrs.setter
@@ -567,9 +577,9 @@ class ScalarField(fr.FieldBase):
         Description
         -----------
         Scalar fields do not have to be extended in all directions. For
-        example, one might want to create a 2D forcing field for a 3D simulation,
-        that only depends on x and y. In this case, the topo of the ScalarField
-        would be (True, True, False).
+        example, one might want to create a 2D forcing field for a 3D
+        simulation, that only depends on x and y. In this case, the topo
+        of the ScalarField would be (True, True, False).
         """
         return self.mdata.topo
 
@@ -611,7 +621,7 @@ class ScalarField(fr.FieldBase):
     def extend(self, topo: tuple[bool]) -> ScalarField:  # noqa: D102
         # check if the topology is valid (no shrinking)
         old_topo = self.topo
-        for (old, new) in zip(old_topo, topo):
+        for (old, new) in zip(old_topo, topo, strict=False):
             if old and not new:
                 msg = "Cannot shrink the field in any direction"
                 raise ValueError(msg)
@@ -620,8 +630,10 @@ class ScalarField(fr.FieldBase):
         raise NotImplementedError(msg)
         return self.grid.extend(self, topo)
 
-    def _set_shrinked_field(self, arr: ndarray, axes: tuple[int] | None) -> ScalarField:
-        """Shrink the ScalarField in the specified axes and set the new array."""
+    def _set_shrinked_field(
+        self, arr: ndarray, axes: tuple[int] | None,
+    ) -> ScalarField:
+        """Shrink the ScalarField in the given axes and set the new array."""
         if axes is None:
             axes = tuple(i for i in range(self.grid.n_dims))
         new_mdata = deepcopy(self.mdata)
@@ -642,7 +654,7 @@ class ScalarField(fr.FieldBase):
         result = domain.sum(self.arr, axes=axes, spectral=self.is_spectral)
         # result must be a n-dimensional array
         shape = tuple([1] * self.grid.n_dims)
-        result = fr.config.ncp.full(shape, result)
+        result = jnp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
     def max(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
@@ -655,7 +667,7 @@ class ScalarField(fr.FieldBase):
         result = domain.max(self.arr, axes=axes, spectral=self.is_spectral)
         # result must be a n-dimensional array
         shape = tuple([1] * self.grid.n_dims)
-        result = fr.config.ncp.full(shape, result)
+        result = jnp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
     def min(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
@@ -668,7 +680,7 @@ class ScalarField(fr.FieldBase):
         result = domain.min(self.arr, axes=axes, spectral=self.is_spectral)
         # result must be a n-dimensional array
         shape = tuple([1] * self.grid.n_dims)
-        result = fr.config.ncp.full(shape, result)
+        result = jnp.full(shape, result)
         return self._set_shrinked_field(arr=result, axes=axes)
 
     def integrate(self, axes: tuple[int] | None = None) -> ScalarField:  # noqa: D102
@@ -687,7 +699,7 @@ class ScalarField(fr.FieldBase):
     # ================================================================
 
     def abs(self) -> ScalarField:  # noqa: D102
-        arr = fr.config.ncp.abs(self.arr)
+        arr = jnp.abs(self.arr)
         return ScalarField(mset=self.mset, mdata=deepcopy(self.mdata), arr=arr)
 
     def dot(self,  # noqa: D102
@@ -715,14 +727,15 @@ class ScalarField(fr.FieldBase):
                          ) -> ScalarField:
         new_mdata = deepcopy(field.mdata)
         if isinstance(other, ScalarField):
-            topo = [p or q for p, q in zip(field.topo, other.topo)]
+            topo = [p or q for p, q in
+                    zip(field.topo, other.topo, strict=False)]
             new_mdata.topo = topo
             result = op(field.arr, other.arr)
         elif isinstance(other, (int,
                                 float,
                                 complex,
                                 np.number,
-                                fr.config.ncp.ndarray)) or other is None:
+                                jax.Array)) or other is None:
             result = op(field.arr, other)
         else:
             return NotImplemented

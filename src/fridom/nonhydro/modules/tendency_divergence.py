@@ -1,8 +1,12 @@
 """Module that computes the divergence of the tendency of the model."""
+from __future__ import annotations
+
+from functools import partial
+
 import fridom.framework as fr
 
 
-@fr.utils.jaxify
+@partial(fr.utils.jaxify, dynamic=("_water_mask",))
 class TendencyDivergence(fr.modules.Module):
 
     """
@@ -15,13 +19,14 @@ class TendencyDivergence(fr.modules.Module):
 
     name = "Tendency Divergence"
 
-    @fr.utils.jaxjit
-    def compute_divergence(self, dz: fr.VectorField) -> fr.ScalarField:
-        """Compute the divergence of the tendency."""
-        dz.sync()
-        return self.diff_module.div((dz.u, dz.v, dz.w))
+    def _on_setup(self) -> None:
+        super()._on_setup()
+        self._water_mask = self.mset.grid.water_mask
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.z_diag.div.arr = self.compute_divergence(mz.dz).arr
+        # we have to apply the water_mask to u, v, and w
+        for f in mz.dz.velocity:
+            mz.dz[f.name] = self._water_mask.apply_mask(f.sync())
+        mz.z_diag.div.arr = self.diff_module.div(mz.dz.velocity).arr
         return mz

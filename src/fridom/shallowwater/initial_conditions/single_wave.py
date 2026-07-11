@@ -1,10 +1,15 @@
+"""Single wave initial condition for the shallow water model."""
+from __future__ import annotations
+
+import jax.numpy as jnp
+
 import fridom.shallowwater as sw
 
 
 class SingleWave(sw.State):
+
     r"""
-    An initial condition that consist of a single wave with a
-    given wavenumber and a given mode.
+    A single polarized wave with a given wavenumber and a given mode.
 
     Description
     -----------
@@ -22,70 +27,78 @@ class SingleWave(sw.State):
 
     .. math::
         \delta_{\boldsymbol{k}, \boldsymbol{k}_0} = \begin{cases}
-            1 & \text{if } \boldsymbol{k} = 2\pi\boldsymbol{k}_0/\boldsymbol{L} \\
+            1 & \text{if } \boldsymbol{k}
+                = 2\pi\boldsymbol{k}_0/\boldsymbol{L} \\
             0 & \text{otherwise}
         \end{cases}
 
     with :math:`\boldsymbol{L}` the domain size in the x, y, and z directions
     and :math:`\boldsymbol{k}_0` the wavenumber that is passed as an argument.
     The phase :math:`\phi` is also passed as an argument. Finally, the state
-    is fourier transformed to physical space and normalized so that its 
+    is fourier transformed to physical space and normalized so that its
     L2 norm is equal to 1.
-    
+
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `k` : `tuple[int]`
+    k : tuple[int]
         The wavenumber in the x and y directions.
         A wavenumber of one means that the wave has a wavelength equal to the
         domain size in that direction.
-    `s` : `int`
+    s : int
         The mode (0, 1, -1)
         0 => geostrophic mode
         1 => positive inertia-gravity mode
         -1 => negative inertia-gravity mode
-    `phase` : `float`
+    phase : float
         The phase of the wave. (default: 0)
-    `use_discrete` : `bool` (default: True)
-        Whether to use the discrete eigenvectors or the analytical ones.
+    use_discrete : bool, optional
+        Whether to use the discrete eigenvectors or the analytical ones
+        (default: True).
 
     """
-    def __init__(self, 
-                 mset: sw.ModelSettings, 
+
+    def __init__(self,
+                 mset: sw.ModelSettings,
                  k: tuple[int],
-                 s: int = 1, 
-                 phase: float = 0, 
+                 s: int = 1,
+                 phase: float = 0,
                  use_discrete: bool = True) -> None:
         super().__init__(mset, is_spectral=False)
 
         # Shortcuts
-        ncp = sw.config.ncp
         grid = mset.grid
-        Kx, Ky = grid.K
+        kx_mesh, ky_mesh = grid.k_mesh
         kx, ky = k
-        Lx, Ly = grid.L
-        pi = ncp.pi
+        lx, ly = grid.domain_size
+        pi = jnp.pi
 
         # Find index of the wavenumber in the grid (nearest neighbor)
-        kx = 2*pi*kx/Lx; ky = 2*pi*ky/Ly
-        is_kx = ncp.isclose(Kx, kx)
-        is_ky = ncp.isclose(Ky, ky)
+        kx = 2*pi*kx/lx
+        ky = 2*pi*ky/ly
+        is_kx = jnp.isclose(kx_mesh, kx)
+        is_ky = jnp.isclose(ky_mesh, ky)
         k_loc = is_kx & is_ky
+
+        if not bool(jnp.any(k_loc)):
+            msg = (f"The wavenumber k={k} does not exist on the grid. "
+                   "Please choose a resolvable wavenumber.")
+            raise ValueError(msg)
 
         # Construct the spectral field of the corresponding mode
         # all zeros except for the mode
-        mask = ncp.where(k_loc, 1, 0)
+        mask = jnp.where(k_loc, 1, 0)
 
         # Construct the eigenvector of the corresponding mode
         q = mset.grid.vec_q(s, use_discrete=use_discrete)
 
         # Construct the state
-        z = (q * mask * ncp.exp(1j*phase)).ifft()
+        z = (q * mask * jnp.exp(1j*phase)).ifft()
 
         # Normalize the state
         z /= z.norm_l2()
-        
+
         # Set the state
         self.fields = z.fields
 
@@ -98,4 +111,3 @@ class SingleWave(sw.State):
         # save the wavenumbers
         self.kx = kx
         self.ky = ky
-        return

@@ -5,7 +5,6 @@
 .. Framework names
 .. ==================================================
 
-.. |config| replace:: :py:class:`config <fridom.framework.configuration.Config>`
 .. |ModelSettings| replace:: :py:class:`ModelSettings <fridom.framework.model_settings_base.ModelSettingsBase>`
 .. |ScalarField| replace:: :py:class:`ScalarField <fridom.framework.scalar_field.ScalarField>`
 .. |VectorField| replace:: :py:class:`VectorField <fridom.framework.vector_field.VectorField>`

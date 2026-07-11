@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.nonhydro as nh
 
@@ -32,7 +34,8 @@ class State(fr.VectorField):
 
     def __init__(self, mset: nh.ModelSettings, **kwargs: any) -> None:
         super().__init__(mset, **kwargs)
-        # we set the class to State, so that child classes will always be of type State
+        # we set the class to State, so that child classes will always
+        # be of type State
         self.__class__ = State
 
     @staticmethod
@@ -177,10 +180,10 @@ class State(fr.VectorField):
 
         where :math:`z` is the vertical coordinate.
         """
-        if self.mset.N2 != 0:
-            epot = 0.5*(self.b**2 / self.mset.N2_field)
+        if self.mset.stratification_n2 != 0:
+            epot = 0.5*(self.b**2 / self.mset.stratification_n2_field)
         else:
-            epot = self.b * self.grid.X[2]
+            epot = self.b * self.grid.x_mesh[2]
 
         # Set the attributes
         epot.name = "epot"
@@ -296,8 +299,8 @@ class State(fr.VectorField):
 
         # shortcuts
         f0 = self.mset.f0
-        brunt_vaisala_n2 = self.mset.N2_field
-        rossby_number = self.mset.Ro
+        brunt_vaisala_n2 = self.mset.stratification_n2_field
+        rossby_number = self.mset.rossby_number
 
         # calculate the horizontal vorticity
         ver_vort_x = self.rel_vort_x * rossby_number
@@ -342,8 +345,8 @@ class State(fr.VectorField):
         """
         # shortcuts
         f0 = self.mset.f0
-        brunt_vaisala_n2 = self.mset.N2_field
-        rossby_number = self.mset.Ro
+        brunt_vaisala_n2 = self.mset.stratification_n2_field
+        rossby_number = self.mset.rossby_number
 
         hor_vort = self.rel_vort_z.interpolate(self.grid.cell_center)
         dbdz = self.b.diff(axis=2).interpolate(self.grid.cell_center)
@@ -371,7 +374,7 @@ class State(fr.VectorField):
         """
         # shortcuts
         f_coriolis = self.mset.f_coriolis
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
 
         local_rossby_number = rossby_number * self.rel_vort_z / f_coriolis
 
@@ -398,7 +401,8 @@ class State(fr.VectorField):
         where :math:`\Delta t` is the time step and :math:`\Delta x` is the
         grid spacing.
 
-        Returns:
+        Returns
+        -------
             cfl (ScalarField)  : Horizontal CFL number.
 
         """
@@ -408,8 +412,8 @@ class State(fr.VectorField):
         cfl_v = self.v.abs() * dt / dy
         cfl_w = self.w.abs() * dt / dz
 
-        cfl = fr.config.ncp.maximum(cfl_u.arr, cfl_v.arr)
-        cfl = fr.config.ncp.maximum(cfl, cfl_w.arr)
+        cfl = jnp.maximum(cfl_u.arr, cfl_v.arr)
+        cfl = jnp.maximum(cfl, cfl_w.arr)
 
         # Create the scalar field
         return fr.ScalarField(

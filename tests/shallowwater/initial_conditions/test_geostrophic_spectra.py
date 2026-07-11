@@ -2,6 +2,7 @@
 
 from functools import partial
 
+import jax.numpy as jnp
 import pytest
 
 import fridom.shallowwater as sw
@@ -9,8 +10,8 @@ import fridom.shallowwater as sw
 # ================================================================
 #  Constants
 # ================================================================
-RESOLUTION = 6  # N = 2**RESOLUTION - 1 = 63
-PI = sw.config.ncp.pi
+RESOLUTION = 5  # N = 2**RESOLUTION - 1 = 31
+PI = jnp.pi
 
 # ================================================================
 #  Fixtures
@@ -29,15 +30,15 @@ def periodic_bounds(request):
 def mset(periodic_bounds):
     # setting up the grid
     grid = sw.grid.cartesian.Grid(
-        N=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
-        L=(2*PI, 2*PI),
+        shape=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
+        domain_size=(2*PI, 2*PI),
         periodic_bounds=periodic_bounds,
     )
 
     # setting up the model parameters
     time_stepper = sw.time_steppers.AdamBashforth(dt=2**(-RESOLUTION), order=3)
     return sw.ModelSettings(
-        grid, f0=1, csqr=1, Ro=0.3, time_stepper=time_stepper,
+        grid, f0=1, csqr=1, rossby_number=0.3, time_stepper=time_stepper,
     ).setup()
 
 @pytest.fixture
@@ -63,15 +64,15 @@ def compute_energy_diff(z_ini, z_final):
 def test_main_example():
     # setting up the grid
     grid = sw.grid.cartesian.Grid(
-        N=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
-        L=(2*PI, 2*PI),
+        shape=(2**RESOLUTION - 1, 2**RESOLUTION - 1),
+        domain_size=(2*PI, 2*PI),
         periodic_bounds=(True, True),
     )
 
     # setting up the model parameters
     time_stepper = sw.time_steppers.AdamBashforth(dt=2**(-RESOLUTION), order=3)
     mset = sw.ModelSettings(
-        grid, f0=1, csqr=1, Ro=0.3, time_stepper=time_stepper,
+        grid, f0=1, csqr=1, rossby_number=0.3, time_stepper=time_stepper,
     ).setup()
 
     # creating the initial condition
@@ -124,3 +125,39 @@ def test_nonlinear_model(mset, z_ini):
     accepted_tolerance = 1e-4
 
     assert compute_energy_diff(z_ini, model.z) < accepted_tolerance
+
+
+# ================================================================
+#  Tests for the wave spectra
+# ================================================================
+
+def test_gm_energy_spectrum():
+    kh = jnp.linspace(0, 10, 50)
+    spectrum = sw.initial_conditions.gm_energy_spectrum(
+        kh, 0*kh, wave_power_law=-2, f0=1, csqr=1)
+
+    # at k = 0, the spectrum is f0 ** wave_power_law = 1
+    assert spectrum[0] == pytest.approx(1.0)
+    # for a negative power law, the spectrum decays monotonically
+    assert (jnp.diff(spectrum) < 0).all()
+
+
+def test_random_wave_spectra_contains_no_geostrophic_energy(mset):
+    z = sw.initial_conditions.RandomWaveSpectra(mset, seed=3)
+
+    assert z.norm_l2() > 0
+
+    # the state is orthogonal to the geostrophic subspace
+    proj_geo = sw.projection.GeostrophicSpectral(mset)
+    assert proj_geo(z).norm_l2() / z.norm_l2() < 1e-10
+
+
+def test_shallow_water_random(mset):
+    z1 = sw.initial_conditions.ShallowWaterRandom(mset, seed=3)
+    z2 = sw.initial_conditions.ShallowWaterRandom(mset, seed=3)
+    z3 = sw.initial_conditions.ShallowWaterRandom(mset, seed=4)
+
+    assert z1.norm_l2() > 0
+    # same seed => same state, different seed => different state
+    assert (z1 - z2).norm_l2() == 0
+    assert (z1 - z3).norm_l2() > 1e-3

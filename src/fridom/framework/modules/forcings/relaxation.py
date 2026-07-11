@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from functools import partial
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 
 
@@ -22,7 +24,8 @@ class Relaxation(fr.modules.Module):
 
     where :math:`\phi^*` is the target value of the field, :math:`\tau` is the
     relaxation time scale, and :math:`\delta_\Omega` is one on the domain
-    :math:`\Omega` and zero elsewhere. At each time step, :math:`\mathcal{R}(\phi)`
+    :math:`\Omega` and zero elsewhere. At each time step,
+    :math:`\mathcal{R}(\phi)`
     is added to the tendency of the field :math:`\phi`. The analytical solution
     of the relaxation operator with no other forcing terms is:
 
@@ -73,12 +76,9 @@ class Relaxation(fr.modules.Module):
 
     @fr.modules.module_method
     def update(self, mz: fr.ModelState) -> fr.ModelState:  # noqa: D102
-        mz.dz = self.relax(mz.z, mz.dz)
-        return mz
+        z = mz.z
 
-    @fr.utils.jaxjit
-    def relax(self, z: fr.VectorField, dz: fr.VectorField) -> fr.VectorField:
-        ncp = fr.config.ncp
         delta = (self.target - z[self.field_name].arr) / self.tau
-        dz[self.field_name].arr += ncp.where(self.domain, delta, 0)
-        return dz
+        mz.dz[self.field_name].arr += jnp.where(self.domain, delta, 0)
+
+        return mz

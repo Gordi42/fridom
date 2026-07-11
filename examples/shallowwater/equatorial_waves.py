@@ -149,8 +149,6 @@ import numpy as np
 
 import fridom.shallowwater as sw
 
-ncp = sw.config.ncp
-
 # ----------------------------------------------------------------
 #  Experiment settings
 # ----------------------------------------------------------------
@@ -244,8 +242,8 @@ def create_animation(longitudinal_mode: int,
                      create_thumbnail: bool = False) -> None:  # noqa: FBT001 FBT002
     """Run the model and create an animation from the output."""
     grid = sw.grid.cartesian.Grid(
-        N=(2**RESOLUTION_POWER, 2**RESOLUTION_POWER),
-        L=(LENGTH_X, LENGTH_Y),
+        shape=(2**RESOLUTION_POWER, 2**RESOLUTION_POWER),
+        domain_size=(LENGTH_X, LENGTH_Y),
         periodic_bounds=(True, False),
     )
     mset = sw.ModelSettings(grid, csqr=CSQR, f0=0, beta=BETA).setup()
@@ -273,7 +271,6 @@ def create_animation(longitudinal_mode: int,
             model_time_per_second=z.period/5,
             filename=f"{f_name}.mp4",
             fps=fps,
-            parallel=False,
         ))
 
     # create a thumbnail saver

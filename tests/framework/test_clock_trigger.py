@@ -40,18 +40,19 @@ def step_number(request):
 #  Test initialization of the ClockTrigger class
 # ----------------------------------------------------------------
 def test_initialization_start_arg(start_date, start_step):
-    """Test the initialization of the ClockTrigger class with start arguments."""
+    """Test the initialization of ClockTrigger with start arguments."""
     # if both arguments are provided, raise an error
     if start_date is not None and start_step is not None:
         with pytest.raises(fr.exceptions.TooManyArgumentsError):
             fr.ClockTrigger(start_date=start_date, start_step=start_step)
         return
     # otherwise, create the ClockTrigger object
-    clock_trigger = fr.ClockTrigger(start_date=start_date, start_step=start_step)
+    clock_trigger = fr.ClockTrigger(start_date=start_date,
+                                    start_step=start_step)
     assert isinstance(clock_trigger, fr.ClockTrigger)
 
 def test_initialization_stop_arg(stop_date, stop_step):
-    """Test the initialization of the ClockTrigger class with stop arguments."""
+    """Test the initialization of ClockTrigger with stop arguments."""
     # if both arguments are provided, raise an error
     if stop_date is not None and stop_step is not None:
         with pytest.raises(fr.exceptions.TooManyArgumentsError):
@@ -62,14 +63,15 @@ def test_initialization_stop_arg(stop_date, stop_step):
     assert isinstance(clock_trigger, fr.ClockTrigger)
 
 def test_initialization_time_interval(time_interval, step_number):
-    """Test the initialization of the ClockTrigger class with time interval arguments."""
+    """Test the initialization of ClockTrigger with time interval args."""
     # if both arguments are provided, raise an error
     if time_interval is not None and step_number is not None:
         with pytest.raises(fr.exceptions.TooManyArgumentsError):
             fr.ClockTrigger(time_interval=time_interval, step_size=step_number)
         return
     # otherwise, create the ClockTrigger object
-    clock_trigger = fr.ClockTrigger(time_interval=time_interval, step_size=step_number)
+    clock_trigger = fr.ClockTrigger(time_interval=time_interval,
+                                    step_size=step_number)
     assert isinstance(clock_trigger, fr.ClockTrigger)
 
 # ----------------------------------------------------------------
@@ -80,11 +82,13 @@ def test_initialization_time_interval(time_interval, step_number):
     [
         pytest.param(None, None, 10, id="No time interval"),
         pytest.param(1, None, 3, id="Time interval"),
-        pytest.param(np.timedelta64(1, "s"), None, 3, id="Time interval in seconds"),
+        pytest.param(np.timedelta64(1, "s"), None, 3,
+                     id="Time interval in seconds"),
         pytest.param(None, 2, 5, id="No time interval, step number"),
     ],
 ))
-def test_count_triggers_no_start_no_stop(time_interval, step_number, expected_triggers):
+def test_count_triggers_no_start_no_stop(time_interval, step_number,
+                                         expected_triggers):
     """Count the number of advanced steps."""
     clock_trigger = fr.ClockTrigger(
         time_interval=time_interval, step_size=step_number)
@@ -103,11 +107,13 @@ def test_count_triggers_no_start_no_stop(time_interval, step_number, expected_tr
     [
         pytest.param(None, None, 6, id="No time interval"),
         pytest.param(1, None, 2, id="Time interval"),
-        pytest.param(np.timedelta64(1, "s"), None, 2, id="Time interval in seconds"),
+        pytest.param(np.timedelta64(1, "s"), None, 2,
+                     id="Time interval in seconds"),
         pytest.param(None, 2, 3, id="No time interval, step number"),
     ],
 ))
-def test_count_triggers_with_start(time_interval, step_number, expected_triggers):
+def test_count_triggers_with_start(time_interval, step_number,
+                                   expected_triggers):
     """Count the number of advanced steps."""
     clock_trigger = fr.ClockTrigger(
         start_date=1,
@@ -128,11 +134,13 @@ def test_count_triggers_with_start(time_interval, step_number, expected_triggers
     [
         pytest.param(None, None, 7, id="No time interval"),
         pytest.param(1, None, 2, id="Time interval"),
-        pytest.param(np.timedelta64(1, "s"), None, 2, id="Time interval in seconds"),
+        pytest.param(np.timedelta64(1, "s"), None, 2,
+                     id="Time interval in seconds"),
         pytest.param(None, 2, 4, id="No time interval, step number"),
     ],
 ))
-def test_count_triggers_with_stop(time_interval, step_number, expected_triggers):
+def test_count_triggers_with_stop(time_interval, step_number,
+                                  expected_triggers):
     """Count the number of advanced steps."""
     clock_trigger = fr.ClockTrigger(
         stop_date=2,
@@ -151,7 +159,7 @@ def test_count_triggers_with_stop(time_interval, step_number, expected_triggers)
 @pytest.mark.parametrize(*(
     "clock_trigger, expected_repr",
     [
-        (fr.ClockTrigger(), 
+        (fr.ClockTrigger(),
          "ClockTrigger(start_date=None, time_interval=None, stop_date=None)"),
         (fr.ClockTrigger(start_date=10.0, time_interval=1.0, stop_date=20.0),
          "ClockTrigger(start_date=10.0, time_interval=1.0, stop_date=20.0)"),

@@ -1,4 +1,8 @@
+"""Positions of fields on the staggered grid."""
+from __future__ import annotations
+
 from enum import StrEnum
+
 import fridom.framework as fr
 
 
@@ -9,9 +13,9 @@ class AxisPosition(StrEnum):
 
     Options
     -------
-    `CENTER` :
+    CENTER :
         Center of the grid cell.
-    `FACE` :
+    FACE :
         Face of the grid cell (right edge of the cell).
 
     ::
@@ -27,7 +31,7 @@ class AxisPosition(StrEnum):
     CENTER = "center"
     FACE = "face"
 
-    def shift(self) -> 'AxisPosition':
+    def shift(self) -> AxisPosition:
         """
         Shift the position of the field. Center -> Face and vice versa.
 
@@ -49,19 +53,18 @@ class Position:
 
     """
     The position of a field on a staggered grid.
-    
+
     Parameters
     ----------
-    `positions` : `tuple[AxisPosition]`
+    positions : tuple[AxisPosition]
         The positions of the field along each axis.
 
     """
 
     def __init__(self, positions: tuple[AxisPosition]) -> None:
         self._positions = tuple(positions)
-        return
 
-    def shift(self, axis: int) -> 'Position':
+    def shift(self, axis: int) -> Position:
         """
         Shift the position of the field along an axis.
 
@@ -70,7 +73,7 @@ class Position:
 
         Parameters
         ----------
-        `axis` : `int`
+        axis : int
             The axis along which to shift the field.
 
         Returns
@@ -94,7 +97,8 @@ class Position:
         if not isinstance(value, Position):
             return False
 
-        for my_pos, other_pos in zip(self.positions, value.positions):
+        for my_pos, other_pos in zip(
+                self.positions, value.positions, strict=False):
             if my_pos != other_pos:
                 return False
         return True
@@ -106,7 +110,6 @@ class Position:
         positions = list(self._positions)
         positions[key] = value
         self._positions = tuple(positions)
-        return
 
     def __repr__(self) -> str:
         return f"Position: {self._positions}"
@@ -116,7 +119,5 @@ class Position:
     # ----------------------------------------------------------------
     @property
     def positions(self) -> tuple[AxisPosition]:
-        """
-        The positions of the field along each axis.
-        """
+        """The positions of the field along each axis."""
         return self._positions

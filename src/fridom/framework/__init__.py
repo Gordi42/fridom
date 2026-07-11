@@ -8,7 +8,18 @@ This module should mainly be used for developing new modules and models.
 """
 from typing import TYPE_CHECKING
 
+import jax
 from lazypimp import setup
+
+# ================================================================
+#  JAX configuration
+# ================================================================
+# FRIDOM uses double precision by default. Users who prefer single
+# precision can disable x64 after importing fridom (see the jax
+# documentation on double precision). The compute platform (cpu/gpu/tpu)
+# is selected through JAX directly, e.g. via the JAX_PLATFORMS
+# environment variable.
+jax.config.update("jax_enable_x64", val=True)
 
 # ================================================================
 #  Disable lazy loading for type checking
@@ -29,7 +40,6 @@ if TYPE_CHECKING:  # pragma: no cover
     # Import classes and functions
     from .clock import Clock, TimingFormat
     from .clock_trigger import ClockTrigger
-    from .configuration import config
     from .field_base import FieldBase
     from .field_metadata import FieldMetadata
     from .logger import log
@@ -58,7 +68,6 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = {
-    "fridom.framework.configuration": ["config"],
     "fridom.framework.logger": ["log"],
     "fridom.framework.model_settings_base": ["ModelSettingsBase"],
     "fridom.framework.field_base": ["FieldBase"],
@@ -73,3 +82,19 @@ all_imports_by_origin = {
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
+
+# ================================================================
+#  Job initialization
+# ================================================================
+from fridom.framework.logger import log as _log  # noqa: E402
+
+# On multi-host setups, only the main process should log.
+if jax.process_count() > 1:
+    if jax.process_index() == 0:
+        _log.setLevel("INFO")
+    else:
+        _log.setLevel("SILENT")
+
+from fridom.framework.utils.printing import print_job_init_info  # noqa: E402
+
+print_job_init_info()

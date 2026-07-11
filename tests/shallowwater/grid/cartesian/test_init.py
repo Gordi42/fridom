@@ -1,4 +1,4 @@
-"""Test the imports in the fridom/shallowwater/grid/cartesian/__init__.py file."""
+"""Test the imports in fridom/shallowwater/grid/cartesian/__init__.py."""
 import pytest
 
 import fridom.shallowwater.grid.cartesian as test_module

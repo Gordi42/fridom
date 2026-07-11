@@ -1,6 +1,13 @@
+"""Coherent barotropic eddy initial condition."""
+from __future__ import annotations
+
+import jax.numpy as jnp
+
 import fridom.nonhydro as nh
 
+
 class CoherentEddy(nh.State):
+
     r"""
     Coherent barotropic eddy with Gaussian shape.
 
@@ -13,7 +20,7 @@ class CoherentEddy(nh.State):
         \psi = A \exp\left(
         -\frac{(x - p_x L_x)^2 + (y - p_y L_y)^2}{(\sigma L_x)^2}\right)
 
-    where :math:`A` is the amplitude, :math:`(p_x, p_y)` is the relative 
+    where :math:`A` is the amplitude, :math:`(p_x, p_y)` is the relative
     position of the eddy, :math:`(\sigma L_x)` is the width of the eddy, and
     :math:`L_x, L_y` are the domain sizes in the x and y directions. The
     velocity field is given by:
@@ -35,26 +42,26 @@ class CoherentEddy(nh.State):
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `pos_x` : `float`, optional (default=0.5)
-        The relative position of the eddy in the x-direction.
-    `pos_y` : `float`, optional (default=0.5)
-        The relative position of the eddy in the y-direction.
-    `width` : `float`, optional (default=0.1)
+    pos_x : float, optional
+        The relative position of the eddy in the x-direction (default: 0.5).
+    pos_y : float, optional
+        The relative position of the eddy in the y-direction (default: 0.5).
+    width : float, optional
         The relative width of the eddy. (relative to the domain size in the
-        x-direction)
-    `amplitude` : `float`, optional (default=1)
+        x-direction) (default: 0.1).
+    amplitude : float, optional
         The amplitude of the eddy. When the amplitude negative, the eddy
-        rotates clockwise. Otherwise, it rotates counterclockwise.
-    `gauss_field` : `str`, optional (default='vorticity')
+        rotates clockwise. Otherwise, it rotates counterclockwise (default: 1).
+    gauss_field : str, optional
         The field that is prescribed as a gaussian function. It can be either
-        'vorticity' or 'streamfunction'.
+        'vorticity' or 'streamfunction' (default: 'vorticity').
 
     Examples
     --------
-    This setup creates a coherent eddy in an scaled setup with varying 
-    coriolis parameter. The eddy moves in positive x and 
+    This setup creates a coherent eddy in an scaled setup with varying
+    coriolis parameter. The eddy moves in positive x and
     negative y direction and hits the northern wall.
 
     .. code-block:: python
@@ -62,7 +69,8 @@ class CoherentEddy(nh.State):
         import fridom.nonhydro as nh
         import numpy as np
         grid = nh.grid.cartesian.Grid(
-            N=(128, 128, 1), L=(3, 3, 1), periodic_bounds=(True, False, False))
+            shape=(128, 128, 1), domain_size=(3, 3, 1),
+            periodic_bounds=(True, False, False))
         mset = nh.ModelSettings(grid=grid, f0=1, beta=0.2)
         mset.time_stepper.dt = 0.004
         mset.setup()
@@ -77,46 +85,47 @@ class CoherentEddy(nh.State):
 
         mset.tendencies.advection.disable()
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: nh.ModelSettings,
                  pos_x: float = 0.5,
                  pos_y: float = 0.5,
                  width: float = 0.1,
                  amplitude: float = 1,
-                 gauss_field: str = 'streamfunction'
+                 gauss_field: str = "streamfunction"
                  ) -> None:
         super().__init__(mset)
 
-        ncp = nh.config.ncp
         grid = self.grid
-        Lx, Ly, Lz = grid.L
+        lx, ly, _lz = grid.domain_size
 
-        CENTER = nh.grid.AxisPosition.CENTER; FACE = nh.grid.AxisPosition.FACE
-        position = nh.grid.Position((FACE, FACE, CENTER))
+        center = nh.grid.AxisPosition.CENTER
+        face = nh.grid.AxisPosition.FACE
+        position = nh.grid.Position((face, face, center))
 
-        DIRICHLET = nh.grid.BCType.DIRICHLET; NEUMANN = nh.grid.BCType.NEUMANN
-        bc_types = (DIRICHLET, DIRICHLET, NEUMANN)
+        dirichlet = nh.grid.BCType.DIRICHLET
+        neumann = nh.grid.BCType.NEUMANN
+        bc_types = (dirichlet, dirichlet, neumann)
 
         field = nh.ScalarField(
             mset, position=position, name="psi", bc_types=bc_types)
 
-        X, Y, Z = field.get_mesh()
-        field.arr = amplitude * ncp.exp(
-            -((X - pos_x * Lx)**2 + (Y - pos_y * Ly)**2) / (width*Lx)**2)
+        x, y, _z = field.get_mesh()
+        field.arr = amplitude * jnp.exp(
+            -((x - pos_x * lx)**2 + (y - pos_y * ly)**2) / (width*lx)**2)
 
-        if gauss_field == 'vorticity':
-            kx, ky, kz = grid.K
+        if gauss_field == "vorticity":
+            kx, ky, _kz = grid.k_mesh
             k2 = kx**2 + ky**2
             psi = field.fft() / k2
-            psi.arr = ncp.where(k2 == 0, 0, psi.arr)
+            psi.arr = jnp.where(k2 == 0, 0, psi.arr)
             psi = psi.ifft()
             self.psi = psi
-        elif gauss_field == 'streamfunction':
+        elif gauss_field == "streamfunction":
             psi = field
         else:
             raise ValueError(f"Unknown gauss_field: {gauss_field}")
 
         self.u.arr = psi.diff(axis=1).arr
         self.v.arr = - psi.diff(axis=0).arr
-        
-        return
+

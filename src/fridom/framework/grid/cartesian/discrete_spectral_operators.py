@@ -8,13 +8,13 @@ The linear interpolation operator on a field :math:`u` is defined as:
 .. math::
     \overline{u}^{x\pm} = \frac{u(x \pm \Delta x) + u(x)}{2}
 
-where :math:`\pm` denotes the forward (+) or backward (-) linear 
+where :math:`\pm` denotes the forward (+) or backward (-) linear
 interpolation. A fourier transform yields the discrete spectral operator:
 
 .. math::
     \overline{u}^{x\pm} \rightarrow \frac{e^{\pm ik_x \Delta x} + 1}{2}u =
         \hat{1}_x^\pm u
-    
+
 Hence, the discrete spectral operator `one_hat` is given by:
 
 .. math::
@@ -43,9 +43,10 @@ where :math:`\pm` denotes the forward (+) or backward (-) finite difference.
 A fourier transform yields the discrete spectral operator:
 
 .. math::
-    \delta_x^\pm u \rightarrow \pm \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}u =
+    \delta_x^\pm u \rightarrow
+        \pm \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}u =
         i \hat{k}_x^\pm u
-    
+
 Hence, the discrete spectral operator `k_hat` is given by:
 
 .. math::
@@ -63,16 +64,28 @@ versa), the discrete spectral operator `k_hat_squared` is given by:
     \hat{k}_x^2 = \hat{k}_x^+ \hat{k}_x^- =
         2 \frac{1 - \cos(k_x \Delta x)}{\Delta x^2}
 """
-import fridom.framework as fr
-from numpy import ndarray
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import jax.numpy as jnp
+
+if TYPE_CHECKING:  # pragma: no cover
+    from numpy import ndarray
+
+    import fridom.framework as fr
+
 
 # ================================================================
 #  Discrete spectral operators (one-hat-plus etc.)
 # ================================================================
-def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
+def one_hat(kx: ndarray,
+            dx: float,
+            sign: int,
+            use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator for the forward linear interpolation.
-    
+
     Description
     -----------
     Computes the spectral operator :math:`\hat{1}_x^\pm` that arises from the
@@ -80,33 +93,35 @@ def one_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> nda
 
     .. math::
         \hat{1}_x^\pm = \frac{e^{\pm ik_x \Delta x} + 1}{2}
-    
+
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `sign` : `int`
+    sign : int
         The sign of the operator (+1 for forward, -1 for backward)
-    `use_discrete` : `bool` (default: True)
+    use_discrete : bool, optional
         If True, the discrete operator is returned. Otherwise, the continuous
-        operator is returned which is 1 for forward and backward interpolation.
-    
+        operator is returned which is 1 for forward and backward interpolation
+        (default: True).
+
     Returns
     -------
     `ndarray`
         The spectral operator.
     """
     if use_discrete:
-        return (1 + fr.config.ncp.exp(sign * 1j * kx * dx)) / 2
-    else:
-        return 1
+        return (1 + jnp.exp(sign * 1j * kx * dx)) / 2
+    return 1
 
-def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
+def one_hat_squared(kx: ndarray,
+                    dx: float,
+                    use_discrete: bool = True) -> ndarray:
     r"""
     Discrete spectral operator of forward - backward linear interpolation.
-    
+
     Description
     -----------
     Computes the spectral operator :math:`\hat{1}_x^2` that arises from the
@@ -118,28 +133,30 @@ def one_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarra
 
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `use_discrete` : `bool`
+    use_discrete : bool
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always 1.
-    
+
     Returns
     -------
     `ndarray`
         The spectral operator.
     """
     if use_discrete:
-        return (1 + fr.config.ncp.cos(kx*dx)) / 2
-    else:
-        return 1
+        return (1 + jnp.cos(kx*dx)) / 2
+    return 1
 
-def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarray:
+def k_hat(kx: ndarray,
+          dx: float,
+          sign: int,
+          use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator for the forward finite difference.
-    
+
     Description
     -----------
     Computes the spectral operator :math:`\hat{k}_x^\pm` that arises from the
@@ -147,36 +164,37 @@ def k_hat(kx: ndarray, dx: float, sign: int, use_discrete: bool = True) -> ndarr
 
     .. math::
         \hat{k}_x^\pm = \mp i \frac{e^{\pm ik_x \Delta x} - 1}{\Delta x}
-    
+
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `sign` : `int`
+    sign : int
         The sign of the operator (+1 for forward, -1 for backward)
-    `use_discrete` : `bool`
+    use_discrete : bool
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always kx.
-    
+
     Returns
     -------
     `ndarray`
         The spectral operator.
     """
     if use_discrete:
-        return sign * 1j * (1 - fr.config.ncp.exp(sign * 1j * kx * dx)) / dx
-    else:
-        return kx
+        return sign * 1j * (1 - jnp.exp(sign * 1j * kx * dx)) / dx
+    return kx
 
-def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
+def k_hat_squared(kx: ndarray,
+                  dx: float,
+                  use_discrete: bool = True) -> ndarray:
     r"""
     Spectral operator of forward - backward finite difference.
-    
+
     Description
     -----------
-    Computes the spectral operator :math:`\hat{k}_x^2` that arises from 
+    Computes the spectral operator :math:`\hat{k}_x^2` that arises from
     forward - backward finite difference:
 
     .. math::
@@ -185,23 +203,22 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
 
     Parameters
     ----------
-    `kx` : `ndarray`
+    kx : ndarray
         The wavenumber
-    `dx` : `float`
+    dx : float
         The grid spacing
-    `use_discrete` : `bool`
+    use_discrete : bool
         If True, the discrete operator is returned. Otherwise, the continuous
         operator is returned which is always kx**2.
-    
+
     Returns
     -------
     `ndarray`
         The spectral operator.
     """
     if use_discrete:
-        return 2 * (1 - fr.config.ncp.cos(kx*dx)) / dx**2
-    else:
-        return kx**2
+        return 2 * (1 - jnp.cos(kx*dx)) / dx**2
+    return kx**2
 
 # ================================================================
 #  Utility functions
@@ -210,18 +227,17 @@ def k_hat_squared(kx: ndarray, dx: float, use_discrete: bool = True) -> ndarray:
 def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
     r"""
     Set the nyquist frequency to zero in the spectral domain.
-    
+
     Parameters
     ----------
-    `z` : `State`
+    z : State
         The state which nyquist frequency should be set to zero.
-    
+
     Returns
     -------
     `State`
         The state with the nyquist frequency set to zero.
     """
-    ncp = fr.config.ncp
     grid = z.grid
     # Set nyquist frequency to zero
     for axis in range(grid.n_dims):
@@ -231,13 +247,13 @@ def set_nyquist_to_zero(z: fr.VectorField) -> fr.VectorField:
         if not grid.periodic_bounds[axis]:
             continue
         # We only need to consider axes with an even number of grid points
-        nx = grid.N[axis]
+        nx = grid.shape[axis]
         if nx % 2 != 0:
             continue
         # Find the position of the nyquist frequency in the local domain
         k_nyquist = grid.k_global[axis][nx//2]
-        nyquist = (grid.K[axis] == k_nyquist)
+        nyquist = (grid.k_mesh[axis] == k_nyquist)
         # Set the nyquist frequency to zero
         for field in z.fields.values():
-            field.arr = ncp.where(nyquist, 0, field.arr)
+            field.arr = jnp.where(nyquist, 0, field.arr)
     return z

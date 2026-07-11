@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
+import jax.numpy as jnp
+
 import fridom.framework as fr
 import fridom.shallowwater as sw
 
@@ -28,7 +30,8 @@ class State(fr.VectorField):
 
     def __init__(self, mset: sw.ModelSettings, **kwargs: any) -> None:
         super().__init__(mset, **kwargs)
-        # we set the class to State, so that child classes will always be of type State
+        # we set the class to State, so that child classes will always be
+        # of type State
         self.__class__ = State
 
     @staticmethod
@@ -149,7 +152,7 @@ class State(fr.VectorField):
         sw.exceptions.FieldSpaceError.check_if_physical(self)
 
         csqr = self.mset.csqr_field
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
         h_full = csqr + rossby_number * self.p
         ekin = 0.5 * rossby_number**2 * h_full * (self.u**2 + self.v**2)
 
@@ -180,7 +183,7 @@ class State(fr.VectorField):
         sw.exceptions.FieldSpaceError.check_if_physical(self)
 
         csqr = self.mset.csqr_field
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
         h_full = csqr + rossby_number * self.p
         epot = 0.5 * h_full ** 2
 
@@ -245,6 +248,9 @@ class State(fr.VectorField):
         dudy = self.u.diff(axis=1).interpolate(dvdx.position)
         rel_vort = dvdx - dudy
 
+        # Apply the water mask
+        rel_vort = rel_vort.apply_water_mask()
+
         # Set the attributes
         rel_vort.name = "rel_vort"
         rel_vort.long_name = "relative vorticity"
@@ -269,7 +275,7 @@ class State(fr.VectorField):
         # shortcuts
         f = self.mset.f_coriolis
         csqr = self.mset.csqr_field
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
 
         pot_vort = (self.rel_vort + f) / (csqr + rossby_number * self.p)
 
@@ -299,7 +305,7 @@ class State(fr.VectorField):
         """
         # shortcuts
         f_coriolis = self.mset.f_coriolis
-        rossby_number = self.mset.Ro
+        rossby_number = self.mset.rossby_number
 
         local_rossby_number = rossby_number * self.rel_vort / f_coriolis
 
@@ -328,7 +334,7 @@ class State(fr.VectorField):
         cfl_u = self.u.abs() * dt / dx
         cfl_v = self.v.abs() * dt / dy
 
-        cfl = fr.config.ncp.maximum(cfl_u.arr, cfl_v.arr)
+        cfl = jnp.maximum(cfl_u.arr, cfl_v.arr)
 
         # Create the scalar field
         return fr.ScalarField(

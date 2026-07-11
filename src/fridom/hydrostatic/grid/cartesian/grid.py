@@ -31,8 +31,8 @@ class Grid(fr.grid.cartesian.Grid):
                  length: tuple[float],
                  periodic: tuple[bool] | None = None,
                  ) -> None:
-        super().__init__(N=shape,
-                         L=length,
+        super().__init__(shape=shape,
+                         domain_size=length,
                          periodic_bounds=periodic)
 
     def omega(self,

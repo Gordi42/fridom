@@ -1,18 +1,23 @@
+"""Base class for all grids in the framework."""
 from __future__ import annotations
 
-from typing import Literal
-
-import fridom.framework as fr
-from numpy import ndarray
 from abc import abstractmethod
 from functools import partial
+from typing import TYPE_CHECKING, Literal
+
+import fridom.framework as fr
+
+if TYPE_CHECKING:
+    from numpy import ndarray
 
 
-@partial(fr.utils.jaxify, dynamic=('_X', '_x_global', '_K', '_k_global'))
+@partial(fr.utils.jaxify,
+         dynamic=("_x_mesh", "_x_global", "_k_mesh", "_k_global"))
 class GridBase:
+
     """
     Base class for all grids in the framework.
-    
+
     Description
     -----------
     This class does not implement any functionality, but provides a template
@@ -22,34 +27,35 @@ class GridBase:
 
     Flags
     -----
-    `fourier_transform_available` : `bool`
+    fourier_transform_available : bool
         Indicates whether the grid supports fast fourier transforms.
-    `mpi_available` : `bool`
+    mpi_available : bool
         Indicates whether the grid supports MPI parallelization.
     """
+
     def __init__(self, n_dims: int) -> None:
 
         self.name = "GridBase"
 
         self._n_dims = n_dims
-        self._N = None
-        self._L = None
+        self._shape = None
+        self._domain_size = None
         self._total_grid_points = None
         self._periodic_bounds = None
-        self._X = None
+        self._x_mesh = None
         self._x_global = None
         self._x_local = None
         self._dx = None
-        self._dV = None
+        self._cell_volume = None
         self._mset = None
         self._water_mask = fr.grid.WaterMask()
         # The domain decomposition
         self._domain_decomposition = None
         # The cell center
-        CENTER = fr.grid.AxisPosition.CENTER
-        self._cell_center = fr.grid.Position(tuple([CENTER] * n_dims))
+        center = fr.grid.AxisPosition.CENTER
+        self._cell_center = fr.grid.Position(tuple([center] * n_dims))
         # spectral properties
-        self._K = None
+        self._k_mesh = None
         self._k_global = None
         self._k_local = None
         self._omega_analytical = None
@@ -67,38 +73,36 @@ class GridBase:
         # ---------------------------------------------------------------------
         self._fourier_transform_available = False
         self._mpi_available = False
-        self._spectral_grid = False
 
-        return
 
     def setup(self, mset: fr.ModelSettingsBase) -> None:
         """
         Initialize the grid from the model settings.
-        
+
         Parameters
         ----------
-        `mset` : `ModelSettingsBase`
+        mset : ModelSettingsBase
             The model settings object. This is for example needed to
             determine the required halo size.
-        """       
+        """
         self._diff_module.setup(mset=mset)
         self._interp_module.setup(mset=mset)
-        return
 
-    def get_mesh(self, 
+    def get_mesh(self,
                  position: fr.grid.Position | None = None,
                  spectral: bool = False
     ) -> tuple[ndarray]:
         """
         Get the meshgrid of the grid points.
-        
+
         Parameters
         ----------
-        `position` : `Position` or `None` (default: `None`)
-            The position of the field.
-        `spectral` : `bool` (default: `False`)
-            Whether to return the meshgrid of the spectral domain.
-        
+        position : Position | None, optional
+            The position of the field (default: None).
+        spectral : bool, optional
+            Whether to return the meshgrid of the spectral domain (default:
+            False).
+
         Returns
         -------
         `tuple[ndarray]`
@@ -109,37 +113,34 @@ class GridBase:
         if position != self.cell_center:
             raise NotImplementedError("Not implemented for this grid")
         if spectral:
-            return self._K
-        return self._X
+            return self._k_mesh
+        return self._x_mesh
 
     # ----------------------------------------------------------------
     #  Fourier Transform Methods
     # ----------------------------------------------------------------
 
     @abstractmethod
-    def fft(self, 
+    def fft(self,
              arr: ndarray,
-             padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
             ) -> ndarray:
         """
         Perform a (fast) fourier transform on the input array.
-        
+
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The input array.
-        `padding` : `FFTPadding` (default: `FFTPadding.NOPADDING`)
-            The padding to apply to the array.
-        `bc_types` : `tuple[BCType]` or `None` (default: `None`)
-            The boundary conditions to apply to each axis.
-        `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
-            The position of the field.
-        `axes` : `tuple[int]` or `None` (default: `None`)
-            The axes to transform.
-        
+        bc_types : tuple[BCType] | None, optional
+            The boundary conditions to apply to each axis (default: None).
+        positions : tuple[AxisPosition] | None, optional
+            The position of the field (default: None).
+        axes : tuple[int] | None, optional
+            The axes to transform (default: None).
+
         Returns
         -------
         `ndarray`
@@ -148,29 +149,26 @@ class GridBase:
         raise NotImplementedError
 
     @abstractmethod
-    def ifft(self, 
+    def ifft(self,
              arr: ndarray,
-             padding = fr.grid.FFTPadding.NOPADDING,
              bc_types: tuple[fr.grid.BCType] | None = None,
              positions: tuple[fr.grid.AxisPosition] | None = None,
              axes: tuple[int] | None = None,
              ) -> ndarray:
         """
         Perform an inverse (fast) fourier transform on the input array.
-        
+
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The input array.
-        `padding` : `FFTPadding` (default: `FFTPadding.NOPADDING`)
-            The padding to apply to the array.
-        `bc_types` : `tuple[BCType]` or `None` (default: `None`)
-            The boundary conditions to apply to each axis.
-        `positions` : `tuple[AxisPosition]` or `None` (default: `None`)
-            The position of the field.
-        `axes` : `tuple[int]` or `None` (default: `None`)
-            The axes to transform.
-        
+        bc_types : tuple[BCType] | None, optional
+            The boundary conditions to apply to each axis (default: None).
+        positions : tuple[AxisPosition] | None, optional
+            The position of the field (default: None).
+        axes : tuple[int] | None, optional
+            The axes to transform (default: None).
+
         Returns
         -------
         `ndarray`
@@ -183,20 +181,20 @@ class GridBase:
     # ----------------------------------------------------------------
 
     @abstractmethod
-    def omega(self, 
+    def omega(self,
               k: tuple[float] | tuple[ndarray],
               use_discrete: bool = False
               ) -> ndarray:
         """
         Compute the dispersion relation of the model.
-        
+
         Parameters
         ----------
-        `k` : `tuple[float] | tuple[ndarray]`
+        k : tuple[float] | tuple[ndarray]
             The wave numbers
-        `use_discrete` : `bool` (default: False)
-            Whether to include space-discretization effects.
-        
+        use_discrete : bool, optional
+            Whether to include space-discretization effects (default: False).
+
         Returns
         -------
         `ndarray`
@@ -207,14 +205,14 @@ class GridBase:
     @abstractmethod
     def vec_q(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
-        Computes the eigenvector of the linear operator of the mode `s`.
-        
+        Compute the eigenvector of the linear operator of the mode `s`.
+
         Parameters
         ----------
-        `s` : `int`
+        s : int
             The mode (which eigenvalue / eigenvector to compute).
-        `use_discrete` : `bool` (default: True)
-            Whether to include space-discretization effects.
+        use_discrete : bool, optional
+            Whether to include space-discretization effects (default: True).
 
         Returns
         -------
@@ -226,14 +224,14 @@ class GridBase:
     @abstractmethod
     def vec_p(self, s: int, use_discrete: bool = True) -> fr.VectorField:
         """
-        Computes the projection vector of the linear operator of the mode `s`.
-        
+        Compute the projection vector of the linear operator of the mode `s`.
+
         Parameters
         ----------
-        `s` : `int`
+        s : int
             The mode (which eigenvalue / eigenvector to compute).
-        `use_discrete` : `bool` (default: True)
-            Whether to include space-discretization effects.
+        use_discrete : bool, optional
+            Whether to include space-discretization effects (default: True).
 
         Returns
         -------
@@ -245,27 +243,26 @@ class GridBase:
 
     @property
     def omega_analytical(self) -> ndarray:
-        """
-        Analytical dispersion relation.
-        """
+        """Analytical dispersion relation."""
         if self._omega_analytical is None:
-            self._omega_analytical = self.omega(self.K, use_discrete=False)
+            self._omega_analytical = self.omega(
+                self.k_mesh, use_discrete=False)
         return self._omega_analytical
 
     @property
     def omega_space_discrete(self) -> ndarray:
-        """
-        Dispersion relation with space-discretization effects.
-        """
+        """Dispersion relation with space-discretization effects."""
         if self._omega_space_discrete is None:
-            self._omega_space_discrete = self.omega(self.K, use_discrete=True)
-        
+            self._omega_space_discrete = self.omega(
+                self.k_mesh, use_discrete=True)
+
         return self._omega_space_discrete
 
     @property
-    def omega_time_discrete(self):
+    def omega_time_discrete(self) -> ndarray:
         """
         Dispersion relation with space-time-discretization effects.
+
         Warning: The computation may be very slow.
         """
         if self._omega_time_discrete is None:
@@ -279,15 +276,15 @@ class GridBase:
     #  Domain Decomposition Methods
     # ----------------------------------------------------------------
 
-    def sync(self, 
-             arr: ndarray, 
+    def sync(self,
+             arr: ndarray,
              flat_axes: list[int] | None = None) -> ndarray:
         """
-        Synchronize the halo (boundary) points of an array across all MPI ranks.
-        
+        Synchronize the halo (boundary) points of an array across ranks.
+
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The array to synchronize.
 
         Returns
@@ -297,16 +294,15 @@ class GridBase:
         """
         return self.domain_decomp.sync(arr, flat_axes=flat_axes)
 
-    @fr.utils.jaxjit
     def sync_multi(self, arrs: tuple[ndarray]) -> tuple[ndarray]:
         """
-        Synchronize the halo (boundary) points of multiple arrays across all MPI ranks.
-        
+        Synchronize the halo points of multiple arrays across ranks.
+
         Parameters
         ----------
-        `arrs` : `list[ndarray]`
+        arrs : list[ndarray]
             The list of arrays to synchronize.
-        
+
         Returns
         -------
         `list[ndarray]`
@@ -314,16 +310,15 @@ class GridBase:
         """
         return self.domain_decomp.sync_multiple(arrs)
 
-    @fr.utils.jaxjit
     def unpad(self, arr: ndarray) -> ndarray:
         """
         Remove the halo padding from an array.
-        
+
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The padded array.
-        
+
         Returns
         -------
         `ndarray`
@@ -331,16 +326,15 @@ class GridBase:
         """
         return self.domain_decomp.unpad(arr)
 
-    @fr.utils.jaxjit
     def pad(self, arr: ndarray) -> ndarray:
         """
         Add halo padding to an array.
-        
+
         Parameters
         ----------
-        `arr` : `ndarray`
+        arr : ndarray
             The unpadded array.
-        
+
         Returns
         -------
         `ndarray`
@@ -348,9 +342,8 @@ class GridBase:
         """
         return self.domain_decomp.pad(arr)
 
-    @partial(fr.utils.jaxjit, static_argnames=('pad', 'spectral', 'topo'))
     def create_array(self,
-                     pad: bool = True, 
+                     pad: bool = True,
                      spectral: bool = False,
                      topo: tuple[bool] | None = None) -> ndarray:
         """
@@ -358,17 +351,18 @@ class GridBase:
 
         Parameters
         ----------
-        `pad` : bool
+        pad : bool
             Whether to add padding to the array.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
+        topo : tuple[bool] | None
+            The topology of the array. Axes with false are flat
+            (only one grid point)
         """
         return self.domain_decomp.create_array(
             pad=pad, spectral=spectral, topo=topo)
-    
-    def create_random_array(self, 
+
+    def create_random_array(self,
                             seed: int = 1234,
                             pad: bool = True,
                             spectral: bool = False,
@@ -379,14 +373,15 @@ class GridBase:
 
         Parameters
         ----------
-        `seed` : int
+        seed : int
             The seed for the random number generator.
-        `pad` : bool
+        pad : bool
             Whether to add padding to the array.
-        `spectral` : bool
+        spectral : bool
             Whether the array is in spectral space.
-        `topo` : tuple[bool] | None
-            The topology of the array. Axes with false are flat (only one grid point)
+        topo : tuple[bool] | None
+            The topology of the array. Axes with false are flat
+            (only one grid point)
         """
         return self.domain_decomp.create_random_array(
             seed=seed, pad=pad, spectral=spectral, topo=topo)
@@ -406,8 +401,9 @@ class GridBase:
         ----------
         field : ScalarField
             The field to sum.
-        axes : tuple[int] or None (default: None)
-            The axes to sum over. If None, all axes are summed over.
+        axes : tuple[int] | None, optional
+            The axes to sum over. If None, all axes are summed over (default:
+            None).
 
         Returns
         -------
@@ -428,8 +424,9 @@ class GridBase:
         ----------
         field : ScalarField
             The field to compute the minimum.
-        axes : tuple[int] or None (default: None)
-            The axes to compute the minimum over. If None, all axes are used.
+        axes : tuple[int] | None, optional
+            The axes to compute the minimum over. If None, all axes are used
+            (default: None).
 
         Returns
         -------
@@ -450,8 +447,9 @@ class GridBase:
         ----------
         field : ScalarField
             The field to compute the maximum.
-        axes : tuple[int] or None (default: None)
-            The axes to compute the maximum over. If None, all axes are used.
+        axes : tuple[int] | None, optional
+            The axes to compute the maximum over. If None, all axes are used
+            (default: None).
 
         Returns
         -------
@@ -472,8 +470,8 @@ class GridBase:
         ----------
         field : ScalarField
             The field to integrate.
-        axes : tuple[int] or None (default: None)
-            The axes to integrate over.
+        axes : tuple[int] | None, optional
+            The axes to integrate over (default: None).
 
         Returns
         -------
@@ -487,7 +485,8 @@ class GridBase:
     def cumulative_integral(self,
                             field: fr.ScalarField,
                             axis: int,
-                            direction: Literal["forward", "backward"] = "forward",
+                            direction: Literal[
+                                "forward", "backward"] = "forward",
                             ) -> fr.ScalarField:
         r"""
         Compute the cumulative integral of a field along a given axis.
@@ -539,7 +538,7 @@ class GridBase:
     def info(self) -> dict:
         """
         Return a dictionary with information about the grid.
-        
+
         Description
         -----------
         This method should be overridden by the child class to return a
@@ -549,12 +548,10 @@ class GridBase:
         return {}
 
     def __repr__(self) -> str:
-        """
-        String representation of the grid.
-        """
+        """Return a string representation of the grid."""
         res = self.name
         for key, value in self.info.items():
-            res += "\n  - {}: {}".format(key, value)
+            res += f"\n  - {key}: {value}"
         return res
 
     # ----------------------------------------------------------------
@@ -565,37 +562,36 @@ class GridBase:
     def diff_module(self) -> fr.grid.DiffModule:
         """The differential operator module."""
         return self._diff_module
-    
+
     @diff_module.setter
     def diff_module(self, value: fr.grid.DiffModule) -> None:
         if not isinstance(value, fr.grid.DiffModule):
-            raise ValueError("The differential operator module must be a DiffBase object")
+            raise TypeError(
+                "The differential operator module must be a DiffBase "
+                "object")
         self._diff_module = value
-        return
-    
+
     @property
     def interp_module(self) -> fr.grid.InterpolationModule:
         """The interpolation operator module."""
         return self._interp_module
-    
+
     @interp_module.setter
     def interp_module(self, value: fr.grid.InterpolationModule) -> None:
         if not isinstance(value, fr.grid.InterpolationModule):
-            raise ValueError("The interpolation operator module must be an InterpolationBase object")
+            raise TypeError(
+                "The interpolation operator module must be an "
+                "InterpolationBase object")
         self._interp_module = value
-        return
 
     @property
     def water_mask(self) -> fr.grid.WaterMask:
-        """
-        Get the water mask.
-        """
+        """Get the water mask."""
         return self._water_mask
 
     @water_mask.setter
     def water_mask(self, value: fr.grid.WaterMask) -> None:
         self._water_mask = value
-        return
 
     # ----------------------------------------------------------------
     #  Properties
@@ -627,14 +623,14 @@ class GridBase:
         return self._n_dims
 
     @property
-    def N(self) -> tuple[int]:
+    def shape(self) -> tuple[int]:
         """The number of grid points in each dimension."""
-        return self._N
+        return self._shape
 
     @property
-    def L(self) -> tuple[float]:
+    def domain_size(self) -> tuple[float]:
         """The length of the grid in each dimension."""
-        return self._L
+        return self._domain_size
 
     @property
     def total_grid_points(self) -> int:
@@ -643,8 +639,7 @@ class GridBase:
 
     @property
     def periodic_bounds(self) -> list[bool]:
-        """A tuple of booleans indicating whether the grid is periodic 
-        in each dimension."""
+        """Tuple of booleans indicating periodicity in each dimension."""
         return self._periodic_bounds
 
     @property
@@ -653,9 +648,9 @@ class GridBase:
         return self._cell_center
 
     @property
-    def X(self) -> tuple[ndarray]:
+    def x_mesh(self) -> tuple[ndarray]:
         """The meshgrid of the grid points."""
-        return self._X
+        return self._x_mesh
 
     @property
     def x_global(self) -> tuple[ndarray]:
@@ -663,29 +658,29 @@ class GridBase:
         return self._x_global
 
     @property
-    def K(self) -> ndarray:
+    def k_mesh(self) -> ndarray:
         """The wavenumber of the grid."""
-        return self._K
-    
+        return self._k_mesh
+
     @property
     def k_global(self) -> ndarray:
         """The global wavenumber of the grid."""
         return self._k_global
-    
+
     @property
     def dx(self) -> tuple[ndarray]:
         """The grid spacing in each dimension."""
         return self._dx
 
     @property
-    def dV(self) -> ndarray:
+    def cell_volume(self) -> ndarray:
         """The volume element of the grid."""
-        return self._dV
+        return self._cell_volume
 
     @property
     def characteristic_function(self) -> fr.ScalarField:
         """
-        The characteristic function of the grid (1 inside the domain, 0 outside).
+        The characteristic function of the grid (1 inside, 0 outside).
 
         Description
         -----------
@@ -724,13 +719,3 @@ class GridBase:
     @mpi_available.setter
     def mpi_available(self, value: bool) -> None:
         self._mpi_available = value
-
-    @property
-    def spectral_grid(self) -> bool:
-        """Indicates whether the grid is a spectral grid."""
-        return self._spectral_grid
-    
-    @spectral_grid.setter
-    def spectral_grid(self, value: bool) -> None:
-        self._spectral_grid = value
-        return

@@ -1,2 +1,12 @@
 codecov:
   branch: main
+
+coverage:
+  status:
+    project:
+      default:
+        target: 95%
+        threshold: 0.5%
+    patch:
+      default:
+        target: 95%

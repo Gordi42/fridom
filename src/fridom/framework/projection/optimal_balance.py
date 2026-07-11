@@ -1,48 +1,57 @@
+"""Nonlinear balancing using the optimal balance method."""
 from __future__ import annotations
 
-from typing import Callable, Literal
+from copy import copy, deepcopy
+from typing import TYPE_CHECKING, Literal
+
+import numpy as np
 
 import fridom.framework as fr
-from typing import Union
-from copy import copy, deepcopy
-import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class OptimalBalance(fr.projection.Projection):
+
     """
     Nonlinear balancing using the optimal balance method.
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `base_proj` : `Projection`
+    base_proj : Projection
         The projection onto the base point.
-    `ramp_period` : `np.timedelta64 | float | int` (default: None)
-        The ramping period.
+    ramp_period : np.timedelta64 | float | int, optional
+        The ramping period (default: None).
     update_parameters : Callable[[ModelSettings, float, str], None], optional
         A method that updates the model parameters based on the ramped value.
-        It should take the model settings and the ramped value which is between 0 and 1.
-    `mset_backwards` : `ModelSettings`
-        The model settings for the backward ramping. If None, the forward model
-        settings are used. This option is useful when the backwards ramping should
-        be done with a different setup (e.g. negative viscosity).
-    `ramp_type` : `str`
+        It should take the model settings and the ramped value which is
+        between 0 and 1.
+    mset_backwards : ModelSettings
+        The model settings for the backward ramping. If None, the forward
+        model settings are used. This option is useful when the backwards
+        ramping should be done with a different setup (e.g. negative
+        viscosity).
+    ramp_type : str
         The ramping type. Choose from "exp", "pow", "cos", "lin".
-    `disable_diagnostic` : `bool`
+    disable_diagnostic : bool
         Whether to disable the diagnostic tendencies during the iterations.
-    `update_base_point` : `bool`
-        Whether to update the base point after each iteration. This has no effect
-        on OB. But it matters for OBTA. Should be True for OBTA.
-    `max_it` : `int`
+    update_base_point : bool
+        Whether to update the base point after each iteration. This has no
+        effect on OB. But it matters for OBTA. Should be True for OBTA.
+    max_it : int
         Maximum number of iterations.
-    `stop_criterion` : `float`
+    stop_criterion : float
         The stopping criterion.
     """
+
     def __init__(self, mset: fr.ModelSettingsBase,
                  base_proj: fr.projection.Projection,
-                 ramp_period: Union[np.timedelta64, float, int, None],
-                 update_parameters: Callable[[fr.ModelSettings, float, str], None] = None,
+                 ramp_period: np.timedelta64 | float | None,
+                 update_parameters: Callable[
+                     [fr.ModelSettings, float, str], None] | None = None,
                  mset_backwards: fr.ModelSettingsBase = None,
                  ramp_type: str = "exp",
                  update_base_point: bool = True,
@@ -60,7 +69,7 @@ class OptimalBalance(fr.projection.Projection):
         # If the update_parameters is not None, set it to the default
         if update_parameters is not None:
             self.update_parameters = update_parameters
-        
+
         # initialize the model
         self.model_forward = fr.Model(self.mset)
         self.model_backward = fr.Model(self.mset_backwards)
@@ -80,23 +89,21 @@ class OptimalBalance(fr.projection.Projection):
 
         # prepare the balancing
         self.z_base = None
-        return
 
-    def calc_base_coord(self, z: 'fr.VectorField') -> None:
+    def calc_base_coord(self, z: fr.VectorField) -> None:
+        """Compute and store the base point coordinate of the state."""
         self.z_base = self.base_proj(z)
-        return
 
     def update_parameters(self,
                           mset: fr.ModelSettings,
                           ramped_value: float,
-                          mode: Literal["forward", "backward"]) -> None:
-        mset.tendencies.advection.scaling = ramped_value * self.default_scaling 
+                          mode: Literal["forward", "backward"]) -> None:  # noqa: ARG002 (interface conformity)
+        """Update the model parameters based on the ramped value."""
+        mset.tendencies.advection.scaling = ramped_value * self.default_scaling
 
 
-    def forward_to_nonlinear(self, z: 'fr.VectorField') -> 'fr.VectorField':
-        """
-        Perform forward ramping from linear model to nonlinear model.
-        """
+    def forward_to_nonlinear(self, z: fr.VectorField) -> fr.VectorField:
+        """Perform forward ramping from linear model to nonlinear model."""
         model = self.model_forward
         model.reset()
         mset = model.mset
@@ -110,14 +117,13 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "forward")
+            self.update_parameters(
+                mset, self.ramp_func(n / self.ramp_steps), "forward")
             model.step()
         return model.z
-    
-    def backward_to_linear(self, z: 'fr.VectorField') -> 'fr.VectorField':
-        """
-        Perform backward ramping from nonlinear model to linear model.
-        """
+
+    def backward_to_linear(self, z: fr.VectorField) -> fr.VectorField:
+        """Perform backward ramping from nonlinear model to linear model."""
         model = self.model_backward
         model.reset()
         mset = model.mset
@@ -130,14 +136,13 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "backward")
+            self.update_parameters(
+                mset, self.ramp_func(1 - n / self.ramp_steps), "backward")
             model.step()
         return model.z
 
-    def forward_to_linear(self, z: 'fr.VectorField') -> 'fr.VectorField':
-        """
-        Perform forward ramping from nonlinear model to linear model.
-        """
+    def forward_to_linear(self, z: fr.VectorField) -> fr.VectorField:
+        """Perform forward ramping from nonlinear model to linear model."""
         model = self.model_forward
         model.reset()
         mset = model.mset
@@ -150,14 +155,13 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the forward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(1 - n / self.ramp_steps), "forward")
+            self.update_parameters(
+                mset, self.ramp_func(1 - n / self.ramp_steps), "forward")
             model.step()
         return model.z
 
-    def backward_to_nonlinear(self, z: 'fr.VectorField') -> 'fr.VectorField':
-        """
-        Perform backward ramping from linear model to nonlinear model.
-        """
+    def backward_to_nonlinear(self, z: fr.VectorField) -> fr.VectorField:
+        """Perform backward ramping from linear model to nonlinear model."""
         model = self.model_backward
         model.reset()
         mset = model.mset
@@ -170,41 +174,43 @@ class OptimalBalance(fr.projection.Projection):
 
         # perform the backward ramping
         for n in range(self.ramp_steps):
-            self.update_parameters(mset, self.ramp_func(n / self.ramp_steps), "backward")
+            self.update_parameters(
+                mset, self.ramp_func(n / self.ramp_steps), "backward")
             model.step()
 
         return model.z
 
-    def get_ramp_func(ramp_type):
-        if ramp_type == "exp":
-            def ramp_func(theta):
+    def get_ramp_func(self) -> Callable[[float], float]:
+        """Return the ramp function for the given ramp type."""
+        if self == "exp":
+            def ramp_func(theta: float) -> float:
                 t1 = 1./np.maximum(1e-32,theta )
                 t2 = 1./np.maximum(1e-32,1.-theta )
-                return np.exp(-t1)/(np.exp(-t1)+np.exp(-t2))  
-        elif ramp_type == "pow":
-            def ramp_func(theta):
+                return np.exp(-t1)/(np.exp(-t1)+np.exp(-t2))
+        elif self == "pow":
+            def ramp_func(theta: float) -> float:
                 return theta**3/(theta**3+(1.-theta)**3)
-        elif ramp_type == "cos":
-            def ramp_func(theta):
+        elif self == "cos":
+            def ramp_func(theta: float) -> float:
                 return 0.5*(1.-np.cos(np.pi*theta))
-        elif ramp_type == "lin":
-            def ramp_func(theta):
+        elif self == "lin":
+            def ramp_func(theta: float) -> float:
                 return theta
         else:
             raise ValueError(
                 "Invalid ramp type. Choose from 'exp', 'pow', 'cos', 'lin'.")
         return ramp_func
-        
 
-    def __call__(self, z: 'fr.VectorField') -> 'fr.VectorField':
+
+    def __call__(self, z: fr.VectorField) -> fr.VectorField:
         """
         Project a state to the balanced subspace using optimal balance.
-        
+
         Parameters
         ----------
-        `z` : `State`
+        z : State
             The state to project.
-        
+
         Returns
         -------
         `State`
@@ -253,12 +259,10 @@ class OptimalBalance(fr.projection.Projection):
                 break
 
             # recalculate the base coordinate if needed
-            if self.update_base_point:
-                # check if it is not the last iteration
-                if it < self.max_it - 1:
-                    self.calc_base_coord(z_res)
+            # (but not in the last iteration)
+            if self.update_base_point and it < self.max_it - 1:
+                self.calc_base_coord(z_res)
 
         if self.return_details:
             return z_res, (iterations, errors)
-        else:
-            return z_res
+        return z_res

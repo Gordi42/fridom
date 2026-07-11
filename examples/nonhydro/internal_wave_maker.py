@@ -64,11 +64,11 @@ class Plotter(nh.modules.animation.ModelPlotter):
 def main():
     # Create the grid and model settings
     grid = nh.grid.cartesian.Grid(
-        N=(512, 1, 512), 
-        L=(800, 1, 200), 
+        shape=(512, 1, 512), 
+        domain_size=(800, 1, 200), 
         periodic_bounds=(True, True, False))
     mset = nh.ModelSettings(
-        grid=grid, f0=1e-4, N2=2.5e-5)
+        grid=grid, f0=1e-4, stratification_n2=2.5e-5)
     mset.time_stepper.dt = np.timedelta64(1, 'm')
 
     # add a video writer

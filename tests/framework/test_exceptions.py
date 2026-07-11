@@ -11,9 +11,11 @@ import fridom.framework as fr
         pytest.param(
             2, {"arg1": 1, "arg2": 2, "arg3": 3}, True, id="too_many_args"),
         pytest.param(
-            3, {"arg1": 1, "arg2": 2, "arg3": 3}, False, id="not_too_many_args"),
+            3, {"arg1": 1, "arg2": 2, "arg3": 3}, False,
+            id="not_too_many_args"),
         pytest.param(
-            2, {"arg1": 1, "arg2": 2, "arg3": None}, False, id="arg_with_none"),
+            2, {"arg1": 1, "arg2": 2, "arg3": None}, False,
+            id="arg_with_none"),
     ],
 ))
 def test_too_many_arguments_error(max_args, provided_args, raised):
@@ -35,7 +37,7 @@ def test_too_many_arguments_error(max_args, provided_args, raised):
     ],
 ))
 def test_partial_domain_error(topo, raised):
-    grid = fr.grid.cartesian.Grid(N=(3, 3, 3), L=(1, 1, 1))
+    grid = fr.grid.cartesian.Grid(shape=(3, 3, 3), domain_size=(1, 1, 1))
     mset = fr.ModelSettingsBase(grid).setup()
     field = fr.ScalarField(mset, topo=topo)
     if not raised:
@@ -47,7 +49,7 @@ def test_partial_domain_error(topo, raised):
         fr.exceptions.PartialDomainError.check(field)
 
 def test_field_space_error():
-    grid = fr.grid.cartesian.Grid(N=(3, 3, 3), L=(1, 1, 1))
+    grid = fr.grid.cartesian.Grid(shape=(3, 3, 3), domain_size=(1, 1, 1))
     mset = fr.ModelSettingsBase(grid).setup()
     field = fr.ScalarField(mset, is_spectral=True)
     # Check if the field is in spectral space should pass

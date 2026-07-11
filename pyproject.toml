@@ -11,18 +11,23 @@ authors = [
 description = "Framework for Idealized Ocean Models"
 readme = "README.md"
 keywords = ["oceanography", "idealized ocean models", "modeling", "numerical modeling"]
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Development Status :: 2 - Pre-Alpha",
 ]
 dependencies = [
   "lazypimp",
+  "jax",
   "numpy",
   "scipy",
   "netCDF4",
+  "zarr",
+  "tensorstore",
   "tqdm",
   "dill",
   "IPython",
@@ -33,15 +38,15 @@ dependencies = [
 license = {file = "LICENSE"}
 
 [project.optional-dependencies]
-cupy = ["cupy"]
-jax = ["jax"]
-jax-cuda = ["jax[cuda12]"]
+cuda = ["jax[cuda12]"]
 dev = [
-  "jax[cuda12]",
-  "cupy-cuda12x",
   "pylint",
   "pytest",
+  "pytest-cov",
+  "pytest-xdist",
   "coverage",
+  "ruff",
+  "pre-commit",
   "xarray",
   "matplotlib",
   "imageio[ffmpeg]",
@@ -57,6 +62,53 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = [
   "--import-mode=importlib",
+  "--strict-markers",
+]
+markers = [
+  "multi_device: requires more than one jax device",
+  "single_device: requires exactly one jax device",
+]
+filterwarnings = [
+  "error",
+  # netCDF4 1.7.4 sets `.shape` on numpy arrays inside its compiled
+  # __setitem__, which numpy >= 2.5 deprecates. Nothing we can do until
+  # an upstream fix is released. Also triggered through xarray's
+  # netCDF4 backend.
+  "ignore:Setting the shape on a NumPy array:DeprecationWarning",
+  # netCDF4 1.7.4 was compiled against an older numpy; the size-changed
+  # warning on import is benign (cython binary compatibility notice).
+  "ignore:numpy.ndarray size changed:RuntimeWarning",
+  # the zarr writer intentionally uses consolidated metadata with zarr
+  # format 3 (the source ignores this warning as well); see
+  # fridom/framework/modules/zarr_writer.py
+  "ignore:Consolidated metadata is currently not part in the Zarr format 3:zarr.errors.ZarrUserWarning",
+  # imageio spawns the ffmpeg subprocess with fork, which jax (being
+  # multithreaded) warns about; the video writer only forks to run
+  # ffmpeg, which does not touch jax
+  "ignore:os.fork\\(\\) was called:RuntimeWarning",
+]
+
+[tool.coverage.run]
+source_pkgs = ["fridom"]
+branch = true
+relative_files = true
+
+[tool.coverage.paths]
+source = [
+  "src/fridom",
+  "**/site-packages/fridom",
+]
+
+[tool.coverage.report]
+fail_under = 95
+precision = 1
+show_missing = true
+skip_covered = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "@(abc\\.)?abstractmethod",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
 ]
 
 [tool.pylint]
@@ -67,11 +119,60 @@ good-names = [
   "dx", "dy", "dz",
 ]
 
+[tool.ruff]
+target-version = "py311"
+line-length = 79
+
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["D105", "D107", "D211", "D212", "TD003"]
+extend-select = [
+  "D203",    # house style: blank line before class docstring
+]
+ignore = [
+  # ---- docstring style (house style: NumPy convention + extras) ----
+  "D105",    # no docstrings required for magic methods
+  "D107",    # no docstrings required for __init__ (documented in class)
+  "D211",    # house style: blank line before class docstring (see D203)
+  "D212",    # house style: summary starts on the second line (D213)
+  # ---- rules that fight the scientific-code house style ----
+  "FBT001",  # boolean positional flags are idiomatic here
+  "FBT002",  # boolean default positional arguments are idiomatic here
+  "PLR0913", # model components legitimately take many arguments
+  "TRY003",  # exception messages inline at raise site are fine
+  "EM101",   # plain string messages in exceptions are fine
+  "EM102",   # f-string messages in exceptions are fine
+  # ---- annotation pragmatism ----
+  "ANN401",  # `Any` is sometimes the honest type (backend arrays, kwargs)
+  # ---- task-marker policy: TODO/FIXME with author tag, no issue links ----
+  "TD001",   # FIXME(author) markers are part of the house style
+  "TD003",   # no issue link required for TODOs
+  "FIX001",  # FIXME markers are allowed in the codebase
+  "FIX002",  # TODO markers are allowed in the codebase
+  # ---- misc ----
+  "COM812",  # conflicts with the ruff formatter / house comma style
+]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["D103", "S101", "ANN001", "ANN201", "ANN205", "INP001", "SLF001", "D101", "D102"]
+"tests/**/*.py" = [
+  "D100",    # test modules need no module docstring
+  "D101",    # test classes need no docstring
+  "D102",    # test methods need no docstring
+  "D103",    # test functions need no docstring
+  "S101",    # pytest uses plain asserts
+  "ANN",     # no type annotations required in tests
+  "INP001",  # tests are not a package
+  "SLF001",  # tests may access private members
+  "N802",    # physics names like N2 in test function names
+  "N803",    # physics names like N2 in test arguments
+  "N806",    # physics names like N2 in test variables
+  "PLR2004", # magic values in test assertions are fine
+]
 "__init__.py" = ["F401"]
 "examples/**/*.py" = ["D205", "INP001"]
+# benchmark suite scripts are standalone files, like examples
+"benchmarks/**/*.py" = ["ANN", "INP001"]
+# the benchmarking CLI communicates through stdout by design
+"src/fridom/benchmarking/cli.py" = ["T201"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"

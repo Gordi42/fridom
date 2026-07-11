@@ -1,44 +1,52 @@
+"""Projections based on spectral eigenvectors of the linear operator."""
+from __future__ import annotations
+
 import fridom.framework as fr
 
+
 class GeostrophicSpectral(fr.projection.Projection):
+
     """
     Projection onto the geostrophic subspace using spectral eigenvectors.
 
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `use_discrete` : `bool` (default: `True`)
-        Whether to use discrete eigenvectors.
+    use_discrete : bool, optional
+        Whether to use discrete eigenvectors (default: True).
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: fr.ModelSettingsBase,
                  use_discrete: bool = True) -> None:
         super().__init__(mset)
         # Construct the eigenvectors
         self.q = mset.grid.vec_q(s=0, use_discrete=use_discrete)
         self.p = mset.grid.vec_p(s=0, use_discrete=use_discrete)
-        return
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
+        """Project a state to the geostrophic subspace."""
         return z.project(self.p, self.q)
 
 class WaveSpectral(fr.projection.Projection):
+
     """
-    Projection onto the inertia-gravity wave subspace using spectral eigenvectors.
-    
+    Projection onto the wave subspace using spectral eigenvectors.
+
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `use_discrete` : `bool` (default: `True`)
-        Whether to use discrete eigenvectors.
-    
+    use_discrete : bool, optional
+        Whether to use discrete eigenvectors (default: True).
+
     Methods
     -------
     `__call__(z: State) -> State`
         Project a state to the inertia-gravity wave subspace.
     """
+
     def __init__(self,
                  mset: fr.ModelSettingsBase,
                  use_discrete: bool = True) -> None:
@@ -50,27 +58,30 @@ class WaveSpectral(fr.projection.Projection):
         self.pm = mset.grid.vec_p(-1, use_discrete=use_discrete)
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
+        """Project a state to the inertia-gravity wave subspace."""
         return z.project(self.pp, self.qp) + z.project(self.pm, self.qm)
 
 
 class DivergenceSpectral(fr.projection.Projection):
+
     """
     Projection onto the divergence subspace using spectral eigenvectors.
-    
+
     Parameters
     ----------
-    `mset` : `ModelSettings`
+    mset : ModelSettings
         The model settings.
-    `use_discrete` : `bool` (default: `True`)
-        Whether to use discrete eigenvectors.
+    use_discrete : bool, optional
+        Whether to use discrete eigenvectors (default: True).
     """
-    def __init__(self, 
+
+    def __init__(self,
                  mset: fr.ModelSettingsBase,
                  use_discrete: bool = True) -> None:
         super().__init__(mset)
         self.q = mset.grid.vec_q(s="d", use_discrete=use_discrete)
         self.p = mset.grid.vec_p(s="d", use_discrete=use_discrete)
-        return
 
     def __call__(self, z: fr.VectorField) -> fr.VectorField:
+        """Project a state to the divergence subspace."""
         return z.project(self.p, self.q)
