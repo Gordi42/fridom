@@ -106,6 +106,14 @@ snippets on non-gallery pages: `sphinx.ext.doctest`). API reference:
 adapt the custom autosummary/Jinja machinery (`load_modules.py`,
 `_templates/autosummary/`) to the new package layout.
 
+Normative inputs (added 2026-07-11): the page tree and per-page scopes
+in [`../../specs/docs/structure.md`](../../specs/docs/structure.md),
+the writing/figure/citation rules in
+[`../../specs/docs/style_guide.md`](../../specs/docs/style_guide.md).
+The style guide adds a small Phase 0.5 to this program: docs-lint
+script, shared mplstyle + palette, references.bib workflow — all
+content-independent and parallel to Phase 1.
+
 ## Phase 5 — Retirement
 
 - delete LFS video/figure assets, `copy_media_files`,
