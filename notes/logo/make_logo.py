@@ -38,22 +38,29 @@ WARP_AMP = 1.2      # fluid-like domain warp amplitude (0 = off)
 WARP_LAM = 70.0     # domain warp wavelength
 NODE_STEP = 3.0     # arc-length between SVG path nodes (units)
 
-# draft A: nested streamlines (level, color, stroke width)
-LEVELS_A = [
-    (0.08, "#f0d5a8", 2.0),
-    (0.35, "#e39a5b", 2.5),
-    (0.58, "#c93a2b", 4.0),
-    (0.82, "#7e1a15", 2.0),
+# streamlines: (psi level, color, stroke width), outside -> inside.
+# all colors are mid-luminance cyans so one svg works on light and
+# dark backgrounds alike.
+LEVELS = [
+    (0.06, "#43c6d8", 2.0),
+    (0.58, "#12869c", 3.0),
 ]
-ARROW_LEVEL_A = 0.35    # streamline that carries the arrowheads
-ARROW_SPACING_A = 48.0  # arc length between arrowheads
+ARROW_LEVEL = 0.06      # streamline that carries the arrowheads
+ARROW_SPACING = 55.0    # arc length between arrowheads
+ARROW_COLOR = "#43c6d8"
 
-# draft B: vector remake of the original quiver look
-ENV_LEVEL_B = 0.06      # cream envelope
-RED_LEVEL_B = 0.45      # red letter band
-CORE_LEVEL_B = 0.80     # pale letter core
-GRID_STEP_B = 12.0      # quiver grid spacing
-ARROW_MIN_SPEED = 0.22  # fraction of max speed below which a dot is drawn
+# discretized letter fill: coarse-grid cells inside the letters
+# (psi >= CELL_MIN), colored by a wider-blurred psi so the shading
+# varies across the letter body instead of saturating.
+CELL_STEP = 6.5         # model-grid cell size
+CELL_GAP = 0.9          # gap between cells (background shows through)
+CELL_MIN = 0.50         # psi threshold for a cell to belong to a letter
+SIGMA_FILL = 6.0        # blur width of the fill-shading field
+CELL_BINS = [           # (min psi_fill, color), brighter towards the core
+    (0.00, "#157887"),
+    (0.55, "#1ba3b4"),
+    (0.75, "#3ecfdf"),
+]
 
 
 # ================================================================
@@ -102,10 +109,16 @@ def build_field() -> dict:
     # gaussian blur via fft
     ky = np.fft.fftfreq(len(y1), d=DX)
     kx = np.fft.rfftfreq(len(x1), d=DX)
-    kernel = np.exp(-2 * np.pi**2 * SIGMA**2
-                    * (kx[None, :]**2 + ky[:, None]**2))
-    psi = np.fft.irfft2(np.fft.rfft2(mask) * kernel, s=mask.shape)
-    psi /= psi.max()
+    k2 = kx[None, :]**2 + ky[:, None]**2
+    mask_hat = np.fft.rfft2(mask)
+
+    def blur(sigma: float) -> np.ndarray:
+        kernel = np.exp(-2 * np.pi**2 * sigma**2 * k2)
+        field = np.fft.irfft2(mask_hat * kernel, s=mask.shape)
+        return field / field.max()
+
+    psi = blur(SIGMA)
+    psi_fill = blur(SIGMA_FILL)
 
     f = {"x": x1, "y": y1, "x0": x0, "y0": y0,
          "width": width, "height": height}
@@ -114,9 +127,10 @@ def build_field() -> dict:
         xw, yw = domain_warp(xg, yg)
         pts = np.column_stack([xw.ravel(), yw.ravel()])
         psi = interp(psi, f, pts).reshape(psi.shape)
+        psi_fill = interp(psi_fill, f, pts).reshape(psi_fill.shape)
 
     dpsi_dy, dpsi_dx = np.gradient(psi, DX, DX)
-    f.update(psi=psi, u=dpsi_dy, v=-dpsi_dx)
+    f.update(psi=psi, psi_fill=psi_fill, u=dpsi_dy, v=-dpsi_dx)
     return f
 
 
@@ -215,69 +229,56 @@ def svg_header(f: dict) -> str:
             f'viewBox="0 0 {w:.2f} {h:.2f}">\n')
 
 
-def draft_a(f: dict, path: Path) -> None:
-    """Nested streamlines wordmark with arrowheads (transparent bg)."""
+def cell_rects(f: dict) -> list[tuple[float, float, str]]:
+    """(x, y, color) of discretized-fill cells covering the letters."""
+    size = CELL_STEP - CELL_GAP
+    xs = np.arange(f["x0"] + CELL_STEP / 2, f["x0"] + f["width"],
+                   CELL_STEP)
+    ys = np.arange(f["y0"] + CELL_STEP / 2, f["y0"] + f["height"],
+                   CELL_STEP)
+    out = []
+    for yv in ys:
+        pts = np.column_stack([xs, np.full_like(xs, yv)])
+        ps = interp(f["psi"], f, pts)
+        pf = interp(f["psi_fill"], f, pts)
+        svg_pts = to_svg(pts, f)
+        for k, (cx, cy) in enumerate(svg_pts):
+            if ps[k] < CELL_MIN:
+                continue
+            color = CELL_BINS[0][1]
+            for level, col in CELL_BINS:
+                if pf[k] >= level:
+                    color = col
+            out.append((cx - size / 2, cy - size / 2, color))
+    return out
+
+
+def wordmark(f: dict, path: Path) -> None:
+    """Streamline wordmark with discretized letter fill."""
+    size = CELL_STEP - CELL_GAP
     parts = [svg_header(f)]
-    for level, color, width in LEVELS_A:
+    parts.append('  <g id="grid-fill">\n')
+    for x, y, color in cell_rects(f):
+        parts.append(f'    <rect x="{x:.2f}" y="{y:.2f}" '
+                     f'width="{size}" height="{size}" fill="{color}"/>\n')
+    parts.append("  </g>\n")
+    for level, color, width in LEVELS:
         parts.append(f'  <g id="psi-{level}" fill="none" stroke="{color}" '
                      f'stroke-width="{width}" stroke-linejoin="round">\n')
         parts.append(f'    <path d="{level_path(f, level)}"/>\n')
         parts.append("  </g>\n")
-    parts.append('  <g id="arrows" fill="#3a3f45">\n')
-    for x, y, ang in arrow_transforms(f, ARROW_LEVEL_A, ARROW_SPACING_A):
+    parts.append(f'  <g id="arrows" fill="{ARROW_COLOR}">\n')
+    for x, y, ang in arrow_transforms(f, ARROW_LEVEL, ARROW_SPACING):
         parts.append(f'    <path transform="translate({x:.2f} {y:.2f}) '
                      f'rotate({ang:.1f})" '
-                     f'd="M 4.6 0 L -3.4 2.9 L -3.4 -2.9 Z"/>\n')
-    parts.append("  </g>\n</svg>\n")
-    path.write_text("".join(parts))
-
-
-def draft_b(f: dict, path: Path) -> None:
-    """Vector remake of the original: cream envelope, red band, quiver."""
-    parts = [svg_header(f)]
-    parts.append('  <defs>\n'
-                 '    <path id="tri" d="M 2.5 0 L -2.1 1.6 L -2.1 -1.6 Z"'
-                 ' fill="#363b41"/>\n'
-                 '    <circle id="dot" r="0.9" fill="#c9c2b4"/>\n'
-                 '  </defs>\n')
-    parts.append(f'  <path id="envelope" fill="#faf1dc" fill-rule="evenodd"'
-                 f' d="{level_path(f, ENV_LEVEL_B)}"/>\n')
-    parts.append(f'  <path id="letters" fill="#d0402e" fill-rule="evenodd"'
-                 f' stroke="#a62a1e" stroke-width="1.2"'
-                 f' d="{level_path(f, RED_LEVEL_B)}"/>\n')
-    parts.append(f'  <path id="cores" fill="#f8eeda" fill-rule="evenodd"'
-                 f' d="{level_path(f, CORE_LEVEL_B)}"/>\n')
-
-    speed = np.hypot(f["u"], f["v"])
-    smax = speed.max()
-    parts.append('  <g id="quiver">\n')
-    xs = np.arange(f["x0"] + PAD * 0.4, f["x0"] + f["width"] - PAD * 0.4,
-                   GRID_STEP_B)
-    ys = np.arange(f["y0"] + PAD * 0.4, f["y0"] + f["height"] - PAD * 0.4,
-                   GRID_STEP_B)
-    for yv in ys:
-        pts = np.column_stack([xs, np.full_like(xs, yv)])
-        sp = interp(speed, f, pts)
-        vx = interp(f["u"], f, pts)
-        vy = interp(f["v"], f, pts)
-        svg_pts = to_svg(pts, f)
-        for k, (x, y) in enumerate(svg_pts):
-            if sp[k] > ARROW_MIN_SPEED * smax:
-                ang = np.degrees(np.arctan2(-vy[k], vx[k]))
-                parts.append(f'    <use href="#tri" transform='
-                             f'"translate({x:.2f} {y:.2f}) '
-                             f'rotate({ang:.1f})"/>\n')
-            else:
-                parts.append(f'    <use href="#dot" '
-                             f'x="{x:.2f}" y="{y:.2f}"/>\n')
+                     f'd="M 3.4 0 L -2.5 2.1 L -2.5 -2.1 Z"/>\n')
     parts.append("  </g>\n</svg>\n")
     path.write_text("".join(parts))
 
 
 def main() -> None:
     f = build_field()
-    draft_a(f, HERE / "fridom-logo-streamlines.svg")
-    draft_b(f, HERE / "fridom-logo-quiver.svg")
+    wordmark(f, HERE / "fridom-logo-streamlines.svg")
     print(f"canvas {f['width']:.0f} x {f['height']:.0f} units")
 
 
