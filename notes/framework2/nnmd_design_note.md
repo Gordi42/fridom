@@ -96,11 +96,24 @@ order-consistent closure is needed; its cost is extra bilinear terms
 I_n with slow-slot entries φ_0-corrections (same recursion shape,
 z_{0,n,k} slots reinstated).
 
+R1 literature verdict (2026-07-11, `nnmd_literature.md` §2): Warn
+et al.'s superbalance hierarchy is order-consistent by construction;
+Tribbia (1979) shows the term the leading-order closure misses is
+exactly an O(ε²) slow drift; nobody has tested leading-order closure
+at N ≥ 3 (Chouksey et al. used model finite-difference derivatives at
+n ≥ 2, silently full-closure). Expect the empirical gate to trigger
+at N ≥ 3 — order-consistent is likely the shipping default, with the
+toy slopes as confirmation.
+
 ### 1.5 Telescoping variant
 
-Parked (plan §5.2): same s, different partial-sum organization
-(`A^{−(n+1)}` powers). Implemented only in the toy harness for the
-M2/R2 comparison; ships in framework2 only if it wins somewhere.
+Upgraded after R1 (2026-07-11): the `A^{−(n+1)}` reorganization is
+**published prior art — Tribbia (1984)** — and in Temperton's
+implicit form it removed residual large-scale low-frequency modes
+that the first-order direct scheme leaves behind (see
+`nnmd_literature.md` §5). Serious contender, not a curiosity: the
+toy-harness M2/R2 comparison decides on data whether it ships as a
+second scheme.
 
 ### 1.6 Diagnostics
 

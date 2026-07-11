@@ -154,6 +154,18 @@ residual) stays as **one benchmark**, not a test. The ladder:
   the method, both nh2 and sw2, plus an `OptimalBalance` cross-check
   on the same IC) in `benchmarks/`, not `tests/`.
 
+**Acceptance targets from R1** (Chouksey et al. 2023 JFM 971 A2,
+diagnosed-imbalance protocol; `nnmd_literature.md`): at Ro = 0.1,
+orders 0/1/2/3/4 ≈ 5e-2 / 2e-3 / 3e-5 / 5e-6 / 1e-6 relative;
+slopes Ro^{N+1}; order ≈ 4 comparable to OptimalBalance; numeric
+floors ~1e-6..1e-7 at small Ro. No order inversion below Ro ≈ 1 in
+the literature — reinforces §0.2 (the old "worse at order 3+" was a
+bug, not physics). Also from R1: balance is discretization-specific
+(continuum eigenvectors on a staggered model give an O(1)
+zeroth-order error) — framework2's operator-derived DISCRETE
+eigenmodes already mitigate this by construction; document it in the
+BalanceExpansion docstring.
+
 ## 4. Implementation phases
 
 - **P0** — design note = M1 + M2 + user-surface sketch; owner reviews
