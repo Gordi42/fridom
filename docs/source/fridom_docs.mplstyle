@@ -1,0 +1,10 @@
+# Shared matplotlib style for all executed docs figures (style guide
+# section 8). Applied globally before every gallery example through the
+# sphinx-gallery reset hook in conf.py; individual pages never restyle.
+# Phase 0.5 of the docs plan extends this with the named palette.
+figure.figsize: 6.0, 4.5
+figure.dpi: 110
+figure.constrained_layout.use: True
+image.cmap: viridis
+axes.titlesize: medium
+savefig.bbox: tight

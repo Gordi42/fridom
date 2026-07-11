@@ -92,7 +92,9 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           cd docs
-          uv run make html
+          # xvfb: examples render their animations through CDFViewer
+          # (GLMakie), which needs an X display + OpenGL even headless
+          xvfb-run -s "-screen 0 1280x960x24" uv run make html
 
       - name: Build docs (quick, PR check)
         if: github.event_name == 'pull_request'

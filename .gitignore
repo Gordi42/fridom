@@ -184,3 +184,6 @@ cython_debug/
 
 # claude session artifacts
 .claude/
+
+# zarr stores written by executing gallery examples
+examples/**/*.zarr
