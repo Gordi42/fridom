@@ -6,7 +6,7 @@ date: 2026-07-11
 # Plan: split `framework2` into `fridom.spatial` + `fridom.model`
 
 Status: **done — merged into dev 2026-07-11 (639a935), full suite 7315 green** (names, split line, and import
-idiom all signed off). Execution pending.
+idiom all signed off).
 
 ## Decision (settled — do not re-litigate)
 
