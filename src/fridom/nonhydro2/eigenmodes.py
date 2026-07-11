@@ -45,6 +45,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpy as np
 
 import fridom.framework2 as fr
 from fridom.framework2.grid.bc import BC
@@ -56,8 +57,11 @@ from fridom.framework2.grid.symbols import (
 )
 from fridom.framework2.model.eigenstates import (
     coefficient_index,
+    describe_nonfinite_branch,
     envelope_scale,
+    evaluate_frequency_function,
     hermitian_mode_data,
+    resolve_mode_branches,
 )
 from fridom.framework2.model.energy import nonhydro_energy_weights
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
@@ -65,7 +69,7 @@ from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     import jax
 
@@ -463,6 +467,106 @@ class Eigenmodes:
                 for c in q})
 
         return project
+
+    def function(
+        self,
+        f: Callable[[np.ndarray], np.ndarray],
+        s: int | Iterable[int] = 1,
+    ) -> Callable[[State], State]:
+        r"""
+        Apply a scalar function of the linear operator on branches.
+
+        Description
+        -----------
+        The general :math:`f(L)` applicator on coefficient states:
+
+        .. math::
+
+            \sum_s P^s\, f(\omega^s)
+
+        with :math:`P^s` the branch projector of :meth:`projector`
+        and :math:`\omega^s` the branch's pointwise dispersion
+        diagonal on the ``fr.grid.ModeChart`` union mode lattice —
+        ``f = 1`` on a selection reproduces the summed projectors
+        exactly. ``s`` is a single branch or an iterable of distinct
+        branches from ``{0, +1, -1}``. ``f`` is evaluated once,
+        host-side, on the **real** frequencies of the branch's
+        *represented* modes only — the structural zeros of the
+        column (the ``k = 0`` mean, the ``k_h = 0`` wave strata,
+        the walled strata a component family lacks) never reach
+        ``f``; complex return values are allowed:
+        ``f = lambda w: 1 / (1j * w)`` builds :math:`L^{-1}` on the
+        selection, ``f = lambda w: 1j * w`` the forward operator. A
+        singular ``f`` meeting a structurally represented zero
+        frequency (the geostrophic branch ``s = 0``) is a taught
+        ``ValueError``, never a floored division.
+
+        Real-safety: for the conjugation-closed wave selection
+        ``s = (1, -1)`` and ``f`` satisfying
+        :math:`f(-\omega) = \overline{f(\omega)}` (true for
+        :math:`1/(i\omega)` and :math:`i\omega`) the map sends
+        Hermitian (real-state) coefficients to Hermitian
+        coefficients — the backward synthesis stays real.
+
+        Parameters
+        ----------
+        f : Callable[[np.ndarray], np.ndarray]
+            The scalar spectral function, vectorized over an array
+            of real frequencies.
+        s : int | Iterable[int], optional
+            The branch selection: 0, +1, -1 or an iterable of
+            distinct branches (default: 1).
+
+        Returns
+        -------
+        Callable[[State], State]
+            The weighted application on coefficient-space states.
+
+        Raises
+        ------
+        ValueError
+            On an invalid branch selection, or if ``f`` evaluates
+            non-finite on a represented mode of the selection.
+        """
+        branches = resolve_mode_branches(s)
+        chart = self._chart
+        metric = self._energy_weights()
+        terms = []
+        for b in branches:
+            q = self._vec_q(b)
+            p = self._dual(q, b)
+            coeff = {c: self._kit.coeff(c) for c in q}
+            norm = sum(
+                chart.embed(jnp.broadcast_to(
+                    metric[c] * jnp.abs(q[c].data) ** 2,
+                    self._templates[c].data.shape), coeff[c])
+                for c in q)
+            om_w = jnp.broadcast_to(
+                jnp.real(jnp.asarray(self.omega(b).data)),
+                self._templates["w"].data.shape)
+            omega = np.asarray(chart.embed(om_w, coeff["w"]))
+            weights = jnp.asarray(evaluate_frequency_function(
+                f, omega, np.asarray(norm) != 0,
+                lambda bad, b=b, om=omega:
+                describe_nonfinite_branch(b, om, bad)))
+            terms.append((q, p, coeff, weights))
+
+        def apply(z: State) -> State:
+            """Apply ``sum_s P^s f(omega^s)`` (pointwise per mode)."""
+            out: dict[str, ScalarField] | None = None
+            for q, p, coeff, w in terms:
+                amp = w * sum(
+                    chart.embed(jnp.conj(p[c]) * z[c].data,
+                                coeff[c]) for c in p)
+                part = {
+                    c: self._wrap(c, q[c].data
+                                  * chart.restrict(amp, coeff[c]))
+                    for c in q}
+                out = (part if out is None
+                       else {c: out[c] + part[c] for c in part})
+            return State(out)
+
+        return apply
 
     # ================================================================
     #  Mode-indexed single-mode states

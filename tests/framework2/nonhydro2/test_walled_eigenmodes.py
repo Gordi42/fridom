@@ -611,3 +611,51 @@ def test_energy_partition_across_the_three_projections(walled):
     assert all(part > 0.0 for part in parts)
     total = energy(z)
     assert abs(total - sum(parts)) / total < 1e-12
+
+
+# ================================================================
+#  function(f, s) on the walled vertical (the union-lattice path)
+# ================================================================
+def _random_walled_coeff_state(em, seed):
+    rng = np.random.default_rng(seed)
+    template = em.q(0)
+    return State({c: template[c].with_data(jnp.asarray(
+        rng.standard_normal(np.asarray(template[c].data).shape)
+        + 1j * rng.standard_normal(
+            np.asarray(template[c].data).shape)))
+        for c in COMPONENTS})
+
+
+@pytest.mark.parametrize("sel", [
+    pytest.param(0, id="vortical"),
+    pytest.param(1, id="plus"),
+    pytest.param((1, -1), id="wave-pair"),
+])
+def test_walled_function_with_unit_f_reproduces_the_projectors(
+        walled, sel):
+    # f == 1 through the union mode lattice: the s = 0 weights must
+    # cover the barotropic m = 0 and buoyancy-top m = N strata (the
+    # per-component re-referenced column), and the wave weights the
+    # embedded w lattice — bitwise against the summed projectors
+    _, _, em = walled
+    z = _random_walled_coeff_state(em, seed=41)
+    branches = (sel,) if isinstance(sel, int) else sel
+    want = None
+    for s in branches:
+        part = em.projector(s)(z)
+        want = part if want is None else State(
+            {c: want[c] + part[c] for c in COMPONENTS})
+    got = em.function(np.ones_like, sel)(z)
+    for c in COMPONENTS:
+        assert np.array_equal(np.asarray(got[c].data),
+                              np.asarray(want[c].data))
+
+
+def test_walled_function_structural_zero_guard(walled):
+    # the walled geostrophic branch (all N + 1 strata) is
+    # represented with omega == 0: singular f is a taught error;
+    # the wave branches carry only structural zeros and pass
+    _, _, em = walled
+    with pytest.raises(ValueError, match=r"s=0"):
+        em.function(lambda om: 1.0 / (1j * om), 0)
+    assert callable(em.function(lambda om: 1.0 / (1j * om), (1, -1)))

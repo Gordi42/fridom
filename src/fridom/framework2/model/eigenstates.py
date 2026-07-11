@@ -23,13 +23,17 @@ untouched.
 - :func:`prescribed_spectra_coefficients` — the analytic-tier
   random-phase synthesis (all modes at once, no per-plane loop);
 - :func:`envelope_scale` / :func:`normalize_max_component` — the
-  amplitude conventions of the single-mode and random states.
+  amplitude conventions of the single-mode and random states;
+- :func:`evaluate_frequency_function` — the guarded host-side
+  ``f(omega)`` weight evaluation behind ``em.function(f, sel)`` /
+  ``eb.function(f, sel)`` on every eigenmode tier.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.framework.utils import dtype_comp
 from fridom.framework2.grid.fields.storage import (
@@ -45,7 +49,7 @@ from fridom.framework2.grid.spaces.coefficient import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
 
     import jax
 
@@ -326,6 +330,130 @@ def normalize_max_component(
                for name in names)
     scale = peak if peak > 0.0 else 1.0
     return {name: field / scale for name, field in fields.items()}
+
+
+# ================================================================
+#  Guarded f(omega) weights (the em.function / eb.function tiers)
+# ================================================================
+def evaluate_frequency_function(
+    f: Callable[[np.ndarray], np.ndarray],
+    omega: np.ndarray,
+    selected: np.ndarray,
+    describe: Callable[[np.ndarray], str],
+) -> np.ndarray:
+    r"""
+    Evaluate ``f`` on the selected frequencies (structural guard).
+
+    Description
+    -----------
+    The shared host-side weight builder of the ``function(f, sel)``
+    applicators: ``f`` receives the **real** frequencies of the
+    selected modes as one array (complex return values are allowed,
+    e.g. ``f = lambda w: 1 / (1j * w)``) and is evaluated **only
+    there** — structurally absent modes never reach ``f``. A
+    non-finite value on any selected mode (a singular ``f`` meeting
+    a structurally zero frequency, e.g. ``1/(i omega)`` on a
+    vortical selection) raises a ``ValueError`` built by
+    ``describe`` — the guard is an error, never a floored division.
+
+    Parameters
+    ----------
+    f : Callable[[np.ndarray], np.ndarray]
+        The scalar spectral function, vectorized over an array of
+        real frequencies (scalar returns broadcast).
+    omega : np.ndarray
+        The real frequencies (imaginary parts, if any, are
+        discarded).
+    selected : np.ndarray
+        Boolean selection mask, shape ``omega.shape``.
+    describe : Callable[[np.ndarray], str]
+        Builds the guard message from the boolean mask (shape
+        ``omega.shape``) of the offending selected modes.
+
+    Returns
+    -------
+    np.ndarray
+        Complex weights of shape ``omega.shape``: ``f(omega)`` on
+        the selection, exact zeros elsewhere.
+
+    Raises
+    ------
+    ValueError
+        If ``f`` evaluates non-finite on any selected mode.
+    """
+    om = np.real(np.asarray(omega))
+    sel = np.asarray(selected, dtype=bool)
+    weights = np.zeros(om.shape, dtype=complex)
+    if not sel.any():
+        return weights
+    with np.errstate(all="ignore"):
+        # a singular f meeting a zero frequency must surface as the
+        # taught guard below, not as a numpy floating-point warning
+        values = np.broadcast_to(
+            np.asarray(f(om[sel]), dtype=complex), om[sel].shape)
+    finite = np.isfinite(values)
+    if not finite.all():
+        bad = np.zeros(om.shape, dtype=bool)
+        bad[sel] = ~finite
+        raise ValueError(describe(bad))
+    weights[sel] = values
+    return weights
+
+
+def resolve_mode_branches(s: int | Iterable[int]) -> tuple[int, ...]:
+    """
+    Normalize an analytic-tier branch selection to a tuple.
+
+    Description
+    -----------
+    A single branch or an iterable of distinct branches from the
+    analytic mode set ``{0, +1, -1}``; anything else — including
+    duplicates, which would double-count their contribution — is a
+    taught ``ValueError``.
+
+    Parameters
+    ----------
+    s : int | Iterable[int]
+        The branch selection.
+
+    Returns
+    -------
+    tuple[int, ...]
+        The validated branches, in selection order.
+
+    Raises
+    ------
+    ValueError
+        On branches outside ``{0, +1, -1}``, duplicates, an empty
+        iterable, or a non-branch value.
+    """
+    branches = (s,) if isinstance(s, int) else s
+    try:
+        branches = tuple(branches)
+    except TypeError:
+        branches = ()
+    good = (branches and len(set(branches)) == len(branches)
+            and all(isinstance(b, int) and b in (0, 1, -1)
+                    for b in branches))
+    if not good:
+        raise ValueError(
+            "mode branches are 0, +1 or -1 — a single branch or an "
+            f"iterable of distinct branches; got {s!r}")
+    return branches
+
+
+def describe_nonfinite_branch(
+    s: int, omega: np.ndarray, bad: np.ndarray,
+) -> str:
+    """Build the analytic-tier structural-zero guard message."""
+    magnitude = float(np.abs(np.real(omega))[bad].min())
+    return (
+        f"function(f, s={s}): f evaluates non-finite on "
+        f"{int(bad.sum())} represented mode(s) of the branch "
+        f"(|omega| down to {magnitude:.6g}). Structurally zero "
+        "frequencies are excluded by selection, never floored: "
+        "drop the zero-frequency branch (s = 0) from the "
+        "selection, or pass an f that is finite there")
 
 
 # ================================================================

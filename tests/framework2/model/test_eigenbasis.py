@@ -3,13 +3,16 @@
 Covers the host-side labeling helpers the package labelers share
 (segment energy, degenerate-cluster recovery, slow/fast band split),
 the selection-string vocabulary derivation, the wrapper base's
-projector entry, and the ``fr.eigenbasis`` package dispatch. The
-engine projection apply itself is exercised end to end by the
-package suites (``tests/framework2/shallowwater2`` and
+projector and ``function(f, sel)`` entries, and the
+``fr.eigenbasis`` package dispatch. The engine projection apply
+itself is exercised end to end by the package suites
+(``tests/framework2/shallowwater2`` and
 ``tests/framework2/nonhydro2``).
 """
 from types import SimpleNamespace
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -27,10 +30,12 @@ from fridom.framework2.model.eigenbasis import (
     segment_energy,
     split_frequency_bands,
 )
+from fridom.framework2.transforms.projection import EigenFunction
 
 N = 8
 SEG = slice(2, 4)  # the "wall-normal" segment of the toy columns
 D = 6
+COMPONENTS = ("u", "v", "p")
 
 
 # ================================================================
@@ -43,14 +48,15 @@ def unit(d, idx):
     return e
 
 
-def make_model():
+def make_model(device_ids=None):
     """Build a small walled shallow-water channel model."""
     mx = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
                                      name="x")
     my = fr.grid.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
     return sw.Model(
-        grid=fr.grid.Grid((mx, my)), csqr=0.7, rossby_number=0.2,
+        grid=fr.grid.Grid((mx, my), device_ids=device_ids),
+        csqr=0.7, rossby_number=0.2,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=False,
         time_stepper=fr.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -358,3 +364,155 @@ def test_fr_top_level_export_is_the_dispatcher():
 def test_base_class_requires_a_family_vocabulary():
     with pytest.raises(TypeError, match="abstract"):
         ChannelEigenmodesBase(object())
+
+
+# ================================================================
+#  function(f, sel): scalar functions of the linear operator
+# ================================================================
+def random_state(model, seed):
+    """Write seeded random data onto the model's components."""
+    rng = np.random.default_rng(seed)
+    model.set_fields(**{
+        name: rng.standard_normal(
+            np.asarray(model.state[name].data).shape)
+        for name in COMPONENTS})
+    return sw.State({name: model.state[name]
+                     for name in COMPONENTS})
+
+
+def absmax(a, b):
+    """Componentwise max absolute difference of two states."""
+    return max(
+        float(np.abs(np.asarray(a[c].data)
+                     - np.asarray(b[c].data)).max())
+        for c in COMPONENTS)
+
+
+@pytest.mark.parametrize("sel", [
+    pytest.param("wave", id="family"),
+    pytest.param("kelvin+", id="signed-branch"),
+    pytest.param(lambda om, _labels: jnp.abs(om) > 0.5,
+                 id="predicate"),
+])
+def test_function_with_unit_f_reproduces_the_projector(channel, sel):
+    # f == 1 on a selection is exactly the selection's projector
+    # (identical engine path, weights 1 on the mask), bitwise
+    model, em = channel
+    z = random_state(model, seed=51)
+    got = em.function(np.ones_like, sel)(z)
+    want = em.projector(sel)(z)
+    for c in COMPONENTS:
+        assert np.array_equal(np.asarray(got[c].data),
+                              np.asarray(want[c].data))
+
+
+def test_function_inverse_l_strong_test(channel):
+    # THE STRONG TEST: with invL = function(1/(i omega), wave),
+    # L(invL(z)) == P_wave(z) through the real model tendency (the
+    # same operator the engine probed; advection off => linear)
+    model, em = channel
+    z = random_state(model, seed=52)
+    inv = em.function(lambda om: 1.0 / (1j * om), "wave")
+    tau = model.tendency(inv(z))
+    want = em.projector("wave")(z)
+    scale = max(float(np.abs(np.asarray(want[c].data)).max())
+                for c in COMPONENTS)
+    assert absmax(tau, want) / scale < 1e-12
+
+
+def test_function_output_is_real_on_real_states(channel):
+    # 1/(i omega) satisfies f(-omega) == conj(f(omega)) and the wave
+    # selection is conjugation-closed: real states map to real states
+    model, em = channel
+    z = random_state(model, seed=53)
+    out = em.function(lambda om: 1.0 / (1j * om), "wave")(z)
+    for c in COMPONENTS:
+        assert not np.iscomplexobj(np.asarray(out[c].data))
+
+
+def test_function_transform_surface(channel):
+    model, em = channel
+    tr = em.function(lambda om: 1j * om, "wave")
+    assert isinstance(tr, EigenFunction)
+    assert tr.eigenmodes is em
+    assert tr.domain is tr.codomain
+    assert tr.domain.grid is model.grid
+    assert repr(tr) == "f[wave]"
+    # f(L) is not a projector: the idempotent-gated sugar refuses
+    assert not tr.idempotent
+    with pytest.raises(TypeError, match="idempotent"):
+        _ = tr.complement
+
+
+def test_function_empty_selection_is_the_zero_map(channel):
+    model, em = channel
+    z = random_state(model, seed=54)
+    out = em.function(np.ones_like,
+                      lambda om, _labels: jnp.abs(om) > 1e30)(z)
+    assert max(float(np.abs(np.asarray(out[c].data)).max())
+               for c in COMPONENTS) == 0.0
+
+
+def test_function_structural_zero_guard_names_the_family(channel):
+    # the engine's zero frequencies are numerical (~1e-14), so the
+    # guard probes f(0) on the |omega| < 1e-8 columns: a singular f
+    # on the vortical family is a taught error, never a floor
+    _, em = channel
+    with pytest.raises(ValueError,
+                       match=r"'vortical' column at plane"):
+        em.function(lambda om: 1.0 / (1j * om), "vortical")
+    # ... and through a predicate covering the zero columns too
+    with pytest.raises(ValueError, match="non-finite"):
+        em.function(lambda om: 1.0 / (1j * om),
+                    lambda om, _labels: jnp.abs(om) >= 0.0)
+    # a finite f on the zero columns is fine
+    assert isinstance(em.function(np.ones_like, "vortical"),
+                      EigenFunction)
+
+
+def test_function_guards_nonfinite_values_off_the_zero_band(channel):
+    # the evaluation guard also catches an f that blows up at
+    # NONZERO selected frequencies (f(0) alone is not the gate)
+    _, em = channel
+
+    def blows_up(om):
+        return np.where(np.abs(om) > 0.5, np.inf, 1.0)
+
+    with pytest.raises(ValueError, match="non-finite"):
+        em.function(blows_up, "wave")
+
+
+def test_function_rejects_bad_selections(channel):
+    _, em = channel
+    with pytest.raises(TypeError, match="family name"):
+        em.function(np.ones_like, 3.5)
+    with pytest.raises(ValueError, match="unknown family selection"):
+        em.function(np.ones_like, "rossby")
+    with pytest.raises(ValueError, match="boolean mask"):
+        em.function(np.ones_like, lambda om, _labels: om)
+
+
+@pytest.mark.multi_device
+def test_function_application_is_device_count_invariant(
+        forced_devices):
+    # the weighted contraction runs through the same sharded engine
+    # path as the projections: the many-device application matches
+    # the explicit one-device grid
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    rng = np.random.default_rng(61)
+    fields = {"u": rng.standard_normal((N, N)),
+              "v": rng.standard_normal((N, N - 1)),
+              "p": rng.standard_normal((N, N))}
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        model = make_model(device_ids=device_ids)
+        model.set_fields(**fields)
+        z = sw.State({c: model.state[c] for c in COMPONENTS})
+        em = eigenbasis(model)
+        results[tag] = em.function(
+            lambda om: 1.0 / (1j * om), "wave")(z)
+        if tag == "many":
+            out = results[tag]["u"]._data
+            assert len(out.sharding.device_set) == jax.device_count()
+    assert absmax(results["many"], results["one"]) == 0.0

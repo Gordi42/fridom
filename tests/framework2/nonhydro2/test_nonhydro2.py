@@ -539,3 +539,119 @@ def test_meridional_constant_profile_tendency_matches_constant():
         np.testing.assert_allclose(
             np.asarray(tv[c].data), np.asarray(tc[c].data),
             rtol=0.0, atol=0.0)
+
+
+# ================================================================
+#  function(f, s): scalar functions of the linear operator
+# ================================================================
+@pytest.fixture(scope="module")
+def function_setup():
+    """One linear periodic model + eigenmodes for the f(L) tests."""
+    model = nh.Model(
+        grid=make_grid(), dt=DT, advection=False, dsqr=2.0,
+        coriolis=FPlaneCoriolis(f0=1.5),
+        stratification=ConstantStratification(n2=3.0))
+    return model, nh.eigenmodes.from_model(model)
+
+
+def _random_coeff_state(em, seed):
+    rng = np.random.default_rng(seed)
+    template = em.q(0)
+    shape = np.asarray(template["u"].data).shape
+    return State({c: template[c].with_data(jnp.asarray(
+        rng.standard_normal(shape) + 1j * rng.standard_normal(shape)))
+        for c in "uvwb"})
+
+
+@pytest.mark.parametrize("sel", [
+    pytest.param(0, id="vortical"),
+    pytest.param(1, id="plus"),
+    pytest.param((1, -1), id="wave-pair"),
+])
+def test_function_with_unit_f_reproduces_the_projectors(
+        function_setup, sel):
+    # f == 1 on a branch selection is exactly the summed projectors
+    # (weights 1 on the represented modes, 0 on the structural
+    # zeros — where the projector amplitude is exactly 0), bitwise
+    _, em = function_setup
+    z = _random_coeff_state(em, seed=41)
+    branches = (sel,) if isinstance(sel, int) else sel
+    want = None
+    for s in branches:
+        part = em.projector(s)(z)
+        want = part if want is None else State(
+            {c: want[c] + part[c] for c in "uvwb"})
+    got = em.function(np.ones_like, sel)(z)
+    for c in "uvwb":
+        assert np.array_equal(np.asarray(got[c].data),
+                              np.asarray(want[c].data))
+
+
+def test_function_inverse_wave_strong_test(function_setup):
+    # THE STRONG TEST: with invL = function(1/(i omega), (1, -1)),
+    # L(invL(z)) == P_wave(z) through the linearized Leray-projected
+    # tendency (constraints=True; invL(z) lies in the wave span, so
+    # its synthesis is already divergence-free), asserted in
+    # coefficient space with the self-conjugate kx planes zeroed
+    model, em = function_setup
+    kit = em.kit
+    lin = fr.linearize(model)
+    prog, base0 = _rest_background(lin, 0.0)
+    rng = np.random.default_rng(42)
+    template = em.q(0)
+    shape = np.asarray(template["u"].data).shape
+
+    def make_amp():
+        amp = (rng.standard_normal(shape)
+               + 1j * rng.standard_normal(shape))
+        amp[0] = 0.0
+        amp[-1] = 0.0
+        return amp
+
+    z = State({c: template[c].with_data(jnp.asarray(make_amp()))
+               for c in "uvwb"})
+    w_hat = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    nodal = {c: kit.backward(c)(w_hat[c]) for c in prog}
+    phys = base0.replace(**{
+        c: base0[c].with_data(nodal[c].data) for c in prog})
+    tau = lin.tendency(phys, t=0.0, constraints=True)
+    plus = em.projector(1)(z)
+    minus = em.projector(-1)(z)
+    scale = max(float(np.abs(np.asarray(z[c].data)).max())
+                for c in "uvwb")
+    for c in prog:
+        got = np.asarray(kit.forward(c)(
+            phys[c].with_data(tau[c].data)).data)
+        want = np.asarray(plus[c].data) + np.asarray(minus[c].data)
+        assert np.abs(got - want).max() / scale < 1e-12
+
+
+def test_function_inverse_wave_is_real_safe(function_setup):
+    # 1/(i omega) satisfies f(-omega) == conj(f(omega)) and (1, -1)
+    # is conjugation-closed: the coefficients of a real state stay
+    # Hermitian and the backward synthesis stays real
+    model, em = function_setup
+    kit = em.kit
+    rng = np.random.default_rng(43)
+    z = State({
+        c: kit.forward(c)(model.state[c].with_data(jnp.asarray(
+            rng.standard_normal(model.state[c].data.shape))))
+        for c in "uvwb"})
+    out = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    for c in "uvwb":
+        back = np.asarray(kit.backward(c)(out[c]).data)
+        scale = float(np.abs(back).max())
+        assert np.abs(np.imag(back)).max() < 1e-15 * scale
+
+
+def test_function_structural_zero_guard(function_setup):
+    # the geostrophic branch is represented with omega == 0: a
+    # singular f is a taught error — while the wave branches carry
+    # their zeros (the k = 0 mean, k_h = 0 strata) as STRUCTURAL
+    # zeros of the column, which never reach f, and pass
+    _, em = function_setup
+    with pytest.raises(ValueError, match=r"s=0"):
+        em.function(lambda om: 1.0 / (1j * om), 0)
+    assert callable(em.function(lambda om: 1.0 / (1j * om), (1, -1)))
+    with pytest.raises(ValueError, match="branches"):
+        em.function(np.ones_like, 2)

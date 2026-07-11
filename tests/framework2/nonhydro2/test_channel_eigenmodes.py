@@ -1060,3 +1060,57 @@ def test_mode_is_leray_compatible_and_normalized(model, em):
 def test_mode_rejects_the_constraint_family(em):
     with pytest.raises(ValueError, match="not a physical mode"):
         em.mode("constraint", {"x": 1, "z": 1, "y": 0})
+
+
+# ================================================================
+#  function(f, sel): scalar functions of the linear operator
+# ================================================================
+def _random_channel_state(model, em, seed):
+    rng = np.random.default_rng(seed)
+    model.set_fields(**{
+        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in em.components})
+    return nh.State({c: model.state[c] for c in em.components})
+
+
+def test_function_with_unit_f_reproduces_the_projector(model, em):
+    # f == 1 on the wave selection is exactly the wave projector
+    # (identical engine path, weights 1 on the mask), bitwise
+    z = _random_channel_state(model, em, seed=71)
+    got = em.function(np.ones_like, "wave")(z)
+    want = em.projector("wave")(z)
+    for c in em.components:
+        assert np.array_equal(np.asarray(got[c].data),
+                              np.asarray(want[c].data))
+
+
+def test_function_inverse_l_strong_test(model, em):
+    # THE STRONG TEST: with invL = function(1/(i omega), wave),
+    # L(invL(z)) == P_wave(z) through the model's Leray-projected
+    # tendency (invL(z) lies in the physical wave span, hence is
+    # already constraint-compatible)
+    z = _random_channel_state(model, em, seed=72)
+    inv = em.function(lambda om: 1.0 / (1j * om), "wave")
+    out = inv(z)
+    tau = model.tendency(out, constraints=True)
+    want = em.projector("wave")(z)
+    scale = max(float(np.abs(np.asarray(want[c].data)).max())
+                for c in em.components)
+    residual = max(
+        float(np.abs(np.asarray(tau[c].data)
+                     - np.asarray(want[c].data)).max())
+        for c in em.components)
+    assert residual / scale < 1e-12
+    # real-safety: the conjugation-closed selection with
+    # f(-omega) == conj(f(omega)) keeps the state real
+    for c in em.components:
+        assert not np.iscomplexobj(np.asarray(out[c].data))
+
+
+def test_function_structural_zero_guard(em):
+    # singular f on the zero-frequency families (physical steady
+    # AND the divergence-complement) is a taught error, never a
+    # floored division
+    for family in ("vortical", "constraint"):
+        with pytest.raises(ValueError, match=family):
+            em.function(lambda om: 1.0 / (1j * om), family)

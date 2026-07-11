@@ -156,6 +156,83 @@ class EigenProjection(StateTransform):
         return f"{self._name}(modes={self._modes})"
 
 
+@jaxify
+class EigenFunction(StateTransform):
+
+    r"""
+    Scalar function of the linear operator on a mode selection.
+
+    Description
+    -----------
+    The applied-transform face of ``eb.function(f, sel)`` (the
+    channel eigenbasis tier): wraps the package ``apply_fn``
+    realizing :math:`Q\,\mathrm{diag}(f(\omega)\,m)\,Q^H M` as a
+    composable ``State -> State`` transform. Unlike
+    :class:`EigenProjection` it is **not** declared idempotent —
+    ``f(L)`` is a projector only for ``f`` valued in {0, 1} — and it
+    does not merge under ``+`` (the generic ``Sum`` node applies).
+
+    Parameters
+    ----------
+    eigenmodes : object
+        The package eigenmode object the weights were built on.
+    signature : StateSignature | None
+        The endo domain/codomain signature; ``None`` is
+        signature-polymorphic.
+    apply_fn : Callable
+        ``(eigenmodes, state) -> state`` applying the weighted
+        contraction (the frequency weights are captured inside).
+    name : str
+        A short repr label (e.g. ``"f[wave]"``).
+    """
+
+    def __init__(
+        self,
+        *,
+        eigenmodes: object,
+        signature: StateSignature | None,
+        apply_fn: Callable,
+        name: str,
+    ) -> None:
+        """Store the eigenmodes, signature and weighted applicator."""
+        self._eigenmodes = eigenmodes
+        self._signature = signature
+        self._apply_fn = apply_fn
+        self._name = name
+
+    # ================================================================
+    #  Declared structure
+    # ================================================================
+    @property
+    def eigenmodes(self) -> object:
+        """The wrapped eigenmode set."""
+        return self._eigenmodes
+
+    @property
+    def domain(self) -> StateSignature | None:
+        """The endo domain signature (``None`` if polymorphic)."""
+        return self._signature
+
+    @property
+    def codomain(self) -> StateSignature | None:
+        """The endo codomain signature (``None`` if polymorphic)."""
+        return self._signature
+
+    # ================================================================
+    #  Application
+    # ================================================================
+    def _evaluate(
+        self, state: object,
+    ) -> tuple[object, TransformInfo]:
+        """Apply the weighted spectral contraction."""
+        out = self._apply_fn(self._eigenmodes, state)
+        return out, TransformInfo.EMPTY
+
+    def __repr__(self) -> str:
+        """Return the repr label."""
+        return f"{self._name}"
+
+
 class ProjectionFactory:
 
     r"""

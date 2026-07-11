@@ -44,9 +44,13 @@ from fridom.framework2.grid.operators.fourier import Fourier
 from fridom.framework2.model.eigen_channel import channel_eigenpairs
 from fridom.framework2.model.eigenstates import (
     envelope_scale,
+    evaluate_frequency_function,
     normalize_max_component,
 )
-from fridom.framework2.transforms.projection import EigenProjection
+from fridom.framework2.transforms.projection import (
+    EigenFunction,
+    EigenProjection,
+)
 from fridom.framework2.transforms.signature import StateSignature
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -392,6 +396,67 @@ class ChannelEigenmodesBase(ABC):
             "predicate (omega, labels) -> bool mask; got "
             f"{sel!r}")
 
+    def function(
+        self,
+        f: Callable[[np.ndarray], np.ndarray],
+        sel: str | Callable[[jax.Array, jax.Array], jax.Array],
+    ) -> StateTransform:
+        r"""
+        Apply a scalar function of the linear operator on a selection.
+
+        Description
+        -----------
+        The general :math:`f(L)` applicator: like :meth:`projector`
+        but with the per-plane contraction
+
+        .. math::
+
+            Q\,\mathrm{diag}(f(\omega)\,m)\,Q^H M z
+
+        (``m`` the selection mask), so ``f = 1`` on a selection
+        reproduces the corresponding projector exactly. ``sel`` uses
+        the projector grammar — a family string or a predicate
+        ``(omega, labels) -> bool mask``. ``f`` is evaluated once,
+        host-side, on the **real** frequencies of the selected
+        columns only (complex return values allowed):
+        ``f = lambda w: 1 / (1j * w)`` builds :math:`L^{-1}` on the
+        selection, ``f = lambda w: 1j * w`` the forward operator. A
+        singular ``f`` meeting a zero-frequency column (a vortical /
+        constraint column; the engine's zeros are numerical, so
+        ``f(0)`` is probed on columns with ``|omega| < 1e-8``, the
+        labelers' ``zero_tol`` scale) is a taught ``ValueError``,
+        never a floored division.
+
+        Real-safety: for a conjugation-closed selection and ``f``
+        satisfying :math:`f(-\omega) = \overline{f(\omega)}` (true
+        for :math:`1/(i\omega)` and :math:`i\omega`) the map sends
+        real states to real states — the implied conjugate planes
+        carry the conjugate weights, so the real synthesis is exact.
+        A non-closed selection or a sign-asymmetric ``f`` acts on
+        the analytic signal (real part), as with :meth:`projector`.
+
+        Parameters
+        ----------
+        f : Callable[[np.ndarray], np.ndarray]
+            The scalar spectral function, vectorized over an array
+            of real frequencies.
+        sel : str | Callable[[jax.Array, jax.Array], jax.Array]
+            A family name, or a predicate mapping ``(omega,
+            labels)`` to a boolean mask of shape ``omega.shape``.
+
+        Returns
+        -------
+        StateTransform
+            The weighted spectral application on physical states.
+
+        Raises
+        ------
+        ValueError
+            On an unknown family / invalid predicate mask, or if
+            ``f`` evaluates non-finite on a selected column.
+        """
+        return spectral_function(self, f, sel)
+
     # ================================================================
     #  Mode-indexed single-mode states
     # ================================================================
@@ -563,26 +628,68 @@ def _project_masked(
 
     Description
     -----------
-    Forward-transforms each component along the periodic axes only
-    (partial-axis Fourier, half spectrum on the engine's last
-    periodic axis; the bounded axis stays nodal), concatenates the
-    component segments into stacked plane columns ``z``, applies
+    The masked instance of :func:`_contract_planes`,
 
     .. math::
 
         P z = Q\,\mathrm{diag}(m)\,Q^H M z
 
-    per plane (``Q = em.q``, ``M`` the diagonal energy metric, ``m``
-    the column mask), splits the segments and inverse-transforms.
-    The basis arrays are read off ``em`` here, at application time —
-    after labeling, whose degeneracy recovery may have rotated ``q``
-    in place.
+    with ``m`` the boolean column mask (amplitudes off the selection
+    are zeroed exactly).
+    """
+    return _contract_planes(
+        em, state, lambda amp: jnp.where(mask, amp, 0.0))
+
+
+def _apply_weighted(
+    em: ChannelEigenmodesBase,
+    weights: jax.Array,
+    state: VectorField,
+) -> VectorField:
+    r"""
+    Apply per-plane complex column weights (the ``f(L)`` engine).
+
+    Description
+    -----------
+    The weighted instance of :func:`_contract_planes`,
+
+    .. math::
+
+        f(L)\, z = Q\,\mathrm{diag}(w)\,Q^H M z
+
+    with ``w = f(omega) * mask`` the complex column weights built by
+    :func:`spectral_function` (exact zeros off the selection).
+    """
+    return _contract_planes(em, state, lambda amp: weights * amp)
+
+
+def _contract_planes(
+    em: ChannelEigenmodesBase,
+    state: VectorField,
+    scale: Callable[[jax.Array], jax.Array],
+) -> VectorField:
+    r"""
+    Per-plane column contraction ``Q scale(Q^H M z)`` on a state.
+
+    Description
+    -----------
+    Forward-transforms each component along the periodic axes only
+    (partial-axis Fourier, half spectrum on the engine's last
+    periodic axis; the bounded axis stays nodal), concatenates the
+    component segments into stacked plane columns ``z``, applies
+    ``Q scale(amp)`` per plane to the amplitudes ``amp = Q^H M z``
+    (``Q = em.q``, ``M`` the diagonal energy metric; ``scale``
+    realizes the mask / weight diagonal), splits the segments and
+    inverse-transforms. The basis arrays are read off ``em`` here,
+    at application time — after labeling, whose degeneracy recovery
+    may have rotated ``q`` in place.
 
     The backward half-spectrum synthesis returns the real part: for
-    conjugation-closed masks the result is exactly real up to
-    floating point; a non-closed mask acts on the analytic signal
-    (see :meth:`ChannelEigenmodesBase.projector`). Sharding-clean:
-    the contraction is an einsum of the replicated basis against the
+    conjugation-closed selections (and conjugation-symmetric
+    weights) the result is exactly real up to floating point; a
+    non-closed selection acts on the analytic signal (see
+    :meth:`ChannelEigenmodesBase.projector`). Sharding-clean: the
+    contraction is an einsum of the replicated basis against the
     (decomposition-laid-out) coefficient planes — no host gather.
     """
     ops = _fourier_ops(em)
@@ -598,8 +705,7 @@ def _project_masked(
          for name in em.components], axis=-1)
     amp = jnp.einsum("...dj,d,...d->...j", jnp.conj(em.q),
                      em.metric, z)
-    out = jnp.einsum("...dj,...j->...d", em.q,
-                     jnp.where(mask, amp, 0.0))
+    out = jnp.einsum("...dj,...j->...d", em.q, scale(amp))
     result = {}
     for name in em.components:
         field = coeff[name].with_data(jnp.moveaxis(
@@ -642,6 +748,19 @@ def family_projection(
     EigenProjection
         The family projection on physical states.
     """
+    codes = _family_codes(em, selection)
+    return EigenProjection(
+        eigenmodes=em,
+        modes=codes,
+        signature=_signature(em),
+        project_fn=_project_engine,
+        name=name or f"P[{selection}]")
+
+
+def _family_codes(
+    em: ChannelEigenmodesBase, selection: str,
+) -> tuple[int, ...]:
+    """Resolve a family selection string to its label codes."""
     selections = _selection_map(em.families)
     families = selections.get(selection)
     if families is None:
@@ -650,13 +769,21 @@ def family_projection(
             f"unknown family selection {selection!r}: the channel "
             f"vocabulary is {known} (or pass a predicate "
             "(omega, labels) -> bool mask)")
-    codes = tuple(sorted(em.families[f] for f in families))
-    return EigenProjection(
-        eigenmodes=em,
-        modes=codes,
-        signature=_signature(em),
-        project_fn=_project_engine,
-        name=name or f"P[{selection}]")
+    return tuple(sorted(em.families[f] for f in families))
+
+
+def _predicate_mask(
+    em: ChannelEigenmodesBase,
+    predicate: Callable[[jax.Array, jax.Array], jax.Array],
+) -> jax.Array:
+    """Evaluate and validate a ``(omega, labels)`` selection mask."""
+    mask = jnp.asarray(predicate(em.omega, em.labels))
+    if mask.shape != em.omega.shape or mask.dtype != jnp.bool_:
+        raise ValueError(
+            "a projector predicate must return a boolean mask of "
+            f"shape {em.omega.shape} (one flag per column plane); "
+            f"got shape {mask.shape}, dtype {mask.dtype}")
+    return mask
 
 
 def predicate_projection(
@@ -694,12 +821,7 @@ def predicate_projection(
     EigenProjection
         The masked projection on physical states.
     """
-    mask = jnp.asarray(predicate(em.omega, em.labels))
-    if mask.shape != em.omega.shape or mask.dtype != jnp.bool_:
-        raise ValueError(
-            "a projector predicate must return a boolean mask of "
-            f"shape {em.omega.shape} (one flag per column plane); "
-            f"got shape {mask.shape}, dtype {mask.dtype}")
+    mask = _predicate_mask(em, predicate)
 
     def project(
         eigenmodes: ChannelEigenmodesBase,
@@ -716,6 +838,111 @@ def predicate_projection(
         signature=_signature(em),
         project_fn=project,
         name=f"P[{label}]")
+
+
+def spectral_function(
+    em: ChannelEigenmodesBase,
+    f: Callable[[np.ndarray], np.ndarray],
+    sel: str | Callable[[jax.Array, jax.Array], jax.Array],
+    *,
+    name: str | None = None,
+) -> EigenFunction:
+    r"""
+    Build the weighted ``f(L)`` application for a mode selection.
+
+    Description
+    -----------
+    The engine behind :meth:`ChannelEigenmodesBase.function`: the
+    selection resolves to a boolean column mask exactly like
+    :meth:`ChannelEigenmodesBase.projector`, ``f`` is evaluated once
+    host-side on the selected columns' real frequencies
+    (:func:`~fridom.framework2.model.eigenstates.evaluate_frequency_function`,
+    the structural-zero guard included), and the captured complex
+    weights drive the same sharded per-plane contraction as the
+    projections (:func:`_apply_weighted`).
+
+    Parameters
+    ----------
+    em : ChannelEigenmodesBase
+        The labeled channel eigenmodes.
+    f : Callable[[np.ndarray], np.ndarray]
+        The scalar spectral function, vectorized over an array of
+        real frequencies (complex return values allowed).
+    sel : str | Callable[[jax.Array, jax.Array], jax.Array]
+        A family name, or a predicate mapping ``(omega, labels)``
+        to a boolean mask of shape ``omega.shape``.
+    name : str | None, optional
+        A repr label (default: None, ``f[<selection>]``).
+
+    Returns
+    -------
+    EigenFunction
+        The weighted application on physical states.
+    """
+    if isinstance(sel, str):
+        codes = _family_codes(em, sel)
+        mask = np.isin(np.asarray(em.labels), np.asarray(codes))
+        label = sel
+    elif callable(sel):
+        mask = np.asarray(_predicate_mask(em, sel))
+        label = getattr(sel, "__name__", "predicate")
+    else:
+        known = ", ".join(_selection_map(em.families))
+        raise TypeError(
+            f"function takes a family name (one of {known}) or a "
+            "predicate (omega, labels) -> bool mask; got "
+            f"{sel!r}")
+    omega = np.asarray(em.omega)
+    # the engine's zero-frequency columns are numerically zero
+    # (eigh residuals ~1e-14, never exact), so a singular f is
+    # probed at omega = 0 explicitly instead of relying on the
+    # evaluation guard alone
+    zero = mask & (np.abs(np.real(omega)) < ZERO_FREQUENCY_TOL)
+    if zero.any():
+        with np.errstate(all="ignore"):
+            probe = np.asarray(f(np.zeros(1)), dtype=complex)
+        if not np.isfinite(probe).all():
+            raise ValueError(_describe_nonfinite_columns(em, zero))
+    weights = jnp.asarray(evaluate_frequency_function(
+        f, omega, mask,
+        lambda bad: _describe_nonfinite_columns(em, bad)))
+
+    def apply(
+        eigenmodes: ChannelEigenmodesBase, state: VectorField,
+    ) -> VectorField:
+        """Apply the captured column weights per plane."""
+        return _apply_weighted(eigenmodes, weights, state)
+
+    return EigenFunction(
+        eigenmodes=em,
+        signature=_signature(em),
+        apply_fn=apply,
+        name=name or f"f[{label}]")
+
+
+#: Absolute frequency scale below which a channel column counts as
+#: structurally zero for the ``function`` guard (the package
+#: labelers' ``zero_tol`` default).
+ZERO_FREQUENCY_TOL = 1e-8
+
+
+def _describe_nonfinite_columns(
+    em: ChannelEigenmodesBase, bad: np.ndarray,
+) -> str:
+    """Name the family/plane of the singular ``f(omega)`` columns."""
+    labels = np.asarray(em.labels)
+    omega = np.asarray(em.omega)
+    names = {code: fam for fam, code in em.families.items()}
+    idx = tuple(int(i) for i in np.argwhere(bad)[0])
+    family = names.get(int(labels[idx]), "UNLABELED")
+    return (
+        f"function(f, sel): f is non-finite on {int(bad.sum())} "
+        f"selected column(s) — e.g. the {family!r} column at plane "
+        f"{idx[:-1]!r} with omega = {float(omega[idx]):.6g}. "
+        "Structurally zero frequencies are excluded by selection, "
+        "never floored: drop the zero-frequency families "
+        "(vortical / constraint) from the selection, or pass an f "
+        "that is finite there")
 
 
 # ================================================================

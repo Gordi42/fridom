@@ -53,7 +53,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from .info import TransformCost, TransformInfo, TransformProgress
     from .norms import assert_idempotent, relative_l2
     from .optimal_balance import OptimalBalance
-    from .projection import EigenProjection, ProjectionFactory
+    from .projection import (
+        EigenFunction,
+        EigenProjection,
+        ProjectionFactory,
+    )
     from .propagator import Propagator
     from .shift import Shift
     from .signature import StateSignature
@@ -101,7 +105,8 @@ all_imports_by_origin = {
     f"{pkg}.propagator": ["Propagator"],
     f"{pkg}.time_average": ["TimeAverage"],
     f"{pkg}.optimal_balance": ["OptimalBalance"],
-    f"{pkg}.projection": ["EigenProjection", "ProjectionFactory"],
+    f"{pkg}.projection": [
+        "EigenFunction", "EigenProjection", "ProjectionFactory"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

@@ -444,3 +444,106 @@ def test_degenerate_and_non_2d_grids_are_rejected():
     grid3 = fr.grid.Grid((*grid.factors, mz))
     with pytest.raises(ValueError, match="2-D"):
         sw.eigenmodes.Eigenmodes(grid3, f0=1.0, csqr=1.0)
+
+
+# ================================================================
+#  function(f, s): scalar functions of the linear operator
+# ================================================================
+@pytest.mark.parametrize("sel", [
+    pytest.param(0, id="vortical"),
+    pytest.param(1, id="plus"),
+    pytest.param((1, -1), id="wave-pair"),
+])
+def test_function_with_unit_f_reproduces_the_projectors(
+        mode_setup, sel):
+    # f == 1 on a branch selection is exactly the summed projectors
+    # (weights 1 on the represented modes, 0 on the structural
+    # zeros — where the projector amplitude is exactly 0), bitwise
+    _, em = mode_setup
+    z = _random_coeff_state(em, seed=41)
+    branches = (sel,) if isinstance(sel, int) else sel
+    want = None
+    for s in branches:
+        part = em.projector(s)(z)
+        want = part if want is None else sw.State(
+            {c: want[c] + part[c] for c in COMPONENTS})
+    got = em.function(np.ones_like, sel)(z)
+    for c in COMPONENTS:
+        assert np.array_equal(np.asarray(got[c].data),
+                              np.asarray(want[c].data))
+
+
+def test_function_inverse_wave_strong_test(mode_setup):
+    # THE STRONG TEST: with invL = function(1/(i omega), (1, -1)),
+    # L(invL(z)) == P_wave(z) through the model's linearized
+    # tendency, asserted in coefficient space (self-conjugate kx
+    # planes zeroed so the physical round-trip is exact)
+    model, em = mode_setup
+    kit = em._kit
+    lin = fr.linearize(model)
+    prog, base0 = _rest_background(lin, 0.0)
+    assert prog == COMPONENTS
+    rng = np.random.default_rng(42)
+    template = em.q(0)
+    shape = np.asarray(template["u"].data).shape
+
+    def make_amp():
+        amp = (rng.standard_normal(shape)
+               + 1j * rng.standard_normal(shape))
+        amp[0] = 0.0
+        amp[-1] = 0.0
+        return amp
+
+    z = sw.State({c: template[c].with_data(jnp.asarray(make_amp()))
+                  for c in COMPONENTS})
+    w_hat = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    nodal = {c: kit.backward(c)(w_hat[c]) for c in prog}
+    phys = base0.replace(**{
+        c: base0[c].with_data(nodal[c].data) for c in prog})
+    tau = lin.tendency(phys, t=0.0, constraints=False)
+    plus = em.projector(1)(z)
+    minus = em.projector(-1)(z)
+    scale = max(float(np.abs(np.asarray(z[c].data)).max())
+                for c in COMPONENTS)
+    for c in prog:
+        got = np.asarray(kit.forward(c)(tau[c]).data)
+        want = np.asarray(plus[c].data) + np.asarray(minus[c].data)
+        assert np.abs(got - want).max() / scale < 1e-12
+
+
+def test_function_inverse_wave_is_real_safe(mode_setup):
+    # 1/(i omega) satisfies f(-omega) == conj(f(omega)) and (1, -1)
+    # is conjugation-closed: the coefficients of a real state stay
+    # Hermitian and the backward synthesis stays real
+    model, em = mode_setup
+    kit = em._kit
+    rng = np.random.default_rng(43)
+    z = sw.State({
+        c: kit.forward(c)(model.state[c].with_data(jnp.asarray(
+            rng.standard_normal(model.state[c].data.shape))))
+        for c in COMPONENTS})
+    out = em.function(lambda om: 1.0 / (1j * om), (1, -1))(z)
+    for c in COMPONENTS:
+        back = np.asarray(kit.backward(c)(out[c]).data)
+        scale = float(np.abs(back).max())
+        assert np.abs(np.imag(back)).max() < 1e-15 * scale
+
+
+def test_function_structural_zero_guard(mode_setup):
+    # the geostrophic branch is represented with omega == 0: a
+    # singular f is a taught error, never a floored division —
+    # while the wave branches (inertial k = 0 pair included) carry
+    # no represented zero and pass
+    _, em = mode_setup
+    with pytest.raises(ValueError, match=r"s=0"):
+        em.function(lambda om: 1.0 / (1j * om), 0)
+    with pytest.raises(ValueError, match="non-finite"):
+        em.function(lambda om: 1.0 / (1j * om), (0, 1))
+    assert callable(em.function(lambda om: 1.0 / (1j * om), (1, -1)))
+
+
+def test_function_rejects_bad_branch_selections(mode_setup):
+    _, em = mode_setup
+    for bad in (2, (), (1, 1), 1.5, "wave"):
+        with pytest.raises(ValueError, match="branches"):
+            em.function(np.ones_like, bad)
