@@ -5,8 +5,11 @@ An example that records an animation (e.g. through the visible
 After every code block this scraper moves each new video from the
 example's directory into the generated gallery page's ``videos/``
 folder and returns the rst that embeds it with ``sphinxcontrib-video``.
-The old-stack ``copy_media_files`` scraper (pre-rendered LFS media)
-coexists with this one until the last old example is ported.
+A block that produced several videos gets them side by side in a
+``sphinx-design`` grid (up to three per row) instead of stacked
+full-width. The old-stack ``copy_media_files`` scraper (pre-rendered
+LFS media) coexists with this one until the last old example is
+ported.
 """
 import os
 import shutil
@@ -21,6 +24,16 @@ VIDEO_RST = """
    :width: 100%
 """
 
+GRID_ITEM_RST = """
+   .. grid-item::
+
+      .. video:: videos/{name}
+         :loop:
+         :autoplay:
+         :muted:
+         :width: 100%
+"""
+
 
 class VideoScraper:
 
@@ -30,7 +43,7 @@ class VideoScraper:
         """Collect videos the last code block created."""
         src_dir = os.path.dirname(block_vars["src_file"])
         target_dir = os.path.dirname(block_vars["target_file"])
-        rst = []
+        names = []
         for name in sorted(os.listdir(src_dir)):
             if not name.endswith(VIDEO_EXTENSIONS):
                 continue
@@ -38,5 +51,10 @@ class VideoScraper:
             os.makedirs(video_dir, exist_ok=True)
             shutil.move(os.path.join(src_dir, name),
                         os.path.join(video_dir, name))
-            rst.append(VIDEO_RST.format(name=name))
-        return "\n".join(rst)
+            names.append(name)
+        if len(names) <= 1:
+            return "".join(VIDEO_RST.format(name=name) for name in names)
+        columns = min(3, len(names))
+        items = "".join(GRID_ITEM_RST.format(name=name) for name in names)
+        return (f"\n.. grid:: 1 {min(2, columns)} {columns} {columns}"
+                f"\n   :gutter: 2\n{items}")
