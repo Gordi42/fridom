@@ -76,6 +76,13 @@ spec prose keeps the historical names.
 | [`03_api_sketches.md`](specs/operator_algebra/03_api_sketches.md) | normative | API sketches. |
 | [`04_open_threads.md`](specs/operator_algebra/04_open_threads.md) | normative | Open threads. |
 
+### `specs/docs/` — the documentation rebuild
+
+| File | Status | Description |
+|------|--------|-------------|
+| [`structure.md`](specs/docs/structure.md) | draft | The docs page tree: per-page scope, authoring format, v1 cut. |
+| [`style_guide.md`](specs/docs/style_guide.md) | draft | Docs style guide: voice, banned patterns, page anatomy, figures, citations, enforcement. |
+
 ### `specs/model/` — the model layer (Phase 2)
 
 | File | Status | Description |
