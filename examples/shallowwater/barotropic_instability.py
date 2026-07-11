@@ -9,7 +9,6 @@ shallow-water model on a doubly periodic f-plane, write the run to a
 zarr store, and render the vorticity animation from that store with
 CDFViewer.
 """
-# sphinx_gallery_thumbnail_number = 2
 
 # %%
 # Experiment Settings
@@ -22,6 +21,7 @@ CDFViewer.
 # :math:`U = f_0 L_\mathrm{jet}`, so the Rossby number is one, and a
 # small Burger number, so the deformation radius is one tenth of the
 # domain:
+# sphinx_gallery_thumbnail_number = 2
 import os
 import subprocess
 
@@ -34,12 +34,8 @@ jet_width = L / 20
 u_jet = f0 * jet_width       # Rossby number Ro = 1
 csqr = (0.1 * f0 * L) ** 2   # Burger number Bu = 1/100
 
-# %%
-# Documentation builds on pull requests smoke-run every example at
-# reduced cost; the ``FRIDOM_EXAMPLES_FAST`` environment variable
-# selects a coarser grid and a shorter run:
 fast = "FRIDOM_EXAMPLES_FAST" in os.environ
-nx = 96 if fast else 192     # grid points per direction
+nx = ny = 96 if fast else 192
 runlen = 30.0 if fast else 120.0
 
 # %%
@@ -53,7 +49,7 @@ runlen = 30.0 if fast else 120.0
 # grid scale:
 mesh_x = fr.spatial.meshes.IntervalMesh(nx, (0.0, L),
                                         periodic=True, name="x")
-mesh_y = fr.spatial.meshes.IntervalMesh(nx, (0.0, L),
+mesh_y = fr.spatial.meshes.IntervalMesh(ny, (0.0, L),
                                         periodic=True, name="y")
 grid = fr.spatial.Grid((mesh_x, mesh_y))
 
@@ -78,7 +74,7 @@ z = sw.initial_conditions.jet(
     model, width=jet_width / L, wavenum=2, waveamp=1e-2)
 model.set_state(u_jet * z)
 
-model.state.u.xr.plot(x="x_right")
+_ = model.state.u.xr.plot(x="x_right")
 
 # %%
 # The plot shows the unperturbed picture: a narrow band of eastward
@@ -105,16 +101,14 @@ model.run(runlen=runlen, outputs=(writer,), progress=False)
 # By the end of the run the instability has saturated: the jet has
 # broken up into a wavenumber-two street of coherent vortices,
 # connected by filaments of vorticity:
-model.state.rel_vort.xr.plot(x="x_right")
+_ = model.state.rel_vort.xr.plot(x="x_right")
 
 # %%
 # Rendering the Animation
 # -----------------------
-# For a quick look at the store, or a video of it, there is
-# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_, which plots
-# NetCDF files and zarr stores straight from the command line. The
-# same one-liner that explores the store interactively records the
-# vorticity animation when we pass ``--record``:
+# We use `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ to
+# render the vorticity animation from the zarr store; with
+# ``--record`` it writes the video and exits:
 command = (
     "cdfviewer barotropic_instability.zarr"
     " -v rel_vort -x x_right -y y_right -p heatmap -a time"
@@ -126,4 +120,4 @@ _ = subprocess.run(command, shell=True, check=True)
 # %%
 # The animation shows the full life cycle: the shear instability grows
 # out of an imperceptible perturbation, overturns, and settles into a
-# street of coherent eddies.
+# street of eddies.
