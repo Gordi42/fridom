@@ -296,6 +296,73 @@ def test_coefficient_and_constant_factors_stay_replicated():
         jax.sharding.PartitionSpec(None))
 
 
+def test_pad_unpad_round_trip_all_block_shapes(forced_devices):
+    # uniform (center) and staggered-uneven (outer/inner) spaces on
+    # a sharded bounded axis: the shard-local re-blocking and its
+    # global fallback must both be device-count invariant
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+
+    def compute(device_ids):
+        my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+        grid = Grid((my,), device_ids=device_ids)
+        decomp = grid.decomposition
+        outs = []
+        for space in (my.center, my.outer, my.inner):
+            arr = jnp.arange(1.0, space.shape[0] + 1.0)
+            storage = decomp.pad(arr, space)
+            outs.append(decomp.gather(storage, space))
+            outs.append(decomp.unpad(storage, space))
+        return outs
+
+    for a, b in zip(compute(None), compute((0,)), strict=True):
+        assert bitwise(a, b)
+
+
+@pytest.mark.multi_device
+def test_local_reblock_plan_exists_only_for_uniform_blocks():
+    my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+    grid = Grid((my,))
+    decomp = grid.decomposition
+    layout = decomp.default_layout
+    width = decomp.halo["y"]
+    cells = 16 // jax.device_count()
+    plan = decomp._local_reblock(my.center, layout)
+    assert plan is not None
+    pspec, pad_widths, true_slices = plan
+    assert pspec == jax.sharding.PartitionSpec("devices")
+    # per-shard: block = cells + 1 + 2 * width
+    assert pad_widths == ((width, width + 1),)
+    assert true_slices == (slice(width, width + cells),)
+    # the plan is cached on the interned (space, layout) key
+    assert decomp._local_reblock(my.center, layout) is plan
+    # staggered spaces (n = cells * shards +- 1) block unevenly:
+    # no plan — pad/unpad fall back to the global re-assembly
+    assert decomp._local_reblock(my.outer, layout) is None
+    assert decomp._local_reblock(my.inner, layout) is None
+
+
+@pytest.mark.multi_device
+def test_uniform_reblocking_compiles_without_collectives():
+    # the diagnosed pathology: global per-block slicing made every
+    # unpad/pad round trip cost cross-device all-to-alls; the
+    # shard-local plan must compile to zero collectives
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = Grid((mx,))
+    decomp = grid.decomposition
+    space = mx.center
+
+    def round_trip(storage):
+        return decomp.pad(decomp.unpad(storage, space), space)
+
+    storage = decomp.pad(jnp.arange(1.0, 17.0), space)
+    text = jax.jit(round_trip).lower(storage).compile().as_text()
+    for collective in ("all-to-all", "collective-permute",
+                       "all-gather", "all-reduce"):
+        assert collective not in text
+    assert bitwise(round_trip(storage), storage)
+
+
 @pytest.mark.multi_device
 def test_indivisible_blocking_is_rejected_at_use():
     mesh = IntervalMesh(5, (0.0, 1.0), name="x")  # 5 % devices != 0

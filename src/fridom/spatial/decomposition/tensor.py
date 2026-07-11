@@ -130,6 +130,12 @@ class TensorDecomposition(Decomposition):
         ] = {}
         self._sharding_cache: dict[
             tuple[object, Layout], jax.sharding.Sharding] = {}
+        self._reblock_cache: dict[
+            tuple[object, Layout],
+            tuple[jax.sharding.PartitionSpec,
+                  tuple[tuple[int, int], ...],
+                  tuple[slice, ...]] | None,
+        ] = {}
 
     def _validate_layouts(self) -> None:
         """Check the layout vocabulary against the grid names."""
@@ -364,6 +370,92 @@ class TensorDecomposition(Decomposition):
         block = cells + 1 + 2 * width
         return shards, width, block, shards * block
 
+    def _local_reblock(
+        self,
+        space: SpaceLike,
+        layout: Layout,
+    ) -> tuple[jax.sharding.PartitionSpec,
+               tuple[tuple[int, int], ...],
+               tuple[slice, ...]] | None:
+        """
+        Return the cached shard-local re-blocking plan, or None.
+
+        Description
+        -----------
+        The plan drives the collective-free ``pad``/``unpad`` paths:
+        semantically, block ``s`` of a blocked axis holds exactly the
+        true DOFs ``[s * cells, (s + 1) * cells)``, so re-blocking is
+        device-local — but expressed as global ``jnp`` slicing the
+        SPMD partitioner cannot see that and inserts all-to-alls.
+        The plan makes the locality explicit for ``jax.shard_map``:
+        ``(pspec, pad_widths, true_slices)`` — the blocked-axes
+        ``PartitionSpec`` plus the **per-shard** ``jnp.pad`` widths
+        (true piece -> block) and interior slices (block -> true
+        piece) of every storage axis.
+
+        It exists only when every blocked axis is *uniform* (the
+        per-shard true count equals ``cells`` on every shard, i.e.
+        ``n == shards * cells``): ``shard_map`` requires equal
+        per-shard shapes, which the staggered surplus/deficit spaces
+        (``n = shards * cells +- 1``) violate. Those — and fully
+        unblocked geometries, where global slicing is already local —
+        return None, and the callers fall back to the global
+        re-blocking path.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The (product) space.
+        layout : Layout
+            The resolved layout (a member of ``self.layouts``).
+
+        Returns
+        -------
+        tuple | None
+            The ``(pspec, pad_widths, true_slices)`` plan, or None
+            when the shard-local path does not apply.
+        """
+        key = (space, layout)
+        if key in self._reblock_cache:
+            return self._reblock_cache[key]
+        plan = self._build_local_reblock(space, layout)
+        self._reblock_cache[key] = plan
+        return plan
+
+    def _build_local_reblock(
+        self,
+        space: SpaceLike,
+        layout: Layout,
+    ) -> tuple[jax.sharding.PartitionSpec,
+               tuple[tuple[int, int], ...],
+               tuple[slice, ...]] | None:
+        """Compute the ``_local_reblock`` plan (uncached)."""
+        axes = dict(layout.device_axes)
+        geometry = self._geometry(space, layout)
+        spec: list[str | None] = [None] * len(geometry)
+        widths: list[tuple[int, int]] = []
+        slices: list[slice] = []
+        blocked = False
+        for axis, (name, n, _factor, shards, width, block,
+                   _) in enumerate(geometry):
+            if shards == 1:
+                # per-shard == global on an unblocked axis; the
+                # trailing side absorbs the stagger padding
+                widths.append((width, block - n - width))
+                slices.append(slice(width, width + n))
+                continue
+            cells = block - 1 - 2 * width
+            if n != shards * cells:
+                return None
+            blocked = True
+            spec[axis] = axes[name]
+            widths.append((width, block - width - cells))
+            slices.append(slice(width, width + cells))
+        if not blocked:
+            return None
+        return (jax.sharding.PartitionSpec(*spec),
+                tuple(widths), tuple(slices))
+
     # ================================================================
     #  Shapes and shardings
     # ================================================================
@@ -440,12 +532,34 @@ class TensorDecomposition(Decomposition):
         space: SpaceLike,
         layout: Layout | None = None,
     ) -> jax.Array:
-        """Map true-shape data to halo/stagger-padded storage."""
+        """
+        Map true-shape data to halo/stagger-padded storage.
+
+        Description
+        -----------
+        With uniformly blocked axes (``_local_reblock``) this is one
+        ``jax.shard_map`` region padding every shard's true piece
+        into its block locally — zero collectives. Unblocked
+        geometries pad globally; staggered-uneven blocked axes fall
+        back to the global per-block re-assembly.
+        """
         layout = self._resolve_layout(space, layout)
         if tuple(arr.shape) != tuple(space.shape):
             raise ValueError(
                 f"pad expects a true-shape array {space.shape}, "
                 f"got {tuple(arr.shape)}")
+        plan = self._local_reblock(space, layout)
+        if plan is not None:
+            pspec, pad_widths, _ = plan
+
+            def scatter(piece: jax.Array) -> jax.Array:
+                return jnp.pad(piece, pad_widths)
+
+            padded = jax.shard_map(
+                scatter, mesh=self._device_mesh,
+                in_specs=pspec, out_specs=pspec)(arr)
+            return jax.device_put(
+                padded, self.sharding(space, layout))
         widths = []
         blocked = []
         for axis, (_name, n, factor, shards, width, block,
@@ -512,13 +626,35 @@ class TensorDecomposition(Decomposition):
         space: SpaceLike,
         layout: Layout | None = None,
     ) -> jax.Array:
-        """Map padded storage to true-shape data (pads dropped)."""
+        """
+        Map padded storage to true-shape data (pads dropped).
+
+        Description
+        -----------
+        With uniformly blocked axes (``_local_reblock``) this is one
+        ``jax.shard_map`` region slicing every block's interior
+        locally — zero collectives; the output is evenly sharded on
+        the blocked axes (shard ``s`` holds exactly its block's true
+        DOFs, so a following ``pad`` stays local too). Unblocked
+        geometries slice globally; staggered-uneven blocked axes
+        fall back to the global per-block gather.
+        """
         layout = self._resolve_layout(space, layout)
         storage = self.storage_shape(space, layout)
         if tuple(arr.shape) != storage:
             raise ValueError(
                 f"unpad expects a storage-shaped array {storage}, "
                 f"got {tuple(arr.shape)}")
+        plan = self._local_reblock(space, layout)
+        if plan is not None:
+            pspec, _, true_slices = plan
+
+            def gather(block: jax.Array) -> jax.Array:
+                return block[true_slices]
+
+            return jax.shard_map(
+                gather, mesh=self._device_mesh,
+                in_specs=pspec, out_specs=pspec)(arr)
         slices = []
         for axis, (_name, n, factor, shards, width, block,
                    _) in enumerate(self._geometry(space, layout)):
