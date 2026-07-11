@@ -917,6 +917,15 @@ accessor (doc 02 surface); its semantics are:
   per factor: `center` / `right` (and `left`) / `outer` / `inner` map
   one-to-one to xgcm staggered-coordinate positions (§2.2's naming
   payoff).
+- **Single-field exports drop the position suffix** (amended
+  2026-07-11, owner review of the docs pilot): `ScalarField.xr`
+  exports staggered dims under the plain axis name (`x`, not
+  `x_right`) — a lone `DataArray` has no sibling to collide with, and
+  plain names give clean plot labels; the position survives in the
+  `c_grid_axis_shift` attribute. The suffixed spelling remains the
+  `scalar_to_dataarray(..., positions_in_names=True)` default used by
+  every multi-variable export (`VectorField.xr`, the io Writer
+  store), where two positions of one axis must coexist.
 - **Average spaces export coordinate *labels*, not positions**:
   `cell_avg` fields are labeled with the cell-center coordinates,
   `face_avg` fields with the face coordinates — export metadata only,

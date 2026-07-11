@@ -17,6 +17,7 @@ from fridom.model.clock import Clock
 from fridom.model.io import writer as writer_module
 from fridom.model.io.triggers import every
 from fridom.model.io.writer import Writer
+from fridom.spatial.export import scalar_to_dataarray
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -148,8 +149,9 @@ def test_roundtrip_opens_in_xarray(tmp_path, model, state):
     for k in range(3):
         np.testing.assert_array_equal(ds["u"].values[k], u_ref)
         np.testing.assert_array_equal(ds["p"].values[k], p_ref)
-    # spatial coords equal the grid evaluation nodes (via f.xr)
-    da_u = state["u"].xr
+    # spatial coords equal the grid evaluation nodes (the writer's
+    # suffixed-name export; ScalarField.xr itself uses plain names)
+    da_u = scalar_to_dataarray(state["u"])
     np.testing.assert_array_equal(
         ds.coords["x_right"].values, da_u.coords["x_right"].values)
 

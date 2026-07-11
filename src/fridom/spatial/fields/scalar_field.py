@@ -739,9 +739,15 @@ class ScalarField:
         Description
         -----------
         Thin field-side entry point; the coordinate-label rules
-        (xgcm staggered dim naming, average-space cell labels,
-        wavenumber coords) and the ``decomposition.gather`` data
-        path live in ``fridom.spatial.export``.
+        (average-space cell labels, wavenumber coords) and the
+        ``decomposition.gather`` data path live in
+        ``fridom.spatial.export``. A lone ``DataArray`` cannot
+        collide with sibling variables, so staggered dims export
+        under the plain axis names (``x``, not ``x_right``); the
+        position stays available as the ``c_grid_axis_shift``
+        coordinate attribute. Multi-variable exports
+        (``VectorField.xr``, the io stores) keep the xgcm
+        position-suffixed names.
 
         Returns
         -------
@@ -751,7 +757,7 @@ class ScalarField:
         from fridom.spatial.export import (  # noqa: PLC0415 — deferred: keeps optional xarray off the field-core import path
             scalar_to_dataarray,
         )
-        return scalar_to_dataarray(self)
+        return scalar_to_dataarray(self, positions_in_names=False)
 
     def __repr__(self) -> str:
         """Name, space, shape, dtype summary."""
