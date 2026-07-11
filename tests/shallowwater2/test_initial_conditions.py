@@ -8,10 +8,10 @@ seed determinism, the normalization convention, the taught errors,
 and the multi-device device-count invariance of the analytic path.
 
 The named analytic ports: single_wave phase-rotates exactly in the
-linear model, the geostrophically projected jet is steady, the
-coherent eddy is discretely divergence-free and balanced, and the
-equatorial wave satisfies the beta-plane eigen-relation to
-discretization accuracy.
+linear model, the geostrophically projected jet is steady, and the
+coherent eddy is discretely divergence-free and balanced. Beta-plane
+wave modes are selected numerically through the channel eigenbasis
+(tests in test_channel_eigenmodes.py).
 """
 from itertools import pairwise
 
@@ -351,109 +351,6 @@ def test_eddy_taught_errors(periodic, channel):
         sw.coherent_eddy(eb)
     with pytest.raises(ValueError, match="walled channel"):
         sw.jet(eb)
-
-
-# ================================================================
-#  equatorial_wave (the EquatorialWave port)
-# ================================================================
-BETA = 8.0
-N_EQ = 32
-
-
-def _beta_model(grid, beta=BETA):
-    """Build a linear beta-plane model (equator mid-domain)."""
-    return sw.Model(
-        grid=grid, csqr=1.0, rossby_number=0.2,
-        coriolis=sw.modules.BetaPlaneCoriolis(f0=-2.0 * beta,
-                                              beta=beta),
-        advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
-
-
-@pytest.fixture(scope="module")
-def equatorial():
-    """One linear beta-plane model with the equator mid-domain."""
-    mx = fr.spatial.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
-                                     periodic=True, name="x")
-    my = fr.spatial.meshes.IntervalMesh(N_EQ, (0.0, 4.0),
-                                     periodic=True, name="y")
-    return _beta_model(fr.spatial.Grid((mx, my)))
-
-
-def test_equatorial_wave_satisfies_the_eigen_relation(equatorial):
-    # d/dt state(phase) ~ omega * state(phase + pi/2) through the
-    # real linear tendency, to discretization accuracy
-    omega, z0 = sw.equatorial_wave(equatorial, 2, 1, 2, phase=0.4)
-    _, z1 = sw.equatorial_wave(equatorial, 2, 1, 2,
-                               phase=0.4 + np.pi / 2)
-    tau = equatorial.tendency(z0)
-    num = max(
-        float(np.abs(np.asarray(tau[c].data)
-                     - omega * np.asarray(z1[c].data)).max())
-        for c in COMPONENTS)
-    den = abs(omega) * max(
-        float(np.abs(np.asarray(z1[c].data)).max())
-        for c in COMPONENTS)
-    assert num / den < 0.05
-
-
-def test_equatorial_wave_traps_at_the_equator(equatorial):
-    _omega, z = sw.equatorial_wave(equatorial, 2, 0, 2)
-    v = np.asarray(z["v"].data)
-    ys = np.asarray(equatorial.grid.evaluation_nodes(
-        z["v"].function_space, "y").data).ravel()
-    peak = ys[np.abs(v).max(axis=0).argmax()]
-    assert abs(peak - 2.0) <= 4.0 / N_EQ + 1e-12
-    edge = np.abs(v[:, [0, -1]]).max()
-    assert edge < 1e-3 * np.abs(v).max()
-    # normalization: the largest horizontal velocity is one
-    umax = max(float(np.abs(np.asarray(z[c].data)).max())
-               for c in ("u", "v"))
-    assert umax == pytest.approx(1.0, abs=1e-12)
-    # the equator override recentres the trapping latitude
-    _, shifted = sw.equatorial_wave(equatorial, 2, 0, 2,
-                                    equator=1.0)
-    vs = np.asarray(shifted["v"].data)
-    peak = ys[np.abs(vs).max(axis=0).argmax()]
-    assert abs(peak - 1.0) <= 4.0 / N_EQ + 1e-12
-
-
-def test_equatorial_wave_orders_the_dispersion_roots(equatorial):
-    omegas = [
-        sw.equatorial_wave(equatorial, 2, 1, mode)[0]
-        for mode in (0, 1, 2)]
-    assert omegas[0] < omegas[1] < omegas[2]
-    assert omegas[0] < 0 < omegas[2]
-    # the middle root is the slow Rossby wave
-    assert abs(omegas[1]) < min(abs(omegas[0]), abs(omegas[2]))
-
-
-def test_equatorial_wave_assigns_on_a_walled_channel():
-    # the wave samples on the model's DECLARED spaces: on a walled
-    # meridional axis v carries Dirichlet wall tags, and set_state
-    # validates the incoming spaces against the declaration
-    model = _beta_model(make_grid(periodic_y=False))
-    _omega, z = sw.equatorial_wave(model, 2, 0, 2)
-    model.set_state(z)
-    model.advance(3)
-    p = np.asarray(model.state["p"].data)
-    assert np.isfinite(p).all()
-
-
-def test_equatorial_wave_taught_errors(equatorial, periodic):
-    model, _ = periodic
-    with pytest.raises(ValueError, match="beta plane"):
-        sw.equatorial_wave(model, 2, 1, 2)
-    with pytest.raises(ValueError, match="non-negative"):
-        sw.equatorial_wave(equatorial, 2, -1, 2)
-    with pytest.raises(ValueError, match="wave_mode"):
-        sw.equatorial_wave(equatorial, 2, 1, 3)
-    walled_x = _beta_model(make_grid(periodic_x=False))
-    with pytest.raises(ValueError, match="periodic zonal axis"):
-        sw.equatorial_wave(walled_x, 2, 1, 2)
-    negative = _beta_model(make_grid(), beta=-1.0)
-    with pytest.raises(ValueError, match="beta > 0"):
-        sw.equatorial_wave(negative, 2, 1, 2)
 
 
 # ================================================================

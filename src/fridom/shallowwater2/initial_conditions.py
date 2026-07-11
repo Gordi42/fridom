@@ -33,10 +33,12 @@ Named analytic states port the reference initial-condition classes:
 :func:`single_wave` (one discrete eigenmode, a thin wrapper over
 ``em.mode``), :func:`jet` (two opposing zonal jets plus a geostrophic
 single-mode perturbation), :func:`coherent_eddy` (a Gaussian
-streamfunction or vorticity eddy in exact geostrophic balance) and
-:func:`equatorial_wave` (the Hermite-Gaussian equatorial modes of
-the beta plane). Wave factories return ``(omega, state)`` like
-``em.mode``; profile factories return the state alone.
+streamfunction or vorticity eddy in exact geostrophic balance).
+Wave factories return ``(omega, state)`` like ``em.mode``; profile
+factories return the state alone. Beta-plane wave modes (equatorial
+Rossby, Yanai, Kelvin, gravity) are selected numerically through
+``sw.eigenbasis(model).mode(...)`` — the channel labeler classifies
+them for any Coriolis profile, including ``f0 = 0``.
 """
 from __future__ import annotations
 
@@ -44,7 +46,6 @@ import inspect
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
-import numpy as np
 
 import fridom as fr
 from fridom.model._eigenbasis import channel_random_state
@@ -55,8 +56,6 @@ from fridom.model.eigenstates import (
     normalize_max_component,
     prescribed_spectra_coefficients,
 )
-from fridom.model.time_dependent import resolve_at
-from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
 from fridom.shallowwater2.eigenmodes import Eigenmodes, from_model
 from fridom.shallowwater2.state import State
@@ -583,180 +582,3 @@ def coherent_eddy(
         "u": (-psi_corner.diff(y)).with_metadata(name="u"),
         "v": psi_corner.diff(x).with_metadata(name="v"),
         "p": (em.f0 * psi_centre).with_metadata(name="p")})
-
-
-# ================================================================
-#  Equatorial waves on the beta plane
-# ================================================================
-def _hermite_gaussian(order: int, xs: jax.Array) -> jax.Array:
-    r"""Return the Hermite-Gaussian ``H_order(xs) exp(-xs^2 / 2)``.
-
-    The Hermite polynomials follow the recurrence
-    :math:`H_m = 2 x H_{m-1} - 2 (m - 1) H_{m-2}` with
-    :math:`H_{-1} = 0` and :math:`H_0 = 1`.
-    """
-    if order < 0:
-        return jnp.zeros_like(xs)
-    previous = jnp.zeros_like(xs)
-    current = jnp.ones_like(xs)
-    for m in range(1, order + 1):
-        previous, current = current, (
-            2.0 * xs * current - 2.0 * (m - 1) * previous)
-    return current * jnp.exp(-xs ** 2 / 2.0)
-
-
-def _beta_plane_parameters(
-    model: Model, at_time: float,
-) -> tuple[float, float]:
-    """Read the validated ``(beta, csqr)`` of a beta-plane model."""
-    view = model.parameters
-    for name, why in (
-        (fr.model.params.CORIOLIS_BETA,
-         "the equatorial beta plane (assemble with "
-         "fr.model.modules.BetaPlaneCoriolis)"),
-        (sw_params.CSQR,
-         "a constant squared phase speed (assemble with a "
-         "constant-depth DynamicalCore)"),
-    ):
-        if name not in view:
-            raise ValueError(
-                f"equatorial waves need {why}: no {name!r} "
-                "provider on this model")
-    beta = float(resolve_at(view[fr.model.params.CORIOLIS_BETA], at_time))
-    csqr = float(resolve_at(view[sw_params.CSQR], at_time))
-    if beta <= 0.0 or csqr <= 0.0:
-        raise ValueError(
-            "the equatorial Rossby radius sqrt(c / beta) needs "
-            f"beta > 0 and csqr > 0; got beta={beta}, csqr={csqr}")
-    return beta, csqr
-
-
-def equatorial_wave(
-    model: Model,
-    longitudinal_mode: int,
-    equatorial_mode: int,
-    wave_mode: int,
-    *,
-    phase: float = 0.0,
-    equator: float | None = None,
-    at_time: float = 0.0,
-) -> tuple[float, State]:
-    r"""
-    Build a Hermite-Gaussian equatorial wave (``EquatorialWave``).
-
-    Description
-    -----------
-    The analytic equatorial wave of the linearized shallow-water
-    equations on the equatorial beta plane :math:`f = \beta \tilde
-    y`: the frequency of the ``equatorial_mode``-th meridional mode
-    solves the cubic
-
-    .. math::
-        \omega_m \left(\omega_m^2 - c^2
-            \left(k^2 + (2m + 1)\frac{\beta}{c}\right)\right)
-        = k \beta c^2
-
-    (``wave_mode`` indexes the ascending-sorted roots: 0 the
-    negative-frequency gravity wave, 1 the Rossby wave, 2 the
-    positive-frequency gravity wave), and the meridional structures
-    are the Hermite-Gaussian functions of
-    :math:`\tilde y = (y - y_0)/R_e` with the equatorial Rossby
-    radius :math:`R_e = \sqrt{c / \beta}`, sampled on each
-    component's own staggered nodes. The state is normalized so the
-    largest horizontal velocity is one and evolves in the linear
-    model as the same wave at phase ``phase + omega * t``.
-
-    Parameters
-    ----------
-    model : Model
-        The assembled beta-plane shallow-water model.
-    longitudinal_mode : int
-        Zonal wavenumber (wavelengths across the domain).
-    equatorial_mode : int
-        Meridional mode (the Hermite polynomial order, >= 0).
-    wave_mode : int
-        Root selection: 0 (negative-frequency gravity), 1 (Rossby)
-        or 2 (positive-frequency gravity).
-    phase : float, optional
-        The wave phase shift (default: 0.0).
-    equator : float | None, optional
-        Physical ``y`` position of the equator; None centres it in
-        the domain (default: None).
-    at_time : float, optional
-        Parameter evaluation time (default: 0.0).
-
-    Returns
-    -------
-    tuple[float, State]
-        The frequency and the normalized wave state.
-
-    Raises
-    ------
-    ValueError
-        On a walled zonal axis, a missing beta-plane / phase-speed
-        parameter, or an out-of-range mode selection.
-    """
-    if equatorial_mode < 0:
-        raise ValueError(
-            "the equatorial (Hermite) mode is a non-negative "
-            f"polynomial order; got {equatorial_mode}")
-    if wave_mode not in {0, 1, 2}:
-        raise ValueError(
-            "wave_mode indexes the three sorted dispersion roots: "
-            "0 (negative-frequency gravity), 1 (Rossby), 2 "
-            f"(positive-frequency gravity); got {wave_mode}")
-    grid = model.grid
-    x, y = grid.names
-    if not next(m for m in grid.factors if x in m.names).periodic:
-        raise ValueError(
-            f"equatorial waves travel along the zonal axis {x!r}, "
-            "which this grid bounds with walls; equatorial waves "
-            "need a periodic zonal axis")
-    beta, csqr = _beta_plane_parameters(model, at_time)
-
-    x0, x1 = _extent(grid, x)
-    y0, y1 = _extent(grid, y)
-    lx = x1 - x0
-    speed = csqr ** 0.5
-    radius = (speed / beta) ** 0.5
-    y_eq = 0.5 * (y0 + y1) if equator is None else float(equator)
-    kx = 2.0 * jnp.pi / lx * longitudinal_mode
-
-    m = equatorial_mode
-    eigenvalue = (2 * m + 1) / radius ** 2
-    coeffs = [1.0, 0.0, -csqr * (float(kx) ** 2 + eigenvalue),
-              -float(kx) * beta * csqr]
-    omega = float(np.sort(np.roots(coeffs).real)[wave_mode])
-
-    def structure(
-        component: str, coords: dict[str, jax.Array],
-    ) -> jax.Array:
-        y_star = (coords[y] - y_eq) / radius
-        if component == "v":
-            return _hermite_gaussian(m, y_star)
-        plus = _hermite_gaussian(m + 1, y_star)
-        minus = _hermite_gaussian(m - 1, y_star)
-        sign = 1.0 if component == "u" else -1.0
-        scale = speed if component == "u" else csqr
-        return 1j * scale / (2.0 * radius) * (
-            plus / (omega - kx * speed)
-            + sign * 2.0 * m * minus / (omega + kx * speed))
-
-    # sample on the model's DECLARED component spaces, not the bare
-    # C-grid ones: on a walled channel the core declares the wall BC
-    # tags (e.g. Dirichlet on v), and set_state validates against them
-    state = model.state
-    spaces = {c: state[c].function_space for c in ("u", "v", "p")}
-
-    def wave(component: str) -> ScalarField:
-        def values(coords: dict[str, jax.Array]) -> jax.Array:
-            # e^{i(kx x - phase)}: d/dt state(phase) equals
-            # omega * state(phase + pi/2), the em.mode convention
-            carrier = jnp.exp(1j * (kx * coords[x] - phase))
-            return (structure(component, coords) * carrier).real
-        return _sample(grid, spaces[component], values,
-                       name=component)
-
-    fields = {c: wave(c) for c in ("u", "v", "p")}
-    return omega, State(
-        normalize_max_component(fields, ("u", "v")))

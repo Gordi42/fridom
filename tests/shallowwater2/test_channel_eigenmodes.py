@@ -550,15 +550,59 @@ def test_beta_labels_degrade_gracefully(beta_em):
     assert (labels != UNLABELED).all()
 
 
+def test_equatorial_f0_zero_labels_fully():
+    # the equatorial regime (f0 = 0, f = beta (y - Ly/2)): no f-plane
+    # frequency gap exists, but the kelvin separatrix classifies every
+    # column — the Rossby band lands in vortical with genuinely
+    # nonzero westward-capable frequencies
+    equator = make_walled_model(
+        coriolis=sw.modules.BetaPlaneCoriolis(f0=-BETA * LY / 2,
+                                              beta=BETA))
+    em_eq = ChannelEigenmodes(equator)
+    labels = np.asarray(em_eq.labels)
+    omega = np.asarray(em_eq.omega)
+    assert (labels != UNLABELED).all()
+    for ikx in range(1, N_KX):
+        kelvin = np.isin(labels[ikx], (KELVIN_PLUS, KELVIN_MINUS))
+        assert int((labels[ikx] == KELVIN_PLUS).sum()) == 1
+        assert int((labels[ikx] == KELVIN_MINUS).sum()) == 1
+        separatrix = np.abs(omega[ikx][kelvin]).min()
+        vort = np.abs(omega[ikx][labels[ikx] == VORTICAL])
+        wave = np.abs(omega[ikx][
+            np.isin(labels[ikx], (WAVE_PLUS, WAVE_MINUS))])
+        # slow strictly below the separatrix, waves strictly above
+        assert (vort < separatrix).all()
+        assert (wave > separatrix).all()
+        assert wave.size == 2 * (N - 1)
+        # the interior planes carry a genuine (nonzero) Rossby band
+        if ikx < N_KX - 1:
+            assert vort.size == N - 1
+            assert (vort > 1e-8).any()
+    # a selected Rossby mode satisfies the eigen relation exactly:
+    # d/dt z(phase) = omega * z(phase + pi/2) through the tendency
+    om, z0 = em_eq.mode("vortical", {"x": 1, "y": 0}, phase=0.3)
+    _, z1 = em_eq.mode("vortical", {"x": 1, "y": 0},
+                       phase=0.3 + np.pi / 2)
+    tau = equator.tendency(z0)
+    num = max(float(np.abs(np.asarray(tau[c].data)
+                    - om * np.asarray(z1[c].data)).max())
+              for c in ("u", "v", "p"))
+    den = abs(om) * max(float(np.abs(np.asarray(z1[c].data)).max())
+                        for c in ("u", "v", "p"))
+    assert num / den < 1e-6
+
+
 def test_labeler_without_a_clean_gap_leaves_unlabeled():
-    # D = 8 (n_u = 3, n_v = 2, n_p = 3), n_wave = 4; plane 1 keeps a
-    # kelvin pair and one extra slow-ish column with NO clean gap
+    # D = 8 (n_u = 3, n_v = 2, n_p = 3), n_wave = 4; plane 1 has NO
+    # v-free (kelvin) column, so the frequency-band fallback applies:
+    # 7 nonzero columns exceed n_wave = 4 and mags 0.5 vs 1.0 give no
+    # gap >= 10 -> the nonzero columns stay unlabeled
     d = 8  # v segment: indices 3, 4
     q0 = np.eye(d, dtype=complex)
     omega0 = [-2.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0]
-    q1 = np.stack([unit(d, 0), mix(d, 3, 5), mix(d, 4, 6),
+    q1 = np.stack([mix(d, 3, 5), mix(d, 3, 6), mix(d, 4, 6),
                    unit(d, 5), mix(d, 3, 7), mix(d, 4, 5),
-                   mix(d, 3, 6), unit(d, 1)], axis=1)
+                   unit(d, 3), unit(d, 4)], axis=1)
     omega1 = [-4.0, -3.0, -1.0, 0.0, 0.5, 1.0, 3.0, 4.0]
     basis = make_synthetic_basis(
         [omega0, omega1], [q0, q1], n_u=3, n_v=2, n_p=3)
@@ -567,28 +611,30 @@ def test_labeler_without_a_clean_gap_leaves_unlabeled():
     assert (labels[0] == np.array(
         [WAVE_MINUS, WAVE_MINUS, VORTICAL, VORTICAL, VORTICAL,
          VORTICAL, WAVE_PLUS, WAVE_PLUS])).all()
-    # plane 1: kelvin pair found; the 5 remaining nonzero columns
-    # exceed n_wave = 4 but mags 0.5 vs 1.0 gives no gap >= 10
     assert (labels[1] == np.array(
-        [KELVIN_MINUS, UNLABELED, UNLABELED, VORTICAL, UNLABELED,
-         UNLABELED, UNLABELED, KELVIN_PLUS])).all()
+        [UNLABELED, UNLABELED, UNLABELED, VORTICAL, UNLABELED,
+         UNLABELED, UNLABELED, UNLABELED])).all()
 
 
-def test_labeler_splits_slow_from_wave_across_a_clean_gap():
-    # the synthetic beta path: one genuinely slow column, gap >= 10
+def test_labeler_splits_at_the_kelvin_separatrix():
+    # the kelvin pair bounds the wave band from below for ANY f(y)
+    # (one-dimensional kelvin eigenspaces), so slow columns split off
+    # below min |omega_kelvin| with NO spectral-gap requirement: the
+    # slow column at 0.4 sits gap-free right under the kelvin pair at
+    # +-1 (a band heuristic would refuse, gap 2.0/0.4 = 5 < 10)
     d = 8
     q0 = np.eye(d, dtype=complex)
     omega0 = [-2.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0]
-    q1 = np.stack([unit(d, 0), mix(d, 3, 5), mix(d, 4, 6),
-                   unit(d, 5), mix(d, 3, 7), mix(d, 4, 5),
-                   mix(d, 3, 6), unit(d, 1)], axis=1)
-    omega1 = [-4.0, -3.0, -2.0, 0.0, 0.01, 2.0, 3.0, 4.0]
+    q1 = np.stack([mix(d, 3, 5), mix(d, 4, 6), unit(d, 0),
+                   unit(d, 5), mix(d, 3, 7), unit(d, 1),
+                   mix(d, 4, 5), mix(d, 3, 6)], axis=1)
+    omega1 = [-3.0, -2.0, -1.0, 0.0, 0.4, 1.0, 2.0, 3.0]
     basis = make_synthetic_basis(
         [omega0, omega1], [q0, q1], n_u=3, n_v=2, n_p=3)
     labels = np.asarray(label_channel_modes(basis))
     assert (labels[1] == np.array(
-        [KELVIN_MINUS, WAVE_MINUS, WAVE_MINUS, VORTICAL, VORTICAL,
-         WAVE_PLUS, WAVE_PLUS, KELVIN_PLUS])).all()
+        [WAVE_MINUS, WAVE_MINUS, KELVIN_MINUS, VORTICAL, VORTICAL,
+         KELVIN_PLUS, WAVE_PLUS, WAVE_PLUS])).all()
 
 
 def test_labeler_recovers_a_degenerate_kelvin_cluster():
@@ -635,8 +681,12 @@ def test_labeler_skips_clusters_without_a_v_free_direction():
         [omega0, omega1], [q0, q1], n_u=3, n_v=2, n_p=3)
     labels = np.asarray(label_channel_modes(basis))
     assert labels[1][0] == KELVIN_MINUS
-    assert labels[1][3] == VORTICAL
-    assert (labels[1][[1, 2, 4, 5, 6, 7]] == UNLABELED).all()
+    # kelvin+ stays absent; with kelvin- found, the separatrix at
+    # |omega| = 4 classifies every slower column as vortical and the
+    # (pathological) v-full column at +4.0 as wave+
+    assert (labels[1] == np.array(
+        [KELVIN_MINUS, VORTICAL, VORTICAL, VORTICAL, VORTICAL,
+         VORTICAL, VORTICAL, WAVE_PLUS])).all()
     # ... and q was left untouched (no rotation happened)
     assert np.abs(np.asarray(basis.q)[1] - q1).max() == 0.0
 
