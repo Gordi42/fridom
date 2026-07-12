@@ -13,10 +13,13 @@ Inner``, its own ``"face_diff"`` kind). ``FVDerivative`` is the
 factory building the normative ``("diff", CellAvg)`` default
 ``flux_diff @ Dispatched("reconstruct")``.
 
-Spacing denominators are the mesh's uniform cell width read at trace
-time (the same iteration-1 ``grid.measure`` stand-in the Wave-2C
-``FiniteDifference`` uses); nonuniform measure fields arrive with
-the mapped meshes.
+Spacing denominators are the codomain's ``grid.measure`` metric
+fields, derived at trace time (concepts section 2.7): on uniform
+meshes the constant cell width folds into the static weights (the
+scalar fast path XLA folds); on mapped meshes the unit-spacing
+difference divides by the codomain's measure field — the primal
+cell width on ``CellAvg``, the dual center-to-center spacing on the
+face family (rules section 3.9).
 """
 # Wave 3: FluxDifference, DualFluxDifference, FaceDifference,
 #    FVDerivative
@@ -40,6 +43,8 @@ from fridom.spatial.operators.reconstruct import (
     factor_codomain,
 )
 from fridom.spatial.operators.staggering import (
+    divide_by_codomain_measure,
+    mapped_factor,
     uniform_spacing,
 )
 from fridom.spatial.operators.stencil_kernels import (
@@ -98,15 +103,29 @@ def _mesh_space(
 def _windowed_diff(
     op: SeparableOperator, f: FieldLike, axis: str,
 ) -> FieldLike:
-    """Two-point difference via the aligned FV window machinery."""
-    spacing = uniform_spacing(f.function_space.bare.factor(axis))
+    """
+    Two-point difference via the aligned FV window machinery.
+
+    Description
+    -----------
+    Uniform meshes fold the scalar cell width into the static
+    weights (the constant special case); mapped meshes run the
+    unit-spacing kernel and divide by the codomain's measure field
+    (rules sections 2.7, 3.9).
+    """
+    factor = f.function_space.bare.factor(axis)
+    mapped = mapped_factor(factor)
+    spacing = 1.0 if mapped else uniform_spacing(factor)
 
     def kernel(arr: Array, axis_index: int) -> Array:
         return staggered_diff(arr, axis_index, spacing=spacing,
                               order=_DIFF_SIZE)
 
-    return apply_fv_staggered(op, f, axis, _DIFF_SIZE, kernel,
-                              metadata=None)
+    result = apply_fv_staggered(op, f, axis, _DIFF_SIZE, kernel,
+                                metadata=None)
+    if mapped:
+        return divide_by_codomain_measure(result, f, axis)
+    return result
 
 
 @final
@@ -229,12 +248,18 @@ class FluxDifference(SeparableOperator):
         # BC-free ghost extrapolation must never leak in here)
         codomain = factor_codomain(self, f.function_space, axis)
         axis_index = bare.names.index(axis)
-        spacing = uniform_spacing(factor)
+        mapped = mapped_factor(factor)
+        spacing = 1.0 if mapped else uniform_spacing(factor)
         pads = [(0, 0)] * len(bare.shape)
         pads[axis_index] = (1, 1)
         flux = jnp.pad(f.data, pads)
         data = staggered_diff(flux, axis_index, spacing=spacing,
                               order=_DIFF_SIZE)
+        if mapped:
+            # true-shape division by the codomain's primal cell
+            # width (rules 2.7/3.9), before the storage routing
+            query = codomain.with_layout(f.function_space.layout)
+            data = data / f.grid.measure(query, name=axis).data
         stored = store(f.grid.decomposition, codomain, data)
         return type(f)(f.grid, codomain, stored, None)
 

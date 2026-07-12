@@ -41,6 +41,8 @@ from fridom.spatial.operators.spectral import (
 )
 from fridom.spatial.operators.staggering import (
     apply_staggered,
+    divide_by_codomain_measure,
+    mapped_factor,
     patch_one_sided_edges,
     require_dof_preserving_bc,
     require_grounded_bounded_sides,
@@ -72,6 +74,11 @@ if TYPE_CHECKING:  # pragma: no cover
 #: in iteration 1
 _SYMBOL_ORDER = 2
 
+#: the only order whose spacing route is grounded on mapped meshes:
+#: the staggered measure field *is* the two-point difference of the
+#: node positions (rules section 3.9)
+_MEASURE_ORDER = 2
+
 
 @final
 @interned
@@ -83,9 +90,13 @@ class FiniteDifference(SeparableOperator):
     Description
     -----------
     The stencil pattern (from ``order``) is static identity; the
-    spacing denominator is the mesh's uniform cell width read at
-    trace time (iteration-1 stand-in for the ``grid.measure`` dual
-    measure field). ``eigenvalues`` is the ``i k_hat`` retagging
+    spacing denominator is the codomain's ``grid.measure`` metric
+    field, derived at trace time (concepts section 2.7): on a
+    uniform mesh the constant ``dx`` scalar fast path (folded by
+    XLA), on a mapped mesh the staggered measure field dividing the
+    unit-spacing stencil (order 2 only — higher orders need the
+    computational-space chain rule and are deferred).
+    ``eigenvalues`` is the ``i k_hat`` retagging
     symbol on a periodic mesh (order 2, Wave 9A) and the real
     ``±k_hat`` sine/cosine diagonal on the walled trig families
     (C4); BC-free bounded factors and higher orders raise
@@ -285,6 +296,15 @@ class FiniteDifference(SeparableOperator):
         """
         Differentiate along ``axis`` (window-aligned kernel).
 
+        Description
+        -----------
+        Uniform meshes fold the scalar cell width into the static
+        weights (the constant special case XLA folds); mapped
+        meshes run the unit-spacing kernel and divide by the
+        codomain's measure field (rules sections 2.7, 3.9) — order
+        2 only, where the staggered measure *is* the two-point
+        difference of the node positions.
+
         Parameters
         ----------
         f : FieldLike
@@ -298,8 +318,21 @@ class FiniteDifference(SeparableOperator):
             The derivative field (default metadata: new quantity).
         """
         factor = f.function_space.bare.factor(axis)
-        spacing = uniform_spacing(factor)
         order = self._order
+        mapped = mapped_factor(factor)
+        if mapped and order != _MEASURE_ORDER:
+            raise NotImplementedError(
+                "FiniteDifference on a mapped mesh is grounded at "
+                "order 2 (the staggered measure is the two-point "
+                "difference of the node positions); higher orders "
+                "need the computational-space chain rule "
+                "(coordinate-systems plan, stage C1+)")
+        if mapped and self._boundary == "one_sided":
+            raise NotImplementedError(
+                "the one-sided boundary closure solves its patch "
+                "weights on uniform node offsets; not grounded on "
+                "mapped meshes")
+        spacing = 1.0 if mapped else uniform_spacing(factor)
 
         def kernel(arr: Array, axis_index: int) -> Array:
             return staggered_diff(arr, axis_index, spacing=spacing,
@@ -307,6 +340,8 @@ class FiniteDifference(SeparableOperator):
 
         result = apply_staggered(self, f, axis, order, kernel,
                                  metadata=None)
+        if mapped:
+            return divide_by_codomain_measure(result, f, axis)
         if (self._boundary == "one_sided" and factor.bc.is_free
                 and not factor.mesh.periodic):
             require_local_axis(f, axis)

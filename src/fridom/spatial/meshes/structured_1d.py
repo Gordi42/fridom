@@ -53,6 +53,10 @@ from fridom.spatial.spaces.nodal import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
+    import jax
+
     from fridom.spatial.spaces.galerkin import GalerkinSpace
 
 
@@ -128,6 +132,29 @@ class StructuredMesh1D(Mesh):
     def periodic(self) -> bool:
         """Whether the interval is periodic (topology, not a BC)."""
         return self._periodic
+
+    @property
+    def coordinate_map(
+        self,
+    ) -> Callable[[jax.Array], jax.Array] | None:
+        r"""
+        Optional map from computational to physical coordinates.
+
+        Description
+        -----------
+        The mesh-side geometry seam of the grid's node/measure
+        materializers (concepts section 2.7): a pure, jnp-traceable,
+        strictly increasing callable from the computational
+        coordinate :math:`s \in [0, 1]` to the physical coordinate.
+        ``None`` — this default — declares the uniform affine
+        placement read off ``extent`` and the mesh's scalar ``dx``
+        descriptor (the constant special case XLA folds). Non-affine
+        meshes (``MappedIntervalMesh``, ``ChebyshevMesh``) return
+        the mapping callable; the mesh stores the *function*, never
+        materialized node arrays — the grid composes and shards on
+        demand.
+        """
+        return None
 
     # ================================================================
     #  Mesh interface

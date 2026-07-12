@@ -53,7 +53,6 @@ from fridom.spatial.fields.storage import (
     store,
 )
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
-from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.meshes.structured_1d import (
     StructuredMesh1D,
 )
@@ -835,10 +834,12 @@ class Grid:
         ``diff`` denominator), clipped to the domain on bounded
         meshes (a boundary-member node carries the half cell
         ``dx / 2``) — one accessor, the space decides which measure
-        it is (rules sections 2.7, 3.9). Uniform ``IntervalMesh``
-        geometry in iteration 1; the result is tagged with the
-        querying space, all other factors replaced by their
-        ``ConstantSpace``, so it broadcasts exactly (section 3.3).
+        it is (rules sections 2.7, 3.9). Structured 1D geometry:
+        uniform meshes yield the constant special case XLA folds,
+        mapped meshes the staggered differences of the mapped node
+        positions. The result is tagged with the querying space,
+        all other factors replaced by their ``ConstantSpace``, so
+        it broadcasts exactly (section 3.3).
 
         Parameters
         ----------
@@ -1294,10 +1295,11 @@ def _wavenumber_vector(factor: CoefficientSpace) -> jax.Array:
 
 
 # ================================================================
-#  Node coordinates of the iteration-1 spaces (IntervalMesh)
+#  Node coordinates of the structured 1D spaces
 # ================================================================
-# offsets of the first node from x_min, in units of dx, and the DOF
-# count offset relative to the cell count n
+# offsets of the first node from s = 0, in units of the
+# computational cell width 1 / n, and the DOF count offset relative
+# to the cell count n
 _NODE_OFFSET: dict[NodeSet, tuple[float, int]] = {
     NodeSet.CENTER: (0.5, 0),
     NodeSet.LEFT: (0.0, 0),
@@ -1324,9 +1326,12 @@ def _node_vector(factor: FunctionSpace) -> jax.Array:
 
     Description
     -----------
-    Uniform ``IntervalMesh`` geometry (iteration 1): nodal spaces at
-    their node sets, ``CellAvg`` at the midpoint-quadrature points
-    (cell centers), ``FaceAvg`` at the dual-cell midpoints (faces).
+    Structured 1D geometry: nodal spaces at their node sets,
+    ``CellAvg`` at the midpoint-quadrature points (cell centers),
+    ``FaceAvg`` at the dual-cell midpoints (faces). The
+    computational placement ``s = (i + offset) / n`` composes with
+    the mesh's ``coordinate_map`` seam (concepts section 2.7);
+    ``None`` is the uniform affine placement from ``extent``/``dx``.
     BC-constrained boundary DOFs are dropped exactly like the space
     shapes drop them.
 
@@ -1341,12 +1346,11 @@ def _node_vector(factor: FunctionSpace) -> jax.Array:
         The node coordinates, matching ``factor.shape``.
     """
     mesh = factor.mesh
-    if not isinstance(mesh, IntervalMesh):
+    if not isinstance(mesh, StructuredMesh1D):
         raise NotImplementedError(
-            f"evaluation nodes on {type(mesh).__name__} arrive in a "
-            "later wave; iteration 1 covers IntervalMesh")
-    x_min = mesh.extent[0]
-    dx = mesh.dx
+            f"evaluation nodes on {type(mesh).__name__} are not "
+            "defined: node placement needs the structured 1D "
+            "geometry seam (coordinate_map)")
     n = mesh.n_cells
     if isinstance(factor, NodalSpace):
         offset, count_offset = _NODE_OFFSET[factor.node_set]
@@ -1363,8 +1367,12 @@ def _node_vector(factor: FunctionSpace) -> jax.Array:
             f"evaluation nodes of {factor!r} are not defined in "
             "iteration 1")
     count = n + count_offset
-    nodes = x_min + (jnp.arange(count, dtype=dtype_real())
-                     + offset) * dx
+    steps = jnp.arange(count, dtype=dtype_real()) + offset
+    mapping = mesh.coordinate_map
+    if mapping is None:
+        nodes = mesh.extent[0] + steps * mesh.dx
+    else:
+        nodes = jnp.asarray(mapping(steps / n)).astype(dtype_real())
     # drop Dirichlet-constrained boundary DOFs (left, then right),
     # exactly like the space shapes drop them
     start, stop = 0, count
@@ -1386,13 +1394,15 @@ def _measure_vector(factor: FunctionSpace) -> jax.Array:
 
     Description
     -----------
-    Uniform ``IntervalMesh`` geometry (iteration 1): the constant
-    cell width ``dx`` everywhere, except that on bounded meshes a
-    node sitting *on* the boundary (a boundary-member DOF of its
-    node set) owns the clipped half dual cell ``dx / 2`` — which
-    makes the ``Outer`` weights exactly the trapezoid rule.
-    BC-constrained boundary DOFs are dropped exactly like the space
-    shapes drop them.
+    Structured 1D geometry (rules sections 2.7, 3.9). Uniform
+    meshes (``coordinate_map is None``): the constant cell width
+    ``dx`` everywhere, except that on bounded meshes a node sitting
+    *on* the boundary (a boundary-member DOF of its node set) owns
+    the clipped half dual cell ``dx / 2`` — which makes the
+    ``Outer`` weights exactly the trapezoid rule. Mapped meshes:
+    the staggered differences of the mapped node positions
+    (``_mapped_measure_vector``). BC-constrained boundary DOFs are
+    dropped exactly like the space shapes drop them.
 
     Parameters
     ----------
@@ -1405,19 +1415,31 @@ def _measure_vector(factor: FunctionSpace) -> jax.Array:
         The measure weights, matching ``factor.shape``.
     """
     mesh = factor.mesh
-    if not isinstance(mesh, IntervalMesh):
+    if isinstance(mesh, ChebyshevMesh):
         raise NotImplementedError(
-            f"measure fields on {type(mesh).__name__} arrive in a "
-            "later wave; iteration 1 covers IntervalMesh")
-    dx = mesh.dx
+            "measure fields on ChebyshevMesh await the "
+            "Clenshaw-Curtis quadrature weights (rules section "
+            "3.13); the staggered cell measures are not that "
+            "quadrature")
+    if not isinstance(mesh, StructuredMesh1D):
+        raise NotImplementedError(
+            f"measure fields on {type(mesh).__name__} are not "
+            "defined: the staggered cell measures need the "
+            "structured 1D geometry seam (coordinate_map)")
     count_offset, membership = _measure_geometry(factor)
     count = mesh.n_cells + count_offset
-    weights = jnp.full(count, dx, dtype=dtype_real())
-    if not mesh.periodic:
-        if membership[0]:
-            weights = weights.at[0].set(dx / 2)
-        if membership[1]:
-            weights = weights.at[-1].set(dx / 2)
+    mapping = mesh.coordinate_map
+    if mapping is None:
+        dx = mesh.dx
+        weights = jnp.full(count, dx, dtype=dtype_real())
+        if not mesh.periodic:
+            if membership[0]:
+                weights = weights.at[0].set(dx / 2)
+            if membership[1]:
+                weights = weights.at[-1].set(dx / 2)
+    else:
+        weights = _mapped_measure_vector(factor, mapping,
+                                         membership)
     start, stop = 0, count
     components = factor.bc.components
     if components:
@@ -1440,7 +1462,7 @@ def _measure_geometry(
     Parameters
     ----------
     factor : FunctionSpace
-        A nodal or average factor space of an ``IntervalMesh``.
+        A nodal or average factor space of a structured 1D mesh.
 
     Returns
     -------
@@ -1457,6 +1479,69 @@ def _measure_geometry(
         return (0 if factor.mesh.periodic else -1), (False, False)
     raise NotImplementedError(
         f"the measure of {factor!r} is not defined in iteration 1")
+
+
+def _mapped_measure_vector(
+    factor: FunctionSpace,
+    mapping: Callable[[jax.Array], jax.Array],
+    membership: tuple[bool, bool],
+) -> jax.Array:
+    """
+    Staggered measures of a mapped structured 1D factor.
+
+    Description
+    -----------
+    The rules-section-3.9 staggered differences of the mapped node
+    positions: the primal cell width (face-to-face differences) on
+    ``Center``/``CellAvg``; the dual center-to-center spacing on
+    the face-family node sets — wrapping across the seam on
+    periodic meshes (the seam entry adds the domain length) and
+    clipped to the wall at boundary-member nodes on bounded ones
+    (the stretched trapezoid weights). Pre-BC-drop: the caller
+    slices constrained boundary DOFs off.
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        A nodal or average factor space of the mapped mesh.
+    mapping : Callable
+        The mesh's coordinate map (``s`` in [0, 1] -> physical).
+    membership : tuple[bool, bool]
+        Whether the (left, right) end DOF sits on the boundary.
+
+    Returns
+    -------
+    jax.Array
+        The measure weights at the pre-drop DOF count.
+    """
+    mesh = factor.mesh
+    n = mesh.n_cells
+    x_min, x_max = mesh.extent
+    primal = (isinstance(factor, CellAvg)
+              or (isinstance(factor, NodalSpace)
+                  and factor.node_set is NodeSet.CENTER))
+    if primal:
+        faces = jnp.asarray(mapping(
+            jnp.arange(n + 1, dtype=dtype_real()) / n))
+        return jnp.diff(faces).astype(dtype_real())
+    centers = jnp.asarray(mapping(
+        (jnp.arange(n, dtype=dtype_real()) + 0.5) / n))
+    interior = jnp.diff(centers)
+    if mesh.periodic:
+        wrap = (centers[0] + (x_max - x_min) - centers[-1])[None]
+        if (isinstance(factor, NodalSpace)
+                and factor.node_set is NodeSet.LEFT):
+            parts = (wrap, interior)  # the seam face sits first
+        else:  # Right / FaceAvg hold faces 1..n: seam face last
+            parts = (interior, wrap)
+        return jnp.concatenate(parts).astype(dtype_real())
+    parts = []
+    if membership[0]:  # wall node owns the clipped half dual cell
+        parts.append((centers[0] - x_min)[None])
+    parts.append(interior)
+    if membership[1]:
+        parts.append((x_max - centers[-1])[None])
+    return jnp.concatenate(parts).astype(dtype_real())
 
 
 # ================================================================
@@ -1824,8 +1909,11 @@ def _transform_origins(
         return tuple(pairs)
     for family, factory in _TRIG_ORIGIN_CANDIDATES:
         origin = _probe(lambda f=factory, m=mesh: f(m))
-        if origin is not None:
-            pairs.append((family, origin))
+        if origin is None or _probe(
+                lambda o=origin, m=mesh:
+                _coefficient_space(m, o)) is None:
+            continue  # origin or its coefficient family absent
+        pairs.append((family, origin))
     if hasattr(mesh, "chebyshev"):
         lobatto = _probe(lambda m=mesh: m.outer)
         if lobatto is not None:

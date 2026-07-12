@@ -13,6 +13,9 @@ from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.grid import Grid, _tagged_trig_origins
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.meshes.point import PointMesh
 from fridom.spatial.operators.base import (
     OperatorRequirements,
@@ -625,11 +628,21 @@ def test_nodes_coefficient_factor_raises(grid1d, mx):
         grid1d.evaluation_nodes(mx.fourier(origin=mx.center))
 
 
-def test_nodes_on_non_interval_mesh_not_implemented():
+def test_nodes_on_chebyshev_are_ascending_gauss_lobatto():
     cheb = ChebyshevMesh(8, (0.0, 1.0), name="s")
     grid = Grid((cheb,))
-    with pytest.raises(NotImplementedError, match="IntervalMesh"):
-        grid.evaluation_nodes(cheb.outer)
+    nodes = grid.evaluation_nodes(cheb.outer)
+    expected = 0.5 * (1.0 - jnp.cos(jnp.pi * jnp.arange(9) / 8))
+    assert jnp.allclose(nodes.data, expected)
+
+
+def test_nodes_and_measure_on_point_mesh_raise():
+    pm = PointMesh(((0.0,), (1.0,)), name="q")
+    grid = Grid((pm,))
+    with pytest.raises(NotImplementedError, match="structured 1D"):
+        grid.evaluation_nodes(pm.points)
+    with pytest.raises(NotImplementedError, match="structured 1D"):
+        grid.measure(pm.points)
 
 
 def test_wavenumbers_fourier(grid1d, mx):
@@ -712,3 +725,152 @@ def test_neumann_outer_seeds_the_dct1_transform_row(my):
     assert type(cosine).__name__ == "Cosine"
     spectral = grid.dispatch.resolve("diff", my.cosine(outer_neumann))
     assert type(spectral).__name__ == "SpectralDerivative"
+
+
+# ================================================================
+#  Mapped meshes: nodes and staggered measure fields (stage C0)
+# ================================================================
+MN = 8
+
+
+def tanh_map(s):
+    return jnp.tanh(2.0 * s) / jnp.tanh(2.0)
+
+
+def wavy_map(s):
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+@pytest.fixture
+def mzm():
+    return MappedIntervalMesh(MN, (0.0, 1.0), tanh_map, name="z")
+
+
+@pytest.fixture
+def mpm():
+    return MappedIntervalMesh(MN, (0.0, 1.0), wavy_map,
+                              periodic=True, name="p")
+
+
+def _s_centers():
+    return (jnp.arange(MN) + 0.5) / MN
+
+
+def _s_faces():
+    return jnp.arange(MN + 1) / MN
+
+
+@pytest.mark.parametrize(("attr", "s_nodes"), [
+    pytest.param("center", _s_centers(), id="center"),
+    pytest.param("outer", _s_faces(), id="outer"),
+    pytest.param("inner", _s_faces()[1:-1], id="inner"),
+    pytest.param("left", _s_faces()[:-1], id="left"),
+    pytest.param("right", _s_faces()[1:], id="right"),
+    pytest.param("cell_avg", _s_centers(), id="cell_avg"),
+    pytest.param("face_avg", _s_faces()[1:-1], id="face_avg"),
+])
+def test_mapped_nodes_compose_the_mapping(mzm, attr, s_nodes):
+    grid = Grid((mzm,))
+    nodes = grid.evaluation_nodes(getattr(mzm, attr))
+    assert jnp.allclose(nodes.data, tanh_map(s_nodes))
+
+
+@pytest.mark.parametrize(("attr", "s_nodes"), [
+    pytest.param("center", _s_centers(), id="center"),
+    pytest.param("left", _s_faces()[:-1], id="left"),
+    pytest.param("right", _s_faces()[1:], id="right"),
+    pytest.param("face_avg", _s_faces()[1:], id="face_avg"),
+])
+def test_mapped_periodic_nodes_compose_the_mapping(
+        mpm, attr, s_nodes):
+    grid = Grid((mpm,))
+    nodes = grid.evaluation_nodes(getattr(mpm, attr))
+    assert jnp.allclose(nodes.data, wavy_map(s_nodes))
+
+
+def test_mapped_primal_measure_is_the_cell_width(mzm):
+    grid = Grid((mzm,))
+    faces = tanh_map(_s_faces())
+    for space in (mzm.center, mzm.cell_avg):
+        w = grid.measure(space, name="z")
+        assert jnp.allclose(w.data, jnp.diff(faces))
+        assert float(w.data.sum()) == pytest.approx(1.0)
+
+
+def test_mapped_dual_measures_clip_at_the_walls(mzm):
+    grid = Grid((mzm,))
+    centers = tanh_map(_s_centers())
+    interior = jnp.diff(centers)
+    outer = grid.measure(mzm.outer, name="z")
+    expected = jnp.concatenate([
+        centers[:1] - 0.0, interior, 1.0 - centers[-1:]])
+    assert jnp.allclose(outer.data, expected)
+    assert float(outer.data.sum()) == pytest.approx(1.0)
+    inner = grid.measure(mzm.inner, name="z")
+    assert jnp.allclose(inner.data, interior)
+    assert jnp.allclose(grid.measure(mzm.face_avg, name="z").data,
+                        interior)
+
+
+def test_mapped_bounded_left_right_clip_one_side(mzm):
+    grid = Grid((mzm,))
+    centers = tanh_map(_s_centers())
+    interior = jnp.diff(centers)
+    left = grid.measure(mzm.left, name="z")
+    assert jnp.allclose(
+        left.data, jnp.concatenate([centers[:1] - 0.0, interior]))
+    right = grid.measure(mzm.right, name="z")
+    assert jnp.allclose(
+        right.data,
+        jnp.concatenate([interior, 1.0 - centers[-1:]]))
+
+
+def test_mapped_measures_genuinely_differ(mzm):
+    # the primal and dual dx are different fields on a stretched
+    # mesh (concepts 2.7); on a uniform mesh both collapse to dx
+    grid = Grid((mzm,))
+    primal = grid.measure(mzm.center, name="z").data
+    dual = grid.measure(mzm.inner, name="z").data
+    assert not jnp.allclose(primal[1:], dual)
+
+
+def test_mapped_periodic_dual_measure_wraps(mpm):
+    grid = Grid((mpm,))
+    centers = wavy_map(_s_centers())
+    wrap = centers[:1] + 1.0 - centers[-1:]
+    interior = jnp.diff(centers)
+    right = grid.measure(mpm.right, name="p")
+    assert jnp.allclose(right.data,
+                        jnp.concatenate([interior, wrap]))
+    assert float(right.data.sum()) == pytest.approx(1.0)
+    left = grid.measure(mpm.left, name="p")
+    assert jnp.allclose(left.data,
+                        jnp.concatenate([wrap, interior]))
+    assert jnp.allclose(grid.measure(mpm.face_avg, name="p").data,
+                        right.data)
+
+
+def test_mapped_measure_drops_bc_constrained_dofs(mzm):
+    grid = Grid((mzm,))
+    space = mzm.nodal(NodeSet.OUTER, bc=BC.DIRICHLET)
+    w = grid.measure(space, name="z")
+    assert w.data.shape == space.shape == (MN - 1,)
+    centers = tanh_map(_s_centers())
+    assert jnp.allclose(w.data, jnp.diff(centers))
+
+
+def test_measure_on_chebyshev_awaits_clenshaw_curtis():
+    cheb = ChebyshevMesh(8, (0.0, 1.0), name="s")
+    grid = Grid((cheb,))
+    with pytest.raises(NotImplementedError, match="Clenshaw"):
+        grid.measure(cheb.outer)
+
+
+def test_mapped_mesh_seeds_no_transform_rows(mpm, mzm):
+    # computational-space bases are deferred (stage C2): neither
+    # the periodic Fourier row nor the bounded trig rows seed
+    with pytest.raises(DispatchError):
+        Grid((mpm,)).dispatch.resolve("transform", mpm.center)
+    tagged = mzm.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    with pytest.raises(DispatchError):
+        Grid((mzm,)).dispatch.resolve("transform", tagged)
