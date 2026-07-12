@@ -61,11 +61,17 @@ def build_column_grid(n, init=depth):
 # ================================================================
 #  Gate 1: the mapped-flat identity
 # ================================================================
+# Rotation is opt-in (nh.Model's coriolis=None means NO rotation), so
+# the builders below name the f0 = 1 f-plane the old implicit default
+# installed: the mapped/flat comparison must compare the same physics,
+# and a linear nonhydro model with no rotation at all would advance
+# neither u nor v (the D1.4 coverage lint).
 def make_flat_model(**kwargs):
     mx = IntervalMesh(N, (0.0, TWO_PI), periodic=True, name="x")
     my = IntervalMesh(N, (0.0, TWO_PI), periodic=True, name="y")
     mz = IntervalMesh(N, (0.0, H0), periodic=False, name="z")
-    return nh.Model(grid=Grid((mx, my, mz)), **kwargs)
+    return nh.Model(grid=Grid((mx, my, mz)),
+                    coriolis=nh.FPlaneCoriolis(f0=1.0), **kwargs)
 
 
 def make_mapped_flat_model(**kwargs):
@@ -82,6 +88,7 @@ def make_mapped_flat_model(**kwargs):
     # deviation from the flat run (5.5e-15 relative after 200 steps)
     # at 4, 8 and 30 iterations
     return nh.Model(grid=Grid((mx, my, mz), mapping=mapping),
+                    coriolis=nh.FPlaneCoriolis(f0=1.0),
                     pressure_iterations=4, **kwargs)
 
 
@@ -247,6 +254,7 @@ def make_channel_model(n=N, **kwargs):
     # and transport spread 1.1e-16 at BOTH 16 and 30 (the assertions
     # keep their tolerances); 8 would NOT do (divergence 1.8e-9)
     return nh.Model(grid=Grid((mx, my, mz), mapping=mapping),
+                    coriolis=nh.FPlaneCoriolis(f0=1.0),
                     pressure_iterations=16, **kwargs)
 
 

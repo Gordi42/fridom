@@ -18,9 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .coriolis import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
-        NoCoriolis,
         RotationCoriolis,
-        SphericalCoriolis,
     )
     from .moving_geometry import (
         MeshVelocityCorrection,
@@ -35,8 +33,7 @@ all_modules_by_origin: dict[str, list[str]] = {}
 
 all_imports_by_origin = {
     f"{base}.coriolis": ["FPlaneCoriolis", "BetaPlaneCoriolis",
-                          "SphericalCoriolis", "RotationCoriolis",
-                          "NoCoriolis"],
+                          "RotationCoriolis"],
     f"{base}.moving_geometry": ["MovingGeometry",
                                 "MeshVelocityCorrection",
                                 "mapping_params"],

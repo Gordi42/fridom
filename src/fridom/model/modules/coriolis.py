@@ -1,5 +1,5 @@
 r"""
-Shared Coriolis modules: f-plane, beta-plane, chart rotation, none.
+Shared Coriolis modules: f-plane, beta-plane, chart rotation.
 
 Description
 -----------
@@ -11,20 +11,23 @@ clean, field-based implementation instead of a per-package copy.
 (coordinate-systems plan, stage C2): it takes the **ambient rotation
 vector** :math:`\vec\Omega` and derives the Coriolis parameter from
 the chart's own geometry, :math:`f = 2\,\vec\Omega\cdot\hat n` (see
-its class docstring for the derivation). ``SphericalCoriolis`` is its
-lat-lon special case :math:`\vec\Omega = (0, 0, \Omega)`, kept for its
-analytic :math:`f = 2\,\Omega\sin(\varphi)`; ``NoCoriolis`` is the
-explicit null module (run without rotation).
+its class docstring for the derivation). The lat-lon sphere with
+:math:`\vec\Omega = (0, 0, \Omega)` is its special case, for which
+the derived field is the familiar
+:math:`f = 2\,\Omega\sin(\varphi)`.
+
+**Rotation is opt-in.** The preset factories (``sw.Model``,
+``nh.Model``) take ``coriolis=None`` — the argument omitted — to mean
+**no Coriolis force at all**: no module, no ``f_coriolis`` field, no
+rotation term, and no ``coriolis.f0`` provide. A rotating run names
+its rotation explicitly. There is therefore no null "no-rotation"
+module: omitting the argument *is* the no-rotation option.
 
 **Metric-blindness is an error on chart grids**: ``FPlaneCoriolis``
 and ``BetaPlaneCoriolis`` rotate *Cartesian* components with no
 metric factors, so on a grid carrying an embedding chart they are
 almost always wrong physics; they reject such a grid at bind with a
-taught error naming ``RotationCoriolis`` / ``NoCoriolis``. Preset
-factories (``sw.Model``, ``nh.Model``) keep ``coriolis=None`` meaning
-"the nondimensional :math:`f_0 = 1` f-plane" on flat grids and raise
-on chart grids — ``coriolis=False`` (or ``NoCoriolis()``) is the
-explicit no-rotation option.
+taught error naming ``RotationCoriolis``.
 
 Following R2 (01_concepts D2.2), the Coriolis parameter is
 *intrinsically spatial* — a constant on the f-plane, :math:`f(y)` on
@@ -213,45 +216,9 @@ def _reject_chart_grid(module: Module, table: object) -> None:
         "contravariant components: use "
         "fr.modules.RotationCoriolis(omega=(0.0, 0.0, Omega), "
         f"coords={chart!r}) — it derives f = 2 Omega . n_hat from "
-        "the chart itself (SphericalCoriolis is its lat-lon special "
-        "case) — or fr.modules.NoCoriolis() to run without rotation")
-
-
-def require_flat_grid_for_the_default(grid: object) -> None:
-    """Guard the preset factories' ``coriolis=None`` default.
-
-    Description
-    -----------
-    ``coriolis=None`` means "the nondimensional :math:`f_0 = 1`
-    f-plane" — the historical default of every preset, which the
-    flat-grid setups rely on and which stays untouched. On a chart
-    grid that default would be *silently wrong physics* (a
-    metric-blind rotation of contravariant components), so the
-    presets refuse to guess: on a chart grid the rotation must be
-    named explicitly.
-
-    Parameters
-    ----------
-    grid : object
-        The grid the preset is assembling on.
-
-    Raises
-    ------
-    ValueError
-        If the grid carries an embedding chart.
-    """
-    chart = grid.chart_coords
-    if chart is None:
-        return
-    raise ValueError(
-        "coriolis=None installs the default f-plane (f0 = 1), which "
-        f"is metric-blind, but this grid carries an embedding chart "
-        f"on {chart}: name the rotation explicitly — "
-        "coriolis=fr.modules.RotationCoriolis(omega=(0.0, 0.0, "
-        f"Omega), coords={chart!r}) derives f = 2 Omega . n_hat from "
-        "the chart (SphericalCoriolis is its lat-lon special case), "
-        "and coriolis=False (or fr.modules.NoCoriolis()) runs "
-        "without rotation")
+        "the chart itself, and the lat-lon sphere with a polar Omega "
+        "gives f = 2 Omega sin(lat) — or omit coriolis= entirely to "
+        "run without rotation")
 
 
 @partial(jaxify, dynamic=("f0",))
@@ -437,41 +404,6 @@ class BetaPlaneCoriolis(Module):
     coriolis = _coriolis
 
 
-@partial(jaxify, dynamic=("f0",))
-class NoCoriolis(Module):
-
-    r"""
-    The explicit no-rotation module; provides ``coriolis.f0 = 0``.
-
-    Description
-    -----------
-    A null module: no fields, no terms — and a *provide*. Running
-    without rotation is a physical choice, not a forgotten argument,
-    so it is spelled by a module of its own rather than by omission
-    (``coriolis=None`` in the preset factories keeps its historical
-    meaning, the nondimensional :math:`f_0 = 1` f-plane; the presets
-    also accept ``coriolis=False`` as sugar for this module).
-
-    Because it declares the constant ``coriolis.f0 = 0``, the
-    analytic consumers that read the Coriolis parameter through the
-    provide (``eigenmodes.from_model``, the energy metric's
-    constancy gate, the balance expansion) keep working and simply
-    see a non-rotating model — an omitted module would fail their
-    "no provider" check instead (provides-implies-constancy, and
-    :math:`f \equiv 0` is constant).
-    """
-
-    def __init__(self) -> None:
-        """Declare the zero Coriolis parameter as a dynamic leaf."""
-        self.f0 = leaf(0.0)
-
-    parameter_declarations = (
-        ParameterDeclaration(CORIOLIS_F0, attr="f0", units="1/s",
-                             doc="constant Coriolis parameter "
-                                 "(zero: no rotation)"),
-    )
-
-
 @partial(jaxify, dynamic=("omega",))
 class RotationCoriolis(Module):
 
@@ -565,7 +497,8 @@ class RotationCoriolis(Module):
 
     Sanity checks (all covered by tests): the lat-lon sphere chart
     with :math:`\vec\Omega = (0,0,\Omega)` gives
-    :math:`f = 2\Omega\sin\varphi` (i.e. ``SphericalCoriolis``); the
+    :math:`f = 2\Omega\sin\varphi` — **the classical spherical
+    Coriolis parameter is a derived special case**; the
     flat identity chart :math:`X = (x, y, 0)` gives
     :math:`f = 2\Omega` — **the f-plane is a derived special case**,
     bitwise equal to ``FPlaneCoriolis(f0=2*Omega)``; a torus chart
@@ -759,84 +692,3 @@ class RotationCoriolis(Module):
             "u": flux_weight * v.to(u) / w_1,
             "v": -((flux_weight * u).to(v)) / w_2,
         }
-
-
-class SphericalCoriolis(RotationCoriolis):
-
-    r"""
-    Planetary rotation on a lat-lon sphere chart.
-
-    Description
-    -----------
-    The polar special case of :class:`RotationCoriolis`.
-    -----------
-    :math:`\vec\Omega = (0, 0, \Omega)` on the standard lat-lon
-    chart, for which the surface normal is the outward radial unit
-    vector and hence
-
-    .. math::
-        f = 2\,\vec\Omega\cdot\hat n = 2\,\Omega\,\sin(\varphi) .
-
-    The rotation term, the exact discrete skew-symmetry and the
-    ``metric_weight`` knob are inherited verbatim from
-    :class:`RotationCoriolis` — this subclass only replaces the
-    *derived* ``f`` by its closed form (which is why the spherical
-    runs stay bitwise unchanged), and declares it on a meridional
-    ``fr.Profile(lat)``. Prefer ``RotationCoriolis`` for anything
-    that is not a lat-lon sphere.
-
-    Parameters
-    ----------
-    omega : float, optional
-        The planetary rotation rate :math:`\Omega` (default: 1.0).
-    coords : tuple[str, str], optional
-        The (zonal, meridional) chart coordinate names in the
-        grid's factor order (default: ``("lon", "lat")``).
-    metric_weight : str | None, optional
-        Name of a state field weighting the velocity energy metric
-        (e.g. the variable-depth shallow-water ``"csqr"``)
-        (default: None).
-    """
-
-    def __init__(
-        self,
-        omega: float = 1.0,
-        *,
-        coords: tuple[str, str] = ("lon", "lat"),
-        metric_weight: str | None = None,
-    ) -> None:
-        """Store the scalar rotation rate and the coordinates."""
-        self.omega = leaf(omega)
-        self._coords: tuple[str, str] = _chart_coord_names(coords)
-        self._metric_weight = metric_weight
-
-    @property
-    def field_declarations(self) -> tuple[FieldDeclaration, ...]:
-        """The ``2 Omega sin(lat)`` field on a meridional profile."""
-        return (
-            FieldDeclaration(
-                "f_coriolis", space=Profile(self._coords[1]),
-                lifecycle=Lifecycle.AUXILIARY,
-                default=self._f_default,
-                long_name="Coriolis parameter", units="1/s"),
-        )
-
-    def _f_default(self, grid: object, space: object) -> ScalarField:
-        """Owner-method default: materialize ``2 Omega sin(lat)``.
-
-        The closed form of the general ``2 Omega . n_hat`` on the
-        lat-lon chart. The meridional profile carries a single
-        non-constant coordinate, so ``init`` names exactly that
-        coordinate; the signature is stamped dynamically to match
-        the declared meridional name (the ``BetaPlaneCoriolis``
-        precedent). No pre-syncing (GAP-B).
-        """
-        omega, lat = self.omega, self._coords[1]
-
-        def init(**coordinates: object) -> object:
-            return 2.0 * omega * jnp.sin(coordinates[lat])
-
-        init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
-            [inspect.Parameter(
-                lat, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
-        return grid.create_field(space, init=init, name="f_coriolis")

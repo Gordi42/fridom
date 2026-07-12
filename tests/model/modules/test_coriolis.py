@@ -2,9 +2,13 @@
 
 RotationCoriolis derives the Coriolis parameter from the chart itself,
 f = 2 Omega . n_hat with n_hat the surface unit normal: the lat-lon
-sphere with Omega = (0, 0, w) reproduces 2 w sin(lat) (SphericalCoriolis
-is that special case), the identity chart X = (x, y, 0) reproduces the
-f-plane bitwise, and a torus gives the f of its analytic normal.
+sphere with Omega = (0, 0, w) reproduces the classical 2 w sin(lat),
+the identity chart X = (x, y, 0) reproduces the f-plane bitwise, and a
+torus gives the f of its analytic normal.
+
+Rotation is opt-in: the presets' coriolis=None (the argument omitted)
+installs no Coriolis module at all — no f_coriolis field, no rotation
+term, no coriolis.f0 provide.
 
 The metric_weight knob (the thickness-weighted rotation): with a
 varying velocity energy weight w(y) — the variable-depth shallow
@@ -24,9 +28,7 @@ from fridom.model.energy import EnergyMetric
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
-    NoCoriolis,
     RotationCoriolis,
-    SphericalCoriolis,
 )
 from fridom.model.params import CORIOLIS_F0
 
@@ -150,7 +152,7 @@ def test_beta_weighted_rotation_conserves_the_weighted_energy():
 
 
 # ================================================================
-#  SphericalCoriolis: the chart-grid rotation (stage C2)
+#  The lat-lon sphere chart (stage C2)
 # ================================================================
 OMEGA = 1.7
 LAT_MAX = float(np.deg2rad(80.0))
@@ -174,104 +176,6 @@ def sphere_grid(nlon=2 * N, nlat=N):
         "lower_index": fr.spatial.operators.LowerIndex(
             ("lon", "lat"), diagonal=True)})
     return grid
-
-
-def make_sphere(coriolis, csqr=0.7):
-    """Build a spherical shallow-water model (linear terms only)."""
-    return sw.Model(
-        grid=sphere_grid(), coords=("lon", "lat"), csqr=csqr,
-        rossby_number=0.2, coriolis=coriolis, advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
-
-
-def test_spherical_rejects_bad_coords():
-    with pytest.raises(TypeError, match="two distinct strings"):
-        SphericalCoriolis(coords=("lon",))
-    with pytest.raises(TypeError, match="two distinct strings"):
-        SphericalCoriolis(coords=("lat", "lat"))
-
-
-def test_spherical_metric_weight_adds_a_field_reference():
-    module = SphericalCoriolis(metric_weight="csqr")
-    assert module.metric_weight == "csqr"
-    assert tuple(ref.name for ref in module.field_references) == (
-        "u", "v", "csqr")
-    assert SphericalCoriolis().metric_weight is None
-
-
-def test_spherical_declares_extra_halo_on_its_coords():
-    module = SphericalCoriolis(coords=("a", "b"))
-    assert module.coords == ("a", "b")
-    assert module.extra_halo["a"] == 1
-    assert module.extra_halo["b"] == 1
-
-
-def test_spherical_requires_a_chart_grid():
-    with pytest.raises(ValueError, match="chart-coupled grid"):
-        make_channel(0.7, SphericalCoriolis(omega=OMEGA))
-
-
-def test_spherical_coords_must_match_the_chart():
-    with pytest.raises(ValueError, match="chart coordinates"):
-        sw.Model(
-            grid=sphere_grid(), coords=("lon", "lat"), csqr=0.7,
-            coriolis=SphericalCoriolis(
-                omega=OMEGA, coords=("phi", "theta")),
-            advection=False,
-            time_stepper=fr.model.time_steppers.AdamBashforth(
-                1e-3, order=3))
-
-
-def test_spherical_f_field_is_2_omega_sin_lat():
-    model = make_sphere(SphericalCoriolis(omega=OMEGA))
-    f = model.state["f_coriolis"]
-    lat = model.grid.evaluation_nodes(f.function_space, "lat").data
-    np.testing.assert_allclose(
-        np.asarray(f.data), np.asarray(2.0 * OMEGA * jnp.sin(lat)),
-        rtol=0.0, atol=1e-14)
-
-
-def test_spherical_rotation_is_the_physical_rotation():
-    # solid-body zonal flow u^lon = w0, v = 0: the term must return
-    # du = 0 and dv^lat = -f sqrt(g) g^latlat u = -2 Omega w0
-    # sin(lat) cos(lat) (unit sphere) up to interpolation error
-    # (measured: 0.042 / 0.011 / 0.005 absolute at nlat 8/16/32
-    # against a 0.5 scale)
-    errors = []
-    w0 = 0.3
-    coriolis_term = fr.model.term_predicates.named(
-        "SphericalCoriolis/coriolis")
-    for nlat in (N, 2 * N):
-        model = sw.Model(
-            grid=sphere_grid(nlon=2 * N, nlat=nlat),
-            coords=("lon", "lat"), csqr=0.7, rossby_number=0.2,
-            coriolis=SphericalCoriolis(omega=OMEGA),
-            advection=False,
-            time_stepper=fr.model.time_steppers.AdamBashforth(
-                1e-3, order=3))
-        model.set_fields(
-            u=lambda lon, lat: w0 + 0.0 * lon + 0.0 * lat)
-        dz = model.tendency(model.state, filter=coriolis_term)
-        assert float(np.abs(np.asarray(dz["u"].data)).max()) < 1e-14
-        v = model.state["v"]
-        lat = model.grid.evaluation_nodes(
-            v.function_space, "lat").data
-        exact = -2.0 * OMEGA * w0 * np.sin(lat) * np.cos(lat)
-        errors.append(float(np.abs(
-            np.asarray(dz["v"].data) - np.asarray(exact)).max()))
-    assert errors[0] < 5e-2
-    assert errors[1] < 0.4 * errors[0]  # refinement converges
-
-
-@pytest.mark.parametrize("weight", [None, "csqr"])
-def test_spherical_rotation_is_m_skew_on_the_sphere(weight):
-    # rotation does no work under the metric energy
-    # E = sum sqrt(g) g_ii w (u^i)^2 / 2 (measure-weighted sums):
-    # the flux weight G transposes exactly across the .to averages
-    model = make_sphere(SphericalCoriolis(
-        omega=OMEGA, metric_weight=weight))
-    assert rotation_energy_rate(
-        model, "SphericalCoriolis", ("lon", "lat"), weight) < 1e-14
 
 
 # ================================================================
@@ -432,32 +336,35 @@ def test_rotation_on_the_sphere_is_2_omega_sin_lat():
         rtol=0.0, atol=1e-14)
 
 
-def test_rotation_reproduces_the_spherical_module():
-    # SphericalCoriolis IS RotationCoriolis with Omega = (0, 0, w):
-    # the term is inherited verbatim, only f is the closed form, so
-    # the tendencies agree to the rounding of the derived normal
-    general = make_chart_model(
-        sphere_grid(), RotationCoriolis(omega=(0.0, 0.0, OMEGA),
-                                        coords=("lon", "lat")),
-        coords=("lon", "lat"))
-    special = make_chart_model(
-        sphere_grid(), SphericalCoriolis(omega=OMEGA),
-        coords=("lon", "lat"))
-    assert isinstance(SphericalCoriolis(), RotationCoriolis)
-    rng = np.random.default_rng(11)
-    fields = {name: rng.standard_normal(
-        np.asarray(general.state[name].data).shape)
-        for name in ("u", "v", "p")}
-    general.set_fields(**fields)
-    special.set_fields(**fields)
-    dg = general.tendency(general.state, filter=(
-        fr.model.term_predicates.named("RotationCoriolis/coriolis")))
-    ds = special.tendency(special.state, filter=(
-        fr.model.term_predicates.named("SphericalCoriolis/coriolis")))
-    for comp in ("u", "v"):
-        np.testing.assert_allclose(
-            np.asarray(dg[comp].data), np.asarray(ds[comp].data),
-            rtol=0.0, atol=1e-14)
+def test_rotation_on_the_sphere_is_the_physical_rotation():
+    # the spherical physics, pinned on the chart-generic module (the
+    # only rotation module there is): solid-body zonal flow
+    # u^lon = w0, v = 0 must give du = 0 and
+    # dv^lat = -f sqrt(g) g^latlat u = -2 Omega w0 sin(lat) cos(lat)
+    # (unit sphere) up to interpolation error (measured: 0.042 /
+    # 0.011 / 0.005 absolute at nlat 8/16/32 against a 0.5 scale)
+    errors = []
+    w0 = 0.3
+    coriolis_term = fr.model.term_predicates.named(
+        "RotationCoriolis/coriolis")
+    for nlat in (N, 2 * N):
+        model = make_chart_model(
+            sphere_grid(nlon=2 * N, nlat=nlat),
+            RotationCoriolis(omega=(0.0, 0.0, OMEGA),
+                             coords=("lon", "lat")),
+            coords=("lon", "lat"))
+        model.set_fields(
+            u=lambda lon, lat: w0 + 0.0 * lon + 0.0 * lat)
+        dz = model.tendency(model.state, filter=coriolis_term)
+        assert float(np.abs(np.asarray(dz["u"].data)).max()) < 1e-14
+        v = model.state["v"]
+        lat = model.grid.evaluation_nodes(
+            v.function_space, "lat").data
+        exact = -2.0 * OMEGA * w0 * np.sin(lat) * np.cos(lat)
+        errors.append(float(np.abs(
+            np.asarray(dz["v"].data) - np.asarray(exact)).max()))
+    assert errors[0] < 5e-2
+    assert errors[1] < 0.4 * errors[0]  # refinement converges
 
 
 # ----------------------------------------------------------------
@@ -541,20 +448,19 @@ def test_rotation_is_m_skew_on_the_torus(weight):
 
 
 # ================================================================
-#  The no-Coriolis option and the metric-blindness guards
+#  No rotation is the DEFAULT; the metric-blindness guards
 # ================================================================
-def test_no_coriolis_provides_a_zero_f0():
-    module = NoCoriolis()
-    assert float(module.f0) == 0.0
-    assert module.field_declarations == ()
-    assert module.field_references == ()
-    assert module.parameter_declarations[0].name == CORIOLIS_F0
-
-
-def test_no_coriolis_runs_without_rotation():
-    model = make_channel(0.7, NoCoriolis())
+def test_omitting_coriolis_installs_no_rotation():
+    # coriolis=None (the argument omitted) means NO Coriolis force:
+    # no module, hence no f_coriolis field, no rotation term and no
+    # coriolis.f0 provide. A rotating run names its rotation.
+    model = make_channel(0.7, None)
     assert "f_coriolis" not in model.state
-    assert float(model.parameters[CORIOLIS_F0]) == 0.0
+    assert CORIOLIS_F0 not in model.parameters
+    assert not any(
+        isinstance(m, FPlaneCoriolis | BetaPlaneCoriolis
+                   | RotationCoriolis)
+        for m in model._carry.modules)
     rng = np.random.default_rng(13)
     model.set_fields(
         u=rng.standard_normal(model.state["u"].shape),
@@ -567,17 +473,14 @@ def test_no_coriolis_runs_without_rotation():
     assert np.isfinite(np.asarray(model.state["u"].data)).all()
 
 
-def test_preset_false_is_the_explicit_no_rotation_option():
-    model = make_channel(0.7, coriolis=False)
-    assert "f_coriolis" not in model.state
-    assert float(model.parameters[CORIOLIS_F0]) == 0.0
-
-
-def test_no_coriolis_on_a_chart_grid():
-    model = make_chart_model(sphere_grid(), coriolis=False,
+def test_the_default_needs_no_grid_guard_on_a_chart_grid():
+    # the default installs nothing, so it is metric-safe everywhere:
+    # a chart grid without an explicit rotation is simply unrotating
+    # (it used to raise, when the default was the f0 = 1 f-plane)
+    model = make_chart_model(sphere_grid(), coriolis=None,
                              coords=("lon", "lat"))
     assert "f_coriolis" not in model.state
-    assert float(model.parameters[CORIOLIS_F0]) == 0.0
+    assert CORIOLIS_F0 not in model.parameters
 
 
 @pytest.mark.parametrize("cls", [FPlaneCoriolis, BetaPlaneCoriolis])
@@ -585,14 +488,3 @@ def test_metric_blind_coriolis_is_rejected_on_a_chart_grid(cls):
     with pytest.raises(ValueError, match="metric-blind"):
         make_chart_model(sphere_grid(), cls(),
                          coords=("lon", "lat"))
-
-
-def test_default_coriolis_is_rejected_on_a_chart_grid():
-    # coriolis=None keeps meaning "the f0 = 1 f-plane" on FLAT grids
-    # (make_channel below), but on a chart grid the preset refuses to
-    # install a metric-blind rotation silently
-    with pytest.raises(ValueError, match="coriolis=None"):
-        sw.Model(grid=sphere_grid(), coords=("lon", "lat"),
-                 csqr=0.7, advection=False)
-    flat = make_channel(0.7, None)
-    assert float(flat.parameters[CORIOLIS_F0]) == 1.0
