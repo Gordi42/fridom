@@ -27,6 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
         flux_diff,
         fourier,
         interp,
+        krylov,
         mixed,
         movement,
         products,
@@ -84,6 +85,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .integrate import Integral
     from .interp import LinearInterp
+    from .krylov import ConjugateGradient
     from .mapped import MappedDerivative, MetricScaled
     from .mixed import ComposedTransform, resolve_transform
     from .movement import Reshard, Sync
@@ -116,6 +118,7 @@ all_modules_by_origin = {
         "spectral_solve",
         "finite_difference",
         "interp",
+        "krylov",
         "reconstruct",
         "weno",
         "select",
@@ -164,6 +167,7 @@ all_imports_by_origin = {
     ],
     f"{base}.finite_difference": ["FiniteDifference"],
     f"{base}.interp": ["LinearInterp"],
+    f"{base}.krylov": ["ConjugateGradient"],
     f"{base}.reconstruct": ["LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.select": ["Where"],
