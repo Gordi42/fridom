@@ -217,6 +217,33 @@ def test_cast_map_casts_field_data(grid_2d):
         cast.inverse()
 
 
+def test_cast_map_algebra_composes_and_sums(grid_2d):
+    # the realized-map algebra dunders: @ builds a composite (the
+    # cast fuses transparently), + builds the common-signature sum
+    grid = grid_2d
+    f = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    solve = SpectralSolve(laplacian_2d(), grid, f.function_space)
+    coeff = solve.transform.codomain(f.function_space.bare)
+    cast = _CastMap(coeff, jnp.complex64)
+    sym = solve.inverse_symbol
+    f_hat = solve.transform.forward(f)
+    # cast @ symbol (forward path) and symbol @ cast (reflected path)
+    left = cast @ sym
+    right = sym @ cast
+    assert left(f_hat).dtype == jnp.complex64
+    assert np.allclose(right(f_hat).data, sym(cast(f_hat)).data)
+    # the sum surface: cast + cast is a realized sum on one signature
+    total = cast + cast
+    assert np.allclose(np.asarray(total(f_hat).data),
+                       2.0 * np.asarray(cast(f_hat).data))
+    # the reflected dunders reject non-realized operands
+    with pytest.raises(TypeError):
+        _ = 1 @ cast
+    with pytest.raises(TypeError):
+        _ = 1 + cast
+
+
 def test_single_precision_solve_pytree_round_trip(grid_2d):
     # the reduced composite flattens/unflattens (jit/scan friendly)
     grid = grid_2d
