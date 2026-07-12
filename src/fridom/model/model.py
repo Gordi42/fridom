@@ -76,6 +76,7 @@ from fridom.model.schedule import (
 from fridom.model.stages import StageKind
 from fridom.model.terms import Treatment
 from fridom.model.time_dependent import resolve_at
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
 
@@ -391,6 +392,66 @@ def _template_builder(
 _ZERO_MAKERS: Final[dict[tuple, Callable]] = {}
 
 
+def _is_field(node: object) -> bool:
+    """Whether ``node`` is a field (the claim-reset tree boundary)."""
+    return isinstance(node, ScalarField)
+
+
+def _reset_ghost_claims(tree: M) -> M:
+    """
+    Zero every field's ghost-validity claim in a carry (sub)tree.
+
+    Description
+    -----------
+    ``halo_valid`` is treedef-participating static aux, and the
+    chunk scan demands ONE carry treedef across iterations
+    (``lax.scan``). Field arithmetic propagates ghost validity
+    through the step (storage-frame combine, task 1.8 stage B), so
+    a step output's claims are whatever the trace produced — e.g.
+    the AB tendency ring would enter with the zero claims of its
+    ``init()`` template and leave with the summed tendencies'
+    nonzero claims. Resetting the claims at the carry boundary is
+    always sound (claiming fewer valid layers than the storage
+    holds) and free at runtime (static metadata, no array op);
+    within-step validity reuse — where the elided halo fills live —
+    is untouched.
+    """
+    def reset(leaf: object) -> object:
+        if isinstance(leaf, ScalarField):
+            zero = HaloSpec.zero(tuple(leaf.function_space.names))
+            if leaf.halo_valid == zero:
+                return leaf
+            return type(leaf)(
+                leaf.grid, leaf.function_space,
+                leaf._data,  # noqa: SLF001 — plumbing-constructor seam
+                leaf.metadata)
+        return leaf
+
+    return jax.tree_util.tree_map(reset, tree, is_leaf=_is_field)
+
+
+def _scrub_ghost_storage(tree: M) -> M:
+    """
+    Re-store every field at the zero-ghost true-shape spelling.
+
+    Description
+    -----------
+    The chunk-commit twin of :func:`_reset_ghost_claims`: storage-
+    frame arithmetic leaves computed values in the (invalid) ghost
+    slots, but persistence gathers true-shape leaves and re-pads on
+    load (zero ghosts) — restart restores every leaf bitwise only
+    if the committed carry itself carries the zero-ghost spelling.
+    One unpad/re-pad per field per CHUNK (not per step), traced
+    into the chunk body: amortized noise, interior bits untouched.
+    """
+    def scrub(leaf: object) -> object:
+        if isinstance(leaf, ScalarField):
+            return leaf.with_data(leaf.data)
+        return leaf
+
+    return jax.tree_util.tree_map(scrub, tree, is_leaf=_is_field)
+
+
 # ================================================================
 #  The live per-step schedule view
 # ================================================================
@@ -500,15 +561,21 @@ def _chunk_body(
             ctx = bound.context(clock, dt=stepper.dt,
                                 stage_dt=stepper.dt)
             state = bound.diagnostics(state, ctx)
-        return ModelState(state, carry.modules, stepper_state,
-                          clock, carry.panic), None
+        # ghost-claim discipline: the scan carry keeps ONE treedef
+        # (halo_valid is static aux); reset the claims the step's
+        # arithmetic propagated — sound and free (metadata only)
+        return _reset_ghost_claims(
+            ModelState(state, carry.modules, stepper_state,
+                       clock, carry.panic)), None
 
     # unroll by the stepper's carry period (e.g. the AB tendency
     # ring): the structural ring shift becomes dataflow renaming
     # instead of per-step buffer copies (TimeStepper.scan_unroll)
     unroll = max(1, min(int(stepper.scan_unroll), n))
-    out, _ = jax.lax.scan(one_step, model_state, xs=None, length=n,
-                          unroll=unroll)
+    out, _ = jax.lax.scan(one_step, _reset_ghost_claims(model_state),
+                          xs=None, length=n, unroll=unroll)
+    # commit at the zero-ghost spelling (persistence contract)
+    out = _scrub_ghost_storage(out)
     # ---- S5: one isfinite reduction into the sticky pair --------
     finite = _all_finite(out.state)
     newly_bad = jnp.logical_and(~out.panic.flag, ~finite)

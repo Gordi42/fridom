@@ -87,6 +87,18 @@ def test_an_operator_sum_pays_one_exchange(sync_log, f):
     assert len(sync_log) == 1
 
 
+def test_a_stencil_consuming_a_field_sum_elides_the_exchange(
+        sync_log, grid, f, g):
+    # storage-frame arithmetic keeps the operands' minimum claim:
+    # the two diff outputs claim width-1 layers, the sum keeps
+    # them, and a consuming stencil within that reach never syncs
+    assert grid.decomposition.halo["x"] >= 2
+    s = 2.0 * f.diff("x") - g.diff("x")
+    assert len(sync_log) == 2  # the two entry syncs (f and g)
+    _ = s.diff("x")
+    assert len(sync_log) == 2  # elided: the sum's claim covers it
+
+
 def test_a_representative_tendency_pays_one_exchange_per_component(
         sync_log, f, g):
     # advection + diffusion on two components: one exchange each
@@ -161,8 +173,9 @@ def test_closure_captured_fields_do_not_swallow_tracers(f):
 
 
 def test_scan_carries_stay_at_the_zero_validity_fixed_point(grid):
-    # the persistent seam: state updates are store-constructed
-    # (validity zero), so scan carries have a stable treedef.
+    # the persistent seam: arithmetic claims the operands' minimum
+    # validity, so an update combined with the zero-claim carry
+    # stays at the zero fixed point and the scan treedef is stable.
     # (unnamed carry: arithmetic resets metadata, the known
     # phase-1 finding — orthogonal to validity)
     f = grid.create_field(init=lambda x, y: x + y)

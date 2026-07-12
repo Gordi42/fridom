@@ -660,7 +660,12 @@ class ScalarField:
 
     def __neg__(self) -> ScalarField:
         """Negation (a new quantity: default metadata)."""
-        return _wrap(self._grid, self._function_space, -self.data)
+        # pointwise on the storage frame; negation commutes with
+        # every ghost fill (linear-homogeneous), so valid ghost
+        # slots stay valid (task 1.8, stage B)
+        return ScalarField(self._grid, self._function_space,
+                           -self._data,
+                           halo_valid=self._halo_valid)
 
     def __pos__(self) -> ScalarField:
         """Identity."""
@@ -908,20 +913,34 @@ def _linear_combine(
 
     Description
     -----------
-    The combine runs on the **true-shape** views deliberately: the
-    Wave-4B optimization pass measured the storage-frame variant
-    (combine on ``_data``, then sync) and reverted it — a lone add
-    gets ~25% faster, but in composed chains the missing true-shape
-    materialization boundary makes XLA re-fuse the upstream stencil
-    into every downstream halo-fill concatenate piece (~60% more HLO
-    and +40-65% wall time on a representative tendency at 1024^2 on
-    cpu). See ``benchmarks/RESULTS.md``.
+    Operands already on the joined space combine on the aligned
+    **storage frames** and claim the pointwise minimum of the
+    operands' ghost validity (the products precedent,
+    ``operators/products.py``): every iteration-1 ghost fill
+    (periodic wrap, Dirichlet odd/vacant, Neumann even) is
+    linear-homogeneous in the interior DOFs, so the combined valid
+    ghost slots equal the fill of the combination bitwise, and
+    downstream stencil consumers whose reach the claim covers skip
+    their sync. The fast path also drops the per-op unpad/re-pad
+    round trip of the true-shape route — the full-array passes the
+    2026-07-12 512^3 A100 profile priced at ~9.5 ms of the 62 ms
+    linear AB3 step. History: Wave 4B measured the storage-frame
+    combine WITHOUT the validity claim and reverted it on cpu
+    numbers (``benchmarks/RESULTS.md``); with the claim the same
+    matched benchmark now *improves* on cpu too (2026-07-12
+    re-measurement). Lift cases (constant broadcast, real ->
+    complex across spaces) keep the true-shape route.
     """
     _check_grids(a, b, operation)
     joined = join(a.function_space, b.function_space,
                   operation=operation)
     _check_lift(a.function_space, joined)
     _check_lift(b.function_space, joined)
+    if a.function_space is joined and b.function_space is joined:
+        return type(a)(
+            a.grid, joined,
+            data_op(a._data, b._data),  # noqa: SLF001 — storage seam
+            halo_valid=a.halo_valid.merge_min(b.halo_valid))
     return _wrap(a.grid, joined, data_op(a.data, b.data))
 
 
@@ -951,7 +970,18 @@ def _scalar_shift(
     value: complex,
     data_op: Callable[[jax.Array, complex], jax.Array],
 ) -> ScalarField:
-    """Python scalar in +/-: a constant field entering the join."""
+    """
+    Python scalar in +/-: a constant field entering the join.
+
+    Description
+    -----------
+    Storage-frame shift (promotion is shape-guarded, so the frames
+    stay aligned). The result keeps the operand's ghost claim on
+    **periodic** axes only — the wrap fill reproduces constants,
+    the bounded fills (Dirichlet odd/vacant) do not, so those axes
+    drop to zero and refill at the next consumption (the
+    ``apply_staggered`` bounded-axis policy).
+    """
     space = f.function_space
     for factor in space.factors:
         if isinstance(factor, CoefficientSpace):
@@ -962,7 +992,14 @@ def _scalar_shift(
                 "zero-mode update, not implemented in iteration 1")
     if isinstance(value, complex):
         space = _promoted_space(space)
-    return _wrap(f.grid, space, data_op(f.data, value))
+    valid = HaloSpec({
+        name: (f.halo_valid[name]
+               if getattr(factor.mesh, "periodic", False) else 0)
+        for factor in space.factors
+        for name in factor.names})
+    return type(f)(f.grid, space,
+                   data_op(f._data, value),  # noqa: SLF001 — storage seam
+                   halo_valid=valid)
 
 
 def _scalar_scale(
@@ -970,11 +1007,22 @@ def _scalar_scale(
     value: complex,
     data_op: Callable[[jax.Array, complex], jax.Array],
 ) -> ScalarField:
-    """Python scalar in * and /: linear scaling on any space."""
+    """
+    Python scalar in * and /: linear scaling on any space.
+
+    Description
+    -----------
+    Storage-frame scaling (promotion is shape-guarded, so the
+    frames stay aligned); scaling commutes with every ghost fill
+    (linear-homogeneous), so the operand's ghost claim carries over
+    (task 1.8, stage B).
+    """
     space = f.function_space
     if isinstance(value, complex):
         space = _promoted_space(space)
-    return _wrap(f.grid, space, data_op(f.data, value))
+    return type(f)(f.grid, space,
+                   data_op(f._data, value),  # noqa: SLF001 — storage seam
+                   halo_valid=f.halo_valid)
 
 
 # ================================================================

@@ -46,9 +46,100 @@ def test_validity_covers_exactly_the_space_names(grid):
     assert single.halo_valid == HaloSpec.zero(("x",))
 
 
-def test_arithmetic_results_claim_zero_validity(f):
+def test_arithmetic_on_fresh_operands_claims_zero_validity(f):
+    # storage-frame arithmetic claims the operands' minimum, which
+    # for fresh (zero-claim) operands is zero
     assert (f + f).halo_valid == HaloSpec.zero(("x", "y"))
     assert (2.0 * f).halo_valid == HaloSpec.zero(("x", "y"))
+
+
+# ================================================================
+#  Arithmetic claim propagation (storage-frame combine)
+# ================================================================
+def test_add_keeps_the_operands_minimum_validity(grid, f):
+    # both operands fully synced: their valid ghost slots combine
+    # into valid ghost slots (linear fills commute with +)
+    a = grid.sync(f)
+    b = grid.sync(grid.create_field(init=lambda x, y: x * y))
+    assert (a + b).halo_valid == grid.decomposition.halo.over(
+        ("x", "y"))
+    assert (a - b).halo_valid == a.halo_valid.merge_min(b.halo_valid)
+
+
+def test_mixed_validity_degrades_to_the_minimum(grid, f):
+    # one synced, one fresh operand: the sum can only claim the
+    # layers every operand had — zero
+    synced = grid.sync(f)
+    assert (synced + f).halo_valid == HaloSpec.zero(("x", "y"))
+    assert (f - synced).halo_valid == HaloSpec.zero(("x", "y"))
+
+
+def test_stencil_output_sums_keep_the_kernel_claim(grid, f):
+    # the tendency-sum pattern: two diff outputs on one staggered
+    # space keep their per-axis claims through the sum
+    g = grid.create_field(init=lambda x, y: x * y)
+    d1, d2 = f.diff("x"), g.diff("x")
+    s = d1 + d2
+    assert s.halo_valid == d1.halo_valid.merge_min(d2.halo_valid)
+    assert s.halo_valid["x"] == grid.decomposition.halo["x"] - 1
+
+
+def test_scaling_and_negation_keep_validity(grid, f):
+    synced = grid.sync(f)
+    assert (2.0 * synced).halo_valid == synced.halo_valid
+    assert (synced / 2.0).halo_valid == synced.halo_valid
+    assert (-synced).halo_valid == synced.halo_valid
+
+
+def test_scalar_shift_keeps_validity_on_periodic_axes(grid, f):
+    # the periodic wrap fill reproduces constants
+    synced = grid.sync(f)
+    assert (synced + 1.0).halo_valid == synced.halo_valid
+    assert (1.0 - synced).halo_valid == synced.halo_valid
+
+
+def test_scalar_shift_drops_the_claim_on_bounded_axes():
+    # the bounded fills (Dirichlet odd/vacant) do not reproduce
+    # constants: the shifted field's bounded-axis claim resets
+    mx = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
+    my = IntervalMesh(16, (0.0, 2.0), name="y")
+    grid = Grid((mx, my))
+    synced = grid.sync(grid.create_field(init=lambda x, y: x + y))
+    shifted = synced + 1.0
+    assert shifted.halo_valid["x"] == 0
+    assert shifted.halo_valid["y"] == synced.halo_valid["y"]
+
+
+def test_lifted_combines_take_the_true_shape_route(grid, f):
+    # a real + complex combine lifts one operand (promotion): the
+    # storage fast path does not apply and the result re-stores
+    # with zero claims
+    synced = grid.sync(f)
+    complexified = grid.sync(f.as_complex())
+    assert (synced + complexified).halo_valid == HaloSpec.zero(
+        ("x", "y"))
+
+
+def test_storage_frame_combines_match_the_true_shape_values(grid, f):
+    # value parity: the fast path changes the frame, not the math
+    a = grid.sync(f)
+    b = grid.sync(grid.create_field(init=lambda x, y: x * y))
+    assert jnp.array_equal((a + b).data, a.data + b.data)
+    assert jnp.array_equal((a - b).data, a.data - b.data)
+    assert jnp.array_equal((3.0 * a).data, 3.0 * a.data)
+    assert jnp.array_equal((a + 2.5).data, a.data + 2.5)
+    assert jnp.array_equal((-a).data, -(a.data))
+
+
+def test_valid_ghost_slots_of_a_sum_equal_the_fill(grid, f):
+    # the soundness contract: the sum's claimed ghost slots hold
+    # exactly what a fresh exchange would write there
+    a = grid.sync(f)
+    b = grid.sync(grid.create_field(init=lambda x, y: x * y))
+    s = a + b
+    refilled = grid.sync(
+        s.with_data(s.data))  # zero-claim twin, freshly exchanged
+    assert jnp.array_equal(s._data, refilled._data)
 
 
 # ================================================================

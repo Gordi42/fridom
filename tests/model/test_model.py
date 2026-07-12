@@ -35,7 +35,12 @@ from fridom.model.io.streams import (
     SnapshotMismatchError,
 )
 from fridom.model.io.triggers import every
-from fridom.model.model import Model, ModelState
+from fridom.model.model import (
+    Model,
+    ModelState,
+    _reset_ghost_claims,
+    _scrub_ghost_storage,
+)
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration
 from fridom.model.results import AdvanceResult, PanicError
@@ -45,6 +50,7 @@ from fridom.model.time_steppers.adam_bashforth import (
     ABState,
     AdamBashforth,
 )
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.space_patterns import (
@@ -240,6 +246,56 @@ def test_rewarm_rebuilds_the_template_on_one_trace(
     model.update_parameters({"background.n2": 2e-5})
     assert compile_counter.count == 0
     assert len(model.carry.stepper_state.history) == 1
+
+
+# ================================================================
+#  Ghost-claim carry discipline (_reset_ghost_claims)
+# ================================================================
+def test_reset_ghost_claims_zeroes_claimed_fields():
+    grid = make_grid()
+    fresh = grid.create_field(init=lambda x: x, name="f")
+    synced = grid.sync(fresh)
+    assert synced.halo_valid != HaloSpec.zero(("x",))
+    tree = {"synced": synced, "fresh": fresh, "other": (1.0, None)}
+    out = _reset_ghost_claims(tree)
+    assert out["synced"].halo_valid == HaloSpec.zero(("x",))
+    # storage and metadata pass through untouched; already-zero
+    # fields keep their identity (no rebuild)
+    assert out["synced"]._data is synced._data
+    assert out["synced"].metadata is synced.metadata
+    assert out["fresh"] is fresh
+    assert out["other"] == (1.0, None)
+
+
+def test_scrub_ghost_storage_re_pads_field_leaves():
+    grid = make_grid()
+    f = grid.sync(grid.create_field(init=lambda x: x, name="f"))
+    g = grid.sync(grid.create_field(init=lambda x: 2.0 * x))
+    s = f + g  # storage-frame combine: computed ghost content
+    out = _scrub_ghost_storage({"s": s, "x": 3})
+    scrubbed = out["s"]
+    # interior untouched, ghost slots back at the zero spelling
+    assert jnp.array_equal(scrubbed.data, s.data)
+    assert jnp.array_equal(scrubbed._data, s.with_data(s.data)._data)
+    assert not jnp.array_equal(scrubbed._data, s._data)
+    assert out["x"] == 3
+
+
+def test_chunk_carries_stay_at_the_zero_claim_spelling(model):
+    # the step's arithmetic propagates ghost claims (storage-frame
+    # combine); the one_step boundary resets them so the lax.scan
+    # carry keeps ONE treedef and the committed carry stays at the
+    # zero-claim spelling across chunks
+    model.set_fields(b=ic())
+    model.advance(3)
+    carry = model.carry
+    for field in carry.state:
+        assert field.halo_valid == HaloSpec.zero(
+            tuple(field.function_space.names))
+    for entry in carry.stepper_state.history:
+        for field in entry:
+            assert field.halo_valid == HaloSpec.zero(
+                tuple(field.function_space.names))
 
 
 def test_io_rejects_snapshots(tmp_path):
