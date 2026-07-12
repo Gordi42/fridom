@@ -25,6 +25,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .core import DynamicalCore
     from .gaussian_wave_maker import GaussianWaveMaker
+    from .mapped_pressure import MappedPressureSolver
     from .polarized_wave_maker import PolarizedWaveMaker
     from .pressure import SpectralPressureSolver
     from .smagorinsky_lilly import SmagorinskyLilly
@@ -50,6 +51,7 @@ all_imports_by_origin = {
     f"{base}.advection": [
         "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
+    f"{base}.mapped_pressure": ["MappedPressureSolver"],
     f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],
     f"{base}.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.smagorinsky_lilly": ["SmagorinskyLilly"],

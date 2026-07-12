@@ -62,6 +62,19 @@ and from the returned solution, pinning the mean-free gauge — the same
 ``k = 0`` gauge ``SpectralSolve``'s ``where_zero=0`` selects.
 
 The initial guess is zero unless an explicit ``x0`` is passed.
+
+Exact convergence under fixed iterations
+----------------------------------------
+Because there is no tolerance break, the recurrence keeps running
+after the residual reaches exact zero (a zero right-hand side, or an
+exact preconditioner such as the flat spectral inverse on a
+constant-metric mapped grid, stage C3). The scalar ratios
+``alpha = rz / <p, Ap>`` and ``beta = rz_new / rz`` then divide zero
+by zero; both are computed through a guarded division that returns
+**zero** when the denominator is exactly zero, which turns every
+post-convergence iteration into an exact no-op (``x`` and ``r``
+unchanged) instead of poisoning the solve with NaNs. For nonzero
+denominators the guard is bitwise-neutral.
 """
 # CS-D2 (stage C3): matrix-free preconditioned CG, fixed iterations
 from __future__ import annotations
@@ -76,6 +89,36 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
 
     from fridom.spatial.operators.base import FieldLike
+
+
+def _guarded_ratio(num: jax.Array, den: jax.Array) -> jax.Array:
+    """
+    Return ``num / den``, or exact zero for a zero denominator.
+
+    Description
+    -----------
+    The post-convergence guard of the fixed-iteration recurrence
+    (module docstring): a zero denominator only arises when the
+    iteration has already converged exactly, and a zero ratio makes
+    the remaining iterations exact no-ops. The zero branch is
+    selected through the double-``where`` pattern so reverse-mode
+    gradients stay NaN-free.
+
+    Parameters
+    ----------
+    num : jax.Array
+        The 0-d numerator.
+    den : jax.Array
+        The 0-d denominator.
+
+    Returns
+    -------
+    jax.Array
+        The 0-d guarded ratio.
+    """
+    zero = den == 0.0
+    safe = jnp.where(zero, 1.0, den)
+    return jnp.where(zero, 0.0, num / safe)
 
 
 class ConjugateGradient:
@@ -279,12 +322,12 @@ class ConjugateGradient:
         rz = self._dot(r, z)
         for _ in range(self._iterations):
             ap = self._operator(p)
-            alpha = rz / self._dot(p, ap)
+            alpha = _guarded_ratio(rz, self._dot(p, ap))
             x = x + alpha * p
             r = r - alpha * ap
             z = self._project(self._precondition(r))
             rz_new = self._dot(r, z)
-            beta = rz_new / rz
+            beta = _guarded_ratio(rz_new, rz)
             p = z + beta * p
             rz = rz_new
         x = self._project(x)

@@ -1840,7 +1840,7 @@ def _default_registry(
     if mapping is not None:
         # metric-coefficient derivative kind (stage C1): the row
         # appears only when the mapping couples coordinates
-        corrections = mapping._corrections()  # noqa: SLF001 — seam
+        corrections = mapping.column_corrections
         if corrections:
             entries["physical_diff"] = MappedDerivative(corrections)
     if chart is not None and len(chart) > 1:

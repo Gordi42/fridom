@@ -846,6 +846,27 @@ class CoordinateMapping:
         return table
 
     @property
+    def column_corrections(self) -> dict[str, tuple[str, str]]:
+        """
+        The mapped-column coupling table (public seam).
+
+        Description
+        -----------
+        The public twin of :meth:`_corrections` for consumers beyond
+        the grid's ``"physical_diff"`` seeding: stage-C3 solvers
+        (the mapped pressure operator) read the coupled coordinates
+        and the ``(mapped, base)`` column pair from here instead of
+        rediscovering them from the declarations.
+
+        Returns
+        -------
+        dict[str, tuple[str, str]]
+            Coordinate name -> (mapped physical name, base name);
+            empty when no single-base analytic map is declared.
+        """
+        return self._corrections()
+
+    @property
     def chart_coords(self) -> tuple[str, ...] | None:
         """
         The chart-coupled base coordinates, or None.
