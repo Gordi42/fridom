@@ -10,6 +10,10 @@ and the comparisons prove bitwise device-count invariance through
 the ``shard_map`` + ``ppermute`` halo exchange. ``multi_device``
 marked tests additionally inspect the blocked storage itself.
 """
+import os
+import re
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -382,11 +386,285 @@ def test_uniform_reblocking_compiles_without_collectives():
 
 
 @pytest.mark.multi_device
-def test_indivisible_blocking_is_rejected_at_use():
-    mesh = IntervalMesh(5, (0.0, 1.0), name="x")  # 5 % devices != 0
+def test_heavy_padding_blocking_is_rejected_at_use():
+    # 5 cells over 4 shards: cells=ceil(5/4)=2, (shards-1)*cells=6 >= 5,
+    # so a trailing shard would be empty -- rejected loudly at use (a
+    # mild non-divisible count would pad instead; see the padded-even
+    # tests below)
+    mesh = IntervalMesh(5, (0.0, 1.0), name="x")
     decomp = TensorDecomposition(
         meshes=(mesh,), names=("x",), halo=HaloSpec({"x": 1}),
         layouts=(Layout({"x": "devices"}),),
         device_ids=tuple(range(jax.device_count())))
-    with pytest.raises(ValueError, match="divide"):
+    with pytest.raises(ValueError, match="too heavy"):
         decomp.storage_shape(mesh.center)
+
+
+@pytest.mark.multi_device
+def test_patch_physical_ends_rejects_empty_wall_shard():
+    # 13 cells over 4: cells=ceil(13/4)=4, so the inner space (n=12)
+    # last shard holds 0 true DOFs -- the right-wall patch would be
+    # silently dropped. patch_physical_ends must fail loudly. This
+    # config is unreachable through negotiate (its last-shard >= width+1
+    # check rejects 13-over-4 at any width >= 1), so only a hand-built
+    # decomposition can reach the guard.
+    mesh = IntervalMesh(13, (0.0, 1.0), periodic=False, name="x")
+    decomp = TensorDecomposition(
+        meshes=(mesh,), names=("x",), halo=HaloSpec({"x": 1}),
+        layouts=(Layout({"x": "devices"}),),
+        device_ids=tuple(range(jax.device_count())))
+    inner, cell_avg = mesh.inner, mesh.cell_avg   # n = 12, 13
+    out_arr = decomp.zeros(inner)
+    in_arr = decomp.zeros(cell_avg)
+    with pytest.raises(ValueError, match="last shard holds no true"):
+        decomp.patch_physical_ends(
+            out_arr, in_arr, inner, cell_avg, "x",
+            lambda *a: a[1])  # patch never reached (guard fires first)
+
+
+# ================================================================
+#  Padded-even (non-divisible) ghost sharding
+# ================================================================
+# 257 % 4 == 1: the exercising case -- center 257, outer 258, inner 256
+# (inner is the misaligned n_cells-1 space, Option A / plan section 6).
+_NON_DIV = 257
+
+
+def _direct(n_cells, ids, width=1, *, periodic=False):
+    # a decomposition that shards `x` over `ids`, bypassing negotiation
+    # (the negotiate side of non-divisible support lands separately) so
+    # the padded-even blocking is exercised by direct construction
+    mesh = IntervalMesh(n_cells, (0.0, 1.0), periodic=periodic, name="x")
+    decomp = TensorDecomposition(
+        meshes=(mesh,), names=("x",), halo=HaloSpec({"x": width}),
+        layouts=(Layout({"x": "devices"}),), device_ids=ids)
+    return mesh, decomp
+
+
+def test_padded_reblock_round_trip_is_device_count_invariant(
+        forced_devices):
+    # a non-divisible cell count pads to a uniform per-shard block; the
+    # true DOFs must be bitwise device-count invariant (1 vs P) for
+    # every space family (center/outer/inner)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    mesh_p, decomp_p = _direct(_NON_DIV, tuple(range(jax.device_count())))
+    mesh_1, decomp_1 = _direct(_NON_DIV, (0,))
+    for pick in (lambda m: m.center, lambda m: m.outer, lambda m: m.inner):
+        sp_p, sp_1 = pick(mesh_p), pick(mesh_1)
+        arr = jnp.arange(1.0, sp_p.shape[0] + 1.0)
+        st_p = decomp_p.pad(arr, sp_p)
+        st_1 = decomp_1.pad(arr, sp_1)
+        assert bitwise(decomp_p.gather(st_p, sp_p),
+                       decomp_1.gather(st_1, sp_1))
+        assert bitwise(decomp_p.unpad(st_p, sp_p), arr)
+
+
+@pytest.mark.multi_device
+def test_padded_storage_shape_is_uniform_ceil_blocks():
+    # ceil(257/P) cells + stagger slot + 2*halo per shard, P blocks
+    devices = jax.device_count()
+    width = 1
+    mesh, decomp = _direct(_NON_DIV, tuple(range(devices)), width)
+    cells = -(-_NON_DIV // devices)
+    block = cells + 1 + 2 * width
+    for pick in (lambda m: m.center, lambda m: m.outer, lambda m: m.inner):
+        assert decomp.storage_shape(pick(mesh)) == (devices * block,)
+
+
+@pytest.mark.multi_device
+def test_padded_local_reblock_plan_exists_for_all_spaces():
+    mesh, decomp = _direct(_NON_DIV, tuple(range(jax.device_count())))
+    layout = decomp.default_layout
+    for pick in (lambda m: m.center, lambda m: m.outer, lambda m: m.inner):
+        plan = decomp._local_reblock(pick(mesh), layout)
+        assert plan is not None  # padded-even uses the fast path, not
+        assert plan.pspec == jax.sharding.PartitionSpec("devices")
+        # cached on the interned (space, layout) key
+        assert decomp._local_reblock(pick(mesh), layout) is plan
+
+
+@pytest.mark.multi_device
+def test_padded_reblocking_compiles_without_collectives():
+    # the perf gate: center (state fields) and outer round-trip through
+    # the padded-true fast path with zero collectives -- the padded-even
+    # analogue of test_uniform_reblocking_compiles_without_collectives
+    mesh, decomp = _direct(_NON_DIV, tuple(range(jax.device_count())))
+    for pick in (lambda m: m.center, lambda m: m.outer):
+        space = pick(mesh)
+
+        def round_trip(storage, space=space):
+            return decomp.pad(decomp.unpad(storage, space), space)
+
+        storage = decomp.pad(jnp.arange(1.0, space.shape[0] + 1.0), space)
+        text = jax.jit(round_trip).lower(storage).compile().as_text()
+        for collective in ("all-to-all", "collective-permute",
+                           "all-gather", "all-reduce"):
+            assert collective not in text, (space, collective)
+
+
+@pytest.mark.multi_device
+def test_padded_inner_reduction_is_clean_round_trip_permutes():
+    # Option A (plan section 6): the misaligned inner (n_cells-1, here
+    # 256, at n_cells % P == 1) keeps the fast path. A storage-frame
+    # reduction is a clean all-reduce (no gather / no permute); only the
+    # synthetic true-shape round trip costs one neighbour
+    # collective-permute -- never all-to-all / all-gather.
+    mesh, decomp = _direct(_NON_DIV, tuple(range(jax.device_count())))
+    space = mesh.inner
+    storage = decomp.pad(jnp.arange(1.0, space.shape[0] + 1.0), space)
+
+    reduce_text = jax.jit(lambda s: s.sum()).lower(
+        storage).compile().as_text()
+    assert "all-gather" not in reduce_text
+    assert "all-to-all" not in reduce_text
+    assert "collective-permute" not in reduce_text  # storage-frame reduce
+
+    def round_trip(storage):
+        return decomp.pad(decomp.unpad(storage, space), space)
+
+    rt_text = jax.jit(round_trip).lower(storage).compile().as_text()
+    assert "all-to-all" not in rt_text     # never the pathology
+    assert "all-gather" not in rt_text
+    # the expected Option A residual: a cheap neighbour shift (one per
+    # trim direction), NOT an all-to-all / all-gather
+    assert "collective-permute" in rt_text
+
+
+@pytest.mark.multi_device
+def test_warm_padded_reblocking_adds_zero_compiles(compile_counter):
+    # the padded-even plan wraps the shard_map callables with a trailing
+    # trim built once and jit-cached: a warm re-run must add 0 compiles
+    mesh, decomp = _direct(_NON_DIV, tuple(range(jax.device_count())))
+    space = mesh.center
+    arr = jnp.arange(1.0, space.shape[0] + 1.0)
+    storage = decomp.pad(arr, space)  # warm the traces
+    decomp.unpad(storage, space)
+    compile_counter.reset()
+    out = decomp.unpad(decomp.pad(arr, space), space)
+    assert compile_counter.count == 0
+    assert bitwise(out, arr)
+
+
+@pytest.mark.multi_device
+def test_padded_sync_ghosts_match_single_device():
+    # the sharded halo exchange on a padded-even axis must fill the same
+    # ghost slots as the single-device wrap fill (periodic center: the
+    # clean case; the last shard is short, ceil-block aligned)
+    devices = jax.device_count()
+    width = 1
+    mesh_p, decomp_p = _direct(_NON_DIV, tuple(range(devices)), width,
+                               periodic=True)
+    mesh_1, decomp_1 = _direct(_NON_DIV, (0,), width, periodic=True)
+    space_p, space_1 = mesh_p.center, mesh_1.center
+    n = space_p.shape[0]
+    vals = jnp.arange(1.0, n + 1.0)
+    stored = np.asarray(
+        decomp_p.sync(decomp_p.pad(vals, space_p), space_p))
+    extended = np.asarray(
+        decomp_1.sync(decomp_1.pad(vals, space_1), space_1))
+    cells = -(-n // devices)
+    block = cells + 1 + 2 * width
+    bounds = [min(s * cells, n) for s in range(devices)] + [n]
+    for s in range(devices):
+        lo, hi = bounds[s], bounds[s + 1]
+        piece = stored[s * block:(s + 1) * block]
+        t = hi - lo
+        # true content behind the leading halo
+        assert np.array_equal(piece[width:width + t],
+                              extended[width + lo:width + hi])
+        # left ghosts (periodic wrap)
+        assert np.array_equal(piece[:width], extended[lo:lo + width])
+        # right ghosts sit immediately after the t true DOFs
+        assert np.array_equal(piece[width + t:2 * width + t],
+                              extended[width + hi:2 * width + hi])
+
+
+# ================================================================
+#  Byte-for-byte no-op on divisible extents (plan Stage 0 / 4)
+# ================================================================
+_HLO_GOLDEN = Path(__file__).parent / "golden"
+
+
+def _norm_hlo(text):
+    # keep the (normalized) module header + computation body; drop the
+    # debug metadata: the FileNames/FileLocations/StackFrames blocks
+    # (their paths + source lines shift when code is added above an op)
+    # and the inline stack_frame_id (its number depends on how many
+    # frames the process has registered, i.e. on suite execution order).
+    # What remains is the compiled program -- ops, shapes, collectives,
+    # op_names -- which the divisible path must preserve exactly.
+    lines = text.splitlines()
+    head = re.sub(r"HloModule \S+", "HloModule <m>", lines[0])
+    start = next(i for i, ln in enumerate(lines)
+                 if ln.startswith(("%", "ENTRY")))
+    body = "\n".join(lines[start:])
+    body = re.sub(r"stack_frame_id=\d+", "stack_frame_id=<n>", body)
+    return head + "\n" + body
+
+
+@pytest.mark.multi_device
+def test_divisible_reblock_hlo_is_byte_for_byte_unchanged():
+    # THE no-op proof: on a divisible grid the reblock HLO must equal the
+    # golden captured from the pre-change tip (the padded-even branch is
+    # gated on n_cells % P != 0, so divisible runs the identical path).
+    # Regenerate deliberately with FRIDOM_REGEN_HLO_GOLDEN=1 and review
+    # the diff -- it must change ONLY on a jax/xla toolchain bump, never
+    # from this feature.
+    if jax.device_count() != 4:
+        # the golden hard-codes the 4-device blocking (num_partitions,
+        # shapes); it is captured for and only valid at 4 devices
+        pytest.skip("HLO golden is captured for 4 devices")
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    decomp = Grid((mx,)).decomposition
+    space = decomp._meshes[0].center
+    true = jnp.arange(1.0, 17.0)
+    storage = decomp.pad(true, space)
+    ops = {
+        "pad": (lambda a: decomp.pad(a, space), true),
+        "unpad": (lambda s: decomp.unpad(s, space), storage),
+        "round_trip": (
+            lambda s: decomp.pad(decomp.unpad(s, space), space), storage),
+        "sync": (lambda s: decomp.sync(s, space), storage),
+        "zeros": (lambda _: decomp.zeros(space), storage),
+    }
+    regen = os.environ.get("FRIDOM_REGEN_HLO_GOLDEN")
+    for name, (fn, arg) in ops.items():
+        got = _norm_hlo(jax.jit(fn).lower(arg).compile().as_text())
+        path = _HLO_GOLDEN / f"divisible_{name}.hlo"
+        if regen:
+            path.write_text(got)
+        assert got == path.read_text(), name
+
+
+# ================================================================
+#  End-to-end non-divisible sharding (negotiate -> operate -> gather)
+# ================================================================
+@pytest.mark.multi_device
+def test_non_divisible_grid_is_device_count_invariant():
+    # the integration gate: a non-divisible sharded axis negotiated by
+    # a real Grid must be bitwise device-count invariant across the full
+    # create -> sync/diff -> gather path, the guarantee the divisible
+    # battery checks, extended to the padded-even blocking
+    def build(device_ids):
+        mx = IntervalMesh(23, (0.0, 1.0), name="x")  # 23 % 4 != 0
+        my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+        return Grid((mx, my), device_ids=device_ids)
+
+    many, one = build(None), build((0,))
+    # genuinely sharded on the non-divisible x axis
+    assert many.decomposition.device_count == jax.device_count()
+    assert dict(many.decomposition.default_layout.device_axes) == {
+        "x": "devices"}
+    f_many = many.create_field(init=init)
+    f_one = one.create_field(init=init)
+    assert bitwise(f_many.data, f_one.data)
+    for path in (lambda f: f.diff("x"),           # periodic exchange
+                 lambda f: f.diff("x").diff("x"),  # chained syncs
+                 lambda f: f.diff("y"),            # unsharded bounded
+                 lambda f: f.diff("x").diff("y")):
+        assert bitwise(path(f_many).data, path(f_one).data)
+    r_many = many.random.normal(
+        many.create_field().function_space, seed=0)
+    r_one = one.random.normal(one.create_field().function_space, seed=0)
+    assert bitwise(r_many.data, r_one.data)

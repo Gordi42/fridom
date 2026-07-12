@@ -545,12 +545,16 @@ def negotiate(
 
     Iteration-1 layout realization: a 1-D device mesh over all
     requested devices; the default layout shards the first
-    GHOST-capable factor whose cell count divides the device count
-    and whose per-shard extent respects ``min_local_size`` and the
-    negotiated halo; every further such factor contributes a
-    transpose pencil (plus the replicated layout as the last-resort
-    pencil). When nothing is shardable, auto-selected devices fall
-    back to a single device; explicitly requested ones raise.
+    GHOST-capable factor whose per-shard extent respects
+    ``min_local_size`` and the negotiated halo. A cell count that does
+    not divide the device count is padded to a uniform per-shard block
+    (``ceil(n_cells / P)`` cells, the last shard absorbing the
+    remainder), so only the last shard's extent must clear the
+    constraints; padding heavy enough to empty a trailing shard is
+    rejected. Every further shardable factor contributes a transpose
+    pencil (plus the replicated layout as the last-resort pencil).
+    When nothing is shardable, auto-selected devices fall back to a
+    single device; explicitly requested ones raise.
 
     Parameters
     ----------
@@ -604,9 +608,9 @@ def negotiate(
         elif explicit:
             raise ValueError(
                 f"no factor of {names} is GHOST-shardable over "
-                f"{len(ids)} devices (cell counts must divide the "
-                "device count and per-shard extents must cover "
-                "min_local_size and halo + 1)")
+                f"{len(ids)} devices (a cell count is padded to "
+                "ceil(n_cells / P) per shard, and the last shard's "
+                "extent must cover min_local_size and halo + 1)")
         else:
             ids = ids[:1]  # auto-selection falls back to one device
 
@@ -740,10 +744,15 @@ def _cap_for_sharding(
     width-independent above the per-application floor: a chain that
     exhausts a capped width simply syncs again mid-chain. So a
     traced sync-free demand that would fail the per-shard
-    ``width + 1`` extent check is lowered to ``cells_per_shard - 1``
-    — trading exchanges for shardability — but never below `floor`
-    (the registry's per-application maximum; a floor that does not
-    fit keeps its width and fails negotiation exactly as before).
+    ``width + 1`` extent check is lowered to ``last - 1`` — the
+    shortest (last) shard's cell count under the ceil/last-shard
+    padding of a possibly non-divisible axis (``last`` reduces to
+    ``cells_per_shard`` on a divisible axis) — trading exchanges for
+    shardability, but never below `floor` (the registry's
+    per-application maximum; a floor that does not fit keeps its
+    width and fails negotiation exactly as before). Heavy padding
+    (``last < 1``: trailing shards empty) is not shardable, so no cap
+    is derived.
 
     Parameters
     ----------
@@ -764,10 +773,17 @@ def _cap_for_sharding(
     capped = dict(spec.widths)
     changed = False
     for mesh in meshes:
-        n_cells = getattr(mesh, "n_cells", None)
-        if not n_cells or n_cells % devices:
+        n_cells = getattr(mesh, "n_cells", None) or 0
+        # ceil/last-shard padding: cells = ceil(n_cells / devices)
+        # per shard, the shortest (last) shard holding `last` true
+        # cells. last < 1 rejects both an empty axis and heavy
+        # padding (trailing shards empty); on a divisible axis
+        # last == n_cells // devices.
+        cells = -(-n_cells // devices)
+        last = n_cells - (devices - 1) * cells
+        if last < 1:
             continue
-        cap = n_cells // devices - 1
+        cap = last - 1
         for name in mesh.names:
             width = capped.get(name, 0)
             try:
@@ -792,17 +808,28 @@ def _shardable_names(
     -----------
     A name qualifies when its mesh's ghost family declares the
     ``GHOST`` strategy and the per-shard extent satisfies the
-    negotiation constraints: the cell count divides the device
-    count, and ``cells_per_shard`` covers ``min_local_size`` and
-    ``halo + 1`` (the short staggered last shard must still hold a
-    full exchange edge).
+    negotiation constraints. A possibly non-divisible cell count is
+    padded to ``cells = ceil(n_cells / devices)`` per shard, with the
+    shortest (last) shard holding ``last = n_cells - (devices - 1) *
+    cells`` true cells. Heavy padding (``last < 1``: trailing shards
+    empty) is rejected; otherwise the shortest shard's ``last`` must
+    cover ``min_local_size`` and ``halo + 1`` (it must still hold a
+    full exchange edge plus BC-fill depth). On a divisible axis
+    ``last`` equals ``cells = n_cells // devices``, so the check is
+    identical to the divisible negotiation.
     """
     shardable: list[str] = []
     for mesh in meshes:
-        n_cells = getattr(mesh, "n_cells", None)
-        if not n_cells or n_cells % devices:
+        n_cells = getattr(mesh, "n_cells", None) or 0
+        # ceil/last-shard padding: cells = ceil(n_cells / devices)
+        # per shard, the shortest (last) shard holding `last` true
+        # cells. last < 1 rejects both an empty axis and heavy
+        # padding (trailing shards empty); on a divisible axis
+        # last == n_cells // devices.
+        cells = -(-n_cells // devices)
+        last = n_cells - (devices - 1) * cells
+        if last < 1:
             continue
-        cells = n_cells // devices
         ghost = False
         min_local = 1
         for attr in _GHOST_FAMILY:
@@ -821,6 +848,6 @@ def _shardable_names(
                 width = halo[name]
             except KeyError:
                 width = 0
-            if cells >= max(min_local, width + 1):
+            if last >= max(min_local, width + 1):
                 shardable.append(name)
     return tuple(shardable)
