@@ -608,3 +608,36 @@ def test_divisible_reblock_hlo_is_byte_for_byte_unchanged():
         if regen:
             path.write_text(got)
         assert got == path.read_text(), name
+
+
+# ================================================================
+#  End-to-end non-divisible sharding (negotiate -> operate -> gather)
+# ================================================================
+@pytest.mark.multi_device
+def test_non_divisible_grid_is_device_count_invariant():
+    # the integration gate: a non-divisible sharded axis negotiated by
+    # a real Grid must be bitwise device-count invariant across the full
+    # create -> sync/diff -> gather path, the guarantee the divisible
+    # battery checks, extended to the padded-even blocking
+    def build(device_ids):
+        mx = IntervalMesh(23, (0.0, 1.0), name="x")  # 23 % 4 != 0
+        my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+        return Grid((mx, my), device_ids=device_ids)
+
+    many, one = build(None), build((0,))
+    # genuinely sharded on the non-divisible x axis
+    assert many.decomposition.device_count == jax.device_count()
+    assert dict(many.decomposition.default_layout.device_axes) == {
+        "x": "devices"}
+    f_many = many.create_field(init=init)
+    f_one = one.create_field(init=init)
+    assert bitwise(f_many.data, f_one.data)
+    for path in (lambda f: f.diff("x"),           # periodic exchange
+                 lambda f: f.diff("x").diff("x"),  # chained syncs
+                 lambda f: f.diff("y"),            # unsharded bounded
+                 lambda f: f.diff("x").diff("y")):
+        assert bitwise(path(f_many).data, path(f_one).data)
+    r_many = many.random.normal(
+        many.create_field().function_space, seed=0)
+    r_one = one.random.normal(one.create_field().function_space, seed=0)
+    assert bitwise(r_many.data, r_one.data)

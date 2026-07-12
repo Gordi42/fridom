@@ -545,12 +545,16 @@ def negotiate(
 
     Iteration-1 layout realization: a 1-D device mesh over all
     requested devices; the default layout shards the first
-    GHOST-capable factor whose cell count divides the device count
-    and whose per-shard extent respects ``min_local_size`` and the
-    negotiated halo; every further such factor contributes a
-    transpose pencil (plus the replicated layout as the last-resort
-    pencil). When nothing is shardable, auto-selected devices fall
-    back to a single device; explicitly requested ones raise.
+    GHOST-capable factor whose per-shard extent respects
+    ``min_local_size`` and the negotiated halo. A cell count that does
+    not divide the device count is padded to a uniform per-shard block
+    (``ceil(n_cells / P)`` cells, the last shard absorbing the
+    remainder), so only the last shard's extent must clear the
+    constraints; padding heavy enough to empty a trailing shard is
+    rejected. Every further shardable factor contributes a transpose
+    pencil (plus the replicated layout as the last-resort pencil).
+    When nothing is shardable, auto-selected devices fall back to a
+    single device; explicitly requested ones raise.
 
     Parameters
     ----------
@@ -604,9 +608,9 @@ def negotiate(
         elif explicit:
             raise ValueError(
                 f"no factor of {names} is GHOST-shardable over "
-                f"{len(ids)} devices (cell counts must divide the "
-                "device count and per-shard extents must cover "
-                "min_local_size and halo + 1)")
+                f"{len(ids)} devices (a cell count is padded to "
+                "ceil(n_cells / P) per shard, and the last shard's "
+                "extent must cover min_local_size and halo + 1)")
         else:
             ids = ids[:1]  # auto-selection falls back to one device
 
