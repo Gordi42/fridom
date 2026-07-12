@@ -249,6 +249,16 @@ platform-independent), recorded in [[distributed-transform-gspmd-lowering]]:
 
 ## 3. Staging (land-order; revised 2026-07-12 after recon)
 
+**STATUS (2026-07-12): all four stages landed** on
+`feat/distributed-transform-planner`
+(`702dc3ca`..`c942d35e`), CPU-verified (forced-4-device + full
+operators dir 1009 passed + ruff + >=97% branch coverage on the two
+touched modules) and A100-verified at Stage 3 (below). Implementation
+nuance vs the plan below: Stage 2 **reused** the slab `SlabPlan`/`SlabSolve`
+kernel driven by the planner geometry (rather than lifting it), and the
+physical relocation of the kernel into `distributed_solve.py` + deletion
+of `slab_fft.py` folded into Stage 4. Not yet merged to `dev`.
+
 Each stage is one short-lived branch (`<type>/<topic>`), mirrored tests +
 ruff green before merge (AGENTS.md). The slab path stays **live** until
 Stage 4. **Revision:** the recon (§1.3/§1.5 corrections) collapsed the
@@ -324,6 +334,19 @@ Plus: full multi-device gate (1241 tests) + ruff clean. **HLO nuance:** a
 neighbor exchange, not a gather) — it appears only for non-divisible
 sharded axes ([[uneven-shard-reblock-collective]]), never on the
 divisible benchmark grids, whose HLO stays all-to-all only.
+
+**Verified (2026-07-12, 4×A100-80GB, fusion flag on).** The reconciled
+solve is **bitwise-identical to the slab** at 256³/512³/768³ (the
+component that changed is provably the same kernel), with equal
+wall-time (512³ solve: new 8.13 ms fused / 15.4 ms eager ≡ slab) and
+**768³ still fits** (no OOM). HLO `all-to-all` present, no
+`all-gather`/`all-reduce` (`test_slab_fft`/`test_distributed_solve`
+green on GPU). 0 recompiles; distributed-vs-1-device ≤1e-12. Caveat: the
+exact **20.97 ms full-*step*** figure was not reproduced — no committed
+512³ full-model harness exists (`bench_nonhydro.py` is the old stack) —
+but the gate's intent (no regression vs the slab) holds by the solve's
+bitwise identity. A committed nonhydro2 512³ step benchmark is a useful
+follow-up before the release merge.
 
 ## 5. Scope boundaries / follow-ons
 
