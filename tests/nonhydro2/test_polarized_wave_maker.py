@@ -38,7 +38,10 @@ def make_maker(**kwargs):
 
 
 def make_model(maker, walled=()):
+    # explicit f-plane: the wave-maker's packet polarization needs the
+    # constant coriolis.f0 provide, which no longer comes for free
     return nh.Model(grid=make_grid(walled), dt=DT, advection=False,
+                    coriolis=nh.FPlaneCoriolis(f0=1.0),
                     modules_extra=(maker,))
 
 

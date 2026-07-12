@@ -31,8 +31,9 @@ under that metric; the ``sw.Model`` preset wires this automatically.
 The rotation :math:`f\,\underset{\neg}{\boldsymbol{u}}` is **not** a
 core term: it is carried by the shared Coriolis module
 (``fr.model.modules.FPlaneCoriolis`` / ``BetaPlaneCoriolis``, or
-``SphericalCoriolis`` on a sphere chart), which declares the
-``f_coriolis`` field and the ``+f v`` / ``-f u`` coupling. The
+``RotationCoriolis`` on a chart grid), which declares the
+``f_coriolis`` field and the ``+f v`` / ``-f u`` coupling — and is
+opt-in: a model assembled without one simply does not rotate. The
 gravity term here is unscaled (the Rossby number multiplies only the
 advection, D2.2). The nonlinear Sadourny advection is a separate
 module.

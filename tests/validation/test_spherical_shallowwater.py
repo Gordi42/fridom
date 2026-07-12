@@ -68,8 +68,9 @@ def sphere_model(nlon=32, nlat=16, *, csqr=GH0, ro=1.0,
     return sw.Model(
         grid=sphere_grid(nlon, nlat, device_ids=device_ids),
         coords=("lon", "lat"), csqr=csqr, rossby_number=ro,
-        coriolis=sw.modules.SphericalCoriolis(
-            omega=omega, metric_weight="csqr"),
+        coriolis=sw.modules.RotationCoriolis(
+            omega=(0.0, 0.0, omega), coords=("lon", "lat"),
+            metric_weight="csqr"),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             dt, order=3))
 

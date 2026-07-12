@@ -32,7 +32,12 @@ def make_grid(walled=()):
 
 
 def make_model(maker, walled=()):
+    # rotation is opt-in since the coriolis=None default became "no
+    # rotation": name the f0 = 1 f-plane the old implicit default
+    # installed (a linear model with no rotation at all would advance
+    # neither u nor v -- the D1.4 coverage lint)
     return nh.Model(grid=make_grid(walled), dt=DT, advection=False,
+                    coriolis=nh.FPlaneCoriolis(f0=1.0),
                     modules_extra=(maker,))
 
 

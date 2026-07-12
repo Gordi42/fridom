@@ -499,8 +499,20 @@ def n2_profile(y):
     return 1.0 + 2.0 * y * y
 
 
+def weighted_fplane(f0=F0):
+    """Build the thickness-weighted f-plane variable depth needs."""
+    return sw.modules.FPlaneCoriolis(f0=f0, metric_weight="csqr")
+
+
 def make_varying_sw(coriolis=None):
-    """Walled channel with csqr varying along the dense y axis."""
+    """Walled channel with csqr varying along the dense y axis.
+
+    Rotation is opt-in (the preset's coriolis=None means no rotation
+    at all), so the f0 = 1 thickness-weighted f-plane the old
+    implicit default installed is named explicitly here.
+    """
+    if coriolis is None:
+        coriolis = weighted_fplane()
     return sw.Model(
         grid=make_grid(), csqr=csqr_profile, rossby_number=0.2,
         coriolis=coriolis, advection=False,
@@ -571,6 +583,7 @@ def test_varying_constant_profile_reproduces_the_constant_path(
     const_var = sw.Model(
         grid=make_grid(), csqr=lambda y: CSQR + 0.0 * y,
         rossby_number=0.2, advection=False,
+        coriolis=weighted_fplane(),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     cv = channel_eigenpairs(const_var)
     assert np.abs(np.asarray(cv.omega)
@@ -630,7 +643,7 @@ def test_varying_metric_must_be_positive():
     # a sign-crossing csqr(y) produces an indefinite metric: taught
     model = sw.Model(
         grid=make_grid(), csqr=lambda y: y - 0.5, rossby_number=0.2,
-        advection=False,
+        advection=False, coriolis=weighted_fplane(),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match="positive definite"):
         channel_eigenpairs(model)

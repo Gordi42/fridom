@@ -14,11 +14,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
-from fridom.model.modules.coriolis import (
-    FPlaneCoriolis,
-    NoCoriolis,
-    require_flat_grid_for_the_default,
-)
 from fridom.nonhydro2.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
@@ -38,7 +33,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     grid: Grid,
     dsqr: float = 1.0,
     rossby_number: float | fr.model.Ramp = 1.0,
-    coriolis: fr.model.Module | bool | None = None,
+    coriolis: fr.model.Module | None = None,
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
     pressure_iterations: int = 30,
@@ -57,12 +52,20 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         Squared aspect ratio for the dynamical core (default: 1.0).
     rossby_number : float | fr.model.Ramp, optional
         Rossby number (default: 1.0).
-    coriolis : fr.model.Module | bool | None, optional
-        The Coriolis module. ``None`` (the default) installs
-        ``FPlaneCoriolis(f0=1.0)`` on **flat** grids and raises on
-        chart-coupled grids, where a metric-blind rotation would be
-        silently wrong physics (name ``RotationCoriolis`` there);
-        ``False`` runs without rotation (sugar for ``NoCoriolis()``).
+    coriolis : fr.model.Module | None, optional
+        The Coriolis module. ``None`` — the argument omitted, the
+        default — means **no rotation at all**: no Coriolis module
+        is installed, so the model carries no ``f_coriolis`` field,
+        no rotation term and no ``coriolis.f0`` provide. Rotation is
+        opt-in: pass ``nh.FPlaneCoriolis(f0=...)`` /
+        ``nh.BetaPlaneCoriolis(...)`` on a flat grid, or
+        ``fr.modules.RotationCoriolis(omega=(0.0, 0.0, Omega),
+        coords=...)`` on a chart-coupled grid (default: None).
+
+        Note that a non-rotating **linear** nonhydrostatic model
+        (``advection=False``) leaves ``u``/``v`` advanced by no term
+        at all and is rejected by the D1.4 coverage lint — a linear
+        run needs a Coriolis module.
     stratification : fr.model.Module | None, optional
         The stratification module
         (default: ``ConstantStratification(n2=1.0)``).
@@ -89,11 +92,6 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     fr.model.Model
         The assembled model.
     """
-    if coriolis is False:
-        coriolis = NoCoriolis()
-    elif coriolis is None:
-        require_flat_grid_for_the_default(grid)
-        coriolis = FPlaneCoriolis(f0=1.0)
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
     if advection is True:
@@ -104,9 +102,11 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     modules: list[fr.model.Module] = [
         DynamicalCore(dsqr=dsqr, rossby_number=rossby_number,
                       pressure_iterations=pressure_iterations),
-        coriolis,
-        stratification,
     ]
+    # rotation is opt-in: coriolis=None installs no module at all
+    if coriolis is not None:
+        modules.append(coriolis)
+    modules.append(stratification)
     if advection is not False:
         modules.append(advection)
     modules.extend(modules_extra)
