@@ -81,6 +81,33 @@ def test_pressure_solve_drives_divergence_to_zero():
     assert maxdiff < 1e-12
 
 
+def test_single_precision_solve_matches_full_within_tolerance():
+    # the single-precision pressure solve returns float64 pressure
+    # close to the full solve; the transform pipeline runs in c64/f32
+    grid = make_grid()
+    div = grid.create_field(
+        init=lambda x, y, z: jnp.sin(x) * jnp.cos(2 * y) * jnp.cos(z))
+    dsqr = jnp.asarray(0.25)
+    full = SpectralPressureSolver(grid, div.function_space, vertical="z")
+    low = SpectralPressureSolver(
+        grid, div.function_space, vertical="z", single_precision=True)
+    assert low._single_precision is True
+    p_full = full.solve(div, dsqr=dsqr)
+    p_low = low.solve(div, dsqr=dsqr)
+    assert p_low.dtype == p_full.dtype  # state precision preserved
+    rel = float(jnp.linalg.norm(p_low.data - p_full.data)
+                / jnp.linalg.norm(p_full.data))
+    assert rel < 1e-5
+
+
+def test_single_precision_default_off():
+    grid = make_grid()
+    div = grid.create_field(
+        init=lambda x, y, z: jnp.sin(x) * jnp.cos(y) * jnp.cos(z))
+    solver = SpectralPressureSolver(grid, div.function_space, vertical="z")
+    assert solver._single_precision is False
+
+
 def test_pressure_solve_is_mean_free():
     # the k = 0 nullspace is regularized to the mean-free gauge
     grid = make_grid()

@@ -40,6 +40,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
+    single_precision_solve: bool = False,
     name: str | None = None,
 ) -> _Model:
     """Assemble a nonhydrostatic model (preset over ``fr.model.Model``).
@@ -67,6 +68,12 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         Override the default ``AdamBashforth(dt, order=3)``.
     dt : float, optional
         Time step for the default stepper (default: 1.0).
+    single_precision_solve : bool, optional
+        Run the spectral pressure projection in single precision
+        (``float32``/``complex64``) while the state stays
+        ``float64`` — a performance option forwarded to
+        ``DynamicalCore`` (see its ``single_precision_solve`` doc).
+        Off by default (default: False).
     name : str | None, optional
         Model name (default: None).
 
@@ -85,7 +92,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         time_stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
 
     modules: list[fr.model.Module] = [
-        DynamicalCore(dsqr=dsqr, rossby_number=rossby_number),
+        DynamicalCore(dsqr=dsqr, rossby_number=rossby_number,
+                      single_precision_solve=single_precision_solve),
         coriolis,
         stratification,
     ]
