@@ -3,7 +3,8 @@ status: draft
 date: 2026-07-12
 ---
 
-# Coriolis energy correction — an optional nonlinear term
+# Exactly-conserving Coriolis — the correction term and the
+# full nonlinear module
 
 Owner decision, 2026-07-12: **build it, as an optional module.**
 
@@ -44,7 +45,24 @@ assembles the linear operator `L` from exactly those declarations
 degradation, it is wrong — and it is precisely why the model splits
 Coriolis out as its own linear module today.
 
-## 3. The design: keep the linear term, add the correction
+## 3. Two routes, both shipped (owner, 2026-07-12)
+
+The exactly-conserving discrete f-term is one expression; there are two
+honest ways to put it into a model, and which one is right depends on
+whether the user needs the **linear operator** `L`.
+
+| route | terms | `L` (eigenmodes) | when to use |
+|---|---|---|---|
+| **A. linear + correction** (§4) | `f v` (`linear=True`) **+** correction (`linear=False`, optional) | **unchanged** | the default path; anything using eigenmodes, projections, balance, IMEX-by-linearity |
+| **B. full nonlinear Coriolis** (§5) | one term, `linear=False`, replacing the linear module | **loses rotation** | runs that do not need `L` at all — the simpler, cheaper expression |
+
+Both produce the **same tendency** (that is the acceptance test between
+them: assembled A and assembled B must agree to rounding), and both
+conserve the thickness-weighted energy to machine precision. They differ
+only in how the tendency is *declared*, and therefore in what the
+term-filtering machinery can still do with the model afterwards.
+
+## 4. Route A: keep the linear term, add the correction
 
 Declare **two** terms:
 
@@ -77,13 +95,54 @@ Rationale for optional rather than default:
   difference at all**, so a user doing linear/balance work should not
   pay for it.
 
-## 4. Gates
+## 5. Route B: the full nonlinear Coriolis module
 
-- **The invariant closes.** With the correction module assembled, the
-  semi-discrete production rate of the *thickness-weighted* energy,
-  including Coriolis, drops from ~3.7e-2 to **machine zero** (~1e-16,
-  matching the gravity+Sadourny gates) — on flat, channel AND sphere.
-  This is the whole point of the module and is its primary test.
+A **standalone module** carrying the exactly-conserving f-term whole:
+
+    du = (f / h_bar) * (h v)_bar        (and its v-counterpart)
+
+declared `linear=False`, and used **instead of** the linear Coriolis
+module — not alongside it (assembling both would double-count; the
+model must reject that, see the gates).
+
+- **Simpler and cheaper than route A**: one term instead of two, and no
+  cancellation between a linear term and a correction that mostly
+  undoes it.
+- **The cost is `L`.** With Coriolis living only in a `linear=False`
+  term, the linear operator has no rotation, so **eigenmodes,
+  projections, optimal balance, and IMEX-by-linearity are invalid** —
+  not degraded, wrong. The module's docstring must say this in those
+  words, and the model should refuse to assemble it together with any
+  consumer of `L` if that is detectable at assembly time (investigate:
+  the eigenmode/state-transform machinery is model-side and may only
+  bind later — if a static check is not possible, the transforms must
+  raise when they find no rotation in `L` on a model that declares a
+  nonlinear Coriolis).
+- **When to use it**: forward runs that never touch the linear
+  machinery — the majority of plain nonlinear integrations.
+
+Routes A and B are the *same physics*; B is what you reach for when you
+are not paying for `L`.
+
+## 6. Gates
+
+- **The invariant closes — for both routes.** The semi-discrete
+  production rate of the *thickness-weighted* energy, including
+  Coriolis, drops from ~3.7e-2 to **machine zero** (~1e-16, matching
+  the gravity+Sadourny gates) — on flat, channel AND sphere. This is
+  the whole point and is the primary test of each route.
+- **A and B agree.** The assembled tendency of route A (linear +
+  correction) equals that of route B (full nonlinear module) to
+  rounding. This is what pins them as the same physics, and it is the
+  cheapest way to catch an algebra error in either.
+- **B refuses to co-exist with A.** Assembling the nonlinear Coriolis
+  module together with the linear one (or with the correction) must
+  raise a taught error — that combination double-counts rotation.
+- **B is honest about `L`.** A model carrying the nonlinear Coriolis
+  must not silently hand a rotation-free linear operator to the
+  eigenmode / projection / balance machinery: either refuse at
+  assembly, or raise from the transform when it finds no rotation in
+  `L`. Test whichever mechanism is chosen.
 - **The linear operator is untouched.** Assembling the correction does
   not change `L`: the eigenmode spectrum / projection results are
   **bitwise identical** with and without the module. (The correction is
