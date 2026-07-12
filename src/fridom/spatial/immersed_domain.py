@@ -40,6 +40,7 @@ from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.storage import store
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
 from fridom.spatial.spaces.coefficient import CoefficientSpace
 from fridom.spatial.spaces.constant import ConstantSpace
@@ -419,23 +420,40 @@ def _cell_centers(mesh: object) -> jax.Array:
     """
     Materialize the 1D cell-center coordinates of one mesh.
 
+    Description
+    -----------
+    The cell centers are the collocation points at which the declared
+    indicator is sampled (rules section 3.7). The computational
+    placement ``s = (i + 0.5) / n`` composes with the mesh's
+    ``coordinate_map`` geometry seam (concepts section 2.7), exactly
+    like ``grid.evaluation_nodes`` — so masks honor a
+    ``MappedIntervalMesh`` stretch rather than assuming the uniform
+    placement of a scalar ``dx``. ``coordinate_map is None`` is the
+    uniform affine placement read off ``extent`` and ``dx`` (the
+    constant special case XLA folds).
+
     Parameters
     ----------
     mesh : Mesh
-        A grid mesh factor (iteration 1: ``IntervalMesh``).
+        A grid mesh factor (iteration 1: the interval meshes, uniform
+        ``IntervalMesh`` or stretched ``MappedIntervalMesh``).
 
     Returns
     -------
     jax.Array
         The ``n_cells`` cell-center coordinates.
     """
-    if not isinstance(mesh, IntervalMesh):
+    if not isinstance(mesh, IntervalMesh | MappedIntervalMesh):
         raise NotImplementedError(
             f"immersed masks on {type(mesh).__name__} arrive in a "
-            "later wave; iteration 1 covers IntervalMesh")
-    x_min = mesh.extent[0]
-    return x_min + (jnp.arange(mesh.n_cells, dtype=dtype_real())
-                    + 0.5) * mesh.dx
+            "later wave; iteration 1 covers the interval meshes "
+            "(uniform and mapped)")
+    n = mesh.n_cells
+    steps = jnp.arange(n, dtype=dtype_real()) + 0.5
+    mapping = mesh.coordinate_map
+    if mapping is None:
+        return mesh.extent[0] + steps * mesh.dx
+    return jnp.asarray(mapping(steps / n)).astype(dtype_real())
 
 
 def _derive(
