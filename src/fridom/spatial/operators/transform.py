@@ -646,10 +646,10 @@ class Transform(UnaryOperator, ABC):
         transpose partner, and the sharded axis transforms last. Each
         stage carries the ``Layout`` it executes under; the codomain
         carries the final pencil. Returns None when the operand is
-        single-device or ineligible (the ``slab_fft`` fallback
-        conditions), in which case callers keep the replicated
-        ``forward_plan`` path — leaving the single-device program
-        unchanged.
+        single-device or ineligible (a padded transform, a non-1-D
+        mesh, or a layout ``_distributed_geometry`` declines), in
+        which case callers keep the replicated ``forward_plan`` path —
+        leaving the single-device program unchanged.
 
         Parameters
         ----------
@@ -767,15 +767,15 @@ class Transform(UnaryOperator, ABC):
 
         Description
         -----------
-        Mirrors ``slab_fft._slab_geometry`` so the distributed plan's
-        axis roles match the (still-live) slab kernel byte-for-byte on
-        divisible grids: ``a`` is the single coordinate the default
-        layout shards, ``b`` the first other stage coordinate whose
-        extent divides the device count (the transpose partner), ``h``
-        the last remaining stage coordinate (the local Hermitian half
-        axis of a real domain, None otherwise). None on a non-1-D,
-        indivisible, or fewer-than-two-stage layout (the padded /
-        single-device guards live in the caller).
+        The slab axis roles are self-contained here (the fused kernel
+        in ``operators/distributed_solve.py`` consumes them): ``a`` is
+        the single coordinate the default layout shards, ``b`` the
+        first other stage coordinate whose extent divides the device
+        count (the transpose partner), ``h`` the last remaining stage
+        coordinate (the local Hermitian half axis of a real domain,
+        None otherwise). None on a non-1-D, indivisible, or
+        fewer-than-two-stage layout (the padded / single-device guards
+        live in the caller).
         """
         decomposition = self._grid.decomposition
         mapped = dict(decomposition.default_layout.device_axes)

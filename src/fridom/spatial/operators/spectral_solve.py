@@ -52,9 +52,9 @@ from fridom.spatial.operators.symbol import Symbol
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.operators.base import FieldLike, Operator
+    from fridom.spatial.operators.distributed_solve import SlabSolve
     from fridom.spatial.operators.mixed import ComposedTransform
     from fridom.spatial.operators.realized import RealizedMap
-    from fridom.spatial.operators.slab_fft import SlabSolve
     from fridom.spatial.operators.transform import Transform
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
@@ -288,7 +288,7 @@ class SpectralSolve:
         self._composite: RealizedMap | None = None
         # the distributed slab pipeline (multi-device only; None on
         # one device, keeping the single-device program bitwise
-        # unchanged) — see operators/slab_fft.py. The distributed
+        # unchanged) — see operators/distributed_solve.py. The distributed
         # solve runs full precision; ``single_precision`` applies to
         # the replicated composite path only.
         self._slab: SlabSolve | None = self._resolve_slab()
