@@ -34,8 +34,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.mixed import resolve_transform
 from fridom.spatial.operators.realized import BoundTransform
+from fridom.spatial.operators.slab_fft import (
+    SlabSolve,
+    resolve_slab_plan,
+    symbol_fits,
+)
 from fridom.spatial.operators.symbol import Symbol
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -70,6 +77,16 @@ class SpectralSolve:
     masking); Helmholtz ``(nabla^2 - lambda)`` with ``lambda != 0`` has
     no nullspace and inverts everywhere.
 
+    On a multi-device grid an eligible solve (pure unpadded Fourier
+    transform, divisible extents — see ``operators/slab_fft.py``)
+    additionally resolves a distributed :class:`SlabSolve`: the
+    whole ``backward @ inverse @ forward`` runs slab-decomposed
+    inside one ``jax.shard_map`` region, with the eigenvalue
+    diagonal materialized on the plan's internal coefficient space
+    and sliced per shard. Ineligible solves — and mismatched-layout
+    operands — keep the replicated composite; on one device the
+    program is bitwise unchanged.
+
     Parameters
     ----------
     elliptic : Operator | Symbol
@@ -101,17 +118,62 @@ class SpectralSolve:
     ) -> None:
         """Materialize the inverse symbol and compose the solve chain."""
         bare = space.bare
+        self._grid: object = grid
+        self._elliptic: Operator | Symbol = elliptic
+        self._where_zero: complex = where_zero
+        self._domain: SpaceLike = bare
         self._transform: Transform | ComposedTransform = (
             resolve_transform(grid, bare))
-        coeff = self._transform.codomain(bare)
-        symbol = (elliptic if isinstance(elliptic, Symbol)
-                  else elliptic.eigenvalues(grid, coeff))
-        self._inverse: Symbol = symbol.inverse(where_zero)
-        forward = BoundTransform(self._transform, bare)
-        backward = BoundTransform(self._transform, coeff, backward=True)
+        self._coeff: SpaceLike = self._transform.codomain(bare)
+        self._inverse: Symbol | None = None
+        self._composite: RealizedMap | None = None
+        # the distributed slab pipeline (multi-device only; None on
+        # one device, keeping the single-device program bitwise
+        # unchanged) — see operators/slab_fft.py
+        self._slab: SlabSolve | None = self._resolve_slab()
+        if self._slab is None:
+            self._materialize()
+
+    def _resolve_slab(self) -> SlabSolve | None:
+        """
+        Resolve the distributed slab solve, or None (fallback).
+
+        Description
+        -----------
+        The distributed path needs an :class:`Operator` recipe (a
+        pre-assembled ``Symbol`` is bound to the replicated codomain
+        layout), a resolvable :class:`SlabPlan`, and eigenvalues
+        that materialize on the plan's internal coefficient space as
+        an endomorphic broadcast-shaped diagonal; anything else
+        falls back to the replicated composite.
+        """
+        if isinstance(self._elliptic, Symbol):
+            return None
+        plan = resolve_slab_plan(self._grid, self._domain)
+        if plan is None:
+            return None
+        try:
+            symbol = self._elliptic.eigenvalues(self._grid,
+                                                plan.coeff)
+        except (EigenbasisError, SpaceMismatchError):
+            return None
+        if not symbol_fits(plan, symbol):
+            return None
+        return SlabSolve(plan, symbol.inverse(self._where_zero))
+
+    def _materialize(self) -> None:
+        """Build the replicated ``backward @ inverse @ forward``."""
+        symbol = (self._elliptic
+                  if isinstance(self._elliptic, Symbol)
+                  else self._elliptic.eigenvalues(self._grid,
+                                                  self._coeff))
+        self._inverse = symbol.inverse(self._where_zero)
+        forward = BoundTransform(self._transform, self._domain)
+        backward = BoundTransform(self._transform, self._coeff,
+                                  backward=True)
         # SpectralSolve *is* this composition (symbol_stack_design.md):
         # backward @ inverse @ forward, a lazy RealizedComposite
-        self._composite: RealizedMap = backward @ self._inverse @ forward
+        self._composite = backward @ self._inverse @ forward
 
     # ================================================================
     #  Properties
@@ -124,12 +186,30 @@ class SpectralSolve:
     @property
     def inverse_symbol(self) -> Symbol:
         """The materialized inverse diagonal (the per-mode ``1/lambda``)."""
+        if self._inverse is None:
+            self._materialize()
         return self._inverse
 
     @property
     def composite(self) -> RealizedMap:
-        """The realized-map chain ``backward @ inverse @ forward``."""
+        """
+        The realized-map chain ``backward @ inverse @ forward``.
+
+        Description
+        -----------
+        Built lazily when a distributed slab solve is active (the
+        replicated chain then only serves mismatched-layout
+        operands); on a single device it is built eagerly at
+        construction, exactly as before.
+        """
+        if self._composite is None:
+            self._materialize()
         return self._composite
+
+    @property
+    def slab(self) -> SlabSolve | None:
+        """The distributed slab solve, or None (replicated path)."""
+        return self._slab
 
     # ================================================================
     #  Application
@@ -137,6 +217,13 @@ class SpectralSolve:
     def __call__(self, rhs: FieldLike) -> FieldLike:
         """
         Solve ``elliptic(x) = rhs`` for ``x`` (diagonal, exact).
+
+        Description
+        -----------
+        With an active distributed slab solve and a matching operand
+        (same bare space and layout) the whole pipeline runs inside
+        one ``jax.shard_map`` region — no device ever gathers the
+        spectral cube; otherwise the replicated composite applies.
 
         Parameters
         ----------
@@ -148,7 +235,9 @@ class SpectralSolve:
         FieldLike
             The solution on the same space (real for a real transform).
         """
-        return self._composite(rhs)
+        if self._slab is not None and self._slab.applies(rhs):
+            return self._slab(rhs)
+        return self.composite(rhs)
 
     def solve(self, rhs: FieldLike) -> FieldLike:
         """
