@@ -954,3 +954,26 @@ def test_complex_promotion_keeps_the_variance(f):
     cov = f.with_variance(Variance.COVARIANT)
     assert cov.as_complex().function_space.variance is (
         Variance.COVARIANT)
+
+
+# ================================================================
+#  item(): the host read of a fully reduced field
+# ================================================================
+def test_item_returns_the_single_value(grid):
+    field = grid.create_field(init=lambda x, y: 1.0 + 0.0 * x * y)
+    total = field.integrate()
+    assert total.data.size == 1
+    value = total.item()
+    assert isinstance(value, float)
+    assert value == pytest.approx(2.0)  # the domain volume 1 x 2
+
+
+def test_item_of_a_complex_field_is_complex(f):
+    value = f.as_complex().integrate().item()
+    assert isinstance(value, complex)
+    assert value.imag == 0.0
+
+
+def test_item_needs_a_one_dof_field(f):
+    with pytest.raises(ValueError, match="one-DOF field"):
+        f.item()

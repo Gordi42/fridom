@@ -1,4 +1,4 @@
-"""Parameterful shallow-water diagnostics.
+r"""Parameterful shallow-water diagnostics.
 
 Description
 -----------
@@ -8,17 +8,47 @@ resolved through ``model.parameters``. Each takes ``(state, params)``
 and returns a ``ScalarField``. Parameter-free diagnostics (``rel_vort``,
 ``divergence``) live on ``sw.State`` instead.
 
-``ekin`` / ``epot`` are the linearized (quadratic) energies consistent
-with the energy metric ``M = diag(1, 1, 1/c^2)`` on ``(u, v, p)``
-(``fr.EnergyMetric``) — a single source of truth for the metric
-weights. The ``DIAGNOSTICS`` mapping is contributed by
-``sw.DynamicalCore`` (the diagnostics-namespace channel).
+Two energy families
+-------------------
+The package exposes **both** energies, and they are different
+functionals — the user picks:
+
+- ``ekin`` / ``epot`` — the **linearized** (quadratic) energy
+  densities of the energy metric ``M = diag(1, 1, 1/c^2)`` on
+  ``(u, v, p)`` (``fr.EnergyMetric``; a single source of truth for
+  the metric weights), sampled at the cell centre. ``M`` is the norm
+  of the eigenmode / projection machinery, and the **linear** model
+  (``advection=False``) conserves it exactly — but exactly means the
+  ``M``-norm itself, the quadratics summed on the fields' *own*
+  staggered spaces; these densities square the centre-*interpolated*
+  velocities, so their integral is a centre-sampled proxy of that
+  norm (they agree for resolved fields, not to machine precision).
+  Either way they are **not** the invariant of the **nonlinear**
+  model: with the Sadourny advection switched on, the scheme
+  produces them at :math:`O(\mathrm{Ro})`.
+- ``ekin_full`` / ``epot_full`` / ``etot_full`` — the
+  **thickness-weighted (nonlinear)** energy that the Sadourny scheme
+  plus the core's gravity term conserve **exactly** (semi-discretely,
+  to machine precision, on periodic, walled and chart grids; see
+  ``sw.modules.SadournyAdvection``). ``etot_full`` is the model's
+  invariant — the quantity to print in a nonlinear run.
+
+Every diagnostic returns a density at the cell centre; integrate it
+with ``field.integrate()`` (which carries the ``sqrt(g)`` area element
+on chart grids) and read the scalar with ``.item()``:
+
+.. code-block:: python
+
+    e = model.diagnostics.etot_full().integrate().item()
+
+The ``DIAGNOSTICS`` mapping is contributed by ``sw.DynamicalCore``
+(the diagnostics-namespace channel).
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.shallowwater2.params import CSQR
+from fridom.shallowwater2.params import CSQR, ROSSBY
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -70,7 +100,142 @@ def epot(
     return p.with_data(0.5 * p.data**2 / csqr)
 
 
+# ================================================================
+#  The thickness-weighted (nonlinear) energy — the model's invariant
+# ================================================================
+def thickness(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    r"""Full geopotential thickness ``h = c^2 + Ro p`` at cell center.
+
+    Description
+    -----------
+    The same ``p_full`` the Sadourny advection and the core's flux
+    form carry (the ``csqr`` **field**, never the scalar — so a
+    variable-depth model is spatially correct).
+    """
+    rossby = params[ROSSBY]
+    p = state["p"]
+    return state["csqr"].to(p) + rossby * p
+
+
+def ekin_full(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    r"""Thickness-weighted kinetic energy density at cell center.
+
+    Description
+    -----------
+    The kinetic part of the energy the scheme **actually conserves**:
+
+    .. math::
+        E_\mathrm{kin} = \int \tfrac12 \bar{h}^x u^2
+            + \tfrac12 \bar{h}^y v^2 , \qquad
+        h = c^2 + \mathrm{Ro}\, p
+
+    with each thickness average :math:`\bar h` taken **at the
+    velocity's own node** (``h.to(u)`` / ``h.to(v)``) — that
+    placement is what makes the semi-discrete conservation exact, so
+    it is lifted verbatim from the scheme (see the module docstring
+    of ``sw.modules.SadournyAdvection``), not re-derived.
+
+    On chart grids the quadratics carry the diagonal metric and the
+    :math:`\sqrt{g}` Jacobian **on each velocity's own staggered
+    space**, interpolated to the centre and divided by the centre
+    :math:`\sqrt{g}` — exactly the placement of the scheme's own
+    Bernoulli kinetic energy:
+
+    .. math::
+        E_\mathrm{kin} = \int \frac{
+            \overline{\sqrt{g}\,\bar h\, g_{\lambda\lambda}
+            (u^\lambda)^2}
+            + \overline{\sqrt{g}\,\bar h\, g_{\varphi\varphi}
+            (u^\varphi)^2}}{2\sqrt{g}}
+
+    so that ``.integrate()`` (which re-applies the centre
+    :math:`\sqrt{g}`) reproduces the per-velocity metric sums of the
+    invariant. Unlike ``ekin``, this is **not** the linearized
+    quadratic; ``ekin`` is not conserved by the nonlinear model.
+    """
+    u, v, p = state["u"], state["v"], state["p"]
+    grid = u.grid
+    h = thickness(state, params)
+    e_u = u * u * h.to(u)
+    e_v = v * v * h.to(v)
+    if grid.chart_coords is None:
+        return p.with_data(0.5 * (e_u.to(p) + e_v.to(p)).data)
+    zonal, meridional = u.function_space.names[:2]
+    u_bare = u.function_space.bare
+    v_bare = v.function_space.bare
+    e_u = (grid.metric(u_bare, "sqrt_g")
+           * grid.metric(u_bare, f"g_{zonal}{zonal}") * e_u)
+    e_v = (grid.metric(v_bare, "sqrt_g")
+           * grid.metric(v_bare, f"g_{meridional}{meridional}")
+           * e_v)
+    sqrt_g = grid.metric(p.function_space.bare, "sqrt_g")
+    return p.with_data(
+        (0.5 * (e_u.to(p) + e_v.to(p)) / sqrt_g).data)
+
+
+def epot_full(
+    state: VectorField,
+    params: Mapping[str, object],  # noqa: ARG001 — diagnostic protocol
+) -> ScalarField:
+    r"""Available potential energy ``0.5 p^2`` at cell center.
+
+    Description
+    -----------
+    The potential part of the conserved (thickness-weighted) energy:
+    :math:`\int \tfrac12 p^2` — **no** ``1/c^2`` (that weight belongs
+    to the linearized ``epot``). It is the available part of the full
+    potential energy :math:`\tfrac12 h^2/\mathrm{Ro}^2 =
+    \mathrm{const} + c^2 p/\mathrm{Ro} + \tfrac12 p^2`, whose other
+    two terms are fixed by (exact) mass conservation.
+    """
+    p = state["p"]
+    return p.with_data(0.5 * p.data**2)
+
+
+def etot_full(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    r"""Return the model's invariant: ``ekin_full + epot_full``.
+
+    Description
+    -----------
+    The total thickness-weighted energy density,
+
+    .. math::
+        E = \int \tfrac12 \bar{h}^x u^2 + \tfrac12 \bar{h}^y v^2
+            + \tfrac12 p^2
+
+    (metric form on chart grids: ``ekin_full``). The core's gravity
+    term and the Sadourny advection conserve it **exactly** in the
+    semi-discrete sense — the split mass flux :math:`u h` makes the
+    invariant belong to that pair, on periodic, walled and chart
+    grids alike — so ``etot_full().integrate()`` is the quantity to
+    monitor in a nonlinear run; the residual drift of a run is the
+    time stepper's, not the scheme's.
+
+    The remaining terms are exactly skew under the **linearized**
+    metric ``M`` instead, and only bounded here (both recorded in
+    ``sw.modules.SadournyAdvection``): the split Coriolis module
+    (``f`` outside the potential vorticity) commits an
+    :math:`O(\mathrm{Ro})` commutator error in this functional, and a
+    prescribed ``background=`` flow exchanges energy with it. So the
+    machine-precision statement is: **gravity + Sadourny conserve**
+    the thickness-weighted energy; **Coriolis is skew under ``M``**
+    (the linearized family).
+    """
+    kin = ekin_full(state, params)
+    return kin + epot_full(state, params)
+
+
 DIAGNOSTICS = {
     "ekin": ekin,
     "epot": epot,
+    "ekin_full": ekin_full,
+    "epot_full": epot_full,
+    "etot_full": etot_full,
+    "thickness": thickness,
 }
