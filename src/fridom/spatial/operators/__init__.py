@@ -61,7 +61,20 @@ if TYPE_CHECKING:  # pragma: no cover
         Zero,
         resolve_codomain,
     )
-    from .composed import Curl, Diag, Divergence, Gradient, Laplacian
+    from .composed import (
+        Curl,
+        Diag,
+        Divergence,
+        Gradient,
+        Laplacian,
+        LowerIndex,
+        MetricCurl,
+        MetricDivergence,
+        MetricGradient,
+        MetricLaplacian,
+        RaiseIndex,
+        VarianceRetag,
+    )
     from .finite_difference import FiniteDifference
     from .flux_diff import (
         DualFluxDifference,
@@ -179,6 +192,13 @@ all_imports_by_origin = {
         "Curl",
         "Diag",
         "Laplacian",
+        "MetricGradient",
+        "MetricDivergence",
+        "MetricCurl",
+        "MetricLaplacian",
+        "RaiseIndex",
+        "LowerIndex",
+        "VarianceRetag",
     ],
     f"{base}.movement": ["Reshard", "Sync"],
     f"{base}.verbs": ["diff", "interpolate", "integrate",

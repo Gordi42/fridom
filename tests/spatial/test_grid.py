@@ -21,9 +21,18 @@ from fridom.spatial.meshes.point import PointMesh
 from fridom.spatial.operators.base import (
     OperatorRequirements,
 )
+from fridom.spatial.operators.composed import (
+    LowerIndex,
+    MetricCurl,
+    MetricDivergence,
+    MetricGradient,
+    MetricLaplacian,
+    RaiseIndex,
+)
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
+from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.interp import LinearInterp
 from fridom.spatial.operators.mapped import MappedDerivative
 from fridom.spatial.operators.registry import (
@@ -950,3 +959,76 @@ def test_chart_only_mapping_seeds_no_physical_diff_row(mx, my):
     with pytest.raises(DispatchError, match="physical_diff"):
         grid.dispatch.resolve("physical_diff",
                               mx.center * my.center)
+
+
+# ================================================================
+#  Chart seeding: the metric-aware vector calculus (stage C2)
+# ================================================================
+def _chart_grid(mx, my):
+    mapping = CoordinateMapping(chart={
+        "X": lambda x, y: (jnp.cos(x), jnp.sin(x), y)})
+    return Grid((mx, my), mapping=mapping)
+
+
+def test_chart_mapping_seeds_the_metric_calculus_rows(mx, my):
+    grid = _chart_grid(mx, my)
+    space = mx.center * my.center
+    registry = grid.dispatch
+    assert isinstance(registry.resolve("grad", space),
+                      MetricGradient)
+    assert isinstance(registry.resolve("div", space),
+                      MetricDivergence)
+    assert isinstance(registry.resolve("curl", space), MetricCurl)
+    assert isinstance(registry.resolve("laplacian", space),
+                      MetricLaplacian)
+    assert isinstance(registry.resolve("raise_index", space),
+                      RaiseIndex)
+    assert isinstance(registry.resolve("lower_index", space),
+                      LowerIndex)
+    for row in ("grad", "div", "curl", "laplacian",
+                "raise_index", "lower_index"):
+        assert registry.resolve(row, space).coords == ("x", "y")
+
+
+def test_chart_mapping_seeds_the_jacobian_integrate_rows(mx, my):
+    grid = _chart_grid(mx, my)
+    row = grid.dispatch.resolve("integrate", mx.center)
+    assert isinstance(row, Integral)
+    assert row.jacobian == ("x", "y")
+
+
+def test_chartless_grids_keep_the_flat_builders(grid, mx, my):
+    space = mx.center * my.center
+    registry = grid.dispatch
+    assert not isinstance(registry.resolve("grad", space),
+                          MetricGradient)
+    assert not isinstance(registry.resolve("laplacian", space),
+                          MetricLaplacian)
+    assert registry.resolve("integrate", mx.center).jacobian is None
+    for kind in ("raise_index", "lower_index"):
+        with pytest.raises(DispatchError, match=kind):
+            registry.resolve(kind, space)
+
+
+def test_map_only_mappings_seed_no_metric_calculus(mapped_grid):
+    mx, ms = mapped_grid.factors
+    space = mx.center * ms.center
+    registry = mapped_grid.dispatch
+    assert not isinstance(registry.resolve("grad", space),
+                          MetricGradient)
+    assert registry.resolve("integrate", mx.center).jacobian is None
+    with pytest.raises(DispatchError, match="raise_index"):
+        registry.resolve("raise_index", space)
+
+
+def test_one_coordinate_charts_seed_the_jacobian_only(mx):
+    # a curve chart has arc-length measure but no vector calculus
+    mapping = CoordinateMapping(chart={
+        "X": lambda x: (jnp.cos(x), jnp.sin(x))})
+    grid = Grid((mx,), mapping=mapping)
+    assert grid.dispatch.resolve(
+        "integrate", mx.center).jacobian == ("x",)
+    assert not isinstance(grid.dispatch.resolve("grad", mx.center),
+                          MetricGradient)
+    with pytest.raises(DispatchError, match="raise_index"):
+        grid.dispatch.resolve("raise_index", mx.center)

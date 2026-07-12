@@ -1,4 +1,4 @@
-"""
+r"""
 ``Integral``: the quadrature-weighted reduction to ``ConstantSpace``.
 
 Description
@@ -13,8 +13,23 @@ the result broadcasts back under the strict algebra (rules section
 transform back first. There is no unweighted ``sum`` operator
 (``f.data.sum()`` is the escape hatch). ``CumulativeIntegral``
 (``"cumint"``) is deferred within Wave 3 (see the wave report).
+
+Chart grids (coordinate-systems plan, stage C2): quadrature weights
+reuse the metric measures (rules 3.13), so on a grid whose
+``CoordinateMapping`` carries an embedding chart the seeded rows hold
+``Integral(jacobian=<chart coords>)`` — the computational measure
+times the ``sqrt_g`` Jacobian on the querying space,
+:math:`\int f\,\sqrt{g}\,du\,dv`. The Jacobian enters exactly once
+per area integral: on the reduction of a chart coordinate while the
+operand space still resolves *every* chart coordinate (the first
+chart reduction of a sequential ``f.integrate()``); once a chart
+factor is constant the remaining reductions contract against the
+plain computational measure. A field *born* constant along a chart
+coordinate therefore integrates against the computational measure
+only — consistent with the flat-grid convention that constant
+factors carry no geometry.
 """
-# Wave 3: Integral -- deferred: CumulativeIntegral
+# Wave 3: Integral -- Stage C2: the sqrt_g Jacobian weight
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, final
@@ -55,14 +70,42 @@ class Integral(SeparableOperator):
     cross-shard sum is declared through ``collective=True``
     (informational, no layout constraint). Application along a
     ``ConstantSpace`` factor is the identity (rules section 3.3,
-    realized by the separable base).
+    realized by the separable base). With ``jacobian=`` set the
+    reduction of a chart coordinate additionally contracts against
+    the ``sqrt_g`` metric derived on the operand space (module
+    docstring; the weight enters once per area integral).
+
+    Parameters
+    ----------
+    jacobian : tuple[str, ...] | None, optional
+        The chart-coupled coordinate names whose reduction picks up
+        the ``sqrt_g`` Jacobian weight; None keeps the plain
+        computational measure (default: None).
     """
 
     dispatch_kind: ClassVar[str | None] = "integrate"
 
+    def __init__(
+        self, jacobian: tuple[str, ...] | None = None,
+    ) -> None:
+        """Store the (optional) chart coordinate family."""
+        if jacobian is not None:
+            jacobian = tuple(jacobian)
+            if not jacobian or not all(
+                    isinstance(name, str) for name in jacobian):
+                raise TypeError(
+                    "jacobian names chart coordinates: a non-empty "
+                    f"tuple of strings, got {jacobian!r}")
+        self._jacobian: tuple[str, ...] | None = jacobian
+
+    @property
+    def jacobian(self) -> tuple[str, ...] | None:
+        """Chart coordinates carrying the sqrt_g weight, or None."""
+        return self._jacobian
+
     def _intern_key(self) -> tuple:
-        """Structural key: no constructor state (D6)."""
-        return ()
+        """Structural key: the Jacobian coordinate family (D6)."""
+        return (self._jacobian,)
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """
@@ -124,7 +167,12 @@ class Integral(SeparableOperator):
         Reads ``grid.measure(space, name=axis)`` at trace time (a
         uniform mesh constant-folds it) and sums the weighted true
         DOFs along the axis, keeping the singleton ``ConstantSpace``
-        dimension.
+        dimension. On a Jacobian row (``jacobian=`` set) the
+        reduction of a chart coordinate additionally weighs by the
+        ``sqrt_g`` metric derived on the operand space — exactly
+        when every chart coordinate is still resolved by the space,
+        so sequential reductions apply the area element once
+        (module docstring).
 
         Parameters
         ----------
@@ -142,9 +190,41 @@ class Integral(SeparableOperator):
         space = f.function_space
         bare = space.bare
         weight = f.grid.measure(bare, name=axis)
+        data = f.data * weight.data
+        if (self._jacobian is not None
+                and axis in self._jacobian
+                and _resolves(bare, self._jacobian)):
+            data = data * f.grid.metric(bare, "sqrt_g").data
         axis_index = bare.names.index(axis)
-        data = (f.data * weight.data).sum(axis=axis_index,
-                                          keepdims=True)
+        data = data.sum(axis=axis_index, keepdims=True)
         codomain = resolve_codomain(self, space)
         stored = store(f.grid.decomposition, codomain, data)
         return type(f)(f.grid, codomain, stored, None)
+
+
+def _resolves(space: FunctionSpace | object,
+              names: tuple[str, ...]) -> bool:
+    """
+    Whether ``space`` resolves every name through a live factor.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (bare) operand space.
+    names : tuple[str, ...]
+        The chart coordinate names.
+
+    Returns
+    -------
+    bool
+        True iff every name is contributed by a non-constant,
+        non-coefficient factor of ``space``.
+    """
+    for name in names:
+        try:
+            factor = space.factor(name)
+        except KeyError:
+            return False
+        if isinstance(factor, ConstantSpace | CoefficientSpace):
+            return False
+    return True

@@ -252,3 +252,25 @@ def test_average_family_expansion_needs_no_interpolation(grid, mx,
     assert isinstance(scaled, MetricScaled)
     assert scaled.target is grid.dispatch.resolve(
         "diff", ms.cell_avg)["sigma"]
+
+
+# ================================================================
+#  MetricScaled: reciprocal (denominator-only) form (stage C2)
+# ================================================================
+def test_metric_scaled_needs_at_least_one_name():
+    with pytest.raises(ValueError, match="at least one"):
+        MetricScaled(Identity())
+
+
+def test_metric_scaled_denominator_only_is_the_reciprocal(grid, mx,
+                                                          ms):
+    space = mx.center * ms.center
+    f = grid.create_field(space,
+                          init=lambda x, sigma: 1.0 + 0 * x
+                          + 0 * sigma)
+    scaled = MetricScaled(Identity(), denominator="dz_dsigma")
+    out = scaled(f)
+    assert scaled.numerator is None
+    assert scaled.denominator == "dz_dsigma"
+    expected = grid.metric(space, "dz_dsigma")
+    assert jnp.allclose(out.data * expected.data, 1.0)
