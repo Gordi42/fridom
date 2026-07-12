@@ -156,6 +156,23 @@ def test_single_precision_solve_is_static_treedef_aux():
     assert full != low
 
 
+def test_second_advance_with_both_options_compiles_nothing(
+        compile_counter):
+    # zero-recompile on repeated advance with both reduced-precision
+    # options on (the options are static: one program per value)
+    model = nh.Model(
+        grid=make_grid(), advection=False,
+        single_precision_solve=True,
+        time_stepper=AdamBashforth(
+            DT, order=3, single_precision_history=True))
+    _, _, z = grid_coords()
+    model.set_fields(b=0.01 * np.cos(z))
+    model.advance(4)
+    compile_counter.reset()
+    model.advance(4)
+    assert compile_counter.count == 0
+
+
 def test_single_precision_solve_model_still_projects():
     # a full single-precision-solve model runs and drives divergence
     # to the single-precision floor (well below the IC divergence)
