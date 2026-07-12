@@ -37,6 +37,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     coriolis: fr.model.Module | None = None,
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
+    pressure_iterations: int = 30,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -61,6 +62,11 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The advection module: ``True`` uses the default
         ``CenteredAdvection()``, ``False`` omits advection (a linear
         model), and a module instance is used as given (default: True).
+    pressure_iterations : int, optional
+        The fixed PCG iteration budget of the mapped pressure solve,
+        forwarded to the dynamical core; consumed only on a
+        coordinate-mapped grid (the flat spectral solve is exact and
+        iterates nothing) (default: 30).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -85,7 +91,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         time_stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
 
     modules: list[fr.model.Module] = [
-        DynamicalCore(dsqr=dsqr, rossby_number=rossby_number),
+        DynamicalCore(dsqr=dsqr, rossby_number=rossby_number,
+                      pressure_iterations=pressure_iterations),
         coriolis,
         stratification,
     ]

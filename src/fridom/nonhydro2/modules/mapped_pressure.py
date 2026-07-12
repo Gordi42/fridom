@@ -106,14 +106,34 @@ mapped-flat identity gate. The nullspace of the all-Neumann/periodic
 problem is the constants; the solve always projects the mean
 (``project_mean=True``).
 
-Every metric coefficient is derived through ``grid.metric`` at
-application time on the operand's own space — nothing is cached, and
-the ``params=`` seam threads dynamic mapping parameters (stage C4)
-through every derivation (rules 2.3/3.8).
+Metric derivation: once per solve, never across steps
+-----------------------------------------------------
+Every metric coefficient is derived through ``grid.metric`` on the
+operand's own space, and the ``params=`` seam threads dynamic
+mapping parameters (stage C4) through every derivation (rules
+2.3/3.8). Nothing is *cached*: no metric field is ever stored on the
+solver, on the grid, or across a step — under a moving geometry
+(``MovingGeometry``, where ``H`` / ``Y_N`` change every step) a
+retained metric would be silently stale, which is exactly what rules
+2.3/3.8 forbid.
+
+The metrics do not, however, depend on the CG iterate: they are
+bit-identical across the iterations of one solve, and re-deriving
+them inside the operator application made every CG iteration repeat
+the same registry ``diff`` / interpolation chains (with their halo
+exchanges). They are therefore **derived once per solve** into a
+memo dict that is created inside the public entry point, threaded
+through the operator applications of that one CG run, and dropped
+when it returns — it never touches ``self``, never outlives a trace,
+and holds whatever (possibly traced) parameter fields the caller
+passed, so a second solve at a moved geometry re-derives everything.
+"Derived once per solve" is a trace-structure optimization;
+"cached across steps" remains forbidden.
 """
 # Coordinate-systems plan, stage C3: mapped PCG pressure solve
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -139,6 +159,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+    #: the per-solve metric memo: interned (space, metric name) keys
+    #: to derived metric fields; created inside one solve, dropped
+    #: when it returns, never stored on the solver (module docstring)
+    MetricCache = dict[tuple[SpaceLike, str], ScalarField]
 
 
 class MappedPressureSolver:
@@ -337,41 +362,86 @@ class MappedPressureSolver:
         return self._iterations
 
     # ================================================================
-    #  Metric coefficients (derived per application, never cached)
+    #  Metric coefficients (derived once per solve, never cached)
     # ================================================================
-    def _metric(self, space: SpaceLike, name: str) -> ScalarField:
-        """Derive one mapping metric on ``space`` (params-ready)."""
-        return self._grid.metric(space, name, params=self._params)
+    def _metric(self, space: SpaceLike, name: str,
+                cache: MetricCache | None = None) -> ScalarField:
+        """
+        Derive one mapping metric on ``space`` (params-ready).
+
+        Description
+        -----------
+        With a ``cache`` — the per-solve memo the public entry
+        points create and thread through one CG run (module
+        docstring) — the derivation of a ``(space, name)`` pair is
+        performed once and reused; the spaces are interned, so the
+        key is an identity key. Without one the metric is derived
+        on the spot. The memo is **per solve**, never per solver
+        and never across steps: it only removes the repetition of a
+        derivation whose inputs (the grid's mapping, the caller's
+        ``params=`` fields) are fixed for the duration of the call.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying (staggered) space.
+        name : str
+            The metric name (e.g. ``"dzp_dz"``).
+        cache : MetricCache | None, optional
+            The per-solve memo; None derives without memoizing
+            (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The metric field on ``space``.
+        """
+        if cache is None:
+            return self._grid.metric(space, name, params=self._params)
+        key = (space, name)
+        field = cache.get(key)
+        if field is None:
+            field = self._grid.metric(
+                space, name, params=self._params)
+            cache[key] = field
+        return field
 
     def _weight(self, axis: str) -> jax.Array | float:
         """Return the physical-axis weight of ``axis`` (default 1)."""
         return self._weights.get(axis, 1.0)
 
-    def _jacobian(self, field: ScalarField) -> ScalarField:
+    def _jacobian(self, field: ScalarField,
+                  cache: MetricCache | None = None) -> ScalarField:
         """Derive the column Jacobian ``J = dm/db`` on the field."""
         return self._metric(field.function_space,
-                            f"d{self._mapped}_d{self._base}")
+                            f"d{self._mapped}_d{self._base}", cache)
 
-    def _slope(self, field: ScalarField, axis: str) -> ScalarField:
+    def _slope(self, field: ScalarField, axis: str,
+               cache: MetricCache | None = None) -> ScalarField:
         """Derive the slope metric ``Z_i = dm/dx_i`` on the field."""
         return self._metric(field.function_space,
-                            f"d{self._mapped}_d{axis}")
+                            f"d{self._mapped}_d{axis}", cache)
 
-    def _column_coefficient(self, space: SpaceLike) -> ScalarField:
+    def _column_coefficient(
+        self, space: SpaceLike,
+        cache: MetricCache | None = None,
+    ) -> ScalarField:
         r"""``K^bb = (sum_i w_i Z_i^2 + w_m) / J`` on ``space``."""
         inv_j = self._metric(
-            space, f"d{self._base}_d{self._mapped}")
+            space, f"d{self._base}_d{self._mapped}", cache)
         coeff = self._weight(self._base) * inv_j
         for a in self._coupled:
-            slope = self._metric(space, f"d{self._mapped}_d{a}")
+            slope = self._metric(
+                space, f"d{self._mapped}_d{a}", cache)
             coeff = coeff + self._weight(a) * (slope * slope) * inv_j
         return coeff
 
     # ================================================================
     #  Cross-term corner chains (the transpose-paired hops)
     # ================================================================
-    def _cross_to_face(self, axis: str,
-                       g_b: ScalarField) -> ScalarField:
+    def _cross_to_face(self, axis: str, g_b: ScalarField,
+                       cache: MetricCache | None = None,
+                       ) -> ScalarField:
         """
         Assemble the ``i``-face cross flux ``I_b(Z_i * I_i(g_b))``.
 
@@ -388,6 +458,8 @@ class MappedPressureSolver:
             The coupled coordinate.
         g_b : ScalarField
             The column gradient (on the column faces).
+        cache : MetricCache | None, optional
+            The per-solve metric memo (default: None).
 
         Returns
         -------
@@ -395,12 +467,13 @@ class MappedPressureSolver:
             The cross flux on the ``axis`` face space.
         """
         corner = self._up_i[axis](g_b)
-        flux = corner * self._slope(corner, axis)
+        flux = corner * self._slope(corner, axis, cache)
         flux = flux.retag(self._corner_tagged[axis])
         return self._down_b[axis](flux)
 
-    def _cross_to_column(self, axis: str,
-                         v: ScalarField) -> ScalarField:
+    def _cross_to_column(self, axis: str, v: ScalarField,
+                         cache: MetricCache | None = None,
+                         ) -> ScalarField:
         """
         Apply the column-face cross chain ``I_i(Z_i * I_b(v))``.
 
@@ -418,6 +491,8 @@ class MappedPressureSolver:
         v : ScalarField
             A field on the ``axis`` face space (a gradient, a
             velocity component, or a correction).
+        cache : MetricCache | None, optional
+            The per-solve metric memo (default: None).
 
         Returns
         -------
@@ -425,12 +500,15 @@ class MappedPressureSolver:
             The chain's output on the column face space (BC-free).
         """
         corner = self._up_b[axis](v)
-        return self._down_i[axis](corner * self._slope(corner, axis))
+        return self._down_i[axis](
+            corner * self._slope(corner, axis, cache))
 
     # ================================================================
     #  The operator, its right-hand side, and the velocity update
     # ================================================================
-    def _fluxes(self, p: ScalarField) -> dict[str, ScalarField]:
+    def _fluxes(self, p: ScalarField,
+                cache: MetricCache | None = None,
+                ) -> dict[str, ScalarField]:
         """Assemble the per-axis pressure fluxes ``K^{aj} G_j p``."""
         grads = {a: self._grad[a](p) for a in self._axes}
         fluxes: dict[str, ScalarField] = {}
@@ -438,18 +516,20 @@ class MappedPressureSolver:
         for a in self._axes:
             if a == self._base:
                 continue
-            flux = grads[a] * self._jacobian(grads[a])
+            flux = grads[a] * self._jacobian(grads[a], cache)
             if a in self._coupled:
-                flux = flux - self._cross_to_face(a, g_b)
+                flux = flux - self._cross_to_face(a, g_b, cache)
             fluxes[a] = self._weight(a) * flux
-        flux = g_b * self._column_coefficient(g_b.function_space)
+        flux = g_b * self._column_coefficient(
+            g_b.function_space, cache)
         for a in self._coupled:
             flux = flux - self._weight(a) * self._cross_to_column(
-                a, grads[a])
+                a, grads[a], cache)
         fluxes[self._base] = flux
         return fluxes
 
-    def apply(self, p: ScalarField) -> ScalarField:
+    def apply(self, p: ScalarField,
+              cache: MetricCache | None = None) -> ScalarField:
         r"""
         Apply the mapped elliptic operator ``A p``.
 
@@ -466,13 +546,17 @@ class MappedPressureSolver:
         ----------
         p : ScalarField
             The pressure iterate on the solver's space.
+        cache : MetricCache | None, optional
+            The per-solve metric memo threaded by :meth:`krylov`;
+            None derives the metrics for this application only
+            (default: None).
 
         Returns
         -------
         ScalarField
             ``A p`` on the same space.
         """
-        fluxes = self._fluxes(p)
+        fluxes = self._fluxes(p, cache)
         out = None
         for a in self._axes:
             term = self._div[a](fluxes[a].retag(self._tagged[a]))
@@ -481,6 +565,7 @@ class MappedPressureSolver:
 
     def divergence(
         self, vel: Mapping[str, ScalarField],
+        cache: MetricCache | None = None,
     ) -> ScalarField:
         r"""
         Compute the J-weighted divergence the operator measures.
@@ -503,6 +588,10 @@ class MappedPressureSolver:
             The physical velocity components keyed by coordinate
             name (the mapped column's base keys the component along
             the mapped physical direction).
+        cache : MetricCache | None, optional
+            The per-solve metric memo (:meth:`project` shares one
+            across divergence, solve and correction); None derives
+            the metrics for this call only (default: None).
 
         Returns
         -------
@@ -520,16 +609,16 @@ class MappedPressureSolver:
                 continue
             u = vel[a].retag(self._face[a])
             if a in self._coupled:
-                column = column - self._cross_to_column(a, u)
+                column = column - self._cross_to_column(a, u, cache)
             term = self._div[a](
-                (u * self._jacobian(u)).retag(self._tagged[a]))
+                (u * self._jacobian(u, cache)).retag(self._tagged[a]))
             out = term if out is None else out + term
         term = self._div[self._base](
             column.retag(self._tagged[self._base]))
         return out + term
 
     def velocity_correction(
-        self, p: ScalarField,
+        self, p: ScalarField, cache: MetricCache | None = None,
     ) -> dict[str, ScalarField]:
         r"""
         Derive the flux-consistent velocity corrections per axis.
@@ -549,21 +638,23 @@ class MappedPressureSolver:
         ----------
         p : ScalarField
             The solved pressure.
+        cache : MetricCache | None, optional
+            The per-solve metric memo (default: None).
 
         Returns
         -------
         dict[str, ScalarField]
             Per-coordinate corrections to subtract.
         """
-        fluxes = self._fluxes(p)
+        fluxes = self._fluxes(p, cache)
         corrections: dict[str, ScalarField] = {}
         column = fluxes[self._base]
         for a in self._axes:
             if a == self._base:
                 continue
-            corr = fluxes[a] / self._jacobian(fluxes[a])
+            corr = fluxes[a] / self._jacobian(fluxes[a], cache)
             if a in self._coupled:
-                column = column + self._cross_to_column(a, corr)
+                column = column + self._cross_to_column(a, corr, cache)
             corrections[a] = corr
         corrections[self._base] = column
         return corrections
@@ -571,20 +662,24 @@ class MappedPressureSolver:
     # ================================================================
     #  The preconditioned solve
     # ================================================================
-    def _mean_coefficients(self) -> dict[str, jax.Array]:
+    def _mean_coefficients(
+        self, cache: MetricCache | None = None,
+    ) -> dict[str, jax.Array]:
         """Fold the diagonal coefficients to their (0-d) means."""
         coeffs: dict[str, jax.Array] = {}
         for a in self._axes:
             if a == self._base:
-                field = self._column_coefficient(self._face[a])
+                field = self._column_coefficient(self._face[a], cache)
             else:
                 field = self._weight(a) * self._metric(
                     self._face[a],
-                    f"d{self._mapped}_d{self._base}")
+                    f"d{self._mapped}_d{self._base}", cache)
             coeffs[a] = jnp.reshape(field.mean().data, ())
         return coeffs
 
-    def _preconditioner(self) -> Callable[[ScalarField], ScalarField]:
+    def _preconditioner(
+        self, cache: MetricCache | None = None,
+    ) -> Callable[[ScalarField], ScalarField]:
         """
         Build the flat spectral inverse at folded coefficients.
 
@@ -596,6 +691,13 @@ class MappedPressureSolver:
         ``A`` (the consistent sign pair, module docstring), exact
         for constant metrics. The means are recomputed per solve —
         dynamic parameters trace through.
+
+        Parameters
+        ----------
+        cache : MetricCache | None, optional
+            The per-solve metric memo; the folded coefficients read
+            the very metrics the operator applications reuse
+            (default: None).
 
         Returns
         -------
@@ -611,7 +713,7 @@ class MappedPressureSolver:
                 axes, grad_block.codomains(solve_space),
                 strict=True))
         div_block = Divergence().expand(mid, self._grid)
-        diag = Diag(self._mean_coefficients(), axes=axes)
+        diag = Diag(self._mean_coefficients(cache), axes=axes)
         lap = (div_block @ diag @ grad_block).scalar()
         solve = SpectralSolve(lap, self._grid, solve_space)
         if solve_space is self._space:
@@ -622,9 +724,28 @@ class MappedPressureSolver:
 
         return apply
 
-    def krylov(self) -> ConjugateGradient:
+    def krylov(
+        self, cache: MetricCache | None = None,
+    ) -> ConjugateGradient:
         """
         Build the configured PCG solver (public for diagnostics).
+
+        Description
+        -----------
+        The returned solver's operator closes over a **per-solve**
+        metric memo — a fresh dict per ``krylov()`` call unless the
+        caller shares one (:meth:`project`) — so the metrics are
+        derived once instead of once per CG iteration; they cannot
+        go stale, since the memo dies with the returned solver and
+        never reaches ``self`` (module docstring). The returned
+        object is therefore, like the solver itself, valid for the
+        single trace it was built in.
+
+        Parameters
+        ----------
+        cache : MetricCache | None, optional
+            An existing per-solve memo to share; None creates a
+            fresh one (default: None).
 
         Returns
         -------
@@ -632,14 +753,17 @@ class MappedPressureSolver:
             Fixed-iteration PCG on ``apply`` with the spectral
             preconditioner and the constants-nullspace projection.
         """
+        if cache is None:
+            cache = {}
         return ConjugateGradient(
-            self.apply,
-            preconditioner=self._preconditioner(),
+            partial(self.apply, cache=cache),
+            preconditioner=self._preconditioner(cache),
             iterations=self._iterations,
             project_mean=True)
 
     def solve(
         self, rhs: ScalarField, x0: ScalarField | None = None,
+        cache: MetricCache | None = None,
     ) -> ScalarField:
         """
         Solve ``A p = rhs`` by preconditioned CG.
@@ -651,10 +775,46 @@ class MappedPressureSolver:
         x0 : ScalarField | None, optional
             The initial guess; None starts from zeros
             (default: None).
+        cache : MetricCache | None, optional
+            The per-solve metric memo to share; None creates a fresh
+            one for this solve (default: None).
 
         Returns
         -------
         ScalarField
             The mean-free pressure on the same space.
         """
-        return self.krylov()(rhs, x0)
+        return self.krylov(cache)(rhs, x0)
+
+    def project(
+        self, vel: Mapping[str, ScalarField],
+    ) -> tuple[ScalarField, dict[str, ScalarField]]:
+        """
+        Run the whole projection on one shared metric derivation.
+
+        Description
+        -----------
+        The projection's three halves — the J-weighted divergence,
+        the PCG solve, and the flux-consistent velocity corrections
+        — read the *same* metric coefficients. This entry point
+        derives them once (one per-solve memo, created here and
+        dropped on return; module docstring) and threads that memo
+        through all three, so a step's trace carries a single
+        derivation chain instead of one per operator application.
+        Under a moving geometry the next step builds a new solver
+        with the new parameter fields and derives everything afresh.
+
+        Parameters
+        ----------
+        vel : Mapping[str, ScalarField]
+            The physical velocity components (:meth:`divergence`).
+
+        Returns
+        -------
+        tuple[ScalarField, dict[str, ScalarField]]
+            The mean-free pressure and the per-coordinate velocity
+            corrections to subtract (:meth:`velocity_correction`).
+        """
+        cache: MetricCache = {}
+        p = self.solve(self.divergence(vel, cache), cache=cache)
+        return p, self.velocity_correction(p, cache)

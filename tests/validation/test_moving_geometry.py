@@ -32,6 +32,14 @@ from fridom.spatial.meshes.interval import IntervalMesh
 
 N = 8
 DT = 0.01
+#: PCG budget of the mapped projection in these gates. The model
+#: default (30) is well past convergence here: measured worst mapped
+#: divergence over the whole morph is 1.87e-14 at BOTH 16 and 30
+#: iterations (gate 5e-11), and 1.5e-17 on the oscillating column at
+#: both — i.e. the solve has converged to machine precision by 16, so
+#: the budget only bought trace/compile time (the CG loop is
+#: unrolled). Every assertion below keeps its original tolerance.
+ITERATIONS = 16
 DSQR = 0.5
 TWO_PI = 2.0 * np.pi
 
@@ -55,7 +63,8 @@ def make_terrain_model(*modules, n=N, init=depth, advection=True,
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping, device_ids=device_ids)
     return nh.Model(grid=grid, dt=DT, dsqr=DSQR,
-                    advection=advection, modules_extra=modules)
+                    advection=advection, modules_extra=modules,
+                    pressure_iterations=ITERATIONS)
 
 
 def terrain_fields(n=N):
@@ -126,6 +135,7 @@ def make_ale_model(n, *modules):
     ), mapping=mapping)
     return nh.Model(
         grid=grid, dt=DT, advection=False,
+        pressure_iterations=ITERATIONS,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
         modules_extra=(
@@ -219,6 +229,7 @@ def make_channel_model(*modules, n=N):
     ), mapping=mapping)
     return nh.Model(
         grid=grid, dt=DT, dsqr=DSQR,
+        pressure_iterations=ITERATIONS,
         modules_extra=(
             MovingGeometry({"YN": channel_width}), *modules))
 

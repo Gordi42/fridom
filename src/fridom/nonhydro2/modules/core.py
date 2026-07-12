@@ -239,8 +239,11 @@ class DynamicalCore(fr.model.Module):
             weights={self._vertical: 1.0 / dsqr},
             iterations=self._pressure_iterations,
             params=mapping_params(state, grid))
-        p = solver.solve(solver.divergence(vel))
-        corr = solver.velocity_correction(p)
+        # one metric derivation for the whole projection: divergence,
+        # solve and correction share the solver's per-solve memo (it
+        # dies with the call, so the next step re-derives at the new
+        # geometry — MappedPressureSolver.project)
+        p, corr = solver.project(vel)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),
             "v": state["v"] - corr["y"].retag(state["v"]),
