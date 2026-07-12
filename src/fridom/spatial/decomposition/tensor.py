@@ -895,6 +895,18 @@ class TensorDecomposition(Decomposition):
 
         axis_name = dict(layout.device_axes)[axis]
         cells = self._cells_per_shard(factor, shards)
+        # the right wall lives on the last shard; if a wall space's last
+        # shard holds no true DOF (an n_cells-1 space whose padded last
+        # shard empties) the masked right patch would be silently
+        # dropped -- fail loudly instead. Negotiation precludes this
+        # (its last-shard >= width + 1 check keeps every wall shard
+        # non-empty); only a hand-built decomposition can reach here.
+        if min(n_out, n_in) - (shards - 1) * cells < 1:
+            raise ValueError(
+                f"cannot patch physical ends of {axis!r} over {shards} "
+                f"shards: a wall space's last shard holds no true DOF "
+                f"(n_out={n_out}, n_in={n_in}, cells={cells}); "
+                "negotiation is expected to preclude this")
         in_spec = [None] * in_arr.ndim
         in_spec[in_axis] = axis_name
         out_spec = [None] * out_arr.ndim

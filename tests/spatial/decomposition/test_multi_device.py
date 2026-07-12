@@ -400,6 +400,28 @@ def test_heavy_padding_blocking_is_rejected_at_use():
         decomp.storage_shape(mesh.center)
 
 
+@pytest.mark.multi_device
+def test_patch_physical_ends_rejects_empty_wall_shard():
+    # 13 cells over 4: cells=ceil(13/4)=4, so the inner space (n=12)
+    # last shard holds 0 true DOFs -- the right-wall patch would be
+    # silently dropped. patch_physical_ends must fail loudly. This
+    # config is unreachable through negotiate (its last-shard >= width+1
+    # check rejects 13-over-4 at any width >= 1), so only a hand-built
+    # decomposition can reach the guard.
+    mesh = IntervalMesh(13, (0.0, 1.0), periodic=False, name="x")
+    decomp = TensorDecomposition(
+        meshes=(mesh,), names=("x",), halo=HaloSpec({"x": 1}),
+        layouts=(Layout({"x": "devices"}),),
+        device_ids=tuple(range(jax.device_count())))
+    inner, cell_avg = mesh.inner, mesh.cell_avg   # n = 12, 13
+    out_arr = decomp.zeros(inner)
+    in_arr = decomp.zeros(cell_avg)
+    with pytest.raises(ValueError, match="last shard holds no true"):
+        decomp.patch_physical_ends(
+            out_arr, in_arr, inner, cell_avg, "x",
+            lambda *a: a[1])  # patch never reached (guard fires first)
+
+
 # ================================================================
 #  Padded-even (non-divisible) ghost sharding
 # ================================================================
@@ -589,6 +611,10 @@ def test_divisible_reblock_hlo_is_byte_for_byte_unchanged():
     # Regenerate deliberately with FRIDOM_REGEN_HLO_GOLDEN=1 and review
     # the diff -- it must change ONLY on a jax/xla toolchain bump, never
     # from this feature.
+    if jax.device_count() != 4:
+        # the golden hard-codes the 4-device blocking (num_partitions,
+        # shapes); it is captured for and only valid at 4 devices
+        pytest.skip("HLO golden is captured for 4 devices")
     mx = IntervalMesh(16, (0.0, 1.0), name="x")
     decomp = Grid((mx,)).decomposition
     space = decomp._meshes[0].center
@@ -599,6 +625,7 @@ def test_divisible_reblock_hlo_is_byte_for_byte_unchanged():
         "unpad": (lambda s: decomp.unpad(s, space), storage),
         "round_trip": (
             lambda s: decomp.pad(decomp.unpad(s, space), space), storage),
+        "sync": (lambda s: decomp.sync(s, space), storage),
         "zeros": (lambda _: decomp.zeros(space), storage),
     }
     regen = os.environ.get("FRIDOM_REGEN_HLO_GOLDEN")
