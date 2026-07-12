@@ -8,9 +8,13 @@ The module library for the shallow-water model:
 - :class:`DynamicalCore` — declares ``u``/``v``/``p``, owns
   ``csqr`` and the Rossby scaling, contributes the linear physics;
 - :class:`~fridom.model.modules.FPlaneCoriolis` /
-  :class:`~fridom.model.modules.BetaPlaneCoriolis` — the shared
-  framework Coriolis modules (re-exported from ``fr.modules``), which
-  declare ``f_coriolis`` and carry the rotation term;
+  :class:`~fridom.model.modules.BetaPlaneCoriolis` /
+  :class:`~fridom.model.modules.RotationCoriolis` (chart grids:
+  ``f = 2 Omega . n_hat``) / :class:`~fridom.model.modules.
+  SphericalCoriolis` / :class:`~fridom.model.modules.NoCoriolis` —
+  the shared framework Coriolis family (re-exported from
+  ``fr.modules``), which declare ``f_coriolis`` and carry the
+  rotation term;
 - :class:`SadournyAdvection` — the energy/enstrophy-conserving
   nonlinear advection.
 """
@@ -25,6 +29,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
+        NoCoriolis,
+        RotationCoriolis,
         SphericalCoriolis,
     )
 
@@ -43,7 +49,8 @@ all_modules_by_origin: dict[str, list[str]] = {}
 # working.
 all_imports_by_origin = {
     "fridom.model.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis", "SphericalCoriolis"],
+        "FPlaneCoriolis", "BetaPlaneCoriolis", "SphericalCoriolis",
+        "RotationCoriolis", "NoCoriolis"],
     f"{base}.core": ["DynamicalCore"],
     f"{base}.sadourny": ["SadournyAdvection"],
 }

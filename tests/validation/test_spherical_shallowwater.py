@@ -104,6 +104,12 @@ def swirl(lon, lat):
 #  Flat limit: identity chart == chartless Cartesian, bitwise
 # ================================================================
 def test_identity_chart_run_is_bitwise_flat():
+    # the f-plane as a DERIVED special case: on the identity chart
+    # X = (x, y, 0) the surface normal is exactly (0, 0, 1), so
+    # RotationCoriolis(omega=(0, 0, 0.5)) derives f = 2 Omega . n = 1
+    # and its metric factors (sqrt_g = g_xx = g_yy = 1) are exact
+    # ones — the chart run must reproduce the chartless Cartesian
+    # f-plane run BITWISE, tendency and 50 steps.
     n = 16
 
     def meshes():
@@ -115,7 +121,7 @@ def test_identity_chart_run_is_bitwise_flat():
     mx, my = meshes()
     chart_grid = fr.spatial.Grid(
         (mx, my), mapping=fr.spatial.CoordinateMapping(
-            chart={"X": lambda x, y: (x, y)}))
+            chart={"X": lambda x, y: (x, y, 0.0 * x)}))
     chart_grid.merge_overrides({
         "raise_index": fr.spatial.operators.RaiseIndex(
             ("x", "y"), diagonal=True),
@@ -124,15 +130,18 @@ def test_identity_chart_run_is_bitwise_flat():
     fx, fy = meshes()
     flat_grid = fr.spatial.Grid((fx, fy))
 
-    def build(grid, **kwargs):
+    def build(grid, coriolis, **kwargs):
         return sw.Model(
             grid=grid, csqr=0.7, rossby_number=0.4,
-            coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+            coriolis=coriolis,
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 2e-3, order=3), **kwargs)
 
-    chart = build(chart_grid, coords=("x", "y"))
-    flat = build(flat_grid)
+    chart = build(chart_grid, sw.modules.RotationCoriolis(
+        omega=(0.0, 0.0, 0.5), coords=("x", "y")), coords=("x", "y"))
+    flat = build(flat_grid, sw.modules.FPlaneCoriolis(f0=1.0))
+    assert float(chart.state["f_coriolis"].data.min()) == 1.0
+    assert float(chart.state["f_coriolis"].data.max()) == 1.0
     rng = np.random.default_rng(7)
     fields = {
         "u": rng.standard_normal((n, n)),

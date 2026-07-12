@@ -22,6 +22,7 @@ from fridom.model.model import Model as FrModel
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
+    NoCoriolis,
 )
 from fridom.model.modules.moving_geometry import MovingGeometry
 from fridom.model.params import (
@@ -547,6 +548,23 @@ def test_betaplane_advances_with_a_profile_f_of_y():
     before = jax.tree_util.tree_structure(model._carry)
     model.advance(4)
     assert jax.tree_util.tree_structure(model._carry) == before
+    assert np.isfinite(np.asarray(model.state["u"].data)).all()
+
+
+def test_coriolis_false_runs_without_rotation():
+    # the explicit no-rotation option: coriolis=False installs the
+    # NoCoriolis null module, which declares no f_coriolis field and
+    # still provides the (zero) constant coriolis.f0 (advection stays
+    # on: with neither rotation nor advection nothing would advance
+    # u/v and the D1.4 coverage lint would fire, correctly)
+    model = nh.Model(grid=make_grid(), dt=DT, coriolis=False)
+    assert "f_coriolis" not in model.state
+    assert float(model.parameters[CORIOLIS_F0]) == 0.0
+    assert any(isinstance(m, NoCoriolis)
+               for m in model._carry.modules)
+    _, y, z = grid_coords()
+    model.set_fields(u=0.01 * np.sin(y), b=0.01 * np.cos(z))
+    model.advance(4)
     assert np.isfinite(np.asarray(model.state["u"].data)).all()
 
 
