@@ -444,6 +444,30 @@ def uniform_spacing(factor: FunctionSpace) -> float:
     return dx
 
 
+def mapped_mesh(mesh: object) -> bool:
+    """
+    Whether a 1D mesh carries a coordinate map (stretched axis).
+
+    Description
+    -----------
+    The mesh-level spelling of :func:`mapped_factor`, for callers
+    that hold the mesh rather than a factor space (the model-level
+    ``bind`` guards of the biased schemes, which vet
+    ``grid.factors``).
+
+    Parameters
+    ----------
+    mesh : object
+        A 1D mesh (``IntervalMesh``, ``MappedIntervalMesh``, ...).
+
+    Returns
+    -------
+    bool
+        True iff the mesh exposes a non-None ``coordinate_map``.
+    """
+    return getattr(mesh, "coordinate_map", None) is not None
+
+
 def mapped_factor(factor: FunctionSpace) -> bool:
     """
     Whether the factor's mesh carries a coordinate map.
@@ -456,6 +480,14 @@ def mapped_factor(factor: FunctionSpace) -> bool:
     the measure-field division of
     :func:`divide_by_codomain_measure`.
 
+    It is also the **refusal** predicate of every uniform-offset
+    stencil wider than two points (``FiniteDifference`` order > 2,
+    the biased WENO/upwind reconstructions): those rows are the
+    uniform-mesh weights, and the two-point measure field can only
+    ground a 2nd-order division — a wide row divided by it is
+    consistent but silently 2nd order, so the operators raise
+    instead (see :func:`mapped_order_hint`).
+
     Parameters
     ----------
     factor : FunctionSpace
@@ -466,7 +498,42 @@ def mapped_factor(factor: FunctionSpace) -> bool:
     bool
         True iff the mesh exposes a non-None ``coordinate_map``.
     """
-    return getattr(factor.mesh, "coordinate_map", None) is not None
+    return mapped_mesh(factor.mesh)
+
+
+def mapped_order_hint(what: str) -> str:
+    """
+    Shared "why" clause of the mapped high-order refusals.
+
+    Description
+    -----------
+    The one sentence every mapped guard of a uniform-offset stencil
+    repeats (``FiniteDifference``'s order > 2 guard, the biased
+    reconstructions, the biased advection modules): the stencil is a
+    *computational-coordinate* row, so a mapped mesh needs the
+    computational-space chain rule with an order-matched discrete
+    Jacobian; the two-point measure field the grid materializes caps
+    the achievable order at 2.
+
+    Parameters
+    ----------
+    what : str
+        The refusing stencil, named in the message
+        (e.g. "the biased face reconstructions").
+
+    Returns
+    -------
+    str
+        The composed reason clause.
+    """
+    return (
+        f"{what} are uniform-offset (computational-coordinate) rows, "
+        "so on a stretched mesh they are not the design-order "
+        "weights: a mapped high-order stencil needs the "
+        "computational-space chain rule with an order-matched "
+        "discrete Jacobian, and the two-point measure field caps the "
+        "order at 2 — the scheme would silently drop to 2nd order "
+        "(deferred; coordinate-systems plan)")
 
 
 def divide_by_codomain_measure(

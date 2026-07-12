@@ -52,6 +52,10 @@ from fridom.spatial.operators.base import (
 from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
 )
+from fridom.spatial.operators.staggering import (
+    mapped_factor,
+    mapped_order_hint,
+)
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg
 
@@ -229,6 +233,46 @@ def _validate(order: int, bias: str) -> None:
     if bias not in ("left", "right"):
         raise ValueError(
             f"bias must be 'left' or 'right', got {bias!r}")
+
+
+def require_uniform_mesh(domain: FunctionSpace, label: str) -> None:
+    """
+    Reject a stretched (mapped) factor at the reconstruction row.
+
+    Description
+    -----------
+    The mapped guard of the biased reconstructions (the sibling of
+    ``FiniteDifference``'s order > 2 refusal): the Shu rows are the
+    uniform-mesh FV reconstruction weights, so on a
+    ``MappedIntervalMesh`` (or any mesh exposing a
+    ``coordinate_map``) they are outright the wrong weights and the
+    scheme silently drops to 2nd order. Refuse the signature instead
+    — the centered order-2 rows (``LinearReconstruction``, the
+    default ``reconstruct`` entry) *are* grounded on mapped meshes
+    and stay available.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D factor space.
+    label : str
+        The refusing operator, named in the message.
+
+    Raises
+    ------
+    SpaceMismatchError
+        If the factor's mesh carries a coordinate map.
+    """
+    if mapped_factor(domain):
+        raise SpaceMismatchError(
+            f"no reconstruct signature on {domain!r}: {label} is "
+            "uniform-mesh only — "
+            + mapped_order_hint("the biased Shu reconstruction rows")
+            + ". Use the centered order-2 reconstruction "
+            "(LinearReconstruction, the default 'reconstruct' row, "
+            "which divides by the codomain measure field) or a "
+            "uniform mesh (IntervalMesh)",
+            left=domain, operation="reconstruct")
 
 
 @cache
@@ -515,8 +559,12 @@ class WenoReconstruction(SeparableOperator):
     Iteration 1 is periodic-only (parity with the old stack's
     ``weno_interpolation.py``); the bare kernel's bounded-axis
     boundary biasing is designed-for, so a bounded registration is a
-    space error, never a silent fallback. Nonlinear, hence no
-    ``eigenvalues`` (the raising base is correct and automatic).
+    space error, never a silent fallback. Uniform-mesh only for the
+    same reason: on a stretched (mapped) factor the Shu rows are the
+    wrong FV weights and the scheme would silently drop to 2nd order,
+    so the signature raises (:func:`require_uniform_mesh`). Nonlinear,
+    hence no ``eigenvalues`` (the raising base is correct and
+    automatic).
 
     The ``boundary`` knob (decision R2 parity) is a constructor
     variant, not per-application state: ``boundary="none"`` (default)
@@ -672,7 +720,9 @@ class WenoReconstruction(SeparableOperator):
         reconstruct: CellAvg -> Right (periodic; both biases land on
         the same face space — the bias is a stencil property, not a
         signature property). The bounded ``CellAvg -> Outer`` biased
-        variant is designed-for and raises.
+        variant is designed-for and raises. Stretched (mapped)
+        factors raise too: the Shu rows are uniform-mesh weights
+        (:func:`require_uniform_mesh`).
 
         Parameters
         ----------
@@ -689,6 +739,7 @@ class WenoReconstruction(SeparableOperator):
                 "WenoReconstruction reconstructs primal cell "
                 f"averages onto faces (CellAvg -> Right), got "
                 f"{domain!r}", left=domain, operation="reconstruct")
+        require_uniform_mesh(domain, "WenoReconstruction")
         if domain.scalars is Scalars.COMPLEX:
             raise SpaceMismatchError(
                 "the WENO smoothness indicators are real quadratic "
