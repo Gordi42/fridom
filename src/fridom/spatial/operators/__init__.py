@@ -71,6 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .integrate import Integral
     from .interp import LinearInterp
+    from .mapped import MappedDerivative, MetricScaled
     from .mixed import ComposedTransform, resolve_transform
     from .movement import Reshard, Sync
     from .realized import (
@@ -84,7 +85,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .select import Where
     from .spectral_solve import SpectralSolve
     from .symbol import Symbol
-    from .verbs import diff, integrate, interpolate
+    from .verbs import diff, integrate, interpolate, physical_diff
     from .weno import WenoReconstruction
 
 # ================================================================
@@ -109,6 +110,7 @@ all_modules_by_origin = {
         "spectral",
         "transform",
         "mixed",
+        "mapped",
         "fourier",
         "trig",
         "chebyshev",
@@ -169,6 +171,7 @@ all_imports_by_origin = {
     # the class import "Integral" and the D3b verb "integrate"
     # coexist: only the verb owns the ``fr.operators.integrate`` slot
     f"{base}.integrate": ["Integral"],
+    f"{base}.mapped": ["MappedDerivative", "MetricScaled"],
     f"{base}.mixed": ["ComposedTransform", "resolve_transform"],
     f"{base}.composed": [
         "Gradient",
@@ -178,7 +181,8 @@ all_imports_by_origin = {
         "Laplacian",
     ],
     f"{base}.movement": ["Reshard", "Sync"],
-    f"{base}.verbs": ["diff", "interpolate", "integrate"],
+    f"{base}.verbs": ["diff", "interpolate", "integrate",
+                      "physical_diff"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
