@@ -30,6 +30,13 @@ codomain and scaled by a :class:`MetricScaled` coefficient — a
 quotient of ``grid.metric`` fields derived **at application time**
 on the codomain space, so no operator ever caches a metric and
 time-dependent parameters trace through (rules 2.3/3.8).
+
+Dynamic geometry (stage C4): :meth:`MappedDerivative.with_params`
+binds caller-supplied parameter fields (module-owned state, e.g.
+the ``MovingGeometry`` ``H(t)`` field) into a transient builder
+whose expanded coefficients derive from the *current* values via
+the ``grid.metric`` ``params=`` overload — values enter as traced
+arrays, so sweeping geometry through jit compiles once.
 """
 # Coordinate-systems plan, stage C1: physical_diff dispatch kind
 from __future__ import annotations
@@ -47,6 +54,7 @@ from fridom.spatial.operators.registry import DispatchError
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
+    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import (
         FieldLike,
         OperatorRequirements,
@@ -88,11 +96,20 @@ class MetricScaled(Operator):
     denominator : str | None, optional
         The metric name of the coefficient's denominator; None
         scales by the numerator alone (default: None).
+    params : Mapping[str, ScalarField] | None, optional
+        Dynamic mapping-parameter fields threaded into every
+        ``grid.metric`` derivation (the ``params=`` overload,
+        stage C4). Instances carrying params are **transient** —
+        built at application time (e.g. through
+        ``MappedDerivative.with_params``) and applied immediately;
+        the registry-seeded rows stay array-free (default: None).
     """
 
     def __init__(self, target: Operator, *,
                  numerator: str | None = None,
-                 denominator: str | None = None) -> None:
+                 denominator: str | None = None,
+                 params: Mapping[str, ScalarField] | None = None,
+                 ) -> None:
         """Store the target and the static metric names."""
         if not isinstance(target, Operator):
             raise TypeError(
@@ -111,6 +128,8 @@ class MetricScaled(Operator):
         self._target: Operator = target
         self._numerator: str | None = numerator
         self._denominator: str | None = denominator
+        self._params: dict[str, ScalarField] | None = (
+            None if params is None else dict(params))
 
     # ------------------------------------------------------------
     #  Properties
@@ -129,6 +148,11 @@ class MetricScaled(Operator):
     def denominator(self) -> str | None:
         """The metric name of the denominator, or None."""
         return self._denominator
+
+    @property
+    def params(self) -> dict[str, ScalarField] | None:
+        """Dynamic parameter fields of the derivations (a copy)."""
+        return None if self._params is None else dict(self._params)
 
     # ------------------------------------------------------------
     #  Signature and requirements (pointwise scale: delegate)
@@ -186,14 +210,16 @@ class MetricScaled(Operator):
         out = self._target(f)
         if getattr(f, "_trace_apply", None) is not None:
             return out
+
+        def metric(name: str) -> FieldLike:
+            return f.grid.metric(out.function_space, name,
+                                 params=self._params)
+
         if self._numerator is None:
-            return out / f.grid.metric(out.function_space,
-                                       self._denominator)
-        coeff = f.grid.metric(out.function_space,
-                              self._numerator)
+            return out / metric(self._denominator)
+        coeff = metric(self._numerator)
         if self._denominator is not None:
-            coeff = coeff / f.grid.metric(out.function_space,
-                                          self._denominator)
+            coeff = coeff / metric(self._denominator)
         return out * coeff
 
 
@@ -236,6 +262,12 @@ class MappedDerivative(Operator):
     axis : str | None, optional
         The bound coordinate; bind via ``op[axis]`` (default:
         None).
+    params : Mapping[str, ScalarField] | None, optional
+        Dynamic mapping-parameter fields threaded into the expanded
+        ``MetricScaled`` coefficients (stage C4); bind via
+        :meth:`with_params`. The grid-seeded registry row carries
+        None — static defaults — so callers without a dynamic
+        geometry get exactly the C1 behavior (default: None).
     """
 
     dispatch_kind: ClassVar[str | None] = "physical_diff"
@@ -244,6 +276,7 @@ class MappedDerivative(Operator):
         self,
         corrections: Mapping[str, tuple[str, str]],
         axis: str | None = None,
+        params: Mapping[str, ScalarField] | None = None,
     ) -> None:
         """Store the coupling table and the optional bound axis."""
         corrections = dict(corrections)
@@ -257,6 +290,8 @@ class MappedDerivative(Operator):
                     f"base) name pairs, got {coord!r}: {entry!r}")
         self._corrections: dict[str, tuple[str, str]] = corrections
         self._axis: str | None = axis
+        self._params: dict[str, ScalarField] | None = (
+            None if params is None else dict(params))
 
     # ------------------------------------------------------------
     #  Properties
@@ -271,9 +306,48 @@ class MappedDerivative(Operator):
         """The bound coordinate name, or None."""
         return self._axis
 
+    @property
+    def params(self) -> dict[str, ScalarField] | None:
+        """Bound dynamic parameter fields, or None (a copy)."""
+        return None if self._params is None else dict(self._params)
+
     # ------------------------------------------------------------
-    #  Axis binding
+    #  Axis and parameter binding
     # ------------------------------------------------------------
+    def with_params(
+        self, params: Mapping[str, ScalarField] | None,
+    ) -> MappedDerivative:
+        """
+        Bind dynamic mapping-parameter fields (stage C4).
+
+        Description
+        -----------
+        Returns a **transient** builder whose expansion threads
+        ``params`` into every ``MetricScaled`` coefficient (and the
+        ``grid.metric`` derivations behind them), so the physical
+        derivative reads the *current* geometry instead of the
+        static declaration defaults. The caller — typically a
+        tendency term holding module-owned geometry state — builds
+        it at application time and applies it immediately; nothing
+        params-bound is ever registered (registries hold no
+        arrays).
+
+        Parameters
+        ----------
+        params : Mapping[str, ScalarField] | None
+            Parameter fields by name; None/empty returns a builder
+            on the static defaults.
+
+        Returns
+        -------
+        MappedDerivative
+            The params-bound builder (axis binding preserved).
+        """
+        if not params:
+            params = None
+        return MappedDerivative(self._corrections, axis=self._axis,
+                                params=params)
+
     def __getitem__(self, axis: str) -> MappedDerivative:
         """
         Bind the coordinate to differentiate along.
@@ -302,7 +376,8 @@ class MappedDerivative(Operator):
             raise TypeError(
                 f"operator is already bound to {self._axis!r}; "
                 "rebinding is not allowed")
-        return MappedDerivative(self._corrections, axis=axis)
+        return MappedDerivative(self._corrections, axis=axis,
+                                params=self._params)
 
     # ------------------------------------------------------------
     #  Signature (builders expand before they have one)
@@ -354,7 +429,8 @@ class MappedDerivative(Operator):
             # the derivative along the column's physical image:
             # d/d<mapped> = d<base>_d<mapped> * d/d<base>
             return MetricScaled(
-                fd_q, numerator=f"d{base}_d{mapped}")
+                fd_q, numerator=f"d{base}_d{mapped}",
+                params=self._params)
         target = resolve_codomain(fd_q, domain)
         fd_b = registry.resolve(
             "diff", domain.factor(base))[base]
@@ -378,7 +454,8 @@ class MappedDerivative(Operator):
         return fd_q - MetricScaled(
             chain,
             numerator=f"d{mapped}_d{axis}",
-            denominator=f"d{mapped}_d{base}")
+            denominator=f"d{mapped}_d{base}",
+            params=self._params)
 
     def _resolved_axis(self, domain: SpaceLike) -> str:
         """Return the bound axis, inferred when the domain is 1D."""

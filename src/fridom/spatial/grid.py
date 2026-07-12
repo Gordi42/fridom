@@ -1843,6 +1843,7 @@ def _default_registry(
         corrections = mapping.column_corrections
         if corrections:
             entries["physical_diff"] = MappedDerivative(corrections)
+            _seed_column_closure(entries, meshes, corrections)
     if chart is not None and len(chart) > 1:
         # metric-aware vector calculus (stage C2): the same kinds,
         # chart-coupled entries (validation 6.3) — seeded only when
@@ -1862,6 +1863,53 @@ def _default_registry(
     # override set): day-one `f.diff` on average spaces needs a
     # concrete chain even before any grid.merge_overrides call
     return OperatorRegistry(entries).merge({})
+
+
+def _seed_column_closure(
+    entries: dict[DispatchKey, Operator],
+    meshes: tuple[Mesh, ...],
+    corrections: Mapping[str, tuple[str, str]],
+) -> None:
+    """
+    Open the BC-free ``Inner -> Center`` hop on mapped columns.
+
+    Description
+    -----------
+    The near-wall closure of the physical-derivative correction
+    chains (coordinate-systems plan, stage C4): on a **bounded**
+    mapped column the sketch-4.4 correction differentiates along the
+    column (``Center -> Inner``, BC-free) and must interpolate back
+    (``Inner -> Center``) — a hop the default closed ``LinearInterp``
+    legality rule rejects because the near-wall windows have no
+    boundary data. A mapped column *requires* a closure for the
+    seeded ``physical_diff`` kind to be usable at all, so the grid
+    seeds the explicit one-sided variant
+    (``LinearInterp(boundary="one_sided")``, boundary_plan 2d) for
+    exactly the column base mesh's BC-free ``Inner`` space — the row
+    stage C1 validated as a per-grid override. Flat grids, chart
+    mappings, and periodic columns are untouched, and a module
+    override of the same key still wins (defaults sit below the
+    override layer).
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The default entry table under construction.
+    meshes : tuple[Mesh, ...]
+        The grid's mesh factors.
+    corrections : Mapping[str, tuple[str, str]]
+        The mapping's coupling table (coordinate -> (mapped, base)).
+    """
+    bases = {base for _, base in corrections.values()}
+    one_sided = LinearInterp(boundary="one_sided")
+    for mesh in meshes:
+        if getattr(mesh, "periodic", True):
+            continue
+        if not any(name in bases for name in mesh.names):
+            continue
+        inner = getattr(mesh, "inner", None)
+        if inner is not None:
+            entries.setdefault(("interpolate", inner), one_sided)
 
 
 def _declared_space_resolver(

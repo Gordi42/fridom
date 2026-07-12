@@ -274,3 +274,89 @@ def test_metric_scaled_denominator_only_is_the_reciprocal(grid, mx,
     assert scaled.denominator == "dz_dsigma"
     expected = grid.metric(space, "dz_dsigma")
     assert jnp.allclose(out.data * expected.data, 1.0)
+
+
+# ================================================================
+#  Dynamic parameter binding (stage C4)
+# ================================================================
+def test_with_params_returns_a_transient_bound_builder(grid, mx,
+                                                       ms):
+    op = grid.dispatch.resolve("physical_diff",
+                               mx.center * ms.center)
+    assert op.params is None
+    h = grid.create_field(mx.center, init=depth)
+    bound = op.with_params({"H": h})
+    assert bound is not op
+    assert bound.params == {"H": h}
+    assert bound.corrections == op.corrections
+    # axis binding preserves the params and vice versa
+    assert bound["x"].params == {"H": h}
+    assert op["x"].with_params({"H": h}).bound_axis == "x"
+    # empty / None params normalize to the static-defaults builder
+    assert op.with_params(None).params is None
+    assert op.with_params({}).params is None
+
+
+def test_with_params_threads_into_the_expanded_coefficients(
+        grid, mx, ms):
+    space = mx.center * ms.center
+    h = grid.create_field(mx.center, init=depth)
+    op = grid.dispatch.resolve("physical_diff", space)
+    expanded = op.with_params({"H": h})["x"].expand(space, grid)
+    scaled = expanded.terms[1].target
+    assert isinstance(scaled, MetricScaled)
+    assert scaled.params == {"H": h}
+    column = op.with_params({"H": h})["sigma"].expand(space, grid)
+    assert isinstance(column, MetricScaled)
+    assert column.params == {"H": h}
+
+
+def test_params_bound_derivative_reads_the_current_geometry(
+        grid, mx, ms):
+    # the params-bound builder on the depth-default grid reproduces
+    # the static builder of a grid whose default IS the passed H —
+    # the current values drive the coefficients, bitwise
+    def other_depth(x):
+        return 1.0 + 0.1 * jnp.cos(2.0 * x)
+
+    space = mx.center * ms.center
+    u = grid.create_field(
+        space,
+        init=lambda x, sigma: jnp.sin(TWO_PI * sigma) + 0.0 * x)
+    op = grid.dispatch.resolve("physical_diff", space)
+    h = grid.create_field(mx.center, init=other_depth)
+    dx_dynamic = op.with_params({"H": h})["x"](u)
+    dz_dynamic = op.with_params({"H": h})["sigma"](u)
+
+    mx2 = IntervalMesh(N, (0.0, float(TWO_PI)), name="x")
+    ms2 = IntervalMesh(N, (0.0, 1.0), name="sigma")
+    ref = Grid((mx2, ms2), mapping=CoordinateMapping(
+        maps={"z": lambda sigma, H: sigma * H},
+        params={"H": other_depth}))
+    space2 = mx2.center * ms2.center
+    u2 = ref.create_field(
+        space2,
+        init=lambda x, sigma: jnp.sin(TWO_PI * sigma) + 0.0 * x)
+    op2 = ref.dispatch.resolve("physical_diff", space2)
+    assert jnp.array_equal(dx_dynamic.data, op2["x"](u2).data)
+    assert jnp.array_equal(dz_dynamic.data, op2["sigma"](u2).data)
+    # and it genuinely differs from the static-default derivative
+    assert not jnp.allclose(dx_dynamic.data, op["x"](u).data)
+
+
+def test_metric_scaled_params_property_and_application(grid, mx,
+                                                       ms):
+    space = mx.center * ms.center
+    f = grid.create_field(
+        space, init=lambda x, sigma: 1.0 + 0 * x + 0 * sigma)
+    h2 = grid.create_field(mx.center,
+                           init=lambda x: 2.0 * depth(x))
+    scaled = MetricScaled(Identity(), numerator="dz_dsigma",
+                          params={"H": h2})
+    assert scaled.params == {"H": h2}
+    assert MetricScaled(Identity(),
+                        numerator="dz_dsigma").params is None
+    out = scaled(f)
+    x = grid.evaluation_nodes(space, "x").data
+    expected = jnp.broadcast_to(2.0 * depth(x), out.data.shape)
+    assert jnp.allclose(out.data, expected)

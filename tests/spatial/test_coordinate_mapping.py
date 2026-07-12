@@ -52,7 +52,8 @@ def grid(mx, ms, mapping):
 def test_param_and_metric_names(mapping):
     assert mapping.param_names == ("H",)
     assert mapping.metric_names == ("dz_dsigma", "dz_dx",
-                                    "dsigma_dz")
+                                    "dsigma_dz", "dz_dH")
+    assert mapping.param_coords == {"H": ("x",)}
 
 
 def test_supplied_metrics_declare_their_names():
@@ -535,3 +536,55 @@ def test_column_corrections_empty_for_charts_and_multibase():
     multibase = CoordinateMapping(
         maps={"z": lambda x, sigma: sigma * (1.0 + x)})
     assert multibase.column_corrections == {}
+
+
+# ================================================================
+#  Parameter-sensitivity metrics (stage C4: mesh velocities)
+# ================================================================
+def test_param_sensitivity_metric_values(grid, mx, ms):
+    # z = sigma * H  =>  dz/dH = sigma, exactly, at the space's own
+    # nodes — the mesh-velocity ingredient (z_dot = dz_dH * H_dot)
+    space = mx.center * ms.center
+    metric = grid.metric(space, "dz_dH")
+    sigma = grid.evaluation_nodes(space, "sigma").data
+    assert jnp.allclose(metric.data,
+                        jnp.broadcast_to(sigma, metric.data.shape))
+
+
+def test_param_sensitivity_metric_on_staggered_spaces(grid, mx, ms):
+    # staggered consistency: the sensitivity samples the requested
+    # space's own column nodes (the staggered faces here)
+    space = mx.center * ms.right
+    metric = grid.metric(space, "dz_dH")
+    sigma = grid.evaluation_nodes(space, "sigma").data
+    assert jnp.allclose(metric.data,
+                        jnp.broadcast_to(sigma, metric.data.shape))
+
+
+def test_param_sensitivity_metric_honours_params():
+    # a nonlinear map: z = sigma * H**2 => dz/dH = 2 sigma H reads
+    # the CURRENT H through the params= overload
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H**2},
+        params={"H": depth})
+    mx2 = IntervalMesh(N, (0.0, float(TWO_PI)), name="x")
+    ms2 = IntervalMesh(N, (0.0, 1.0), name="sigma")
+    grid2 = Grid((mx2, ms2), mapping=mapping)
+    space = mx2.center * ms2.center
+    h = grid2.create_field(
+        mx2.center, init=lambda x: 1.0 + 0.1 * jnp.cos(x))
+    metric = grid2.metric(space, "dzp_dH", params={"H": h})
+    sigma = grid2.evaluation_nodes(space, "sigma").data
+    x = grid2.evaluation_nodes(space, "x").data
+    exact = 2.0 * sigma * (1.0 + 0.1 * jnp.cos(x))
+    assert jnp.allclose(metric.data,
+                        jnp.broadcast_to(exact, metric.data.shape))
+
+
+def test_param_named_like_a_metric_collides():
+    # a second map whose parameter sensitivity name collides with a
+    # declared derivative name raises the duplicate-name guard
+    with pytest.raises(ValueError, match="duplicate metric name"):
+        CoordinateMapping(
+            maps={"z": lambda sigma, x: sigma * x},
+            params={"x": depth})
