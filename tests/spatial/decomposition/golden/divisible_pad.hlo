@@ -1,0 +1,12 @@
+HloModule <m> is_scheduled=true, entry_computation_layout={(f64[4]{0})->f64[9]{0}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4
+%wrapped_pad_computation (param_0: f64[4], param_1: f64[]) -> f64[9] {
+  %param_0 = f64[4]{0} parameter(0)
+  %param_1 = f64[] parameter(1)
+  ROOT %pad.5 = f64[9]{0} pad(%param_0, %param_1), padding=2_3, metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/pad" stack_frame_id=<n>}
+}
+
+ENTRY %main.2_spmd (param.1: f64[4]) -> f64[9] {
+  %param.1 = f64[4]{0} parameter(0), sharding={devices=[4]<=[4]}, metadata={op_name="a"}
+  %constant.4 = f64[] constant(0), metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/convert_element_type" stack_frame_id=<n>}
+  ROOT %wrapped_pad = f64[9]{0} fusion(%param.1, %constant.4), kind=kLoop, calls=%wrapped_pad_computation, metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/pad" stack_frame_id=<n>}
+}

@@ -315,14 +315,38 @@ class TensorDecomposition(Decomposition):
 
     @staticmethod
     def _cells_per_shard(factor: object, shards: int) -> int:
-        """Cells per shard of a blocked factor axis (must divide)."""
+        r"""
+        Uniform per-shard cell capacity of a blocked factor axis.
+
+        Description
+        -----------
+        ``ceil(n_cells / shards)`` — every block carries this many cell
+        slots, so a cell count that does not divide the device count
+        pads to a uniform storage shape (04_decomposition.md section 5).
+        Blocks are cell-aligned, so the last shard is the short one,
+        holding ``n_cells - (shards - 1) * cells`` true cells with its
+        surplus slots inert like ghosts; this generalizes the staggered
+        pair's ``cells + 1`` capacity to arbitrary surplus. **Heavy**
+        padding that would empty a trailing shard
+        (``(shards - 1) * cells >= n_cells``) is rejected — negotiation
+        (``_shardable_names``) precludes it, and a hand-built
+        decomposition fails loudly here rather than corrupting a
+        zero-length shard.
+        """
         n_cells = getattr(factor.mesh, "n_cells", None)
-        if n_cells is None or n_cells % shards:
+        if n_cells is None:
             raise ValueError(
                 f"cannot block {factor!r} over {shards} devices: the "
-                "mesh cell count must exist and divide evenly "
+                "mesh cell count must exist "
                 "(negotiation is expected to preclude this)")
-        return n_cells // shards
+        cells = -(-n_cells // shards)
+        if (shards - 1) * cells >= n_cells:
+            raise ValueError(
+                f"cannot block {factor!r} over {shards} devices: the "
+                f"padding is too heavy ({n_cells} cells over {shards} "
+                "shards empties a trailing shard; negotiation is "
+                "expected to preclude this)")
+        return cells
 
     @staticmethod
     def _block_bounds(n: int, shards: int,
@@ -426,14 +450,19 @@ class TensorDecomposition(Decomposition):
         of re-tracing a fresh closure on every call (compile-count
         stability: a warmed model re-run must add zero compiles).
 
-        It exists only when every blocked axis is *uniform* (the
-        per-shard true count equals ``cells`` on every shard, i.e.
-        ``n == shards * cells``): ``shard_map`` requires equal
-        per-shard shapes, which the staggered surplus/deficit spaces
-        (``n = shards * cells +- 1``) violate. Those — and fully
-        unblocked geometries, where global slicing is already local —
-        return None, and the callers fall back to the global
-        re-blocking path.
+        ``shard_map`` requires equal per-shard shapes, so the plan
+        runs it on a uniform frame: for a **divisible** blocked axis
+        the true shape already is uniform (``n == shards * cells``);
+        for a **non-divisible** (padded-even) axis the shard_map runs
+        on the padded-true frame ``shards * cells`` (evenly split, the
+        last shard's surplus cells inert), and the plan's callables
+        wrap a trailing trim (``true <-> padded-true``) around it. The
+        divisible **staggered** surplus/deficit spaces
+        (``n == shards * cells +- 1`` on an evenly-divisible cell
+        count) still return None — the ``+1`` capacity cannot be
+        expressed as a uniform per-shard slice — and, with fully
+        unblocked geometries, fall back to the global re-blocking
+        path.
 
         Parameters
         ----------
@@ -466,22 +495,41 @@ class TensorDecomposition(Decomposition):
         spec: list[str | None] = [None] * len(geometry)
         widths: list[tuple[int, int]] = []
         slices: list[slice] = []
+        outer_pad: list[tuple[int, int]] = []
+        outer_slice: list[slice] = []
         blocked = False
-        for axis, (name, n, _factor, shards, width, block,
+        cell_padded = False
+        for axis, (name, n, factor, shards, width, block,
                    _) in enumerate(geometry):
             if shards == 1:
                 # per-shard == global on an unblocked axis; the
                 # trailing side absorbs the stagger padding
                 widths.append((width, block - n - width))
                 slices.append(slice(width, width + n))
+                outer_pad.append((0, 0))
+                outer_slice.append(slice(0, n))
                 continue
             cells = block - 1 - 2 * width
-            if n != shards * cells:
+            n_cells = getattr(factor.mesh, "n_cells", None)
+            divisible = n_cells is not None and n_cells % shards == 0
+            # A divisible axis is shard-local only in the uniform case
+            # (``n == shards * cells``); a non-divisible mild axis runs
+            # the shard_map on the padded-true frame ``shards * cells``
+            # (the last shard's surplus cells inert) and wraps a
+            # trailing trim. The divisible staggered surplus
+            # (``n == shards * cells + 1``) needs ``n > shards * cells``
+            # and falls back to the global path. Heavy padding is
+            # already excluded upstream (_cells_per_shard, negotiation).
+            if n > shards * cells or (divisible and n != shards * cells):
                 return None
+            surplus = shards * cells - n
+            cell_padded = cell_padded or bool(surplus)
             blocked = True
             spec[axis] = axes[name]
             widths.append((width, block - width - cells))
             slices.append(slice(width, width + cells))
+            outer_pad.append((0, surplus))
+            outer_slice.append(slice(0, n))
         if not blocked:
             return None
         pspec = jax.sharding.PartitionSpec(*spec)
@@ -500,8 +548,28 @@ class TensorDecomposition(Decomposition):
         gather = jax.jit(jax.shard_map(
             gather_local, mesh=self._device_mesh,
             in_specs=pspec, out_specs=pspec))
+        if not cell_padded:
+            # divisible geometry: no trailing trim, so pad/unpad drive
+            # the shard_map callables directly (byte-for-byte identical
+            # to the pre-padding path)
+            return _ReblockPlan(pspec, pad_widths, true_slices,
+                                scatter, gather)
+        # padded-even: wrap the shard_map callables with the trailing
+        # trim (true -> padded-true before scatter; padded-true -> true
+        # after gather). The wrappers are built once and jit-cached, so
+        # eager pad/unpad stays compile-count stable.
+        pre_pad = tuple(outer_pad)
+        post_slice = tuple(outer_slice)
+
+        def scatter_padded(piece: jax.Array) -> jax.Array:
+            return scatter(jnp.pad(piece, pre_pad))
+
+        def gather_padded(block: jax.Array) -> jax.Array:
+            return gather(block)[post_slice]
+
         return _ReblockPlan(pspec, pad_widths, true_slices,
-                            scatter, gather)
+                            jax.jit(scatter_padded),
+                            jax.jit(gather_padded))
 
     # ================================================================
     #  Shapes and shardings
@@ -584,10 +652,11 @@ class TensorDecomposition(Decomposition):
 
         Description
         -----------
-        With uniformly blocked axes (``_local_reblock``) this is one
-        ``jax.shard_map`` region padding every shard's true piece
-        into its block locally — zero collectives. Unblocked
-        geometries pad globally; staggered-uneven blocked axes fall
+        With a shard-local plan (``_local_reblock``, covering the
+        divisible-uniform and the non-divisible padded-even axes) this
+        is one ``jax.shard_map`` region padding every shard's true
+        piece into its block locally — zero collectives. Unblocked
+        geometries pad globally; the divisible staggered spaces fall
         back to the global per-block re-assembly.
         """
         layout = self._resolve_layout(space, layout)
@@ -670,13 +739,15 @@ class TensorDecomposition(Decomposition):
 
         Description
         -----------
-        With uniformly blocked axes (``_local_reblock``) this is one
-        ``jax.shard_map`` region slicing every block's interior
-        locally — zero collectives; the output is evenly sharded on
-        the blocked axes (shard ``s`` holds exactly its block's true
-        DOFs, so a following ``pad`` stays local too). Unblocked
-        geometries slice globally; staggered-uneven blocked axes
-        fall back to the global per-block gather.
+        With a shard-local plan (``_local_reblock``, covering the
+        divisible-uniform and the non-divisible padded-even axes) this
+        is one ``jax.shard_map`` region slicing every block's interior
+        locally — zero collectives on the perf-critical (center /
+        outer) spaces; the divisible output is evenly sharded on the
+        blocked axes (shard ``s`` holds exactly its block's true DOFs,
+        so a following ``pad`` stays local too). Unblocked geometries
+        slice globally; the divisible staggered spaces fall back to
+        the global per-block gather.
         """
         layout = self._resolve_layout(space, layout)
         storage = self.storage_shape(space, layout)

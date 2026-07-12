@@ -1,0 +1,10 @@
+HloModule <m> is_scheduled=true, entry_computation_layout={()->f64[36]{0}}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4
+%wrapped_broadcast_computation (param_0: f64[]) -> f64[36] {
+  %param_0 = f64[] parameter(0)
+  ROOT %broadcast_in_dim.3 = f64[36]{0} broadcast(%param_0), dimensions={}, metadata={op_name="jit(<lambda>)/broadcast_in_dim" stack_frame_id=<n>}
+}
+
+ENTRY %main.0_spmd () -> f64[36] {
+  %constant.0.clone = f64[] constant(0)
+  ROOT %wrapped_broadcast = f64[36]{0} fusion(%constant.0.clone), kind=kLoop, calls=%wrapped_broadcast_computation, metadata={op_name="jit(<lambda>)/broadcast_in_dim" stack_frame_id=<n>}
+}
