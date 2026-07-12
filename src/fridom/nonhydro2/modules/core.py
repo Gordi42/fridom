@@ -27,6 +27,9 @@ from typing import TYPE_CHECKING
 import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
+from fridom.nonhydro2.modules.mapped_pressure import (
+    MappedPressureSolver,
+)
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 from fridom.nonhydro2.params import DSQR, ROSSBY
 from fridom.nonhydro2.state import State
@@ -59,6 +62,11 @@ class DynamicalCore(fr.model.Module):
     coords : tuple[str, ...], optional
         Grid coordinate names, used to size the projection halo
         exemption (default: ``("x", "y", "z")``).
+    pressure_iterations : int, optional
+        The fixed PCG iteration budget of the mapped pressure solve
+        (CS-D2); consumed only on a grid whose coordinate mapping
+        declares a mapped column — the flat spectral solve is exact
+        and iterates nothing (default: 30).
     """
 
     state_type = State
@@ -71,12 +79,14 @@ class DynamicalCore(fr.model.Module):
         rossby_number: float | fr.model.Ramp = 1.0,
         vertical: str = "z",
         coords: tuple[str, ...] = ("x", "y", "z"),
+        pressure_iterations: int = 30,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
         self.dsqr = fr.model.leaf(dsqr)
         self.rossby = fr.model.leaf(rossby_number)
         self._vertical = vertical
         self._coords = coords
+        self._pressure_iterations = pressure_iterations
 
     # ================================================================
     #  Field declarations
@@ -154,7 +164,17 @@ class DynamicalCore(fr.model.Module):
         O(dt^2), inherent to projection methods. The velocity update
         subtracts the gradient of the RAW potential ``phi``; the
         normalization only rescales the stored diagnostic.
+
+        On a grid whose coordinate mapping declares a mapped column
+        (terrain-following / boundary-fitted, stage C3) the whole
+        stage routes to :meth:`_project_mapped`; a flat/unmapped
+        grid takes exactly the code path below (zero behavior
+        change).
         """
+        grid = state["u"].grid
+        mapping = getattr(grid, "mapping", None)
+        if mapping is not None and mapping.column_corrections:
+            return self._project_mapped(state, ctx)
         dsqr = ctx.params[DSQR]
         vel = VectorField({
             "u": state["u"], "v": state["v"], "w": state["w"]})
@@ -173,5 +193,45 @@ class DynamicalCore(fr.model.Module):
             "u": state["u"] - grad_u,
             "v": state["v"] - grad_v,
             "w": state["w"] - grad_w / dsqr,
+            "p": p / ctx.stage_dt,
+        }
+
+    def _project_mapped(
+        self, state: State, ctx: StepContext,
+    ) -> dict[str, object]:
+        r"""Project on a coordinate-mapped grid (stage C3, CS-D2).
+
+        Description
+        -----------
+        The mapped twin of :meth:`_project`: the divergence, the
+        elliptic operator, and the gradient subtraction all come
+        from one :class:`MappedPressureSolver` — the J-weighted
+        physical divergence in flux form, the SPD flux-form mapped
+        Laplacian solved by fixed-iteration PCG (the flat spectral
+        inverse at folded coefficients preconditions), and the
+        flux-consistent velocity corrections, so the projection
+        removes exactly the divergence the operator measures (to
+        the CG residual). The stored diagnostic keeps the
+        ``p = phi / ctx.stage_dt`` normalization; the vertical
+        weight ``1/dsqr`` rides the solver's ``weights`` seam
+        keyed by the vertical coordinate name.
+        """
+        dsqr = ctx.params[DSQR]
+        vel = {
+            "x": state["u"],
+            "y": state["v"],
+            self._vertical: state["w"],
+        }
+        solver = MappedPressureSolver(
+            state["u"].grid,
+            state["p"].function_space,
+            weights={self._vertical: 1.0 / dsqr},
+            iterations=self._pressure_iterations)
+        p = solver.solve(solver.divergence(vel))
+        corr = solver.velocity_correction(p)
+        return {
+            "u": state["u"] - corr["x"].retag(state["u"]),
+            "v": state["v"] - corr["y"].retag(state["v"]),
+            "w": state["w"] - corr[self._vertical].retag(state["w"]),
             "p": p / ctx.stage_dt,
         }

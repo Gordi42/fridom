@@ -1,0 +1,660 @@
+r"""The terrain-following / boundary-fitted pressure Poisson solve.
+
+Description
+-----------
+Coordinate-systems plan, stage C3 (decision CS-D2). On a grid whose
+``CoordinateMapping`` declares a single-base analytic map — a mapped
+column ``m = M(b, params)``, e.g. the terrain-following
+``zp = z * H(x, y)`` (target b) or the boundary-fitted
+``yp = y * Y_N(x)`` (target c) — the coordinates couple and the
+separable spectral pressure inverse no longer applies. This module
+builds the **flux-form mapped elliptic operator** in computational
+coordinates and wraps the CS-D2
+:class:`~fridom.spatial.operators.krylov.ConjugateGradient` core
+around it, preconditioned by the flat separable spectral inverse.
+
+The coefficient tensor
+----------------------
+Write ``J = dm/db`` (the column Jacobian) and ``Z_i = dm/dx_i`` (the
+slope metric of each coupled coordinate ``x_i``), and let ``W`` be the
+diagonal physical-axis weight of the projection (``1/dsqr`` on the
+vertical, ``1`` elsewhere). The physical projection operator
+``div_phys(W grad_phys p)`` transforms to computational coordinates
+as the **J-weighted** flux form
+
+.. math::
+
+    A\,p \;=\; J\,\nabla_{\!phys}\cdot(W\,\nabla_{\!phys}\, p)
+    \;=\; \partial_i\bigl(K^{ij}\,\partial_j p\bigr),
+    \qquad K \;=\; J\,B^{\top} W B,
+
+with ``B`` the gradient transformation
+(:math:`\partial_i|_{phys} = \partial_i - (Z_i/J)\,\partial_b`,
+:math:`\partial_m = (1/J)\,\partial_b`), so
+
+.. math::
+
+    K^{ii} = w_i\,J, \quad
+    K^{ib} = K^{bi} = -\,w_i\,Z_i, \quad
+    K^{bb} = \bigl(\textstyle\sum_i w_i Z_i^2 + w_m\bigr)/J .
+
+The J-weighting (no outer ``1/J``) is deliberate: it makes ``A``
+self-adjoint under the grid's own computational measure — exactly the
+inner product ``ConjugateGradient`` evaluates through ``integrate`` —
+and the matching right-hand side is the J-weighted physical
+divergence in flux form,
+``rhs = sum_i D_i(J u_i) + D_b(u_m - sum_i Z_i I(u_i))``
+(:meth:`MappedPressureSolver.divergence`).
+
+Staggering and the symmetric cross form
+---------------------------------------
+Diagonal fluxes live on the C-grid faces: ``K^ii G_i p`` on the
+``i``-faces, ``K^bb G_b p`` on the column faces. Each cross term is
+assembled through the **cell-corner** staggering
+(``face_i (x) face_b``): the transverse gradient is interpolated onto
+the corners, contracted there with the corner-derived slope metric,
+and interpolated onto the flux face. Because the two interpolation
+hops of one cross pair are exact transposes of each other
+(``C -> R`` / ``R -> C`` on the periodic coupled axis, ``C -> Inner``
+/ Dirichlet-tagged ``Inner -> C`` on the bounded column), the two
+cross blocks are exact negative-transposes and ``A`` is **exactly
+symmetric** — the SPD license CG requires (CS-D2). The alternative —
+evaluating the cross coefficient on the flux faces, which is what the
+``physical_diff``-composed ``Div(grad_phys)`` would do — is symmetric
+only to O(h^2); per the stage-C3 instruction the exact-SPD corner
+form wins, and the velocity update is derived **from the operator
+fluxes** (:meth:`MappedPressureSolver.velocity_correction`) so the
+projection removes exactly the divergence the operator measures.
+
+Wall closure (the C1 bounded-column decision)
+---------------------------------------------
+The projection's boundary condition at the mapped boundary is zero
+normal **flux**. On the bounded column the flux DOFs live on the
+``Inner`` faces (the staggering nonhydro2's wall-normal velocity
+already uses): the boundary-face fluxes are structurally absent and
+the flux difference back to the centers resolves through the
+**Dirichlet-tagged** ``("diff", Inner)`` row, whose ghost fill is the
+zero wall flux. The corner cross fluxes are likewise retagged
+Dirichlet before the ``Inner -> Center`` interpolation hop, so the
+boundary-corner cross flux is dropped — the closure that keeps the
+interpolation pair an exact transpose. This resolves the C1
+bounded-column caveat by **conforming-BC operands** (flux fields
+tagged with the physical zero-flux claim), not by one-sided
+interpolation overrides, which would break the transpose pairing and
+with it the SPD property.
+
+Sign convention
+---------------
+``A`` is negative (semi-)definite, matching the flat
+``SpectralPressureSolver`` convention (``lap p = div``). CG on the
+pair ``(A, M_inv)`` with **both** factors negative definite produces
+identically the iterates of standard PCG on ``(-A, -M_inv, -rhs)``
+with the solution sign folded back, so no sign flip is needed.
+
+Preconditioner
+--------------
+The flat separable spectral inverse (CS-D2): the diagonal
+coefficients ``K^ii`` and ``K^bb`` are folded to their means (0-d
+traced scalars, recomputed per solve — dynamic-parameter ready) and
+``Div @ Diag(means) @ Grad`` is inverted by ``SpectralSolve`` on the
+Neumann-tagged sibling of the pressure space (the
+``SpectralPressureSolver`` seam). Folding the *coefficients* (rather
+than the raw ``H``) keeps the slope contribution ``w_i Z_i^2 / J`` in
+the column weight; for a constant-``H`` mapping the preconditioner is
+the exact inverse and PCG converges in one iteration — the
+mapped-flat identity gate. The nullspace of the all-Neumann/periodic
+problem is the constants; the solve always projects the mean
+(``project_mean=True``).
+
+Every metric coefficient is derived through ``grid.metric`` at
+application time on the operand's own space — nothing is cached, and
+the ``params=`` seam threads dynamic mapping parameters (stage C4)
+through every derivation (rules 2.3/3.8).
+"""
+# Coordinate-systems plan, stage C3: mapped PCG pressure solve
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import jax.numpy as jnp
+
+from fridom.nonhydro2.modules.pressure import (
+    _dirichlet_mid,
+    _neumann_sibling,
+)
+from fridom.spatial.operators.base import resolve_codomain
+from fridom.spatial.operators.composed import (
+    Diag,
+    Divergence,
+    Gradient,
+)
+from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.spectral_solve import SpectralSolve
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable, Mapping
+
+    import jax
+
+    from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.operators.base import Operator
+    from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+class MappedPressureSolver:
+
+    r"""
+    PCG solve of the mapped pressure Poisson problem (stage C3).
+
+    Description
+    -----------
+    A trace-time object (constructed per projection call inside the
+    stage, carrying no mutable state): it discovers the grid's mapped
+    column from the attached ``CoordinateMapping``, resolves the
+    registered ``diff``/``interpolate`` rows of the flux-form
+    operator once, and derives every metric coefficient through
+    ``grid.metric`` at application (module docstring). The public
+    surface mirrors the projection's needs: :meth:`divergence` (the
+    J-weighted physical divergence the operator measures),
+    :meth:`solve` (preconditioned CG), and
+    :meth:`velocity_correction` (the flux-consistent gradient
+    subtraction).
+
+    Parameters
+    ----------
+    grid : object
+        The grid carrying the coordinate mapping and the dispatch
+        registry.
+    space : SpaceLike
+        The (cell-centered) pressure/divergence space.
+    iterations : int
+        The fixed CG iteration count (CS-D2; static).
+    weights : Mapping[str, jax.Array | float] | None, optional
+        Per-coordinate physical-axis weights; the mapped column's
+        base name keys the weight of its *physical* direction
+        (``{"z": 1/dsqr}`` on a terrain-following grid whose base
+        vertical coordinate is named ``z``). Missing axes weigh 1
+        (default: None).
+    params : Mapping[str, ScalarField] | None, optional
+        Dynamic mapping-parameter fields threaded through every
+        ``grid.metric`` derivation (the stage-C4 seam)
+        (default: None).
+    """
+
+    def __init__(
+        self,
+        grid: object,
+        space: SpaceLike,
+        *,
+        iterations: int,
+        weights: Mapping[str, jax.Array | float] | None = None,
+        params: Mapping[str, ScalarField] | None = None,
+    ) -> None:
+        """Discover the mapped column and resolve the static rows."""
+        mapping = getattr(grid, "mapping", None)
+        if mapping is None:
+            raise ValueError(
+                "the grid carries no coordinate mapping; the mapped "
+                "pressure solve needs a Grid(..., mapping=...) with "
+                "a single-base analytic map")
+        table = mapping.column_corrections
+        if not table:
+            raise ValueError(
+                "the grid's coordinate mapping declares no "
+                "single-base analytic map (no mapped column); the "
+                "flat SpectralPressureSolver applies instead")
+        columns = set(table.values())
+        if len(columns) != 1:
+            raise NotImplementedError(
+                f"the mapped pressure solve supports exactly one "
+                f"mapped column, got {sorted(columns)} "
+                "(coordinate-systems plan, stage C3)")
+        self._mapped, self._base = next(iter(columns))
+        self._grid = grid
+        self._space: SpaceLike = space.bare
+        self._iterations = iterations
+        self._params = params
+        axes = self._space.active_axis_names
+        if self._base not in axes:
+            raise ValueError(
+                f"the pressure space resolves {axes}, which lacks "
+                f"the mapped column's base coordinate "
+                f"{self._base!r}")
+        self._axes: tuple[str, ...] = axes
+        self._coupled: tuple[str, ...] = tuple(
+            a for a in axes if a != self._base and a in table)
+        weights = dict(weights or {})
+        unknown = tuple(k for k in weights if k not in axes)
+        if unknown:
+            raise ValueError(
+                f"unknown weight axes {unknown}; the pressure space "
+                f"resolves {axes}")
+        self._weights: dict[str, jax.Array | float] = weights
+        for a in self._coupled:
+            if not getattr(self._space.factor(a).mesh, "periodic",
+                           False):
+                raise NotImplementedError(
+                    f"coupled coordinate {a!r} lives on a bounded "
+                    "mesh; the symmetric corner form is derived for "
+                    "periodic coupled axes only (stage C3)")
+        self._resolve_flux_rows(grid.dispatch)
+        self._resolve_corner_rows(grid.dispatch)
+
+    def _resolve_flux_rows(self, registry: object) -> None:
+        """
+        Resolve the per-axis gradient/divergence legs (static).
+
+        Description
+        -----------
+        ``G_a`` keys on the center factor, ``D_a`` on the
+        Dirichlet-tagged face factor — the zero-normal-flux wall
+        closure; the tag is the identity on periodic axes.
+
+        Parameters
+        ----------
+        registry : object
+            The grid's dispatch registry.
+        """
+        self._grad: dict[str, Operator] = {}
+        self._face: dict[str, SpaceLike] = {}
+        self._tagged: dict[str, SpaceLike] = {}
+        self._div: dict[str, Operator] = {}
+        for a in self._axes:
+            g = registry.resolve("diff", self._space.factor(a))[a]
+            face = resolve_codomain(g, self._space)
+            tagged = _dirichlet_mid(face, a)
+            self._grad[a] = g
+            self._face[a] = face
+            self._tagged[a] = tagged
+            self._div[a] = registry.resolve(
+                "diff", tagged.factor(a))[a]
+
+    def _resolve_corner_rows(self, registry: object) -> None:
+        """
+        Resolve the cross-term corner interpolation hops (static).
+
+        Description
+        -----------
+        Per coupled axis: the corner staggering and the two
+        transpose-paired interpolation hops of its cross terms
+        (module docstring).
+
+        Parameters
+        ----------
+        registry : object
+            The grid's dispatch registry.
+        """
+        self._corner: dict[str, SpaceLike] = {}
+        self._corner_tagged: dict[str, SpaceLike] = {}
+        self._up_i: dict[str, Operator] = {}
+        self._down_i: dict[str, Operator] = {}
+        self._up_b: dict[str, Operator] = {}
+        self._down_b: dict[str, Operator] = {}
+        face_b = self._face[self._base]
+        for a in self._coupled:
+            up_i = registry.resolve(
+                "interpolate", face_b.factor(a))[a]
+            corner = resolve_codomain(up_i, face_b)
+            corner_tagged = _dirichlet_mid(corner, self._base)
+            self._up_i[a] = up_i
+            self._down_i[a] = registry.resolve(
+                "interpolate", corner.factor(a))[a]
+            self._up_b[a] = registry.resolve(
+                "interpolate", self._face[a].factor(self._base),
+            )[self._base]
+            self._down_b[a] = registry.resolve(
+                "interpolate", corner_tagged.factor(self._base),
+            )[self._base]
+            self._corner[a] = corner
+            self._corner_tagged[a] = corner_tagged
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def base(self) -> str:
+        """The mapped column's base (computational) coordinate."""
+        return self._base
+
+    @property
+    def mapped(self) -> str:
+        """The mapped physical coordinate name."""
+        return self._mapped
+
+    @property
+    def coupled(self) -> tuple[str, ...]:
+        """The coordinates coupled through mapping parameters."""
+        return self._coupled
+
+    @property
+    def axes(self) -> tuple[str, ...]:
+        """The pressure space's coordinate names."""
+        return self._axes
+
+    @property
+    def iterations(self) -> int:
+        """The fixed CG iteration count (static)."""
+        return self._iterations
+
+    # ================================================================
+    #  Metric coefficients (derived per application, never cached)
+    # ================================================================
+    def _metric(self, space: SpaceLike, name: str) -> ScalarField:
+        """Derive one mapping metric on ``space`` (params-ready)."""
+        return self._grid.metric(space, name, params=self._params)
+
+    def _weight(self, axis: str) -> jax.Array | float:
+        """Return the physical-axis weight of ``axis`` (default 1)."""
+        return self._weights.get(axis, 1.0)
+
+    def _jacobian(self, field: ScalarField) -> ScalarField:
+        """Derive the column Jacobian ``J = dm/db`` on the field."""
+        return self._metric(field.function_space,
+                            f"d{self._mapped}_d{self._base}")
+
+    def _slope(self, field: ScalarField, axis: str) -> ScalarField:
+        """Derive the slope metric ``Z_i = dm/dx_i`` on the field."""
+        return self._metric(field.function_space,
+                            f"d{self._mapped}_d{axis}")
+
+    def _column_coefficient(self, space: SpaceLike) -> ScalarField:
+        r"""``K^bb = (sum_i w_i Z_i^2 + w_m) / J`` on ``space``."""
+        inv_j = self._metric(
+            space, f"d{self._base}_d{self._mapped}")
+        coeff = self._weight(self._base) * inv_j
+        for a in self._coupled:
+            slope = self._metric(space, f"d{self._mapped}_d{a}")
+            coeff = coeff + self._weight(a) * (slope * slope) * inv_j
+        return coeff
+
+    # ================================================================
+    #  Cross-term corner chains (the transpose-paired hops)
+    # ================================================================
+    def _cross_to_face(self, axis: str,
+                       g_b: ScalarField) -> ScalarField:
+        """
+        Assemble the ``i``-face cross flux ``I_b(Z_i * I_i(g_b))``.
+
+        Description
+        -----------
+        Interpolate the column gradient onto the corners along
+        ``axis``, contract with the corner slope metric, retag the
+        corner flux Dirichlet (the wall closure, module docstring),
+        and interpolate onto the ``axis`` faces along the column.
+
+        Parameters
+        ----------
+        axis : str
+            The coupled coordinate.
+        g_b : ScalarField
+            The column gradient (on the column faces).
+
+        Returns
+        -------
+        ScalarField
+            The cross flux on the ``axis`` face space.
+        """
+        corner = self._up_i[axis](g_b)
+        flux = corner * self._slope(corner, axis)
+        flux = flux.retag(self._corner_tagged[axis])
+        return self._down_b[axis](flux)
+
+    def _cross_to_column(self, axis: str,
+                         v: ScalarField) -> ScalarField:
+        """
+        Apply the column-face cross chain ``I_i(Z_i * I_b(v))``.
+
+        Description
+        -----------
+        The exact transpose partner of :meth:`_cross_to_face`, and
+        the shared chain of the divergence's slope term and the
+        column velocity correction (the projection-consistency
+        identity relies on one linear chain serving both).
+
+        Parameters
+        ----------
+        axis : str
+            The coupled coordinate.
+        v : ScalarField
+            A field on the ``axis`` face space (a gradient, a
+            velocity component, or a correction).
+
+        Returns
+        -------
+        ScalarField
+            The chain's output on the column face space (BC-free).
+        """
+        corner = self._up_b[axis](v)
+        return self._down_i[axis](corner * self._slope(corner, axis))
+
+    # ================================================================
+    #  The operator, its right-hand side, and the velocity update
+    # ================================================================
+    def _fluxes(self, p: ScalarField) -> dict[str, ScalarField]:
+        """Assemble the per-axis pressure fluxes ``K^{aj} G_j p``."""
+        grads = {a: self._grad[a](p) for a in self._axes}
+        fluxes: dict[str, ScalarField] = {}
+        g_b = grads[self._base]
+        for a in self._axes:
+            if a == self._base:
+                continue
+            flux = grads[a] * self._jacobian(grads[a])
+            if a in self._coupled:
+                flux = flux - self._cross_to_face(a, g_b)
+            fluxes[a] = self._weight(a) * flux
+        flux = g_b * self._column_coefficient(g_b.function_space)
+        for a in self._coupled:
+            flux = flux - self._weight(a) * self._cross_to_column(
+                a, grads[a])
+        fluxes[self._base] = flux
+        return fluxes
+
+    def apply(self, p: ScalarField) -> ScalarField:
+        r"""
+        Apply the mapped elliptic operator ``A p``.
+
+        Description
+        -----------
+        The flux-form ``sum_a D_a(K^{aj} G_j p)`` with the fluxes
+        retagged Dirichlet on bounded axes before the flux
+        difference (zero normal flux through the mapped boundary,
+        module docstring). ``A`` is exactly symmetric and negative
+        semidefinite under the computational measure; its nullspace
+        is the constants.
+
+        Parameters
+        ----------
+        p : ScalarField
+            The pressure iterate on the solver's space.
+
+        Returns
+        -------
+        ScalarField
+            ``A p`` on the same space.
+        """
+        fluxes = self._fluxes(p)
+        out = None
+        for a in self._axes:
+            term = self._div[a](fluxes[a].retag(self._tagged[a]))
+            out = term if out is None else out + term
+        return out
+
+    def divergence(
+        self, vel: Mapping[str, ScalarField],
+    ) -> ScalarField:
+        r"""
+        Compute the J-weighted divergence the operator measures.
+
+        Description
+        -----------
+        The flux form
+        ``sum_i D_i(J u_i) + D_b(u_m - sum_i Z_i I(u_i))``
+        of ``J div_phys(u)``: the slope terms transform the physical
+        column velocity into the contravariant boundary-conforming
+        flux, and the Dirichlet-tagged column difference closes the
+        walls with zero normal flux. This — not the computational
+        ``Divergence()`` — is the right-hand side of the projection:
+        after :meth:`velocity_correction` the *same* divergence of
+        the updated velocity equals the CG residual.
+
+        Parameters
+        ----------
+        vel : Mapping[str, ScalarField]
+            The physical velocity components keyed by coordinate
+            name (the mapped column's base keys the component along
+            the mapped physical direction).
+
+        Returns
+        -------
+        ScalarField
+            The J-weighted divergence on the pressure space.
+        """
+        if set(vel) != set(self._axes):
+            raise ValueError(
+                f"divergence needs one component per axis "
+                f"{self._axes}, got {tuple(sorted(vel))}")
+        out = None
+        column = vel[self._base].retag(self._face[self._base])
+        for a in self._axes:
+            if a == self._base:
+                continue
+            u = vel[a].retag(self._face[a])
+            if a in self._coupled:
+                column = column - self._cross_to_column(a, u)
+            term = self._div[a](
+                (u * self._jacobian(u)).retag(self._tagged[a]))
+            out = term if out is None else out + term
+        term = self._div[self._base](
+            column.retag(self._tagged[self._base]))
+        return out + term
+
+    def velocity_correction(
+        self, p: ScalarField,
+    ) -> dict[str, ScalarField]:
+        r"""
+        Derive the flux-consistent velocity corrections per axis.
+
+        Description
+        -----------
+        Derived from the operator's own fluxes so the projection
+        removes exactly the divergence :meth:`divergence` measures:
+        per coupled/plain axis ``u_i -= F_i / J`` (continuum:
+        ``w_i d p/d x_i`` at constant physical coordinates), and
+        along the column ``u_m -= F_b + sum_i Z_i I(F_i / J)``
+        (continuum: ``w_m dp/dm`` — the cross contributions cancel
+        pointwise). Corrections come back BC-free; the caller adopts
+        each velocity's own tag (the flat path's retag discipline).
+
+        Parameters
+        ----------
+        p : ScalarField
+            The solved pressure.
+
+        Returns
+        -------
+        dict[str, ScalarField]
+            Per-coordinate corrections to subtract.
+        """
+        fluxes = self._fluxes(p)
+        corrections: dict[str, ScalarField] = {}
+        column = fluxes[self._base]
+        for a in self._axes:
+            if a == self._base:
+                continue
+            corr = fluxes[a] / self._jacobian(fluxes[a])
+            if a in self._coupled:
+                column = column + self._cross_to_column(a, corr)
+            corrections[a] = corr
+        corrections[self._base] = column
+        return corrections
+
+    # ================================================================
+    #  The preconditioned solve
+    # ================================================================
+    def _mean_coefficients(self) -> dict[str, jax.Array]:
+        """Fold the diagonal coefficients to their (0-d) means."""
+        coeffs: dict[str, jax.Array] = {}
+        for a in self._axes:
+            if a == self._base:
+                field = self._column_coefficient(self._face[a])
+            else:
+                field = self._weight(a) * self._metric(
+                    self._face[a],
+                    f"d{self._mapped}_d{self._base}")
+            coeffs[a] = jnp.reshape(field.mean().data, ())
+        return coeffs
+
+    def _preconditioner(self) -> Callable[[ScalarField], ScalarField]:
+        """
+        Build the flat spectral inverse at folded coefficients.
+
+        Description
+        -----------
+        ``Div @ Diag(mean K) @ Grad`` inverted by ``SpectralSolve``
+        on the Neumann-tagged sibling of the pressure space (the
+        ``SpectralPressureSolver`` seam); negative definite like
+        ``A`` (the consistent sign pair, module docstring), exact
+        for constant metrics. The means are recomputed per solve —
+        dynamic parameters trace through.
+
+        Returns
+        -------
+        Callable[[ScalarField], ScalarField]
+            The preconditioner ``M_inv``.
+        """
+        solve_space = _neumann_sibling(self._space)
+        grad_block = Gradient().expand(solve_space, self._grid)
+        axes = solve_space.active_axis_names
+        mid = tuple(
+            _dirichlet_mid(space, axis)
+            for axis, space in zip(
+                axes, grad_block.codomains(solve_space),
+                strict=True))
+        div_block = Divergence().expand(mid, self._grid)
+        diag = Diag(self._mean_coefficients(), axes=axes)
+        lap = (div_block @ diag @ grad_block).scalar()
+        solve = SpectralSolve(lap, self._grid, solve_space)
+        if solve_space is self._space:
+            return solve.solve
+
+        def apply(r: ScalarField) -> ScalarField:
+            return solve.solve(r.retag(solve_space)).retag(r)
+
+        return apply
+
+    def krylov(self) -> ConjugateGradient:
+        """
+        Build the configured PCG solver (public for diagnostics).
+
+        Returns
+        -------
+        ConjugateGradient
+            Fixed-iteration PCG on ``apply`` with the spectral
+            preconditioner and the constants-nullspace projection.
+        """
+        return ConjugateGradient(
+            self.apply,
+            preconditioner=self._preconditioner(),
+            iterations=self._iterations,
+            project_mean=True)
+
+    def solve(
+        self, rhs: ScalarField, x0: ScalarField | None = None,
+    ) -> ScalarField:
+        """
+        Solve ``A p = rhs`` by preconditioned CG.
+
+        Parameters
+        ----------
+        rhs : ScalarField
+            The J-weighted divergence (:meth:`divergence`).
+        x0 : ScalarField | None, optional
+            The initial guess; None starts from zeros
+            (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The mean-free pressure on the same space.
+        """
+        return self.krylov()(rhs, x0)
