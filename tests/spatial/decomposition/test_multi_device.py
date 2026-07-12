@@ -329,17 +329,35 @@ def test_local_reblock_plan_exists_only_for_uniform_blocks():
     cells = 16 // jax.device_count()
     plan = decomp._local_reblock(my.center, layout)
     assert plan is not None
-    pspec, pad_widths, true_slices = plan
-    assert pspec == jax.sharding.PartitionSpec("devices")
+    assert plan.pspec == jax.sharding.PartitionSpec("devices")
     # per-shard: block = cells + 1 + 2 * width
-    assert pad_widths == ((width, width + 1),)
-    assert true_slices == (slice(width, width + cells),)
+    assert plan.pad_widths == ((width, width + 1),)
+    assert plan.true_slices == (slice(width, width + cells),)
     # the plan is cached on the interned (space, layout) key
     assert decomp._local_reblock(my.center, layout) is plan
     # staggered spaces (n = cells * shards +- 1) block unevenly:
     # no plan — pad/unpad fall back to the global re-assembly
     assert decomp._local_reblock(my.outer, layout) is None
     assert decomp._local_reblock(my.inner, layout) is None
+
+
+@pytest.mark.multi_device
+def test_warm_eager_reblocking_adds_zero_compiles(compile_counter):
+    # pad/unpad apply the plan's cached jit-wrapped shard_map
+    # callables: a per-call closure would re-trace on every eager
+    # call and break the compile-count contract (a warmed re-run
+    # adds zero compiles — test_run.py, test_imex.py)
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    grid = Grid((mx,))
+    decomp = grid.decomposition
+    space = mx.center
+    arr = jnp.arange(1.0, 17.0)
+    storage = decomp.pad(arr, space)  # warm the traces
+    decomp.unpad(storage, space)
+    compile_counter.reset()
+    out = decomp.unpad(decomp.pad(arr, space), space)
+    assert compile_counter.count == 0
+    assert bitwise(out, arr)
 
 
 @pytest.mark.multi_device

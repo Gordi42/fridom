@@ -39,7 +39,7 @@ boundary-edge path.
 #    Wave 3: multi-device (blocking, ppermute exchange, redistribute)
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -64,6 +64,28 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
+
+
+class _ReblockPlan(NamedTuple):
+
+    """
+    The shard-local re-blocking plan of one (space, layout) pair.
+
+    Description
+    -----------
+    Built once per key by ``TensorDecomposition._build_local_reblock``
+    and cached: ``scatter``/``gather`` are the jit-wrapped
+    ``jax.shard_map`` callables ``pad``/``unpad`` apply (stable
+    function identity, so repeated eager calls hit jax's tracing
+    cache); ``pspec``, ``pad_widths`` and ``true_slices`` are the
+    static structure they close over (per-shard values).
+    """
+
+    pspec: jax.sharding.PartitionSpec
+    pad_widths: tuple[tuple[int, int], ...]
+    true_slices: tuple[slice, ...]
+    scatter: Callable[[jax.Array], jax.Array]
+    gather: Callable[[jax.Array], jax.Array]
 
 
 class TensorDecomposition(Decomposition):
@@ -131,11 +153,7 @@ class TensorDecomposition(Decomposition):
         self._sharding_cache: dict[
             tuple[object, Layout], jax.sharding.Sharding] = {}
         self._reblock_cache: dict[
-            tuple[object, Layout],
-            tuple[jax.sharding.PartitionSpec,
-                  tuple[tuple[int, int], ...],
-                  tuple[slice, ...]] | None,
-        ] = {}
+            tuple[object, Layout], _ReblockPlan | None] = {}
 
     def _validate_layouts(self) -> None:
         """Check the layout vocabulary against the grid names."""
@@ -374,9 +392,7 @@ class TensorDecomposition(Decomposition):
         self,
         space: SpaceLike,
         layout: Layout,
-    ) -> tuple[jax.sharding.PartitionSpec,
-               tuple[tuple[int, int], ...],
-               tuple[slice, ...]] | None:
+    ) -> _ReblockPlan | None:
         """
         Return the cached shard-local re-blocking plan, or None.
 
@@ -388,10 +404,14 @@ class TensorDecomposition(Decomposition):
         device-local — but expressed as global ``jnp`` slicing the
         SPMD partitioner cannot see that and inserts all-to-alls.
         The plan makes the locality explicit for ``jax.shard_map``:
-        ``(pspec, pad_widths, true_slices)`` — the blocked-axes
-        ``PartitionSpec`` plus the **per-shard** ``jnp.pad`` widths
-        (true piece -> block) and interior slices (block -> true
-        piece) of every storage axis.
+        the blocked-axes ``PartitionSpec``, the **per-shard**
+        ``jnp.pad`` widths (true piece -> block) and interior slices
+        (block -> true piece) of every storage axis, and the two
+        shard-mapped callables realizing them (``_ReblockPlan``).
+        The callables are built once per plan and jit-wrapped, so
+        eager ``pad``/``unpad`` calls hit jax's tracing cache instead
+        of re-tracing a fresh closure on every call (compile-count
+        stability: a warmed model re-run must add zero compiles).
 
         It exists only when every blocked axis is *uniform* (the
         per-shard true count equals ``cells`` on every shard, i.e.
@@ -411,9 +431,9 @@ class TensorDecomposition(Decomposition):
 
         Returns
         -------
-        tuple | None
-            The ``(pspec, pad_widths, true_slices)`` plan, or None
-            when the shard-local path does not apply.
+        _ReblockPlan | None
+            The plan, or None when the shard-local path does not
+            apply.
         """
         key = (space, layout)
         if key in self._reblock_cache:
@@ -426,9 +446,7 @@ class TensorDecomposition(Decomposition):
         self,
         space: SpaceLike,
         layout: Layout,
-    ) -> tuple[jax.sharding.PartitionSpec,
-               tuple[tuple[int, int], ...],
-               tuple[slice, ...]] | None:
+    ) -> _ReblockPlan | None:
         """Compute the ``_local_reblock`` plan (uncached)."""
         axes = dict(layout.device_axes)
         geometry = self._geometry(space, layout)
@@ -453,8 +471,24 @@ class TensorDecomposition(Decomposition):
             slices.append(slice(width, width + cells))
         if not blocked:
             return None
-        return (jax.sharding.PartitionSpec(*spec),
-                tuple(widths), tuple(slices))
+        pspec = jax.sharding.PartitionSpec(*spec)
+        pad_widths = tuple(widths)
+        true_slices = tuple(slices)
+
+        def scatter_local(piece: jax.Array) -> jax.Array:
+            return jnp.pad(piece, pad_widths)
+
+        def gather_local(block: jax.Array) -> jax.Array:
+            return block[true_slices]
+
+        scatter = jax.jit(jax.shard_map(
+            scatter_local, mesh=self._device_mesh,
+            in_specs=pspec, out_specs=pspec))
+        gather = jax.jit(jax.shard_map(
+            gather_local, mesh=self._device_mesh,
+            in_specs=pspec, out_specs=pspec))
+        return _ReblockPlan(pspec, pad_widths, true_slices,
+                            scatter, gather)
 
     # ================================================================
     #  Shapes and shardings
@@ -550,16 +584,8 @@ class TensorDecomposition(Decomposition):
                 f"got {tuple(arr.shape)}")
         plan = self._local_reblock(space, layout)
         if plan is not None:
-            pspec, pad_widths, _ = plan
-
-            def scatter(piece: jax.Array) -> jax.Array:
-                return jnp.pad(piece, pad_widths)
-
-            padded = jax.shard_map(
-                scatter, mesh=self._device_mesh,
-                in_specs=pspec, out_specs=pspec)(arr)
             return jax.device_put(
-                padded, self.sharding(space, layout))
+                plan.scatter(arr), self.sharding(space, layout))
         widths = []
         blocked = []
         for axis, (_name, n, factor, shards, width, block,
@@ -647,14 +673,7 @@ class TensorDecomposition(Decomposition):
                 f"got {tuple(arr.shape)}")
         plan = self._local_reblock(space, layout)
         if plan is not None:
-            pspec, _, true_slices = plan
-
-            def gather(block: jax.Array) -> jax.Array:
-                return block[true_slices]
-
-            return jax.shard_map(
-                gather, mesh=self._device_mesh,
-                in_specs=pspec, out_specs=pspec)(arr)
+            return plan.gather(arr)
         slices = []
         for axis, (_name, n, factor, shards, width, block,
                    _) in enumerate(self._geometry(space, layout)):
