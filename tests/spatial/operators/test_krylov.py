@@ -22,7 +22,10 @@ import pytest
 
 import fridom as fr
 from fridom.spatial.operators.base import Identity
-from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.krylov import (
+    ConjugateGradient,
+    _guarded_ratio,
+)
 from fridom.spatial.operators.spectral import SpectralDerivative
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 
@@ -262,6 +265,51 @@ def test_explicit_initial_guess_matches_zero_start():
     # so the solve holds it there and reproduces the same field
     x_guess = cg(rhs, x0=exact(rhs))
     assert float(jnp.abs(x_zero.data - x_guess.data).max()) < 1e-10
+
+
+# ================================================================
+#  Exact convergence under fixed iterations (the guarded ratios)
+# ================================================================
+def test_zero_rhs_stays_finite_and_returns_zero():
+    # rz == 0 from iteration one: the guarded ratios make every
+    # iteration an exact no-op instead of a 0/0 NaN
+    grid = build_grid()
+    rhs = 0.0 * rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = spectral_pieces(grid, space, sign=-1.0)
+    cg = ConjugateGradient(apply_a, preconditioner=exact,
+                           iterations=5, project_mean=True)
+    x, info = cg.solve(rhs)
+    assert bool(jnp.isfinite(x.data).all())
+    assert float(jnp.abs(x.data).max()) == 0.0
+    assert float(info["residual_norm"]) == 0.0
+
+
+def test_over_iterating_an_exact_preconditioner_stays_finite():
+    # the exact inverse converges in one step; the remaining
+    # iterations divide (near-)zero by (near-)zero and must remain
+    # exact no-ops on the converged solution (module docstring)
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = helmholtz_pieces(grid, space)
+    cg = ConjugateGradient(apply_a, preconditioner=exact,
+                           iterations=12)
+    x, _info = cg.solve(rhs)
+    assert bool(jnp.isfinite(x.data).all())
+    want = exact(rhs)
+    scale = float(jnp.abs(want.data).max())
+    assert float(jnp.abs(x.data - want.data).max()) < 1e-12 * scale
+
+
+def test_guarded_ratio_is_division_off_the_zero_branch():
+    num = jnp.asarray(3.0)
+    den = jnp.asarray(4.0)
+    assert float(_guarded_ratio(num, den)) == float(num / den)
+    assert float(_guarded_ratio(num, jnp.asarray(0.0))) == 0.0
+    grad = jax.grad(
+        lambda d: _guarded_ratio(jnp.asarray(1.0), d) ** 2)
+    assert bool(jnp.isfinite(grad(jnp.asarray(0.0))))
 
 
 # ================================================================
