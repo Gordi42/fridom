@@ -87,8 +87,15 @@ operator keeps that exactness where it is load-bearing (SPD). On a
 FLAT grid the divergence helper is literally the pre-C4 expression
 ``flux.diff(axis).retag(q)`` — zero behavior change. The biased
 schemes (``UpwindAdvection``/``WENOAdvection``) reject mapped
-columns at bind with a taught error: their order-wide windows need
-a mapped-aware reconstruction — future work.
+geometry at bind with a taught error — **both** surfaces: a mapped
+column (``CoordinateMapping``) and a stretched mesh factor
+(``MappedIntervalMesh``, whose ``column_corrections`` are empty).
+Their order-wide windows are uniform-offset (computational-
+coordinate) rows: divided by a two-point measure they stay
+consistent but drop to 2nd order (measured: upwind-5 and weno-5 both
+5 -> 2 on a wavy-stretched mesh), so they refuse rather than
+silently under-deliver — a mapped-aware high-order reconstruction is
+future work.
 
 **Walled grids (centered scheme)**: ``CenteredAdvection`` supports
 bounded mesh factors (channel walls, rigid lids, and their
@@ -143,6 +150,11 @@ from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
 )
 from fridom.spatial.operators.select import Where
+from fridom.spatial.operators.staggering import (
+    mapped_factor,
+    mapped_mesh,
+    mapped_order_hint,
+)
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
     weno_reconstruct,
@@ -460,11 +472,12 @@ def _face_codomain(
     Description
     -----------
     ``Center -> Right`` and ``Right -> Center`` on periodic real
-    nodal factors — exactly the two C-grid flux positions of the
-    flux-form advection modules. Everything else (average spaces,
-    bounded axes, complex scalars) raises: the biased modules that
-    hold these kernels reject walled grids at bind (module
-    docstring), so a bounded factor here is a genuine misuse.
+    nodal factors of a **uniform** mesh — exactly the two C-grid flux
+    positions of the flux-form advection modules. Everything else
+    (average spaces, bounded axes, stretched axes, complex scalars)
+    raises: the biased modules that hold these kernels reject walled
+    and mapped grids at bind (module docstring), so such a factor
+    here is a genuine misuse.
 
     Parameters
     ----------
@@ -483,6 +496,15 @@ def _face_codomain(
         raise SpaceMismatchError(
             f"{label} covers real nodal C-grid factors only, got "
             f"{domain!r}", left=domain, operation="reconstruct")
+    if mapped_factor(domain):
+        raise SpaceMismatchError(
+            f"{label} is uniform-mesh only (the biased advection "
+            "modules reject stretched meshes at bind) — "
+            + mapped_order_hint(
+                "the biased face reconstruction rows and their "
+                "order-coupled velocity interpolation")
+            + f", got {domain!r}",
+            left=domain, operation="reconstruct")
     mesh = domain.mesh
     if not mesh.periodic:
         raise SpaceMismatchError(
@@ -803,10 +825,13 @@ class _FluxFormAdvection(fr.model.Module):
     #: centered hooks do; the biased subclasses override to False)
     _supports_walled: ClassVar[bool] = True
 
-    #: whether the scheme's flux divergence routes through the
-    #: physical (mapped) form on a mapped column (the centered
-    #: scheme does; the biased subclasses opt out — their windows
-    #: need a mapped-aware reconstruction, future work)
+    #: whether the scheme is grounded on mapped geometry at all —
+    #: both surfaces: a stretched mesh factor (MappedIntervalMesh)
+    #: and a mapping-declared mapped column. The centered scheme is
+    #: (order-2 stencils over the measure fields / the physical flux
+    #: divergence); the biased subclasses opt out — their
+    #: uniform-offset windows need a mapped-aware reconstruction,
+    #: future work
     _supports_mapped: ClassVar[bool] = True
 
     def __init__(
@@ -912,13 +937,16 @@ class _FluxFormAdvection(fr.model.Module):
         Raises
         ------
         NotImplementedError
-            On a grid whose mapping declares a mapped column when
-            the scheme opts out through `_supports_mapped` (the
-            biased subclasses — their order-wide windows need a
-            mapped-aware reconstruction, future work), or when the
+            On a grid carrying a **stretched** mesh factor
+            (``MappedIntervalMesh``: a per-axis ``coordinate_map``)
+            or a mapping-declared **mapped column** when the scheme
+            opts out through `_supports_mapped` (the biased
+            subclasses — their order-wide uniform-offset windows need
+            a mapped-aware reconstruction, future work), or when the
             mapping declares more than one column (mirroring the
             stage-C3 pressure solver support).
         """
+        self._require_uniform_factors(grid)
         mapping = getattr(grid, "mapping", None)
         corrections = (mapping.column_corrections
                        if mapping is not None else {})
@@ -942,6 +970,45 @@ class _FluxFormAdvection(fr.model.Module):
         self._column = next(iter(columns))
         self._corrections = dict(corrections)
         self._halo_axes = tuple(grid.names)
+
+    def _require_uniform_factors(self, grid: object) -> None:
+        """Reject stretched mesh factors when the scheme opts out.
+
+        Description
+        -----------
+        The second (and, for a plain stretched grid, the *only*)
+        mapped surface of a grid: a ``MappedIntervalMesh`` factor
+        carries its own ``coordinate_map`` and needs **no**
+        ``CoordinateMapping`` column, so ``column_corrections`` is
+        empty and the mapped-column guard below never fires. The
+        centered scheme is grounded here (its two-point stencils
+        divide by the codomain measure field, order 2); the biased
+        subclasses are not — their uniform-offset windows would bind
+        happily and silently lose their design order, the exact
+        silent-wrongness ``FiniteDifference`` refuses to commit at
+        order > 2.
+
+        Raises
+        ------
+        NotImplementedError
+            On a stretched mesh factor when `_supports_mapped` is
+            False.
+        """
+        if self._supports_mapped:
+            return
+        stretched = tuple(
+            name for mesh in getattr(grid, "factors", ())
+            for name in mesh.names if mapped_mesh(mesh))
+        if not stretched:
+            return
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support stretched "
+            f"(mapped) meshes (mapped coordinates: {stretched}): "
+            + mapped_order_hint(
+                "its biased face reconstructions and their "
+                "order-coupled velocity interpolation")
+            + ". Use CenteredAdvection (order 2, mapped-capable) or "
+            "a uniform mesh (IntervalMesh)")
 
     #: on a mapped grid the flux divergence multiplies grid.metric
     #: coefficients the halo tracer cannot follow (V-N2): declare
@@ -1465,10 +1532,12 @@ class UpwindAdvection(_FluxFormAdvection):
     faces is order-coupled: ``order - 1`` symmetric points (the
     two-point mean at the default ``order=3``).
 
-    Periodic grids only: the order-wide biased windows reach across
-    a wall and need a one-sided near-wall treatment (future work),
-    so ``bind`` rejects walled grids with a taught error — use
-    `CenteredAdvection` (walled-capable) instead.
+    Periodic, uniform grids only: the order-wide biased windows reach
+    across a wall and need a one-sided near-wall treatment (future
+    work), and they are uniform-offset rows that lose their design
+    order on a stretched (mapped) mesh — so ``bind`` rejects walled
+    and mapped grids with a taught error. Use `CenteredAdvection`
+    (walled- and mapped-capable, order 2) instead.
 
     Parameters
     ----------

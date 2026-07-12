@@ -39,6 +39,9 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.composed import Divergence
 
 L = 2 * np.pi
@@ -1144,6 +1147,70 @@ def test_mapped_grid_is_a_taught_error_for_biased_schemes(cls):
         FrModel(grid=grid,
                 modules=(DynamicalCore(), cls(3)),
                 time_stepper=AdamBashforth(DT, order=3))
+
+
+# ================================================================
+#  Stretched meshes: taught rejection of the biased schemes at bind
+# ================================================================
+def wavy_map(s):
+    """Smooth wavy stretching of the unit computational interval."""
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+def make_stretched_grid(n=8, ny=NY):
+    """Periodic grid whose z factor is a stretched (mapped) mesh."""
+    return Grid((
+        IntervalMesh(n, (0.0, L), name="x"),
+        IntervalMesh(ny, (0.0, L), name="y"),
+        MappedIntervalMesh(n, (0.0, 1.0), wavy_map, periodic=True,
+                           name="z"),
+    ))
+
+
+@pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
+@pytest.mark.parametrize("order", [3, 5])
+def test_stretched_mesh_is_a_taught_error_for_biased_schemes(
+        cls, order):
+    # a plain MappedIntervalMesh declares NO CoordinateMapping, so
+    # column_corrections is empty: before the mapped_factor() guard
+    # the biased schemes bound happily here and silently dropped to
+    # 2nd order (measured: upwind-5 and weno-5 both 5.0 -> 2.0)
+    grid = make_stretched_grid()
+    with pytest.raises(
+            NotImplementedError,
+            match=r"does not support stretched \(mapped\) meshes"
+                  r".*'z'.*uniform-offset.*silently drop to 2nd "
+                  r"order.*CenteredAdvection"):
+        FrModel(grid=grid,
+                modules=(DynamicalCore(), cls(order)),
+                time_stepper=AdamBashforth(DT, order=3))
+
+
+def test_stretched_mesh_binds_the_centered_scheme():
+    # the guard must not over-fire: the centered scheme's two-point
+    # stencils divide by the codomain measure field (order 2) and
+    # stay grounded on a stretched mesh. (A full nh Model on a plain
+    # stretched axis is a separate deferral — the pressure solver
+    # wants the spectral transform MappedIntervalMesh refuses (C2) —
+    # so this exercises the module's own bind seam, as the
+    # two-mapped-columns test does.)
+    module = CenteredAdvection()
+    module._bind_mapping(make_stretched_grid())  # no raise
+    assert module.extra_halo is None  # no mapped column here
+
+
+@pytest.mark.parametrize("op", [
+    pytest.param(_BiasedFaceReconstruction(3, "left", "weno"),
+                 id="biased"),
+    pytest.param(_CenteredFaceInterpolation(4), id="centered-face"),
+])
+def test_biased_face_kernels_reject_a_stretched_factor(op):
+    # the operator-level twin of the bind guard (direct misuse)
+    mesh = MappedIntervalMesh(8, (0.0, 1.0), wavy_map,
+                              periodic=True, name="z")
+    with pytest.raises(SpaceMismatchError,
+                       match=r"uniform-mesh only.*uniform-offset"):
+        op.codomain(mesh.center)
 
 
 def test_two_mapped_columns_are_a_taught_error():

@@ -72,6 +72,7 @@ from fridom.spatial.operators.reconstruct import (
 )
 from fridom.spatial.operators.weno import (
     WenoReconstruction,
+    require_uniform_mesh,
     weno_reconstruct,
 )
 from fridom.spatial.scalars import Scalars
@@ -110,6 +111,14 @@ class UpwindOne(SeparableOperator):
     Interned on ``bias`` via ``@interned`` (D6) -- structurally-equal
     rungs are the same object, the identity-hash invariant the graded
     ``Fallback`` keys on.
+
+    Deliberately **not** guarded against stretched (mapped) factors,
+    unlike its wider ladder siblings: the one-cell row carries no
+    offsets at all (its single coefficient is unity on any mesh), so
+    it is exact on constants and 1st-order accurate on a mapped mesh
+    just as on a uniform one -- its design order survives the
+    stretching. Only the wider uniform-offset rows lose order, and
+    those refuse through ``weno.require_uniform_mesh``.
 
     Parameters
     ----------
@@ -373,6 +382,13 @@ class Fallback(SeparableOperator):
         signature by construction (validated in ``_setup``: same kind,
         same bias, odd reconstruction orders).
 
+        The graded ladder retires WENO's *periodic*-only restriction,
+        not its *uniform*-mesh one: every rung of order >= 3 is a
+        uniform-offset Shu row (the interior kernel and the reduced
+        wall rungs alike), so a stretched (mapped) factor raises here
+        exactly as it does on the bare interior kernel
+        (``weno.require_uniform_mesh``).
+
         Parameters
         ----------
         domain : FunctionSpace
@@ -388,6 +404,9 @@ class Fallback(SeparableOperator):
                 "Fallback reconstructs primal cell averages onto "
                 f"faces (CellAvg -> face), got {domain!r}",
                 left=domain, operation="reconstruct")
+        require_uniform_mesh(
+            domain, "the graded Fallback (its interior and reduced "
+                    "rungs are WENO/Shu rows)")
         if domain.scalars is Scalars.COMPLEX:
             raise SpaceMismatchError(
                 "the WENO smoothness indicators are real quadratic "
