@@ -21,7 +21,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
-        NoCoriolis,
         RotationCoriolis,
     )
 
@@ -83,8 +82,7 @@ all_imports_by_origin = {
     f"{base}.modules.core": ["DynamicalCore"],
     # the Coriolis family is the shared framework module library
     "fridom.model.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis", "NoCoriolis",
-        "RotationCoriolis"],
+        "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
     f"{base}.modules.stratification": [
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.modules.advection": [

@@ -978,6 +978,18 @@ class Model:
         return matches[0]
 
     @property
+    def modules(self) -> tuple:
+        """The live carry modules, in assembly order (read-only).
+
+        The plural of :meth:`module`: a host-side read for consumers
+        that must inspect the whole module list rather than look one
+        up by type (``fr.model.require_linear_operator``). Assembled
+        modules are read-only from the host — change leaf values
+        through ``update_parameters``.
+        """
+        return tuple(self._carry.modules)
+
+    @property
     def grid(self) -> Grid:
         """The (frozen) grid this model was assembled on."""
         return self._grid

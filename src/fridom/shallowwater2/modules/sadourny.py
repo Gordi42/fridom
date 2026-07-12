@@ -83,6 +83,11 @@ precision, channel and doubly-walled):
 - The split Coriolis module (``f`` outside ``q``) conserves the
   quadratic M-energy exactly but commits an :math:`O(\mathrm{Ro})`
   commutator error in the thickness-weighted energy — as in v1.
+  ``sw.modules.CoriolisEnergyCorrection`` (and the conserving
+  ``sw.modules.NonlinearFPlaneCoriolis`` family) restores the
+  ``f``-part of the PV flux — the *same* corner averages this scheme
+  uses, with :math:`\zeta` replaced by :math:`f` — and closes the
+  invariant exactly, rotation included (``sw.modules.coriolis``).
 
 Prescribed background flow (``background=``)
 --------------------------------------------

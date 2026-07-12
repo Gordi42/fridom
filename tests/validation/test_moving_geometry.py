@@ -63,6 +63,7 @@ def make_terrain_model(*modules, n=N, init=depth, advection=True,
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping, device_ids=device_ids)
     return nh.Model(grid=grid, dt=DT, dsqr=DSQR,
+                    coriolis=nh.FPlaneCoriolis(f0=1.0),
                     advection=advection, modules_extra=modules,
                     pressure_iterations=ITERATIONS)
 
@@ -229,6 +230,7 @@ def make_channel_model(*modules, n=N):
     ), mapping=mapping)
     return nh.Model(
         grid=grid, dt=DT, dsqr=DSQR,
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
         pressure_iterations=ITERATIONS,
         modules_extra=(
             MovingGeometry({"YN": channel_width}), *modules))

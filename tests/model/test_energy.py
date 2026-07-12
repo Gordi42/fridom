@@ -20,7 +20,10 @@ from fridom.model.energy import (
     EnergyMetric,
     _read_scalar,
 )
-from fridom.model.modules.coriolis import BetaPlaneCoriolis
+from fridom.model.modules.coriolis import (
+    BetaPlaneCoriolis,
+    FPlaneCoriolis,
+)
 from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
@@ -120,7 +123,11 @@ def random_coeff_state(template, seed):
 #  from_model: weights + structural gates
 # ================================================================
 def test_from_model_nonhydro_weights():
-    model = nh.Model(grid=nh_grid(), dt=DT, advection=False)
+    # rotation is opt-in: name the f0 = 1 f-plane the old implicit
+    # coriolis=None default installed (EnergyMetric.from_model needs
+    # the constant coriolis.f0 provide as its diagonalizability gate)
+    model = nh.Model(grid=nh_grid(), dt=DT, advection=False,
+                     coriolis=FPlaneCoriolis(f0=1.0))
     metric = EnergyMetric.from_model(model)
     assert metric.component_names == ("u", "v", "w", "b")
     # dsqr default 1.0, n2 default 1.0 -> all-unit weights
@@ -239,7 +246,8 @@ def test_apply_ignores_unweighted_components():
 #  Physical inner product: identity vs the diagnostics
 # ================================================================
 def test_physical_identity_nonhydro():
-    model = nh.Model(grid=nh_grid(), dt=DT, advection=False)
+    model = nh.Model(grid=nh_grid(), dt=DT, advection=False,
+                     coriolis=FPlaneCoriolis(f0=1.0))
     metric = EnergyMetric.from_model(model)
     z = collocated_nh_state(model.grid)
     params = model.parameters
@@ -345,6 +353,7 @@ def varying_sw_model(csqr_fn, grid=None):
     return sw.Model(
         grid=_walled_sw_grid() if grid is None else grid,
         csqr=csqr_fn, rossby_number=0.2, advection=False,
+        coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
@@ -356,6 +365,7 @@ def varying_nh_model(n2_fn):
         IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="z")))
     return nh.Model(
         grid=grid, dt=DT, advection=False, dsqr=2.0,
+        coriolis=FPlaneCoriolis(f0=1.0),
         stratification=nh.MeridionalStratification(n2=n2_fn))
 
 

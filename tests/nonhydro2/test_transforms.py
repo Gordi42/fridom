@@ -45,7 +45,10 @@ def make_grid(n=8, length=2 * np.pi):
 
 
 def _model():
-    return nh.Model(grid=make_grid(), dt=DT, advection=False)
+    # the f0 = 1 f-plane the old implicit coriolis=None default
+    # installed, now named explicitly (rotation is opt-in)
+    return nh.Model(grid=make_grid(), dt=DT, advection=False,
+                    coriolis=nh.FPlaneCoriolis(f0=1.0))
 
 
 def _state(model, seed=1):
@@ -221,6 +224,7 @@ def test_projection_rest_zero_completes_a_passive_tracer():
     # projection (rest="zero") returns the tracer as a zero field on
     # its own space, and the residual carries it fully (§10.7.2)
     model = nh.Model(grid=make_grid(), dt=DT, advection=False,
+                     coriolis=nh.FPlaneCoriolis(f0=1.0),
                      modules_extra=(_PassiveTracer(),))
     _state(model, seed=13)
     rng = np.random.default_rng(14)

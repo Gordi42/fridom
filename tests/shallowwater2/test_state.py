@@ -10,6 +10,9 @@ from .conftest import make_grid
 
 
 def _model():
+    # no coriolis= : the State diagnostics below (rel_vort,
+    # divergence) are parameter-free kinematics and the model never
+    # advances, so the no-rotation default is the right assembly here
     return sw.Model(grid=make_grid(),
                     time_stepper=fr.model.time_steppers.AdamBashforth(
                         5e-3, order=3))

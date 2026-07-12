@@ -508,6 +508,7 @@ def make_mapped_model(n=8, init=depth, dt=0.02, **kwargs):
     # already at 12, 1.1e-13 at 30; the gate below is 1e-10) and the
     # unrolled CG loop is what the mapped model's trace pays for
     return nh.Model(grid=grid, dt=dt, advection=False,
+                    coriolis=nh.FPlaneCoriolis(f0=1.0),
                     pressure_iterations=16, **kwargs)
 
 

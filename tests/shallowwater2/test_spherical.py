@@ -58,8 +58,9 @@ def sphere_model(grid=None, *, advection=True, omega=OMEGA,
     return sw.Model(
         grid=grid, coords=("lon", "lat"), csqr=csqr,
         rossby_number=ro,
-        coriolis=sw.modules.SphericalCoriolis(
-            omega=omega, metric_weight="csqr"),
+        coriolis=sw.modules.RotationCoriolis(
+            omega=(0.0, 0.0, omega), coords=("lon", "lat"),
+            metric_weight="csqr"),
         advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-3, order=3))
@@ -349,7 +350,8 @@ def test_core_coords_must_match_the_chart():
                        match=r"DynamicalCore coords.*chart"):
         sw.Model(
             grid=sphere_grid(), csqr=CSQR,
-            coriolis=sw.modules.SphericalCoriolis(omega=OMEGA),
+            coriolis=sw.modules.RotationCoriolis(
+                omega=(0.0, 0.0, OMEGA), coords=("lon", "lat")),
             advection=False,
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 1e-3, order=3))

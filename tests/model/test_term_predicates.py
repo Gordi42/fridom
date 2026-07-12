@@ -2,6 +2,7 @@
 import pytest
 
 from fridom.model import term_predicates as terms
+from fridom.model.errors import LinearOperatorGapError
 from fridom.model.term_predicates import linearize
 from fridom.model.terms import TendencyTerm, Treatment
 
@@ -140,3 +141,53 @@ def test_repr():
 def test_combinator_notimplemented_on_bad_operand():
     assert terms.linear.__and__(5) is NotImplemented
     assert terms.linear.__or__("x") is NotImplemented
+
+
+# ================================================================
+#  The linear-operator honesty gate
+# ================================================================
+class Honest:
+
+    """An ordinary module: all its linear physics is in L."""
+
+
+class Gapped:
+
+    """A module that keeps linear physics OUT of the linear terms."""
+
+    linear_operator_gap = "it hides the rotation in a nonlinear term"
+
+
+class FakeModel:
+
+    """Duck-typed model exposing a module tuple and ``variant``."""
+
+    def __init__(self, *modules):
+        self.modules = modules
+        self.name = "toy"
+
+    def variant(self, *, term_filter, name):
+        return ("variant", term_filter, name)
+
+
+def test_no_gaps_on_an_honest_model():
+    model = FakeModel(Honest(), Honest())
+    assert terms.linear_operator_gaps(model) == ()
+    terms.require_linear_operator(model, consumer="probe")
+    assert terms.linearize(model)[0] == "variant"
+
+
+def test_gaps_are_collected_with_their_reason():
+    model = FakeModel(Honest(), Gapped())
+    assert terms.linear_operator_gaps(model) == (
+        ("Gapped", "it hides the rotation in a nonlinear term"),)
+
+
+def test_require_linear_operator_raises_the_module_sentence():
+    model = FakeModel(Gapped())
+    with pytest.raises(LinearOperatorGapError,
+                       match="probe needs the linear operator L"):
+        terms.require_linear_operator(model, consumer="probe")
+    with pytest.raises(LinearOperatorGapError,
+                       match="hides the rotation"):
+        terms.linearize(model)

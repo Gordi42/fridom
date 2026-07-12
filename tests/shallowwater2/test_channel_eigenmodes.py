@@ -936,7 +936,13 @@ def csqr_profile(y):
 
 
 def make_varying_model(csqr=csqr_profile, device_ids=None):
-    """Build a varying-depth walled channel (f-plane preset)."""
+    """Build a varying-depth walled channel (f-plane rotation).
+
+    Rotation is opt-in (coriolis=None is no rotation at all), so the
+    f0 = 1 thickness-weighted f-plane the old implicit preset default
+    installed is named explicitly here — the labeler's physics rests
+    on it.
+    """
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
@@ -944,6 +950,8 @@ def make_varying_model(csqr=csqr_profile, device_ids=None):
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
         csqr=csqr, rossby_number=0.2, advection=False,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0,
+                                           metric_weight="csqr"),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
@@ -1084,6 +1092,8 @@ def test_varying_periodic_grid_is_a_taught_error():
     model = sw.Model(
         grid=fr.spatial.Grid((mx, my)), csqr=csqr_profile,
         advection=False,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0,
+                                           metric_weight="csqr"),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match=r"sw\.eigenbasis"):
         sw.eigenmodes.from_model(model)

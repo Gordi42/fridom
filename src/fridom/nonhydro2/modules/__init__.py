@@ -15,7 +15,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
-        NoCoriolis,
         Relaxation,
         RotationCoriolis,
     )
@@ -46,7 +45,7 @@ all_modules_by_origin: dict[str, list[str]] = {}
 # after the wave-6 consolidation.
 all_imports_by_origin = {
     "fridom.model.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis", "NoCoriolis",
+        "FPlaneCoriolis", "BetaPlaneCoriolis",
         "RotationCoriolis", "Relaxation"],
     f"{base}.core": ["DynamicalCore"],
     f"{base}.stratification": [
