@@ -271,10 +271,22 @@ def test_constant_state_has_zero_tendency(cls):
      pytest.param(WENOAdvection, 5, 4.4, id="weno5")])
 def test_smooth_advection_converges_at_design_order(cls, order,
                                                     min_slope):
-    # uniform velocity, b = sin(x): the advection tendency
+    # UNIFORM velocity, b = sin(x): the advection tendency
     # approximates -U cos(x) at the scheme's design order (max
     # error away from the critical points of sin, where WENO-JS
-    # is known to degrade)
+    # is known to degrade).
+    #
+    # The constant u is LOAD-BEARING, not incidental: it is the only
+    # regime in which the design order of the composite tendency is
+    # observable at all. The flux form differences v_face * R(q),
+    # while the high-order face quantity of an FV reconstruction (a
+    # deconvolution) is the deconvolved FLUX R(v q); the mismatch is
+    # a cross term ~ (h^2/24) * 2 u' q', which vanishes identically
+    # for u' = 0 and otherwise caps the tendency at 2nd order — see
+    # test_varying_velocity_tendency_is_only_second_order, which pins
+    # exactly that. Do not "generalize" this test to a varying u: it
+    # would then measure 2, and the reconstruction order would go
+    # unpinned.
     errors = []
     for n in (16, 32):
         model = make_model(n, cls(order))
@@ -287,6 +299,59 @@ def test_smooth_advection_converges_at_design_order(cls, order,
         mask = np.abs(np.cos(xc)) > 0.3
         errors.append(err[mask].max())
     assert np.log2(errors[0] / errors[1]) > min_slope
+
+
+#: the honest rate of the composite tendency once the advecting
+#: velocity varies along the flux axis: 2, for every biased scheme and
+#: every design order. Band, not a floor — the point of the test is
+#: that the rate is NEITHER below 2 (the scheme is still consistent)
+#: NOR at the design order (it is not, and no amount of reconstruction
+#: order makes it so). weno3 is excluded: its critical-point
+#: degradation (see the test above) dominates the error on this
+#: problem at any resolution we can afford, so the plateau is not
+#: cleanly measurable there.
+SECOND_ORDER = [
+    pytest.param(UpwindAdvection, 3, id="upwind3"),
+    pytest.param(UpwindAdvection, 5, id="upwind5"),
+    pytest.param(WENOAdvection, 5, id="weno5"),
+]
+
+
+@pytest.mark.parametrize(("cls", "order"), SECOND_ORDER)
+def test_varying_velocity_tendency_is_only_second_order(cls, order):
+    # The sibling of test_smooth_advection_converges_at_design_order,
+    # and the honest one: a periodic, uniform grid, a smooth tracer,
+    # and an advecting velocity that VARIES along the flux axis
+    # (u = 1 + 0.5 sin x, exactly the regime of any real flow). The
+    # composite tendency then converges at 2, not at the design order
+    # 3 / 5 — the product-rule / deconvolution mismatch of the C-grid
+    # flux form (the scheme differences u_face * R(b), but only the
+    # deconvolved flux R(u b) is high-order; the leftover cross term
+    # ~ (h^2/24) * 2 u' b' is what is measured here).
+    #
+    # This is a property of the flux form shared with Oceananigans,
+    # MITgcm, MOM6 and ROMS, and it is PINNED, not tolerated: the
+    # route that would restore the design order (reconstruct the flux
+    # u*b — Mishra, Pares-Pulido & Pressel, arXiv:1905.13665) costs
+    # the exact-zero wall flux and constancy preservation, both of
+    # which this suite tests elsewhere. Measured rates (32/64/128):
+    # upwind3 2.15, 2.07; upwind5 1.98, 1.99; weno5 2.01, 2.00.
+    sizes = (32, 64, 128)
+    errors = []
+    for n in sizes:
+        model = make_model(n, cls(order))
+        xc, xf = centers(n), faces(n)
+        model.set_fields(
+            u=broadcast(1.0 + 0.5 * np.sin(xf), n),
+            b=broadcast(np.sin(xc), n))
+        got = np.asarray(
+            advection_tendency(model, cls)["b"].data)[:, 0, 0]
+        # -d/dx (u b) with u = 1 + 0.5 sin x, b = sin x
+        exact = -(np.cos(xc) + 0.5 * np.sin(2 * xc))
+        errors.append(np.abs(got - exact).max())
+    rates = [np.log2(errors[i] / errors[i + 1]) for i in range(2)]
+    assert min(rates) > 1.8   # still consistent (and not first order)
+    assert max(rates) < 2.3   # and NOT the design order 3 / 5
 
 
 def test_weno3_converges_and_stays_essentially_third_order():
@@ -756,11 +821,15 @@ def _walled_tendency_error(cls, order, n):
 
 
 #: minimum interior tendency rate per configuration. The ceiling here
-#: is 2, NOT the design order, and that is a property of the nh flux
-#: form, not of the closure: it multiplies an INTERPOLATED velocity by
-#: a RECONSTRUCTED tracer, which is only 2nd-order accurate once the
-#: velocity varies in space — the periodic scheme measures exactly the
-#: same 2.0 on this problem. The design order of the graded rows
+#: is 2, NOT the design order, and that is a property of the C-grid
+#: flux form, not of the graded closure: the scheme differences
+#: v_face * R(b), while the high-order face quantity of an FV
+#: reconstruction is the deconvolved FLUX R(v b) — the product-rule
+#: mismatch leaves a cross term ~ (h^2/24) * 2 v' b' that survives
+#: wherever the advecting velocity varies along the flux axis. The
+#: periodic scheme measures exactly the same 2.0 (see
+#: test_varying_velocity_tendency_is_only_second_order), so nothing
+#: here is charged to the walls. The design order of the graded rows
 #: themselves is pinned on the FD-flux difference they actually feed,
 #: in test_graded_rows_keep_the_design_order_in_the_interior.
 #: WENO3-JS degrades near critical points (old-stack parity, see

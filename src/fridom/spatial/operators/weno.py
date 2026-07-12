@@ -587,6 +587,14 @@ class WenoReconstruction(SeparableOperator):
 
     so bounded and periodic axes both resolve a legal reconstruction.
 
+    ``order`` is the order of the **reconstruction**, and that is all
+    it is: a flux-form advection scheme that multiplies this face
+    value by a face velocity and differences the product contributes a
+    formally 2nd-order tendency whenever the advecting velocity varies
+    along the flux axis (the product-rule / deconvolution mismatch —
+    the high-order face quantity is the deconvolved *flux*, not the
+    deconvolved state). See ``fridom.nonhydro2.modules.advection``.
+
     Parameters
     ----------
     order : int, optional
