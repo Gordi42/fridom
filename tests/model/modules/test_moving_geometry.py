@@ -202,6 +202,29 @@ def test_ale_defaults_to_every_prognostic_field():
     assert ale.driven_params == ("H",)
 
 
+def test_ale_rejects_multiple_mapped_columns():
+    # two single-base analytic maps (parameter-free defaults keep
+    # their coupled coordinate sets disjoint) exceed the stage-C4
+    # support, mirroring the C3 pressure solver
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H,
+              "yp": lambda y, YN: y * YN},
+        params={"H": lambda: H0, "YN": lambda: 0.9})
+    mx = IntervalMesh(N, (0.0, LENGTH), periodic=True, name="x")
+    my = IntervalMesh(N, (0.0, 1.0), name="y")
+    mz = IntervalMesh(N, (0.0, 1.0), name="z")
+    grid = Grid((mx, my, mz), mapping=mapping)
+    with pytest.raises(NotImplementedError,
+                       match="exactly one mapped column"):
+        nh.Model(
+            grid=grid, dt=DT, advection=False,
+            coriolis=nh.FPlaneCoriolis(f0=0.0),
+            stratification=nh.ConstantStratification(n2=0.0),
+            modules_extra=(
+                MovingGeometry({"H": lambda t: H0 + 0.0 * t}),
+                MeshVelocityCorrection()))
+
+
 # ================================================================
 #  MeshVelocityCorrection: the correction term (exact check)
 # ================================================================
