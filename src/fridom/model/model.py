@@ -331,6 +331,66 @@ def _copy_leaves(tree: Any) -> Any:
     return jax.tree_util.tree_map(jnp.copy, tree)
 
 
+def _template_builder(
+    template: VectorField,
+) -> Callable[[], VectorField]:
+    """
+    Turn one built template into a trace-stable zero-builder.
+
+    Description
+    -----------
+    The tendency template is only ever CONSUMED by ``stepper.init``
+    (at construction and on every re-warm), so caching its device
+    buffers would keep one zero PROGNOSTIC vector — full padded
+    fields — alive for the model's lifetime. Instead the template's
+    STRUCTURE is captured host-side (treedef + per-leaf
+    shape/dtype/sharding; no device buffers) and the zeros are
+    rebuilt through one jitted zero-arg builder pinned to the
+    negotiated layout: repeated re-warms
+    (``update_parameters``/``reset``/``set_aux(rewarm=True)``) hit
+    the one cached trace — never the grid's pad-and-sync store path
+    (a per-call retrace under multi-device) — and the buffers are
+    freed as soon as ``init`` consumes them.
+
+    Parameters
+    ----------
+    template : VectorField
+        A freshly built zero PROGNOSTIC vector (born on the grid's
+        negotiated layout); only its structure is retained.
+
+    Returns
+    -------
+    Callable[[], VectorField]
+        The cached zero-template builder.
+    """
+    leaves, treedef = jax.tree_util.tree_flatten(template)
+    specs = tuple(
+        (tuple(leaf.shape), leaf.dtype) for leaf in leaves)
+    shardings = tuple(leaf.sharding for leaf in leaves)
+    # the jitted zero-maker is shared across models (keyed by
+    # structure) so identical re-assemblies add ZERO compiles —
+    # the _CHUNK_EXECUTABLES discipline
+    key = (specs, shardings)
+    zeros = _ZERO_MAKERS.get(key)
+    if zeros is None:
+
+        @partial(jax.jit, out_shardings=shardings)
+        def zeros() -> tuple[jax.Array, ...]:
+            return tuple(
+                jnp.zeros(shape, dtype) for shape, dtype in specs)
+
+        _ZERO_MAKERS[key] = zeros
+
+    def build() -> VectorField:
+        return jax.tree_util.tree_unflatten(treedef, zeros())
+
+    return build
+
+
+#: shared jitted zero-template makers, keyed by (specs, shardings)
+_ZERO_MAKERS: Final[dict[tuple, Callable]] = {}
+
+
 # ================================================================
 #  The live per-step schedule view
 # ================================================================
@@ -886,16 +946,19 @@ class Model:
         self._chunk_size = chunk_size
         # -- step 8: allocate the carry ---------------------------
         state = self._allocate_state(modules)
-        # built once: a constant zero PROGNOSTIC vector, reused by
-        # every re-warm (a fresh build would pay the grid's
-        # pad-and-sync store path per update_parameters call —
-        # a per-call retrace under multi-device)
-        self._tendency_template = (
-            self._artifacts.composer.tendency_template())
-        template = self._tendency_template
-        stepper_state: StepperState = (
-            time_stepper.init(template) if template is not None
-            else ())
+        # built once: a cached zero-template BUILDER (structure
+        # only, one stable jitted trace) reused by every re-warm —
+        # caching the built template itself would keep one zero
+        # PROGNOSTIC vector of full padded fields alive for the
+        # model's lifetime, while a fresh composer build would pay
+        # the grid's pad-and-sync store path per update_parameters
+        # call (a per-call retrace under multi-device)
+        template = self._artifacts.composer.tendency_template()
+        self._template_build: Callable[[], VectorField] | None = (
+            _template_builder(template) if template is not None
+            else None)
+        del template  # the builder's product is init-consumed only
+        stepper_state: StepperState = self._fresh_stepper_state()
         carry = ModelState(
             state=state, modules=modules,
             stepper_state=stepper_state, clock=Clock(),
@@ -1260,9 +1323,8 @@ class Model:
 
     def _fresh_stepper_state(self) -> StepperState:
         """Return a fresh ``stepper.init`` product (the re-warm)."""
-        template = self._tendency_template
-        return (self._stepper.init(template)
-                if template is not None else ())
+        build = self._template_build
+        return self._stepper.init(build()) if build is not None else ()
 
     @staticmethod
     def _fresh_clone(provider: object) -> object:
