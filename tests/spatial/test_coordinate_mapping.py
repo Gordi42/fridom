@@ -476,3 +476,18 @@ def test_two_maps_coupling_one_coordinate_rejected(mx, ms):
         params={"H": depth})
     with pytest.raises(ValueError, match="coupled by two"):
         Grid((mx, ms, mz), mapping=mapping)
+
+
+# ================================================================
+#  The chart-coupling seam (stage C2 seeding)
+# ================================================================
+def test_chart_coords_reports_the_chart_coupling():
+    mapping = CoordinateMapping(chart={
+        "X": lambda u, v: (jnp.cos(u), jnp.sin(u), v)})
+    assert mapping._chart_coords() == ("u", "v")
+
+
+def test_chart_coords_none_without_a_chart():
+    mapping = CoordinateMapping(
+        maps={"z": lambda sigma: sigma**2})
+    assert mapping._chart_coords() is None

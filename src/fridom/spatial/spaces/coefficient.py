@@ -28,6 +28,7 @@ from fridom.spatial.spaces.function_space import (
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.decomposition.layout import Layout
     from fridom.spatial.meshes.mesh import Mesh
+    from fridom.spatial.scalars import Variance
 
 
 class CoefficientSpace(FunctionSpace):
@@ -58,10 +59,12 @@ class CoefficientSpace(FunctionSpace):
 
     def __init__(self, mesh: Mesh, origin: FunctionSpace,
                  *, layout: Layout | None = None,
+                 variance: Variance | None = None,
                  _token: object = None) -> None:
         """Guarded constructor; see the class docstring."""
         super().__init__(mesh, origin.scalars, origin.bc,
-                         layout=layout, _token=_token)
+                         layout=layout, variance=variance,
+                         _token=_token)
         self._origin: FunctionSpace = origin
 
     @property
@@ -102,24 +105,27 @@ class CoefficientSpace(FunctionSpace):
         return self._origin.as_real()
 
     def _variant_key(self, scalars: Scalars,
-                     layout: Layout | None) -> tuple:
-        """Return the interning key of a (scalars, layout) variant.
+                     layout: Layout | None,
+                     variance: Variance | None) -> tuple:
+        """Return the (scalars, layout, variance) variant's key.
 
-        The key is (type, origin identity), plus the layout when
-        set; the scalar variant swaps the origin.
+        The key is (type, origin identity), plus the layout and
+        variance when set; the scalar variant swaps the origin.
         """
         return space_key(type(self), self._origin_with(scalars),
-                         layout=layout)
+                         layout=layout, variance=variance)
 
     def _construct(self, scalars: Scalars,
-                   layout: Layout | None) -> Self:
+                   layout: Layout | None,
+                   variance: Variance | None) -> Self:
         """Build (not intern) the variant on the swapped origin.
 
         ``as_complex`` on a coefficient space is never a dtype flag
         flip — it changes the origin and hence generally the shape.
         """
         return type(self)(self._mesh, self._origin_with(scalars),
-                          layout=layout, _token=_FACTORY_TOKEN)
+                          layout=layout, variance=variance,
+                          _token=_FACTORY_TOKEN)
 
     def _repr_details(self) -> tuple[str, ...]:
         """Append the origin, e.g. ``origin=Center``."""

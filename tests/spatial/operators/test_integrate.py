@@ -8,6 +8,9 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.coordinate_mapping import (
+    CoordinateMapping,
+)
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
@@ -294,3 +297,82 @@ def test_nodal_integral_converges_on_a_mapped_mesh():
         errors.append(abs(float(f.integrate("v").data[0])
                           - 2.0 / jnp.pi))
     assert errors[0] / errors[1] > 3.0
+
+
+# ================================================================
+#  The sqrt_g Jacobian rows on chart grids (stage C2)
+# ================================================================
+def torus_grid(n=8, ring=2.0, minor=0.5):
+    mu = IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="u")
+    mv = IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="v")
+    mapping = CoordinateMapping(chart={"X": lambda u, v: (
+        (ring + minor * jnp.cos(v)) * jnp.cos(u),
+        (ring + minor * jnp.cos(v)) * jnp.sin(u),
+        minor * jnp.sin(v))})
+    return Grid((mu, mv), mapping=mapping), mu, mv
+
+
+def test_jacobian_constructor_validates():
+    with pytest.raises(TypeError, match="jacobian"):
+        Integral(jacobian=())
+    with pytest.raises(TypeError, match="jacobian"):
+        Integral(jacobian=(1, 2))
+
+
+def test_jacobian_families_intern_separately():
+    assert Integral() is Integral(jacobian=None)
+    assert Integral(jacobian=("u", "v")) is Integral(
+        jacobian=("u", "v"))
+    assert Integral(jacobian=("u", "v")) is not Integral()
+
+
+def test_area_integral_carries_sqrt_g_once():
+    # the torus area is 4 pi^2 R r, exact for the constant field:
+    # sqrt_g enters on the first chart reduction only
+    ring, minor = 2.0, 0.5
+    grid, mu, mv = torus_grid(ring=ring, minor=minor)
+    one = grid.create_field(
+        mu.center * mv.center, init=lambda u, v: 1.0 + 0 * u + 0 * v)
+    area = one.integrate()
+    exact = 4.0 * jnp.pi**2 * ring * minor
+    assert jnp.allclose(area.data.squeeze(), exact)
+
+
+def test_partial_chart_reduction_is_the_weighted_density():
+    # integrate("u") of f == int f sqrt_g du: a v-dependent density
+    ring, minor = 2.0, 0.5
+    grid, mu, mv = torus_grid(ring=ring, minor=minor)
+    f = grid.create_field(
+        mu.center * mv.center,
+        init=lambda u, v: jnp.cos(v) + 0 * u)
+    density = f.integrate("u")
+    v = grid.evaluation_nodes(density.function_space, "v").data
+    exact = (2.0 * jnp.pi * jnp.cos(v)
+             * minor * (ring + minor * jnp.cos(v)))
+    assert jnp.allclose(density.data, exact)
+
+
+def test_born_constant_chart_factor_gets_no_jacobian():
+    # a field constant along u cannot resolve sqrt_g: it contracts
+    # against the computational measure only (module docstring)
+    grid, mu, mv = torus_grid()
+    f = grid.create_field(
+        mu.constant * mv.center, init=lambda v: 1.0 + 0 * v)
+    total = f.integrate()
+    assert jnp.allclose(total.data.squeeze(), 2.0 * jnp.pi)
+
+
+def test_chartless_grids_keep_the_plain_integral(mx):
+    grid = Grid((mx,))
+    row = grid.dispatch.resolve("integrate", mx.center)
+    assert row is Integral()
+    assert row.jacobian is None
+
+
+def test_fields_off_the_chart_meshes_use_the_plain_measure():
+    # a lone-factor field cannot resolve the 2D sqrt_g: the chart
+    # row falls back to the computational measure
+    grid, mu, _mv = torus_grid()
+    f = grid.create_field(mu.center, init=lambda u: 1.0 + 0 * u)
+    assert jnp.allclose(f.integrate("u").data.squeeze(),
+                        2.0 * jnp.pi)

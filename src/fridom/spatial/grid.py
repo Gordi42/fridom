@@ -63,6 +63,12 @@ from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
     Laplacian,
+    LowerIndex,
+    MetricCurl,
+    MetricDivergence,
+    MetricGradient,
+    MetricLaplacian,
+    RaiseIndex,
 )
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
@@ -1729,20 +1735,31 @@ def _default_registry(
         single-base analytic map seeds the kind-only
         ``"physical_diff"`` row — the constant-physical-coordinate
         derivative builder (rules section 3.8, sketch 4.4) — for
-        exactly the coordinates it couples (default: None).
+        exactly the coordinates it couples, and a mapping carrying
+        an embedding chart (CS-D1, stage C2) seeds the metric-aware
+        vector calculus: the ``("integrate", ...)`` rows become
+        Jacobian-weighted (``Integral(jacobian=<chart coords>)``,
+        rules 3.13), and — for charts coupling at least two
+        coordinates — the kind-only ``"grad"`` / ``"div"`` /
+        ``"curl"`` / ``"laplacian"`` rows hold the chart builders
+        and ``"raise_index"`` / ``"lower_index"`` the explicit
+        metric contractions (validation 6.3). Chartless grids keep
+        the flat builders untouched (default: None).
 
     Returns
     -------
     OperatorRegistry
         The seeded default registry (placeholders resolved).
     """
+    chart = (mapping._chart_coords()  # noqa: SLF001 — grid seam
+             if mapping is not None else None)
     fd = FiniteDifference(order=2)
     interp = LinearInterp()
     flux_ops = (FluxDifference(), DualFluxDifference(),
                 FaceDifference())
     reconstruct = LinearReconstruction()
     fv_derivative = FVDerivative()
-    integral = Integral()
+    integral = Integral(jacobian=chart)
     multiply = CollocationProduct()
     divide = Divide()
     power = Power()
@@ -1795,10 +1812,20 @@ def _default_registry(
         corrections = mapping._corrections()  # noqa: SLF001 — seam
         if corrections:
             entries["physical_diff"] = MappedDerivative(corrections)
-    entries["grad"] = Gradient()
-    entries["div"] = Divergence()
-    entries["curl"] = Curl()
-    entries["laplacian"] = Laplacian()
+    if chart is not None and len(chart) > 1:
+        # metric-aware vector calculus (stage C2): the same kinds,
+        # chart-coupled entries (validation 6.3) — seeded only when
+        # the mapping's embedding chart couples the coordinates
+        entries["grad"] = MetricGradient(chart)
+        entries["div"] = MetricDivergence(chart)
+        entries["curl"] = MetricCurl(chart)
+        entries["laplacian"] = MetricLaplacian(chart)
+        entries["raise_index"] = RaiseIndex(chart)
+        entries["lower_index"] = LowerIndex(chart)
+    entries.setdefault("grad", Gradient())
+    entries.setdefault("div", Divergence())
+    entries.setdefault("curl", Curl())
+    entries.setdefault("laplacian", Laplacian())
     # bake the Dispatched("reconstruct") hole of the FV-derivative
     # chain against the seeded defaults (D4's merge moment, empty
     # override set): day-one `f.diff` on average spaces needs a

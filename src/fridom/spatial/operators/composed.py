@@ -1,4 +1,4 @@
-"""
+r"""
 Composed vector calculus: the grad/div/curl/laplacian builders.
 
 Description
@@ -20,14 +20,58 @@ codomains, row-sum application to ``ScalarField``/``VectorField``
 operands, and block matmul — lives here as ``BlockMatrix``. Builders
 expand at application against ``f.grid.dispatch`` (the model-assembly
 merge moment is Phase 2); ``expand`` is public for tests and the
-halo-accounting trace. ``RaiseIndex``/``LowerIndex`` remain
-designed-for (metric grids).
+halo-accounting trace.
+
+Metric-aware vector calculus (coordinate-systems plan, stage C2):
+on a chart-coupled grid (a ``CoordinateMapping`` embedding chart,
+CS-D1) the *same kinds* hold the metric-aware builders seeded by the
+grid — registered entries, not compositions the modules hand-build
+(rules 3.4, validation 6.3):
+
+- ``MetricGradient``: scalar -> **covariant** components
+  :math:`(\partial_i f)` — the registered staggered ``"diff"`` rows
+  per axis, variance-tagged;
+- ``MetricDivergence``: **contravariant** components -> scalar in
+  flux form,
+  :math:`\nabla\!\cdot u = \tfrac{1}{\sqrt{g}}\,
+  \partial_i(\sqrt{g}\, u^i)`,
+  with :math:`\sqrt{g}` entering as :class:`MetricScaled`
+  coefficients derived on the component (flux-point) spaces and the
+  outer :math:`1/\sqrt{g}` on the scalar codomain — so the global
+  ``integrate`` (which weighs by the same :math:`\sqrt{g}`)
+  telescopes the flux differences to zero exactly on closed
+  (periodic) charts;
+- ``MetricCurl`` (2D): the scalar vorticity
+  :math:`\tfrac{1}{\sqrt{g}}(\partial_u v_{cov} -
+  \partial_v u_{cov})` from covariant components;
+- ``MetricLaplacian`` (Laplace-Beltrami): the honest composition
+  ``div ∘ raise ∘ grad`` resolved *through the kinds*, so module
+  overrides of any leg propagate;
+- ``RaiseIndex`` / ``LowerIndex``: explicit metric-consuming index
+  maps contracting components with ``inv_g_<u><v>`` / ``g_<u><v>``
+  from ``grid.metric`` at application, retagging variance.
+
+Staggering/variance convention (recorded per the C2 task): covariant
+and contravariant components share the C-grid face staggering (the
+u-component on ``Right(u) ⊗ Center(v)``, ...); the variance tag alone
+distinguishes them. Diagonal raise/lower terms are pointwise scalings
+on the component's own space; off-diagonal (cross) terms interpolate
+the source component onto the **target component's** space through
+the registered per-axis ``"interpolate"`` rows and derive the metric
+coefficient there. All metric coefficients are derived at
+application (never cached, rules 2.3/3.8); with the 2nd-order
+staggered ``"diff"`` family this keeps the discrete
+``div`` and ``grad`` negative adjoints under the
+:math:`\sqrt{g}`-weighted inner product (the mimetic/self-adjoint
+Laplace-Beltrami story).
 """
 # Wave 3: BlockMatrix (it-1 subset), Gradient, Divergence, Curl,
-#    Laplacian -- designed-for: RaiseIndex, LowerIndex
+#    Laplacian -- Stage C2: MetricGradient, MetricDivergence,
+#    MetricCurl, MetricLaplacian, RaiseIndex, LowerIndex
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, final
+from abc import abstractmethod
+from typing import TYPE_CHECKING, ClassVar, Literal, final
 
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
@@ -43,7 +87,9 @@ from fridom.spatial.operators.base import (
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
+from fridom.spatial.operators.mapped import MetricScaled
 from fridom.spatial.operators.registry import DispatchError
+from fridom.spatial.scalars import Variance
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -823,3 +869,678 @@ def Diag(  # noqa: N802
         for i, ai in enumerate(axes))
     names = axes if len(axes) > 1 else None
     return BlockMatrix(rows, output_names=names)
+
+
+# ================================================================
+#  Metric-aware vector calculus (coordinate-systems plan, C2)
+# ================================================================
+@final
+class VarianceRetag(Operator):
+
+    """
+    Pointwise variance retag of a unary target's output.
+
+    Description
+    -----------
+    The explicit variance transition of the metric-aware entries: a
+    variance tag is a pure claim (module docstring), so retagging
+    touches neither data nor ghost validity — only the interned
+    space identity. Requirements delegate to the target (the retag
+    is pointwise/halo-neutral); halo tracers pass the target's
+    traced result through unretagged, exactly like
+    :class:`~fridom.spatial.operators.mapped.MetricScaled` passes
+    its scale (the trace only accounts widths).
+
+    Parameters
+    ----------
+    target : Operator
+        The operator whose output is retagged.
+    variance : Variance | None
+        The variance the output claims; None strips the tag.
+    """
+
+    def __init__(self, target: Operator,
+                 variance: Variance | None) -> None:
+        """Store the target and the claimed variance."""
+        if not isinstance(target, Operator):
+            raise TypeError(
+                f"target must be an Operator, got {target!r}")
+        if variance is not None and not isinstance(variance,
+                                                   Variance):
+            raise TypeError(
+                f"variance must be a Variance member or None, got "
+                f"{variance!r}")
+        self._target: Operator = target
+        self._variance: Variance | None = variance
+
+    @property
+    def target(self) -> Operator:
+        """The retagged operator (static structure)."""
+        return self._target
+
+    @property
+    def variance(self) -> Variance | None:
+        """The variance the output claims (None strips)."""
+        return self._variance
+
+    def codomain(
+        self, *domains: SpaceLike,
+    ) -> SpaceLike | tuple[SpaceLike, ...]:
+        """Resolve the target's codomain, variance-retagged."""
+        if len(domains) != 1:
+            raise SpaceMismatchError(
+                "VarianceRetag wraps unary targets only",
+                operation="variance_retag")
+        codomain = resolve_codomain(self._target, domains[0])
+        return codomain.with_variance(self._variance)
+
+    def requirements(self, domain: SpaceLike) -> OperatorRequirements:
+        """Return the target's requirements (pointwise retag)."""
+        return self._target.requirements(domain)
+
+    def __call__(self, f: FieldLike) -> FieldLike:
+        """
+        Apply the target, then re-claim the variance tag.
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field (or halo tracer).
+
+        Returns
+        -------
+        FieldLike
+            The result on the variance-retagged codomain.
+        """
+        out = self._target(f)
+        if getattr(f, "_trace_apply", None) is not None:
+            return out
+        space = out.function_space.with_variance(self._variance)
+        if space is out.function_space:
+            return out
+        return type(out)(
+            out.grid, space,
+            out._data,  # noqa: SLF001 — plumbing-constructor seam
+            out.metadata, halo_valid=out.halo_valid)
+
+
+def _require_chart_axes(
+    axes: tuple[str, ...],
+    coords: tuple[str, ...],
+    operation: str,
+) -> None:
+    """Require the operand axis family to be the chart coordinates."""
+    if set(axes) == set(coords) and len(axes) == len(coords):
+        return
+    raise SpaceMismatchError(
+        f"the metric-aware {operation!r} entry is registered for "
+        f"the chart coordinates {coords}; the operand resolves "
+        f"{axes} — fields entering it vary along exactly the chart "
+        "coordinates (constant factors elsewhere)",
+        operation=operation)
+
+
+def _require_variance(
+    domains: tuple[SpaceLike, ...],
+    expected: Variance | None,
+    operation: str,
+    hint: str,
+) -> None:
+    """Require every component space to claim ``expected``."""
+    for domain in domains:
+        if domain.variance is not expected:
+            raise SpaceMismatchError(
+                f"{operation} on a chart grid consumes "
+                f"{'untagged' if expected is None else expected.name}"
+                f" component spaces, got {domain!r}; {hint}",
+                left=domain, operation=operation)
+
+
+def _interp_onto(
+    domain: SpaceLike,
+    target: SpaceLike,
+    registry: OperatorRegistry,
+    operation: str,
+) -> Operator:
+    """
+    Chain registered interpolations from ``domain`` onto ``target``.
+
+    Description
+    -----------
+    The cross-component staggering rule of ``RaiseIndex`` /
+    ``LowerIndex`` (module docstring): per differing factor the
+    registered ``("interpolate", source factor)`` row moves the
+    source component one staggering hop, landing on the target
+    component's space (the variance tag rides through unchanged).
+
+    Parameters
+    ----------
+    domain : SpaceLike
+        The (bare) source component space.
+    target : SpaceLike
+        The (bare) target component space.
+    registry : OperatorRegistry
+        The dispatch registry resolving the interpolate rows.
+    operation : str
+        The consuming operation, for error messages.
+
+    Returns
+    -------
+    Operator
+        The interpolation chain (``Identity`` for equal spaces).
+    """
+    chain: Operator = Identity()
+    mid = domain
+    for name in target.names:
+        src = mid.factor(name)
+        dst = target.factor(name)
+        if src is dst:
+            continue
+        interp = registry.resolve("interpolate", src)[name]
+        chain = interp @ chain
+        mid = resolve_codomain(interp, mid)
+    if mid is not target:
+        raise SpaceMismatchError(
+            f"the {operation} cross-component chain lands on "
+            f"{mid!r}, not the target component's {target!r}; "
+            "register interpolate rows joining them",
+            left=mid, right=target, operation=operation)
+    return chain
+
+
+def _expand_metric_grad(
+    domain: SpaceLike,
+    coords: tuple[str, ...],
+    registry: OperatorRegistry,
+) -> BlockMatrix:
+    """Expand the covariant gradient column over the chart axes."""
+    if domain.variance is not None:
+        raise SpaceMismatchError(
+            f"grad takes an untagged scalar operand, got {domain!r}",
+            left=domain, operation="grad")
+    axes = _bindable_names(domain)
+    _require_chart_axes(axes, coords, "grad")
+    rows = tuple(
+        (VarianceRetag(
+            registry.resolve("diff", domain.factor(axis))[axis],
+            Variance.COVARIANT),)
+        for axis in axes)
+    return BlockMatrix(rows, output_names=axes)
+
+
+def _expand_metric_div(
+    domains: tuple[SpaceLike, ...],
+    coords: tuple[str, ...],
+    registry: OperatorRegistry,
+) -> BlockMatrix:
+    """Expand the flux-form divergence row over the chart axes."""
+    axes = _component_axes(domains, "div")
+    _require_chart_axes(axes, coords, "div")
+    _require_variance(
+        domains, Variance.CONTRAVARIANT, "div",
+        "tag physical components via with_variance or raise the "
+        "index (RaiseIndex) first")
+    row = []
+    for domain, axis in zip(domains, axes, strict=True):
+        fd = registry.resolve("diff", domain.factor(axis))[axis]
+        flux = fd @ MetricScaled(Identity(), numerator="sqrt_g")
+        row.append(VarianceRetag(
+            MetricScaled(flux, denominator="sqrt_g"), None))
+    return BlockMatrix((tuple(row),))
+
+
+def _expand_metric_curl(
+    domains: tuple[SpaceLike, ...],
+    coords: tuple[str, ...],
+    registry: OperatorRegistry,
+) -> BlockMatrix:
+    """Expand the 2D scalar vorticity from covariant components."""
+    axes = _component_axes(domains, "curl")
+    if len(axes) != _CURL_2D:
+        raise SpaceMismatchError(
+            "the metric-aware curl is the 2D scalar vorticity "
+            f"(1/sqrt_g)(d_u v - d_v u); got axes {axes}",
+            operation="curl")
+    _require_chart_axes(axes, coords, "curl")
+    _require_variance(
+        domains, Variance.COVARIANT, "curl",
+        "the vorticity contracts covariant components; lower the "
+        "index (LowerIndex) first")
+
+    def entry(i: int, j: int, sign: float) -> Operator:
+        op = registry.resolve(
+            "diff", domains[j].factor(axes[i]))[axes[i]]
+        if sign != 1.0:
+            op = sign * op
+        return VarianceRetag(
+            MetricScaled(op, denominator="sqrt_g"), None)
+
+    return BlockMatrix(((entry(1, 0, -1.0), entry(0, 1, 1.0)),))
+
+
+def _expand_index_move(
+    domains: tuple[SpaceLike, ...],
+    coords: tuple[str, ...],
+    registry: OperatorRegistry,
+    *,
+    prefix: str,
+    source: Variance,
+    target: Variance,
+    diagonal: bool,
+    operation: str,
+    hint: str,
+) -> BlockMatrix:
+    """Expand the metric contraction block of raise/lower."""
+    axes = _component_axes(domains, operation)
+    _require_chart_axes(axes, coords, operation)
+    _require_variance(domains, source, operation, hint)
+    zero = Zero()
+    rows = []
+    for i in range(len(axes)):
+        row: list[Operator] = []
+        for j in range(len(axes)):
+            name = f"{prefix}_{axes[i]}{axes[j]}"
+            if i == j:
+                op: Operator = MetricScaled(Identity(),
+                                            numerator=name)
+            elif diagonal:
+                row.append(zero)
+                continue
+            else:
+                chain = _interp_onto(domains[j], domains[i],
+                                     registry, operation)
+                op = MetricScaled(chain, numerator=name)
+            row.append(VarianceRetag(op, target))
+        rows.append(tuple(row))
+    return BlockMatrix(tuple(rows), output_names=axes)
+
+
+class _MetricCalculus(Operator):
+
+    """
+    Chart-coupled metric-aware builder (B2 pattern, stage C2).
+
+    Description
+    -----------
+    The registered default of its kind on chart grids: seeded by the
+    grid when its ``CoordinateMapping`` carries an embedding chart
+    (mirroring the C1 ``"physical_diff"`` seeding), it expands at
+    application against the operand space(s) and ``f.grid.dispatch``
+    — so module overrides of the inner ``"diff"`` /
+    ``"interpolate"`` rows propagate — and derives every metric
+    coefficient via ``grid.metric`` at application time (nothing
+    cached, rules 2.3/3.8). ``expand`` is the public seam for tests
+    and the halo-accounting trace.
+
+    Parameters
+    ----------
+    coords : tuple[str, ...]
+        The chart's base coordinates (at least two, unique) — the
+        axis family the entry expands over and the vocabulary of the
+        induced-metric names (``sqrt_g``, ``inv_g_<u><v>``, ...).
+    """
+
+    _kind: ClassVar[str]
+    #: whether the operand is a scalar field (grad/laplacian)
+    _scalar_operand: ClassVar[bool]
+
+    def __init__(self, coords: tuple[str, ...]) -> None:
+        """Validate and store the chart coordinate family."""
+        coords = tuple(coords)
+        if (len(coords) < 2  # noqa: PLR2004 — a chart couples >= 2
+                or not all(isinstance(c, str) for c in coords)
+                or len(set(coords)) != len(coords)):
+            raise TypeError(
+                "coords names the chart's base coordinates: at "
+                f"least two unique strings, got {coords!r}")
+        self._coords: tuple[str, ...] = coords
+
+    # ------------------------------------------------------------
+    #  Properties
+    # ------------------------------------------------------------
+    @property
+    def coords(self) -> tuple[str, ...]:
+        """The chart coordinate family the entry expands over."""
+        return self._coords
+
+    # ------------------------------------------------------------
+    #  Signature (builders expand before they have one)
+    # ------------------------------------------------------------
+    def codomain(
+        self,
+        *domains: SpaceLike,  # noqa: ARG002 — always raises
+    ) -> SpaceLike | tuple[SpaceLike, ...]:
+        """Unexpanded builders have no signature: raise."""
+        raise DispatchError(
+            f"the metric-aware {self._kind!r} builder expands "
+            "against a grid's registry; call expand(domains, grid) "
+            "(or a registry) or apply it to a field")
+
+    # ------------------------------------------------------------
+    #  Expansion and application
+    # ------------------------------------------------------------
+    def expand(
+        self,
+        domains: SpaceLike | tuple[SpaceLike, ...],
+        registry: OperatorRegistry | object,
+    ) -> Operator:
+        """
+        Expand into the concrete metric-aware block.
+
+        Parameters
+        ----------
+        domains : SpaceLike | tuple[SpaceLike, ...]
+            The bare operand space (scalar kinds) or the tuple of
+            component spaces (vector kinds).
+        registry : OperatorRegistry | object
+            The dispatch registry resolving the inner rows, or any
+            object carrying a ``dispatch`` attribute (a grid).
+
+        Returns
+        -------
+        Operator
+            The expanded metric-aware ``BlockMatrix``.
+        """
+        registry = getattr(registry, "dispatch", registry)
+        if self._scalar_operand:
+            if isinstance(domains, tuple):
+                raise TypeError(
+                    f"{self._kind} expands over one scalar operand "
+                    f"space, got {domains!r}")
+        elif not isinstance(domains, tuple):
+            raise TypeError(
+                f"{self._kind} expands over a tuple of component "
+                f"spaces, got {domains!r}")
+        return self._expand(domains, registry)
+
+    @abstractmethod
+    def _expand(
+        self,
+        domains: SpaceLike | tuple[SpaceLike, ...],
+        registry: OperatorRegistry,
+    ) -> Operator:
+        """
+        Kind hook: build the concrete block (subclasses).
+
+        Parameters
+        ----------
+        domains : SpaceLike | tuple[SpaceLike, ...]
+            The arity-validated bare operand space(s).
+        registry : OperatorRegistry
+            The dispatch registry resolving the inner rows.
+
+        Returns
+        -------
+        Operator
+            The expanded metric-aware block.
+        """
+        ...
+
+    def __call__(self, f: FieldLike) -> FieldLike:
+        """
+        Expand against the operand's grid and apply.
+
+        Parameters
+        ----------
+        f : FieldLike
+            A ``ScalarField`` (grad/laplacian) or ``VectorField``
+            (div/curl/raise/lower) operand.
+
+        Returns
+        -------
+        FieldLike
+            The expanded block's result.
+        """
+        if self._scalar_operand:
+            if isinstance(f, VectorField):
+                raise TypeError(
+                    f"{self._kind} applies to a scalar field; got "
+                    "a VectorField")
+            domains: (SpaceLike | tuple[SpaceLike, ...]) = (
+                f.function_space.bare)
+        else:
+            if not isinstance(f, VectorField):
+                raise TypeError(
+                    f"{self._kind} applies to a VectorField; got "
+                    f"{type(f).__name__}")
+            domains = tuple(
+                component.function_space.bare for component in f)
+        return self.expand(domains, f.grid.dispatch)(f)
+
+
+@final
+class MetricGradient(_MetricCalculus):
+
+    """The chart-grid ``"grad"`` entry: covariant components."""
+
+    dispatch_kind: ClassVar[str | None] = "grad"
+    _kind = "grad"
+    _scalar_operand = True
+
+    def _expand(
+        self,
+        domains: SpaceLike,
+        registry: OperatorRegistry,
+    ) -> Operator:
+        """Expand the variance-tagged gradient column."""
+        return _expand_metric_grad(domains, self._coords, registry)
+
+
+@final
+class MetricDivergence(_MetricCalculus):
+
+    """The chart-grid ``"div"`` entry: the flux-form divergence."""
+
+    dispatch_kind: ClassVar[str | None] = "div"
+    _kind = "div"
+    _scalar_operand = False
+
+    def _expand(
+        self,
+        domains: tuple[SpaceLike, ...],
+        registry: OperatorRegistry,
+    ) -> Operator:
+        """Expand the flux-form divergence row."""
+        return _expand_metric_div(domains, self._coords, registry)
+
+
+@final
+class MetricCurl(_MetricCalculus):
+
+    """The chart-grid ``"curl"`` entry: the 2D scalar vorticity."""
+
+    dispatch_kind: ClassVar[str | None] = "curl"
+    _kind = "curl"
+    _scalar_operand = False
+
+    def _expand(
+        self,
+        domains: tuple[SpaceLike, ...],
+        registry: OperatorRegistry,
+    ) -> Operator:
+        """Expand the scalar vorticity row."""
+        return _expand_metric_curl(domains, self._coords, registry)
+
+
+@final
+class MetricLaplacian(_MetricCalculus):
+
+    """
+    The chart-grid ``"laplacian"`` entry: Laplace-Beltrami.
+
+    Description
+    -----------
+    Registered as the honest composition ``div ∘ raise ∘ grad``
+    resolved *through the kinds*: at expansion the ``"grad"``,
+    ``"raise_index"``, and ``"div"`` entries are resolved from the
+    registry (so overrides of any leg propagate) and block-matmuled
+    into one 1x1 block — the discrete Laplace-Beltrami operator,
+    self-adjoint under the sqrt(g)-weighted inner product by
+    construction (module docstring).
+    """
+
+    dispatch_kind: ClassVar[str | None] = "laplacian"
+    _kind = "laplacian"
+    _scalar_operand = True
+
+    def _expand(
+        self,
+        domains: SpaceLike,
+        registry: OperatorRegistry,
+    ) -> Operator:
+        """Expand ``div @ raise @ grad`` through the kinds."""
+        grad_block = _leg(registry, "grad", domains)
+        mid = grad_block.codomains(domains)
+        raise_block = _leg(registry, "raise_index", domains, mid)
+        raised = raise_block.codomains(*mid)
+        div_block = _leg(registry, "div", domains, raised)
+        return div_block @ raise_block @ grad_block
+
+
+def _leg(
+    registry: OperatorRegistry,
+    kind: str,
+    key_space: SpaceLike,
+    domains: SpaceLike | tuple[SpaceLike, ...] | None = None,
+) -> Operator:
+    """
+    Resolve and expand one leg of the Laplace-Beltrami chain.
+
+    Parameters
+    ----------
+    registry : OperatorRegistry
+        The dispatch registry (as merged).
+    kind : str
+        The leg's dispatch kind.
+    key_space : SpaceLike
+        The space keying the resolution (kind-only rows accept any).
+    domains : SpaceLike | tuple[SpaceLike, ...] | None, optional
+        The operand space(s) the leg expands over; None uses
+        ``key_space`` itself (default: None).
+
+    Returns
+    -------
+    Operator
+        The expanded leg (a ``BlockMatrix`` for the seeded entries).
+    """
+    op = registry.resolve(kind, key_space)
+    expand = getattr(op, "expand", None)
+    if expand is None:
+        raise DispatchError(
+            f"the registered {kind!r} entry {op!r} exposes no "
+            "expand(domains, registry) seam; the Laplace-Beltrami "
+            "composition needs expandable grad/raise_index/div "
+            "entries")
+    return expand(key_space if domains is None else domains,
+                  registry)
+
+
+@final
+class RaiseIndex(_MetricCalculus):
+
+    """
+    Metric-consuming index raising: covariant -> contravariant.
+
+    Description
+    -----------
+    Contracts covariant components with the inverse metric,
+    :math:`u^i = g^{ij} u_j`, reading ``inv_g_<u><v>`` from
+    ``grid.metric`` at application and retagging variance
+    (operators_composed.md class sketch; validation 6.3 — the vector
+    stays thin, one metric owner). Diagonal terms are pointwise
+    scalings on the component's own space; cross terms interpolate
+    the source component onto the target component's space through
+    the registered ``"interpolate"`` rows (module docstring).
+
+    Parameters
+    ----------
+    coords : tuple[str, ...]
+        The chart's base coordinates (metric-name vocabulary).
+    diagonal : bool, optional
+        Structurally drop the cross terms — an opt-in for charts
+        whose induced metric is known diagonal/orthogonal (torus,
+        lat-lon sphere), saving the interpolation chains
+        (default: False).
+    """
+
+    dispatch_kind: ClassVar[str | None] = "raise_index"
+    _kind = "raise_index"
+    _scalar_operand = False
+
+    def __init__(self, coords: tuple[str, ...], *,
+                 diagonal: bool = False) -> None:
+        """Store the coordinate family and the diagonal switch."""
+        super().__init__(coords)
+        self._diagonal: bool = bool(diagonal)
+
+    @property
+    def diagonal(self) -> bool:
+        """Whether cross terms are structurally dropped."""
+        return self._diagonal
+
+    def _expand(
+        self,
+        domains: tuple[SpaceLike, ...],
+        registry: OperatorRegistry,
+    ) -> Operator:
+        """Expand the inverse-metric contraction block."""
+        return _expand_index_move(
+            domains, self._coords, registry,
+            prefix="inv_g", source=Variance.COVARIANT,
+            target=Variance.CONTRAVARIANT,
+            diagonal=self._diagonal, operation="raise_index",
+            hint="raising consumes covariant components (grad "
+                 "outputs, LowerIndex outputs)")
+
+
+@final
+class LowerIndex(_MetricCalculus):
+
+    """
+    Metric-consuming index lowering: contravariant -> covariant.
+
+    Description
+    -----------
+    Contracts contravariant components with the metric,
+    :math:`u_i = g_{ij} u^j`, reading ``g_<u><v>`` from
+    ``grid.metric`` at application and retagging variance — the
+    exact inverse-role twin of :class:`RaiseIndex` (see there for
+    the staggering rule and the ``diagonal`` switch).
+
+    Parameters
+    ----------
+    coords : tuple[str, ...]
+        The chart's base coordinates (metric-name vocabulary).
+    diagonal : bool, optional
+        Structurally drop the cross terms (default: False).
+    """
+
+    dispatch_kind: ClassVar[str | None] = "lower_index"
+    _kind = "lower_index"
+    _scalar_operand = False
+
+    def __init__(self, coords: tuple[str, ...], *,
+                 diagonal: bool = False) -> None:
+        """Store the coordinate family and the diagonal switch."""
+        super().__init__(coords)
+        self._diagonal: bool = bool(diagonal)
+
+    @property
+    def diagonal(self) -> bool:
+        """Whether cross terms are structurally dropped."""
+        return self._diagonal
+
+    def _expand(
+        self,
+        domains: tuple[SpaceLike, ...],
+        registry: OperatorRegistry,
+    ) -> Operator:
+        """Expand the metric contraction block."""
+        return _expand_index_move(
+            domains, self._coords, registry,
+            prefix="g", source=Variance.CONTRAVARIANT,
+            target=Variance.COVARIANT,
+            diagonal=self._diagonal, operation="lower_index",
+            hint="lowering consumes contravariant components "
+                 "(RaiseIndex outputs, physical velocities tagged "
+                 "via with_variance)")

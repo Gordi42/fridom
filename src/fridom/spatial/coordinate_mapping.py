@@ -573,6 +573,7 @@ class CoordinateMapping:
             for name, fn in params.items()}
         param_names = tuple(params)
         self._maps: dict[str, _Declared] = {}
+        self._charts: dict[str, _Declared] = {}
         self._recipes: dict[str, object] = {}
         for name, fn in maps.items():
             decl = _Declared(fn, param_names)
@@ -588,6 +589,7 @@ class CoordinateMapping:
                 raise ValueError(
                     f"chart {name!r} must depend on at least one "
                     "base coordinate")
+            self._charts[name] = decl
             self._declare_chart(name, decl)
         for name, fn in metrics.items():
             decl = _Declared(fn, param_names)
@@ -842,3 +844,29 @@ class CoordinateMapping:
                         "scope (coordinate-systems plan, stage C1)")
                 table[coord] = (mapped, base)
         return table
+
+    def _chart_coords(self) -> tuple[str, ...] | None:
+        """
+        Return the chart-coupled base coordinates, or None.
+
+        Description
+        -----------
+        The grid-seam behind the metric-aware vector-calculus rows
+        (coordinate-systems plan, stage C2): a mapping carrying an
+        embedding chart (CS-D1) couples exactly the chart's base
+        coordinates through the induced metric, and the grid seeds
+        the ``"grad"``/``"div"``/``"curl"``/``"laplacian"`` and
+        ``"raise_index"``/``"lower_index"`` kinds on them. At most
+        one chart can be declared per mapping (the induced-metric
+        names collide otherwise), so the coupling is a single
+        coordinate tuple.
+
+        Returns
+        -------
+        tuple[str, ...] | None
+            The chart's base coordinates in signature order, or
+            None when no chart is declared.
+        """
+        for decl in self._charts.values():
+            return decl.coords
+        return None

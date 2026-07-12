@@ -82,27 +82,34 @@ class MetricScaled(Operator):
     ----------
     target : Operator
         The operator whose output is scaled.
-    numerator : str
-        The metric name of the coefficient's numerator.
+    numerator : str | None, optional
+        The metric name of the coefficient's numerator; None scales
+        by the reciprocal of the denominator alone (default: None).
     denominator : str | None, optional
         The metric name of the coefficient's denominator; None
         scales by the numerator alone (default: None).
     """
 
-    def __init__(self, target: Operator, *, numerator: str,
+    def __init__(self, target: Operator, *,
+                 numerator: str | None = None,
                  denominator: str | None = None) -> None:
         """Store the target and the static metric names."""
         if not isinstance(target, Operator):
             raise TypeError(
                 f"target must be an Operator, got {target!r}")
-        if not isinstance(numerator, str) or (
+        if numerator is None and denominator is None:
+            raise ValueError(
+                "a MetricScaled coefficient names at least one of "
+                "numerator= or denominator=")
+        if (numerator is not None
+                and not isinstance(numerator, str)) or (
                 denominator is not None
                 and not isinstance(denominator, str)):
             raise TypeError(
                 "metric coefficients are named by strings, got "
                 f"{numerator!r} / {denominator!r}")
         self._target: Operator = target
-        self._numerator: str = numerator
+        self._numerator: str | None = numerator
         self._denominator: str | None = denominator
 
     # ------------------------------------------------------------
@@ -114,8 +121,8 @@ class MetricScaled(Operator):
         return self._target
 
     @property
-    def numerator(self) -> str:
-        """The metric name of the coefficient's numerator."""
+    def numerator(self) -> str | None:
+        """The metric name of the numerator, or None."""
         return self._numerator
 
     @property
@@ -158,8 +165,9 @@ class MetricScaled(Operator):
         Description
         -----------
         The coefficient is ``grid.metric(codomain, numerator)``
-        (divided by the denominator metric when declared), derived
-        fresh at every application — never cached (rules 3.8). Halo
+        (divided by the denominator metric when declared; the pure
+        reciprocal when only a denominator is named), derived fresh
+        at every application — never cached (rules 3.8). Halo
         tracers pass the target's traced result through unscaled:
         the metric scale is pointwise (halo-neutral) and trace-time
         grids expose no ``metric`` accessor, exactly like the
@@ -178,6 +186,9 @@ class MetricScaled(Operator):
         out = self._target(f)
         if getattr(f, "_trace_apply", None) is not None:
             return out
+        if self._numerator is None:
+            return out / f.grid.metric(out.function_space,
+                                       self._denominator)
         coeff = f.grid.metric(out.function_space,
                               self._numerator)
         if self._denominator is not None:

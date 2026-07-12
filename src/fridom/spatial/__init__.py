@@ -34,7 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .fields import FieldMetadata, ScalarField, VectorField
     from .grid import Grid
     from .immersed_domain import ImmersedDomain, Slip
-    from .scalars import Complex, Real
+    from .scalars import Complex, Real, Variance
     from .space_patterns import (
         Collocated,
         Dof,
@@ -59,7 +59,7 @@ all_modules_by_origin = {
 
 all_imports_by_origin = {
     f"{base}.grid": ["Grid"],
-    f"{base}.scalars": ["Real", "Complex"],
+    f"{base}.scalars": ["Real", "Complex", "Variance"],
     f"{base}.bc": ["BC"],
     f"{base}.errors": ["SpaceMismatchError", "GridMismatchError"],
     f"{base}.spaces.tensor_product": ["TensorProductSpace",

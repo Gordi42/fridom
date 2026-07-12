@@ -2,12 +2,16 @@
 import jax.numpy as jnp
 import pytest
 
+from fridom.spatial.coordinate_mapping import (
+    CoordinateMapping,
+)
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.base import (
     Identity,
+    Operator,
     OperatorSum,
     ScaledOperator,
     SeparableComposite,
@@ -20,8 +24,17 @@ from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
     Laplacian,
+    LowerIndex,
+    MetricCurl,
+    MetricDivergence,
+    MetricGradient,
+    MetricLaplacian,
+    RaiseIndex,
+    VarianceRetag,
 )
+from fridom.spatial.operators.mapped import MetricScaled
 from fridom.spatial.operators.registry import DispatchError
+from fridom.spatial.scalars import Variance
 
 
 @pytest.fixture
@@ -498,3 +511,304 @@ def test_expand_accepts_a_grid_or_a_registry(grid2, p):
     # the laplacian path too (grid vs registry give the same block)
     assert Laplacian().expand(bare, grid2).scalar() is (
         Laplacian().expand(bare, grid2.dispatch).scalar())
+
+
+# ================================================================
+#  Metric-aware vector calculus (stage C2)
+# ================================================================
+TWO_PI = 2.0 * jnp.pi
+RING, MINOR = 2.0, 0.7
+
+
+@pytest.fixture
+def mu():
+    return IntervalMesh(16, (0.0, float(TWO_PI)), name="u")
+
+
+@pytest.fixture
+def mv():
+    return IntervalMesh(16, (0.0, float(TWO_PI)), name="v")
+
+
+@pytest.fixture
+def chart_grid(mu, mv):
+    mapping = CoordinateMapping(chart={"X": lambda u, v: (
+        (RING + MINOR * jnp.cos(v)) * jnp.cos(u),
+        (RING + MINOR * jnp.cos(v)) * jnp.sin(u),
+        MINOR * jnp.sin(v))})
+    return Grid((mu, mv), mapping=mapping)
+
+
+@pytest.fixture
+def cov_vec(chart_grid, mu, mv):
+    uu = chart_grid.create_field(
+        mu.right * mv.center,
+        init=lambda u, v: jnp.sin(u + v)).with_variance(
+            Variance.COVARIANT)
+    vv = chart_grid.create_field(
+        mu.center * mv.right,
+        init=lambda u, v: jnp.cos(u - 2 * v)).with_variance(
+            Variance.COVARIANT)
+    return VectorField({"u": uu, "v": vv})
+
+
+# ------------------------------------------------------------
+#  VarianceRetag
+# ------------------------------------------------------------
+def test_variance_retag_validates():
+    with pytest.raises(TypeError, match="Operator"):
+        VarianceRetag("nope", Variance.COVARIANT)
+    with pytest.raises(TypeError, match="Variance"):
+        VarianceRetag(Identity(), "cov")
+
+
+def test_variance_retag_codomain_and_requirements(mu, mv):
+    space = (mu.right * mv.center).with_variance(Variance.COVARIANT)
+    op = VarianceRetag(Identity(), Variance.CONTRAVARIANT)
+    assert op.target is Identity()
+    assert op.variance is Variance.CONTRAVARIANT
+    assert op.codomain(space) is space.with_variance(
+        Variance.CONTRAVARIANT)
+    assert op.requirements(space) == Identity().requirements(space)
+    with pytest.raises(SpaceMismatchError, match="unary"):
+        op.codomain(space, space)
+
+
+def test_variance_retag_is_a_pure_claim(chart_grid, mu, mv):
+    f = chart_grid.create_field(
+        mu.center * mv.center, init=lambda u, v: jnp.sin(u) + 0 * v)
+    out = VarianceRetag(Identity(), Variance.COVARIANT)(f)
+    assert out.function_space.variance is Variance.COVARIANT
+    assert out._data is f._data
+    strip = VarianceRetag(Identity(), None)(out)
+    assert strip.function_space.variance is None
+    # retagging onto the current claim is the identity
+    assert VarianceRetag(Identity(), None)(f) is f
+
+
+# ------------------------------------------------------------
+#  Builder validation surface
+# ------------------------------------------------------------
+def test_metric_builders_validate_coords():
+    with pytest.raises(TypeError, match="coords"):
+        MetricGradient(("u",))
+    with pytest.raises(TypeError, match="coords"):
+        MetricDivergence(("u", "u"))
+    with pytest.raises(TypeError, match="coords"):
+        RaiseIndex((1, 2))
+
+
+def test_metric_builders_have_no_unexpanded_signature(mu, mv):
+    with pytest.raises(DispatchError, match="expands"):
+        MetricGradient(("u", "v")).codomain(mu.center * mv.center)
+
+
+def test_metric_builder_arity_validation(mu, mv, chart_grid):
+    space = mu.center * mv.center
+    with pytest.raises(TypeError, match="one scalar operand"):
+        MetricGradient(("u", "v")).expand((space,), chart_grid)
+    with pytest.raises(TypeError, match="tuple of component"):
+        MetricDivergence(("u", "v")).expand(space, chart_grid)
+
+
+def test_metric_builder_operand_type_errors(chart_grid, mu, mv,
+                                            cov_vec):
+    f = chart_grid.create_field(
+        mu.center * mv.center, init=lambda u, v: 0 * u + 0 * v)
+    with pytest.raises(TypeError, match="scalar field"):
+        MetricGradient(("u", "v"))(cov_vec)
+    with pytest.raises(TypeError, match="VectorField"):
+        MetricDivergence(("u", "v"))(f)
+
+
+def test_metric_grad_requires_untagged_scalar(chart_grid, mu, mv):
+    tagged = (mu.center * mv.center).with_variance(
+        Variance.COVARIANT)
+    with pytest.raises(SpaceMismatchError, match="untagged scalar"):
+        MetricGradient(("u", "v")).expand(tagged, chart_grid)
+
+
+def test_metric_entries_pin_the_chart_axes(chart_grid, mu, mv):
+    lone = mu.center * mv.constant
+    with pytest.raises(SpaceMismatchError, match="chart"):
+        MetricGradient(("u", "v")).expand(lone, chart_grid)
+
+
+def test_metric_div_demands_contravariant_components(
+        chart_grid, cov_vec):
+    domains = tuple(c.function_space.bare for c in cov_vec)
+    with pytest.raises(SpaceMismatchError, match="raise the index"):
+        MetricDivergence(("u", "v")).expand(domains, chart_grid)
+
+
+def test_metric_curl_demands_covariant_components(chart_grid, mu,
+                                                  mv):
+    con = tuple(s.with_variance(Variance.CONTRAVARIANT) for s in
+                ((mu.right * mv.center).bare,
+                 (mu.center * mv.right).bare))
+    with pytest.raises(SpaceMismatchError, match="lower the index"):
+        MetricCurl(("u", "v")).expand(con, chart_grid)
+
+
+def test_metric_curl_is_two_dimensional(chart_grid, mu, mv):
+    mw = IntervalMesh(16, (0.0, 1.0), name="w")
+    spaces = tuple(
+        s.with_variance(Variance.COVARIANT) for s in (
+            mu.right * mv.center * mw.center,
+            mu.center * mv.right * mw.center,
+            mu.center * mv.center * mw.right))
+    with pytest.raises(SpaceMismatchError, match="2D scalar"):
+        MetricCurl(("u", "v", "w")).expand(spaces, chart_grid)
+
+
+# ------------------------------------------------------------
+#  Expansion structure (metric names on the right spaces)
+# ------------------------------------------------------------
+def test_metric_grad_expands_to_tagged_diff_entries(chart_grid, mu,
+                                                    mv):
+    space = mu.center * mv.center
+    block = MetricGradient(("u", "v")).expand(space, chart_grid)
+    assert isinstance(block, BlockMatrix)
+    assert block.output_names == ("u", "v")
+    entry = block.rows[0][0]
+    assert isinstance(entry, VarianceRetag)
+    assert entry.variance is Variance.COVARIANT
+    assert entry.target is chart_grid.dispatch.resolve(
+        "diff", mu.center)["u"]
+    assert block.codomains(space) == (
+        (mu.right * mv.center).with_variance(Variance.COVARIANT),
+        (mu.center * mv.right).with_variance(Variance.COVARIANT))
+
+
+def test_metric_div_expands_the_flux_form(chart_grid, mu, mv):
+    domains = tuple(
+        s.with_variance(Variance.CONTRAVARIANT) for s in (
+            (mu.right * mv.center).bare,
+            (mu.center * mv.right).bare))
+    block = MetricDivergence(("u", "v")).expand(domains, chart_grid)
+    assert isinstance(block, BlockMatrix)
+    (row,) = block.rows
+    for entry in row:
+        assert isinstance(entry, VarianceRetag)
+        assert entry.variance is None
+        outer = entry.target
+        assert isinstance(outer, MetricScaled)
+        assert outer.numerator is None
+        assert outer.denominator == "sqrt_g"
+    assert block.codomain(*domains) is (mu.center * mv.center).bare
+
+
+def test_raise_index_diagonal_flag_drops_cross_terms(chart_grid, mu,
+                                                     mv):
+    domains = tuple(
+        s.with_variance(Variance.COVARIANT) for s in (
+            (mu.right * mv.center).bare,
+            (mu.center * mv.right).bare))
+    dense = RaiseIndex(("u", "v")).expand(domains, chart_grid)
+    sparse = RaiseIndex(("u", "v"), diagonal=True).expand(
+        domains, chart_grid)
+    assert not RaiseIndex(("u", "v")).diagonal
+    assert RaiseIndex(("u", "v"), diagonal=True).diagonal
+    assert isinstance(dense.rows[0][1], VarianceRetag)
+    assert isinstance(sparse.rows[0][1], Zero)
+    diag = sparse.rows[0][0]
+    assert diag.variance is Variance.CONTRAVARIANT
+    assert diag.target.numerator == "inv_g_uu"
+    cross = dense.rows[0][1].target
+    assert isinstance(cross, MetricScaled)
+    assert cross.numerator == "inv_g_uv"
+
+
+def test_raise_lower_round_trip_is_identity(chart_grid, cov_vec):
+    raised = chart_grid.dispatch.resolve(
+        "raise_index", cov_vec[0].function_space.bare)(cov_vec)
+    for component in raised:
+        assert component.function_space.variance is (
+            Variance.CONTRAVARIANT)
+    back = chart_grid.dispatch.resolve(
+        "lower_index", cov_vec[0].function_space.bare)(raised)
+    for name in cov_vec.component_names:
+        assert back[name].function_space is (
+            cov_vec[name].function_space)
+        assert jnp.allclose(back[name].data, cov_vec[name].data,
+                            atol=1e-12)
+
+
+def test_lower_index_demands_contravariant(chart_grid, cov_vec):
+    domains = tuple(c.function_space.bare for c in cov_vec)
+    with pytest.raises(SpaceMismatchError, match="contravariant"):
+        LowerIndex(("u", "v")).expand(domains, chart_grid)
+
+
+def test_metric_laplacian_composes_through_the_kinds(chart_grid, mu,
+                                                     mv):
+    # overriding the raise leg must propagate into the laplacian
+    space = (mu.center * mv.center).bare
+    dense = MetricLaplacian(("u", "v")).expand(space, chart_grid)
+    chart_grid.merge_overrides({
+        "raise_index": RaiseIndex(("u", "v"), diagonal=True)})
+    sparse = MetricLaplacian(("u", "v")).expand(space, chart_grid)
+    f = chart_grid.create_field(
+        space, init=lambda u, v: jnp.sin(v) + jnp.cos(u))
+    # the torus metric is diagonal: both expansions agree numerically
+    assert jnp.allclose(dense(f).data, sparse(f).data, atol=1e-12)
+
+
+def test_metric_laplacian_needs_expandable_legs(chart_grid, mu, mv):
+    space = (mu.center * mv.center).bare
+    chart_grid.merge_overrides({"grad": Identity()})
+    with pytest.raises(DispatchError, match="expand"):
+        MetricLaplacian(("u", "v")).expand(space, chart_grid)
+
+
+def test_interp_onto_reports_unjoined_staggerings(chart_grid, mu,
+                                                  mv):
+    class StayPut(Operator):
+
+        """Fake interpolate row that never moves the staggering."""
+
+        def codomain(self, domain):
+            return domain
+
+        def __getitem__(self, axis):
+            return self
+
+        def __call__(self, f):  # pragma: no cover - never applied
+            return f
+
+    class Stay:
+        def resolve(self, kind, space):
+            if kind == "interpolate":
+                return StayPut()
+            return chart_grid.dispatch.resolve(kind, space)
+
+    domains = tuple(
+        s.with_variance(Variance.COVARIANT) for s in (
+            (mu.right * mv.center).bare,
+            (mu.center * mv.right).bare))
+    with pytest.raises(SpaceMismatchError, match="interpolate rows"):
+        RaiseIndex(("u", "v")).expand(domains, Stay())
+
+
+def test_raise_index_on_collocated_components(chart_grid, mu, mv):
+    # an A-grid vector: both components collocated at centers — the
+    # cross-term chain is the bare Identity (no staggering hops)
+    space = mu.center * mv.center
+    uu = chart_grid.create_field(
+        space, init=lambda u, v: jnp.sin(u + v)).with_variance(
+            Variance.COVARIANT)
+    vv = chart_grid.create_field(
+        space, init=lambda u, v: jnp.cos(u - v)).with_variance(
+            Variance.COVARIANT)
+    vec = VectorField({"u": uu, "v": vv})
+    raised = RaiseIndex(("u", "v"))(vec)
+    # the torus metric is diagonal: u^u = inv_g_uu u_u pointwise
+    inv_g_uu = chart_grid.metric(uu.function_space.bare,
+                                 "inv_g_uu")
+    assert jnp.allclose(raised["u"].data,
+                        inv_g_uu.data * uu.data, atol=1e-12)
+
+
+def test_lower_index_diagonal_flag():
+    assert LowerIndex(("u", "v"), diagonal=True).diagonal
+    assert not LowerIndex(("u", "v")).diagonal
