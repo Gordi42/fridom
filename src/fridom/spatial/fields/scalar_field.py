@@ -65,6 +65,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from fridom.spatial.decomposition.layout import Layout
     from fridom.spatial.grid import Grid
+    from fridom.spatial.scalars import Variance
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
@@ -306,6 +307,36 @@ class ScalarField:
             for name in new_space.names})
         return ScalarField(self._grid, new_space, self._data,
                            self._metadata, halo_valid=halo_valid)
+
+    def with_variance(self, variance: Variance | None) -> ScalarField:
+        """
+        Return the field on the variance-tagged space variant.
+
+        Description
+        -----------
+        A variance tag is a pure claim about the component's role
+        (covariant/contravariant, validation section 6.3): the data,
+        the staggering, and the ghost validity are untouched — only
+        the interned space identity changes, so the strict algebra
+        distinguishes (and refuses to mix) differently-tagged
+        components. ``None`` strips the tag.
+
+        Parameters
+        ----------
+        variance : Variance | None
+            The component variance to claim; None strips the tag.
+
+        Returns
+        -------
+        ScalarField
+            The retagged field (``self`` when already tagged so).
+        """
+        space = self._function_space.with_variance(variance)
+        if space is self._function_space:
+            return self
+        return ScalarField(self._grid, space, self._data,
+                           self._metadata,
+                           halo_valid=self._halo_valid)
 
     # ================================================================
     #  Scalars (Körper) surface — section 3.1
@@ -826,12 +857,14 @@ def _map_factors(
     space: SpaceLike,
     fn: Callable[[FunctionSpace], FunctionSpace],
 ) -> SpaceLike:
-    """Apply ``fn`` per factor and rebuild (layout preserved)."""
+    """Per-factor rebuild (layout and variance preserved)."""
     if isinstance(space, TensorProductSpace):
         new = TensorProductSpace.of(
             *(fn(factor) for factor in space.factors))
     else:
-        new = fn(space.bare)
+        new = fn(space.bare.with_variance(None))
+    if space.variance is not None:
+        new = new.with_variance(space.variance)
     if space.layout is not None:
         new = new.with_layout(space.layout)
     return new

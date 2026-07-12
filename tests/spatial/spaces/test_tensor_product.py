@@ -8,7 +8,7 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.composed import _bindable_names
-from fridom.spatial.scalars import Scalars
+from fridom.spatial.scalars import Scalars, Variance
 from fridom.spatial.spaces.function_space import FunctionSpace
 from fridom.spatial.spaces.tensor_product import (
     SpaceLike,
@@ -359,3 +359,90 @@ def test_require_same_layout(mx):
     with pytest.raises(SpaceMismatchError, match="layouts differ"):
         require_same_layout(mx.center, mx.center.with_layout("L0"),
                             operation="+")
+
+
+# ================================================================
+#  Variance protocol (stage C2: variance is a space attribute)
+# ================================================================
+def test_product_with_variance_is_interned(mx, my):
+    space = mx.right * my.center
+    cov = space.with_variance(Variance.COVARIANT)
+    assert cov is space.with_variance(Variance.COVARIANT)
+    assert cov is not space
+    assert cov is not space.with_variance(Variance.CONTRAVARIANT)
+    assert cov.variance is Variance.COVARIANT
+    assert space.variance is None
+    assert cov.with_variance(None) is space
+
+
+def test_product_factors_stay_untagged(mx, my):
+    cov = (mx.right * my.center).with_variance(Variance.COVARIANT)
+    assert cov.factor("x") is mx.right
+    assert cov.factor("y") is my.center
+    assert all(f.variance is None for f in cov.factors)
+
+
+def test_variance_survives_layout_replace_and_complex(mx, my):
+    cov = (mx.right * my.center).with_variance(Variance.COVARIANT)
+    laid = cov.with_layout("L0")
+    assert laid.variance is Variance.COVARIANT
+    assert laid.bare is cov
+    replaced = cov.replace(x=mx.center)
+    assert replaced.variance is Variance.COVARIANT
+    assert cov.as_complex().variance is Variance.COVARIANT
+
+
+def test_product_with_variance_rejects_non_members(mx, my):
+    with pytest.raises(TypeError, match="Variance"):
+        (mx.center * my.center).with_variance(1)
+
+
+def test_of_rejects_variance_tagged_inputs(mx, my):
+    tagged = mx.center.with_variance(Variance.COVARIANT)
+    with pytest.raises(ValueError, match="variance-free"):
+        TensorProductSpace.of(tagged, my.center)
+
+
+def test_variance_repr_markers(mx, my):
+    space = mx.right * my.center
+    assert repr(space.with_variance(Variance.COVARIANT)).endswith(
+        "[cov]")
+    assert repr(space.with_variance(
+        Variance.CONTRAVARIANT)).endswith("[con]")
+
+
+# ================================================================
+#  Variance in the join (strict-algebra catch, validation 6.3)
+# ================================================================
+def test_join_shared_variance_is_kept(mx, my):
+    space = mx.right * my.center
+    cov = space.with_variance(Variance.COVARIANT)
+    assert join(cov, cov) is cov
+
+
+def test_join_untagged_adopts_the_claim(mx, my):
+    space = mx.right * my.center
+    cov = space.with_variance(Variance.COVARIANT)
+    assert join(cov, space) is cov
+    assert join(space, cov) is cov
+
+
+def test_join_variance_mixing_raises(mx, my):
+    space = mx.right * my.center
+    cov = space.with_variance(Variance.COVARIANT)
+    con = space.with_variance(Variance.CONTRAVARIANT)
+    with pytest.raises(SpaceMismatchError, match="variance mixing"):
+        join(cov, con, operation="+")
+
+
+def test_join_variance_with_constant_lift(mx, my):
+    cov = (mx.right * my.center).with_variance(Variance.COVARIANT)
+    profile = mx.constant * my.center
+    assert join(cov, profile) is cov
+
+
+def test_join_variance_on_lone_factors(mx):
+    cov = mx.center.with_variance(Variance.COVARIANT)
+    assert join(cov, mx.center) is cov
+    with pytest.raises(SpaceMismatchError, match="variance mixing"):
+        join(cov, mx.center.with_variance(Variance.CONTRAVARIANT))

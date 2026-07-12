@@ -4,7 +4,7 @@ import pytest
 from fridom.spatial.bc import BC, BCStructure
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.composed import _bindable_names
-from fridom.spatial.scalars import Scalars
+from fridom.spatial.scalars import Scalars, Variance
 from fridom.spatial.spaces.nodal import Center, NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
@@ -200,3 +200,48 @@ def test_repr_spot_checks(mesh, bounded):
         "Outer(x, bc=(DIRICHLET, DIRICHLET))")
     assert repr(mesh.center.with_layout("L0")) == (
         "Center(x, layout='L0')")
+
+
+# ================================================================
+#  Variance protocol (stage C2: variance is a space attribute)
+# ================================================================
+def test_with_variance_is_interned(mesh):
+    cov = mesh.center.with_variance(Variance.COVARIANT)
+    assert cov is mesh.center.with_variance(Variance.COVARIANT)
+    assert cov is not mesh.center
+    assert cov.variance is Variance.COVARIANT
+    assert mesh.center.variance is None
+
+
+def test_with_variance_none_strips(mesh):
+    cov = mesh.center.with_variance(Variance.COVARIANT)
+    assert cov.with_variance(None) is mesh.center
+    assert mesh.center.with_variance(None) is mesh.center
+
+
+def test_variance_variants_are_distinct(mesh):
+    cov = mesh.center.with_variance(Variance.COVARIANT)
+    con = mesh.center.with_variance(Variance.CONTRAVARIANT)
+    assert cov is not con
+
+
+def test_with_variance_rejects_non_members(mesh):
+    with pytest.raises(TypeError, match="Variance"):
+        mesh.center.with_variance("covariant")
+
+
+def test_variance_survives_scalar_and_layout_variants(mesh):
+    cov = mesh.center.with_variance(Variance.COVARIANT)
+    assert cov.as_complex().variance is Variance.COVARIANT
+    assert cov.as_complex() is mesh.center.as_complex(
+        ).with_variance(Variance.COVARIANT)
+    laid = cov.with_layout("L0")
+    assert laid.variance is Variance.COVARIANT
+    assert laid.bare is cov  # bare strips the layout, not the tag
+
+
+def test_variance_repr_markers(mesh):
+    cov = mesh.center.with_variance(Variance.COVARIANT)
+    con = mesh.center.with_variance(Variance.CONTRAVARIANT)
+    assert repr(cov) == "Center(x, cov)"
+    assert repr(con) == "Center(x, con)"

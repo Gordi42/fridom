@@ -13,7 +13,7 @@ from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.registry import OperatorRegistry
-from fridom.spatial.scalars import Scalars
+from fridom.spatial.scalars import Scalars, Variance
 from fridom.spatial.spaces.nodal import NodeSet
 
 
@@ -904,3 +904,53 @@ def test_to_nodal_to_constant_has_no_conversion(grid1d, mx):
     with pytest.raises(SpaceMismatchError,
                        match=r"no \.to conversion"):
         a.to(mx.constant)
+
+
+# ================================================================
+#  Variance tagging (stage C2: a pure space-identity claim)
+# ================================================================
+def test_with_variance_retags_the_space_only(f):
+    cov = f.with_variance(Variance.COVARIANT)
+    assert cov.function_space.variance is Variance.COVARIANT
+    assert cov.function_space.bare.with_variance(None) is (
+        f.function_space.bare)
+    assert cov.function_space.layout == f.function_space.layout
+    assert cov._data is f._data  # no copy, no re-store
+    assert cov.halo_valid == f.halo_valid
+    assert cov.metadata is f.metadata
+
+
+def test_with_variance_is_idempotent(f):
+    cov = f.with_variance(Variance.COVARIANT)
+    assert cov.with_variance(Variance.COVARIANT) is cov
+    assert f.with_variance(None) is f
+
+
+def test_tagged_arithmetic_keeps_the_claim(f, g):
+    cov = f.with_variance(Variance.COVARIANT)
+    total = cov + cov
+    assert total.function_space.variance is Variance.COVARIANT
+    scaled = cov * g  # untagged operand adopts the claim
+    assert scaled.function_space.variance is Variance.COVARIANT
+
+
+def test_variance_mixing_raises(f):
+    cov = f.with_variance(Variance.COVARIANT)
+    con = f.with_variance(Variance.CONTRAVARIANT)
+    with pytest.raises(SpaceMismatchError, match="variance mixing"):
+        _ = cov + con
+
+
+def test_diff_preserves_the_variance_claim(grid):
+    field = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) + 0 * y)
+    cov = field.with_variance(Variance.COVARIANT)
+    d = cov.diff("x")
+    assert d.function_space.variance is Variance.COVARIANT
+    assert jnp.allclose(d.data, field.diff("x").data)
+
+
+def test_complex_promotion_keeps_the_variance(f):
+    cov = f.with_variance(Variance.COVARIANT)
+    assert cov.as_complex().function_space.variance is (
+        Variance.COVARIANT)

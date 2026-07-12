@@ -21,7 +21,7 @@ from fridom.spatial.spaces.function_space import (
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.decomposition.layout import Layout
-    from fridom.spatial.scalars import Scalars
+    from fridom.spatial.scalars import Scalars, Variance
 
 
 class ConstantSpace(FunctionSpace):
@@ -52,10 +52,12 @@ class ConstantSpace(FunctionSpace):
         return (1,)
 
     def _variant_key(self, scalars: Scalars,
-                     layout: Layout | None) -> tuple:
-        """Return the interning key of a (scalars, layout) variant.
+                     layout: Layout | None,
+                     variance: Variance | None) -> tuple:
+        """Return the (scalars, layout, variance) variant's key.
 
-        One entry per (mesh, scalars), plus the layout when set;
-        bc is always the free structure.
+        One entry per (mesh, scalars), plus the layout and variance
+        when set; bc is always the free structure.
         """
-        return space_key(type(self), scalars, layout=layout)
+        return space_key(type(self), scalars, layout=layout,
+                         variance=variance)
