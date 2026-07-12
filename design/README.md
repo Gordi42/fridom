@@ -141,6 +141,8 @@ spec prose keeps the historical names.
 | [`phase2_grid_followups.md`](plans/active/phase2_grid_followups.md) | active | Phase-2 reconciliation — grid-layer follow-up work items. |
 | [`high_order_mapped_plan.md`](plans/active/high_order_mapped_plan.md) | draft | High-order stencils on mapped grids — the metric-identity obstacle, option table, the walled prerequisite, the open Jacobian spike. |
 | [`chart_ergonomics_plan.md`](plans/active/chart_ergonomics_plan.md) | draft | Chart / sphere setup ergonomics — E1..E5, severity-ordered (FPlaneCoriolis on a chart grid is silently wrong). |
+| [`fv_nonhydro_scoping.md`](plans/active/fv_nonhydro_scoping.md) | draft | Finite-volume nonhydro — scoping (ROADMAP 3.5): the nine operator gaps, FV-D1..D4 (option A decided), staged effort, the corrected benefit ledger. |
+| [`krylov_scan_plan.md`](plans/active/krylov_scan_plan.md) | draft | Krylov scan plan (ROADMAP 3.6) — O(1) trace for the mapped pressure CG: the unrolled loop's compile cost and the `halo_valid` carry obstacle. |
 
 ## `plans/done/` — shipped plans (kept as records)
 
