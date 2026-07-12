@@ -210,6 +210,39 @@ is explicitly never a dispatch key.
 
 ### FV-D2 — the staggering: where do velocities live? *(the key decision)*
 
+> **DECIDED 2026-07-12 (owner): option A.** Scalars on `CellAvg^3`,
+> velocities as face-normal values (`Right(x) ⊗ CellAvg(y) ⊗
+> CellAvg(z)`). The move to FV is committed (ROADMAP 3.5); the
+> sequencing recommendation of §5 stands (symbol rows → conversion
+> rows → the FV **tracer slice** → the C-grid profile behind a
+> bitwise-parity gate; no wholesale default flip while walls and
+> mapped grids would regress).
+>
+> **On dropping `FaceAvg` (owner's question).** `Right(x) ⊗
+> CellAvg(y) ⊗ CellAvg(z)` is **not** the same object as
+> `FaceAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)`, so `FaceAvg` is not
+> redundant with option A:
+>
+> - `Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)` is a **point value in x**
+>   (at the face plane) **averaged over y and z** — the *face-area*
+>   average `(1/ΔyΔz) ∫∫ u dy dz`. This is what the divergence
+>   theorem consumes, which is why continuity telescopes exactly.
+> - `FaceAvg(x) ⊗ ...` additionally averages **across x**, over the
+>   dual cell `x_i → x_{i+1}` — a *volume* average over the shifted
+>   (momentum) control volume. It is what a fully-FV **momentum**
+>   equation on the staggered CV would want.
+>
+> The difference is whether the face-normal direction is averaged
+> over. `FaceAvg` is the dual-cell sibling of `CellAvg` exactly as
+> `Right` is the dual-cell sibling of `Center` (§3.9's family
+> symmetry), and it is also where the **dual measure** lives
+> (§2.7). **Resolution: keep the space, invest nothing in it.**
+> Option A never instantiates it; it stays a dead-end (G2) with no
+> rows. Deleting it would break the family symmetry and the measure
+> story for a space that costs nothing to leave unused. Revisit as a
+> deliberate deletion later if it is still unused, not as a
+> redundancy cleanup now.
+
 - **Option A — face-normal point values.** Scalars on
   `CellAvg ⊗ CellAvg ⊗ CellAvg`; `u` on
   `Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)`. The DOF is a point value in the
