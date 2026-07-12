@@ -139,10 +139,34 @@ def test_cap_for_sharding_lowers_wide_traces_to_the_shard_extent(
     assert kept["x"] == 5
     # nothing to cap: the spec object passes through
     assert _cap_for_sharding((mx,), floor, floor, 4) is floor
-    # non-divisible cell counts are skipped (no cap derivable)
-    assert _cap_for_sharding((mx,), spec, floor, 3) is spec
+    # heavy padding is skipped (no cap derivable): 8 over 5 gives
+    # cells = ceil(8/5) = 2, last = 8 - 4*2 = 0 (< 1)
+    assert _cap_for_sharding((mx,), spec, floor, 5) is spec
+    # a mild non-divisible axis still caps to last - 1: 8 over 3
+    # gives cells = 3, last = 2, cap = 1
+    assert _cap_for_sharding((mx,), spec, floor, 3)["x"] == 1
     # a floor that never saw the name counts as zero
     assert _cap_for_sharding((mx,), spec, HaloSpec({}), 4)["x"] == 1
+
+
+def test_cap_for_sharding_on_non_divisible_axes():
+    # P = 4; cap = last - 1, which reduces to cells - 1 on a
+    # divisible axis. Called directly (device-count independent).
+    floor = HaloSpec({"x": 1})
+    # 257 cells: cells = ceil(257/4) = 65, last = 257 - 3*65 = 62,
+    # so a wide demand caps to last - 1, i.e. 61
+    m257 = IntervalMesh(257, (0.0, 1.0), name="x")
+    wide = HaloSpec({"x": 100})
+    assert _cap_for_sharding((m257,), wide, floor, 4)["x"] == 61
+    # 5 cells: heavy padding (cells = 2, last = -1) -> not capped,
+    # spec passes through unchanged
+    m5 = IntervalMesh(5, (0.0, 1.0), name="x")
+    assert _cap_for_sharding((m5,), wide, floor, 4) is wide
+    # divisible regression: 16 cells, cells = 4, last = 4,
+    # cap = 3 == n_cells // 4 - 1 (the pre-change value)
+    m16 = IntervalMesh(16, (0.0, 1.0), name="x")
+    assert _cap_for_sharding((m16,), HaloSpec({"x": 5}), floor, 4)[
+        "x"] == 3
 
 
 def test_registry_halo_scopes_to_state_space_meshes(grid, my):
@@ -168,12 +192,40 @@ def test_single_device_negotiation_is_the_trivial_layout(grid):
     assert decomp.layouts == (Layout({}),)
 
 
-def test_shardable_names_respect_divisibility(mx, my):
+def test_shardable_names_admit_mild_and_reject_heavy(mx, my):
     halo = HaloSpec({"x": 1, "y": 1})
-    # 8 cells over 4 devices: 2 cells/shard >= halo + 1
+    # 8 cells over 4 devices: divisible, last = 2 >= halo + 1
     assert _shardable_names((mx, my), halo, 4) == ("x", "y")
-    # 8 cells over 3 devices do not divide
-    assert _shardable_names((mx, my), halo, 3) == ()
+    # 8 cells over 3 devices: mild non-divisible (cells = 3,
+    # last = 8 - 2*3 = 2), so both axes stay shardable
+    assert _shardable_names((mx, my), halo, 3) == ("x", "y")
+    # 8 cells over 5 devices: heavy padding (cells = 2, last = 0),
+    # trailing shards empty -> both meshes rejected
+    assert _shardable_names((mx, my), halo, 5) == ()
+
+
+def test_shardable_names_non_divisible_concrete_cases():
+    # P = 4, min_local = 1 for the interval ghost families. Called
+    # directly (device-count independent, no real devices needed).
+    # 257 cells: cells = ceil(257/4) = 65, last = 257 - 3*65 = 62,
+    # shardable for width 1 (last >= width + 1 = 2)
+    m257 = IntervalMesh(257, (0.0, 1.0), name="x")
+    assert _shardable_names((m257,), HaloSpec({"x": 1}), 4) == ("x",)
+    # 13 cells: cells = 4, last = 13 - 3*4 = 1. The shortest shard
+    # holds a single cell -- below width + 1 = 2, so width-1
+    # sharding is rejected, but a width-0 exchange edge fits
+    m13 = IntervalMesh(13, (0.0, 1.0), name="x")
+    assert _shardable_names((m13,), HaloSpec({"x": 1}), 4) == ()
+    assert _shardable_names((m13,), HaloSpec({"x": 0}), 4) == ("x",)
+    # 5 cells: cells = ceil(5/4) = 2, last = 5 - 3*2 = -1 -> heavy
+    # padding (trailing shards empty), rejected for any width
+    m5 = IntervalMesh(5, (0.0, 1.0), name="x")
+    assert _shardable_names((m5,), HaloSpec({"x": 0}), 4) == ()
+    # divisible regression: 16 cells, cells = 4, last = 4 == cells,
+    # so the check is identical to the pre-change behavior
+    m16 = IntervalMesh(16, (0.0, 1.0), name="x")
+    assert _shardable_names((m16,), HaloSpec({"x": 1}), 4) == ("x",)
+    assert _shardable_names((m16,), HaloSpec({"x": 4}), 4) == ()
 
 
 def test_shardable_names_respect_the_halo_constraint(mx):
@@ -223,6 +275,21 @@ def test_default_layout_shards_the_first_ghost_factor():
     # pencil for the y factor plus the replicated fallback
     assert Layout({"y": "devices"}) in decomp.layouts
     assert decomp.layouts[-1] == Layout({})
+    assert decomp._device_mesh.size == jax.device_count()
+
+
+@pytest.mark.multi_device
+def test_default_layout_shards_a_mild_non_divisible_factor():
+    # a non-divisible cell count (device_count * 64 + 1) is mild
+    # padding (cells = ceil, last >= 1), so x now negotiates a
+    # sharded default layout instead of falling back to one device.
+    # Only the SELECTED layout is inspected -- no storage is
+    # materialized on the non-divisible grid.
+    n = jax.device_count() * 64 + 1
+    grid = Grid((IntervalMesh(n, (0.0, 1.0), name="x"),))
+    ids = tuple(range(jax.device_count()))
+    decomp = negotiate(grid, grid.dispatch, device_ids=ids)
+    assert dict(decomp.default_layout.device_axes) == {"x": "devices"}
     assert decomp._device_mesh.size == jax.device_count()
 
 
