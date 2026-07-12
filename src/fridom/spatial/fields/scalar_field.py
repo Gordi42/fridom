@@ -583,6 +583,38 @@ class ScalarField:
             return integral  # all-constant: identity
         return integral.with_data(integral.data / total)
 
+    def item(self) -> complex | float:
+        """
+        Return the single value of a one-DOF field (host scalar).
+
+        Description
+        -----------
+        The host read of a fully reduced field — the tidy end of an
+        integral: ``field.integrate().item()`` instead of
+        ``float(field.integrate().data.ravel()[0])``. Only defined
+        when the field carries exactly one DOF (every factor reduced
+        to a ``ConstantSpace``); a real dtype returns ``float``, a
+        complex one ``complex``. Forces the computation (a device
+        sync).
+
+        Returns
+        -------
+        complex | float
+            The single value.
+
+        Raises
+        ------
+        ValueError
+            If the field carries more than one DOF.
+        """
+        data = self.data
+        if data.size != 1:
+            raise ValueError(
+                f"item() needs a one-DOF field, got shape "
+                f"{tuple(data.shape)} on {self._function_space!r}; "
+                "reduce first (e.g. field.integrate())")
+        return data.ravel()[0].item()
+
     # ================================================================
     #  Grid accessor forwarders (a field carries its grid + space)
     # ================================================================

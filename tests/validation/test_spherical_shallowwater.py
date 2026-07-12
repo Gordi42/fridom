@@ -74,23 +74,18 @@ def sphere_model(nlon=32, nlat=16, *, csqr=GH0, ro=1.0,
             dt, order=3))
 
 
-def h_energy(model, ro):
+def h_energy(model):
     """Evaluate the metric thickness-weighted energy invariant.
 
     ``E = int [ g_ii h (u^i)^2 / 2 + p^2 / 2 ]`` with
-    ``h = c^2 + Ro p``; ``integrate`` carries the sqrt(g) area
-    element on chart grids.
+    ``h = c^2 + Ro p`` — the **public** diagnostic
+    (``sw.diagnostics.etot_full``, one implementation for the scheme
+    and the user); ``integrate`` carries the sqrt(g) area element on
+    chart grids. The machine-zero semi-discrete production rate of
+    this functional under gravity + Sadourny is pinned in
+    ``tests/shallowwater2/test_diagnostics.py`` (sphere and flat).
     """
-    z = model.state
-    grid = model.grid
-    u, v, p = z["u"], z["v"], z["p"]
-    h = z["csqr"].to(p) + ro * p
-    g_uu = grid.metric(u.function_space.bare, "g_lonlon")
-    g_vv = grid.metric(v.function_space.bare, "g_latlat")
-    parts = (0.5 * g_uu * u * u * h.to(u),
-             0.5 * g_vv * v * v * h.to(v),
-             0.5 * p * p)
-    return sum(float(t.integrate().data.ravel()[0]) for t in parts)
+    return model.diagnostics.etot_full().integrate().item()
 
 
 def swirl(lon, lat):
@@ -231,11 +226,11 @@ def test_energy_drift_stays_bounded_over_a_long_run():
     model.set_fields(
         p=swirl,
         u=lambda lon, lat: 0.05 * jnp.sin(lat) ** 2 + 0.0 * lon)
-    e0 = h_energy(model, ro)
+    e0 = h_energy(model)
     peak = 0.0
     for _ in range(12):
         model.advance(50)              # 600 steps
-        peak = max(peak, abs(h_energy(model, ro) - e0) / e0)
+        peak = max(peak, abs(h_energy(model) - e0) / e0)
     for name in ("u", "v", "p"):
         assert not bool(model.state[name].has_nan())
     # measured 7.2e-5: pure AB3 time-integration error (the
