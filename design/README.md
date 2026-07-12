@@ -139,6 +139,7 @@ spec prose keeps the historical names.
 | [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build roadmap (dependency-ordered). |
 | [`linear_term_blocks_plan.md`](plans/active/linear_term_blocks_plan.md) | active | Linear-term block signatures (the H1 pivot) — sub-plan. |
 | [`phase2_grid_followups.md`](plans/active/phase2_grid_followups.md) | active | Phase-2 reconciliation — grid-layer follow-up work items. |
+| [`distributed_transform_reconciliation.md`](plans/active/distributed_transform_reconciliation.md) | active | Reconcile the merged slab-FFT solve with the §5.1 layout-in-space / Reshard-in-the-transform-plan design — **gates the push**. |
 
 ## `plans/done/` — shipped plans (kept as records)
 
