@@ -6,13 +6,16 @@ the mean-free (``k = 0``) nullspace gauge and its ``where_zero``
 override, a Helmholtz shift (no nullspace), and the residual check
 (applying the Laplacian to the solution recovers the mean-free rhs).
 """
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 import fridom as fr
+from fridom.framework.utils import dtype_real
 from fridom.spatial.operators.realized import RealizedComposite
 from fridom.spatial.operators.spectral import SpectralDerivative
-from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.operators.spectral_solve import SpectralSolve, _CastMap
 from fridom.spatial.operators.symbol import Symbol
 
 
@@ -149,3 +152,78 @@ def test_properties_expose_the_transform_and_inverse(grid_2d):
     solve = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
     coeff = solve.transform.codomain(rhs.function_space.bare)
     assert solve.inverse_symbol.space is coeff
+
+
+# ================================================================
+#  Single-precision solve option (Change A)
+# ================================================================
+def test_single_precision_default_off(grid_2d):
+    grid = grid_2d
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    solve = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
+    assert solve.single_precision is False
+    # bitwise identical to the imperative full-precision solve
+    assert isinstance(solve.composite, RealizedComposite)
+
+
+def test_single_precision_result_matches_full(grid_2d):
+    grid = grid_2d
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    full = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
+    low = SpectralSolve(laplacian_2d(), grid, rhs.function_space,
+                        single_precision=True)
+    assert low.single_precision is True
+    p_full = full(rhs)
+    p_low = low(rhs)
+    # the solution stays float64 (only the transform pair is reduced)
+    assert p_low.dtype == dtype_real()
+    rel = float(jnp.linalg.norm(p_low.data - p_full.data)
+                / jnp.linalg.norm(p_full.data))
+    assert rel < 1e-5
+
+
+def test_single_precision_runs_the_ffts_in_reduced_precision(grid_2d):
+    grid = grid_2d
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    low = SpectralSolve(laplacian_2d(), grid, rhs.function_space,
+                        single_precision=True)
+    hlo = jax.jit(lambda f: low(f).data).lower(rhs).compile().as_text()
+    # the rfft lands on complex64 and the irfft on float32 (vs the
+    # c128 / f64 of the full-precision solve) — the divide runs single
+    fft_lines = [ln for ln in hlo.splitlines() if "fft(" in ln]
+    assert fft_lines  # the periodic solve is an rfftn/irfftn pair
+    assert any("c64[" in ln for ln in fft_lines)
+    assert any("f32[" in ln for ln in fft_lines)
+    assert not any("c128[" in ln for ln in fft_lines)
+
+
+def test_cast_map_casts_field_data(grid_2d):
+    grid = grid_2d
+    f = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    coeff = SpectralSolve(
+        laplacian_2d(), grid, f.function_space).transform.codomain(
+        f.function_space.bare)
+    cast = _CastMap(coeff, jnp.complex64)
+    assert cast.domain is coeff
+    assert cast.codomain is coeff
+    assert cast.dtype == jnp.dtype(jnp.complex64)
+    # conj of a real-linear cast is the cast itself
+    assert cast.conj() is cast
+    with pytest.raises(NotImplementedError, match="not inverted"):
+        cast.inverse()
+
+
+def test_single_precision_solve_pytree_round_trip(grid_2d):
+    # the reduced composite flattens/unflattens (jit/scan friendly)
+    grid = grid_2d
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    low = SpectralSolve(laplacian_2d(), grid, rhs.function_space,
+                        single_precision=True)
+    leaves, treedef = jax.tree_util.tree_flatten(low.composite)
+    rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert np.allclose(rebuilt(rhs).data, low(rhs).data)
