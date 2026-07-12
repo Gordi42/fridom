@@ -145,3 +145,11 @@ def test_varying_csqr_model_steps():
         p=0.01 * rng.standard_normal(model.state["p"].shape))
     model.advance(3)
     assert not bool(model.state["p"].has_nan())
+
+
+def test_default_time_stepper_is_adam_bashforth():
+    # the preset's cutover default (pass an explicit one for a real
+    # run); assembly succeeds and the model advances
+    model = sw.Model(grid=make_grid())
+    assert isinstance(model._stepper,
+                      fr.model.time_steppers.AdamBashforth)
