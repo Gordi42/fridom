@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
+import jax.numpy as jnp
+
 from fridom.spatial.decomposition.traits import (
     HaloStrategy,
     MeshDecompositionTraits,
@@ -30,6 +32,10 @@ from fridom.spatial.spaces.nodal import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
+    import jax
+
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
@@ -79,6 +85,28 @@ class ChebyshevMesh(StructuredMesh1D):
             "ChebyshevMesh has no average spaces: the family is "
             "restricted to outer/lobatto, chebyshev coefficients, "
             "and constant")
+
+    @property
+    def coordinate_map(self) -> Callable[[jax.Array], jax.Array]:
+        r"""
+        The Gauss-Lobatto placement as a coordinate map.
+
+        Description
+        -----------
+        The geometry seam (concepts section 2.7) of this mesh:
+        :math:`x(s) = x_{mid} - \tfrac{L}{2} \cos(\pi s)`, mapping
+        the uniform computational faces ``s = j / n`` to the
+        ascending Gauss-Lobatto points (storage order). Strictly
+        increasing on [0, 1] with ``x(0) = x_min``, ``x(1) = x_max``.
+        """
+        x_min, x_max = self.extent
+        mid = 0.5 * (x_min + x_max)
+        half = 0.5 * (x_max - x_min)
+
+        def lobatto_map(s: jax.Array) -> jax.Array:
+            return mid - half * jnp.cos(jnp.pi * s)
+
+        return lobatto_map
 
     @property
     def lobatto(self) -> Outer:
