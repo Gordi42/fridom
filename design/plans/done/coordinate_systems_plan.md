@@ -1,7 +1,13 @@
 ---
-status: active
+status: done
 date: 2026-07-12
 ---
+
+> **LANDED 2026-07-12.** All five stages (C0–C4) are implemented and
+> merged to `dev`; the three targets of §1 run. Merge commits:
+> C0 `0154cc62`, C1 `a61c6735`, C2-core `4fdc95ee`, spherical SW
+> `b50af4f1`, PCG core `e717eb1c`, C3 `1d598055`, immersed-measure
+> fix `10e4c0e8`, C4 `bcb273b6`. Outcomes per stage in §7 below.
 
 # Coordinate-systems plan — mapped, spherical, boundary-fitted grids
 
@@ -217,3 +223,128 @@ C2 and C3 both consume C1 and are independent of each other.
   follow-up once both land.
 - Eigenmode/state-transform machinery on mapped/curved grids.
 - Unstructured meshes (unchanged ROADMAP stance).
+
+## 7. Outcomes (2026-07-12)
+
+What landed per stage, with the measured gate results. Numbers are
+from the validation suites named in each bullet.
+
+### C0 — measures become fields (merge `0154cc62`)
+
+`StructuredMesh1D.coordinate_map` is the geometry seam; the grid's
+node/measure materializers compose it (uniform meshes keep the
+scalar-`dx` fast path, so the swap is **bitwise** results-neutral);
+`MappedIntervalMesh` implemented; `FiniteDifference`/`flux_diff`
+divide by the codomain's measure field on mapped meshes.
+`tests/validation/test_stretched_mesh.py`: FD/FV convergence order
+~2 on tanh/wavy stretchings, exact cell-average integration,
+exact flux telescoping. **Deferred:** FD order > 2 and the
+`one_sided` closure on mapped meshes (need the computational-space
+chain rule) and the Clenshaw-Curtis measure on `ChebyshevMesh` —
+all raise taught errors.
+
+### C1 — CoordinateMapping + grid.metric (merge `a61c6735`)
+
+Three declaration forms: analytic `maps=`, supplied `metrics=`, and
+the CS-D1 `chart=` embedding (induced metric by `jax.jvp` of the
+chart, per-chart so an atlas stays additive; spec amendment in
+[`classes/grid.md`](../../specs/grid/classes/grid.md)). Metric-name
+vocabulary: `d<p>_d<q>` for maps, `g_<u><v>` / `inv_g_<u><v>` /
+`sqrt_g` for charts. Dispatch kind **`"physical_diff"`** is the
+constant-physical-coordinate derivative (the seeded `"diff"` rows
+stay computational); `MetricScaled`/`MappedDerivative` derive
+coefficients at application, never cached.
+`tests/validation/test_terrain_following.py`: sketch 4.4 at 2nd
+order on periodic and bounded columns; Jacobian-weighted vertical
+integral; **compile-once** across H values; `jax.grad` through H.
+
+### C2 — chart manifolds + spherical shallow water (merges
+`4fdc95ee`, `b50af4f1`)
+
+`Variance` is an interned space attribute (untagged identities
+unchanged); `RaiseIndex`/`LowerIndex` contract with the grid metric;
+metric-aware `grad`/`div`/`curl`/`laplacian` seeded on chart grids;
+`integrate` carries `sqrt_g`. Mimetic convention: `sqrt_g` inside
+the flux at face spaces, `1/sqrt_g` at the scalar codomain — div and
+grad are negative adjoints under the `sqrt_g`-weighted product
+(the SPD story CG later relies on).
+`tests/validation/test_chart_manifolds.py`: torus divergence theorem
+and curl-grad exact to rounding; Laplace-Beltrami 2nd order; sphere
+solid-body rotation divergence-free; identity-chart mimicry exact.
+Spherical SW (`test_spherical_shallowwater.py`): prognostic
+velocities are **contravariant** components (physical m/s via
+`State.u_physical`); Sadourny PV fluxes reuse the mass-flux
+`sqrt_g` weights, so the vorticity exchange stays antisymmetric.
+Flat limit **bitwise**; mass drift ~1e-16 over 600 steps;
+semi-discrete energy rate 2.6e-17; Williamson TC2 2nd-order
+convergent; polar-cap no-normal-flow structural.
+**Not generalized:** the eigenmode/transform stack (spherical runs
+initialize via `set_fields`) and `background=` flows.
+
+### C3 — terrain-following / boundary-fitted pressure (merges
+`e717eb1c`, `1d598055`)
+
+`ConjugateGradient` (CS-D2): matrix-free, fixed unrolled iterations
+(compile-once, reverse-mode differentiable), measure-weighted inner
+products — halo-clean under sharding by construction — optional
+mean projection, and a guarded ratio so post-convergence iterations
+are exact no-ops instead of NaNs.
+`MappedPressureSolver`: the **J-weighted flux-form** operator
+`A p = d_i(K^ij d_j p)`, cross terms on cell corners with
+transpose-paired interpolation, so `A` is **exactly symmetric**
+(3e-16 measured) and `A(const) = 0` — SPD chosen over the
+`physical_diff`-composed form (only O(h^2)-symmetric) because CG
+correctness depends on it. Wall closure: zero normal *flux* through
+Dirichlet-tagged `Inner` DOFs (conforming BCs, not one-sided
+interpolation, which would break the transpose pairing).
+Preconditioner: the flat spectral inverse at mean-folded
+coefficients (exact for constant H).
+Gates: mapped-flat identity to 6e-15 over 200 steps; manufactured
+solution orders 2.00/2.00; projection residual ~1e-15 relative;
+**PCG iteration count resolution-independent** (~1 decade/iteration
+at 20% slope); boundary-fitted channel (target c) runs, cross-checked
+against an `ImmersedDomain` staircase.
+**Consequence:** divergence consistency is locally 1st order in wall
+cells (standard conservative sigma closure), pinned by a unit test.
+
+### C4 — dynamic metrics + optional ALE (merge `bcb273b6`)
+
+`MovingGeometry` owns the mapping parameter as AUXILIARY state,
+sampling the prescribed schedule with one `jax.jvp` in `t` (value
+and mesh velocity together); `mapping_params(state, grid)` is the
+discovery convention threading current values into `grid.metric`,
+the pressure solver, and the mapped derivative kinds. Metrics are
+never cached, so geometry changes every step at **zero recompiles**.
+`MeshVelocityCorrection` is the CS-D4 ALE module: it adds
+`m_dot * df/dm`; **omitting it from the module list is the off
+switch**, and the docstring states the correctness caveat.
+Sign verified against the analytic remap (2nd order); without the
+module the field stays bitwise frozen at computational nodes — the
+documented, intended off-switch behavior.
+Morph experiment (the owner's target — northern boundary sloped to
+flat): stable; mapped divergence <= 1.9e-14 every step; discrete
+volume exactly conserved (drift 1.4e-16); tracer content drift
+6.9e-3 (no exact discrete invariant exists — documented). Frozen
+motion is **bitwise** equal to the static C3 run, with and without
+ALE. `CenteredAdvection` routes through the physical flux
+divergence on mapped grids (orders 1.93/1.98); biased schemes
+(Upwind/WENO) raise taught errors.
+
+## 8. Follow-ups (opened by this work)
+
+- **XLA spmd FFT fault (pre-existing, not introduced here):** under
+  forced-4 devices, a mapped pressure solve whose bounded column
+  outsizes the sharded axis fails to compile (`fft_thunk.cc:168`
+  layout check; reproduced with pure static C3 code and a bare 2D
+  solver: 8x8/16x16 fine, 8x16/4x16/8x32 fail). Two tall-column
+  gates are `single_device`-marked; the isotropic forced-4
+  invariance gate passes. Needs its own investigation.
+- FD order > 2 / one-sided closures on mapped meshes; Clenshaw-Curtis
+  measures on `ChebyshevMesh`.
+- Biased advection (Upwind/WENO) and Smagorinsky-Lilly on mapped
+  grids; `background=` flows on chart grids.
+- Eigenmode / state-transform machinery on mapped and chart grids.
+- `lax.fori_loop` CG variant if pressure iteration budgets exceed
+  ~60 (unrolled compile cost is ~0.17 s/iteration).
+- Bounded *coupled* axes (e.g. bounded x with H(x)) need a symmetric
+  closure story; z-dependent `Y_N` (the full target-c form).
