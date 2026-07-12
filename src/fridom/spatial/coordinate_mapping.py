@@ -158,10 +158,16 @@ class _Derivation:
         Description
         -----------
         None when the parameter does not depend on ``wrt`` (a
-        structural zero of the chain rule). Otherwise the registry
-        ``diff`` derivative of the base parameter field,
-        interpolated onto the requested staggering — the discrete
-        chain-rule ingredient of the map/chart tangents.
+        structural zero of the chain rule) — either by declaration,
+        or because the **supplied** field is constant along ``wrt``
+        (stage C4: a schedule may vary along fewer coordinates than
+        the static default declares, e.g. a time-only ``H(t)`` on a
+        declared ``H(x)`` — its spatial derivative is an exact
+        zero, and the constant factor has no ``diff`` row anyway).
+        Otherwise the registry ``diff`` derivative of the base
+        parameter field, interpolated onto the requested staggering
+        — the discrete chain-rule ingredient of the map/chart
+        tangents.
 
         Parameters
         ----------
@@ -178,6 +184,10 @@ class _Derivation:
         if wrt not in self._mapping._param_coords[name]:  # noqa: SLF001
             return None
         base = self._base(name)
+        if isinstance(base.function_space.bare.factor(wrt),
+                      ConstantSpace):
+            # the supplied field is constant along wrt: exact zero
+            return None
         return self._at_space(base.diff(wrt)).data
 
     # ------------------------------------------------------------

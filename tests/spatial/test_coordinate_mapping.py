@@ -588,3 +588,20 @@ def test_param_named_like_a_metric_collides():
         CoordinateMapping(
             maps={"z": lambda sigma, x: sigma * x},
             params={"x": depth})
+
+
+def test_constant_supplied_param_is_a_structural_zero(grid, mx,
+                                                      ms):
+    # stage C4: a schedule may vary along FEWER coordinates than
+    # the static default declares (a time-only H(t) on a declared
+    # H(x)); its spatial chain-rule tangent is an exact zero, and
+    # the constant factor has no diff row to resolve
+    h = grid.create_field(mx.constant * ms.constant,
+                          data=jnp.full((1, 1), 0.8))
+    space = mx.center * ms.center
+    slope = grid.metric(space, "dz_dx", params={"H": h})
+    assert jnp.array_equal(slope.data,
+                           jnp.zeros_like(slope.data))
+    # the value-reading metrics see the supplied constant
+    jac = grid.metric(space, "dz_dsigma", params={"H": h})
+    assert jnp.allclose(jac.data, 0.8)
