@@ -75,8 +75,14 @@ def make_mapped_flat_model(**kwargs):
     mapping = CoordinateMapping(
         maps={"zp": lambda z, H: z * H},
         params={"H": lambda x: H0 + 0.0 * x})
+    # 4 PCG iterations, not the model default 30: on a CONSTANT-H
+    # mapping the folded preconditioner is the exact inverse, so the
+    # solve converges on iteration 1 and every further iteration is
+    # an exact no-op (the guarded ratio). Measured: identical
+    # deviation from the flat run (5.5e-15 relative after 200 steps)
+    # at 4, 8 and 30 iterations
     return nh.Model(grid=Grid((mx, my, mz), mapping=mapping),
-                    **kwargs)
+                    pressure_iterations=4, **kwargs)
 
 
 def test_mapped_flat_identity_reproduces_the_unmapped_run():
@@ -200,8 +206,10 @@ def test_pcg_residual_is_resolution_independent():
 def test_projection_drives_mapped_divergence_to_tolerance():
     grid, mx, ms = build_column_grid(24)
     space = mx.center * ms.center
+    # 16 iterations: the projection is converged there (measured
+    # relative divergence 1.4e-15 at 16 and at 20)
     solver = MappedPressureSolver(
-        grid, space, iterations=20, weights={"sigma": 1.0 / DSQR})
+        grid, space, iterations=16, weights={"sigma": 1.0 / DSQR})
     u = grid.random.normal(mx.right * ms.center, seed=4)
     w = grid.random.normal(
         mx.center * ms.nodal(NodeSet.INNER, bc=BC.DIRICHLET),
@@ -215,7 +223,7 @@ def test_projection_drives_mapped_divergence_to_tolerance():
         "sigma": w - corr["sigma"].retag(w)})
     rel = (float(jnp.abs(after.data).max())
            / float(jnp.abs(div.data).max()))
-    # measured 1.9e-13 at the 20-iteration budget
+    # measured 1.4e-15 at the 16-iteration budget
     assert rel < 1e-10
 
 
@@ -234,8 +242,12 @@ def make_channel_model(n=N, **kwargs):
     mapping = CoordinateMapping(
         maps={"yp": lambda y, YN: y * YN},
         params={"YN": channel_width})
+    # 16 PCG iterations, not the model default 30: the solve has
+    # converged by 16 — measured post-projection divergence 2.14e-15
+    # and transport spread 1.1e-16 at BOTH 16 and 30 (the assertions
+    # keep their tolerances); 8 would NOT do (divergence 1.8e-9)
     return nh.Model(grid=Grid((mx, my, mz), mapping=mapping),
-                    **kwargs)
+                    pressure_iterations=16, **kwargs)
 
 
 def test_boundary_fitted_channel_assembles_and_projects():
@@ -268,7 +280,7 @@ def test_boundary_fitted_channel_assembles_and_projects():
     assert u.min() < 0.87
 
 
-def masked_projection(n, iterations=300):
+def masked_projection(n, iterations=240):
     """
     Project a uniform inflow on an immersed staircase channel.
 
@@ -278,8 +290,12 @@ def masked_projection(n, iterations=300):
     subspace, so plain CG applies; it runs UNpreconditioned — the
     unmasked spectral inverse is only semidefinite on the wet
     subspace (its global k = 0 gauge mixes with the wet-constant
-    nullspace) and destabilizes the iteration. 300 iterations
-    reach a 6e-13 residual at n = 32 (measured).
+    nullspace) and destabilizes the iteration. The budget is set by
+    the residual gate of the caller (< 1e-6): measured residual at
+    n = 32 is 1.6e-10 at 240 iterations, 1.3e-7 at 200 and 4.6e-4 at
+    150 — 240 is the smallest round budget that clears the gate with
+    orders of margin (the qualitative corrcoef/rms comparison
+    plateaus much earlier, by ~100).
     """
     mx = IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")

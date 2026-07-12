@@ -19,6 +19,7 @@ from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.krylov import ConjugateGradient
 from fridom.spatial.spaces.nodal import NodeSet
 
 N = 16
@@ -311,6 +312,119 @@ def test_params_override_threads_through_the_operator():
 
 
 # ================================================================
+#  Per-solve metric derivation (derived once, never cached)
+# ================================================================
+def count_metrics(monkeypatch, grid):
+    """Count the ``grid.metric`` derivations of the solve."""
+    calls = []
+    real = type(grid).metric
+
+    def counting(self, space, name, *, params=None):
+        calls.append((space, name))
+        return real(self, space, name, params=params)
+
+    monkeypatch.setattr(type(grid), "metric", counting)
+    return calls
+
+
+def test_metric_derivation_is_independent_of_the_iterations(
+        monkeypatch):
+    # the metrics do not depend on the CG iterate: they are derived
+    # ONCE per solve, so the derivation count must not grow with the
+    # iteration budget (the regression this guards: re-deriving
+    # inside apply() put a full metric chain — with its halo syncs —
+    # in every CG iteration)
+    counts = []
+    for iterations in (2, 12):
+        solver, grid, mx, ms = build_solver(iterations=iterations)
+        rhs = grid.random.normal(mx.center * ms.center, seed=9)
+        calls = count_metrics(monkeypatch, grid)
+        solver.solve(rhs)
+        counts.append(len(calls))
+        monkeypatch.undo()
+    assert counts[0] == counts[1]
+    assert counts[0] > 0
+
+
+def test_solve_is_bitwise_identical_to_the_unmemoized_operator():
+    # the memo is a pure trace-structure change: the CG iterates are
+    # the same arithmetic on the same values, so the solution must be
+    # EXACTLY (not approximately) the one the per-application
+    # derivation produces
+    solver, grid, mx, ms = build_solver(iterations=12)
+    rhs = grid.random.normal(mx.center * ms.center, seed=15)
+    rhs = rhs - rhs.mean()
+    reference = ConjugateGradient(
+        solver.apply,  # no cache: every application re-derives
+        preconditioner=solver._preconditioner(),
+        iterations=solver.iterations, project_mean=True)(rhs)
+    assert np.array_equal(np.asarray(solver.solve(rhs).data),
+                          np.asarray(reference.data))
+
+
+def test_project_matches_the_separate_calls_bitwise():
+    # DynamicalCore's projection runs divergence -> solve ->
+    # correction on ONE shared derivation; the result must equal the
+    # three separate calls exactly
+    solver, grid, mx, ms = build_solver()
+    vel = random_velocity(grid, mx, ms)
+    p, corr = solver.project(vel)
+    p_want = solver.solve(solver.divergence(vel))
+    corr_want = solver.velocity_correction(p_want)
+    assert np.array_equal(np.asarray(p.data),
+                          np.asarray(p_want.data))
+    for a in ("x", "sigma"):
+        assert np.array_equal(np.asarray(corr[a].data),
+                              np.asarray(corr_want[a].data)), a
+
+
+def test_metrics_are_never_cached_across_solves(monkeypatch):
+    # the C4 safety property: the memo lives inside ONE solve. A
+    # second solve on the same solver re-derives every metric (a memo
+    # kept on the solver — or on the grid — would silently freeze the
+    # geometry of the first step under MovingGeometry)
+    solver, grid, mx, ms = build_solver(iterations=4)
+    rhs = grid.random.normal(mx.center * ms.center, seed=16)
+    calls = count_metrics(monkeypatch, grid)
+    solver.solve(rhs)
+    first = len(calls)
+    solver.solve(rhs)
+    assert first > 0
+    assert len(calls) == 2 * first
+
+
+def test_moved_geometry_solves_differ_and_stay_correct():
+    # two solves at DIFFERENT params= geometries (the shape a
+    # MovingGeometry step takes) must give different answers, and
+    # each must equal the solve on a grid whose mapping carries that
+    # geometry statically — a metric cached across solves would hand
+    # the second solve the first geometry
+    def moved(x):
+        return 1.0 + 0.3 * jnp.cos(x)
+
+    solutions = {}
+    for name, init in (("static", depth), ("moved", moved)):
+        grid, mx, ms = build_grid()
+        space = mx.center * ms.center
+        rhs = grid.random.normal(space, seed=17)
+        rhs = rhs - rhs.mean()
+        h = grid.create_field(mx.center, init=init)
+        dynamic = MappedPressureSolver(
+            grid, space, iterations=20,
+            weights={"sigma": 1.0 / DSQR}, params={"H": h})
+        static, sgrid, smx, sms = build_solver(init=init)
+        static_rhs = sgrid.random.normal(
+            smx.center * sms.center, seed=17)
+        static_rhs = static_rhs - static_rhs.mean()
+        p_dyn = np.asarray(dynamic.solve(rhs).data)
+        p_stat = np.asarray(static.solve(static_rhs).data)
+        np.testing.assert_allclose(p_dyn, p_stat, rtol=1e-12,
+                                   atol=1e-14)
+        solutions[name] = p_dyn
+    assert not np.allclose(solutions["static"], solutions["moved"])
+
+
+# ================================================================
 #  Taught construction errors
 # ================================================================
 def test_unmapped_grid_is_rejected():
@@ -381,7 +495,12 @@ def make_mapped_model(n=8, init=depth, dt=0.02, **kwargs):
         maps={"zp": lambda z, H: z * H},
         params={"H": init})
     grid = Grid((mx, my, mz), mapping=mapping)
-    return nh.Model(grid=grid, dt=dt, advection=False, **kwargs)
+    # 16 PCG iterations, not the model default 30: the projection has
+    # converged there (measured post-step mapped divergence 3.4e-12
+    # already at 12, 1.1e-13 at 30; the gate below is 1e-10) and the
+    # unrolled CG loop is what the mapped model's trace pays for
+    return nh.Model(grid=grid, dt=dt, advection=False,
+                    pressure_iterations=16, **kwargs)
 
 
 def test_core_projects_on_a_mapped_grid():
