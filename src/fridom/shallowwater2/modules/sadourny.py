@@ -140,6 +140,69 @@ in the presence of a background (the background exchanges energy
 with the perturbation through the :math:`h`-weighting) — expect an
 :math:`O(\mathrm{Ro})` drift of that functional, controlled by the
 time-integration error.
+
+Chart grids (coordinate-systems plan, stage C2)
+-----------------------------------------------
+On a chart-coupled grid (``grid.chart_coords`` is not None) the
+scheme takes the metric-aware path with the prognostic velocities
+as **contravariant** components (the convention recorded in
+``core.py``); coordinate names come from ``coords=``. The
+vector-invariant form generalizes with the mass fluxes
+:math:`F^i = \sqrt{g}\,h\,u^i`:
+
+.. math::
+    \partial_t u_\lambda = +\,q\,\overline{F^\varphi}
+        - \partial_\lambda E_\mathrm{kin} , \qquad
+    \partial_t u_\varphi = -\,q\,\overline{F^\lambda}
+        - \partial_\varphi E_\mathrm{kin} , \qquad
+    \partial_t p = -\frac{\mathrm{Ro}}{\sqrt{g}}\,
+        \partial_i F^i ,
+
+with :math:`q = \zeta / h`, the relative vorticity the metric curl
+of the **lowered** components
+:math:`\zeta = (\partial_\lambda u_\varphi^{cov} -
+\partial_\varphi u_\lambda^{cov})/\sqrt{g}`, and the covariant
+momentum tendencies **raised** (``raise_index``) onto the
+prognostic contravariant components. The thickness divergence
+resolves the seeded flux-form ``"div"`` kind, vorticity the
+``"curl"`` kind, index moves the ``"raise_index"`` /
+``"lower_index"`` kinds — module overrides propagate; only the
+scheme-specific corner flux/PV averaging multiplies
+``grid.metric`` fields directly (derived per application, never
+cached).
+
+**Metric-forced discrete choices (recorded):**
+
+- the corner mass fluxes are the *same* :math:`\sqrt{g}`-weighted
+  fluxes entering the thickness divergence, interpolated to the
+  corner (``sqrt_g`` derived on each velocity's own space —
+  staggered-consistent with the ``div`` kind's internal
+  derivation); this is what makes the vorticity-flux exchange
+  antisymmetric under the thickness-weighted energy
+  :math:`E = \sum \sqrt{g}\,\bar h\,g_{ii}(u^i)^2/2 + \dots` —
+  the transpose of the corner average lands exactly on
+  :math:`F^i`.
+- the kinetic energy at centres interpolates the
+  :math:`\sqrt{g}`-weighted quadratic and divides by the centre
+  :math:`\sqrt{g}`:
+  :math:`E_\mathrm{kin} = (\overline{\sqrt{g}\,g_{\lambda\lambda}
+  (u^\lambda)^2} + \overline{\sqrt{g}\,g_{\varphi\varphi}
+  (u^\varphi)^2}) / (2\sqrt{g})`, the placement that makes the
+  KE-gradient / mass-flux pair telescope against the
+  :math:`\bar h`-tendency of the same energy functional (the flat
+  proof carries over line by line, every step weighted by the
+  pointwise :math:`\sqrt{g}`); exactness holds to the rounding of
+  the :math:`g_{ii}\,g^{ii}` round-trip (~1 ulp per node).
+
+On the identity chart (X = (x, y)) every metric factor is an exact
+1.0 and the chart path reproduces the flat scheme **bitwise** (the
+flat-limit gate in ``tests/validation/test_spherical_shallowwater``).
+The wall machinery is unchanged: the polar caps of a bounded-lat
+sphere are the same Dirichlet/free-slip closures as the Cartesian
+channel walls (impermeability structural, :math:`\zeta = 0` claimed
+at the wall by the corner retag, every consumed wall value an exact
+zero). The prescribed ``background=`` flow is **not** generalized to
+chart grids (taught error at bind).
 """
 from __future__ import annotations
 
@@ -151,8 +214,11 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
+from fridom.shallowwater2.state import _wall_free
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.scalars import Variance
 from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -170,7 +236,6 @@ _WALL_TOL = 1e-12
 _DIV_TOL = 1e-11
 
 _BG_COMPONENTS = ("u", "v")
-_BG_AXES = {"u": "x", "v": "y"}
 
 
 class SadournyAdvection(fr.model.Module):
@@ -205,14 +270,6 @@ class SadournyAdvection(fr.model.Module):
         background term entirely (default: None).
     """
 
-    # The Rossby scaling multiplies a traced ``ctx.params`` scalar
-    # into the tendency (a raw-data op the halo tracer cannot follow),
-    # so the module declares its stencil width and is halo-trace
-    # exempt (V-N2): the vector-invariant scheme reaches two cells in
-    # each direction (nested interpolations to the vorticity corner);
-    # the background fluxes stay within the same reach.
-    extra_halo = HaloSpec({"x": 2, "y": 2})
-
     field_references = (
         fr.model.FieldReference("u", hint="a shallow-water core"),
         fr.model.FieldReference("v", hint="a shallow-water core"),
@@ -222,11 +279,35 @@ class SadournyAdvection(fr.model.Module):
     parameter_references = (
         fr.model.Param(fr.model.params.SCALING_ROSSBY, default=1.0),)
 
+    # The Rossby scaling multiplies a traced ``ctx.params`` scalar
+    # into the tendency (a raw-data op the halo tracer cannot follow),
+    # so the module declares its stencil width and is halo-trace
+    # exempt (V-N2): the vector-invariant scheme reaches two cells in
+    # each direction (nested interpolations to the vorticity corner);
+    # the background fluxes and the chart path (whose worst chain is
+    # one difference plus one interpolation hop) stay within the
+    # same reach.
+    @property
+    def extra_halo(self) -> HaloSpec:
+        """Two halo cells per coordinate (the corner chain)."""
+        return HaloSpec(dict.fromkeys(self._coords, 2))
+
     def __init__(
         self,
         background: Mapping[str, float | Callable] | None = None,
+        *,
+        coords: tuple[str, str] = ("x", "y"),
     ) -> None:
         """Normalize and locally validate the background slot."""
+        coords = tuple(coords)
+        if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
+                or not all(isinstance(c, str) for c in coords)
+                or coords[0] == coords[1]):
+            raise TypeError(
+                "coords names the (zonal, meridional) coordinates: "
+                f"two distinct strings, got {coords!r}")
+        self._coords: tuple[str, str] = coords
+        self._bg_axes = {"u": coords[0], "v": coords[1]}
         if background is None:
             self._background: dict[str, float | Callable] | None = (
                 None)
@@ -260,6 +341,11 @@ class SadournyAdvection(fr.model.Module):
         return (None if self._background is None
                 else dict(self._background))
 
+    @property
+    def coords(self) -> tuple[str, str]:
+        """The (zonal, meridional) coordinate names."""
+        return self._coords
+
     # ================================================================
     #  Background declarations (AUXILIARY, materialized at assembly)
     # ================================================================
@@ -268,19 +354,24 @@ class SadournyAdvection(fr.model.Module):
         """The sampled background velocities (when prescribed)."""
         if self._background is None:
             return ()
+        zonal, meridional = self._coords
         return (
             fr.model.FieldDeclaration(
                 "u_background",
-                space=fr.spatial.Staggered("x", wall_bc={"x": BC.DIRICHLET}),
+                space=fr.spatial.Staggered(
+                    zonal, wall_bc={zonal: BC.DIRICHLET}),
                 lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._u_background_default,
-                long_name="Background velocity (x)", units="m/s"),
+                long_name=f"Background velocity ({zonal})",
+                units="m/s"),
             fr.model.FieldDeclaration(
                 "v_background",
-                space=fr.spatial.Staggered("y", wall_bc={"y": BC.DIRICHLET}),
+                space=fr.spatial.Staggered(
+                    meridional, wall_bc={meridional: BC.DIRICHLET}),
                 lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._v_background_default,
-                long_name="Background velocity (y)", units="m/s"),
+                long_name=f"Background velocity ({meridional})",
+                units="m/s"),
         )
 
     def _u_background_default(
@@ -344,14 +435,37 @@ class SadournyAdvection(fr.model.Module):
         Raises
         ------
         ValueError
-            If a background callable names a coordinate the grid
-            does not have, if a wall-normal background component
-            does not vanish on its wall, or if the sampled
-            background is not discretely divergence-free.
+            If the grid carries an embedding chart whose coordinate
+            family does not match ``coords`` (in factor order), if
+            a background callable names a coordinate the grid does
+            not have, if a wall-normal background component does
+            not vanish on its wall, or if the sampled background is
+            not discretely divergence-free.
+        NotImplementedError
+            If a background flow is prescribed on a chart grid (the
+            background term's flux stencils are not generalized to
+            the metric path).
         """
+        grid = table.grid
+        chart = grid.chart_coords
+        if chart is not None:
+            expected = tuple(
+                name for name in grid.names if name in set(chart))
+            if self._coords != expected:
+                raise ValueError(
+                    f"SadournyAdvection coords={self._coords!r} do "
+                    "not match the grid's chart coordinates "
+                    f"{expected!r} (in factor order); pass "
+                    "coords=(zonal, meridional) matching the grid")
+            if self._background is not None:
+                raise NotImplementedError(
+                    "background= is not supported on chart grids: "
+                    "the background-transport flux stencils are "
+                    "Cartesian (metric generalization pending); "
+                    "run the sphere without a prescribed "
+                    "background flow")
         if self._background is None:
             return
-        grid = table.grid
         self._check_coordinate_names(grid)
         fields = {
             component: self._sample(
@@ -388,7 +502,7 @@ class SadournyAdvection(fr.model.Module):
         the wall positions (over the tangential nodes it names).
         """
         for component in _BG_COMPONENTS:
-            axis = _BG_AXES[component]
+            axis = self._bg_axes[component]
             mesh = next(
                 (factor for factor in grid.factors
                  if axis in factor.names), None)
@@ -446,7 +560,8 @@ class SadournyAdvection(fr.model.Module):
         passes, an analytically-but-not-discretely solenoidal field
         does not).
         """
-        parts = (fields["u"].diff("x"), fields["v"].diff("y"))
+        parts = (fields["u"].diff(self._coords[0]),
+                 fields["v"].diff(self._coords[1]))
         div = parts[0] + parts[1]
         max_div = float(np.max(np.abs(np.asarray(div.data))))
         scale = max(
@@ -476,40 +591,132 @@ class SadournyAdvection(fr.model.Module):
         the matching retags of the kinetic-energy gradients onto the
         velocities, the nonhydro-projection precedent); every retag
         is the identity on periodic axes, so the periodic scheme is
-        reproduced bit for bit.
+        reproduced bit for bit. On chart grids the metric-aware path
+        is taken (module docstring); on the identity chart it
+        reproduces the flat scheme bitwise.
         """
         rossby = ctx.params[fr.model.params.SCALING_ROSSBY]
         u, v, p = state["u"], state["v"], state["p"]
         c = state["csqr"]
+        zonal, meridional = self._coords
 
         # full geopotential thickness (centre) — the csqr-FIELD fix
         # (c is the centre csqr field, never the scalar; old bug)
         p_full = c.to(p) + rossby * p
+
+        if u.grid.chart_coords is not None:
+            return self._advect_chart(u, v, p, p_full, rossby)
 
         # --- thickness tendency  dp = -Ro div(u p_e, v p_n) --------
         # (wall-normal flux lives on interior faces; the Dirichlet
         # fill closes the divergence with a zero wall flux)
         flux_u = u * p.to(u)                       # u face (east)
         flux_v = v * p.to(v)                       # v face (north)
-        dp = rossby * -(flux_u.diff("x") + flux_v.diff("y"))
+        dp = rossby * -(flux_u.diff(zonal)
+                        + flux_v.diff(meridional))
 
         # --- momentum: vorticity flux + kinetic-energy gradient ----
         # The NE-corner space adopts each velocity's wall tag on the
         # OTHER velocity's axis (Dirichlet on bounded factors);
         # retagging the BC-free stencil outputs onto it is the
         # explicit free-slip claim zeta = 0 at the wall (docstring).
-        corner = u.function_space.bare.replace(
-            y=v.function_space.bare.factor("y"))
-        zeta = (v.diff("x").retag(corner)
-                - u.diff("y").retag(corner))
+        corner = u.function_space.bare.replace(**{
+            meridional: v.function_space.bare.factor(meridional)})
+        zeta = (v.diff(zonal).retag(corner)
+                - u.diff(meridional).retag(corner))
         q = zeta / p_full.to(zeta)                 # potential vort.
         fu = (u * p_full.to(u)).to(zeta)           # mass flux, NE
         fv = (v * p_full.to(v)).to(zeta)
         ekin = 0.5 * ((u * u).to(p) + (v * v).to(p))  # centre
         du = rossby * ((fv * q).to(u)
-                       - ekin.diff("x").retag(u))
+                       - ekin.diff(zonal).retag(u))
         dv = rossby * (-(fu * q).to(v)
-                       - ekin.diff("y").retag(v))
+                       - ekin.diff(meridional).retag(v))
+        return {"u": du, "v": dv, "p": dp}
+
+    def _advect_chart(
+        self,
+        u: ScalarField,
+        v: ScalarField,
+        p: ScalarField,
+        p_full: ScalarField,
+        rossby: object,
+    ) -> dict:
+        r"""Return the metric-aware vector-invariant tendency.
+
+        Description
+        -----------
+        The module docstring's generalization: flux-form thickness
+        transport through the seeded ``"div"`` kind, vorticity as
+        the metric ``"curl"`` of the lowered components (free-slip
+        retagged onto the Dirichlet corner), corner PV fluxes as the
+        :math:`\sqrt{g}`-weighted mass fluxes, kinetic energy from
+        the lowered quadratics, and the covariant momentum
+        tendencies raised back onto the prognostic contravariant
+        components. Every metric coefficient is derived per
+        application via ``grid.metric``.
+        """
+        grid = u.grid
+        dispatch = grid.dispatch
+        zonal, meridional = self._coords
+        con = Variance.CONTRAVARIANT
+
+        # --- thickness: dp = -(Ro/sqrt_g) d_i(sqrt_g u^i p) --------
+        flux = VectorField({
+            zonal: (u * p.to(u)).with_variance(con),
+            meridional: (v * p.to(v)).with_variance(con)})
+        div = dispatch.resolve(
+            "div", flux[zonal].function_space.bare)
+        dp = rossby * -(div(flux))
+
+        # --- vorticity: metric curl of the lowered components ------
+        # (tags stripped before the curl so the stencil outputs
+        # share one corner space; the free-slip claim re-asserted by
+        # the corner retag — the flat scheme's placement)
+        corner = u.function_space.bare.replace(**{
+            meridional: v.function_space.bare.factor(meridional)})
+        lower = dispatch.resolve(
+            "lower_index", u.function_space.bare)
+        covariant = lower(VectorField({
+            zonal: _wall_free(u, zonal).with_variance(con),
+            meridional: _wall_free(v, meridional).with_variance(
+                con)}))
+        curl = dispatch.resolve(
+            "curl", covariant[zonal].function_space.bare)
+        zeta = curl(covariant).retag(corner)
+        q = zeta / p_full.to(zeta)                 # potential vort.
+
+        # --- sqrt_g-weighted corner mass fluxes F^i ----------------
+        # (the same fluxes the thickness divergence carries, so the
+        # vorticity-flux exchange stays antisymmetric — docstring)
+        sqg_u = grid.metric(u.function_space.bare, "sqrt_g")
+        sqg_v = grid.metric(v.function_space.bare, "sqrt_g")
+        fu = (sqg_u * (u * p_full.to(u))).to(zeta)
+        fv = (sqg_v * (v * p_full.to(v))).to(zeta)
+
+        # --- kinetic energy at centres -----------------------------
+        # K = (mean(sqrt_g g_ii (u^i)^2)) / (2 sqrt_g) — the
+        # placement pairing with the h-tendency (docstring)
+        sqg_p = grid.metric(p.function_space.bare, "sqrt_g")
+        g_uu = grid.metric(u.function_space.bare,
+                           f"g_{zonal}{zonal}")
+        g_vv = grid.metric(v.function_space.bare,
+                           f"g_{meridional}{meridional}")
+        ekin = 0.5 * (((sqg_u * g_uu) * (u * u)).to(p)
+                      + ((sqg_v * g_vv) * (v * v)).to(p)) / sqg_p
+
+        # --- covariant momentum tendencies, raised -----------------
+        cov = Variance.COVARIANT
+        tu = ((fv * q).to(u)
+              - ekin.diff(zonal).retag(u)).with_variance(cov)
+        tv = (-(fu * q).to(v)
+              - ekin.diff(meridional).retag(v)).with_variance(cov)
+        raise_index = dispatch.resolve(
+            "raise_index", tu.function_space.bare)
+        raised = raise_index(VectorField({
+            zonal: tu, meridional: tv}))
+        du = rossby * raised[zonal].retag(u)
+        dv = rossby * raised[meridional].retag(v)
         return {"u": du, "v": dv, "p": dp}
 
     @fr.model.term(name="background_advection",
@@ -534,24 +741,25 @@ class SadournyAdvection(fr.model.Module):
         u, v, p = state["u"], state["v"], state["p"]
         ub = state["u_background"]
         vb = state["v_background"]
-        corner = u.function_space.bare.replace(
-            y=v.function_space.bare.factor("y"))
+        zonal, meridional = self._coords
+        corner = u.function_space.bare.replace(**{
+            meridional: v.function_space.bare.factor(meridional)})
 
         # --- thickness: dp = -div(u_b p) ---------------------------
-        dp = -((ub * p.to(ub)).diff("x")
-               + (vb * p.to(vb)).diff("y"))
+        dp = -((ub * p.to(ub)).diff(zonal)
+               + (vb * p.to(vb)).diff(meridional))
 
         # --- momentum: -div(u_b (x) u) -----------------------------
         # (fluxes at the centre along the own axis, at the NE corner
         # along the other axis — the old module's positions)
         fx_u = ub.to(p) * u.to(p)                  # centre
         fy_u = vb.to(corner) * u.to(corner)        # NE corner
-        du = -(fx_u.diff("x").retag(u)
-               + fy_u.diff("y").retag(u))
+        du = -(fx_u.diff(zonal).retag(u)
+               + fy_u.diff(meridional).retag(u))
         fx_v = ub.to(corner) * v.to(corner)        # NE corner
         fy_v = vb.to(p) * v.to(p)                  # centre
-        dv = -(fx_v.diff("x").retag(v)
-               + fy_v.diff("y").retag(v))
+        dv = -(fx_v.diff(zonal).retag(v)
+               + fy_v.diff(meridional).retag(v))
         return {"u": du, "v": dv, "p": dp}
 
     def tendency_terms(self) -> tuple[fr.model.TendencyTerm, ...]:

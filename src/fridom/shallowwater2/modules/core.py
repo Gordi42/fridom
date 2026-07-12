@@ -30,11 +30,47 @@ under that metric; the ``sw.Model`` preset wires this automatically.
 
 The rotation :math:`f\,\underset{\neg}{\boldsymbol{u}}` is **not** a
 core term: it is carried by the shared Coriolis module
-(``fr.model.modules.FPlaneCoriolis`` / ``BetaPlaneCoriolis``), which declares
-the ``f_coriolis`` field and the ``+f v`` / ``-f u`` coupling. The
+(``fr.model.modules.FPlaneCoriolis`` / ``BetaPlaneCoriolis``, or
+``SphericalCoriolis`` on a sphere chart), which declares the
+``f_coriolis`` field and the ``+f v`` / ``-f u`` coupling. The
 gravity term here is unscaled (the Rossby number multiplies only the
 advection, D2.2). The nonlinear Sadourny advection is a separate
 module.
+
+Chart grids (coordinate-systems plan, stage C2)
+-----------------------------------------------
+The same module assembles on a chart-coupled grid (a
+``CoordinateMapping`` embedding chart, e.g. the lat-lon sphere):
+declare the coordinate names via ``coords=`` and the terms select
+the metric-aware path (a static grid property, never a traced
+value), resolving the seeded ``"grad"`` / ``"div"`` /
+``"raise_index"`` kinds through the grid dispatch — the module never
+hand-builds metric compositions.
+
+**Velocity convention (recorded per the C2 task):** on chart grids
+the prognostic ``u`` / ``v`` are the **contravariant** components
+:math:`u^\lambda = \dot\lambda`, :math:`u^\varphi = \dot\varphi`
+(units 1/s on the sphere), stored untagged in the state; terms tag
+them ``CONTRAVARIANT`` at the seams. The conversion points to
+physical (m/s) components are ``State.u_physical`` /
+``State.v_physical`` and the metric-aware ``ekin`` diagnostic —
+:math:`u_{\rm east} = \sqrt{g_{\lambda\lambda}}\,u^\lambda`,
+:math:`v_{\rm north} = \sqrt{g_{\varphi\varphi}}\,u^\varphi`,
+derived per call via ``grid.metric``. On flat grids the convention
+degenerates to the usual physical velocities and the flat code path
+is taken verbatim (bitwise; the hard results-neutrality gate).
+
+The chart gravity term is
+
+.. math::
+    \partial_t u^i = -\,g^{ij}\,\partial_j p , \qquad
+    \partial_t p = -\frac{1}{\sqrt{g}}\,
+        \partial_i\left(\sqrt{g}\, c^2 u^i\right)
+
+via ``grad`` -> ``raise_index`` on the pressure and the flux-form
+metric ``div`` on the tagged geopotential flux. A spherical model is
+assembled through the same preset (see ``sw.Model``'s ``coords=``
+docs for the grid recipe).
 """
 from __future__ import annotations
 
@@ -49,6 +85,9 @@ from fridom.framework.utils import jaxify
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.state import State
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.scalars import Variance
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -74,9 +113,13 @@ class DynamicalCore(fr.model.Module):
         The Rossby number scaling the (separate) advection term;
         published as ``scaling.rossby`` (default: 1.0); may be a
         ``fr.model.Ramp`` for a spun-up nonlinearity.
-    meridional : str, optional
+    coords : tuple[str, str], optional
+        The (zonal, meridional) coordinate names, in the grid's
+        factor order — ``("lon", "lat")`` on the standard sphere
+        chart (default: ``("x", "y")``).
+    meridional : str | None, optional
         The meridional coordinate name a callable ``csqr`` varies
-        along (default: ``"y"``).
+        along; None uses ``coords[1]`` (default: None).
     """
 
     #: The vocabulary class this core supplies (D1.3 commitment 4).
@@ -85,18 +128,48 @@ class DynamicalCore(fr.model.Module):
     #: Bound parameterful diagnostics (the D1.3 commitment-4 channel).
     diagnostics = DIAGNOSTICS
 
+    # The chart-path gravity term resolves the metric-aware kinds,
+    # whose multi-row block application the halo tracer cannot
+    # follow (it collects traced operands into VectorFields), so the
+    # module declares its stencil width and is halo-trace exempt
+    # (V-N2, the Sadourny precedent): one staggered difference plus
+    # at most one cross-term interpolation hop per axis (the
+    # non-diagonal raise_index worst case).
+    @property
+    def extra_halo(self) -> HaloSpec:
+        """Two halo cells per coordinate (chart worst case)."""
+        return HaloSpec(dict.fromkeys(self._coords, 2))
+
     def __init__(
         self,
         csqr: float | Callable = 1.0,
         rossby_number: float | fr.model.Ramp = 1.0,
         *,
-        meridional: str = "y",
+        coords: tuple[str, str] = ("x", "y"),
+        meridional: str | None = None,
     ) -> None:
         """Store the leaves; a callable ``csqr`` stays static."""
+        coords = tuple(coords)
+        if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
+                or not all(isinstance(c, str) for c in coords)
+                or coords[0] == coords[1]):
+            raise TypeError(
+                "coords names the (zonal, meridional) coordinates: "
+                f"two distinct strings, got {coords!r}")
         self._csqr_fn = csqr if callable(csqr) else None
         self.csqr = None if callable(csqr) else fr.model.leaf(csqr)
         self.rossby_number = fr.model.leaf(rossby_number)
-        self._meridional = meridional
+        self._coords: tuple[str, str] = coords
+        self._meridional = (coords[1] if meridional is None
+                            else meridional)
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def coords(self) -> tuple[str, str]:
+        """The (zonal, meridional) coordinate names."""
+        return self._coords
 
     # ================================================================
     #  Declarations
@@ -116,13 +189,15 @@ class DynamicalCore(fr.model.Module):
                 lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._csqr_profile_default,
                 long_name="Squared phase speed", units="m^2/s^2")
+        zonal, meridional = self._coords
         return (
             fr.model.FieldDeclaration.velocity(
-                "u", "x", space=fr.spatial.Staggered("x"),
-                long_name="Velocity (x)", units="m/s"),
+                "u", zonal, space=fr.spatial.Staggered(zonal),
+                long_name=f"Velocity ({zonal})", units="m/s"),
             fr.model.FieldDeclaration.velocity(
-                "v", "y", space=fr.spatial.Staggered("y"),
-                long_name="Velocity (y)", units="m/s"),
+                "v", meridional,
+                space=fr.spatial.Staggered(meridional),
+                long_name=f"Velocity ({meridional})", units="m/s"),
             fr.model.FieldDeclaration(
                 "p", space=fr.spatial.Collocated(),
                 long_name="Pressure (g*eta)", units="m^2/s^2"),
@@ -183,6 +258,34 @@ class DynamicalCore(fr.model.Module):
         return grid.create_field(space, init=init, name="csqr")
 
     # ================================================================
+    #  Bind-time validation (taught errors)
+    # ================================================================
+    def bind(self, table) -> None:  # noqa: ANN001
+        """On chart grids, require ``coords`` to match the chart.
+
+        Raises
+        ------
+        ValueError
+            If the grid carries an embedding chart whose coordinate
+            family does not match ``coords`` in the grid's factor
+            order (the metric-aware kinds match vector components
+            to axes positionally, so the order is load-bearing).
+        """
+        grid = table.grid
+        chart = grid.chart_coords
+        if chart is None:
+            return
+        expected = tuple(
+            name for name in grid.names if name in set(chart))
+        if self._coords != expected:
+            raise ValueError(
+                f"DynamicalCore coords={self._coords!r} do not "
+                f"match the grid's chart coordinates {expected!r} "
+                "(in factor order); pass coords=(zonal, meridional) "
+                "matching the grid, e.g. coords=('lon', 'lat') on "
+                "the standard sphere chart")
+
+    # ================================================================
     #  Tendency terms (linear)
     # ================================================================
     @fr.model.term(advances=("u", "v", "p"), linear=True)
@@ -207,11 +310,40 @@ class DynamicalCore(fr.model.Module):
         entries need no retag: ``csqr.to(u)`` adopts the velocity's
         tag (BC-sibling adoption) and the divergence lands BC-free,
         which is ``p``'s space.
+
+        On a chart grid (module docstring) the same physics resolves
+        the seeded metric-aware kinds: ``grad`` -> ``raise_index``
+        turns the covariant pressure gradient into the contravariant
+        tendency (``-g^{ij} d_j p``), and the flux-form ``div``
+        carries the ``sqrt_g``-weighted geopotential flux; the final
+        retags strip the variance claim and restore the velocities'
+        wall tags. On the identity chart every metric factor is an
+        exact 1.0, reproducing the flat path bitwise.
         """
         u, v, p = state["u"], state["v"], state["p"]
         csqr = state["csqr"]
+        zonal, meridional = self._coords
+        if u.grid.chart_coords is None:
+            return {
+                "u": (-p.diff(zonal)).retag(u),
+                "v": (-p.diff(meridional)).retag(v),
+                "p": (-(csqr.to(u) * u).diff(zonal)
+                      - (csqr.to(v) * v).diff(meridional)),
+            }
+        dispatch = u.grid.dispatch
+        con = Variance.CONTRAVARIANT
+        grad = dispatch.resolve("grad", p.function_space.bare)
+        gp = grad(p)
+        raise_index = dispatch.resolve(
+            "raise_index", gp[zonal].function_space.bare)
+        raised = raise_index(gp)
+        flux = VectorField({
+            zonal: (csqr.to(u) * u).with_variance(con),
+            meridional: (csqr.to(v) * v).with_variance(con)})
+        div = dispatch.resolve(
+            "div", flux[zonal].function_space.bare)
         return {
-            "u": (-p.diff("x")).retag(u),
-            "v": (-p.diff("y")).retag(v),
-            "p": -(csqr.to(u) * u).diff("x") - (csqr.to(v) * v).diff("y"),
+            "u": (-raised[zonal]).retag(u),
+            "v": (-raised[meridional]).retag(v),
+            "p": -div(flux),
         }

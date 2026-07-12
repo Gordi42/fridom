@@ -15,14 +15,24 @@ unchanged. A model assembled without a core produces a plain
 
 Component vocabulary (D1.3):
 
-- ``u``: velocity in x, on ``fr.spatial.Staggered("x")`` (the C-grid east
-  face);
-- ``v``: velocity in y, on ``fr.spatial.Staggered("y")`` (the north face);
-- ``p``: the pressure / geopotential perturbation :math:`p = g\\eta`,
+- ``u``: zonal velocity, on ``fr.spatial.Staggered(zonal)`` (the
+  C-grid east face);
+- ``v``: meridional velocity, on ``fr.spatial.Staggered(meridional)``
+  (the north face);
+- ``p``: the pressure / geopotential perturbation :math:`p = g\eta`,
   on ``fr.spatial.Collocated()`` (cell centre).
 
+The coordinate names are read off the component spaces (grid factor
+order, zonal first — the core's ``coords`` convention), so the same
+vocabulary serves the Cartesian ``(x, y)`` grids and the spherical
+``(lon, lat)`` chart. On chart grids ``u`` / ``v`` hold the
+**contravariant** components (see ``modules/core.py``);
+``u_physical`` / ``v_physical`` are the documented conversion points
+to physical (m/s) components, and ``rel_vort`` / ``divergence``
+resolve the metric-aware kinds.
+
 Only ``rel_vort`` and ``divergence`` are parameter-free and live
-here; ``ekin`` / ``epot`` / ``pot_vort`` carry :math:`c^2` and the
+here; ``ekin`` / ``epot`` carry :math:`c^2` and the
 Rossby number and are bound diagnostics on the model (D2.3), not
 State properties.
 """
@@ -32,11 +42,26 @@ from typing import TYPE_CHECKING
 
 from fridom.spatial.errors import MissingComponentError
 from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.scalars import Variance
 
 if TYPE_CHECKING:  # pragma: no cover
     import fridom as fr
+    from fridom.spatial.fields.scalar_field import ScalarField
 
 __all__ = ["MissingComponentError", "State"]
+
+
+def _wall_free(field: ScalarField, axis: str) -> ScalarField:
+    """Return the field retagged onto the BC-free ``axis`` sibling.
+
+    The chart path's tag-strip (shared with the Sadourny module):
+    the metric ``curl`` entry needs its two stencil outputs on one
+    shared corner space, so a wall-normal Dirichlet claim is
+    stripped before the curl (data-neutral) and re-asserted on the
+    output by the corner retag. Identity on periodic axes.
+    """
+    factor = field.function_space.bare.factor(axis)
+    return field.retag(factor.mesh.nodal(factor.node_set))
 
 
 class State(VectorField):
@@ -57,14 +82,14 @@ class State(VectorField):
     # ================================================================
     @property
     def u(self) -> fr.spatial.ScalarField:
-        """Velocity in x (declared by a shallow-water core)."""
+        """Zonal velocity (declared by a shallow-water core)."""
         return self.require(
             "u", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
 
     @property
     def v(self) -> fr.spatial.ScalarField:
-        """Velocity in y (declared by a shallow-water core)."""
+        """Meridional velocity (declared by a shallow-water core)."""
         return self.require(
             "v", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
@@ -75,6 +100,60 @@ class State(VectorField):
         return self.require(
             "p", hint="declared by a shallow-water core module, "
                       "e.g. sw.modules.DynamicalCore")
+
+    def _axes(self) -> tuple[str, str]:
+        """Read the (zonal, meridional) names off the ``u`` space."""
+        names = self.u.function_space.names
+        return names[0], names[1]
+
+    # ================================================================
+    #  Physical-velocity conversion points (chart convention)
+    # ================================================================
+    @property
+    def u_physical(self) -> fr.spatial.ScalarField:
+        r"""
+        Physical zonal velocity :math:`\sqrt{g_{\lambda\lambda}}\,u`.
+
+        Description
+        -----------
+        The recorded conversion point of the chart convention
+        (``modules/core.py``): on chart grids the prognostic ``u``
+        is the contravariant component, and the physical (m/s)
+        east-component is :math:`u_{\rm east} =
+        \sqrt{g_{\lambda\lambda}}\,u^\lambda` with the metric
+        derived per call via ``grid.metric``. On flat grids ``u``
+        is returned unchanged.
+        """
+        u = self.u
+        if u.grid.chart_coords is None:
+            return u
+        zonal = self._axes()[0]
+        metric = u.grid.metric(u.function_space.bare,
+                               f"g_{zonal}{zonal}")
+        return (metric**0.5 * u).with_metadata(
+            name="u_physical",
+            long_name="Physical zonal velocity", units="m/s")
+
+    @property
+    def v_physical(self) -> fr.spatial.ScalarField:
+        r"""
+        Physical meridional velocity :math:`\sqrt{g_{\varphi\varphi}}\,v`.
+
+        Description
+        -----------
+        The meridional twin of :attr:`u_physical` — the north
+        (m/s) component of the chart convention's contravariant
+        prognostic ``v``; the identity on flat grids.
+        """
+        v = self.v
+        if v.grid.chart_coords is None:
+            return v
+        meridional = self._axes()[1]
+        metric = v.grid.metric(v.function_space.bare,
+                               f"g_{meridional}{meridional}")
+        return (metric**0.5 * v).with_metadata(
+            name="v_physical",
+            long_name="Physical meridional velocity", units="m/s")
 
     # ================================================================
     #  Parameter-free diagnostics (field algebra; D2.3)
@@ -93,13 +172,32 @@ class State(VectorField):
         the Dirichlet corner space (each velocity's wall tag on the
         other velocity's axis) — the free-slip claim
         :math:`\zeta = 0` at the wall, matching the Sadourny
-        advection module; identity on periodic axes.
+        advection module; identity on periodic axes. On chart grids
+        this is the metric curl of the lowered components,
+        :math:`\zeta = (\partial_\lambda v_{cov} - \partial_\varphi
+        u_{cov})/\sqrt{g}` (the physical scalar vorticity), through
+        the seeded ``"lower_index"`` / ``"curl"`` kinds.
         """
         u, v = self.u, self.v
-        corner = u.function_space.bare.replace(
-            y=v.function_space.bare.factor("y"))
-        return (v.diff("x").retag(corner)
-                - u.diff("y").retag(corner)).with_metadata(
+        zonal, meridional = self._axes()
+        corner = u.function_space.bare.replace(**{
+            meridional: v.function_space.bare.factor(meridional)})
+        if u.grid.chart_coords is None:
+            zeta = (v.diff(zonal).retag(corner)
+                    - u.diff(meridional).retag(corner))
+        else:
+            dispatch = u.grid.dispatch
+            con = Variance.CONTRAVARIANT
+            lower = dispatch.resolve(
+                "lower_index", u.function_space.bare)
+            covariant = lower(VectorField({
+                zonal: _wall_free(u, zonal).with_variance(con),
+                meridional: _wall_free(v, meridional)
+                .with_variance(con)}))
+            curl = dispatch.resolve(
+                "curl", covariant[zonal].function_space.bare)
+            zeta = curl(covariant).retag(corner)
+        return zeta.with_metadata(
             name="rel_vort", long_name="Relative vorticity",
             units="1/s")
 
@@ -111,8 +209,23 @@ class State(VectorField):
         Description
         -----------
         ``u`` staggers in x and ``v`` in y, so ``u.diff("x")`` and
-        ``v.diff("y")`` both land at the cell centre.
+        ``v.diff("y")`` both land at the cell centre. On chart
+        grids this is the flux-form metric divergence of the
+        contravariant components,
+        :math:`\partial_i(\sqrt{g}\,u^i)/\sqrt{g}`, through the
+        seeded ``"div"`` kind.
         """
-        return (self.u.diff("x") + self.v.diff("y")).with_metadata(
+        u, v = self.u, self.v
+        zonal, meridional = self._axes()
+        if u.grid.chart_coords is None:
+            div = u.diff(zonal) + v.diff(meridional)
+        else:
+            con = Variance.CONTRAVARIANT
+            vec = VectorField({
+                zonal: u.with_variance(con),
+                meridional: v.with_variance(con)})
+            div = u.grid.dispatch.resolve(
+                "div", u.function_space.bare)(vec)
+        return div.with_metadata(
             name="divergence", long_name="Horizontal divergence",
             units="1/s")

@@ -37,12 +37,22 @@ def ekin(
     -----------
     The linearized (quadratic) kinetic energy matching the energy
     metric weights ``1`` on ``u`` and ``v``. Velocities are
-    interpolated onto the pressure cell.
+    interpolated onto the pressure cell. On chart grids the
+    quadratics carry the diagonal metric — ``0.5 (g_11 u^2 +
+    g_22 v^2)``, the physical speed squared of the contravariant
+    components (the recorded convention, ``modules/core.py``) —
+    derived per call via ``grid.metric``.
     """
     center = state["p"].function_space
-    u = state["u"].to(center).data
-    v = state["v"].to(center).data
-    return state["p"].with_data(0.5 * (u**2 + v**2))
+    u = state["u"].to(center)
+    v = state["v"].to(center)
+    grid = u.grid
+    if grid.chart_coords is not None:
+        zonal, meridional = u.function_space.names[:2]
+        u = grid.metric(center.bare, f"g_{zonal}{zonal}")**0.5 * u
+        v = (grid.metric(center.bare,
+                         f"g_{meridional}{meridional}")**0.5 * v)
+    return state["p"].with_data(0.5 * (u.data**2 + v.data**2))
 
 
 def epot(

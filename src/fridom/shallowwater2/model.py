@@ -19,6 +19,7 @@ import fridom as fr
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
+    SphericalCoriolis,
 )
 from fridom.shallowwater2.modules.core import DynamicalCore
 from fridom.shallowwater2.modules.sadourny import SadournyAdvection
@@ -38,6 +39,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     rossby_number: float = 1.0,
     coriolis: fr.model.Module | None = None,
     advection: bool = True,
+    coords: tuple[str, str] = ("x", "y"),
     time_stepper: TimeStepper | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
     name: str | None = None,
@@ -46,10 +48,47 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     """
     Assemble a shallow-water model (thin preset over ``fr.model.Model``).
 
+    Description
+    -----------
+    Works on flat Cartesian grids and on chart-coupled grids
+    (coordinate-systems plan, stage C2). The spherical recipe —
+    periodic-lon x bounded-lat interval meshes under an embedding
+    chart, with the diagonal (orthogonal-metric) index-move
+    overrides:
+
+    .. code-block:: python
+
+        mlon = fr.spatial.meshes.IntervalMesh(
+            nlon, (0.0, 2 * np.pi), name="lon")
+        mlat = fr.spatial.meshes.IntervalMesh(
+            nlat, (-lat_max, lat_max), periodic=False, name="lat")
+        mapping = fr.spatial.CoordinateMapping(chart={
+            "X": lambda lon, lat: (
+                a * jnp.cos(lat) * jnp.cos(lon),
+                a * jnp.cos(lat) * jnp.sin(lon),
+                a * jnp.sin(lat))})
+        grid = fr.spatial.Grid((mlon, mlat), mapping=mapping)
+        grid.merge_overrides({
+            "raise_index": fr.spatial.operators.RaiseIndex(
+                ("lon", "lat"), diagonal=True),
+            "lower_index": fr.spatial.operators.LowerIndex(
+                ("lon", "lat"), diagonal=True)})
+        model = sw.Model(
+            grid=grid, coords=("lon", "lat"), csqr=gh0,
+            rossby_number=1.0,
+            coriolis=sw.modules.SphericalCoriolis(
+                omega=omega, metric_weight="csqr"),
+            time_stepper=...)
+
+    Prognostic velocities on chart grids are the contravariant
+    components (see ``sw.modules.DynamicalCore``); convert to
+    physical m/s components via ``state.u_physical`` /
+    ``state.v_physical``.
+
     Parameters
     ----------
     grid : Grid
-        The (periodic, 2-D) grid.
+        The (periodic, walled, or chart-coupled) 2-D grid.
     csqr : float | Callable, optional
         Squared gravity-wave phase speed :math:`c^2`: a float for
         constant depth, or a callable ``csqr(y)`` for variable
@@ -71,6 +110,11 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         otherwise.
     advection : bool, optional
         Include the Sadourny nonlinear advection (default: True).
+    coords : tuple[str, str], optional
+        The (zonal, meridional) coordinate names in the grid's
+        factor order, forwarded to the core and the advection —
+        ``("lon", "lat")`` on the standard sphere chart
+        (default: ``("x", "y")``).
     time_stepper : TimeStepper | None, optional
         The stepper; default ``AdamBashforth(dt=1.0, order=3)`` (the
         cutover package default — pass an explicit one for a real
@@ -94,7 +138,8 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         A callable ``csqr`` combined with an explicit framework
         Coriolis module whose ``metric_weight`` is unset.
     """
-    core = DynamicalCore(csqr=csqr, rossby_number=rossby_number)
+    core = DynamicalCore(csqr=csqr, rossby_number=rossby_number,
+                         coords=coords)
     if coriolis is None:
         # always the thickness-weighted rotation: exactly M-skew for
         # any f and any depth profile, and identical to the unweighted
@@ -104,7 +149,8 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     else:
         cor = coriolis
         if (callable(csqr)
-                and isinstance(cor, FPlaneCoriolis | BetaPlaneCoriolis)
+                and isinstance(cor, FPlaneCoriolis | BetaPlaneCoriolis
+                               | SphericalCoriolis)
                 and cor.metric_weight is None):
             raise ValueError(
                 "a variable-depth shallow-water model (callable "
@@ -115,7 +161,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
                 "and the model no longer conserves energy exactly)")
     modules: tuple[fr.model.Module, ...] = (core, cor)
     if advection:
-        modules += (SadournyAdvection(),)
+        modules += (SadournyAdvection(coords=coords),)
     modules += tuple(modules_extra)
     if time_stepper is None:
         time_stepper = fr.model.time_steppers.AdamBashforth(dt=1.0, order=3)
