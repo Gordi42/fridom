@@ -222,6 +222,19 @@ class TensorDecomposition(Decomposition):
         return int(self._device_mesh.devices.size)
 
     @property
+    def device_mesh(self) -> jax.sharding.Mesh:
+        """
+        The ``jax.sharding.Mesh`` backing the shardings.
+
+        Description
+        -----------
+        Exposed for the transpose-based distributed machinery (the
+        slab FFT pipeline builds its ``jax.shard_map`` regions over
+        this mesh); iteration 1 realizes a 1-D mesh.
+        """
+        return self._device_mesh
+
+    @property
     def default_layout(self) -> Layout:
         """The layout attached to bare spaces at field creation."""
         return self._layouts[0]

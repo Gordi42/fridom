@@ -37,13 +37,20 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom.framework as fr
+from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.storage import storage_dtype
+from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.mixed import resolve_transform
 from fridom.spatial.operators.realized import (
     BoundTransform,
     realized_matmul,
     realized_rmatmul,
     realized_sum,
+)
+from fridom.spatial.operators.slab_fft import (
+    SlabSolve,
+    resolve_slab_plan,
+    symbol_fits,
 )
 from fridom.spatial.operators.symbol import Symbol
 
@@ -209,6 +216,16 @@ class SpectralSolve:
     masking); Helmholtz ``(nabla^2 - lambda)`` with ``lambda != 0`` has
     no nullspace and inverts everywhere.
 
+    On a multi-device grid an eligible solve (pure unpadded Fourier
+    transform, divisible extents — see ``operators/slab_fft.py``)
+    additionally resolves a distributed :class:`SlabSolve`: the
+    whole ``backward @ inverse @ forward`` runs slab-decomposed
+    inside one ``jax.shard_map`` region, with the eigenvalue
+    diagonal materialized on the plan's internal coefficient space
+    and sliced per shard. Ineligible solves — and mismatched-layout
+    operands — keep the replicated composite; on one device the
+    program is bitwise unchanged.
+
     Parameters
     ----------
     elliptic : Operator | Symbol
@@ -241,10 +258,13 @@ class SpectralSolve:
         transform only the Fourier stages and the spectrum-level
         divide are single precision — the trig stages re-widen at
         their storage boundary — so the win is largest on a fully
-        periodic (all-Fourier) solve. Off by default (bitwise
-        identical to the full-precision solve); on, the solution
-        carries the reduced round-off, an opt-in accuracy trade
-        (default: False).
+        periodic (all-Fourier) solve. Applies to the replicated
+        composite only: on a multi-device grid the distributed slab
+        solve (full precision) takes precedence, so this flag is a
+        no-op there (a single-precision distributed solve is future
+        work). Off by default (bitwise identical to the
+        full-precision solve); on, the solution carries the reduced
+        round-off, an opt-in accuracy trade (default: False).
     """
 
     def __init__(
@@ -259,27 +279,76 @@ class SpectralSolve:
         """Materialize the inverse symbol and compose the solve chain."""
         bare = space.bare
         self._single_precision: bool = bool(single_precision)
+        self._grid: object = grid
+        self._elliptic: Operator | Symbol = elliptic
+        self._where_zero: complex = where_zero
+        self._domain: SpaceLike = bare
         self._transform: Transform | ComposedTransform = (
             resolve_transform(grid, bare))
-        coeff = self._transform.codomain(bare)
-        symbol = (elliptic if isinstance(elliptic, Symbol)
-                  else elliptic.eigenvalues(grid, coeff))
-        self._inverse: Symbol = symbol.inverse(where_zero)
-        forward = BoundTransform(self._transform, bare)
-        backward = BoundTransform(self._transform, coeff, backward=True)
+        self._coeff: SpaceLike = self._transform.codomain(bare)
+        self._inverse: Symbol | None = None
+        self._composite: RealizedMap | None = None
+        # the distributed slab pipeline (multi-device only; None on
+        # one device, keeping the single-device program bitwise
+        # unchanged) — see operators/slab_fft.py. The distributed
+        # solve runs full precision; ``single_precision`` applies to
+        # the replicated composite path only.
+        self._slab: SlabSolve | None = self._resolve_slab()
+        if self._slab is None:
+            self._materialize()
+
+    def _resolve_slab(self) -> SlabSolve | None:
+        """
+        Resolve the distributed slab solve, or None (fallback).
+
+        Description
+        -----------
+        The distributed path needs an :class:`Operator` recipe (a
+        pre-assembled ``Symbol`` is bound to the replicated codomain
+        layout), a resolvable :class:`SlabPlan`, and eigenvalues
+        that materialize on the plan's internal coefficient space as
+        an endomorphic broadcast-shaped diagonal; anything else
+        falls back to the replicated composite.
+        """
+        if isinstance(self._elliptic, Symbol):
+            return None
+        plan = resolve_slab_plan(self._grid, self._domain)
+        if plan is None:
+            return None
+        try:
+            symbol = self._elliptic.eigenvalues(self._grid,
+                                                plan.coeff)
+        except (EigenbasisError, SpaceMismatchError):
+            return None
+        if not symbol_fits(plan, symbol):
+            return None
+        return SlabSolve(plan, symbol.inverse(self._where_zero))
+
+    def _materialize(self) -> None:
+        """Build the replicated ``backward @ inverse @ forward``."""
+        symbol = (self._elliptic
+                  if isinstance(self._elliptic, Symbol)
+                  else self._elliptic.eigenvalues(self._grid,
+                                                  self._coeff))
+        self._inverse = symbol.inverse(self._where_zero)
+        forward = BoundTransform(self._transform, self._domain)
+        backward = BoundTransform(self._transform, self._coeff,
+                                  backward=True)
         if self._single_precision:
-            # SpectralSolve in single precision: cast the operand to
-            # float32 (so rfftn runs single), downcast the c128
-            # half-spectrum to complex64 (the transform's _deliver
-            # re-widens it otherwise), and apply a complex64 inverse
-            # diagonal — the backward irfftn then lands on float64.
+            # single precision: cast the operand to float32 (so rfftn
+            # runs single), downcast the c128 half-spectrum to
+            # complex64 (the transform's _deliver re-widens it
+            # otherwise), and apply a complex64 inverse diagonal — the
+            # backward irfftn then lands back on float64.
             inv = self._inverse
-            inverse: Symbol = Symbol(
+            inverse = Symbol(
                 inv.space, inv.data.astype(_reduced_dtype(inv.space)),
                 codomain=inv.codomain)
-            cast_operand = _CastMap(bare, _reduced_dtype(bare))
-            cast_spectrum = _CastMap(coeff, _reduced_dtype(coeff))
-            self._composite: RealizedMap = (
+            cast_operand = _CastMap(
+                self._domain, _reduced_dtype(self._domain))
+            cast_spectrum = _CastMap(
+                self._coeff, _reduced_dtype(self._coeff))
+            self._composite = (
                 backward @ inverse @ cast_spectrum
                 @ forward @ cast_operand)
         else:
@@ -298,11 +367,24 @@ class SpectralSolve:
     @property
     def inverse_symbol(self) -> Symbol:
         """The materialized inverse diagonal (the per-mode ``1/lambda``)."""
+        if self._inverse is None:
+            self._materialize()
         return self._inverse
 
     @property
     def composite(self) -> RealizedMap:
-        """The realized-map chain ``backward @ inverse @ forward``."""
+        """
+        The realized-map chain ``backward @ inverse @ forward``.
+
+        Description
+        -----------
+        Built lazily when a distributed slab solve is active (the
+        replicated chain then only serves mismatched-layout
+        operands); on a single device it is built eagerly at
+        construction, exactly as before.
+        """
+        if self._composite is None:
+            self._materialize()
         return self._composite
 
     @property
@@ -310,12 +392,24 @@ class SpectralSolve:
         """Whether the transform pair and divide run in float32/c64."""
         return self._single_precision
 
+    @property
+    def slab(self) -> SlabSolve | None:
+        """The distributed slab solve, or None (replicated path)."""
+        return self._slab
+
     # ================================================================
     #  Application
     # ================================================================
     def __call__(self, rhs: FieldLike) -> FieldLike:
         """
         Solve ``elliptic(x) = rhs`` for ``x`` (diagonal, exact).
+
+        Description
+        -----------
+        With an active distributed slab solve and a matching operand
+        (same bare space and layout) the whole pipeline runs inside
+        one ``jax.shard_map`` region — no device ever gathers the
+        spectral cube; otherwise the replicated composite applies.
 
         Parameters
         ----------
@@ -327,7 +421,9 @@ class SpectralSolve:
         FieldLike
             The solution on the same space (real for a real transform).
         """
-        return self._composite(rhs)
+        if self._slab is not None and self._slab.applies(rhs):
+            return self._slab(rhs)
+        return self.composite(rhs)
 
     def solve(self, rhs: FieldLike) -> FieldLike:
         """

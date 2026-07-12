@@ -34,6 +34,7 @@ if TYPE_CHECKING:  # pragma: no cover
         reconstruct,
         registry,
         select,
+        slab_fft,
         spectral,
         spectral_solve,
         symbol,
@@ -82,6 +83,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .select import Where
+    from .slab_fft import SlabPlan, SlabSolve, resolve_slab_plan
     from .spectral_solve import SpectralSolve
     from .symbol import Symbol
     from .verbs import diff, integrate, interpolate
@@ -99,6 +101,7 @@ all_modules_by_origin = {
         "banded",
         "symbol",
         "realized",
+        "slab_fft",
         "spectral_solve",
         "finite_difference",
         "interp",
@@ -152,6 +155,11 @@ all_imports_by_origin = {
     f"{base}.reconstruct": ["LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.select": ["Where"],
+    f"{base}.slab_fft": [
+        "SlabPlan",
+        "SlabSolve",
+        "resolve_slab_plan",
+    ],
     f"{base}.spectral_solve": ["SpectralSolve"],
     f"{base}.realized": [
         "RealizedMap",
