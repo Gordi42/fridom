@@ -2,6 +2,7 @@
 import jax.numpy as jnp
 import pytest
 
+from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import (
     GridMismatchError,
     SpaceMismatchError,
@@ -10,6 +11,11 @@ from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.dealias import degree
 from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.operators.mixed import resolve_transform
+from fridom.spatial.operators.slab_fft import (
+    _slab_geometry,
+    resolve_slab_plan,
+)
 from fridom.spatial.operators.transform import (
     Transform,
     TransformPlan,
@@ -253,3 +259,95 @@ def test_all_constant_operands_are_left_unchanged(grid2d):
     assert coeff.function_space is f.function_space
     plan = op.forward_plan(f.function_space)
     assert plan.stages == ()
+
+
+# ================================================================
+#  Distributed (multi-device) planner
+# ================================================================
+def _grid3d(shape=(16, 16, 16), device_ids=None):
+    names = ("x", "y", "z")
+    lengths = (1.0, 2.0, 3.0)
+    meshes = tuple(
+        IntervalMesh(n, (0.0, ln), periodic=True, name=nm)
+        for n, ln, nm in zip(shape, lengths, names, strict=True))
+    return Grid(meshes, device_ids=device_ids)
+
+
+def test_distributed_plan_is_none_on_one_device():
+    grid = _grid3d(device_ids=(0,))
+    bare = grid.create_field().function_space.bare
+    transform = resolve_transform(grid, bare)
+    assert transform.distributed_forward_plan(bare) is None
+    # the ineligible result is memoized (membership test, not .get)
+    assert transform.distributed_forward_plan(bare) is None
+
+
+def test_single_device_forward_plan_carries_no_layout(grid2d, field2d):
+    op = Fourier(grid2d)
+    plan = op.forward_plan(field2d.function_space)
+    assert all(stage.layout is None for stage in plan.stages)
+
+
+@pytest.mark.multi_device
+def test_distributed_forward_plan_matches_slab_geometry():
+    grid = _grid3d()
+    bare = grid.create_field().function_space.bare
+    transform = resolve_transform(grid, bare)
+    slab = resolve_slab_plan(grid, bare)
+    assert slab is not None
+    # the planner reproduces the slab's axis roles exactly (parity)
+    assert (transform._distributed_geometry(bare)
+            == _slab_geometry(grid.decomposition, transform, bare))
+    plan = transform.distributed_forward_plan(bare)
+    assert plan is not None
+    # the codomain coeff frame is the interned-identical slab space
+    assert plan.codomain.bare is slab.coeff
+
+
+@pytest.mark.multi_device
+def test_distributed_forward_plan_layout_annotation():
+    grid = _grid3d()
+    bare = grid.create_field().function_space.bare
+    transform = resolve_transform(grid, bare)
+    name_a, name_b, name_h, _ = transform._distributed_geometry(bare)
+    default_layout = grid.decomposition.default_layout
+    axis_name = default_layout.device_axes[0][1]
+    plan = transform.distributed_forward_plan(bare)
+    # the sharded axis transforms last, under the spectral pencil
+    assert plan.stages[-1].axis == name_a
+    assert plan.stages[-1].layout == Layout({name_b: axis_name})
+    assert plan.codomain.layout == Layout({name_b: axis_name})
+    # exactly one half stage, the local Hermitian axis, running first
+    halves = [stage for stage in plan.stages if stage.half]
+    assert [stage.axis for stage in halves] == [name_h]
+    assert plan.stages[0].axis == name_h
+    # every earlier stage runs under the operand's nodal layout
+    assert all(stage.layout == default_layout
+               for stage in plan.stages[:-1])
+
+
+@pytest.mark.multi_device
+def test_distributed_backward_plan_reverses_forward():
+    grid = _grid3d()
+    bare = grid.create_field().function_space.bare
+    transform = resolve_transform(grid, bare)
+    forward = transform.distributed_forward_plan(bare)
+    backward = transform.distributed_backward_plan(forward.codomain)
+    assert backward is not None
+    assert backward.stages == tuple(reversed(forward.stages))
+    # backward runs coeff (spectral pencil) -> nodal (default layout)
+    assert backward.domain is forward.codomain
+    assert backward.codomain.bare is bare
+    assert (backward.codomain.layout
+            == grid.decomposition.default_layout)
+
+
+@pytest.mark.multi_device
+def test_distributed_plans_are_memoized():
+    grid = _grid3d()
+    bare = grid.create_field().function_space.bare
+    transform = resolve_transform(grid, bare)
+    plan = transform.distributed_forward_plan(bare)
+    assert transform.distributed_forward_plan(bare) is plan
+    back = transform.distributed_backward_plan(plan.codomain)
+    assert transform.distributed_backward_plan(plan.codomain) is back

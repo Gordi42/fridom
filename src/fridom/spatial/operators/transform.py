@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax.numpy as jnp
 
+from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import (
     GridMismatchError,
     SpaceMismatchError,
@@ -64,6 +65,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from fridom.spatial.meshes.mesh import Mesh
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+#: a distributed (slab) plan needs a sharded stage axis and a
+#: transpose partner — the minimum multi-axis transform
+_MIN_STAGES = 2
 
 
 # ================================================================
@@ -222,6 +228,10 @@ class TransformStage:
         The nodal-side factor of the stage.
     coeff : FunctionSpace
         The (coarse) coefficient factor of the stage.
+    layout : Layout | None, optional
+        The device layout this stage executes under (the multi-device
+        planner's per-stage pencil); None on the single-device plan
+        (every axis local, no reshard stages) — default: None.
     """
 
     axis: str
@@ -229,6 +239,7 @@ class TransformStage:
     half: bool
     nodal: FunctionSpace
     coeff: FunctionSpace
+    layout: Layout | None = None
 
 
 @dataclass(frozen=True)
@@ -350,6 +361,11 @@ class Transform(UnaryOperator, ABC):
                 self._fine_meshes[axis] = mesh.refined(pad.factor)
         #: memoized static plans, keyed on the interned bare domain
         self._plans: dict[tuple[str, SpaceLike], TransformPlan] = {}
+        #: memoized distributed (layout-annotated) plans; stores None
+        #: for ineligible spaces, so membership (not ``.get``) is the
+        #: cache test
+        self._dist_plans: dict[
+            tuple[str, SpaceLike], TransformPlan | None] = {}
 
     # ================================================================
     #  Properties
@@ -611,6 +627,197 @@ class Transform(UnaryOperator, ABC):
         plan = TransformPlan(bare, _rebuild(bare, mapping), ordered)
         self._plans[("backward", bare)] = plan
         return plan
+
+    # ================================================================
+    #  Distributed planning (multi-device; layout-annotated stages)
+    # ================================================================
+    def distributed_forward_plan(
+        self, domain: SpaceLike,
+    ) -> TransformPlan | None:
+        """
+        Return the layout-annotated forward schedule, or None.
+
+        Description
+        -----------
+        The multi-device schedule for a sharded operand (section 1.1 of
+        ``design/plans/active/distributed_transform_plan.md``): the
+        initially-local axes transform first under the operand's nodal
+        layout, one reshard makes the sharded axis local and shards the
+        transpose partner, and the sharded axis transforms last. Each
+        stage carries the ``Layout`` it executes under; the codomain
+        carries the final pencil. Returns None when the operand is
+        single-device or ineligible (the ``slab_fft`` fallback
+        conditions), in which case callers keep the replicated
+        ``forward_plan`` path — leaving the single-device program
+        unchanged.
+
+        Parameters
+        ----------
+        domain : SpaceLike
+            The (nodal) operand space.
+
+        Returns
+        -------
+        TransformPlan | None
+            The distributed plan, or None when ineligible.
+        """
+        bare = domain.bare
+        key = ("forward", bare)
+        if key not in self._dist_plans:
+            self._dist_plans[key] = self._build_distributed_forward(
+                bare)
+        return self._dist_plans[key]
+
+    def distributed_backward_plan(
+        self, domain: SpaceLike,
+    ) -> TransformPlan | None:
+        """
+        Return the layout-annotated backward schedule, or None.
+
+        Description
+        -----------
+        The mirror of :meth:`distributed_forward_plan`: the sharded-axis
+        inverse stage runs first (operand sharded on the transpose
+        partner), one reshard restores the nodal layout, and the
+        remaining inverse stages (the Hermitian half stage last) run
+        local. The per-stage layouts are identical to the forward plan's
+        (each stage runs under the same pencil in both directions); the
+        schedule is simply reversed. Returns None when ineligible.
+
+        Parameters
+        ----------
+        domain : SpaceLike
+            The (coefficient) operand space.
+
+        Returns
+        -------
+        TransformPlan | None
+            The distributed plan, or None when ineligible.
+        """
+        bare = domain.bare
+        key = ("backward", bare)
+        if key not in self._dist_plans:
+            self._dist_plans[key] = self._build_distributed_backward(
+                bare)
+        return self._dist_plans[key]
+
+    def _build_distributed_forward(
+        self, bare: SpaceLike,
+    ) -> TransformPlan | None:
+        """Uncached build of the distributed forward plan (or None)."""
+        decomposition = self._grid.decomposition
+        if (self._pad is not None
+                or getattr(decomposition, "device_count", 1) <= 1):
+            return None
+        geometry = self._distributed_geometry(bare)
+        if geometry is None:
+            return None
+        name_a, name_b, name_h, stage_names = geometry
+        default_layout, spectral_layout = self._distributed_layouts(
+            name_b)
+        # local axes first (rfft on the half axis), sharded axis last
+        ordered = ((name_h,) if name_h is not None else ()) + tuple(
+            n for n in stage_names if n not in (name_a, name_h))
+        ordered += (name_a,)
+        stages: list[TransformStage] = []
+        mapping: dict[str, FunctionSpace] = {}
+        for axis in ordered:
+            factor = bare.factor(axis)
+            origin = self._coarse_origin(factor, axis)
+            half = axis == name_h
+            coeff = self._coefficient_factor(origin, half=half)
+            layout = (spectral_layout if axis == name_a
+                      else default_layout)
+            stages.append(TransformStage(
+                axis=axis, index=bare.names.index(axis), half=half,
+                nodal=factor, coeff=coeff, layout=layout))
+            mapping[axis] = coeff
+        codomain = _rebuild(bare, mapping).with_layout(spectral_layout)
+        return TransformPlan(
+            bare.with_layout(default_layout), codomain, tuple(stages))
+
+    def _build_distributed_backward(
+        self, coeff_bare: SpaceLike,
+    ) -> TransformPlan | None:
+        """
+        Uncached build of the distributed backward plan (or None).
+
+        Description
+        -----------
+        Recovers the nodal domain through the (unchanged) single-device
+        ``backward_plan`` — its codomain is the nodal target — then
+        reverses the distributed forward stages. The per-stage layouts
+        carry over unchanged (a stage runs under the same pencil in both
+        directions), so the reversed order alone flips the reshard.
+        """
+        nodal_bare = self.backward_plan(coeff_bare).codomain
+        forward = self.distributed_forward_plan(nodal_bare)
+        if forward is None:
+            return None
+        default_layout = self._grid.decomposition.default_layout
+        stages = tuple(reversed(forward.stages))
+        codomain = nodal_bare.with_layout(default_layout)
+        return TransformPlan(forward.codomain, codomain, stages)
+
+    def _distributed_geometry(
+        self, bare: SpaceLike,
+    ) -> tuple[str, str, str | None, tuple[str, ...]] | None:
+        """
+        Choose the slab axes ``(a, b, h, stage axes)``, or None.
+
+        Description
+        -----------
+        Mirrors ``slab_fft._slab_geometry`` so the distributed plan's
+        axis roles match the (still-live) slab kernel byte-for-byte on
+        divisible grids: ``a`` is the single coordinate the default
+        layout shards, ``b`` the first other stage coordinate whose
+        extent divides the device count (the transpose partner), ``h``
+        the last remaining stage coordinate (the local Hermitian half
+        axis of a real domain, None otherwise). None on a non-1-D,
+        indivisible, or fewer-than-two-stage layout (the padded /
+        single-device guards live in the caller).
+        """
+        decomposition = self._grid.decomposition
+        mapped = dict(decomposition.default_layout.device_axes)
+        if len(mapped) != 1:
+            return None
+        (name_a,) = mapped
+        stage_names = self._stage_axes(bare)
+        if (len(stage_names) < _MIN_STAGES
+                or name_a not in stage_names):
+            return None
+        if any(len(bare.factor(n).shape) != 1 for n in stage_names):
+            return None
+        shards = decomposition.device_count
+        if bare.factor(name_a).shape[0] % shards:
+            return None
+        name_b = next(
+            (n for n in stage_names
+             if n != name_a and bare.factor(n).shape[0] % shards == 0),
+            None)
+        if name_b is None:
+            return None
+        real = not _complex_storage(bare)
+        local = tuple(n for n in stage_names
+                      if n not in (name_a, name_b))
+        name_h = local[-1] if (real and local) else None
+        return name_a, name_b, name_h, stage_names
+
+    def _distributed_layouts(
+        self, name_b: str,
+    ) -> tuple[Layout, Layout]:
+        """
+        Return the ``(nodal default, spectral pencil)`` layout pair.
+
+        Description
+        -----------
+        The nodal layout is the decomposition's default (the operand's
+        pencil); the spectral pencil shards the transpose partner
+        ``name_b`` on the same device-mesh axis.
+        """
+        default_layout = self._grid.decomposition.default_layout
+        axis_name = default_layout.device_axes[0][1]
+        return default_layout, Layout({name_b: axis_name})
 
     # ================================================================
     #  Extension contract (subclass hooks)
