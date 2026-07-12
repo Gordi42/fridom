@@ -963,6 +963,37 @@ class Grid:
         """The coordinate-mapping descriptor, or None."""
         return self._mapping
 
+    @property
+    def chart_coords(self) -> tuple[str, ...] | None:
+        """
+        The chart-coupled coordinate family of this grid, or None.
+
+        Description
+        -----------
+        The public chart-ness signal for model modules (coordinate-
+        systems plan, stage C2): the attached mapping's embedding-
+        chart base coordinates whenever the chart couples at least
+        two coordinates — exactly the condition under which this
+        grid seeded the metric-aware ``"grad"`` / ``"div"`` /
+        ``"curl"`` / ``"laplacian"`` and ``"raise_index"`` /
+        ``"lower_index"`` dispatch kinds. Tendency modules branch on
+        it (a static grid property, never a traced value) to select
+        their metric-aware path; ``None`` means the flat kinds are
+        registered and the Cartesian expressions apply.
+
+        Returns
+        -------
+        tuple[str, ...] | None
+            The chart's base coordinates in signature order, or
+            None on chartless (or single-coordinate-chart) grids.
+        """
+        if self._mapping is None:
+            return None
+        chart = self._mapping.chart_coords
+        if chart is None or len(chart) < 2:  # noqa: PLR2004 — pairs
+            return None
+        return chart
+
     def with_immersed(self, immersed: ImmersedDomain) -> Grid:
         """
         Attach the immersed descriptor (pre-freeze only).
@@ -1751,7 +1782,7 @@ def _default_registry(
     OperatorRegistry
         The seeded default registry (placeholders resolved).
     """
-    chart = (mapping._chart_coords()  # noqa: SLF001 — grid seam
+    chart = (mapping.chart_coords
              if mapping is not None else None)
     fd = FiniteDifference(order=2)
     interp = LinearInterp()
