@@ -14,12 +14,17 @@ order-2-only").
 The step body is the bitwise-parity algorithm (the traced
 transcription of the old ``update_coeff_AB`` scheme): weights are
 premultiplied ``row * dt`` FIRST (never ``dt * (c * h)``),
-accumulation runs in ascending j over the newest-first ring, the
-tendency is evaluated at the pre-tick time, and the ring shift is
-structural. Warm-up is a dense zero-padded (order x order)
-coefficient table row-indexed by a carried saturating int32
-counter — the first chunk compiles the same trace as every other
-(no Python branching on the step count, no unrolled first-K steps).
+accumulation runs in ascending j over the newest-first levels
+``(f_n, *ring)``, the tendency is evaluated at the pre-tick time,
+and the ring shift is structural. The carried ring stores only the
+``order - 1`` PAST tendencies — the newest, ``f_n``, is computed
+fresh inside the step, so carrying it too would hold one dead
+full-field buffer per component between steps (the 2026-07-12
+memory cut; the summed values and their order are unchanged).
+Warm-up is a dense zero-padded (order x order) coefficient table
+row-indexed by a carried saturating int32 counter — the first chunk
+compiles the same trace as every other (no Python branching on the
+step count, no unrolled first-K steps).
 """
 # Wave 4 B: AdamBashforth, ABState (eps is order-2-only)
 from __future__ import annotations
@@ -83,9 +88,11 @@ class ABState:
     Parameters
     ----------
     history : tuple[VectorField, ...]
-        The tendency ring, length ``order``, **newest first**;
+        The PAST-tendency ring ``(f_{n-1}, ..., f_{n-(order-1)})``,
+        length ``order - 1``, **newest first** (empty at order 1);
         PROGNOSTIC-only summed explicit tendencies (unprojected),
-        shifted structurally.
+        shifted structurally. The newest tendency ``f_n`` is
+        computed fresh inside the step and never carried.
     warmup : jax.Array
         The saturating warm-up counter (int32, saturates at
         ``order - 1``); stepper-local, never ``clock.it``.
@@ -207,7 +214,20 @@ class AdamBashforth(TimeStepper):
 
     @property
     def scan_unroll(self) -> int:
-        """The ring period: shift-free at ``unroll = order``."""
+        """
+        The measured-fastest chunk unroll: ``order``.
+
+        Description
+        -----------
+        The carried past-tendency ring (length ``order - 1``)
+        rotates with period ``order - 1``, so the shift-free
+        unrolls are its multiples — yet ``unroll = order`` measures
+        fastest (512^3 A100 AB3 linear, 2026-07-12: order-1 76.5,
+        2(order-1) 64.5, order 61.9, lcm 6 62.9 ms/step): XLA's
+        fusion across the unrolled bodies outweighs the one
+        boundary ring copy. ``order`` also reproduces the exact
+        pre-slimming compiled program (bitwise-stable step values).
+        """
         return self._order
 
     @property
@@ -239,7 +259,7 @@ class AdamBashforth(TimeStepper):
     # ================================================================
     def init(self, tendency_template: VectorField) -> ABState:
         """
-        Return the fresh carry: zeroed order-length ring, warmup 0.
+        Return the fresh carry: zeroed (order-1)-ring, warmup 0.
 
         Parameters
         ----------
@@ -254,7 +274,7 @@ class AdamBashforth(TimeStepper):
         """
         zeros = tendency_template.map(_zero_like)
         return ABState(
-            history=(zeros,) * self._order,
+            history=(zeros,) * (self._order - 1),
             warmup=jnp.asarray(0, dtype=jnp.int32))
 
     def step(
@@ -270,12 +290,14 @@ class AdamBashforth(TimeStepper):
         Description
         -----------
         Single substage plus the final combination: prepare and
-        evaluate the tendency at the **pre-tick** time, shift the
-        newest-first ring structurally, premultiply the warm-up row
-        by dt FIRST, accumulate in ascending j, apply the
-        PROGNOSTIC-only increment, tick, then run the post-advance
-        stage groups (S3' ADVANCE, S4 CONSTRAINT) at the ticked
-        clock. S5/S6 are the chunk body's epilogue.
+        evaluate the tendency at the **pre-tick** time, form the
+        newest-first levels ``(f_n, *ring)``, premultiply the
+        warm-up row by dt FIRST, accumulate in ascending j, apply
+        the PROGNOSTIC-only increment, tick, then run the
+        post-advance stage groups (S3' ADVANCE, S4 CONSTRAINT) at
+        the ticked clock; the carried ring drops the oldest level
+        structurally (``levels[:-1]``). S5/S6 are the chunk body's
+        epilogue.
 
         The increment lands via ``state.add(**components)`` — the
         key-aligned ``State.add_prognostic`` sugar is a parked
@@ -302,15 +324,17 @@ class AdamBashforth(TimeStepper):
         ctx = stages.context(clock, dt=self.dt, stage_dt=self.dt)
         state = stages.prepare(state, ctx)
         sums = stages.tendency(state, ctx)
-        # structural ring shift, newest first (dataflow renaming)
-        history = (sums.explicit, *stepper_state.history[:-1])
+        # newest-first levels: the fresh f_n over the carried
+        # (order-1) past-tendency ring — same values, same order as
+        # the historical order-length ring
+        levels = (sums.explicit, *stepper_state.history)
         # premultiply the warm-up row by dt FIRST (parity rule)
         table = jnp.asarray(self._table, dtype=dtype_real())
         weights = table[stepper_state.warmup] * self.dt
-        # ascending-j accumulation over the newest-first ring
-        increment = _weighted(history[0], weights[0])
+        # ascending-j accumulation over the newest-first levels
+        increment = _weighted(levels[0], weights[0])
         for j in range(1, self._order):
-            increment = increment + _weighted(history[j], weights[j])
+            increment = increment + _weighted(levels[j], weights[j])
         state = state.add(**dict(increment.components))       # S3
         clock = clock.tick(self.dt)
         # post-advance groups at the ticked clock, sums attached
@@ -321,7 +345,9 @@ class AdamBashforth(TimeStepper):
         state = stages.constrain(state, ctx)                  # S4
         warmup = jnp.minimum(stepper_state.warmup + 1,
                              self._order - 1)
-        return ABState(history, warmup), state, clock
+        # structural ring shift (dataflow renaming): carry only the
+        # order-1 newest levels — the oldest is dead after the sum
+        return ABState(levels[:-1], warmup), state, clock
 
     # ================================================================
     #  Host-side analysis
@@ -441,7 +467,7 @@ def _weighted(
 
     Description
     -----------
-    The traced-scalar scaling ``weights[j] * history[j]`` of the
+    The traced-scalar scaling ``weights[j] * levels[j]`` of the
     normative step body, spelled on the true-shape data (the field
     dunders accept Python scalars only). The multiplication order is
     ``weight * data`` — part of the bitwise-parity op sequence.
@@ -449,7 +475,7 @@ def _weighted(
     Parameters
     ----------
     vector : VectorField
-        One newest-first ring entry.
+        One newest-first tendency level.
     weight : jax.Array
         The dt-premultiplied scalar weight.
 

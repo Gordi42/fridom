@@ -184,7 +184,13 @@ class TimeStepper:
   chunk; breaks bitwise mid-warm-up restart). The counter is
   stepper-local, not `clock.it` (`reset()` re-warms — OptimalBalance
   depends on it). Ring buffers are **tuples of States shifted
-  structurally** (dataflow renaming, newest first).
+  structurally** (dataflow renaming, newest first) and hold **past
+  entries only**: the newest tendency is computed fresh inside the
+  step, the combine runs over `(newest, *ring)`, and the carried
+  ring is the `[:-1]` prefix of those levels — carrying the newest
+  too would hold one dead full-field buffer per component between
+  steps (amended 2026-07-12; summed values and their order are
+  unchanged).
 - **AB parity** (cutover, 2.7) and **the eps ruling (amended at
   validation sign-off)**: `eps` is an **order-2-only parameter** —
   the quasi-AB2 computational-mode damper; `AdamBashforth(order=2,
@@ -229,12 +235,15 @@ class TimeStepper:
 ([d3_4](../../research/d3_4_imex_splitting.md)) Unifying form
 `∂t X = F(X,t) + L·X`. What each family needs from the §5.1 surface:
 
-| Family | solve(γ) | forward `L·X` | F history | X history | eval_params |
+| Family | solve(γ) | forward `L·X` | F history (carried) | X history | eval_params |
 |---|---|---|---|---|---|
 | AB1–4 | — | only if forced explicit | s−1 | — | 1/step |
-| CNAB2 | γ=½ | yes (one/step) | 2 | — | 1/step |
-| SBDF2/3 | γ=⅔ / 6⁄11 | no | s | **s−1 states** | 1/step |
+| CNAB2 | γ=½ | yes (one/step) | 1 | — | 1/step |
+| SBDF2/3 | γ=⅔ / 6⁄11 | no | s−1 | **s−1 states** | 1/step |
 | IMEX-RK (ARS) | diagonal γ | optional | within-step | — (self-starting) | per stage |
+
+(F history counts the buffers carried **between** steps; every
+scheme's combine additionally consumes the fresh in-step `f_n`.)
 
 - **Buffers partition by treatment**: the explicit ring buffer
   stores the **summed** explicit contribution (per-term history is

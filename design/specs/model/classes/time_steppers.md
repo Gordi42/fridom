@@ -91,7 +91,10 @@ Restating the signed invariants every class below obeys (§5.3,
   row-indexed by a **carried saturating int32 counter** that is
   stepper-local, never `clock.it` (`reset()` re-warms — OptimalBalance
   drives ramp legs through it). Ring buffers are **tuples of States
-  shifted structurally** (dataflow renaming, newest first). With the
+  shifted structurally** (dataflow renaming, newest first), holding
+  **past entries only** — the newest level is computed fresh inside
+  the step, combined as `(newest, *ring)`, and the carried ring is
+  the `[:-1]` prefix of those levels (amended 2026-07-12). With the
   counter in the carry, the first chunk compiles to the same trace as
   every other, and a mid-warm-up crash restores bitwise.
 - **`supported_treatments` is an assembly check** (§5.1): an IMPLICIT
@@ -243,9 +246,12 @@ frozen pytrees, not a base class with behavior.
 
 The normative conventions:
 
-- **Rings are tuples of States, newest first**, shifted structurally:
-  `(newest, *old[:-1])` — pure dataflow renaming under trace; never a
-  stacked array + `roll`. Ring entries are **PROGNOSTIC-only
+- **Rings are tuples of States, newest first, past entries only**
+  (amended 2026-07-12): the newest level is computed fresh inside
+  the step, the combine runs over the levels `(newest, *ring)`, and
+  the carried ring is `levels[:-1]` — pure dataflow renaming under
+  trace; never a stacked array + `roll`, and never a carried copy
+  of the freshly computed level. Ring entries are **PROGNOSTIC-only
   tendency/state vectors** shaped like `init`'s template (their
   key-aligned application to a full state is
   `State.add_prognostic` — fields.md follow-up, open question 2).
@@ -427,7 +433,8 @@ import fridom.framework2 as fr
 class ABState:
     """AdamBashforth carry: tendency ring + warm-up counter."""
 
-    history: tuple[State, ...]   # length=order, newest first     # 2.5
+    history: tuple[State, ...]   # length=order-1, PAST tendencies,
+                                 # newest first                   # 2.5
     warmup: jnp.int32            # saturates at order-1           # 2.5
 
 
@@ -466,7 +473,7 @@ class AdamBashforth(TimeStepper):
         ...
 
     def init(self, tendency_template: State) -> ABState:        # 2.5
-        """Zeroed order-length ring, warmup=0."""
+        """Zeroed (order-1)-length past-tendency ring, warmup=0."""
         ...
 
     def step(                                                   # 2.5
@@ -502,20 +509,22 @@ adapted to the `BoundSchedule` seam):
         ctx     = stages.context(clock, dt=self.dt, stage_dt=self.dt)
         state   = stages.prepare(state, ctx)                # S1 + S1'
         sums    = stages.tendency(state, ctx)               # S2, pre-tick time
-        history = (sums.explicit, *sst.history[:-1])        # structural shift
+        levels  = (sums.explicit, *sst.history)             # fresh f_n over the
+                                                            # (order-1) past ring
         table   = jnp.asarray(self.table, dtype=fr.utils.dtype_real())
         weights = table[sst.warmup] * self.dt               # premultiply first
-        incr = weights[0] * history[0]
+        incr = weights[0] * levels[0]
         for j in range(1, self.order):                      # static unroll, ascending j
-            incr = incr + weights[j] * history[j]
+            incr = incr + weights[j] * levels[j]
         state = state.add_prognostic(incr)                  # S3
         clock = clock.tick(self.dt)
         ctx   = stages.context(clock, dt=self.dt, stage_dt=self.dt,
                                sums=sums)
         state = stages.advance_stages(state, ctx)           # S3'
         state = stages.constrain(state, ctx)                # S4
-        return (ABState(history, jnp.minimum(sst.warmup + 1,
-                                             self.order - 1)),
+        return (ABState(levels[:-1],                        # structural shift
+                        jnp.minimum(sst.warmup + 1,
+                                    self.order - 1)),
                 state, clock)
 ```
 
@@ -546,9 +555,9 @@ Semantics, invariants, error behavior:
 - **Bitwise parity rules** (2.7 cutover, tested in float32 and
   float64): `weights = row * dt` **premultiplied first** (never
   `dt·(c·h)` — different rounding); accumulation in **ascending j**
-  over the newest-first ring; the tendency is evaluated at the
-  **pre-tick time** (the old `_compute_tendency` order); the ring
-  shift is structural. *Scope amendment (2026-07-08)*: these rules'
+  over the newest-first levels `(f_n, *ring)`; the tendency is
+  evaluated at the **pre-tick time** (the old `_compute_tendency`
+  order); the ring shift is structural (`levels[:-1]` carried). *Scope amendment (2026-07-08)*: these rules'
   bitwiseness is a claim about the **op sequence**, verified bitwise
   **eager-vs-eager only**; jitted cutover runs are compared
   tolerance-based (≤ a few ulp per step, accumulation-aware) because
@@ -770,7 +779,8 @@ class IMEXState:
     """IMEXMultistep carry: explicit-F ring, SBDF state ring,
     warm-up counter."""
 
-    f_history: tuple[State, ...]   # summed EXPLICIT sums, newest first  # 2.5
+    f_history: tuple[State, ...]   # summed PAST EXPLICIT sums (depth-1),
+                                   # newest first                        # 2.5
     x_history: tuple[State, ...]   # past states (SBDF only; () CNAB2)   # 2.5
     warmup: jnp.int32                                                    # 2.5
 
@@ -803,7 +813,7 @@ class IMEXMultistep(TimeStepper):
         ...
 
     def init(self, tendency_template: State) -> IMEXState:     # 2.5
-        """Zeroed rings at the scheme's depths, warmup=0."""
+        """Zeroed past-entry rings (depth-1 each), warmup=0."""
         ...
 
     def step(                                                  # 2.5
@@ -851,8 +861,9 @@ Step algorithm (prose-normative):
 1. `ctx = stages.context(clock, dt=dt, stage_dt=dt)` at the pre-tick
    time; `stages.prepare` (S1/S1').
 2. `sums = stages.tendency(state, ctx)` — the summed EXPLICIT
-   contributions (S2); shift the F-ring structurally:
-   `f_history = (sums.explicit, *f_history[:-1])`; for SBDF, shift
+   contributions (S2); form the newest-first F levels over the
+   past-only carry: `f_levels = (sums.explicit, *f_history)`
+   (the carried ring becomes `f_levels[:-1]`); for SBDF, shift
    the state ring with the substage-start state.
 3. Gather the level by the saturating counter — **warm-up switches
    whole `(explicit_weights, state_weights, apply_weight, gamma)`
@@ -865,7 +876,7 @@ Step algorithm (prose-normative):
    tuple is transcription of the worked form, not a new decision.
 4. Build the rhs with the AB parity arithmetic (premultiplied
    weights, ascending j): `rhs = Σ state_weights[j]·x_hist[j] +
-   Σ (explicit_weights[j]·dt)·f_history[j] + (apply_weight·dt)·(Σ
+   Σ (explicit_weights[j]·dt)·f_levels[j] + (apply_weight·dt)·(Σ
    implicit forward applies)` — the forward apply is computed
    **fresh each step** through the term's derived explicit path
    (`op.apply` via the §5.1 write-once rule; never buffered — the
@@ -1140,9 +1151,9 @@ questions are not reopened.
    `VectorField.add`): every family's combine step in this file
    consumes it; owned by the grid-cluster fields spec.
 3. **Chunked-scan buffer donation** (implementation): AB(order) /
-   IMEX rings hold order PROGNOSTIC copies (same carry cost as the
-   old `dz_list`); confirm donation covers the rings across chunk
-   boundaries.
+   IMEX rings hold order−1 PROGNOSTIC copies (one less than the old
+   `dz_list` — past entries only, amended 2026-07-12); confirm
+   donation covers the rings across chunk boundaries.
 4. **Adaptive designed-fors** (parked until a user demands them):
    controller-state contents, the dt-in-StepperState packaging, and
    the D4 time-target interaction for `AdaptiveRungeKutta`; the

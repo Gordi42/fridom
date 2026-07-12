@@ -9,6 +9,8 @@ lifecycle mutators and their exact panic-flag semantics
 the three-operation matrix of 02_rules), and snapshot/load through
 the io store (bitwise leaves, fingerprint diff, dt checks).
 """
+import gc
+import weakref
 from functools import partial
 from typing import ClassVar
 
@@ -18,6 +20,7 @@ import numpy as np
 import pytest
 
 from fridom.framework.utils import dtype_real, jaxify
+from fridom.model.composer import TendencyComposer
 from fridom.model.declarations import (
     FieldDeclaration,
     Lifecycle,
@@ -192,12 +195,51 @@ def test_allocation_aux_defaults_via_remat_path(model):
 def test_allocation_stepper_state_and_clock(model):
     carry = model.carry
     assert isinstance(carry.stepper_state, ABState)
-    assert len(carry.stepper_state.history) == 2
+    # order 2 carries order-1 = 1 PAST-tendency ring slot
+    assert len(carry.stepper_state.history) == 1
     assert int(carry.stepper_state.warmup) == 0
     assert float(carry.clock.elapsed) == 0.0
     assert int(carry.clock.it) == 0
     assert not bool(carry.panic.flag)
     assert not model.panicked
+
+
+def test_tendency_template_buffers_are_not_retained(monkeypatch):
+    # the template is a cached zero-BUILDER, not cached buffers: the
+    # composer-built zero PROGNOSTIC vector is consumed by
+    # stepper.init and freed — no device buffer survives on the model
+    original = TendencyComposer.tendency_template
+    refs = []
+
+    def capture(self):
+        template = original(self)
+        refs.append(weakref.ref(template))
+        refs.extend(weakref.ref(leaf) for leaf
+                    in jax.tree_util.tree_leaves(template))
+        return template
+
+    monkeypatch.setattr(
+        TendencyComposer, "tendency_template", capture)
+    model = make_model()
+    gc.collect()
+    assert refs  # the composer path ran
+    assert all(ref() is None for ref in refs)
+    assert model._template_build is not None
+
+
+def test_rewarm_rebuilds_the_template_on_one_trace(
+        model, compile_counter):
+    # the builder's trace is cached: repeated re-warms (reset /
+    # update_parameters) compile NOTHING new
+    model.set_fields(b=ic())
+    model.advance(1)
+    model.reset()                        # warm every re-warm path
+    model.update_parameters({"background.n2": 2e-5})
+    compile_counter.reset()
+    model.reset()
+    model.update_parameters({"background.n2": 2e-5})
+    assert compile_counter.count == 0
+    assert len(model.carry.stepper_state.history) == 1
 
 
 def test_io_rejects_snapshots(tmp_path):

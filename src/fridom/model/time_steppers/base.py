@@ -20,10 +20,12 @@ host-constructed and contributes nothing host-side to a step.
 StepperState conventions (per-family frozen jaxified classes, no
 base class with behavior):
 
-- rings are tuples of States, **newest first**, shifted structurally
-  (``(newest, *old[:-1])`` — pure dataflow renaming, never a stacked
-  array plus roll); entries are PROGNOSTIC-only tendency vectors
-  shaped like ``init``'s template;
+- rings are tuples of States, **newest first**, holding **PAST
+  entries only** — the newest level is computed fresh inside the
+  step, combined as ``(newest, *ring)``, and the carried ring is
+  the ``[:-1]`` prefix of those levels (pure dataflow renaming,
+  never a stacked array plus roll); entries are PROGNOSTIC-only
+  tendency vectors shaped like ``init``'s template;
 - the warm-up counter is a saturating stepper-local int32 scalar
   (``jnp.minimum(counter + 1, levels - 1)``) selecting a row of a
   dense zero-padded static table — one branch-free gather per step,
@@ -173,14 +175,16 @@ class TimeStepper(abc.ABC):
 
         Description
         -----------
-        Steppers whose carry rotates with a period — the AB
-        tendency ring — return that period: inside ``lax.scan`` the
-        carry slots are fixed buffers, so a structural ring shift
-        costs ``period - 1`` full-field device copies per component
-        per step (~2 ms/step at 256^3 on an A100, 2026-07-12
-        profile), while at ``unroll = period`` the shift is pure
-        dataflow renaming and every carry slot receives a freshly
-        computed value at the body boundary. Numerics are
+        Steppers whose carry rotates — the AB past-tendency ring,
+        rotation period = ring length — return their
+        measured-fastest unroll: inside ``lax.scan`` the carry
+        slots are fixed buffers, so at unroll 1 a structural ring
+        shift costs ``ring length - 1`` full-field device copies
+        per component per step (~2 ms/step at 256^3 on an A100,
+        2026-07-12 profile); shift-free unrolls are the multiples
+        of the period, but XLA fusion across the unrolled bodies
+        can outweigh a boundary copy (AdamBashforth measures
+        fastest at ``order``, one above its period). Numerics are
         unchanged — unrolling repeats the identical step body. The
         default is 1 (no unroll).
 
