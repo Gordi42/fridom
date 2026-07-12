@@ -513,3 +513,25 @@ def test_grid_chart_coords_mirrors_the_seeding_condition():
     circle = Grid((cu, cv), mapping=CoordinateMapping(chart={
         "X": lambda u: (jnp.cos(u), jnp.sin(u))}))
     assert circle.chart_coords is None
+
+
+# ================================================================
+#  The mapped-column seam (stage C3 consumers)
+# ================================================================
+def test_column_corrections_is_the_public_coupling_table():
+    # the public twin of the seeding-side table: base and
+    # parameter-coupled coordinates map to the (mapped, base) pair
+    mapping = CoordinateMapping(
+        maps={"z": lambda sigma, H: sigma * H},
+        params={"H": depth})
+    assert mapping.column_corrections == {
+        "sigma": ("z", "sigma"), "x": ("z", "sigma")}
+
+
+def test_column_corrections_empty_for_charts_and_multibase():
+    chart = CoordinateMapping(chart={
+        "X": lambda u, v: (jnp.cos(u), jnp.sin(u), v)})
+    assert chart.column_corrections == {}
+    multibase = CoordinateMapping(
+        maps={"z": lambda x, sigma: sigma * (1.0 + x)})
+    assert multibase.column_corrections == {}
