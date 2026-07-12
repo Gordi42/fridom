@@ -135,6 +135,7 @@ spec prose keeps the historical names.
 | [`operator_symbols_plan.md`](plans/active/operator_symbols_plan.md) | active | Operator symbols — the spectral-solve substrate (superseded in part by the symbol-stack decision). |
 | [`composition_refactor_plan.md`](plans/active/composition_refactor_plan.md) | active | Composition refactor — realized-map category & one composition core. |
 | [`boundary_plan.md`](plans/active/boundary_plan.md) | active | Boundary-closure plan — 2a/2c'/2d LANDED (merge 9a95202a); only stage 2e (Robin dynamic data path) remains, gated on the model layer. |
+| [`coordinate_systems_plan.md`](plans/active/coordinate_systems_plan.md) | active | Coordinate systems — mapped, spherical, and boundary-fitted grids: staged fill-in of the designed-for metric seams (CS-D1..D4 signed 2026-07-12). |
 | [`projection_eigenmode_plan.md`](plans/active/projection_eigenmode_plan.md) | active | Projections & eigenmodes — the energy-metric design (research + plan). |
 | [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build roadmap (dependency-ordered). |
 | [`linear_term_blocks_plan.md`](plans/active/linear_term_blocks_plan.md) | active | Linear-term block signatures (the H1 pivot) — sub-plan. |
