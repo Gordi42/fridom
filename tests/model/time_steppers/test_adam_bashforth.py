@@ -289,7 +289,7 @@ def test_init_builds_a_zeroed_ring(field_table, u0):
     template = make_state(field_table, u0)
     stepper_state = stepper.init(template)
     assert isinstance(stepper_state, ABState)
-    assert len(stepper_state.history) == 3
+    assert len(stepper_state.history) == 2  # order - 1 PAST slots
     for entry in stepper_state.history:
         assert entry.component_names == ("u",)
         assert np.all(np.asarray(entry["u"].data) == 0.0)
@@ -297,6 +297,26 @@ def test_init_builds_a_zeroed_ring(field_table, u0):
     assert int(stepper_state.warmup) == 0
     # the template is untouched (functional init)
     assert np.array_equal(np.asarray(template["u"].data), u0)
+
+
+@pytest.mark.parametrize("order", [1, 2, 3, 4])
+def test_ring_carries_order_minus_one_slots(field_table, u0, order):
+    # the carry stores PAST tendencies only — the newest is computed
+    # fresh each step, so the ring (and the carry's field-leaf
+    # count) is order-1 slots, empty at order 1
+    stepper = AdamBashforth(0.5, order=order)
+    stepper_state = stepper.init(make_state(field_table, u0))
+    assert len(stepper_state.history) == order - 1
+    leaves = jax.tree_util.tree_leaves(stepper_state)
+    # (order-1) single-component ring entries + the warm-up counter
+    assert len(leaves) == (order - 1) + 1
+
+
+@pytest.mark.parametrize("order", [1, 2, 3, 4])
+def test_scan_unroll_is_the_order(order):
+    # unroll = order measured fastest on the 512^3 A100 benchmark
+    # (2026-07-12) and reproduces the pre-slimming compiled program
+    assert AdamBashforth(0.5, order=order).scan_unroll == order
 
 
 def test_ab_state_is_frozen(field_table, u0):
@@ -309,7 +329,7 @@ def test_ab_state_is_frozen(field_table, u0):
 
 
 def test_ab_state_jaxify_round_trip(field_table, u0):
-    stepper_state = AdamBashforth(0.5, order=2).init(
+    stepper_state = AdamBashforth(0.5, order=3).init(
         make_state(field_table, u0))
     leaves, treedef = jax.tree_util.tree_flatten(stepper_state)
     rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
@@ -354,15 +374,16 @@ def test_warmup_counter_saturates(field_table, u0):
 
 
 def test_ring_shift_is_newest_first(field_table, u0):
-    stepper = AdamBashforth(0.25, order=2)
+    # order 3 carries the 2 PAST tendencies (f_{n-1}, f_{n-2})
+    stepper = AdamBashforth(0.25, order=3)
     schedule, modules = decay_schedule(field_table, stepper)
     state = make_state(field_table, u0)
     stepper_state = stepper.init(state)
     clock = Clock()
     stepper_state, state1, clock = stepper.step(
         stepper_state, state, schedule.bind(modules), clock)
-    # history[0] is the newest tendency (of the pre-step state);
-    # history[1] is still the zero-initialized entry
+    # history[0] is the newest PAST tendency (of the pre-step
+    # state); history[1] is still the zero-initialized entry
     first = np.zeros_like(u0) + u0 * (-LAM)
     assert np.array_equal(
         np.asarray(stepper_state.history[0]["u"].data), first)

@@ -192,7 +192,8 @@ def test_allocation_aux_defaults_via_remat_path(model):
 def test_allocation_stepper_state_and_clock(model):
     carry = model.carry
     assert isinstance(carry.stepper_state, ABState)
-    assert len(carry.stepper_state.history) == 2
+    # order 2 carries order-1 = 1 PAST-tendency ring slot
+    assert len(carry.stepper_state.history) == 1
     assert int(carry.stepper_state.warmup) == 0
     assert float(carry.clock.elapsed) == 0.0
     assert int(carry.clock.it) == 0

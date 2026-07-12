@@ -96,16 +96,19 @@ class IMEXState:
     A per-family frozen fully-dynamic pytree (the StepperState
     conventions): it flattens with the carry and is donated with it.
     Rings are tuples of PROGNOSTIC-only vectors, newest first, shifted
-    structurally. ``x_history`` exists only for SBDF (an empty tuple
-    for CNAB2 — a treedef difference between schemes, consistent with
+    structurally, and hold PAST entries only — the newest explicit
+    contribution ``f_n`` is computed fresh inside the step and never
+    carried (the 2026-07-12 memory cut, matching ``ABState``).
+    ``x_history`` exists only for SBDF (an empty tuple for CNAB2 — a
+    treedef difference between schemes, consistent with
     scheme-as-static); it holds the PAST prognostic states beyond the
     current one (depth ``state_depth - 1``).
 
     Parameters
     ----------
     f_history : tuple[VectorField, ...]
-        The summed EXPLICIT contribution ring (newest first),
-        length ``explicit_depth``.
+        The summed PAST EXPLICIT contribution ring (newest first),
+        length ``explicit_depth - 1``.
     x_history : tuple[VectorField, ...]
         The past-state ring (SBDF only; empty for CNAB2).
     warmup : jax.Array
@@ -258,7 +261,7 @@ class IMEXMultistep(TimeStepper):
         """
         zero = _zero_vector(tendency_template)
         return IMEXState(
-            f_history=(zero,) * self._explicit_depth,
+            f_history=(zero,) * (self._explicit_depth - 1),
             x_history=(zero,) * (self._state_depth - 1),
             warmup=jnp.asarray(0, dtype=jnp.int32))
 
@@ -274,11 +277,13 @@ class IMEXMultistep(TimeStepper):
 
         Description
         -----------
-        Pre-tick prepare/tendency (S1/S1'/S2); structural ring shifts;
-        a branch-free warm-up level gather; the AB-parity rhs combine
-        (state weights on the current + past prognostic states,
-        premultiplied explicit weights on the F-ring, and the
-        forward-apply term recomputed fresh through ``op.apply``);
+        Pre-tick prepare/tendency (S1/S1'/S2); structural ring shifts
+        (the carried rings hold PAST entries only — the newest-first
+        F levels are ``(f_n, *f_history)``); a branch-free warm-up
+        level gather; the AB-parity rhs combine (state weights on
+        the current + past prognostic states, premultiplied explicit
+        weights on the F levels, and the forward-apply term
+        recomputed fresh through ``op.apply``);
         one ``op.solve`` per merged implicit operator (dt_gamma =
         gamma*dt, traced) with explicit-only fields taking the combine
         directly; the tick; then S3' ADVANCE and the once-per-step S4
@@ -306,8 +311,8 @@ class IMEXMultistep(TimeStepper):
         ctx = stages.context(clock, dt=dt, stage_dt=dt)
         state = stages.prepare(state, ctx)
         sums = stages.tendency(state, ctx)
-        # -- structural ring shifts (newest first) -------------------
-        f_history = (sums.explicit, *stepper_state.f_history[:-1])
+        # -- newest-first F levels over the past-only carry ----------
+        f_levels = (sums.explicit, *stepper_state.f_history)
         prognostic = _prognostic(state, names)
         if self._state_depth > 1:
             x_history = (prognostic,
@@ -337,7 +342,7 @@ class IMEXMultistep(TimeStepper):
         for j in range(1, self._state_depth):
             rhs = rhs + _scaled(x_current[j], state_w[j])
         for j in range(self._explicit_depth):
-            rhs = rhs + _scaled(f_history[j], explicit_w[j] * dt)
+            rhs = rhs + _scaled(f_levels[j], explicit_w[j] * dt)
         if applies is not None:
             rhs = rhs + _scaled(applies, apply_w * dt)
         # -- solves (per merged operator); explicit-only take rhs ----
@@ -356,7 +361,9 @@ class IMEXMultistep(TimeStepper):
         state = stages.constrain(state, ctx)                  # S4
         warmup = jnp.minimum(stepper_state.warmup + 1,
                              self._n_levels - 1)
-        return IMEXState(f_history, x_history, warmup), state, clock
+        # structural ring shift (dataflow renaming): carry only the
+        # explicit_depth-1 newest F levels — the oldest is dead
+        return IMEXState(f_levels[:-1], x_history, warmup), state, clock
 
     def time_discretization_effect(
         self,

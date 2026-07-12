@@ -225,6 +225,14 @@ def test_cnab2_has_no_state_ring(column_table):
     assert len(SBDF2(0.1).init(template).x_history) == 1
 
 
+@pytest.mark.parametrize("factory", [CNAB2, SBDF2])
+def test_f_ring_carries_past_entries_only(column_table, factory):
+    # the F ring stores explicit_depth-1 PAST contributions — the
+    # newest f_n is computed fresh each step (the AB memory cut)
+    template = column_state(column_table, np.zeros(COLUMN))
+    assert len(factory(0.1).init(template).f_history) == 1
+
+
 def test_imex_state_is_frozen(column_table):
     sst = CNAB2(0.1).init(column_state(column_table,
                                        np.zeros(COLUMN)))
