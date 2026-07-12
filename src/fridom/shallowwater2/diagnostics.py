@@ -226,6 +226,15 @@ def etot_full(
     machine-precision statement is: **gravity + Sadourny conserve**
     the thickness-weighted energy; **Coriolis is skew under ``M``**
     (the linearized family).
+
+    The Coriolis error is optional: assembling
+    ``sw.modules.CoriolisEnergyCorrection`` next to the linear
+    Coriolis module (or using the conserving
+    ``sw.modules.NonlinearFPlaneCoriolis`` family instead of it)
+    carries the rotation as the ``f``-part of the vector-invariant PV
+    flux, and this functional is then conserved to machine precision
+    **including** rotation — on flat, walled and chart grids
+    (``sw.modules.coriolis``).
     """
     kin = ekin_full(state, params)
     return kin + epot_full(state, params)

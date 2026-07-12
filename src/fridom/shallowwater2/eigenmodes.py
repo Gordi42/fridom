@@ -643,7 +643,12 @@ def eigenbasis(
     ------
     ValueError
         On a fully periodic or multi-walled grid.
+    LinearOperatorGapError
+        If a module declares a linear-operator gap (see
+        :func:`from_model`).
     """
+    fr.model.require_linear_operator(
+        model, consumer="sw.eigenbasis")
     bounded = _bounded_names(model.grid)
     if not bounded:
         raise ValueError(
@@ -700,7 +705,14 @@ def from_model(
         On a multi-walled grid, or — on the fully periodic path —
         if ``coriolis.f0`` or ``shallowwater.csqr`` is not provided
         (a non-constant-coefficient system).
+    LinearOperatorGapError
+        If a module declares a linear-operator gap — a conserving
+        (route-B) Coriolis module carries its rotation in a nonlinear
+        term, so ``L`` would describe a non-rotating system and its
+        eigenmodes would be wrong, not merely inaccurate.
     """
+    fr.model.require_linear_operator(
+        model, consumer="sw.eigenmodes.from_model")
     bounded = _bounded_names(model.grid)
     if len(bounded) > 1:
         raise ValueError(
