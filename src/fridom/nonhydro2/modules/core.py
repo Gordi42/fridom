@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.modules.moving_geometry import mapping_params
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
 from fridom.nonhydro2.modules.mapped_pressure import (
     MappedPressureSolver,
@@ -215,18 +216,29 @@ class DynamicalCore(fr.model.Module):
         ``p = phi / ctx.stage_dt`` normalization; the vertical
         weight ``1/dsqr`` rides the solver's ``weights`` seam
         keyed by the vertical coordinate name.
+
+        Dynamic geometry (stage C4): the CURRENT mapping-parameter
+        fields — module-owned state named after the parameters
+        (``MovingGeometry``) — thread through the solver's
+        ``params=`` seam, so every metric derivation of the
+        operator, the preconditioner means, and the corrections
+        reads the substage's geometry; a static mapped grid finds
+        no parameter fields in the state and keeps the declaration
+        defaults (the exact C3 path).
         """
         dsqr = ctx.params[DSQR]
+        grid = state["u"].grid
         vel = {
             "x": state["u"],
             "y": state["v"],
             self._vertical: state["w"],
         }
         solver = MappedPressureSolver(
-            state["u"].grid,
+            grid,
             state["p"].function_space,
             weights={self._vertical: 1.0 / dsqr},
-            iterations=self._pressure_iterations)
+            iterations=self._pressure_iterations,
+            params=mapping_params(state, grid))
         p = solver.solve(solver.divergence(vel))
         corr = solver.velocity_correction(p)
         return {

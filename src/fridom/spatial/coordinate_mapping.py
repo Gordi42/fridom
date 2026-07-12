@@ -17,8 +17,12 @@ Three declaration forms (stage C1 of the coordinate-systems plan):
   taking base coordinates and named parameter fields by keyword
   (``maps={"z": lambda sigma, H: sigma * H}``). Metric names:
   ``d<p>_d<q>`` (the map derivative with respect to coordinate
-  ``q``, parameter fields chain-ruled in) and, for single-base
-  columns, the reciprocal ``d<base>_d<p>``.
+  ``q``, parameter fields chain-ruled in), for single-base columns
+  the reciprocal ``d<base>_d<p>``, and per parameter the
+  sensitivity ``d<p>_d<param>`` (the map derivative with respect to
+  the parameter *value*, e.g. ``dz_dH = sigma``) — the stage-C4
+  ingredient of the mesh velocity, ``z_dot = dz_dH * H_dot`` for a
+  prescribed ``H(t)``.
 - **supplied metrics** — ``metrics={"name": callable}`` for cases
   with no closed form; callables take coordinates and parameters by
   keyword and are evaluated at the requested space's nodes.
@@ -154,10 +158,16 @@ class _Derivation:
         Description
         -----------
         None when the parameter does not depend on ``wrt`` (a
-        structural zero of the chain rule). Otherwise the registry
-        ``diff`` derivative of the base parameter field,
-        interpolated onto the requested staggering — the discrete
-        chain-rule ingredient of the map/chart tangents.
+        structural zero of the chain rule) — either by declaration,
+        or because the **supplied** field is constant along ``wrt``
+        (stage C4: a schedule may vary along fewer coordinates than
+        the static default declares, e.g. a time-only ``H(t)`` on a
+        declared ``H(x)`` — its spatial derivative is an exact
+        zero, and the constant factor has no ``diff`` row anyway).
+        Otherwise the registry ``diff`` derivative of the base
+        parameter field, interpolated onto the requested staggering
+        — the discrete chain-rule ingredient of the map/chart
+        tangents.
 
         Parameters
         ----------
@@ -174,6 +184,10 @@ class _Derivation:
         if wrt not in self._mapping._param_coords[name]:  # noqa: SLF001
             return None
         base = self._base(name)
+        if isinstance(base.function_space.bare.factor(wrt),
+                      ConstantSpace):
+            # the supplied field is constant along wrt: exact zero
+            return None
         return self._at_space(base.diff(wrt)).data
 
     # ------------------------------------------------------------
@@ -463,6 +477,47 @@ class _MapInverse:
         return 1.0 / jnp.asarray(tangent)
 
 
+class _MapParamDerivative:
+
+    r"""
+    ``d<p>_d<param>``: the map's sensitivity to a parameter value.
+
+    Description
+    -----------
+    The stage-C4 recipe behind mesh velocities: for a map
+    ``m = M(b, params)`` with a *prescribed* time dependence riding
+    the parameters (``H(t)``, ``Y_N(x, t)``), the physical node
+    velocity is :math:`\dot m = \sum_p (\partial M/\partial p)\,
+    \dot p`. This recipe supplies :math:`\partial M/\partial p` by
+    one ``jax.jvp`` with a unit tangent on the parameter argument
+    and zero tangents everywhere else — exact, like the coordinate
+    tangents.
+    """
+
+    def __init__(self, decl: _Declared, param: str,
+                 deps: frozenset[str]) -> None:
+        self.decl = decl
+        self.param = param
+        self.deps = deps
+
+    def evaluate(self, ctx: _Derivation) -> jax.Array:
+        """Autodiff the map along the parameter value."""
+        decl = self.decl
+        values = _arguments(decl, ctx)
+        primals = tuple(values[name] for name in decl.order)
+        tangents = tuple(
+            jnp.ones_like(values[name]) if name == self.param
+            else jnp.zeros_like(values[name])
+            for name in decl.order)
+
+        def positional(*args: jax.Array) -> object:
+            return decl.fn(**dict(zip(decl.order, args,
+                                      strict=True)))
+
+        _, tangent = jax.jvp(positional, primals, tangents)
+        return jnp.asarray(tangent)
+
+
 class _Supplied:
 
     """A user-supplied metric callable, sampled at the nodes."""
@@ -614,6 +669,20 @@ class CoordinateMapping:
     def param_names(self) -> tuple[str, ...]:
         """The named parameters of the map (H, eta, ...)."""
         return tuple(self._params)
+
+    @property
+    def param_coords(self) -> dict[str, tuple[str, ...]]:
+        """
+        Declared coordinate dependence of each parameter (a copy).
+
+        Description
+        -----------
+        Parameter name -> the coordinate names its static default
+        callable declares — the shape contract a caller-supplied
+        dynamic field (the ``params=`` overload, and the stage-C4
+        ``MovingGeometry`` schedules) must not exceed.
+        """
+        return dict(self._param_coords)
 
     @property
     def metric_names(self) -> tuple[str, ...]:
@@ -789,6 +858,10 @@ class CoordinateMapping:
             base = decl.coords[0]
             self._add(f"d{base}_d{mapped}",
                       _MapInverse(decl, base, deps))
+        for param in decl.params:
+            # parameter sensitivity (stage C4: mesh velocities)
+            self._add(f"d{mapped}_d{param}",
+                      _MapParamDerivative(decl, param, deps))
 
     def _declare_chart(
         self,

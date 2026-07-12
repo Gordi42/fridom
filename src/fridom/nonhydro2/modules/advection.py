@@ -67,6 +67,29 @@ advecting velocity (background included) by the nonlinear scaling
 factor (``mset.tendencies.advection.scaling = rossby_number``), i.e.
 ``Ro * S(u' + U, q)`` — old users passed pre-scaled backgrounds.
 
+**Mapped grids (centered scheme, stage C4)**: on a grid whose
+``CoordinateMapping`` declares a mapped column ``m = M(b, params)``
+(terrain-following ``zp = z * H(x, y)``, boundary-fitted
+``yp = y * Y_N(x)``), the honest transport is the **physical** flux
+divergence :math:`-\sum_i \partial F_i/\partial x_i|_{\rm phys}` of
+the physical velocity fluxes :math:`F_i = v_i\,q`. The module
+assembles it per axis from the sketch-4.4 pieces at the module level
+(the flux spaces carry wall tags the registry-seeded
+``physical_diff`` builder cannot hop across):
+``d/dx_i|_phys F_i = d_i F_i - (Z_i/J) interp(d_b F_i)`` on the
+coupled axes and ``(1/J) d_b F_b`` along the column, every metric
+coefficient derived through ``grid.metric`` **at application** with
+the CURRENT dynamic parameter fields threaded through ``params=``
+(the ``MovingGeometry`` state; static mapped grids keep the
+declaration defaults). This is consistent (2nd order) but not the
+J-weighted telescoping conservative form — the mapped pressure
+operator keeps that exactness where it is load-bearing (SPD). On a
+FLAT grid the divergence helper is literally the pre-C4 expression
+``flux.diff(axis).retag(q)`` — zero behavior change. The biased
+schemes (``UpwindAdvection``/``WENOAdvection``) reject mapped
+columns at bind with a taught error: their order-wide windows need
+a mapped-aware reconstruction — future work.
+
 **Walled grids (centered scheme)**: ``CenteredAdvection`` supports
 bounded mesh factors (channel walls, rigid lids, and their
 combinations) with **no boundary-condition physics choice** — no
@@ -104,6 +127,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, final
 import numpy as np
 
 import fridom as fr
+from fridom.model.modules.moving_geometry import mapping_params
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
@@ -779,6 +803,12 @@ class _FluxFormAdvection(fr.model.Module):
     #: centered hooks do; the biased subclasses override to False)
     _supports_walled: ClassVar[bool] = True
 
+    #: whether the scheme's flux divergence routes through the
+    #: physical (mapped) form on a mapped column (the centered
+    #: scheme does; the biased subclasses opt out — their windows
+    #: need a mapped-aware reconstruction, future work)
+    _supports_mapped: ClassVar[bool] = True
+
     def __init__(
         self,
         background: Mapping[str, Callable | float] | None = None,
@@ -790,6 +820,9 @@ class _FluxFormAdvection(fr.model.Module):
             _check_background(background))
         self._background_axes: tuple[tuple[str, str], ...] = ()
         self._background_by_axis: dict[str, str] = {}
+        self._column: tuple[str, str] | None = None
+        self._corrections: dict[str, tuple[str, str]] = {}
+        self._halo_axes: tuple[str, ...] = ()
 
     # ------------------------------------------------------------
     #  Background declarations (AUXILIARY profile samples)
@@ -865,12 +898,62 @@ class _FluxFormAdvection(fr.model.Module):
                 "future work. Use CenteredAdvection (walled-"
                 "capable) or a linear model (advection=False in "
                 "nh.Model)")
+        self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
         self._axis_velocity = tuple(
             (axis, name) for name, axis in selector.labels)
         self._bind_background(table)
+
+    def _bind_mapping(self, grid: object) -> None:
+        """Freeze the mapped-column coupling table (stage C4).
+
+        Raises
+        ------
+        NotImplementedError
+            On a grid whose mapping declares a mapped column when
+            the scheme opts out through `_supports_mapped` (the
+            biased subclasses — their order-wide windows need a
+            mapped-aware reconstruction, future work), or when the
+            mapping declares more than one column (mirroring the
+            stage-C3 pressure solver support).
+        """
+        mapping = getattr(grid, "mapping", None)
+        corrections = (mapping.column_corrections
+                       if mapping is not None else {})
+        if not corrections:
+            return
+        if not self._supports_mapped:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support mapped "
+                "grids (the coordinate mapping declares a mapped "
+                "column): the biased face reconstructions are "
+                "computational-coordinate rows and would silently "
+                "misrepresent physical transport — future work. "
+                "Use CenteredAdvection (mapped-capable, stage C4) "
+                "or a linear model (advection=False in nh.Model)")
+        columns = set(corrections.values())
+        if len(columns) != 1:
+            raise NotImplementedError(
+                f"mapped advection supports exactly one mapped "
+                f"column, got {sorted(columns)} "
+                "(coordinate-systems plan, stage C4)")
+        self._column = next(iter(columns))
+        self._corrections = dict(corrections)
+        self._halo_axes = tuple(grid.names)
+
+    #: on a mapped grid the flux divergence multiplies grid.metric
+    #: coefficients the halo tracer cannot follow (V-N2): declare
+    #: the stencil substitute (diff + interp chains, depth 2 — the
+    #: DynamicalCore precedent). None on flat grids: the flat path
+    #: stays fully halo-traced, exactly as before stage C4.
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """Two halo cells per coordinate on mapped grids only."""
+        if self._column is None:
+            return None
+        return HaloSpec(dict.fromkeys(self._halo_axes, 2))
 
     def _bind_background(self, table: object) -> None:
         """Freeze the axis -> background-sample mapping.
@@ -1007,11 +1090,91 @@ class _FluxFormAdvection(fr.model.Module):
             space = space.replace(**{axis: v_factor})
         return space
 
+    def _geometry_params(self, state: object) -> dict | None:
+        """Collect the CURRENT mapping-parameter fields (mapped)."""
+        if self._column is None:
+            return None
+        return mapping_params(state, state[self._advected[0]].grid)
+
+    def _flux_divergence(
+        self,
+        q: ScalarField,
+        flux: ScalarField,
+        axis: str,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""
+        Physical flux divergence of one axis, on ``q``'s space.
+
+        Description
+        -----------
+        Flat grids: literally the pre-C4 expression
+        ``flux.diff(axis).retag(q)`` (zero behavior change). On a
+        mapped column ``m = M(b, params)`` (module docstring):
+
+        - ``axis == b``: ``(1/J) d_b F_b`` — the derivative along
+          the column's physical image;
+        - coupled ``axis``: ``d_i F_i - (Z_i/J) interp(d_b F_i)``,
+          the correction interpolated onto the main term's
+          staggering (BC-sibling hops resolved through the
+          registry, wall tags re-adopted by ``retag``);
+        - uncoupled ``axis``: the plain computational derivative
+          (the physical and computational derivatives agree).
+
+        Every metric derives via ``grid.metric`` at application with
+        the current ``params`` — nothing cached (rules 2.3/3.8).
+
+        Parameters
+        ----------
+        q : ScalarField
+            The advected quantity (the divergence's target space).
+        flux : ScalarField
+            The advective flux on ``q``'s control-volume faces.
+        axis : str
+            The flux axis.
+        params : dict | None
+            The dynamic mapping-parameter fields (None on flat and
+            static-default mapped grids).
+
+        Returns
+        -------
+        ScalarField
+            The flux divergence on ``q``'s (wall-tagged) space.
+        """
+        if self._column is None:
+            return flux.diff(axis).retag(q)
+        mapped, base = self._column
+        grid = q.grid
+        div = flux.diff(axis)
+        if axis == base:
+            inv_j = grid.metric(
+                div.function_space, f"d{base}_d{mapped}",
+                params=params)
+            return (div * inv_j).retag(q)
+        if axis not in self._corrections:
+            return div.retag(q)
+        dcol = flux.diff(base)
+        space = dcol.function_space
+        coeff = (
+            grid.metric(space, f"d{mapped}_d{axis}", params=params)
+            / grid.metric(space, f"d{mapped}_d{base}",
+                          params=params))
+        corr = coeff * dcol
+        registry = grid.dispatch
+        for name in (base, axis):
+            src = corr.function_space.bare.factor(name)
+            dst = div.function_space.bare.factor(name)
+            if src is dst or _bc_siblings(src, dst):
+                continue
+            corr = registry.resolve("interpolate", src)[name](corr)
+        return (div - corr.retag(div)).retag(q)
+
     def _advect(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
         """Flux-form transport of every advected component (Ro-scaled)."""
         ro = ctx.params[fr.model.params.SCALING_ROSSBY]
+        params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
@@ -1022,9 +1185,10 @@ class _FluxFormAdvection(fr.model.Module):
                 v_face = self._velocity_face(v, flux_space)
                 flux = v_face * self._face_value(
                     q, v_face, axis, flux_space)
-                # the retag lands the self-advection divergence back
-                # on q's wall-tagged space (identity when periodic)
-                divergence = flux.diff(axis).retag(q)
+                # the divergence lands back on q's wall-tagged space
+                # (flat grids: literally flux.diff(axis).retag(q))
+                divergence = self._flux_divergence(
+                    q, flux, axis, params)
                 res = -divergence if res is None else res - divergence
             out[qname] = ro * res
         return out
@@ -1099,6 +1263,7 @@ class _FluxFormAdvection(fr.model.Module):
         ScalarField
             The full-velocity transport of ``q``.
         """
+        params = self._geometry_params(state)
         res = None
         for axis, vname in self._axis_velocity:
             v = ro * state[vname]
@@ -1109,7 +1274,8 @@ class _FluxFormAdvection(fr.model.Module):
             v_face = self._velocity_face(v, flux_space)
             flux = v_face * self._face_value(
                 q, v_face, axis, flux_space)
-            divergence = flux.diff(axis).retag(q)
+            divergence = self._flux_divergence(q, flux, axis,
+                                               params)
             res = -divergence if res is None else res - divergence
         return res
 
@@ -1138,13 +1304,15 @@ class _FluxFormAdvection(fr.model.Module):
         ScalarField
             The linear background transport of ``q``.
         """
+        params = self._geometry_params(state)
         res = None
         for axis, sample in self._background_axes:
             flux_space = self._flux_space(q, state[sample], axis)
             v_face = self._velocity_face(state[sample], flux_space)
             flux = v_face * self._linear_face_value(
                 q, v_face, axis, flux_space)
-            divergence = flux.diff(axis).retag(q)
+            divergence = self._flux_divergence(q, flux, axis,
+                                               params)
             res = -divergence if res is None else res - divergence
         return res
 
@@ -1320,6 +1488,11 @@ class UpwindAdvection(_FluxFormAdvection):
     #: the order-wide biased windows need a one-sided near-wall
     #: treatment — future work (taught rejection at bind)
     _supports_walled: ClassVar[bool] = False
+
+    #: the biased reconstructions are computational-coordinate rows;
+    #: mapped columns need a mapped-aware variant — future work
+    #: (taught rejection at bind)
+    _supports_mapped: ClassVar[bool] = False
 
     def __init__(
         self,

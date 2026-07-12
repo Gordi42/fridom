@@ -961,6 +961,37 @@ def test_chart_only_mapping_seeds_no_physical_diff_row(mx, my):
                               mx.center * my.center)
 
 
+def test_bounded_mapped_column_seeds_the_one_sided_closure(mx):
+    # the near-wall closure of the correction chains (stage C4):
+    # a BOUNDED mapped column opens the BC-free Inner -> Center
+    # interpolation hop with the explicit one-sided variant
+    ms = IntervalMesh(8, (0.0, 1.0), periodic=False, name="sigma")
+    mapping = CoordinateMapping(
+        maps={"z": lambda sigma, H: sigma * H},
+        params={"H": _depth})
+    grid = Grid((mx, ms), mapping=mapping)
+    op = grid.dispatch.resolve("interpolate", ms.inner)["sigma"]
+    assert op.boundary == "one_sided"
+    # the coupled (periodic) coordinate is untouched
+    assert grid.dispatch.resolve(
+        "interpolate", mx.center)["x"].boundary == "closed"
+
+
+def test_periodic_mapped_column_seeds_no_closure(mapped_grid):
+    # a periodic column has no wall to close; nothing extra seeds
+    _, ms = mapped_grid.factors
+    with pytest.raises(ValueError, match="bounded"):
+        ms.inner  # noqa: B018 — the property itself raises
+
+
+def test_flat_bounded_column_keeps_the_closed_legality(mx, mzm):
+    # without a mapping the BC-free Inner -> Center hop stays
+    # closed (boundary_plan 2c): zero behavior change on flat grids
+    grid = Grid((mx, mzm))
+    with pytest.raises(DispatchError):
+        grid.dispatch.resolve("interpolate", mzm.inner)
+
+
 # ================================================================
 #  Chart seeding: the metric-aware vector calculus (stage C2)
 # ================================================================

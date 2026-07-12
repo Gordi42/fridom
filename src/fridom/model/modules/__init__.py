@@ -20,6 +20,11 @@ if TYPE_CHECKING:  # pragma: no cover
         FPlaneCoriolis,
         SphericalCoriolis,
     )
+    from .moving_geometry import (
+        MeshVelocityCorrection,
+        MovingGeometry,
+        mapping_params,
+    )
     from .relaxation import Relaxation
 
 base = "fridom.model.modules"
@@ -29,6 +34,9 @@ all_modules_by_origin: dict[str, list[str]] = {}
 all_imports_by_origin = {
     f"{base}.coriolis": ["FPlaneCoriolis", "BetaPlaneCoriolis",
                           "SphericalCoriolis"],
+    f"{base}.moving_geometry": ["MovingGeometry",
+                                "MeshVelocityCorrection",
+                                "mapping_params"],
     f"{base}.relaxation": ["Relaxation"],
 }
 

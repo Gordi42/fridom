@@ -23,6 +23,7 @@ from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
 )
+from fridom.model.modules.moving_geometry import MovingGeometry
 from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
@@ -40,6 +41,7 @@ from fridom.nonhydro2.modules.stratification import (
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -890,3 +892,54 @@ def test_function_structural_zero_guard(function_setup):
     assert callable(em.function(lambda om: 1.0 / (1j * om), (1, -1)))
     with pytest.raises(ValueError, match="branches"):
         em.function(np.ones_like, 2)
+
+
+# ================================================================
+#  Dynamic geometry threads through the mapped projection (C4)
+# ================================================================
+def _make_terrain_model(init, *modules):
+    """Small terrain-following linear model, ``zp = z * H(x)``."""
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H}, params={"H": init})
+    grid = Grid((
+        IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
+        IntervalMesh(N, (0.0, 1.0), periodic=False, name="z"),
+    ), mapping=mapping)
+    return nh.Model(grid=grid, dt=DT, advection=False,
+                    modules_extra=modules)
+
+
+def test_projection_reads_the_current_mapping_parameters():
+    # the stage-C4 seam of DynamicalCore._project_mapped: a
+    # MovingGeometry frozen at a depth DIFFERENT from the grid's
+    # static default drives the solve — the run matches a static
+    # grid built at that depth, and a static mapped grid (no
+    # parameter state) keeps the exact C3 declaration-default path
+    def default(x):
+        return 1.0 + 0.2 * jnp.sin(x)
+
+    def other(x):
+        return 1.0 + 0.1 * jnp.cos(2.0 * x)
+
+    moving = _make_terrain_model(
+        default,
+        MovingGeometry({"H": lambda x, t: other(x) + 0.0 * t}))
+    static = _make_terrain_model(other)
+    stale = _make_terrain_model(default)
+    hor = (np.arange(N) + 0.5) * (2 * np.pi / N)
+    ver = (np.arange(N) + 0.5) / N
+    x, _, z = np.meshgrid(hor, hor, ver, indexing="ij")
+    fields = {"u": 0.01 * np.sin(x) * np.cos(np.pi * z),
+              "b": 0.01 * np.cos(x) * np.cos(np.pi * z)}
+    for model in (moving, static, stale):
+        model.set_fields(**fields)
+        model.advance(5)
+    for c in ("u", "v", "w", "b", "p"):
+        a = np.asarray(static.state[c].data)
+        b = np.asarray(moving.state[c].data)
+        scale = max(np.abs(a).max(), 1e-30)
+        assert np.abs(a - b).max() <= 1e-12 * scale, c
+    # and the current values genuinely differ from the defaults
+    assert not np.allclose(np.asarray(moving.state["w"].data),
+                           np.asarray(stale.state["w"].data))
