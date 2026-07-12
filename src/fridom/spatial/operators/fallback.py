@@ -51,6 +51,14 @@ whose biased window stays inside ``[0, n-1]``: the interior-vs-boundary
 split is a STATIC index partition (never a data-dependent
 ``jnp.where``), matching the slice-window rules the WENO kernel
 follows.
+
+The ladder arithmetic, the wall-window builder and the multi-device
+``patch_physical_ends`` seam are shared with the nodal C-grid graded
+closure (``nonhydro2.modules.advection``) and live in
+:mod:`~fridom.spatial.operators.graded`; the average family is that
+module's ``shift = 0`` cell frame (the cells *are* the operand's true
+DOFs, so a BC-free bounded ``CellAvg`` offers nothing outside them --
+``K = O // 2 + 0``, matching the derivation above).
 """
 # Wave 4.x (F1): Fallback, UpwindOne, graded_ladder,
 #    graded_reconstruction
@@ -58,13 +66,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, Literal, final
 
-import jax
-
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.operators.base import (
     FieldLike,
     OperatorRequirements,
     SeparableOperator,
+)
+from fridom.spatial.operators.graded import (
+    Rung,
+    apply_graded_walls,
+    biased_offset,
 )
 from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
@@ -459,15 +470,16 @@ class Fallback(SeparableOperator):
         the shared ``apply_fv_staggered`` tail (resolving the bounded
         ``CellAvg -> Inner`` codomain through ``self.codomain``); its
         near-wall output slots are computed from exterior cells and are
-        discarded. (2) Hand the two physical-wall ends to the
-        decomposition seam ``patch_physical_ends`` with a shard-blind
-        ``patch`` closure that, per wall, overwrites the ``K`` reduced
-        faces of one local block from that block's wall-side interior
-        cells (indexed off the **local** true count ``t``, never the
-        global ``n`` -- so it is correct whether the axis is
-        undistributed or genuinely sharded). (3) The bounded
-        halo-validity reset is inherited from the interior tail. On a
-        periodic axis there are no walls and the interior pass is
+        discarded. (2) Hand the two physical-wall ends to the shared
+        graded tail ``graded.apply_graded_walls`` (the ``shift = 0``
+        cell frame: the ``CellAvg`` DOFs *are* the lattice cells), which
+        drives the decomposition seam ``patch_physical_ends`` and, per
+        wall, overwrites the ``K`` reduced faces of one local block from
+        that block's wall-side interior cells -- indexed off the
+        **local** true count, never the global ``n``, so it is correct
+        whether the axis is undistributed or genuinely sharded. (3) The
+        bounded halo-validity reset is inherited from the interior tail.
+        On a periodic axis there are no walls and the interior pass is
         returned unchanged.
 
         Parameters
@@ -487,7 +499,7 @@ class Fallback(SeparableOperator):
         mesh = factor.mesh
         order = self._interior.order
         bias = self._interior.bias
-        m0 = order // 2 if bias == "left" else order // 2 - 1
+        m0 = biased_offset(order, bias)
 
         def kernel(arr: Array, axis_index: int) -> Array:
             return weno_reconstruct(arr, axis_index, order=order,
@@ -498,94 +510,42 @@ class Fallback(SeparableOperator):
         if getattr(mesh, "periodic", False):
             return interior
 
-        k = self._k
-        boundary = self._boundary
-        axis_index = space.names.index(axis)
-
-        def patch(
-            in_block: Array,
-            out_block: Array,
-            side: int,
-            width_in: int,
-            t_in: int | Array,  # noqa: ARG001 — window offset via face
-            width_out: int,
-            t_out: int | Array,
-        ) -> Array:
-            """Overwrite one wall's ``K`` reduced faces of a block.
-
-            ``side`` 0 is the left wall (faces ``1 .. K``); side 1 is
-            the right wall, whose reduced faces are anchored off the
-            block's LOCAL true count ``t_out`` (physical face
-            ``t_out - d + 1``), so the write lands in the correct block
-            under any sharding. ``t_in`` / ``t_out`` may be traced, so
-            all indexing goes through ``_rung_value`` /
-            ``_set_slot``'s dynamic slices.
-            """
-            for d in range(1, k + 1):
-                rung = boundary[k - d]
-                face = d if side == 0 else t_out - d + 1
-                value = _rung_value(in_block, axis_index, width_in,
-                                    face, rung.order, bias)
-                slot = width_out + (face - 1)  # Inner DOF face-1
-                out_block = _set_slot(out_block, axis_index, slot,
-                                      value)
-            return out_block
-
-        data = f.grid.decomposition.patch_physical_ends(
-            interior._data,  # noqa: SLF001 — plumbing seam
-            f._data,  # noqa: SLF001 — documented storage seam
-            interior.function_space.bare, space, axis, patch,
-            layout=f.function_space.layout)
-
-        return type(f)(f.grid, interior.function_space, data,
-                       f.metadata, halo_valid=interior.halo_valid)
+        rungs = tuple(
+            _weno_rung(rung.order, bias) for rung in self._boundary)
+        return apply_graded_walls(f, axis, interior, rungs, shift=0)
 
 
-def _rung_value(
-    storage: Array,
-    axis_index: int,
-    width: int,
-    face: int | Array,
-    order: int,
-    bias: Literal["left", "right"],
-) -> Array:
+def _weno_rung(
+    order: int, bias: Literal["left", "right"],
+) -> Rung:
     """
-    Interior-only reconstruction at local ``face`` (one rung).
+    Build the graded rung of one WENO ladder step.
 
     Description
     -----------
-    The rung's biased window is anchored so it stays inside the block's
-    true region. For order 1 it is the single upwind cell
-    (``_shu_row(1, .)`` = unit coefficient): cell ``face-1`` (left
-    bias) or ``face`` (right bias). For order ``p >= 3`` the window is
-    the ``p`` true cells ``[t, t+p-1]`` with ``t = face - m0p - 1``
-    (``m0p = p//2`` left / ``p//2-1`` right); ``weno_reconstruct`` on
-    that length-``p`` slice yields the single face value. ``face`` may
-    be a traced scalar (right wall under ``shard_map``), so the window
-    is taken with ``lax.dynamic_slice_in_dim`` (a static slice when
-    ``face`` is a Python int). Both windows lie in the true region, so
-    no exterior cell is read. The result keeps a size-1 ``axis_index``.
+    Order 1 is the single upwind cell (``_shu_row(1, .)`` = unit
+    coefficient), so its kernel is the identity on the size-1 window;
+    order ``p >= 3`` runs ``weno_reconstruct`` on the length-``p``
+    window, which yields exactly the single face value.
+
+    Parameters
+    ----------
+    order : int
+        The rung's odd formal order.
+    bias : Literal["left", "right"]
+        The shared upwind bias side.
+
+    Returns
+    -------
+    Rung
+        The (size, offset, kernel) triple of the rung.
     """
+    offset = biased_offset(order, bias)
     if order == 1:
-        cell = (face - 1) if bias == "left" else face
-        return jax.lax.dynamic_slice_in_dim(
-            storage, width + cell, 1, axis_index)
-    m0p = order // 2 if bias == "left" else order // 2 - 1
-    start = width + (face - m0p - 1)
-    window = jax.lax.dynamic_slice_in_dim(
-        storage, start, order, axis_index)
-    return weno_reconstruct(window, axis_index, order=order, bias=bias)
+        return Rung(1, offset, lambda arr, _axis: arr)
 
+    def kernel(arr: Array, axis_index: int) -> Array:
+        return weno_reconstruct(arr, axis_index, order=order,
+                                bias=bias)
 
-def _set_slot(
-    data: Array, axis_index: int, slot: int | Array, value: Array,
-) -> Array:
-    """Overwrite one output face slot (``value`` keeps a size-1 axis).
-
-    ``slot`` may be a traced scalar (right wall under ``shard_map``);
-    a ``lax.dynamic_update_slice_in_dim`` writes the size-1 ``value``
-    at ``slot`` (a static update when ``slot`` is a Python int, so the
-    single-shard result is bitwise the plain ``.at[slot].set``).
-    """
-    return jax.lax.dynamic_update_slice_in_dim(
-        data, value, slot, axis_index)
+    return Rung(order, offset, kernel)

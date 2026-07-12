@@ -139,6 +139,8 @@ spec prose keeps the historical names.
 | [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build roadmap (dependency-ordered). |
 | [`linear_term_blocks_plan.md`](plans/active/linear_term_blocks_plan.md) | active | Linear-term block signatures (the H1 pivot) — sub-plan. |
 | [`phase2_grid_followups.md`](plans/active/phase2_grid_followups.md) | active | Phase-2 reconciliation — grid-layer follow-up work items. |
+| [`high_order_mapped_plan.md`](plans/active/high_order_mapped_plan.md) | draft | High-order stencils on mapped grids — the metric-identity obstacle, option table, the walled prerequisite, the open Jacobian spike. |
+| [`chart_ergonomics_plan.md`](plans/active/chart_ergonomics_plan.md) | draft | Chart / sphere setup ergonomics — E1..E5, severity-ordered (FPlaneCoriolis on a chart grid is silently wrong). |
 
 ## `plans/done/` — shipped plans (kept as records)
 
@@ -187,6 +189,7 @@ are the per-decision research behind `specs/model/` (see
 | [`nnmd_literature.md`](research/nnmd_literature.md) | frozen | NNMD literature sweep (R1 of the NNMD rewrite plan). |
 | [`parity_audit.md`](research/parity_audit.md) | frozen | framework2 §8.8 cutover-parity audit. |
 | [`boundary_design_explainer.md`](research/boundary_design_explainer.md) | frozen | Dev's extrapolation-fill vs the framework2-boundaries R1 flip — side-by-side explainer grounding the blocked boundary decision. |
+| [`xla_spmd_fft_fault.md`](research/xla_spmd_fft_fault.md) | frozen | XLA SPMD-FFT fault: a jitted FFT on a sharded axis RET_CHECKs; reproducer, condition matrix, prior art, the fridom-side mitigation. |
 
 ## `archive/` — held / superseded
 

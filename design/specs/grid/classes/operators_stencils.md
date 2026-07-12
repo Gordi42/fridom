@@ -528,6 +528,80 @@ Notes:
 
 ---
 
+## Amendment (2026-07-12, stages C0–C4): mapped-mesh grounding
+
+Which stencil rows are grounded on a **mapped** (stretched) factor —
+a mesh exposing a `coordinate_map`, i.e. `MappedIntervalMesh`. Landed
+with the coordinate-systems work
+([`../../../plans/done/coordinate_systems_plan.md`](../../../plans/done/coordinate_systems_plan.md),
+stages C0–C4 plus the follow-up guard merge `fe24b9f7`). The rule
+below is normative; the deferred generalization is
+[`../../../plans/active/high_order_mapped_plan.md`](../../../plans/active/high_order_mapped_plan.md).
+
+### The rule
+
+A stencil row is grounded on a mapped mesh iff it does not combine
+**uniform node offsets** with a **spacing divisor**. Concretely:
+
+- The measure fields the grid materializes (`grid.measure`) are
+  **two-point** differences of the node positions, so as a discrete
+  Jacobian they are themselves only 2nd-order accurate.
+- A wide uniform-offset row divided by that measure is therefore
+  *consistent but 2nd order* — the **metric**, not the stencil, caps
+  the order. The scheme keeps its formal weights and silently loses
+  its design order.
+
+So: **wide row + spacing divisor ⇒ refuse on a mapped mesh.** The
+shared "why" clause of every such refusal is
+`staggering.mapped_order_hint` (`operators/staggering.py:504`); the
+routing/refusal predicate is `mapped_factor` / `mapped_mesh`
+(`operators/staggering.py:447`, `:471`).
+
+Measured order loss before the guards landed (tanh-stretched axis):
+upwind-5 and weno-5 both 5.0 -> 2.0; upwind-3 3.0 -> ~2.6.
+
+### Guarded (raise on a mapped factor)
+
+| Row | Guard | Site |
+|---|---|---|
+| `FiniteDifference(order > 2)` | `NotImplementedError` | `operators/finite_difference.py:322` |
+| `FiniteDifference(boundary="one_sided")`, any order | `NotImplementedError` | `operators/finite_difference.py:330` |
+| `WenoReconstruction` (all orders/biases) | `SpaceMismatchError` | `weno.require_uniform_mesh`, `operators/weno.py:238` |
+| `Fallback` (the graded WENO ladder) | `SpaceMismatchError` | `operators/fallback.py:407` — every rung of order >= 3 is a Shu row |
+| nonhydro2 `_BiasedFaceReconstruction` | `SpaceMismatchError` | `nonhydro2/modules/advection.py:499` |
+| nonhydro2 `UpwindAdvection` / `WENOAdvection` | `NotImplementedError` at `bind` | `_supports_mapped = False`, `nonhydro2/modules/advection.py:1564`, checked in `_require_uniform_factors` (`:974`) |
+
+The `FiniteDifference` order > 2 refusal is the archetype; the biased
+rows are its siblings, not a new rule. The advection-module guard is
+a *second* surface of the same refusal: a plain stretched grid carries
+no `CoordinateMapping`, so `mapping.column_corrections` is empty and
+the mapped-**column** guard (`advection.py:955`) never fires — hence
+the separate factor scan. `UpwindAdvection`/`WENOAdvection` are also
+**periodic-only** (`_supports_walled = False`, `advection.py:1559`):
+the order-wide biased windows reach across a wall.
+
+### Audited and deliberately *not* guarded
+
+- **`UpwindOne`** (`operators/fallback.py:115`): the innermost ladder
+  rung is a one-cell row whose single coefficient is unity — it has no
+  offsets, so it is **bitwise identical** on a stretched mesh and its
+  design order 1 survives. Guarding it would be wrong.
+- **`LinearInterp(boundary="one_sided")`** (`operators/interp.py:355`):
+  the wall patch solves its weights on uniform node *offsets*, but with
+  `derivative=0` and `spacing=1.0` — **there is no 1/spacing factor**,
+  so no discrete Jacobian enters and the design order survives.
+  Measured on a tanh-stretched mesh: 2.0 / 2.0 / 2.05 / 2.02.
+  This is exactly why the *same* closure on `FiniteDifference` is
+  refused: at `derivative=1` the patch does divide by the spacing.
+  The asymmetry is the point, not an oversight.
+
+Centered order-2 rows (`LinearInterp`, `LinearReconstruction`,
+`FiniteDifference(order=2)`, `flux_diff`, `CenteredAdvection`) stay
+available on mapped meshes — their two-point stencils are exactly the
+rows the two-point measure field grounds.
+
+---
+
 ## Spectral (coefficient-space) operators
 
 ### SpectralDerivative
