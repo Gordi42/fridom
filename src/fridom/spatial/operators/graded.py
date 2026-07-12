@@ -79,6 +79,33 @@ DOFs. Both ladders bottom out at the wall-adjacent face: the 1st-order
 upwind cell (biased) or the two-point mean (centered). Every index above
 is a compile-time constant, so the interior-vs-wall split is a **static**
 index partition, never a data-dependent ``jnp.where``.
+
+The bottom rung of a biased ladder (``wall=``)
+----------------------------------------------
+The wall-adjacent rung of a *biased* ladder is the one place where the
+closure has a genuine choice, and it is the user's
+(:func:`biased_specs`):
+
+- ``wall="upwind1"`` (default) — the 1st-order upwind cell. Monotone
+  and dissipative exactly where a boundary layer or a front may sit,
+  but its face value carries an :math:`O(h)` error, which the FD-flux
+  difference turns into an :math:`O(h)` tendency error at the wall
+  cell (the wall-normal velocity vanishes linearly, which is what
+  saves it from :math:`O(1)`). The global rate on a walled axis is
+  therefore ~1, whatever the interior order.
+- ``wall="centered2"`` — the two-point mean of the two cells that
+  straddle the wall-adjacent face. It reads exactly the same cells the
+  upwind rung's window is a subset of, so it is just as interior-only
+  (R1), and its :math:`O(h^2)` face value lifts the global rate to ~2.
+  The price is that the wall-adjacent face carries **no upwind bias**
+  and hence no numerical dissipation: both members of an upwind pair
+  return the same value there, so a front sitting on the wall is
+  reconstructed by a centered stencil and may ring.
+
+Both rungs are exact on constants (free-stream preservation) and
+neither changes the impermeability argument: a graded operator only
+ever writes the *interior* faces, and the wall flux is a structural
+zero of the flux space, not something a rung computes.
 """
 from __future__ import annotations
 
@@ -263,6 +290,106 @@ def centered_ladder(size: int, shift: int) -> tuple[int, ...]:
     """
     k = centered_rows(size, shift)
     return tuple(min(size, 2 * d) for d in range(k, 0, -1))
+
+
+#: the bottom-rung options of a biased graded ladder (``wall=``):
+#: the 1st-order upwind cell (monotone, globally 1st order) or the
+#: two-point centered mean (globally 2nd order, no upwind dissipation
+#: on the wall-adjacent face) — see the module docstring
+WALL_RUNGS = ("upwind1", "centered2")
+
+
+class RungSpec(NamedTuple):
+
+    """
+    One rung of a graded ladder, before its kernel is built.
+
+    Description
+    -----------
+    The kernel-free half of a `Rung`: which *family* of stencil the
+    rung is (an upwind-biased odd-order row, or a symmetric even-size
+    one) and how wide its window is. The holding operator turns a spec
+    into a `Rung` by attaching its own array kernel (the biased rows
+    are WENO- or linear-weighted, which ``graded`` does not know).
+
+    Parameters
+    ----------
+    family : Literal["biased", "centered"]
+        The stencil family: "biased" (odd ``width`` = its formal
+        order) or "centered" (even ``width``).
+    width : int
+        The rung's window width in lattice cells.
+    """
+
+    family: Literal["biased", "centered"]
+    width: int
+
+
+def biased_specs(
+    order: int,
+    shift: int,
+    wall: Literal["upwind1", "centered2"] = "upwind1",
+) -> tuple[RungSpec, ...]:
+    """
+    Rung specs of a biased graded ladder, widest first.
+
+    Description
+    -----------
+    `biased_ladder` with its bottom (wall-adjacent) rung made
+    explicit: the ladder's reduced orders ``min(order, 2 * d - 1)``,
+    and at the wall-adjacent face either the 1st-order upwind cell
+    (``wall="upwind1"``, the default and the historical behavior) or
+    the two-point centered mean (``wall="centered2"``). Both windows
+    live at distance 1 from the wall and stay inside the lattice, so
+    the ladder is interior-only either way; they differ in accuracy
+    and in monotonicity (module docstring).
+
+    Parameters
+    ----------
+    order : int
+        The interior odd formal order.
+    shift : int
+        The cell-frame shift (0 or 1).
+    wall : Literal["upwind1", "centered2"], optional
+        The bottom (wall-adjacent) rung (default: "upwind1").
+
+    Returns
+    -------
+    tuple[RungSpec, ...]
+        The ``K`` rung specs, widest first and wall-adjacent last.
+    """
+    if wall not in WALL_RUNGS:
+        raise ValueError(
+            f"wall must be one of {WALL_RUNGS}, got {wall!r}")
+    specs = [RungSpec("biased", rung)
+             for rung in biased_ladder(order, shift)]
+    if specs and wall == "centered2":
+        specs[-1] = RungSpec("centered", 2)
+    return tuple(specs)
+
+
+def spec_offset(
+    spec: RungSpec, bias: Literal["left", "right"],
+) -> int:
+    """
+    Window start offset of a rung spec (cell frame).
+
+    Parameters
+    ----------
+    spec : RungSpec
+        The rung spec.
+    bias : Literal["left", "right"]
+        The upwind bias side (ignored by a centered rung).
+
+    Returns
+    -------
+    int
+        `biased_offset` of an odd biased rung, `centered_offset` of a
+        symmetric one.
+    """
+    if spec.family == "centered":
+        return centered_offset(spec.width)
+    return biased_offset(spec.width, bias)
 
 
 def min_cells(interior_size: int) -> int:

@@ -43,7 +43,7 @@ def _smooth(y):
 
 
 def _graded_on_sharded_bounded_axis(device_ids, node_set, bias,
-                                    weighting):
+                                    weighting, wall="upwind1"):
     # 16 cells over 4 forced devices => 4 cells/shard; the order-5 halo
     # (3) fits, so the bounded axis is genuinely distributed and the two
     # physical-wall shards each patch their K reduced faces.
@@ -53,24 +53,26 @@ def _graded_on_sharded_bounded_axis(device_ids, node_set, bias,
     src = (mesh.center if node_set is NodeSet.CENTER
            else mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
     f = grid.create_field(src, init=_smooth)
-    op = _BiasedFaceReconstruction(ORDER, bias, weighting, "graded")
+    op = _BiasedFaceReconstruction(ORDER, bias, weighting, "graded",
+                                   wall)
     return grid, f, op["y"](f)
 
 
+@pytest.mark.parametrize("wall", ["upwind1", "centered2"])
 @pytest.mark.parametrize("weighting", ["linear", "weno"])
 @pytest.mark.parametrize("bias", ["left", "right"])
 @pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
 def test_graded_nodal_rows_are_device_count_invariant(
-        forced_devices, node_set, bias, weighting):
+        forced_devices, node_set, bias, weighting, wall):
     if forced_devices is not None:
         # the forced suite must genuinely see the devices (fail, not
         # skip, if the XLA flag did not take effect)
         assert jax.device_count() == forced_devices
 
     grid_many, _, g_many = _graded_on_sharded_bounded_axis(
-        None, node_set, bias, weighting)
+        None, node_set, bias, weighting, wall)
     _, _, g_one = _graded_on_sharded_bounded_axis(
-        (0,), node_set, bias, weighting)
+        (0,), node_set, bias, weighting, wall)
 
     if forced_devices and forced_devices > 1:
         # the decisive precondition: the bounded wall axis is genuinely
@@ -86,9 +88,10 @@ def test_graded_nodal_rows_are_device_count_invariant(
                           np.asarray(g_one.data))
 
 
+@pytest.mark.parametrize("wall", ["upwind1", "centered2"])
 @pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
 def test_graded_nodal_rows_read_interior_only_under_sharding(
-        forced_devices, node_set):
+        forced_devices, node_set, wall):
     # NaN-poison PHYSICAL-EXTERIOR-halo gate UNDER SHARDING: poison only
     # the two physical-wall halos (shard 0's leading ghosts, the last
     # shard's trailing ghost + stagger slots) and claim the ghosts valid
@@ -100,7 +103,7 @@ def test_graded_nodal_rows_read_interior_only_under_sharding(
         assert jax.device_count() == forced_devices
 
     grid, f, _ = _graded_on_sharded_bounded_axis(
-        None, node_set, "left", "linear")
+        None, node_set, "left", "linear", wall)
     width = grid.decomposition.halo["y"]
     storage = f._data
     total = storage.shape[0]
@@ -118,5 +121,6 @@ def test_graded_nodal_rows_read_interior_only_under_sharding(
     f._data = jnp.where(jnp.asarray(mask), jnp.nan, storage)
     f._halo_valid = HaloSpec({"y": width})
 
-    op = _BiasedFaceReconstruction(ORDER, "left", "linear", "graded")
+    op = _BiasedFaceReconstruction(ORDER, "left", "linear", "graded",
+                                   wall)
     assert bool(jnp.all(jnp.isfinite(op["y"](f).data)))
