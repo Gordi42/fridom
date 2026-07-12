@@ -10,10 +10,13 @@ import jax.numpy as jnp
 import pytest
 
 import fridom as fr
+from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.realized import RealizedComposite
 from fridom.spatial.operators.spectral import SpectralDerivative
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.coefficient import FourierSpace
 
 
 def laplacian_2d():
@@ -58,10 +61,18 @@ def test_call_is_bitwise_equal_to_imperative_solve(grid_2d):
     solve = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
     t = solve.transform
     imperative = t.backward(solve.inverse_symbol(t.forward(rhs)))
-    maxdiff = float(jnp.abs(solve(rhs).data - imperative.data).max())
+    maxdiff = float(jnp.abs(
+        solve.composite(rhs).data - imperative.data).max())
     assert maxdiff == 0.0
     # and the object *is* the realized-map composition
     assert isinstance(solve.composite, RealizedComposite)
+    if solve.slab is None:
+        # replicated path: __call__ is exactly the composite
+        assert jnp.array_equal(solve(rhs).data, imperative.data)
+    else:
+        # distributed slab path: same solve, different op order
+        assert jnp.allclose(solve(rhs).data, imperative.data,
+                            rtol=1e-12, atol=1e-14)
 
 
 def test_solve_alias_matches_call(grid_2d):
@@ -148,4 +159,54 @@ def test_properties_expose_the_transform_and_inverse(grid_2d):
         init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
     solve = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
     coeff = solve.transform.codomain(rhs.function_space.bare)
+    # lazily materialized on the distributed path, eager otherwise:
+    # either way the property exposes the replicated-codomain inverse
     assert solve.inverse_symbol.space is coeff
+
+
+# ================================================================
+#  The distributed slab path (multi-device wiring)
+# ================================================================
+def test_preassembled_symbols_never_take_the_slab_path(grid_2d):
+    # a pre-assembled Symbol is bound to the replicated codomain
+    # layout, so the solve keeps the composite on any device count
+    grid = grid_2d
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    coeff = SpectralSolve(
+        laplacian_2d(), grid, rhs.function_space).transform.codomain(
+        rhs.function_space.bare)
+    symbol = laplacian_2d().eigenvalues(grid, coeff)
+    solve = SpectralSolve(symbol, grid, rhs.function_space)
+    assert solve.slab is None
+
+
+@pytest.mark.multi_device
+def test_slab_falls_back_when_eigenvalues_refuse():
+    class HalfOnly:
+
+        """Eigenvalues only on the replicated (half-x) codomain."""
+
+        def __init__(self, op):
+            self._op = op
+
+        def eigenvalues(self, grid, space):
+            if not any(isinstance(f, FourierSpace)
+                       and f.scalars is Scalars.REAL
+                       for f in space.factors):
+                raise EigenbasisError(
+                    "no eigenvalues on fully complex spectra")
+            return self._op.eigenvalues(grid, space)
+
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(16, (0.0, 2.0), name="y")
+    grid = fr.spatial.Grid((mx, my))
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    plain = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
+    assert plain.slab is not None
+    picky = SpectralSolve(HalfOnly(laplacian_2d()), grid,
+                          rhs.function_space)
+    assert picky.slab is None
+    assert jnp.allclose(picky(rhs).data, plain(rhs).data,
+                        rtol=1e-12, atol=1e-14)
