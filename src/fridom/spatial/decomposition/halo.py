@@ -317,8 +317,15 @@ class HaloTracer:
     its accumulated depth — the recorder's maximum is the step's
     *sync-free* width demand — and the tracer's depth then follows
     the kernels' validity claims (accumulate along periodic stencil
-    chains, reset at bounded stencils, arithmetic, and every other
-    re-store, which are free re-sync points at any width).
+    chains, reset at bounded stencils and every other re-store,
+    which are free re-sync points at any width). Elementwise
+    arithmetic also resets the traced depth — a deliberate
+    under-negotiation: the runtime combine keeps the operands'
+    minimum claim (storage-frame arithmetic, 2026-07-12), which
+    elides downstream syncs wherever the negotiated width already
+    covers them, but no *width demand* accrues through arithmetic
+    (a sync there stays correct at any width, so the negotiation
+    does not widen the halo for it).
 
     Parameters
     ----------
@@ -711,11 +718,12 @@ class HaloTracer:
 
         Description
         -----------
-        Runtime mirror (task 1.8): field ``+``/``-`` combines on
-        true-shape views and re-stores, so the result claims zero
-        ghost validity — a free re-sync point at any width. The
-        traced depth resets accordingly (no width demand accrues
-        through arithmetic).
+        Deliberate under-negotiation (class docstring): the runtime
+        ``+``/``-`` keeps the operands' minimum ghost claim
+        (storage-frame combine), but a consumer syncing after
+        arithmetic is correct at any width, so no width demand
+        accrues through it — the traced depth resets and the
+        negotiation never widens the halo for arithmetic chains.
         """
         if isinstance(other, HaloTracer):
             joined = join(self._space.bare, other._space.bare)  # noqa: SLF001
@@ -731,7 +739,7 @@ class HaloTracer:
             HaloSpec.zero(tuple(joined.names)))
 
     def _reset_child(self) -> HaloTracer:
-        """Return a same-space, zero-depth child (runtime re-store)."""
+        """Return a same-space, zero-depth child (under-negotiation)."""
         return self._child(
             self._space, HaloSpec.zero(tuple(self._space.names)))
 
@@ -805,7 +813,7 @@ class HaloTracer:
     __rsub__ = __add__
 
     def __neg__(self) -> HaloTracer:
-        """Negation re-stores at runtime: depth resets (task 1.8)."""
+        """Negation: depth resets (deliberate under-negotiation)."""
         return self._reset_child()
 
     def __pos__(self) -> HaloTracer:
@@ -813,7 +821,7 @@ class HaloTracer:
         return self
 
     def __mul__(self, other: object) -> HaloTracer:
-        """Scalar: re-stored (depth resets). Field/tracer: product."""
+        """Scalar: depth resets (conservative). Field/tracer: product."""
         if isinstance(other, _SCALAR_TYPES):
             return self._reset_child()
         return self._dispatch_product(other, "multiply")
@@ -826,7 +834,7 @@ class HaloTracer:
                                       reflected=True)
 
     def __truediv__(self, other: object) -> HaloTracer:
-        """Scalar: re-stored (depth resets). Field/tracer: divide."""
+        """Scalar: depth resets (conservative). Field/tracer: divide."""
         if isinstance(other, _SCALAR_TYPES):
             return self._reset_child()
         return self._dispatch_product(other, "divide")
