@@ -1,9 +1,23 @@
 ---
-status: active
+status: done
 date: 2026-07-12
 ---
 
 # Uneven-shard padding — general non-divisible ghost sharding
+
+**Shipped 2026-07-12** (`dev` merge `6bf2c032`). All stages landed as
+specified; Option A settled (§6). Byte-for-byte no-op on divisible
+extents proven by HLO golden (`tests/spatial/decomposition/golden/`);
+device-count invariance verified on non-divisible grids (23, 257) across
+1/2/4 devices; center/outer collective-free, misaligned inner one
+`collective-permute` (Option A). An adversarial review found no
+negotiate-reachable correctness defect; its three findings (a
+device-count-rigid golden test, a missing `sync` golden, and an
+unreachable hand-built empty-wall-shard edge — now a loud
+`patch_physical_ends` guard) were fixed. Decomposition suite 206 passed
+(forced-4); `ruff` clean. Follow-on (separate): the decomposed/gather-free
+IO write (ROADMAP 2.6) and the distributed-transform reconciliation that
+depends on this capability.
 
 Generalize the decomposition layer so a **ghost-sharded factor axis
 whose cell count `n_cells` does not divide the device count `P`** shards
