@@ -145,6 +145,31 @@ class TimeDependentParameterError(AssemblyError):
     """
 
 
+class LinearOperatorGapError(ValueError):
+
+    """
+    Raised when a consumer of ``L`` meets a module that is not in it.
+
+    Description
+    -----------
+    Some modules carry physics that *belongs* in the linear operator
+    but is declared inside a ``linear=False`` term — the shallow-water
+    conserving Coriolis family (``sw.modules.NonlinearFPlaneCoriolis``
+    and friends) is the motivating case: it carries rotation whole,
+    inside its nonlinear thickness-ratio term, so
+    ``fr.model.linearize`` would build a **non-rotating** ``L``.
+    Eigenmodes, projections, optimal balance and IMEX-by-linearity
+    built on such an ``L`` are not degraded, they are *wrong*.
+
+    Such a module declares the gap on itself
+    (``Module.linear_operator_gap``, a sentence saying what is missing
+    and what to do instead); every consumer of ``L`` calls
+    ``fr.model.require_linear_operator(model, consumer=...)`` first and
+    raises this rather than silently handing out a rotation-free
+    operator.
+    """
+
+
 class TermEvaluationError(RuntimeError):
 
     """

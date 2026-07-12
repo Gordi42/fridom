@@ -15,7 +15,18 @@ The module library for the shallow-water model:
   and carry the rotation term. Rotation is opt-in: a model
   assembled without one of these simply does not rotate;
 - :class:`SadournyAdvection` — the energy/enstrophy-conserving
-  nonlinear advection.
+  nonlinear advection;
+- :class:`CoriolisEnergyCorrection` — the optional term that makes the
+  rotation conserve the **thickness-weighted** energy exactly (route
+  A: assembled next to a linear Coriolis module; the linear operator
+  ``L`` is untouched), and
+  :class:`NonlinearFPlaneCoriolis` /
+  :class:`NonlinearBetaPlaneCoriolis` /
+  :class:`NonlinearRotationCoriolis` — the same conserving rotation
+  carried whole, *instead* of a linear Coriolis module (route B:
+  simpler and cheaper, but ``L`` then has no rotation at all, so the
+  eigenmode / projection / balance machinery refuses the model). See
+  ``sw.modules.coriolis``.
 """
 from typing import TYPE_CHECKING
 
@@ -32,6 +43,14 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from .core import DynamicalCore
+    from .coriolis import (
+        CoriolisEnergyCorrection,
+        NonlinearBetaPlaneCoriolis,
+        NonlinearFPlaneCoriolis,
+        NonlinearRotationCoriolis,
+        carries_linear_rotation,
+        conserving_rotation,
+    )
     from .sadourny import SadournyAdvection
 
 # ================================================================
@@ -48,6 +67,10 @@ all_imports_by_origin = {
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
     f"{base}.core": ["DynamicalCore"],
+    f"{base}.coriolis": [
+        "CoriolisEnergyCorrection", "NonlinearFPlaneCoriolis",
+        "NonlinearBetaPlaneCoriolis", "NonlinearRotationCoriolis",
+        "conserving_rotation", "carries_linear_rotation"],
     f"{base}.sadourny": ["SadournyAdvection"],
 }
 

@@ -1,7 +1,51 @@
 ---
-status: draft
+status: implemented
 date: 2026-07-12
 ---
+
+## Outcome (2026-07-13, `feat/conserving-coriolis`)
+
+Both routes shipped in `src/fridom/shallowwater2/modules/coriolis.py`:
+`CoriolisEnergyCorrection` (route A) and the conserving
+`NonlinearFPlaneCoriolis` / `NonlinearBetaPlaneCoriolis` /
+`NonlinearRotationCoriolis` family (route B). Measured semi-discrete
+production of `etot_full` **including** Coriolis (relative, random
+state):
+
+| grid | linear Coriolis (today) | route A | route B |
+|---|---|---|---|
+| periodic | 1.4e-2 | 3.9e-16 | 4.7e-16 |
+| channel  | 1.1e-3 | 1.1e-16 | 6.4e-17 |
+| sphere   | 1.6e-2 | 5.1e-18 | 4.3e-17 |
+
+A vs B assembled-tendency agreement: 1.5e-16 (all three grids).
+
+Two notes worth keeping:
+
+- **The `L`-honesty gate is consumer-side, not assembly-side.** A
+  static check is impossible: the eigenmode / projection / balance
+  machinery binds to a model *after* assembly, so nothing in the
+  module tuple says the model will ever ask for `L`. Route B's
+  modules therefore declare `Module.linear_operator_gap` (a sentence),
+  and every consumer of `L` calls
+  `fr.model.require_linear_operator(model, consumer=...)` first —
+  `fr.model.linearize`, `sw.eigenmodes.from_model`, `sw.eigenbasis`
+  (hence every `sw.transforms` projection and optimal balance) —
+  raising `LinearOperatorGapError`.
+- **Route A's correction is not identically zero as an *operator*
+  where `f` varies.** Its *value* on a rest state is exactly 0 (both
+  parts are proportional to the velocity), and `L` is bit-for-bit
+  unchanged by declaration, as the plan requires. But the conserving
+  form averages `f` to the *corner* while the linear module samples it
+  at the `u` faces, and those two placements differ at
+  `O(dy^2 f'')` on a beta plane / sphere: the correction's
+  linearization about the rest state is that (small) residual, which
+  `L` does not see. It is a difference of two exactly M-skew
+  rotations, hence itself M-skew — it does no work, and `L` remains a
+  consistent linearization of the scheme to the scheme's own order.
+  On the f-plane the residual is zero to rounding. No way around it:
+  the numerator of the conserving f-term is *forced* to be the
+  Sadourny corner mass flux by the conservation proof.
 
 # Exactly-conserving Coriolis — the correction term and the
 # full nonlinear module

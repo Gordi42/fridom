@@ -22,6 +22,10 @@ from fridom.model.modules.coriolis import (
     RotationCoriolis,
 )
 from fridom.shallowwater2.modules.core import DynamicalCore
+from fridom.shallowwater2.modules.coriolis import (
+    carries_linear_rotation,
+    check_rotation_modules,
+)
 from fridom.shallowwater2.modules.sadourny import SadournyAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -45,7 +49,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
-    """
+    r"""
     Assemble a shallow-water model (thin preset over ``fr.model.Model``).
 
     Description
@@ -119,6 +123,20 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         and any positive depth profile; the preset raises otherwise
         (without it the rotation does work against the
         :math:`c^2`-weighted energy metric).
+
+        **Exact energy conservation.** The linear rotation is skew
+        under the *linearized* metric, not under the
+        thickness-weighted energy the nonlinear scheme conserves
+        (``sw.diagnostics.etot_full``), which it therefore produces
+        at :math:`O(\mathrm{Ro})`. Two ways to fix that, both
+        exact (``sw.modules.coriolis``): add
+        ``modules_extra=(sw.modules.CoriolisEnergyCorrection(
+        coords=coords),)`` next to the linear module — the linear
+        operator ``L`` stays bit-for-bit unchanged, so eigenmodes /
+        projections / balance keep working — or pass the conserving
+        module itself (``coriolis=sw.modules.NonlinearFPlaneCoriolis(
+        f0=...)``), which is cheaper but leaves ``L`` without any
+        rotation (no eigenmodes, projections, balance).
     advection : bool, optional
         Include the Sadourny nonlinear advection (default: True).
     coords : tuple[str, str], optional
@@ -146,18 +164,24 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     Raises
     ------
     ValueError
-        A callable ``csqr`` combined with a Coriolis module whose
-        ``metric_weight`` is unset.
+        A callable ``csqr`` combined with a linear Coriolis module
+        whose ``metric_weight`` is unset; or a module tuple that
+        counts the rotation twice
+        (``sw.modules.coriolis.check_rotation_modules``).
     """
     core = DynamicalCore(csqr=csqr, rossby_number=rossby_number,
                          coords=coords)
     modules: tuple[fr.model.Module, ...] = (core,)
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:
+        # the conserving (route B) modules weight the rotation by the
+        # thickness itself — exact for any depth profile, so the
+        # metric_weight requirement does not apply to them
         if (callable(csqr)
                 and isinstance(coriolis,
                                FPlaneCoriolis | BetaPlaneCoriolis
                                | RotationCoriolis)
+                and carries_linear_rotation(coriolis)
                 and coriolis.metric_weight is None):
             raise ValueError(
                 "a variable-depth shallow-water model (callable "
@@ -170,6 +194,9 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     if advection:
         modules += (SadournyAdvection(coords=coords),)
     modules += tuple(modules_extra)
+    # the rotation must be counted exactly once (route A: linear +
+    # correction; route B: the conserving module alone)
+    check_rotation_modules(modules)
     if time_stepper is None:
         time_stepper = fr.model.time_steppers.AdamBashforth(dt=1.0, order=3)
     return fr.model.Model(grid=grid, modules=modules,
