@@ -16,6 +16,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from fridom.framework.utils import dtype_real
 from fridom.model.clock import Clock
 from fridom.model.composer import TendencyComposer
 from fridom.model.declarations import Lifecycle
@@ -255,9 +256,21 @@ def test_supported_treatments_is_explicit_only():
 # ================================================================
 def test_fingerprint_token_carries_order_and_eps():
     assert AdamBashforth(1.0, order=3).fingerprint_token() == (
-        "AdamBashforth", ("order", 3), ("eps", None))
+        "AdamBashforth", ("order", 3), ("eps", None),
+        ("single_precision_history", False))
     assert AdamBashforth(1.0, order=2).fingerprint_token() == (
-        "AdamBashforth", ("order", 2), ("eps", 0.01))
+        "AdamBashforth", ("order", 2), ("eps", 0.01),
+        ("single_precision_history", False))
+
+
+def test_fingerprint_token_distinguishes_history_dtype():
+    # a different history-dtype option is a different program: the
+    # fingerprint (and thus the chunk cache key) must separate them
+    full = AdamBashforth(1.0, order=3).fingerprint_token()
+    low = AdamBashforth(
+        1.0, order=3, single_precision_history=True).fingerprint_token()
+    assert full != low
+    assert ("single_precision_history", True) in low
 
 
 def test_fingerprint_token_excludes_dt():
@@ -505,6 +518,108 @@ def test_jit_scan_compiles_once_and_crosses_warmup(
     assert np.allclose(np.asarray(final_state["u"].data),
                        np.asarray(eager_state["u"].data),
                        rtol=1e-12, atol=0.0)
+
+
+# ================================================================
+#  Single-precision history ring option (Change B)
+# ================================================================
+def test_single_precision_history_default_off():
+    stepper = AdamBashforth(0.5, order=3)
+    assert stepper.single_precision_history is False
+    assert stepper.history_dtype == dtype_real()
+
+
+def test_single_precision_history_dtype_property():
+    stepper = AdamBashforth(0.5, order=3, single_precision_history=True)
+    assert stepper.single_precision_history is True
+    assert stepper.history_dtype == jnp.float32
+
+
+@pytest.mark.parametrize("order", [2, 3, 4])
+def test_init_ring_is_float32_when_reduced(field_table, u0, order):
+    stepper = AdamBashforth(0.5, order=order,
+                            single_precision_history=True)
+    stepper_state = stepper.init(make_state(field_table, u0))
+    assert len(stepper_state.history) == order - 1
+    for entry in stepper_state.history:
+        assert entry["u"].dtype == jnp.float32
+
+
+def test_step_carries_float32_ring(field_table, u0):
+    # after a step the carried ring (including the freshly demoted
+    # newest level) is float32
+    stepper = AdamBashforth(0.2, order=3,
+                            single_precision_history=True)
+    schedule, modules = decay_schedule(field_table, stepper)
+    sst, _, _ = run_eager(stepper, schedule, modules,
+                          make_state(field_table, u0), 3)
+    assert len(sst.history) == 2
+    for entry in sst.history:
+        assert entry["u"].dtype == jnp.float32
+
+
+def test_full_precision_ring_stays_float64(field_table, u0):
+    stepper = AdamBashforth(0.2, order=3)
+    schedule, modules = decay_schedule(field_table, stepper)
+    sst, _, _ = run_eager(stepper, schedule, modules,
+                          make_state(field_table, u0), 3)
+    for entry in sst.history:
+        assert entry["u"].dtype == dtype_real()
+
+
+def test_reduced_history_matches_full_within_tolerance(field_table, u0):
+    # the combine still runs in float64 (float64 weights promote the
+    # float32 ring back up), so the reduced ring only loses the
+    # carried entries' float32 round-off — a small, bounded delta
+    full = AdamBashforth(0.2, order=3)
+    low = AdamBashforth(0.2, order=3, single_precision_history=True)
+    sched_f, mods_f = decay_schedule(field_table, full)
+    sched_l, mods_l = decay_schedule(field_table, low)
+    _, state_f, _ = run_eager(full, sched_f, mods_f,
+                              make_state(field_table, u0), 20)
+    _, state_l, _ = run_eager(low, sched_l, mods_l,
+                              make_state(field_table, u0), 20)
+    a = np.asarray(state_l["u"].data)
+    b = np.asarray(state_f["u"].data)
+    # the state itself stays float64 (only the carry is single)
+    assert state_l["u"].dtype == dtype_real()
+    rel = np.linalg.norm(a - b) / np.linalg.norm(b)
+    assert rel < 1e-5
+    assert rel > 0.0  # but not bitwise identical (the reduced round-off)
+
+
+def test_reduced_history_scan_compiles_once(
+        field_table, u0, compile_counter):
+    steps = 5
+    stepper = AdamBashforth(0.2, order=3,
+                            single_precision_history=True)
+    schedule, modules = decay_schedule(field_table, stepper)
+
+    def run(stepper, carry):
+        def body(carry, _):
+            state, stepper_state, clock = carry
+            bound = schedule.bind(modules)
+            stepper_state, state, clock = stepper.step(
+                stepper_state, state, bound, clock)
+            return (state, stepper_state, clock), None
+
+        return jax.lax.scan(body, carry, None, length=steps)[0]
+
+    run_jit = jax.jit(run)
+    canonical = jax.jit(lambda tree: tree)
+    state = make_state(field_table, u0)
+    carry = canonical((state, stepper.init(state), Clock()))
+    stepper_in = canonical(stepper)
+    compile_counter.reset()
+
+    final = run_jit(stepper_in, carry)
+    compiles = compile_counter.count
+    assert compiles >= 1
+    # the reduced ring leaves stay float32 through the scan carry
+    assert final[1].history[0]["u"].dtype == jnp.float32
+    # a mid/post-warm-up carry re-enters the SAME trace (no recompile)
+    run_jit(stepper_in, final)
+    assert compile_counter.count == compiles
 
 
 def test_order2_eps_jitted_matches_eager_within_tolerance(

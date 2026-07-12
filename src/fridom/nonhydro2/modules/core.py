@@ -59,6 +59,15 @@ class DynamicalCore(fr.model.Module):
     coords : tuple[str, ...], optional
         Grid coordinate names, used to size the projection halo
         exemption (default: ``("x", "y", "z")``).
+    single_precision_solve : bool, optional
+        Run the spectral pressure projection (the ``rfftn`` /
+        spectral divide / ``irfftn`` pipeline) in single precision
+        while the velocity state stays ``float64`` — a performance
+        option forwarded to :class:`SpectralPressureSolver`. Static
+        (a treedef aux, part of the module fingerprint), so a given
+        value never retraces. Off by default (bitwise identical
+        projection); on, the projected velocities carry the reduced
+        solve round-off, an opt-in accuracy trade (default: False).
     """
 
     state_type = State
@@ -71,12 +80,14 @@ class DynamicalCore(fr.model.Module):
         rossby_number: float | fr.model.Ramp = 1.0,
         vertical: str = "z",
         coords: tuple[str, ...] = ("x", "y", "z"),
+        single_precision_solve: bool = False,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
         self.dsqr = fr.model.leaf(dsqr)
         self.rossby = fr.model.leaf(rossby_number)
         self._vertical = vertical
         self._coords = coords
+        self._single_precision_solve = bool(single_precision_solve)
 
     # ================================================================
     #  Field declarations
@@ -160,7 +171,8 @@ class DynamicalCore(fr.model.Module):
             "u": state["u"], "v": state["v"], "w": state["w"]})
         div = Divergence()(vel)
         solver = SpectralPressureSolver(
-            div.grid, div.function_space, vertical=self._vertical)
+            div.grid, div.function_space, vertical=self._vertical,
+            single_precision=self._single_precision_solve)
         p = solver.solve(div, dsqr=dsqr)
         grad = Gradient()(p)
         # nodal operator outputs are BC-free; on a walled grid every

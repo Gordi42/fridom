@@ -136,6 +136,58 @@ def test_projection_drives_divergence_to_machine_zero():
     assert np.abs(divergence(model)).max() < 1e-12
 
 
+# ================================================================
+#  Single-precision pressure-solve option (Change A plumbing)
+# ================================================================
+def test_single_precision_solve_plumbs_through_the_preset():
+    core = DynamicalCore(single_precision_solve=True)
+    assert core._single_precision_solve is True
+    # default off
+    assert DynamicalCore()._single_precision_solve is False
+
+
+def test_single_precision_solve_is_static_treedef_aux():
+    # the option is a static (non-leaf) attribute: two cores differing
+    # only in the flag must produce DIFFERENT treedefs (a distinct
+    # compiled program), and neither adds a dynamic leaf
+    full = jax.tree_util.tree_structure(DynamicalCore())
+    low = jax.tree_util.tree_structure(
+        DynamicalCore(single_precision_solve=True))
+    assert full != low
+
+
+def test_second_advance_with_both_options_compiles_nothing(
+        compile_counter):
+    # zero-recompile on repeated advance with both reduced-precision
+    # options on (the options are static: one program per value)
+    model = nh.Model(
+        grid=make_grid(), advection=False,
+        single_precision_solve=True,
+        time_stepper=AdamBashforth(
+            DT, order=3, single_precision_history=True))
+    _, _, z = grid_coords()
+    model.set_fields(b=0.01 * np.cos(z))
+    model.advance(4)
+    compile_counter.reset()
+    model.advance(4)
+    assert compile_counter.count == 0
+
+
+def test_single_precision_solve_model_still_projects():
+    # a full single-precision-solve model runs and drives divergence
+    # to the single-precision floor (well below the IC divergence)
+    model = nh.Model(grid=make_grid(), dt=DT, advection=False,
+                     single_precision_solve=True)
+    x, y, z = grid_coords()
+    model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
+                     w=0.2 * np.sin(z))
+    model.advance(1)
+    # single precision cannot reach f64 machine-zero, but the residual
+    # divergence stays tiny (~1e-6 relative to the O(1) velocity)
+    assert np.abs(divergence(model)).max() < 1e-4
+    assert np.isfinite(divergence(model)).all()
+
+
 def test_energy_stays_bounded():
     model = nh.Model(grid=make_grid(), dt=DT, advection=False)
     _, y, z = grid_coords()

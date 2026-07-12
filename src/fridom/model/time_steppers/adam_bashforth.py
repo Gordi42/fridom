@@ -64,6 +64,11 @@ _MIN_ORDER: Final[int] = 1
 _MAX_ORDER: Final[int] = 4
 _EPS_ORDER: Final[int] = 2
 
+# the reduced storage dtype of the carried tendency ring when the
+# single-precision-history option is on (the AB combine still runs in
+# dtype_real() by promotion; see AdamBashforth.step)
+_HISTORY_LOW: Final = jnp.float32
+
 # ABState's fixed field set (write-once frozen discipline)
 _AB_STATE_FIELDS: Final[tuple[str, ...]] = ("history", "warmup")
 
@@ -163,6 +168,24 @@ class AdamBashforth(TimeStepper):
         ``order=2`` only, where ``None`` resolves to 0.01 (parity
         with the old AB2); any other order rejects a non-None eps
         (default: None).
+    single_precision_history : bool, optional
+        Store the carried past-tendency ring in ``float32`` instead
+        of the ``dtype_real()`` (``float64``) default — a **memory**
+        option that halves the ring's carry footprint (at 512^3 AB3
+        the ring is 8 full fields; measured 2026-07-12 on an A100,
+        the option drops the model carry from 13.3 to 9.2 fields).
+        It is **not** a reliable speed option: on the profiled 512^3
+        config the extra down/up casts made the linear step ~11%
+        *slower* and the advective step roughly neutral (-2% only
+        when combined with the single-precision pressure solve). The
+        AB combine still runs in ``dtype_real()``: the premultiplied
+        weights are ``float64``, so the weighted ring levels upcast
+        back by promotion before they sum into the increment (only
+        the *stored* carry is single precision). Accuracy (128^3,
+        500 steps): accumulated state error vs the f64 ring ~8e-10
+        relative; the projection is untouched (divergence stays f64
+        machine zero). Bitwise parity is preserved when off
+        (default: False).
 
     Raises
     ------
@@ -179,6 +202,8 @@ class AdamBashforth(TimeStepper):
         dt: float | np.timedelta64,
         order: int = 3,
         eps: float | None = None,
+        *,
+        single_precision_history: bool = False,
     ) -> None:
         """Validate order/eps, build the warm-up table; see above."""
         super().__init__(dt)
@@ -197,6 +222,7 @@ class AdamBashforth(TimeStepper):
                 "AB2 [3/2, -1/2]")
         self._order = order
         self._eps = eps
+        self._single_precision_history = bool(single_precision_history)
         self._table = _warmup_table(order, eps)
 
     # ================================================================
@@ -211,6 +237,17 @@ class AdamBashforth(TimeStepper):
     def eps(self) -> float | None:
         """The static order-2 damper (None at every other order)."""
         return self._eps
+
+    @property
+    def single_precision_history(self) -> bool:
+        """Whether the carried tendency ring is stored in float32."""
+        return self._single_precision_history
+
+    @property
+    def history_dtype(self) -> type:
+        """The carried-ring storage dtype (float32 if reduced)."""
+        return _HISTORY_LOW if self._single_precision_history \
+            else dtype_real()
 
     @property
     def scan_unroll(self) -> int:
@@ -251,8 +288,10 @@ class AdamBashforth(TimeStepper):
         return self._table
 
     def _statics(self) -> tuple:
-        """Order and eps join the restart fingerprint."""
-        return (("order", self._order), ("eps", self._eps))
+        """Order, eps, and the history dtype join the fingerprint."""
+        return (("order", self._order), ("eps", self._eps),
+                ("single_precision_history",
+                 self._single_precision_history))
 
     # ================================================================
     #  The scan-body protocol
@@ -273,6 +312,8 @@ class AdamBashforth(TimeStepper):
             The fresh carry entry.
         """
         zeros = tendency_template.map(_zero_like)
+        if self._single_precision_history:
+            zeros = _to_float32(zeros)
         return ABState(
             history=(zeros,) * (self._order - 1),
             warmup=jnp.asarray(0, dtype=jnp.int32))
@@ -346,8 +387,15 @@ class AdamBashforth(TimeStepper):
         warmup = jnp.minimum(stepper_state.warmup + 1,
                              self._order - 1)
         # structural ring shift (dataflow renaming): carry only the
-        # order-1 newest levels — the oldest is dead after the sum
-        return ABState(levels[:-1], warmup), state, clock
+        # order-1 newest levels — the oldest is dead after the sum.
+        # The single-precision option stores the ring in float32: the
+        # newest carried level (the fresh f_n) is cast down here; the
+        # already-carried entries are float32 (cast a no-op). The AB
+        # combine above already ran in dtype_real() by promotion.
+        carry = levels[:-1]
+        if self._single_precision_history:
+            carry = tuple(_to_float32(level) for level in carry)
+        return ABState(carry, warmup), state, clock
 
     # ================================================================
     #  Host-side analysis
@@ -456,6 +504,33 @@ def _zero_like(field: ScalarField) -> ScalarField:
         field.grid, field.function_space,
         jnp.zeros_like(field._data),  # noqa: SLF001 — plumbing-constructor seam
         field.metadata)
+
+
+def _to_float32(vector: VectorField) -> VectorField:
+    """
+    Cast every component of a tendency vector to ``float32``.
+
+    Description
+    -----------
+    The single-precision-history storage cast (``AdamBashforth``
+    option): the carried past-tendency ring is stored in ``float32``
+    to halve its scan-carry traffic and memory. Applied only when
+    an entry *enters* the ring; the AB combine upcasts back to
+    ``dtype_real()`` by promotion against the ``float64`` weights.
+
+    Parameters
+    ----------
+    vector : VectorField
+        One newest-first tendency level (``dtype_real()`` or already
+        ``float32``).
+
+    Returns
+    -------
+    VectorField
+        The same vector with ``float32`` component data.
+    """
+    return vector.map(
+        lambda field: field.with_data(field.data.astype(_HISTORY_LOW)))
 
 
 def _weighted(

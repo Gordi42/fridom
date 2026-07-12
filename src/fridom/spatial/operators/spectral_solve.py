@@ -34,8 +34,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
+import fridom.framework as fr
+from fridom.spatial.fields.storage import storage_dtype
 from fridom.spatial.operators.mixed import resolve_transform
-from fridom.spatial.operators.realized import BoundTransform
+from fridom.spatial.operators.realized import (
+    BoundTransform,
+    realized_matmul,
+    realized_rmatmul,
+    realized_sum,
+)
 from fridom.spatial.operators.symbol import Symbol
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -44,6 +53,136 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.operators.realized import RealizedMap
     from fridom.spatial.operators.transform import Transform
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+def _reduced_dtype(space: SpaceLike) -> jnp.dtype:
+    """
+    Single-precision twin of a space's derived storage dtype.
+
+    Description
+    -----------
+    ``complex64`` for a complex/Fourier space, ``float32`` for a real
+    one — the reduced-precision solve's per-space cast target.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (bare) function space whose storage dtype to reduce.
+
+    Returns
+    -------
+    jnp.dtype
+        ``complex64`` or ``float32``.
+    """
+    full = storage_dtype(space)
+    if jnp.issubdtype(full, jnp.complexfloating):
+        return jnp.dtype(jnp.complex64)
+    return jnp.dtype(jnp.float32)
+
+
+@fr.utils.jaxify
+class _CastMap:
+
+    r"""
+    Endo realized map casting a field's data to a fixed dtype.
+
+    Description
+    -----------
+    The single-precision-solve seam. The transform's ``_deliver``
+    re-promotes every stage's output to the *space-derived* storage
+    dtype (``complex128`` on a Fourier coefficient space), so a bare
+    ``rfftn`` in ``float32`` is silently widened back to
+    ``complex128`` before the spectral divide — erasing the win.
+    Inserting a ``_CastMap`` right after the forward transform
+    downcasts the half-spectrum to ``complex64`` so the divide and
+    the backward ``irfftn`` run in single precision, and a second one
+    at the innermost position downcasts the real operand to
+    ``float32`` so the forward ``rfftn`` itself runs single. Domain
+    and codomain are the same coefficient tag (a cast changes only
+    the array width, not the space), so it composes transparently in
+    the ``backward @ inverse @ cast @ forward @ cast`` chain. Carries
+    no dynamic leaves; the target dtype is static treedef aux.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (bare) space the cast acts on (its fixed domain and
+        codomain tag).
+    dtype : object
+        The target array dtype (e.g. ``jnp.complex64``).
+    """
+
+    def __init__(self, space: SpaceLike, dtype: object) -> None:
+        """Bind the endo space tag and the target dtype."""
+        self._space: SpaceLike = space.bare
+        self._dtype: jnp.dtype = jnp.dtype(dtype)
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def domain(self) -> SpaceLike:
+        """The fixed domain tag (equals the codomain)."""
+        return self._space
+
+    @property
+    def codomain(self) -> SpaceLike:
+        """The fixed codomain tag (equals the domain)."""
+        return self._space
+
+    @property
+    def dtype(self) -> jnp.dtype:
+        """The target cast dtype."""
+        return self._dtype
+
+    # ================================================================
+    #  Application
+    # ================================================================
+    def __call__(self, f: FieldLike) -> FieldLike:
+        """Return ``f`` with its data cast to the target dtype."""
+        return f.with_data(f.data.astype(self._dtype))
+
+    # ================================================================
+    #  Algebra
+    # ================================================================
+    def __matmul__(self, other: object) -> RealizedMap:
+        """Compose ``self @ other`` (flatten, fuse, typecheck)."""
+        return realized_matmul(self, other)
+
+    def __rmatmul__(self, other: object) -> RealizedMap:
+        """Reflected ``other @ self`` (materialization guard)."""
+        return realized_rmatmul(self, other)
+
+    def __add__(self, other: object) -> RealizedMap:
+        """Sum ``self + other`` (common-signature)."""
+        return realized_sum(self, other)
+
+    def __radd__(self, other: object) -> RealizedMap:
+        """Reflected sum ``other + self``."""
+        return realized_sum(other, self)
+
+    def inverse(self, where_zero: complex = 0.0) -> RealizedMap:
+        """
+        Raise: a width cast has no meaningful realized-map inverse.
+
+        Parameters
+        ----------
+        where_zero : complex, optional
+            Unused; present for the uniform ``inverse`` signature
+            (default: 0.0).
+
+        Returns
+        -------
+        RealizedMap
+            Never returns.
+        """
+        raise NotImplementedError(
+            "a _CastMap is not inverted (the reduced-precision solve "
+            "composite is applied forward only)")
+
+    def conj(self) -> _CastMap:
+        """Return ``self`` (a real-linear cast is its own conjugate)."""
+        return self
 
 
 class SpectralSolve:
@@ -89,6 +228,23 @@ class SpectralSolve:
     where_zero : complex, optional
         The inverse value at structural zeros of the symbol — the
         nullspace gauge (default: 0.0, the mean-free Poisson gauge).
+    single_precision : bool, optional
+        Run the transform pair and the spectral divide in single
+        precision (``float32`` / ``complex64``) while the operand and
+        the returned solution stay ``dtype_real()`` (``float64``) — a
+        performance option for the bandwidth-/FFT-bound solve. The
+        operand is cast to ``float32`` before the forward ``rfftn``,
+        the half-spectrum is downcast to ``complex64`` for the divide
+        and the backward ``irfftn``, and the inverse eigenvalue
+        diagonal is materialized once in ``complex64``; the backward
+        transform lands back on ``dtype_real()``. On a mixed (walled)
+        transform only the Fourier stages and the spectrum-level
+        divide are single precision — the trig stages re-widen at
+        their storage boundary — so the win is largest on a fully
+        periodic (all-Fourier) solve. Off by default (bitwise
+        identical to the full-precision solve); on, the solution
+        carries the reduced round-off, an opt-in accuracy trade
+        (default: False).
     """
 
     def __init__(
@@ -98,9 +254,11 @@ class SpectralSolve:
         space: SpaceLike,
         *,
         where_zero: complex = 0.0,
+        single_precision: bool = False,
     ) -> None:
         """Materialize the inverse symbol and compose the solve chain."""
         bare = space.bare
+        self._single_precision: bool = bool(single_precision)
         self._transform: Transform | ComposedTransform = (
             resolve_transform(grid, bare))
         coeff = self._transform.codomain(bare)
@@ -109,9 +267,25 @@ class SpectralSolve:
         self._inverse: Symbol = symbol.inverse(where_zero)
         forward = BoundTransform(self._transform, bare)
         backward = BoundTransform(self._transform, coeff, backward=True)
-        # SpectralSolve *is* this composition (symbol_stack_design.md):
-        # backward @ inverse @ forward, a lazy RealizedComposite
-        self._composite: RealizedMap = backward @ self._inverse @ forward
+        if self._single_precision:
+            # SpectralSolve in single precision: cast the operand to
+            # float32 (so rfftn runs single), downcast the c128
+            # half-spectrum to complex64 (the transform's _deliver
+            # re-widens it otherwise), and apply a complex64 inverse
+            # diagonal — the backward irfftn then lands on float64.
+            inv = self._inverse
+            inverse: Symbol = Symbol(
+                inv.space, inv.data.astype(_reduced_dtype(inv.space)),
+                codomain=inv.codomain)
+            cast_operand = _CastMap(bare, _reduced_dtype(bare))
+            cast_spectrum = _CastMap(coeff, _reduced_dtype(coeff))
+            self._composite: RealizedMap = (
+                backward @ inverse @ cast_spectrum
+                @ forward @ cast_operand)
+        else:
+            # SpectralSolve *is* this composition (symbol_stack_design):
+            # backward @ inverse @ forward, a lazy RealizedComposite
+            self._composite = backward @ self._inverse @ forward
 
     # ================================================================
     #  Properties
@@ -130,6 +304,11 @@ class SpectralSolve:
     def composite(self) -> RealizedMap:
         """The realized-map chain ``backward @ inverse @ forward``."""
         return self._composite
+
+    @property
+    def single_precision(self) -> bool:
+        """Whether the transform pair and divide run in float32/c64."""
+        return self._single_precision
 
     # ================================================================
     #  Application
