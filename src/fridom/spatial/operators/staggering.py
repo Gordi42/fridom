@@ -414,10 +414,12 @@ def uniform_spacing(factor: FunctionSpace) -> float:
 
     Description
     -----------
-    Iteration-1 stand-in for the ``grid.measure(space, name=...)``
-    accessor (not yet implemented): on a uniform ``IntervalMesh`` the
-    dual and primal measures collapse to the constant ``mesh.dx``,
-    read at trace time (never baked into operator state).
+    The constant special case of the ``grid.measure`` metric fields
+    (concepts section 2.7): on a uniform mesh the dual and primal
+    measures collapse to the constant ``mesh.dx``, read at trace
+    time (never baked into operator state) and folded by XLA.
+    Non-uniform meshes carry no ``dx`` descriptor; their spacing
+    enters through :func:`divide_by_codomain_measure` instead.
 
     Parameters
     ----------
@@ -438,8 +440,81 @@ def uniform_spacing(factor: FunctionSpace) -> float:
     if dx is None:
         raise NotImplementedError(
             f"{factor.mesh!r} has no uniform cell width; nonuniform "
-            "measure fields arrive with grid.measure")
+            "spacing enters through the grid.measure fields")
     return dx
+
+
+def mapped_factor(factor: FunctionSpace) -> bool:
+    """
+    Whether the factor's mesh carries a coordinate map.
+
+    Description
+    -----------
+    The routing predicate of the stencil spacing denominators
+    (concepts section 2.7): ``False`` selects the uniform
+    scalar-``dx`` fast path (the constant special case), ``True``
+    the measure-field division of
+    :func:`divide_by_codomain_measure`.
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        A bare 1D factor space.
+
+    Returns
+    -------
+    bool
+        True iff the mesh exposes a non-None ``coordinate_map``.
+    """
+    return getattr(factor.mesh, "coordinate_map", None) is not None
+
+
+def divide_by_codomain_measure(
+    result: FieldLike, operand: FieldLike, axis: str,
+) -> FieldLike:
+    """
+    Divide a unit-spacing difference by its codomain measure field.
+
+    Description
+    -----------
+    The mapped-mesh spacing route of the two-point difference
+    kernels (rules sections 2.7, 3.9): the denominator of a
+    staggered difference is the **codomain's own measure** — the
+    primal cell width when landing on ``Center``/``CellAvg``, the
+    dual center-to-center spacing when landing on the face family —
+    materialized from the grid at trace time and divided in the
+    storage frame. The measure field is synced first, so on a
+    periodic axis the ghost slots the kernel computed stay valid
+    (the measure's wrap fill is its exact periodic extension) and
+    the result's halo-validity claim carries over unchanged; on
+    bounded axes the claim is already zero. Uniform meshes never
+    reach this route (scalar fast path, see
+    :func:`uniform_spacing`).
+
+    Parameters
+    ----------
+    result : FieldLike
+        The unit-spacing kernel result (bare codomain, storage
+        frame of the operand's layout).
+    operand : FieldLike
+        The operand field (supplies the grid and layout).
+    axis : str
+        The resolved coordinate axis.
+
+    Returns
+    -------
+    FieldLike
+        The measure-scaled result (halo-validity claim kept).
+    """
+    grid = operand.grid
+    space = result.function_space
+    # query in the operand's layout: grid.measure resolves a None
+    # layout to the default, matching the kernel's storage frame
+    query = space.with_layout(operand.function_space.layout)
+    measure = grid.sync(grid.measure(query, name=axis))
+    data = result._data / measure._data  # noqa: SLF001 — storage seam
+    return type(result)(grid, space, data, result.metadata,
+                        halo_valid=result.halo_valid)
 
 
 def apply_staggered(
