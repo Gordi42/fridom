@@ -37,9 +37,10 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom.framework as fr
-from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.storage import storage_dtype
-from fridom.spatial.operators.base import EigenbasisError
+from fridom.spatial.operators.distributed_solve import (
+    resolve_distributed_solve,
+)
 from fridom.spatial.operators.mixed import resolve_transform
 from fridom.spatial.operators.realized import (
     BoundTransform,
@@ -47,17 +48,13 @@ from fridom.spatial.operators.realized import (
     realized_rmatmul,
     realized_sum,
 )
-from fridom.spatial.operators.slab_fft import (
-    SlabSolve,
-    resolve_slab_plan,
-    symbol_fits,
-)
 from fridom.spatial.operators.symbol import Symbol
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.operators.base import FieldLike, Operator
     from fridom.spatial.operators.mixed import ComposedTransform
     from fridom.spatial.operators.realized import RealizedMap
+    from fridom.spatial.operators.slab_fft import SlabSolve
     from fridom.spatial.operators.transform import Transform
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
@@ -217,14 +214,15 @@ class SpectralSolve:
     no nullspace and inverts everywhere.
 
     On a multi-device grid an eligible solve (pure unpadded Fourier
-    transform, divisible extents — see ``operators/slab_fft.py``)
-    additionally resolves a distributed :class:`SlabSolve`: the
-    whole ``backward @ inverse @ forward`` runs slab-decomposed
-    inside one ``jax.shard_map`` region, with the eigenvalue
-    diagonal materialized on the plan's internal coefficient space
-    and sliced per shard. Ineligible solves — and mismatched-layout
-    operands — keep the replicated composite; on one device the
-    program is bitwise unchanged.
+    transform, divisible extents) additionally resolves a distributed
+    fused solve **through the ordinary transform's layout plan** (see
+    ``operators/distributed_solve.py``): the whole
+    ``backward @ inverse @ forward`` runs slab-decomposed inside one
+    ``jax.shard_map`` region, with the eigenvalue diagonal materialized
+    on the plan's internal coefficient space and sliced per shard.
+    Ineligible solves — and mismatched-layout operands — keep the
+    replicated composite; on one device the program is bitwise
+    unchanged.
 
     Parameters
     ----------
@@ -299,30 +297,23 @@ class SpectralSolve:
 
     def _resolve_slab(self) -> SlabSolve | None:
         """
-        Resolve the distributed slab solve, or None (fallback).
+        Resolve the distributed solve, or None (replicated fallback).
 
         Description
         -----------
-        The distributed path needs an :class:`Operator` recipe (a
-        pre-assembled ``Symbol`` is bound to the replicated codomain
-        layout), a resolvable :class:`SlabPlan`, and eigenvalues
-        that materialize on the plan's internal coefficient space as
-        an endomorphic broadcast-shaped diagonal; anything else
-        falls back to the replicated composite.
+        Distribution now flows through the ordinary transform: the fused
+        pipeline's geometry is resolved from the transform's
+        ``distributed_forward_plan``
+        (``operators/distributed_solve.py``) rather than a solve-scoped
+        ``resolve_slab_plan``. A pre-assembled ``Symbol`` (bound to the
+        replicated codomain) and any operand the transform plan declines
+        keep the replicated composite.
         """
         if isinstance(self._elliptic, Symbol):
             return None
-        plan = resolve_slab_plan(self._grid, self._domain)
-        if plan is None:
-            return None
-        try:
-            symbol = self._elliptic.eigenvalues(self._grid,
-                                                plan.coeff)
-        except (EigenbasisError, SpaceMismatchError):
-            return None
-        if not symbol_fits(plan, symbol):
-            return None
-        return SlabSolve(plan, symbol.inverse(self._where_zero))
+        return resolve_distributed_solve(
+            self._elliptic, self._transform, self._grid,
+            self._domain, self._where_zero)
 
     def _materialize(self) -> None:
         """Build the replicated ``backward @ inverse @ forward``."""
