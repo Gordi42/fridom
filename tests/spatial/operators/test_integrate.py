@@ -12,6 +12,9 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.registry import DispatchError
 from fridom.spatial.spaces.constant import ConstantSpace
@@ -124,10 +127,10 @@ def test_measure_drops_bc_constrained_boundary_dofs(my):
     assert jnp.allclose(w.data, my.dx)
 
 
-def test_measure_is_iteration_1_interval_only():
+def test_measure_on_chebyshev_awaits_clenshaw_curtis():
     cheb = ChebyshevMesh(8, (0.0, 1.0), name="s")
     grid = Grid((cheb,))
-    with pytest.raises(NotImplementedError, match="IntervalMesh"):
+    with pytest.raises(NotImplementedError, match="Clenshaw"):
         grid.measure(cheb.outer)
 
 
@@ -248,3 +251,46 @@ def test_mean_on_an_all_constant_space_is_identity(mx):
     grid = Grid((mx,))
     f = grid.create_field(mx.constant)
     assert f.mean() is f
+
+
+# ================================================================
+#  Mapped meshes: stretched quadrature weights (stage C0)
+# ================================================================
+def _tanh_map(s):
+    return jnp.tanh(2.0 * s) / jnp.tanh(2.0)
+
+
+def test_integral_is_exact_on_mapped_cell_averages():
+    mesh = MappedIntervalMesh(8, (0.0, 1.0), _tanh_map, name="v")
+    grid = Grid((mesh,))
+    # true cell averages of f(v) = v: antiderivative differences
+    # over the stretched primal cells, divided by the cell widths
+    faces = _tanh_map(jnp.arange(9) / 8)
+    w = grid.measure(mesh.cell_avg, name="v")
+    averages = jnp.diff(faces**2 / 2.0) / w.data
+    f = grid.create_field(mesh.cell_avg, data=averages)
+    assert jnp.allclose(f.integrate("v").data[0], 0.5)
+
+
+def test_stretched_outer_weights_tile_the_domain():
+    mesh = MappedIntervalMesh(8, (0.0, 1.0), _tanh_map, name="v")
+    grid = Grid((mesh,))
+    # the clipped dual measures tile [0, 1] exactly (telescoping),
+    # so constants integrate exactly; unlike the uniform trapezoid
+    # the stretched nodes are not dual-cell midpoints, so linears
+    # are only 2nd-order convergent (covered below)
+    f = grid.create_field(mesh.outer, init=lambda v: 3.0 + 0.0 * v)
+    assert jnp.allclose(f.integrate("v").data[0], 3.0)
+
+
+def test_nodal_integral_converges_on_a_mapped_mesh():
+    errors = []
+    for n in (16, 32):
+        mesh = MappedIntervalMesh(n, (0.0, 1.0), _tanh_map,
+                                  name="v")
+        grid = Grid((mesh,))
+        f = grid.create_field(mesh.center,
+                              init=lambda v: jnp.sin(jnp.pi * v))
+        errors.append(abs(float(f.integrate("v").data[0])
+                          - 2.0 / jnp.pi))
+    assert errors[0] / errors[1] > 3.0
