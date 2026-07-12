@@ -137,7 +137,7 @@ driving the shared ``spatial.operators.graded`` ladder — the nodal
 twin of the average family's ``Fallback``): the wide interior windows
 stay, and at the ``K`` faces adjacent to each wall progressively
 narrower interior-only stencils take over (orders ``min(order, 2d-1)``
-at distance ``d``, down to the 1st-order upwind cell), so **no
+at distance ``d``, down to the ``wall=`` bottom rung), so **no
 exterior value is ever read** (R1, ``design/plans/active/
 boundary_plan.md``). The wall itself stays impermeable *exactly*, not
 to truncation: the flux space still adopts the wall-normal velocity's
@@ -146,9 +146,13 @@ rows only ever produce the interior faces. The price is accuracy, not
 correctness: the interior keeps the *reconstruction's* design order
 (the tendency's own ceiling is the 2nd order above) while the ``K``
 near-wall faces drop to their rung's, so the global rate on a walled
-axis is the near-wall rung's rate. Each walled axis needs at least
-``order + 1`` cells (taught error at bind). The uniform-mesh refusal
-is untouched — mapped/stretched factors are still rejected at bind.
+axis is the near-wall rung's rate — which is why the bottom rung is
+the user's choice: ``wall="upwind1"`` (default) is monotone and
+globally 1st order, ``wall="centered2"`` is globally 2nd order but
+undissipative on the wall-adjacent face (`UpwindAdvection`). Each
+walled axis needs at least ``order + 1`` cells (taught error at bind).
+The uniform-mesh refusal is untouched — mapped/stretched factors are
+still rejected at bind.
 
 **Walled grids (centered scheme)**: ``CenteredAdvection`` supports
 bounded mesh factors (channel walls, rigid lids, and their
@@ -197,13 +201,16 @@ from fridom.spatial.operators.base import (
     SeparableOperator,
 )
 from fridom.spatial.operators.graded import (
+    WALL_RUNGS,
     Rung,
+    RungSpec,
     apply_graded_walls,
-    biased_ladder,
     biased_offset,
+    biased_specs,
     centered_ladder,
     centered_offset,
     min_cells,
+    spec_offset,
 )
 from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
@@ -856,6 +863,41 @@ def _biased_kernel(
     return linear
 
 
+def _rung_kernel(
+    spec: RungSpec,
+    bias: Literal["left", "right"],
+    weighting: Literal["linear", "weno"],
+) -> Callable[[Array, int], Array]:
+    """
+    Array kernel of one graded rung spec (the ``wall=`` seam).
+
+    Description
+    -----------
+    A "biased" spec carries the odd formal order of its rung (the
+    weighted upwind row); a "centered" spec is the ``wall="centered2"``
+    bottom rung — the symmetric even-size row, identical under both
+    biases, so the module's ``Where`` select returns it whatever the
+    sign of the face velocity (the wall-adjacent face loses its upwind
+    bias, which is exactly the trade the option offers).
+
+    Parameters
+    ----------
+    spec : RungSpec
+        The ladder rung spec.
+    bias : Literal["left", "right"]
+        The upwind bias side (inert on a centered rung).
+    weighting : Literal["linear", "weno"]
+        The stencil weighting of the holding scheme.
+
+    Returns
+    -------
+    Callable[[Array, int], Array]
+        The ``(window, axis_index) -> face_value`` kernel.
+    """
+    if spec.family == "centered":
+        return _centered_kernel(spec.width)
+    return _biased_kernel(spec.width, bias, weighting)
+
 
 @final
 @interned
@@ -884,7 +926,7 @@ class _BiasedFaceReconstruction(SeparableOperator):
     and the ``K = order // 2 + shift`` output faces adjacent to each
     wall are rebuilt from progressively narrower interior-only
     stencils (orders ``min(order, 2*d - 1)`` at distance ``d``,
-    bottoming out at the 1st-order upwind cell). It reads **no
+    bottoming out at the ``wall=`` rung). It reads **no
     exterior value**: on the primal direction (``Center -> Inner``,
     ``shift = 0``) the operand is a BC-free bounded space and the
     ladder stays inside its true DOFs; on the dual direction
@@ -908,6 +950,12 @@ class _BiasedFaceReconstruction(SeparableOperator):
         "none" is the periodic-only kernel; "graded" grows the bounded
         signature by replacing the ``K`` faces adjacent to each wall
         with the graded ladder (see the class Description).
+    wall : Literal["upwind1", "centered2"], optional
+        The ladder's bottom (wall-adjacent) rung under
+        ``boundary="graded"``; inert on the plain kernel (default:
+        "upwind1" — the 1st-order upwind cell; "centered2" is the
+        two-point mean, accurate but undissipative, see
+        ``operators.graded``).
     """
 
     dispatch_kind: ClassVar[str | None] = None
@@ -918,6 +966,7 @@ class _BiasedFaceReconstruction(SeparableOperator):
         bias: Literal["left", "right"],
         weighting: Literal["linear", "weno"],
         boundary: Literal["none", "graded"] = "none",
+        wall: Literal["upwind1", "centered2"] = "upwind1",
     ) -> None:
         """Validate through the framework tables and store."""
         if weighting not in _WEIGHTINGS:
@@ -928,16 +977,20 @@ class _BiasedFaceReconstruction(SeparableOperator):
             raise ValueError(
                 f"boundary must be one of {_BOUNDARY_MODES}, got "
                 f"{boundary!r}")
+        if wall not in WALL_RUNGS:
+            raise ValueError(
+                f"wall must be one of {WALL_RUNGS}, got {wall!r}")
         weno_tables(order, bias)  # validates order and bias
         self._order = order
         self._bias = bias
         self._weighting = weighting
         self._boundary = boundary
+        self._wall = wall
 
     def _intern_key(self) -> tuple:
-        """Structural key: order, bias, weighting, boundary (D6)."""
+        """Structural key: order, bias, weighting, boundary, wall (D6)."""
         return (self._order, self._bias, self._weighting,
-                self._boundary)
+                self._boundary, self._wall)
 
     # ------------------------------------------------------------
     #  Properties
@@ -961,6 +1014,11 @@ class _BiasedFaceReconstruction(SeparableOperator):
     def boundary(self) -> Literal["none", "graded"]:
         """The boundary variant: "none" or "graded"."""
         return self._boundary
+
+    @property
+    def wall(self) -> Literal["upwind1", "centered2"]:
+        """The ladder's bottom rung: "upwind1" or "centered2"."""
+        return self._wall
 
     # ------------------------------------------------------------
     #  Signature and requirements
@@ -1050,9 +1108,9 @@ class _BiasedFaceReconstruction(SeparableOperator):
         if self._boundary == "none" or domain.mesh.periodic:
             return interior
         rungs = tuple(
-            Rung(rung, biased_offset(rung, bias),
-                 _biased_kernel(rung, bias, weighting))
-            for rung in biased_ladder(order, shift))
+            Rung(spec.width, spec_offset(spec, bias),
+                 _rung_kernel(spec, bias, weighting))
+            for spec in biased_specs(order, shift, self._wall))
         return apply_graded_walls(f, axis, interior, rungs, shift)
 
 
@@ -1823,13 +1881,43 @@ class UpwindAdvection(_FluxFormAdvection):
     bookkeeping is the centered scheme's: along a walled axis the flux
     adopts the wall-normal velocity's Dirichlet tag (``_flux_space``),
     so the wall flux is a **structural exact zero** and the wall stays
-    impermeable to machine precision, not to truncation. The interior
-    keeps the *reconstruction's* design order; the ``K`` near-wall
-    faces per side legitimately drop to the reduced rungs, so the
-    *global* rate on a walled axis is the near-wall rung's — the
+    impermeable to machine precision, not to truncation — under either
+    ``wall=`` rung, which only ever writes the *interior* faces. The
+    interior keeps the *reconstruction's* design order; the ``K``
+    near-wall faces per side legitimately drop to the reduced rungs, so
+    the *global* rate on a walled axis is the near-wall rung's — the
     accuracy price of a BC-free bounded closure (R1,
     ``boundary_plan.md``). Each walled axis needs at least
     ``order + 1`` cells.
+
+    **The wall-adjacent rung** (``wall=``, walled grids only) is the
+    one genuine choice the closure leaves, and it is the classic
+    accuracy-vs-monotonicity trade:
+
+    - ``wall="upwind1"`` (default): the 1st-order upwind cell. Keeps
+      the upwind bias — and hence the numerical dissipation —
+      everywhere, including on the wall-adjacent face where a boundary
+      layer or a front is most likely to sit. Its :math:`O(h)` face
+      value costs a full order globally: measured on the walled
+      tracer-advection problem of the test suite the max-norm tendency
+      error converges at **~1.0** whatever the interior order (which
+      stays 3.00 / 5.00 — the interior is untouched).
+    - ``wall="centered2"``: the two-point mean of the two cells that
+      straddle the wall-adjacent face — the same cells the upwind
+      window is a subset of, so it is just as interior-only. Its
+      :math:`O(h^2)` face value lifts the global rate to **~2.0**
+      (measured), i.e. to the centered scheme's, without touching the
+      interior. The price: on that one face per side the left- and
+      right-biased reconstructions coincide, so there is **no upwind
+      dissipation at the wall**. On a smooth flow this is free
+      accuracy; on a front pressed against the wall it rings (measured
+      on a wall-adjacent step: ~2x the overshoot of ``upwind1``, and
+      WENO's ENO property no longer applies on that face).
+
+    Pick ``centered2`` when the near-wall flow is smooth and the global
+    order matters (a resolved boundary layer, a convergence study);
+    keep ``upwind1`` when fronts, steps, or under-resolved boundary
+    layers may reach the wall.
 
     Mapped grids stay rejected at bind: the biased rows are
     uniform-offset (computational-coordinate) rows and lose their
@@ -1847,6 +1935,11 @@ class UpwindAdvection(_FluxFormAdvection):
         ``background_advection`` term applies the linear upwind row
         of the same order, side-selected by the sign of the static
         background face velocity (default: None).
+    wall : Literal["upwind1", "centered2"], optional
+        The bottom rung of the graded near-wall ladder on a walled
+        grid; inert on a fully periodic one (default: "upwind1" — the
+        monotone, globally 1st-order choice; see the class
+        Description).
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "linear"
@@ -1865,6 +1958,7 @@ class UpwindAdvection(_FluxFormAdvection):
         order: int = 3,
         *,
         background: Mapping[str, Callable | float] | None = None,
+        wall: Literal["upwind1", "centered2"] = "upwind1",
     ) -> None:
         """Build the biased reconstruction pairs for ``order``."""
         super().__init__(background=background)
@@ -1873,7 +1967,12 @@ class UpwindAdvection(_FluxFormAdvection):
                 f"{type(self).__name__} grounds the biased "
                 f"reconstruction orders {_SUPPORTED_ORDERS} (the "
                 f"framework WENO tables), got {order}")
+        if wall not in WALL_RUNGS:
+            raise ValueError(
+                f"{type(self).__name__} grounds the near-wall rungs "
+                f"{WALL_RUNGS}, got {wall!r}")
         self._order = order
+        self._wall = wall
         self._install_kernels("none")
 
     def _install_kernels(
@@ -1900,16 +1999,24 @@ class UpwindAdvection(_FluxFormAdvection):
         """
         order = self._order
         weighting = self._weighting  # class-attribute lookup
+        # the wall rung is inert on the plain kernel: normalized to the
+        # default so a periodic grid keeps the pre-``wall=`` interned
+        # objects whatever the user asked for (bitwise unchanged)
+        wall = self._wall if boundary == "graded" else "upwind1"
         self._left = _BiasedFaceReconstruction(order, "left",
-                                               weighting, boundary)
+                                               weighting, boundary,
+                                               wall)
         self._right = _BiasedFaceReconstruction(order, "right",
-                                                weighting, boundary)
+                                                weighting, boundary,
+                                                wall)
         # the linear-weight pair of the background transport (for
         # weighting == "linear" these are the same interned objects)
         self._lin_left = _BiasedFaceReconstruction(order, "left",
-                                                   "linear", boundary)
+                                                   "linear", boundary,
+                                                   wall)
         self._lin_right = _BiasedFaceReconstruction(order, "right",
-                                                    "linear", boundary)
+                                                    "linear", boundary,
+                                                    wall)
         self._interp = _CenteredFaceInterpolation(order - 1, boundary)
 
     def bind(self, table: object) -> None:
@@ -1991,6 +2098,11 @@ class UpwindAdvection(_FluxFormAdvection):
     def order(self) -> int:
         """Formal order of the biased face reconstruction."""
         return self._order
+
+    @property
+    def wall(self) -> Literal["upwind1", "centered2"]:
+        """Bottom rung of the graded near-wall ladder."""
+        return self._wall
 
     # ------------------------------------------------------------
     #  The upwind face values
@@ -2170,6 +2282,14 @@ class WENOAdvection(UpwindAdvection):
         operator is not linear in the state; the nonlinear
         difference term keeps the full WENO weighting of the full
         advecting velocity (default: None).
+    wall : Literal["upwind1", "centered2"], optional
+        The bottom rung of the graded near-wall ladder on a walled
+        grid (see `UpwindAdvection`). Note that ``"centered2"``
+        gives up the ENO property on the wall-adjacent face — the
+        WENO weighting has nothing to weight there — so a front
+        pressed against the wall will ring; it buys the global 2nd
+        order the ``"upwind1"`` bottom cannot reach (default:
+        "upwind1").
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "weno"

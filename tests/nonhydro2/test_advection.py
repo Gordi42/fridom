@@ -790,14 +790,14 @@ def _flux_derivative(y):
              * np.cos(2 * np.pi * y + 0.7))
 
 
-def _walled_tendency_error(cls, order, n):
+def _walled_tendency_error(cls, order, n, wall="upwind1"):
     """Max |tendency - analytic| at the interior / all b cells."""
     grid = Grid((
         IntervalMesh(4, (0.0, L), name="x"),
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="y"),
         IntervalMesh(4, (0.0, L), name="z"),
     ))
-    module = cls(order)
+    module = cls(order, wall=wall)
     model = FrModel(
         grid=grid,
         modules=(DynamicalCore(), ConstantStratification(n2=1.0),
@@ -870,6 +870,236 @@ def test_walled_biased_global_error_converges_at_first_order(
     rates = [np.log2(errs[i] / errs[i + 1]) for i in range(2)]
     assert all(fine < coarse for coarse, fine in pairwise(errs))
     assert min(rates) > 0.9
+
+
+# ================================================================
+#  The wall-adjacent rung (``wall=``): accuracy vs monotonicity
+# ================================================================
+def test_wall_rung_defaults_to_upwind_one():
+    # the default is the historical behavior; nothing changes silently
+    assert UpwindAdvection().wall == "upwind1"
+    assert WENOAdvection(5).wall == "upwind1"
+    assert UpwindAdvection(5, wall="centered2").wall == "centered2"
+    assert _BiasedFaceReconstruction(3, "left", "linear").wall == (
+        "upwind1")
+
+
+@pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
+def test_unknown_wall_rung_is_taught(cls):
+    with pytest.raises(ValueError,
+                       match=r"near-wall rungs \('upwind1', "
+                             r"'centered2'\)"):
+        cls(3, wall="quick")
+    with pytest.raises(ValueError, match=r"wall must be one of"):
+        _BiasedFaceReconstruction(3, "left", "linear", "graded",
+                                  "quick")
+
+
+def test_wall_rung_is_part_of_the_intern_key():
+    def make(wall):
+        return _BiasedFaceReconstruction(5, "left", "weno", "graded",
+                                         wall)
+
+    assert make("upwind1") is make("upwind1")
+    assert make("upwind1") is not make("centered2")
+    assert make("centered2").wall == "centered2"
+
+
+def test_walled_bind_installs_the_chosen_bottom_rung():
+    module = WENOAdvection(5, wall="centered2")
+    assert module._left.boundary == "none"     # pre-bind
+    make_walled_model(("y",), module)
+    for kernel in (module._left, module._right, module._lin_left,
+                   module._lin_right):
+        assert kernel.boundary == "graded"
+        assert kernel.wall == "centered2"
+
+
+def test_periodic_path_ignores_the_wall_rung():
+    # a fully periodic grid keeps the plain kernels — the same INTERNED
+    # objects — and the tendency is bitwise the default's: the wall rung
+    # cannot change the periodic numerics
+    default = UpwindAdvection(5)
+    centered = UpwindAdvection(5, wall="centered2")
+    assert centered._left is default._left
+    assert centered._right is default._right
+
+    taus = []
+    for module in (default, centered):
+        model = make_model(8, module)
+        set_random_state(model, seed=21)
+        taus.append(advection_tendency(model, type(module)))
+    for name in ("u", "v", "w", "b"):
+        assert np.array_equal(np.asarray(taus[0][name].data),
+                              np.asarray(taus[1][name].data))
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_centered2_wall_flux_is_exactly_zero(cls, order):
+    # the blocking gate: the centered bottom rung must not leak through
+    # the wall. It cannot — it only ever writes the INTERIOR faces, and
+    # the wall face is a Dirichlet boundary value of the flux space, not
+    # a DOF (the same structural argument as the upwind1 bottom)
+    module = cls(order, wall="centered2")
+    model = make_walled_model(("y",), module)
+    set_random_state(model, seed=17)
+    flux, flux_space = walled_flux(module, model, "b", "y")
+    factor = flux_space.bare.factor("y")
+    assert factor.bc.components == (BC.DIRICHLET, BC.DIRICHLET)
+
+    synced = Sync()(flux)
+    width = model.grid.decomposition.halo["y"]
+    data = np.asarray(synced._data)
+    assert (data[:, width - 1, :] == 0.0).all()          # y = 0 wall
+    assert (data[:, width + factor.shape[0], :] == 0.0).all()
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_centered2_conserves_total_buoyancy(cls, order, walled):
+    # the flux form still telescopes onto an exact-zero wall flux
+    module = cls(order, wall="centered2")
+    model = make_walled_model(walled, module)
+    set_random_state(model, seed=12)
+    state = model.constrain(model.state)
+    tau = model.tendency(
+        state, constraints=False,
+        filter=fr.model.term_predicates.owned_by(cls))
+    db = np.asarray(tau["b"].data)
+    assert np.isfinite(db).all()
+    assert abs(float(np.sum(db))) / float(
+        np.sum(np.abs(db))) < CONSERVATION_TOL
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_centered2_preserves_a_uniform_tracer(cls, order):
+    # free-stream preservation: the two-point mean row sums to one, so
+    # the centered bottom rung is exact on constants exactly as the
+    # upwind cell is
+    model = make_walled_model(("y", "z"),
+                              cls(order, wall="centered2"))
+    set_random_state(model, seed=5)
+    state = model.constrain(model.state)
+    model.set_fields(**{c: np.asarray(state[c].data)
+                        for c in ("u", "v", "w")})
+    model.set_fields(b=np.full(model.state["b"].data.shape, 3.0))
+    tau = model.tendency(model.state, constraints=False,
+                         filter=fr.model.term_predicates.owned_by(cls))
+    assert float(np.abs(np.asarray(tau["b"].data)).max()) < 1e-13
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_centered2_leaves_the_interior_bitwise_unchanged(cls, order):
+    # the option buys its order at the wall ONLY: away from the K
+    # reduced faces per side the two rungs produce the same numbers,
+    # bit for bit (the ladder above the bottom rung is identical)
+    taus = []
+    for wall in ("upwind1", "centered2"):
+        model = make_walled_model(("y",), cls(order, wall=wall), n=16)
+        set_random_state(model, seed=23)
+        taus.append(advection_tendency(model, cls))
+    k = order // 2 + 2
+    for name in ("u", "v", "w", "b"):
+        got = [np.asarray(tau[name].data)[:, k:-k, :] for tau in taus]
+        assert np.array_equal(got[0], got[1])
+        # ... and the near-wall rows genuinely differ
+        near = [np.asarray(tau[name].data)[:, :1, :] for tau in taus]
+        assert not np.array_equal(near[0], near[1])
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_centered2_lifts_the_global_error_to_second_order(cls, order):
+    # the payoff, measured on the same walled tracer problem the
+    # first-order gate above uses: the
+    # O(h^2) wall-adjacent face value lifts the max-norm tendency rate
+    # over the WHOLE walled axis from ~1 to ~2 (measured 2.03-2.11 for
+    # every configuration but weno3, whose global error is capped by
+    # its own interior critical-point degradation, not by the wall)
+    sizes = (64, 128, 256)
+    errs = [_walled_tendency_error(cls, order, n, wall="centered2")[1]
+            for n in sizes]
+    base = [_walled_tendency_error(cls, order, n)[1] for n in sizes]
+    rates = [np.log2(errs[i] / errs[i + 1]) for i in range(2)]
+    assert all(fine < coarse for coarse, fine in pairwise(errs))
+    # weno3's global max error sits in the interior (critical points),
+    # so the wall rung cannot lift it; everywhere else it reaches ~2
+    floor = 0.9 if (cls, order) == (WENOAdvection, 3) else 1.8
+    assert min(rates) > floor
+    # never worse than the upwind1 bottom, at any resolution
+    assert all(new <= old for new, old in zip(errs, base, strict=True))
+
+
+def _wall_front(module, n=32, t_end=0.5):
+    """Drive a step front INTO the y = 1 wall; return the profile.
+
+    ``v = sin(pi y)`` is impermeable and compressive at the top wall,
+    so the discontinuity (started two cells out) is pressed onto the
+    wall-adjacent face — exactly where the two rungs differ. The exact
+    solution is monotone with an exact minimum of 0 below the front,
+    so any ``b < 0`` is a spurious oscillation.
+    """
+    grid = Grid((
+        IntervalMesh(4, (0.0, L), name="x"),
+        IntervalMesh(n, (0.0, 1.0), periodic=False, name="y"),
+        IntervalMesh(4, (0.0, L), name="z"),
+    ))
+    model = FrModel(
+        grid=grid,
+        modules=(DynamicalCore(), ConstantStratification(n2=1.0),
+                 module),
+        time_stepper=AdamBashforth(DT, order=3))
+    yv = np.asarray(grid.evaluation_nodes(
+        model.state["v"].function_space, "y").data).ravel()
+    yb = np.asarray(grid.evaluation_nodes(
+        model.state["b"].function_space, "y").data).ravel()
+    vfield = np.broadcast_to(np.sin(np.pi * yv)[None, :, None],
+                             model.state["v"].data.shape).copy()
+    b = np.broadcast_to(
+        (yb > 1.0 - 2.0 / n).astype(float)[None, :, None],
+        model.state["b"].data.shape).copy()
+
+    def rhs(data):
+        model.set_fields(v=vfield, b=data)
+        tau = model.tendency(
+            model.state, constraints=False,
+            filter=fr.model.term_predicates.owned_by(type(module)))
+        return np.asarray(tau["b"].data)
+
+    dt = 0.2 / n                       # CFL 0.2 (max |v| = 1)
+    for _ in range(round(t_end / dt)):          # SSP-RK3
+        b1 = b + dt * rhs(b)
+        b2 = 0.75 * b + 0.25 * (b1 + dt * rhs(b1))
+        b = (b + 2.0 * (b2 + dt * rhs(b2))) / 3.0
+    return b[0, :, 0]
+
+
+@pytest.mark.parametrize(
+    ("cls", "order"),
+    [pytest.param(UpwindAdvection, 3, id="upwind3"),
+     pytest.param(WENOAdvection, 5, id="weno5")])
+def test_centered2_rings_on_a_wall_adjacent_front(cls, order):
+    # the documented PRICE, measured: with the centered bottom rung the
+    # wall-adjacent face has no upwind bias (both members of the upwind
+    # pair return the same value there), so a front pressed against the
+    # wall oscillates. Measured at n=32, t=0.5: undershoot 0.00 ->0.57
+    # (weno5, whose ENO property no longer applies on that face) and
+    # 0.13 -> 0.72 (upwind3); the total variation roughly doubles. The
+    # oscillation stays BOUNDED (a trapped 2-cell wiggle) — it is a
+    # monotonicity failure, not an instability.
+    profiles = {
+        wall: _wall_front(cls(order, wall=wall))
+        for wall in ("upwind1", "centered2")}
+    under = {wall: max(0.0, -float(p.min()))
+             for wall, p in profiles.items()}
+    variation = {wall: float(np.abs(np.diff(p)).sum())
+                 for wall, p in profiles.items()}
+
+    assert all(np.isfinite(p).all() for p in profiles.values())
+    assert under["upwind1"] < 0.2
+    assert under["centered2"] > 0.4
+    assert variation["centered2"] > 1.4 * variation["upwind1"]
+    # bounded, not blowing up (the exact solution's range is [0, ~7])
+    assert float(np.abs(profiles["centered2"]).max()) < 10.0
 
 
 # ---- the graded rows in isolation (design order, no exterior read)
@@ -953,12 +1183,13 @@ def test_graded_weno3_rows_converge_essentially_third_order(
     assert min(rates) > 2.0
 
 
+@pytest.mark.parametrize("wall", ["upwind1", "centered2"])
 @pytest.mark.parametrize("weighting", ["linear", "weno"])
 @pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
 @pytest.mark.parametrize("bias", ["left", "right"])
 @pytest.mark.parametrize("order", [3, 5])
 def test_graded_rows_read_no_exterior_value(order, bias, weighting,
-                                            node_set):
+                                            node_set, wall):
     # NaN-poison gate (the Fallback idiom): poison EVERY ghost slot —
     # including, on the Dirichlet Inner operand, the wall slot itself
     # — and claim the ghosts valid so the consumption-side sync leaves
@@ -980,7 +1211,8 @@ def test_graded_rows_read_no_exterior_value(order, bias, weighting,
     f._data = poisoned
     f._halo_valid = HaloSpec({"y": width})
 
-    op = _BiasedFaceReconstruction(order, bias, weighting, "graded")
+    op = _BiasedFaceReconstruction(order, bias, weighting, "graded",
+                                   wall)
     result = op["y"](f)
     assert result.function_space.bare is (
         mesh.inner if node_set is NodeSet.CENTER else mesh.center)

@@ -17,22 +17,27 @@ paths are exercised by the two consumers' suites
 import pytest
 
 from fridom.spatial.operators.graded import (
+    WALL_RUNGS,
     Rung,
+    RungSpec,
     _wall_cells,
     apply_graded_walls,
     biased_ladder,
     biased_offset,
     biased_rows,
+    biased_specs,
     centered_ladder,
     centered_offset,
     centered_rows,
     min_cells,
+    spec_offset,
 )
 
 BIASES = ["left", "right"]
 ORDERS = [3, 5]
 SIZES = [2, 4]
 SHIFTS = [0, 1]
+WALLS = list(WALL_RUNGS)
 
 
 # ================================================================
@@ -166,6 +171,86 @@ def test_centered_ladder_windows_stay_inside_the_lattice(size, shift):
             assert start + s - 1 <= n_cells - 1
     if k:
         assert ladder[-1] == 2           # the two-point mean rung
+
+
+# ================================================================
+#  The bottom rung of a biased ladder (the ``wall=`` knob)
+# ================================================================
+@pytest.mark.parametrize("order", ORDERS)
+@pytest.mark.parametrize("shift", SHIFTS)
+def test_biased_specs_default_to_the_upwind_one_bottom(order, shift):
+    # the default reproduces biased_ladder EXACTLY (every rung an odd
+    # biased row, bottoming out at the 1st-order upwind cell)
+    specs = biased_specs(order, shift)
+    assert specs == biased_specs(order, shift, "upwind1")
+    assert tuple(spec.width for spec in specs) == biased_ladder(
+        order, shift)
+    assert all(spec.family == "biased" for spec in specs)
+    assert specs[-1] == RungSpec("biased", 1)
+
+
+@pytest.mark.parametrize("order", ORDERS)
+@pytest.mark.parametrize("shift", SHIFTS)
+def test_centered2_replaces_only_the_wall_adjacent_rung(order, shift):
+    # the trade the option offers: the wall-adjacent (last) rung
+    # becomes the two-point centered mean; EVERY other rung — and the
+    # ladder's length K — is untouched, so the interior and the
+    # reduced faces at distance d > 1 are bitwise the default's
+    default = biased_specs(order, shift, "upwind1")
+    centered = biased_specs(order, shift, "centered2")
+    assert len(centered) == len(default) == biased_rows(order, shift)
+    assert centered[:-1] == default[:-1]
+    assert centered[-1] == RungSpec("centered", 2)
+
+
+def test_unknown_wall_rung_is_taught():
+    with pytest.raises(ValueError, match=r"wall must be one of"):
+        biased_specs(3, 0, "quick")
+
+
+@pytest.mark.parametrize("order", ORDERS)
+@pytest.mark.parametrize("shift", SHIFTS)
+@pytest.mark.parametrize("bias", BIASES)
+@pytest.mark.parametrize("wall", WALLS)
+def test_biased_spec_windows_stay_inside_the_lattice(
+        order, shift, bias, wall):
+    # the legality rule (R1) holds for BOTH bottom rungs: the
+    # centered2 window at the wall-adjacent face reads the two cells
+    # straddling it, which is exactly where the upwind1 window sits —
+    # no exterior cell, ever
+    specs = biased_specs(order, shift, wall)
+    k = len(specs)
+    n_cells = 40
+    for d in range(1, k + 1):
+        spec = specs[k - d]
+        offset = spec_offset(spec, bias)
+        for face in (d, (n_cells - 1) - d + 1):
+            start = face - 1 - offset
+            assert start >= 0
+            assert start + spec.width - 1 <= n_cells - 1
+
+
+@pytest.mark.parametrize("bias", BIASES)
+def test_spec_offset_follows_the_rung_family(bias):
+    # a centered rung has no bias: both members of an upwind pair read
+    # the same window (and hence return the same face value)
+    assert spec_offset(RungSpec("centered", 2), bias) == (
+        centered_offset(2))
+    assert spec_offset(RungSpec("biased", 3), bias) == (
+        biased_offset(3, bias))
+
+
+@pytest.mark.parametrize("shift", SHIFTS)
+def test_the_centered2_bottom_rung_reaches_the_wall_cell_alike(shift):
+    # the wall-cell synthesis (shift = 1) is driven by the window, not
+    # by the family: the two-point rung at distance 1 straddles the
+    # wall-adjacent face, so it reads the wall cell on ONE side of each
+    # wall — exactly as the upwind1 rung does on its biased side
+    spec = biased_specs(3, shift, "centered2")[-1]
+    rung = Rung(spec.width, spec_offset(spec, "left"),
+                lambda a, _x: a)
+    assert _wall_cells(rung, 0, 1, shift) == (shift, 0)
+    assert _wall_cells(rung, 1, 1, shift) == (0, shift)
 
 
 # ================================================================
