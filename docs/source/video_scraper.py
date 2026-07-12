@@ -35,6 +35,20 @@ GRID_ITEM_RST = """
 """
 
 
+def purge_stray_videos(gallery_conf, fname):
+    """Remove leftover videos before an example executes (reset hook).
+
+    A previous manual run of the example (outside sphinx) leaves its
+    rendered videos next to the script. Without this hook the scraper
+    would sweep them at the example's FIRST block and embed every
+    video twice: once at the top, once at its proper block.
+    """
+    src_dir = os.path.dirname(fname)
+    for name in os.listdir(src_dir):
+        if name.endswith(VIDEO_EXTENSIONS):
+            os.remove(os.path.join(src_dir, name))
+
+
 class VideoScraper:
 
     """Move newly created videos into the gallery and embed them."""
