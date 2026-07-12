@@ -147,6 +147,43 @@ def test_single_stage_spaces_fall_back():
     assert resolve_slab_plan(grid, bare) is None
 
 
+def test_two_axis_device_mesh_is_the_pencil_extension_point():
+    # a genuine 2-D device mesh (pencil decomposition) is the
+    # documented extension point: iteration 1 realizes only 1-D
+    # meshes, so the plan resolves to None until a second all_to_all
+    # stage lands
+    grid = make_grid((16, 16, 16), device_ids=(0,))
+    bare = grid.create_field().function_space.bare
+    real_mesh = grid.decomposition.device_mesh
+
+    class _PencilMesh:
+        axis_names = ("rows", "cols")
+
+    class _PencilDecomp:
+        device_mesh = _PencilMesh()
+        device_count = 4
+
+        def __getattr__(self, name):
+            return getattr(real_mesh, name)
+
+    class _PencilGrid:
+        decomposition = _PencilDecomp()
+
+    assert slab_mod._build_plan(_PencilGrid(), bare) is None
+
+
+def test_no_device_mesh_falls_back():
+    class _NoMeshDecomp:
+        device_count = 4
+
+    class _NoMeshGrid:
+        decomposition = _NoMeshDecomp()
+
+    grid = make_grid((16, 16, 16), device_ids=(0,))
+    bare = grid.create_field().function_space.bare
+    assert slab_mod._build_plan(_NoMeshGrid(), bare) is None
+
+
 @pytest.mark.multi_device
 def test_unresolvable_transforms_fall_back():
     # an all-Constant space carries no transform signature
@@ -285,6 +322,28 @@ def test_slab_solve_wrapper_solves_and_guards():
     complex_field = grid.create_field(
         plan.domain.replace(x=plan.domain.factor("x").as_complex()))
     assert not slab.applies(complex_field)
+
+
+@pytest.mark.multi_device
+def test_ill_shaped_eigenvalues_fall_back():
+    # an operator whose eigenvalues materialize on the internal space
+    # but do not broadcast over it (a non-endomorphic / mis-shaped
+    # diagonal) must keep the replicated composite (spectral_solve
+    # symbol_fits guard)
+    grid = make_grid((16, 16, 16))
+    rhs = grid.create_field(data=rng_data((16, 16, 16)))
+    bare = rhs.function_space.bare
+    lap = laplacian_on(grid, bare)
+
+    class BadEig:
+
+        def eigenvalues(self, grid, space):
+            good = lap.eigenvalues(grid, space)
+            # a genuinely non-broadcast diagonal on the internal space
+            return Symbol(space, jnp.ones((2, *good.data.shape[1:])))
+
+    solve = SpectralSolve(BadEig(), grid, rhs.function_space)
+    assert solve.slab is None
 
 
 # ================================================================
