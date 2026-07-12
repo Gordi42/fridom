@@ -338,11 +338,27 @@ divergence on mapped grids (orders 1.93/1.98); biased schemes
   layout check; reproduced with pure static C3 code and a bare 2D
   solver: 8x8/16x16 fine, 8x16/4x16/8x32 fail). Two tall-column
   gates are `single_device`-marked; the isotropic forced-4
-  invariance gate passes. Needs its own investigation.
-- FD order > 2 / one-sided closures on mapped meshes; Clenshaw-Curtis
-  measures on `ChebyshevMesh`.
-- Biased advection (Upwind/WENO) and Smagorinsky-Lilly on mapped
-  grids; `background=` flows on chart grids.
+  invariance gate passes. **Investigated** — see
+  [`../../research/xla_spmd_fft_fault.md`](../../research/xla_spmd_fft_fault.md):
+  an upstream XLA:CPU layout bug (jax 0.10.2), reduced to a
+  15-line pure-jax reproducer; the fridom-side trigger is that the
+  transform planner runs its FFT on whatever axis the negotiated
+  layout sharded, with no reshard stage. The mitigation is
+  fridom-side and does not wait on upstream.
+- FD order > 2 / one-sided closures on mapped meshes; the biased
+  reconstructions and biased advection (Upwind/WENO) on mapped
+  meshes — the guards landed (merge `fe24b9f7`; normative rule in
+  [`../../specs/grid/classes/operators_stencils.md`](../../specs/grid/classes/operators_stencils.md)),
+  the generalization is
+  [`../active/high_order_mapped_plan.md`](../active/high_order_mapped_plan.md).
+  Clenshaw-Curtis measures on `ChebyshevMesh` remain open.
+- Smagorinsky-Lilly on mapped grids; `background=` flows on chart
+  grids.
+- **Chart/sphere setup ergonomics** — five gaps found building the
+  minimal spherical and torus examples, the first of which is silent
+  wrong physics (`coriolis=None` installs the flat `FPlaneCoriolis`
+  on a chart grid and nothing rejects it):
+  [`../active/chart_ergonomics_plan.md`](../active/chart_ergonomics_plan.md).
 - Eigenmode / state-transform machinery on mapped and chart grids.
 - `lax.fori_loop` CG variant if pressure iteration budgets exceed
   ~60 (unrolled compile cost is ~0.17 s/iteration).
