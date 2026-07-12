@@ -8,6 +8,8 @@ bias sides, and both grounded orders. Physics sanity (zero tendency,
 convergence order, ENO step transport, Rossby scaling, divergence
 form) rides on top.
 """
+from itertools import pairwise
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -34,7 +36,9 @@ from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
+from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -43,6 +47,9 @@ from fridom.spatial.meshes.mapped_interval import (
     MappedIntervalMesh,
 )
 from fridom.spatial.operators.composed import Divergence
+from fridom.spatial.operators.graded import biased_rows
+from fridom.spatial.operators.movement import Sync
+from fridom.spatial.spaces.nodal import NodeSet
 
 L = 2 * np.pi
 NY = 8
@@ -389,20 +396,48 @@ def test_second_advance_compiles_nothing(compile_counter):
 
 
 # ================================================================
-#  Walled grids: taught rejection of the biased schemes at bind
+#  Walled grids: the biased schemes install their graded closure
 # ================================================================
 @pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
-def test_walled_grid_is_a_taught_error(cls):
+@pytest.mark.parametrize("order", [3, 5])
+def test_walled_grid_installs_the_graded_kernels(cls, order):
+    # binding on a walled grid swaps every face kernel for its
+    # boundary="graded" variant (the near-wall closure); a fully
+    # periodic grid keeps the plain periodic-only kernels
     grid = Grid((
         IntervalMesh(8, (0.0, L), name="x"),
         IntervalMesh(8, (0.0, L), name="y"),
         IntervalMesh(8, (0.0, 1.0), periodic=False, name="z"),
     ))
+    module = cls(order)
+    FrModel(grid=grid, modules=(DynamicalCore(), module),
+            time_stepper=AdamBashforth(DT, order=3))
+    assert module._walled == ("z",)
+    for op in (module._left, module._right, module._lin_left,
+               module._lin_right, module._interp):
+        assert op.boundary == "graded"
+
+    plain = cls(order)
+    FrModel(grid=make_grid(8), modules=(DynamicalCore(), plain),
+            time_stepper=AdamBashforth(DT, order=3))
+    assert plain._walled == ()
+    for op in (plain._left, plain._right, plain._lin_left,
+               plain._lin_right, plain._interp):
+        assert op.boundary == "none"
+
+
+@pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
+def test_walled_axis_too_short_for_the_ladder_is_taught(cls):
+    # the graded ladder needs order + 1 cells between the two walls
+    grid = Grid((
+        IntervalMesh(8, (0.0, L), name="x"),
+        IntervalMesh(8, (0.0, L), name="y"),
+        IntervalMesh(5, (0.0, 1.0), periodic=False, name="z"),
+    ))
     with pytest.raises(NotImplementedError,
-                       match=r"one-sided near-wall treatment"
-                             r".*CenteredAdvection"):
+                       match=r"at least 6 cells on every walled axis"):
         FrModel(grid=grid,
-                modules=(DynamicalCore(), cls(3)),
+                modules=(DynamicalCore(), cls(5)),
                 time_stepper=AdamBashforth(DT, order=3))
 
 
@@ -542,6 +577,420 @@ def test_periodic_tendency_is_bitwise_unchanged():
         want = 1.0 * res
         assert np.array_equal(np.asarray(got[qname].data),
                               np.asarray(want.data))
+
+
+# ================================================================
+#  Walled grids: the biased schemes (graded near-wall closure)
+# ================================================================
+#: (module class, order) of every walled biased configuration
+BIASED = [
+    pytest.param(UpwindAdvection, 3, id="upwind3"),
+    pytest.param(UpwindAdvection, 5, id="upwind5"),
+    pytest.param(WENOAdvection, 3, id="weno3"),
+    pytest.param(WENOAdvection, 5, id="weno5"),
+]
+
+
+def walled_flux(module, model, qname, axis):
+    """Rebuild the module's own flux for one advected component."""
+    state = model.state
+    q = state[qname]
+    v = state[dict(module._axis_velocity)[axis]]
+    flux_space = module._flux_space(q, v, axis)
+    v_face = module._velocity_face(v, flux_space)
+    flux = v_face * module._face_value(q, v_face, axis, flux_space)
+    return flux, flux_space
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_walled_biased_tendency_is_finite(cls, order, walled):
+    model = make_walled_model(walled, cls(order))
+    set_random_state(model, seed=14)
+    tau = model.tendency(model.state, constraints=False,
+                         filter=fr.model.term_predicates.owned_by(cls))
+    assert all(np.isfinite(np.asarray(tau[c].data)).all()
+               for c in ("u", "v", "w", "b"))
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_walled_biased_wall_flux_is_exactly_zero(cls, order):
+    # impermeability, EXACTLY (not to truncation): the flux space
+    # adopts the wall-normal velocity's Dirichlet tag, so the wall
+    # face is a boundary condition and not a DOF — its structured
+    # fill is the exact zero the divergence closes on. The graded
+    # rows only ever produce the INTERIOR faces, so no reduced-order
+    # near-wall value can leak through the wall.
+    module = cls(order)
+    model = make_walled_model(("y",), module)
+    set_random_state(model, seed=17)
+    flux, flux_space = walled_flux(module, model, "b", "y")
+    factor = flux_space.bare.factor("y")
+    assert factor.node_set is NodeSet.INNER
+    assert factor.bc.components == (BC.DIRICHLET, BC.DIRICHLET)
+
+    synced = Sync()(flux)
+    width = model.grid.decomposition.halo["y"]
+    data = np.asarray(synced._data)
+    left = data[:, width - 1, :]              # the y = 0 wall face
+    right = data[:, width + factor.shape[0], :]   # the y = 1 wall
+    assert (left == 0.0).all()
+    assert (right == 0.0).all()
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_walled_biased_total_buoyancy_is_conserved(cls, order,
+                                                   walled):
+    # the flux form telescopes and the wall flux is an exact zero, so
+    # the b tendency sums to zero over the (uniform) cells — at least
+    # as well as the centered scheme manages on the same topology
+    def drift(module):
+        model = make_walled_model(walled, module)
+        set_random_state(model, seed=12)
+        state = model.constrain(model.state)
+        tau = model.tendency(
+            state, constraints=False,
+            filter=fr.model.term_predicates.owned_by(type(module)))
+        db = np.asarray(tau["b"].data)
+        return abs(float(np.sum(db))) / float(np.sum(np.abs(db)))
+
+    centered = drift(CenteredAdvection())
+    biased = drift(cls(order))
+    assert centered < CONSERVATION_TOL
+    assert biased < CONSERVATION_TOL
+    # "at least as good as CenteredAdvection achieves there"
+    assert biased <= max(centered, 1e-15)
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_walled_biased_preserves_a_uniform_tracer(cls, order):
+    # free-stream preservation on a walled grid: with a discretely
+    # divergence-free (projected) velocity, a CONSTANT tracer has
+    # zero tendency — every graded rung is exact on constants (the
+    # rows sum to one; the wall cells the ladder synthesizes are
+    # never multiplied into a tracer flux, because the wall-normal
+    # velocity there is the impermeability zero)
+    model = make_walled_model(("y", "z"), cls(order))
+    set_random_state(model, seed=5)
+    state = model.constrain(model.state)
+    model.set_fields(**{c: np.asarray(state[c].data)
+                        for c in ("u", "v", "w")})
+    model.set_fields(b=np.full(model.state["b"].data.shape, 3.0))
+    tau = model.tendency(model.state, constraints=False,
+                         filter=fr.model.term_predicates.owned_by(cls))
+    assert float(np.abs(np.asarray(tau["b"].data)).max()) < 1e-13
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+@pytest.mark.parametrize("walled", WALLED_TOPOLOGIES)
+def test_walled_biased_projected_tendency_stays_divergence_free(
+        cls, order, walled):
+    model = make_walled_model(walled, cls(order))
+    set_random_state(model, seed=13)
+    state = model.constrain(model.state)
+    tau = model.tendency(state, constraints=True)
+    div = Divergence()(VectorField(
+        {c: tau[c] for c in ("u", "v", "w")}))
+    assert float(np.abs(np.asarray(div.data)).max()) < 1e-13
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_walled_biased_model_run_stays_finite(cls, order):
+    # stability smoke: a short nonlinear run on a doubly walled grid
+    model = make_walled_model(("y", "z"), cls(order))
+    set_random_state(model, seed=9)
+    model.advance(20)
+    for c in ("u", "v", "w", "b"):
+        data = np.asarray(model.state[c].data)
+        assert np.isfinite(data).all()
+        # the upwind dissipation damps; nothing grows without bound
+        assert np.abs(data).max() < 10.0
+
+
+# ---- convergence on a walled axis -------------------------------
+#: v(y) = sin(pi y) vanishes at both walls (impermeability); b is a
+#: smooth tracer, so the y advection tendency of b is -d/dy (v b)
+def _wall_profiles(y):
+    return np.sin(np.pi * y)
+
+
+def _tracer(y):
+    return np.sin(2 * np.pi * y + 0.7)
+
+
+def _flux_derivative(y):
+    return -(np.pi * np.cos(np.pi * y) * _tracer(y)
+             + np.sin(np.pi * y) * 2 * np.pi
+             * np.cos(2 * np.pi * y + 0.7))
+
+
+def _walled_tendency_error(cls, order, n):
+    """Max |tendency - analytic| at the interior / all b cells."""
+    grid = Grid((
+        IntervalMesh(4, (0.0, L), name="x"),
+        IntervalMesh(n, (0.0, 1.0), periodic=False, name="y"),
+        IntervalMesh(4, (0.0, L), name="z"),
+    ))
+    module = cls(order)
+    model = FrModel(
+        grid=grid,
+        modules=(DynamicalCore(), ConstantStratification(n2=1.0),
+                 module),
+        time_stepper=AdamBashforth(DT, order=3))
+    yv = np.asarray(grid.evaluation_nodes(
+        model.state["v"].function_space, "y").data).ravel()
+    yb = np.asarray(grid.evaluation_nodes(
+        model.state["b"].function_space, "y").data).ravel()
+    model.set_fields(
+        v=np.broadcast_to(_wall_profiles(yv)[None, :, None],
+                          model.state["v"].data.shape).copy(),
+        b=np.broadcast_to(_tracer(yb)[None, :, None],
+                          model.state["b"].data.shape).copy())
+    tau = model.tendency(model.state, constraints=False,
+                         filter=fr.model.term_predicates.owned_by(cls))
+    err = np.abs(np.asarray(tau["b"].data)[0, :, 0]
+                 - _flux_derivative(yb))
+    k = order // 2 + 2          # drop every cell a reduced rung feeds
+    return err[k:err.size - k].max(), err.max()
+
+
+#: minimum interior tendency rate per configuration. The ceiling here
+#: is 2, NOT the design order, and that is a property of the nh flux
+#: form, not of the closure: it multiplies an INTERPOLATED velocity by
+#: a RECONSTRUCTED tracer, which is only 2nd-order accurate once the
+#: velocity varies in space — the periodic scheme measures exactly the
+#: same 2.0 on this problem. The design order of the graded rows
+#: themselves is pinned on the FD-flux difference they actually feed,
+#: in test_graded_rows_keep_the_design_order_in_the_interior.
+#: WENO3-JS degrades near critical points (old-stack parity, see
+#: test_weno3_converges_and_stays_essentially_third_order), so it
+#: reaches the plateau later: measured 1.01 -> 1.81 over (64, 128, 256).
+INTERIOR_RATE = {
+    (UpwindAdvection, 3): 1.8,   # measured 1.99
+    (UpwindAdvection, 5): 1.8,   # measured 2.00
+    (WENOAdvection, 3): 0.9,     # measured 1.01 (critical points)
+    (WENOAdvection, 5): 1.8,     # measured 2.00
+}
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_walled_biased_interior_tendency_converges(cls, order):
+    # the graded closure costs nothing in the interior: away from the
+    # K reduced faces the walled tendency converges at the same rate
+    # the periodic scheme reaches on this problem (see INTERIOR_RATE)
+    sizes = (64, 128, 256)
+    errs = [_walled_tendency_error(cls, order, n)[0] for n in sizes]
+    rates = [np.log2(errs[i] / errs[i + 1]) for i in range(2)]
+    assert min(rates) > INTERIOR_RATE[(cls, order)]
+
+
+@pytest.mark.parametrize(("cls", "order"), BIASED)
+def test_walled_biased_global_error_converges_at_first_order(
+        cls, order):
+    # the documented price of the BC-free graded closure: the K
+    # near-wall faces per side drop to their reduced rungs, and in the
+    # FD-flux form an O(h^p) flux error becomes an O(h^(p-1))
+    # tendency error there. The wall-adjacent rung is 1st-order
+    # upwind, and the wall-normal velocity vanishes linearly at the
+    # wall (impermeability), so the max-norm tendency error over the
+    # WHOLE walled axis converges at ~1 — measured 1.01-1.12. It
+    # converges monotonically; it neither stalls nor blows up.
+    sizes = (64, 128, 256)
+    errs = [_walled_tendency_error(cls, order, n)[1] for n in sizes]
+    rates = [np.log2(errs[i] / errs[i + 1]) for i in range(2)]
+    assert all(fine < coarse for coarse, fine in pairwise(errs))
+    assert min(rates) > 0.9
+
+
+# ---- the graded rows in isolation (design order, no exterior read)
+def _graded_flux_difference_rates(order, bias, weighting, node_set):
+    """Interior convergence of d/dy of the graded reconstruction."""
+    op = _BiasedFaceReconstruction(order, bias, weighting, "graded")
+    shift = 1 if node_set is NodeSet.INNER else 0
+    k = biased_rows(order, shift)
+    errs = []
+    sizes = (64, 128, 256)
+    for n in sizes:
+        mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+        grid = Grid((mesh,), device_ids=(0,))
+        grid.negotiate(halo=HaloSpec({"y": order // 2 + 1}))
+        src = (mesh.center if node_set is NodeSet.CENTER
+               else mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+        f = grid.create_field(src, init=_smooth)
+        face = np.asarray(op["y"](f).data)
+        dy = 1.0 / n
+        deriv = (face[1:] - face[:-1]) / dy
+        y = np.asarray(grid.evaluation_nodes(
+            op["y"](f).function_space).data)
+        mid = 0.5 * (y[1:] + y[:-1])
+        err = np.abs(deriv - _smooth_prime(mid))
+        keep = np.zeros_like(mid, dtype=bool)
+        keep[k: mid.size - k] = True
+        # mask the critical points of the derivative (WENO-JS is
+        # known to degrade there — old-stack parity, see the periodic
+        # weno3 test above)
+        keep &= (np.abs(_smooth_prime(mid))
+                 > 0.3 * np.abs(_smooth_prime(mid)).max())
+        errs.append(err[keep].max())
+    return [np.log2(errs[i] / errs[i + 1]) for i in range(2)]
+
+
+def _smooth(y):
+    # vanishes at both walls, so the Inner (Dirichlet) direction is a
+    # legal operand; jnp so it also serves as a field initializer
+    return jnp.sin(jnp.pi * y) * (1.0 + 0.4 * jnp.cos(3 * jnp.pi * y))
+
+
+def _smooth_prime(y):
+    return (np.pi * np.cos(np.pi * y)
+            * (1.0 + 0.4 * np.cos(3 * np.pi * y))
+            - 1.2 * np.pi * np.sin(np.pi * y)
+            * np.sin(3 * np.pi * y))
+
+
+@pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
+@pytest.mark.parametrize("bias", ["left", "right"])
+@pytest.mark.parametrize("order", [3, 5])
+def test_graded_rows_keep_the_design_order_in_the_interior(
+        order, bias, node_set):
+    # the load-bearing accuracy gate of the closure: the FD-flux
+    # quantity the scheme consumes — the DIFFERENCE of two graded
+    # face values — converges at the design order at the interior
+    # faces of a WALLED axis, on both C-grid directions
+    # (Center -> Inner and the dual Inner -> Center) and both biases.
+    # Measured: 3.00 and 5.00 for the linear rows.
+    rates = _graded_flux_difference_rates(order, bias, "linear",
+                                          node_set)
+    assert min(rates) > order - 0.2
+
+
+@pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
+@pytest.mark.parametrize("bias", ["left", "right"])
+def test_graded_weno5_rows_keep_the_design_order_in_the_interior(
+        bias, node_set):
+    rates = _graded_flux_difference_rates(5, bias, "weno", node_set)
+    assert min(rates) > 4.5
+
+
+@pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
+@pytest.mark.parametrize("bias", ["left", "right"])
+def test_graded_weno3_rows_converge_essentially_third_order(
+        bias, node_set):
+    # WENO3-JS degrades near critical points (a known property, old-
+    # stack parity — see test_weno3_converges_and_stays_essentially_
+    # third_order): the graded rows inherit exactly that, nothing more
+    rates = _graded_flux_difference_rates(3, bias, "weno", node_set)
+    assert min(rates) > 2.0
+
+
+@pytest.mark.parametrize("weighting", ["linear", "weno"])
+@pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
+@pytest.mark.parametrize("bias", ["left", "right"])
+@pytest.mark.parametrize("order", [3, 5])
+def test_graded_rows_read_no_exterior_value(order, bias, weighting,
+                                            node_set):
+    # NaN-poison gate (the Fallback idiom): poison EVERY ghost slot —
+    # including, on the Dirichlet Inner operand, the wall slot itself
+    # — and claim the ghosts valid so the consumption-side sync leaves
+    # them. The graded output must stay finite: the ladder reads only
+    # true DOFs and SYNTHESIZES the exact-zero wall values, so no
+    # exterior (or even ghost) read survives. The plain kernel would
+    # poison the whole near-wall output.
+    n = 16
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+    grid = Grid((mesh,), device_ids=(0,))
+    width = order // 2 + 1
+    grid.negotiate(halo=HaloSpec({"y": width}))
+    src = (mesh.center if node_set is NodeSet.CENTER
+           else mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    f = grid.create_field(src, init=_smooth)
+    storage = f._data
+    poisoned = storage.at[:width].set(jnp.nan)
+    poisoned = poisoned.at[storage.shape[0] - width:].set(jnp.nan)
+    f._data = poisoned
+    f._halo_valid = HaloSpec({"y": width})
+
+    op = _BiasedFaceReconstruction(order, bias, weighting, "graded")
+    result = op["y"](f)
+    assert result.function_space.bare is (
+        mesh.inner if node_set is NodeSet.CENTER else mesh.center)
+    assert bool(jnp.all(jnp.isfinite(result.data)))
+
+
+@pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
+@pytest.mark.parametrize("size", [2, 4])
+def test_graded_velocity_interpolation_reads_no_exterior_value(
+        size, node_set):
+    # the same gate for the order-coupled velocity interpolation (the
+    # other kernel the walled biased schemes apply on a walled axis)
+    n = 16
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+    grid = Grid((mesh,), device_ids=(0,))
+    width = max(size // 2, 1)
+    grid.negotiate(halo=HaloSpec({"y": width}))
+    src = (mesh.center if node_set is NodeSet.CENTER
+           else mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    f = grid.create_field(src, init=_smooth)
+    storage = f._data
+    poisoned = storage.at[:width].set(jnp.nan)
+    poisoned = poisoned.at[storage.shape[0] - width:].set(jnp.nan)
+    f._data = poisoned
+    f._halo_valid = HaloSpec({"y": width})
+
+    op = _CenteredFaceInterpolation(size, "graded")
+    assert bool(jnp.all(jnp.isfinite(op["y"](f).data)))
+
+
+# ---- the boundary knob ------------------------------------------
+@pytest.mark.parametrize(
+    "make", [lambda b: _BiasedFaceReconstruction(3, "left",
+                                                 "linear", b),
+             lambda b: _CenteredFaceInterpolation(2, b)])
+def test_unknown_boundary_variant_is_taught(make):
+    with pytest.raises(ValueError, match=r"boundary must be one of"):
+        make("one_sided")
+
+
+@pytest.mark.parametrize(
+    "make", [lambda b: _BiasedFaceReconstruction(3, "left",
+                                                 "linear", b),
+             lambda b: _CenteredFaceInterpolation(2, b)])
+def test_boundary_variant_is_part_of_the_intern_key(make):
+    assert make("none") is make("none")
+    assert make("graded") is make("graded")
+    assert make("none") is not make("graded")
+    assert make("none").boundary == "none"
+    assert make("graded").boundary == "graded"
+
+
+def test_plain_kernel_has_no_bounded_signature():
+    mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
+    op = _BiasedFaceReconstruction(3, "left", "linear")
+    with pytest.raises(SpaceMismatchError,
+                       match=r"periodic-only in its boundary='none'"):
+        op.codomain(mesh.center)
+
+
+def test_graded_kernel_needs_a_dirichlet_wall_on_the_inner_operand():
+    # the Inner -> Center direction reaches the wall face and reads
+    # its exact zero: only a homogeneous-Dirichlet tag defines one
+    mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
+    op = _BiasedFaceReconstruction(3, "left", "linear", "graded")
+    assert op.codomain(mesh.center) is mesh.inner
+    assert op.codomain(
+        mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET)) is mesh.center
+    with pytest.raises(SpaceMismatchError,
+                       match=r"homogeneous-Dirichlet boundary values"):
+        op.codomain(mesh.inner)
+
+
+def test_graded_kernel_rejects_an_outer_operand():
+    mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
+    op = _BiasedFaceReconstruction(3, "left", "linear", "graded")
+    with pytest.raises(SpaceMismatchError,
+                       match=r"Center -> Inner and Inner -> Center"):
+        op.codomain(mesh.outer)
 
 
 def test_walled_background_terms_run_and_telescope():
@@ -706,17 +1155,42 @@ def test_background_profile_names_unknown_coordinate():
             background={"u": lambda r: r}))
 
 
-def test_background_inherits_the_walled_grid_rejection():
+def test_background_rides_the_walled_biased_scheme():
+    # the background split works on a walled grid too: the linear
+    # (optimal-weight) row of the background term picks up the same
+    # graded closure, and the tangential background needs no wall
+    # value (the wall-normal one is still checked for impermeability)
     grid = Grid((
         IntervalMesh(8, (0.0, L), name="x"),
         IntervalMesh(8, (0.0, L), name="y"),
         IntervalMesh(8, (0.0, 1.0), periodic=False, name="z"),
     ))
-    with pytest.raises(NotImplementedError,
-                       match=r"one-sided near-wall treatment"):
+    module = UpwindAdvection(3, background={"u": 1.0})
+    model = FrModel(grid=grid,
+                    modules=(DynamicalCore(),
+                             ConstantStratification(n2=1.0), module),
+                    time_stepper=AdamBashforth(DT, order=3))
+    assert module._lin_left.boundary == "graded"
+    assert {t.name for t in module.tendency_terms()} == {
+        "advection", "background_advection"}
+    tau = model.tendency(model.state, constraints=False,
+                         filter=fr.model.term_predicates.owned_by(
+                             UpwindAdvection))
+    assert all(np.isfinite(np.asarray(tau[c].data)).all()
+               for c in ("u", "v", "w", "b"))
+
+
+def test_wall_normal_background_must_still_vanish_on_the_wall():
+    # impermeability is unchanged by the graded closure
+    grid = Grid((
+        IntervalMesh(8, (0.0, L), name="x"),
+        IntervalMesh(8, (0.0, L), name="y"),
+        IntervalMesh(8, (0.0, 1.0), periodic=False, name="z"),
+    ))
+    with pytest.raises(ValueError, match=r"does not vanish at the"):
         FrModel(grid=grid,
                 modules=(DynamicalCore(),
-                         UpwindAdvection(3, background={"u": 1.0})),
+                         UpwindAdvection(3, background={"w": 1.0})),
                 time_stepper=AdamBashforth(DT, order=3))
 
 
