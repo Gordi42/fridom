@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import (
     GridFrozenError,
@@ -24,6 +25,7 @@ from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.mapped import MappedDerivative
 from fridom.spatial.operators.registry import (
     DispatchError,
     OperatorRegistry,
@@ -874,3 +876,77 @@ def test_mapped_mesh_seeds_no_transform_rows(mpm, mzm):
     tagged = mzm.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
     with pytest.raises(DispatchError):
         Grid((mzm,)).dispatch.resolve("transform", tagged)
+
+
+# ================================================================
+#  Coordinate mapping: attachment, grid.metric, seeded kind (C1)
+# ================================================================
+def _depth(x):
+    return 1.0 + 0.2 * jnp.sin(x)
+
+
+@pytest.fixture
+def mapped_grid(mx):
+    ms = IntervalMesh(8, (0.0, 1.0), name="sigma")
+    mapping = CoordinateMapping(
+        maps={"z": lambda sigma, H: sigma * H},
+        params={"H": _depth})
+    return Grid((mx, ms), mapping=mapping)
+
+
+def test_mapping_defaults_to_none(grid):
+    assert grid.mapping is None
+
+
+def test_mapping_attachment(mapped_grid):
+    assert mapped_grid.mapping is not None
+    assert mapped_grid.mapping.param_names == ("H",)
+
+
+def test_metric_without_mapping_raises(grid, mx, my):
+    with pytest.raises(ValueError, match="no coordinate mapping"):
+        grid.metric(mx.center * my.center, "dz_dsigma")
+
+
+def test_metric_delegates_to_the_mapping(mapped_grid):
+    mx, ms = mapped_grid.factors
+    space = mx.center * ms.center
+    metric = mapped_grid.metric(space, "dz_dsigma")
+    x = mapped_grid.evaluation_nodes(space, "x").data
+    assert jnp.allclose(metric.data, _depth(x))
+    assert metric.function_space.bare is space.bare
+
+
+def test_metric_params_overload_threads_through(mapped_grid):
+    mx, ms = mapped_grid.factors
+    space = mx.center * ms.center
+    h = mapped_grid.create_field(
+        mx.center, init=lambda x: 2.0 + 0.0 * x)
+    metric = mapped_grid.metric(space, "dz_dsigma",
+                                params={"H": h})
+    assert jnp.allclose(metric.data, 2.0)
+
+
+def test_mapping_seeds_the_physical_diff_row(mapped_grid):
+    mx, ms = mapped_grid.factors
+    op = mapped_grid.dispatch.resolve("physical_diff",
+                                      mx.center * ms.center)
+    assert isinstance(op, MappedDerivative)
+    assert op.corrections == {"sigma": ("z", "sigma"),
+                              "x": ("z", "sigma")}
+
+
+def test_no_mapping_seeds_no_physical_diff_row(grid, mx, my):
+    with pytest.raises(DispatchError, match="physical_diff"):
+        grid.dispatch.resolve("physical_diff",
+                              mx.center * my.center)
+
+
+def test_chart_only_mapping_seeds_no_physical_diff_row(mx, my):
+    mapping = CoordinateMapping(chart={
+        "X": lambda x, y: (jnp.cos(x), jnp.sin(x), y)})
+    grid = Grid((mx, my), mapping=mapping)
+    assert grid.mapping is mapping
+    with pytest.raises(DispatchError, match="physical_diff"):
+        grid.dispatch.resolve("physical_diff",
+                              mx.center * my.center)

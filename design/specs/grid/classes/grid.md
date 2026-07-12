@@ -904,6 +904,29 @@ Notes:
   derivation. A mesh-local 1D mapping (stretched vertical) stays mesh
   structure (`MappedIntervalMesh`, doc 01); only **cross-factor**
   mappings live here (§2.1).
+- **Amendment (2026-07-12, stage C1 / CS-D1): the embedding form.**
+  The constructor gains a third declaration form, `chart=` — a chart
+  into ambient coordinates
+  (`CoordinateMapping(chart={"X": lambda lon, lat: (x, y, z)})`,
+  callables of base coordinates and `params=` names returning the
+  tuple of ambient components). The induced metric
+  `g_ij = dX/du_i · dX/du_j`, its inverse, and `sqrt(g)` are derived
+  by **jax autodiff of the chart callable** at the requested space's
+  evaluation nodes; derivation is per chart so a multi-chart atlas
+  stays additive (colliding names across declarations are a
+  construction error). **Metric-name vocabulary:** analytic maps
+  supply `d<p>_d<q>` (map derivative w.r.t. coordinate `q`;
+  parameter fields chain-ruled in via the registry `diff` operators
+  plus `.to` interpolation — the discrete, staggered-consistent
+  ingredient) and, for single-base columns, the reciprocal
+  `d<base>_d<p>`; charts supply `g_<u><v>`, `inv_g_<u><v>`, and
+  `sqrt_g`; supplied metrics keep their declared names. The
+  constant-physical-coordinate derivative composite is seeded
+  kind-only as `"physical_diff"` (the seeded `"diff"` rows stay the
+  computational derivative) exactly when a single-base analytic map
+  couples coordinates; it expands at application, builder-style,
+  into the sketch-4.4 sum with a lazily grid-derived metric
+  quotient (`operators/mapped.py`).
 
 ---
 
