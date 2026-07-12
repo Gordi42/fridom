@@ -21,18 +21,55 @@ elsewhere.
 Two CS-D2 requirements shape the implementation:
 
 - **Fixed iteration count (static trace).** The recurrence runs a
-  Python-static number of iterations with *no* tolerance break — it is
-  a plain unrolled loop, so the whole solve is one straight-line
-  jaxpr: it jit-compiles once across right-hand-side *values* and is
-  reverse-mode differentiable (``jax.grad`` flows through the chain)
-  without a ``custom_vjp``. The alternative fixed-length ``lax``
-  loops carry the field iterates as a pytree; the unrolled form sides
-  steps the treedef-stability bookkeeping that
-  ``ScalarField.halo_valid`` would otherwise impose on a loop carry,
-  at the documented cost of a larger trace for large iteration counts.
+  Python-static number of iterations with *no* tolerance break, so
+  the solve jit-compiles once across right-hand-side *values* and is
+  reverse-mode differentiable (``jax.grad`` flows through it) without
+  a ``custom_vjp``.
 - **Everything pure.** No Python-side state is mutated and nothing
   branches on a traced value, so the solver is safe inside a
   jit-compiled tendency container.
+
+The scanned recurrence (ROADMAP 3.6)
+------------------------------------
+The iteration was originally a plain Python loop, fully unrolled into
+the trace. That made tracing and XLA compilation **O(iterations)**
+(measured: 245 k HLO lines and 48 s of compile at 300 iterations,
+while warm execution was ~0.05 % of the cost), and a jitted
+multi-device mapped solve never finished compiling at all. The loop
+is now a single :func:`jax.lax.scan` body, so trace and compile are
+**O(1)** in the iteration count.
+
+``lax.scan`` — not ``lax.fori_loop`` — because reverse-mode
+differentiation must keep flowing through the solve; ``scan`` is
+differentiable, ``fori_loop`` is not.
+
+**The carry is raw arrays, not fields.** A ``ScalarField``'s
+``halo_valid`` is static aux data that *participates in the pytree
+treedef* (it drives sync placement, so it must key the jit cache), so
+carrying fields through a ``scan`` would impose treedef stability on
+a quantity that operators legitimately change. The carry is therefore
+a flat tuple of true-shape :class:`jax.Array`\ s (whose treedef is
+trivially stable) plus the 0-d ``rz``; the body rebuilds the fields
+through ``with_data``, which is the *canonical* halo state: zero
+valid ghost layers, synced at first consumption.
+
+That canonical state is not a new convention but the fixed point the
+unrolled loop already sat in: every carried iterate is the output of
+field arithmetic, which routes through the storage write path and
+hence claims zero ghost validity. The rebuild is consequently
+exchange-neutral — it re-declares the state the iterates already had.
+
+**The first iteration is peeled** out of the scan and runs unrolled.
+The operator and preconditioner are opaque closures that may perform
+trace-time bookkeeping on their first application — resolving
+registry rows, memoizing a halo exchange, or filling a caller's
+per-solve metric memo (the mapped pressure solver does exactly this).
+Such an entry, first created *inside* a scan body, would hold a
+body-level tracer and leak out of the loop. Peeling forces every
+first-application side effect to happen at the enclosing trace level,
+where its residuals are ordinary closure constants that the scan
+hoists. The cost is a trace of two iteration bodies instead of one —
+still O(1) in the iteration count.
 
 Inner products
 --------------
@@ -82,6 +119,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+from jax import lax
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -89,6 +127,10 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
 
     from fridom.spatial.operators.base import FieldLike
+
+    #: the scan carry: the true-shape ``x``, ``r`` and ``p`` arrays
+    #: plus the 0-d ``rz = <r, z>`` (module docstring)
+    Carry = tuple[jax.Array, jax.Array, jax.Array, jax.Array]
 
 
 def _guarded_ratio(num: jax.Array, den: jax.Array) -> jax.Array:
@@ -258,6 +300,46 @@ class ConjugateGradient:
             return r
         return self._preconditioner(r)
 
+    def _step(
+        self, x: FieldLike, r: FieldLike, p: FieldLike, rz: jax.Array,
+    ) -> tuple[FieldLike, FieldLike, FieldLike, jax.Array]:
+        r"""
+        Advance one PCG iteration (the shared recurrence body).
+
+        Description
+        -----------
+        The single definition of a CG step: the peeled first
+        iteration and the scanned remainder both call it, so the two
+        are bitwise the same arithmetic. ``z`` is local to the step
+        (it only builds the new ``p``) and is therefore not carried.
+        The guarded ratios make a post-convergence step an exact
+        no-op (module docstring).
+
+        Parameters
+        ----------
+        x : FieldLike
+            The current iterate.
+        r : FieldLike
+            The current residual.
+        p : FieldLike
+            The current search direction.
+        rz : jax.Array
+            The 0-d :math:`\langle r, z\rangle` of the current step.
+
+        Returns
+        -------
+        tuple[FieldLike, FieldLike, FieldLike, jax.Array]
+            The advanced ``(x, r, p, rz)``.
+        """
+        ap = self._operator(p)
+        alpha = _guarded_ratio(rz, self._dot(p, ap))
+        x = x + alpha * p
+        r = r - alpha * ap
+        z = self._project(self._precondition(r))
+        rz_new = self._dot(r, z)
+        beta = _guarded_ratio(rz_new, rz)
+        return x, r, z + beta * p, rz_new
+
     # ================================================================
     #  Application
     # ================================================================
@@ -296,6 +378,12 @@ class ConjugateGradient:
         the constants nullspace is projected out of the right-hand
         side, the preconditioned residuals, and the solution.
 
+        The first iteration is peeled and the remaining
+        ``iterations - 1`` run inside one :func:`jax.lax.scan` body
+        over a raw-array carry, so the trace is O(1) in the iteration
+        count (module docstring). A single-iteration solve is the
+        peel alone (the scan then has length zero).
+
         Parameters
         ----------
         rhs : FieldLike
@@ -320,17 +408,31 @@ class ConjugateGradient:
         z = self._project(self._precondition(r))
         p = z
         rz = self._dot(r, z)
-        for _ in range(self._iterations):
-            ap = self._operator(p)
-            alpha = _guarded_ratio(rz, self._dot(p, ap))
-            x = x + alpha * p
-            r = r - alpha * ap
-            z = self._project(self._precondition(r))
-            rz_new = self._dot(r, z)
-            beta = _guarded_ratio(rz_new, rz)
-            p = z + beta * p
-            rz = rz_new
-        x = self._project(x)
+
+        # the peel: one unrolled iteration, so every first-application
+        # side effect of the opaque operator/preconditioner closures
+        # lands in *this* trace and not in the scan body
+        x, r, p, rz = self._step(x, r, p, rz)
+
+        # the iterates are now in the canonical halo state (zero valid
+        # ghosts) that field arithmetic always produces, so they can be
+        # torn down to raw arrays and rebuilt inside the body from
+        # these templates (grid, space and metadata are static there)
+        t_x, t_r, t_p = x, r, p
+
+        def body(carry: Carry, _: None) -> tuple[Carry, None]:
+            x_d, r_d, p_d, rz_c = carry
+            new_x, new_r, new_p, new_rz = self._step(
+                t_x.with_data(x_d), t_r.with_data(r_d),
+                t_p.with_data(p_d), rz_c)
+            return (new_x.data, new_r.data, new_p.data, new_rz), None
+
+        carry: Carry = (x.data, r.data, p.data, rz)
+        carry, _ = lax.scan(
+            body, carry, None, length=self._iterations - 1)
+        x_d, r_d, _p_d, _rz = carry
+        x = self._project(t_x.with_data(x_d))
+        r = t_r.with_data(r_d)
         info: dict[str, object] = {
             "residual_norm": jnp.sqrt(self._dot(r, r)),
             "iterations": self._iterations,

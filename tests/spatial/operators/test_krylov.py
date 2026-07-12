@@ -212,6 +212,188 @@ def test_grad_through_the_solve_is_finite():
 
 
 # ================================================================
+#  The scanned recurrence (ROADMAP 3.6): O(1) trace and compile
+# ================================================================
+def unrolled_reference(cg, rhs):
+    """Run the pre-3.6 fully-unrolled recurrence, for comparison."""
+    b = cg._project(rhs)
+    x = 0.0 * b
+    r = b
+    z = cg._project(cg._precondition(r))
+    p = z
+    rz = cg._dot(r, z)
+    for _ in range(cg.iterations):
+        x, r, p, rz = cg._step(x, r, p, rz)
+    return cg._project(x)
+
+
+@pytest.mark.parametrize("iterations", [1, 2, 5, 12, 30])
+def test_scanned_solve_matches_the_unrolled_recurrence(iterations):
+    # the scan is a trace-structure change only. It is not bitwise:
+    # XLA fuses and FMA-contracts a scan body differently from
+    # straight-line code, which moves the last bits (measured ~1 ulp,
+    # 5.6e-17 absolute at 12/30 iterations, far below the 6e-15
+    # mapped-flat identity gate). The teardown/rebuild of the carry
+    # through .data / with_data is itself exactly bitwise.
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = helmholtz_pieces(grid, space)
+    cg = ConjugateGradient(apply_a, preconditioner=exact,
+                           iterations=iterations)
+    scanned = np.asarray(cg(rhs).data)
+    reference = np.asarray(unrolled_reference(cg, rhs).data)
+    assert np.allclose(scanned, reference, rtol=0.0, atol=1e-14)
+
+
+@pytest.mark.parametrize("iterations", [3, 12, 60])
+def test_operator_is_traced_twice_regardless_of_iterations(iterations):
+    # the O(1)-trace gate in its most direct form: the loop body is
+    # traced ONCE (plus the peeled first iteration), so the opaque
+    # operator is applied a constant number of times at trace time no
+    # matter how many iterations the recurrence runs.
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = helmholtz_pieces(grid, space)
+    calls = []
+
+    def counting(field):
+        calls.append(field)
+        return apply_a(field)
+
+    cg = ConjugateGradient(counting, preconditioner=exact,
+                           iterations=iterations)
+    cg(rhs)
+    assert len(calls) == 2  # the peel, then the single scan body
+
+
+def test_exchanges_per_iteration_are_unchanged_by_the_scan(monkeypatch):
+    # The exchange gate. A stencil operator (unlike the spectral one)
+    # really consumes ghosts, so the recurrence pays halo exchanges.
+    #
+    # The canonical halo state the scan body rebuilds is exactly the
+    # state field arithmetic already produced -- every CG iterate is
+    # the output of a +/- and therefore claims zero valid ghosts even
+    # in the unrolled form -- so the rebuild re-declares what the
+    # iterates already had and cannot add a sync. The gate: the scan
+    # body pays the SAME exchanges per iteration as the unrolled loop.
+    original = fr.spatial.Grid.sync
+    calls = []
+
+    def counting(self, field, boundary_data=None):
+        calls.append(field)
+        return original(self, field, boundary_data)
+
+    def apply_a(f):
+        # an SPD stencil Helmholtz: I - c * Lap, ghost-consuming
+        return f - 0.02 * (f.diff("x").diff("x")
+                           + f.diff("y").diff("y"))
+
+    def fresh(iterations):
+        # a fresh grid/rhs per measurement: the synced-ghost memo is
+        # identity-keyed, so a shared rhs would carry a memoized
+        # exchange across runs and skew the counts
+        grid = build_grid()
+        return (rich_rhs(grid),
+                ConjugateGradient(apply_a, iterations=iterations))
+
+    def unrolled_syncs(iterations):
+        rhs, cg = fresh(iterations)
+        calls.clear()
+        monkeypatch.setattr(fr.spatial.Grid, "sync", counting)
+        unrolled_reference(cg, rhs)
+        monkeypatch.undo()
+        return len(calls)
+
+    # the unrolled reference is a straight line in the iteration count
+    u4, u8 = unrolled_syncs(4), unrolled_syncs(8)
+    per_iteration = (u8 - u4) // 4
+    assert per_iteration > 0  # the operator really does exchange
+    assert u8 == u4 + 4 * per_iteration
+
+    # the scanned form: record the exchanges of each traced _step
+    original_step = ConjugateGradient._step
+    steps = []
+
+    def recording_step(self, x, r, p, rz):
+        before = len(calls)
+        out = original_step(self, x, r, p, rz)
+        steps.append(len(calls) - before)
+        return out
+
+    traced = {}
+    for n in (4, 8):
+        rhs, cg = fresh(n)
+        calls.clear()
+        steps.clear()
+        monkeypatch.setattr(fr.spatial.Grid, "sync", counting)
+        monkeypatch.setattr(ConjugateGradient, "_step", recording_step)
+        cg(rhs)
+        monkeypatch.undo()
+        # _step is traced exactly twice: the peel, then the one body
+        assert len(steps) == 2
+        # and the body costs exactly what an unrolled iteration cost
+        assert steps[1] == per_iteration
+        traced[n] = len(calls)
+
+    # the trace itself no longer grows with the iteration budget...
+    assert traced[4] == traced[8]
+    # ...while the runtime total is unchanged: the trace holds
+    # setup + peel + ONE body, and the body re-executes (n-1) times
+    assert traced[4] + per_iteration * (4 - 2) == u4
+    assert traced[8] + per_iteration * (8 - 2) == u8
+
+
+
+def test_hlo_size_is_constant_in_the_iteration_count():
+    # the compile-cost gate: an unrolled loop grew the HLO linearly
+    # (145 675 lines at 300 iterations, 28 s of compile); the scanned
+    # body is emitted once, so the program size no longer depends on
+    # the iteration budget at all.
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = helmholtz_pieces(grid, space)
+
+    def hlo_lines(iterations):
+        cg = ConjugateGradient(apply_a, preconditioner=exact,
+                               iterations=iterations)
+        lowered = jax.jit(lambda d: cg(rhs.with_data(d)).data).lower(
+            rhs.data)
+        return lowered.as_text().count("\n")
+
+    assert hlo_lines(12) == hlo_lines(60) == hlo_lines(300)
+
+
+def test_grad_flows_through_a_long_scanned_solve():
+    # the reason the loop is a lax.scan and not a lax.fori_loop:
+    # reverse-mode must keep flowing through the whole recurrence,
+    # including a long one that lives entirely inside the scan body
+    # (fori_loop is not reverse-mode differentiable; scan is).
+    #
+    # Unpreconditioned on purpose. Over-iterating an *exact*
+    # preconditioner drives the residual to ~1e-17 rather than to the
+    # exact zero _guarded_ratio tests for, so the ratios divide
+    # tiny-by-tiny: finite forward, NaN in reverse. That predates the
+    # scan (the unrolled recurrence NaNs at the same iteration counts)
+    # and is a property of the fixed-iteration design, not of the
+    # loop form.
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, _ = spectral_pieces(grid, space, sign=-1.0)
+    cg = ConjugateGradient(apply_a, iterations=25, project_mean=True)
+
+    def loss(scale):
+        return jnp.sum(cg(scale * rhs).data ** 2)
+
+    grad = jax.grad(loss)(2.0)
+    assert bool(jnp.isfinite(grad))
+    assert float(grad) != 0.0
+
+
+# ================================================================
 #  Construction guards
 # ================================================================
 def test_rejects_non_callable_operator():

@@ -346,11 +346,18 @@ def test_metric_derivation_is_independent_of_the_iterations(
     assert counts[0] > 0
 
 
-def test_solve_is_bitwise_identical_to_the_unmemoized_operator():
+def test_solve_matches_the_unmemoized_operator_to_rounding():
     # the memo is a pure trace-structure change: the CG iterates are
-    # the same arithmetic on the same values, so the solution must be
-    # EXACTLY (not approximately) the one the per-application
-    # derivation produces
+    # the same arithmetic on the same values. This was a *bitwise*
+    # gate while the CG loop was unrolled. Since ROADMAP 3.6 the loop
+    # is a lax.scan, and the memo now decides whether the metric
+    # fields enter the scan body as hoisted constants (memoized) or
+    # are recomputed inside it (not memoized) — two different body
+    # computations, which XLA fuses and FMA-contracts differently.
+    # The arithmetic is unchanged; the last bits are not. The measured
+    # deviation is ~1 ulp (2.8e-17 absolute, 2.3e-16 relative), two
+    # orders below the 6e-15 mapped-flat identity gate, so the claim
+    # is now "identical to rounding" rather than "bitwise".
     solver, grid, mx, ms = build_solver(iterations=12)
     rhs = grid.random.normal(mx.center * ms.center, seed=15)
     rhs = rhs - rhs.mean()
@@ -358,8 +365,9 @@ def test_solve_is_bitwise_identical_to_the_unmemoized_operator():
         solver.apply,  # no cache: every application re-derives
         preconditioner=solver._preconditioner(),
         iterations=solver.iterations, project_mean=True)(rhs)
-    assert np.array_equal(np.asarray(solver.solve(rhs).data),
-                          np.asarray(reference.data))
+    assert np.allclose(np.asarray(solver.solve(rhs).data),
+                       np.asarray(reference.data),
+                       rtol=0.0, atol=1e-15)
 
 
 def test_project_matches_the_separate_calls_bitwise():
