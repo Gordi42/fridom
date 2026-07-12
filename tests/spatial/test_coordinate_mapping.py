@@ -484,10 +484,32 @@ def test_two_maps_coupling_one_coordinate_rejected(mx, ms):
 def test_chart_coords_reports_the_chart_coupling():
     mapping = CoordinateMapping(chart={
         "X": lambda u, v: (jnp.cos(u), jnp.sin(u), v)})
-    assert mapping._chart_coords() == ("u", "v")
+    assert mapping.chart_coords == ("u", "v")
 
 
 def test_chart_coords_none_without_a_chart():
     mapping = CoordinateMapping(
         maps={"z": lambda sigma: sigma**2})
-    assert mapping._chart_coords() is None
+    assert mapping.chart_coords is None
+
+
+def test_grid_chart_coords_mirrors_the_seeding_condition():
+    # the public grid twin: the chart coordinate family exactly when
+    # the chart couples >= 2 coordinates (the metric-aware seeding
+    # condition); None on chartless grids and single-coordinate
+    # charts (which seed no metric-aware kinds)
+    mu = IntervalMesh(N, (0.0, 1.0), name="u")
+    mv = IntervalMesh(N, (0.0, 1.0), name="v")
+    chart = Grid((mu, mv), mapping=CoordinateMapping(chart={
+        "X": lambda u, v: (jnp.cos(u), jnp.sin(u), v)}))
+    assert chart.chart_coords == ("u", "v")
+
+    fu = IntervalMesh(N, (0.0, 1.0), name="u")
+    fv = IntervalMesh(N, (0.0, 1.0), name="v")
+    assert Grid((fu, fv)).chart_coords is None
+
+    cu = IntervalMesh(N, (0.0, 1.0), name="u")
+    cv = IntervalMesh(N, (0.0, 1.0), name="v")
+    circle = Grid((cu, cv), mapping=CoordinateMapping(chart={
+        "X": lambda u: (jnp.cos(u), jnp.sin(u))}))
+    assert circle.chart_coords is None

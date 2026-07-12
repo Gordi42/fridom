@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING
 from lazypimp import setup
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .coriolis import BetaPlaneCoriolis, FPlaneCoriolis
+    from .coriolis import (
+        BetaPlaneCoriolis,
+        FPlaneCoriolis,
+        SphericalCoriolis,
+    )
     from .relaxation import Relaxation
 
 base = "fridom.model.modules"
@@ -23,7 +27,8 @@ base = "fridom.model.modules"
 all_modules_by_origin: dict[str, list[str]] = {}
 
 all_imports_by_origin = {
-    f"{base}.coriolis": ["FPlaneCoriolis", "BetaPlaneCoriolis"],
+    f"{base}.coriolis": ["FPlaneCoriolis", "BetaPlaneCoriolis",
+                          "SphericalCoriolis"],
     f"{base}.relaxation": ["Relaxation"],
 }
 

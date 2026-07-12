@@ -845,13 +845,14 @@ class CoordinateMapping:
                 table[coord] = (mapped, base)
         return table
 
-    def _chart_coords(self) -> tuple[str, ...] | None:
+    @property
+    def chart_coords(self) -> tuple[str, ...] | None:
         """
-        Return the chart-coupled base coordinates, or None.
+        The chart-coupled base coordinates, or None.
 
         Description
         -----------
-        The grid-seam behind the metric-aware vector-calculus rows
+        The seam behind the metric-aware vector-calculus rows
         (coordinate-systems plan, stage C2): a mapping carrying an
         embedding chart (CS-D1) couples exactly the chart's base
         coordinates through the induced metric, and the grid seeds
@@ -859,7 +860,8 @@ class CoordinateMapping:
         ``"raise_index"``/``"lower_index"`` kinds on them. At most
         one chart can be declared per mapping (the induced-metric
         names collide otherwise), so the coupling is a single
-        coordinate tuple.
+        coordinate tuple. Public so model modules can branch on
+        chart-ness through ``grid.chart_coords`` (its grid twin).
 
         Returns
         -------
