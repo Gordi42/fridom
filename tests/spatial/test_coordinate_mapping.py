@@ -71,7 +71,9 @@ def test_chart_declares_the_induced_metric_names():
     assert set(mapping.metric_names) == {
         "g_uu", "g_uv", "g_vu", "g_vv",
         "inv_g_uu", "inv_g_uv", "inv_g_vu", "inv_g_vv",
-        "sqrt_g"}
+        "sqrt_g",
+        # a two-coordinate chart also carries the surface normal
+        "normal_x", "normal_y", "normal_z"}
 
 
 def test_multi_base_map_supplies_jacobians_only():
@@ -348,6 +350,97 @@ def test_chart_must_return_a_tuple():
     grid = Grid((mt,), mapping=mapping)
     with pytest.raises(TypeError, match="tuple of ambient"):
         grid.metric(mt.center, "g_tt")
+
+
+# ================================================================
+#  The surface unit normal (n_hat = X_1 x X_2 / |X_1 x X_2|)
+# ================================================================
+def test_sphere_chart_normal_is_the_outward_radial():
+    # the lat-lon chart's normal is the radial unit vector, whatever
+    # the radius: n = (cos lat cos lon, cos lat sin lon, sin lat)
+    radius = 3.0
+    mlon = IntervalMesh(N, (0.0, float(TWO_PI)), name="lon")
+    mlat = IntervalMesh(N, (-1.2, 1.2), periodic=False, name="lat")
+    mapping = CoordinateMapping(chart={
+        "X": lambda lon, lat: (
+            radius * jnp.cos(lat) * jnp.cos(lon),
+            radius * jnp.cos(lat) * jnp.sin(lon),
+            radius * jnp.sin(lat))})
+    grid = Grid((mlon, mlat), mapping=mapping)
+    space = mlon.right * mlat.center
+    lon = grid.evaluation_nodes(space, "lon").data
+    lat = grid.evaluation_nodes(space, "lat").data
+    exact = (jnp.cos(lat) * jnp.cos(lon),
+             jnp.cos(lat) * jnp.sin(lon),
+             jnp.sin(lat) + 0.0 * lon)
+    for comp, want in zip(("x", "y", "z"), exact, strict=True):
+        got = grid.metric(space, f"normal_{comp}").data
+        assert jnp.allclose(got, want, atol=1e-14)
+    # ... and it is a unit vector
+    norm = sum(grid.metric(space, f"normal_{c}").data ** 2
+               for c in ("x", "y", "z"))
+    assert jnp.allclose(norm, 1.0, atol=1e-14)
+
+
+def test_torus_chart_normal_matches_the_analytic_normal():
+    major, minor = 2.0, 0.5
+    mu = IntervalMesh(N, (0.0, float(TWO_PI)), name="u")
+    mv = IntervalMesh(N, (0.0, float(TWO_PI)), name="v")
+    mapping = CoordinateMapping(chart={
+        "X": lambda u, v: (
+            (major + minor * jnp.cos(v)) * jnp.cos(u),
+            (major + minor * jnp.cos(v)) * jnp.sin(u),
+            minor * jnp.sin(v))})
+    grid = Grid((mu, mv), mapping=mapping)
+    space = mu.center * mv.right
+    u = grid.evaluation_nodes(space, "u").data
+    v = grid.evaluation_nodes(space, "v").data
+    # X_u x X_v = r (R + r cos v) (cos v cos u, cos v sin u, sin v)
+    exact = (jnp.cos(v) * jnp.cos(u), jnp.cos(v) * jnp.sin(u),
+             jnp.sin(v) + 0.0 * u)
+    for comp, want in zip(("x", "y", "z"), exact, strict=True):
+        got = grid.metric(space, f"normal_{comp}").data
+        assert jnp.allclose(got, want, atol=1e-14)
+
+
+def test_identity_chart_normal_is_exactly_z_hat():
+    mx = IntervalMesh(N, (0.0, 1.0), name="x")
+    my = IntervalMesh(N, (0.0, 1.0), name="y")
+    mapping = CoordinateMapping(
+        chart={"X": lambda x, y: (x, y, 0.0 * x)})
+    grid = Grid((mx, my), mapping=mapping)
+    space = mx.center * my.center
+    assert (grid.metric(space, "normal_x").data == 0.0).all()
+    assert (grid.metric(space, "normal_y").data == 0.0).all()
+    assert (grid.metric(space, "normal_z").data == 1.0).all()
+
+
+def test_normal_orientation_follows_the_coordinate_order():
+    # swapping the two chart coordinates flips the normal
+    mx = IntervalMesh(N, (0.0, 1.0), name="x")
+    my = IntervalMesh(N, (0.0, 1.0), name="y")
+    flipped = Grid((my, mx), mapping=CoordinateMapping(
+        chart={"X": lambda y, x: (x, y, 0.0 * x)}))
+    space = my.center * mx.center
+    assert (flipped.metric(space, "normal_z").data == -1.0).all()
+
+
+def test_normal_needs_a_three_dimensional_ambient_space():
+    mx = IntervalMesh(N, (0.0, 1.0), name="x")
+    my = IntervalMesh(N, (0.0, 1.0), name="y")
+    grid = Grid((mx, my), mapping=CoordinateMapping(
+        chart={"X": lambda x, y: (x, y)}))
+    with pytest.raises(ValueError, match="embedded in R\\^3"):
+        grid.metric(mx.center * my.center, "normal_z")
+
+
+def test_one_coordinate_chart_declares_no_normal():
+    mt = IntervalMesh(N, (0.0, float(TWO_PI)), name="t")
+    grid = Grid((mt,), mapping=CoordinateMapping(
+        chart={"X": lambda t: (jnp.cos(t), jnp.sin(t))}))
+    assert "normal_z" not in grid.mapping.metric_names
+    with pytest.raises(ValueError, match="unknown metric"):
+        grid.metric(mt.center, "normal_z")
 
 
 # ================================================================

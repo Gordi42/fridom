@@ -30,8 +30,14 @@ Three declaration forms (stage C1 of the coordinate-systems plan):
   (``chart={"X": lambda lon, lat: (x, y, z)}``); the induced metric
   ``g_ij = dX/du_i . dX/du_j`` is derived by jax autodiff of the
   chart callable at the requested space's evaluation nodes. Metric
-  names: ``g_<u><v>``, ``inv_g_<u><v>``, ``sqrt_g``. Derivation is
-  per chart, so a future multi-chart atlas stays additive.
+  names: ``g_<u><v>``, ``inv_g_<u><v>``, ``sqrt_g``, and — for a
+  two-coordinate chart embedded in :math:`\mathbb{R}^3` — the
+  **surface unit normal** ``normal_x`` / ``normal_y`` /
+  ``normal_z``, :math:`\hat n = (X_1 \times X_2)/|X_1 \times X_2|`
+  (the ambient rotation vector projects onto it: the chart-generic
+  Coriolis parameter is :math:`f = 2\,\vec\Omega\cdot\hat n`, see
+  ``fr.modules.RotationCoriolis``). Derivation is per chart, so a
+  future multi-chart atlas stays additive.
 
 Derivatives of the map/chart with respect to their *coordinate*
 arguments are exact (``jax.jvp``); derivatives of *parameter fields*
@@ -557,6 +563,61 @@ class _ChartEntry:
         return jnp.linalg.inv(matrix)[..., self.i, self.j]
 
 
+#: the ambient components of a surface normal, in chart-return order
+_AMBIENT = ("x", "y", "z")
+
+
+class _ChartNormal:
+
+    r"""
+    ``normal_<x|y|z>``: one component of the surface unit normal.
+
+    Description
+    -----------
+    For a two-coordinate chart :math:`X(u^1, u^2)` embedded in
+    :math:`\mathbb{R}^3` the tangent vectors :math:`X_1`, :math:`X_2`
+    (the same autodiff tangents the induced metric is built from)
+    span the tangent plane, and
+
+    .. math::
+        \hat n = \frac{X_1 \times X_2}{|X_1 \times X_2|} ,
+        \qquad |X_1 \times X_2| = \sqrt{g} ,
+
+    is the unit normal, oriented by the chart's coordinate order
+    (swapping the two coordinates flips its sign). It is the
+    geometric ingredient of the chart-generic Coriolis parameter
+    :math:`f = 2\,\vec\Omega\cdot\hat n` (``RotationCoriolis``); the
+    normalization is done from the cross product itself rather than
+    from ``sqrt_g`` so the component is exactly a unit vector to
+    rounding.
+    """
+
+    def __init__(self, decl: _Declared, i: int,
+                 deps: frozenset[str]) -> None:
+        self.decl = decl
+        self.i = i
+        self.deps = deps
+
+    def evaluate(self, ctx: _Derivation) -> jax.Array:
+        """Cross the two chart tangents and normalize."""
+        t1, t2 = _chart_tangents(self.decl, ctx)
+        if len(t1) != 3 or len(t2) != 3:  # noqa: PLR2004 — R^3
+            raise ValueError(
+                "the surface normal is defined for a two-coordinate "
+                "chart embedded in R^3, but this chart returns "
+                f"{len(t1)} ambient components; embed a flat chart "
+                "as (x, y, 0) to give it a normal")
+        shape = jnp.broadcast_shapes(
+            *(t.shape for t in (*t1, *t2)))
+        a = [jnp.broadcast_to(t, shape) for t in t1]
+        b = [jnp.broadcast_to(t, shape) for t in t2]
+        cross = [a[1] * b[2] - a[2] * b[1],
+                 a[2] * b[0] - a[0] * b[2],
+                 a[0] * b[1] - a[1] * b[0]]
+        norm = jnp.sqrt(sum(c * c for c in cross))
+        return cross[self.i] / norm
+
+
 # ================================================================
 #  The public declaration class
 # ================================================================
@@ -868,7 +929,13 @@ class CoordinateMapping:
         chart: str,  # noqa: ARG002 — names error messages later
         decl: _Declared,
     ) -> None:
-        """Register the induced-metric recipes of one chart."""
+        """Register the induced-metric recipes of one chart.
+
+        A two-coordinate chart additionally supplies the surface
+        unit normal ``normal_x`` / ``normal_y`` / ``normal_z`` (the
+        ambient dimension is only known once the callable runs, so
+        the R^3 requirement is a derivation-time error).
+        """
         deps = self._deps(decl)
         coords = decl.coords
         for i, u in enumerate(coords):
@@ -879,6 +946,10 @@ class CoordinateMapping:
                           _ChartEntry(decl, "inv_g", i, j, deps))
         self._add("sqrt_g",
                   _ChartEntry(decl, "sqrt_g", 0, 0, deps))
+        if len(coords) == 2:  # noqa: PLR2004 — a surface chart
+            for i, comp in enumerate(_AMBIENT):
+                self._add(f"normal_{comp}",
+                          _ChartNormal(decl, i, deps))
 
     def _corrections(self) -> dict[str, tuple[str, str]]:
         """

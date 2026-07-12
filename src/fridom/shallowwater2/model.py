@@ -19,7 +19,9 @@ import fridom as fr
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
-    SphericalCoriolis,
+    NoCoriolis,
+    RotationCoriolis,
+    require_flat_grid_for_the_default,
 )
 from fridom.shallowwater2.modules.core import DynamicalCore
 from fridom.shallowwater2.modules.sadourny import SadournyAdvection
@@ -37,7 +39,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     grid: Grid,
     csqr: float | Callable = 1.0,
     rossby_number: float = 1.0,
-    coriolis: fr.model.Module | None = None,
+    coriolis: fr.model.Module | bool | None = None,
     advection: bool = True,
     coords: tuple[str, str] = ("x", "y"),
     time_stepper: TimeStepper | None = None,
@@ -97,14 +99,19 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         (default: 1.0).
     rossby_number : float, optional
         Rossby number scaling the advection (default: 1.0).
-    coriolis : fr.model.Module | None, optional
-        The Coriolis field provider; default
-        ``FPlaneCoriolis(f0=1.0, metric_weight="csqr")`` — the
-        thickness-weighted rotation is used **always** (it is
-        exactly M-skew for any ``f`` and any positive depth
-        profile, and coincides with the unweighted form for
-        constant depth to rounding — bitwise for power-of-two
-        ``csqr``). An explicit framework Coriolis module combined
+    coriolis : fr.model.Module | bool | None, optional
+        The Coriolis field provider. ``None`` (the default) installs
+        ``FPlaneCoriolis(f0=1.0, metric_weight="csqr")`` on **flat**
+        grids — the nondimensional f-plane the existing setups rely
+        on — and **raises** on chart grids, where a metric-blind
+        rotation would be silently wrong physics (name
+        ``RotationCoriolis`` / ``SphericalCoriolis`` there).
+        ``False`` is the explicit no-rotation option (sugar for
+        ``fr.modules.NoCoriolis()``). The default rotation is
+        **always** thickness-weighted (it is exactly M-skew for any
+        ``f`` and any positive depth profile, and coincides with the
+        unweighted form for constant depth to rounding — bitwise for
+        power-of-two ``csqr``). An explicit framework Coriolis module combined
         with a callable ``csqr`` must carry
         ``metric_weight="csqr"`` itself; the preset raises
         otherwise.
@@ -136,11 +143,15 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     ------
     ValueError
         A callable ``csqr`` combined with an explicit framework
-        Coriolis module whose ``metric_weight`` is unset.
+        Coriolis module whose ``metric_weight`` is unset, or
+        ``coriolis=None`` on a chart-coupled grid.
     """
     core = DynamicalCore(csqr=csqr, rossby_number=rossby_number,
                          coords=coords)
-    if coriolis is None:
+    if coriolis is False:
+        cor = NoCoriolis()
+    elif coriolis is None:
+        require_flat_grid_for_the_default(grid)
         # always the thickness-weighted rotation: exactly M-skew for
         # any f and any depth profile, and identical to the unweighted
         # form for constant depth (to rounding; bitwise for
@@ -150,7 +161,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         cor = coriolis
         if (callable(csqr)
                 and isinstance(cor, FPlaneCoriolis | BetaPlaneCoriolis
-                               | SphericalCoriolis)
+                               | RotationCoriolis)
                 and cor.metric_weight is None):
             raise ValueError(
                 "a variable-depth shallow-water model (callable "
