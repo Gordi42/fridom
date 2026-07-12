@@ -339,20 +339,54 @@ stencils are bitwise identical.
 **Real benefits.**
 - **Type-level conservation** (§3.9): flux telescoping is exact *by
   construction*; the codomain of `flux_diff` is the proof.
-- **High order on bounded domains.** The FV WENO/`Fallback` path
-  already handles walls; the nodal biased family raises a taught error
-  on walled grids (`advection.py:923`) and on mapped grids (`:959`).
-  **This is the single largest concrete win** and it is available at
-  stage F2.
 - **Cut cells** (§3.7): `ImmersedDomain` already carries `CellAvg`
   fractions (`immersed_domain.py:369-375`); cut-cell fractions as
   weights in flux operators is the natural next rung, and it is FV-only.
-- Shock/front capturing follows from the above.
+- Non-oscillatory front capturing (the ENO property), on walled
+  domains as well as periodic ones.
 
-**What is *not* a benefit.** At 2nd order on a periodic box, FV is
-**numerically identical** to what ships today (probed: 0.0 difference).
-Anyone expecting better conservation from the switch alone will not
-measure any.
+**What is *not* a benefit — corrected 2026-07-12.** An earlier draft of
+this record claimed "high order on bounded domains" as *the single
+largest concrete win*. **That claim is wrong and is withdrawn.**
+
+- The **walled** part of it is now moot: the graded near-wall closure
+  was ported to the nodal biased family (`operators/graded.py`, merged
+  2026-07-12), so `UpwindAdvection`/`WENOAdvection` already run on
+  bounded axes *without* FV.
+- The **high-order** part does not survive multi-D. The composite
+  tendency of a flux-form C-grid scheme is formally **2nd order
+  whenever the advecting velocity varies along the flux axis**, for a
+  product-rule reason that FV does not repair: the reconstruction row
+  is a deconvolution, so a two-point difference of face values is
+  high-order only if the face value is the deconvolved *flux*
+  `R(u q)`; the scheme forms `u_face * R(q)`, and the mismatch is the
+  cross term `~ (h^2/24) 2 u' q'`. Measured (1D, periodic, uniform,
+  exact face velocities, no velocity interpolation at all): rate 5.00
+  with constant `u`, **2.00** with `u = 1 + 0.5 sin x`. A consistent
+  cell-average reading restores 5.00 **in 1D only**; in genuine 2D the
+  transverse covariance term `(h^2/12) d_y u d_y q` caps it at ~2.0
+  again. Only the FD flux-reconstruction route (Shu-Osher; Mishra,
+  Pares-Pulido & Pressel, arXiv:1905.13665 — Algorithm 5) survives
+  multi-D (measured 4.78-4.98 in 2D), and it is **not** an FV-vs-nodal
+  question.
+- Precedent: Oceananigans' WENO is algebraically the same scheme and
+  its lead developer records it as "effectively second order" on a
+  staggered grid (CliMA/Oceananigans.jl#1705, closed as not worth
+  pursuing); MITgcm/MOM6/ROMS share the flux form.
+
+So the honest benefit ledger for FV is **conservation, cut cells, and
+the ENO property** — *not* asymptotic order. At 2nd order on a periodic
+box FV is **numerically identical** to what ships today (probed: 0.0
+difference). Anyone expecting better conservation *or higher order*
+from the switch alone will measure neither.
+
+The route that would restore design-order tendencies (reconstruct the
+flux `u q`) is orthogonal to this plan and carries its own price:
+exact-zero wall flux becomes truncation-level, and constancy
+preservation (`q = const` -> `q div(u) = 0` exactly) fails unless the
+**pressure projection** is changed to enforce the same wide
+reconstructed divergence — a different Poisson operator. That is why
+staggered ocean models do not do it.
 
 **What is lost / made harder.**
 - **Spectral exactness survives** — this is the good news. The FV
