@@ -76,6 +76,7 @@ from fridom.spatial.operators.flux_diff import (
 from fridom.spatial.operators.fourier import Fourier
 from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.mapped import MappedDerivative
 from fridom.spatial.operators.products import (
     Abs,
     CollocationProduct,
@@ -132,6 +133,9 @@ if TYPE_CHECKING:  # pragma: no cover
 
     import jax
 
+    from fridom.spatial.coordinate_mapping import (
+        CoordinateMapping,
+    )
     from fridom.spatial.decomposition.decomposition import (
         Decomposition,
     )
@@ -203,6 +207,11 @@ class Grid:
         The operator dispatch registry (duck-typed
         ``OperatorRegistry``); None seeds the default iteration-1
         registry from the meshes' space families (default: None).
+    mapping : CoordinateMapping | None, optional
+        The coordinate-mapping descriptor to attach; the grid binds
+        it on attachment and seeds the ``"physical_diff"``
+        derivative kind for the coordinates it couples
+        (default: None).
     immersed : ImmersedDomain | None, optional
         The immersed (masked) domain descriptor to attach; the grid
         binds it on attachment (default: None).
@@ -217,6 +226,7 @@ class Grid:
         meshes: tuple[Mesh, ...],
         *,
         dispatch: object | None = None,
+        mapping: CoordinateMapping | None = None,
         immersed: ImmersedDomain | None = None,
         device_ids: tuple[int, ...] | None = None,
     ) -> None:
@@ -238,9 +248,17 @@ class Grid:
                 "namespace requires unique names)")
         self._meshes: tuple[Mesh, ...] = meshes
         self._names: tuple[str, ...] = tuple(names)
+        # attach the mapping before seeding: the bind validates its
+        # coordinate vocabulary against the names collected above,
+        # and the default registry seeds the mapped derivative kind
+        # off the coupling table
+        self._mapping: CoordinateMapping | None = None
+        if mapping is not None:
+            mapping._bind(self)  # noqa: SLF001 — attachment seam
+            self._mapping = mapping
         self._dispatch: object = (
-            _default_registry(self, meshes) if dispatch is None
-            else dispatch)
+            _default_registry(self, meshes, mapping)
+            if dispatch is None else dispatch)
         self._device_ids: tuple[int, ...] | None = device_ids
         self._frozen: bool = False
         # negotiation-fingerprint bookkeeping (grid lifecycle;
@@ -880,6 +898,52 @@ class Grid:
         return ScalarField(self, result, stored,
                            FieldMetadata.create(name=f"d{name}"))
 
+    def metric(
+        self,
+        space: SpaceLike,
+        name: str,
+        *,
+        params: Mapping[str, ScalarField] | None = None,
+    ) -> ScalarField:
+        """
+        Derive a named mapping metric on the requested space.
+
+        Description
+        -----------
+        Delegates to the attached ``CoordinateMapping`` (argument
+        order aligned with ``grid.measure``): the metric is derived
+        per staggered space on demand — one owner, so staggered
+        consistency (H at u-, v-, w-points) is guaranteed by the
+        grid, never per module (rules section 3.8). The result is
+        tagged with the querying space, factors the metric does not
+        involve replaced by their ``ConstantSpace``, so it
+        broadcasts exactly (section 3.3). With ``params=`` given,
+        the supplied dynamic fields (module-owned state) **replace**
+        the mapping's static defaults; metrics are recomputed from
+        the passed values at every query and traced like any field
+        arithmetic — no caching anywhere (sections 2.3, 3.8).
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying space (mandatory; no default form).
+        name : str
+            The metric name (one of ``mapping.metric_names``).
+        params : Mapping[str, ScalarField] | None, optional
+            Caller-supplied parameter fields overriding the static
+            defaults (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The metric field, tagged with the querying space.
+        """
+        if self._mapping is None:
+            raise ValueError(
+                "this grid has no coordinate mapping; attach one "
+                "via Grid(..., mapping=...)")
+        return self._mapping.metric(space, name, params=params)
+
     # ================================================================
     #  Attachments
     # ================================================================
@@ -887,6 +951,11 @@ class Grid:
     def immersed(self) -> ImmersedDomain | None:
         """The immersed (masked) domain descriptor, or None."""
         return self._immersed
+
+    @property
+    def mapping(self) -> CoordinateMapping | None:
+        """The coordinate-mapping descriptor, or None."""
+        return self._mapping
 
     def with_immersed(self, immersed: ImmersedDomain) -> Grid:
         """
@@ -1604,7 +1673,9 @@ def _family_spaces(
 
 
 def _default_registry(
-    grid: Grid, meshes: tuple[Mesh, ...],
+    grid: Grid,
+    meshes: tuple[Mesh, ...],
+    mapping: CoordinateMapping | None = None,
 ) -> OperatorRegistry:
     """
     Seed the default iteration-1 ``OperatorRegistry``.
@@ -1653,6 +1724,12 @@ def _default_registry(
         during seeding).
     meshes : tuple[Mesh, ...]
         The grid's mesh factors.
+    mapping : CoordinateMapping | None, optional
+        The attached coordinate mapping; a mapping with a
+        single-base analytic map seeds the kind-only
+        ``"physical_diff"`` row — the constant-physical-coordinate
+        derivative builder (rules section 3.8, sketch 4.4) — for
+        exactly the coordinates it couples (default: None).
 
     Returns
     -------
@@ -1712,6 +1789,12 @@ def _default_registry(
         if resolver is not None:
             entries[("declared_space", mesh)] = resolver
     _seed_transform_rows(grid, meshes, entries)
+    if mapping is not None:
+        # metric-coefficient derivative kind (stage C1): the row
+        # appears only when the mapping couples coordinates
+        corrections = mapping._corrections()  # noqa: SLF001 — seam
+        if corrections:
+            entries["physical_diff"] = MappedDerivative(corrections)
     entries["grad"] = Gradient()
     entries["div"] = Divergence()
     entries["curl"] = Curl()

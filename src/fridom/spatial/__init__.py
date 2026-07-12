@@ -29,6 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     # import all classes
     from .bc import BC
+    from .coordinate_mapping import CoordinateMapping
     from .errors import GridMismatchError, SpaceMismatchError
     from .fields import FieldMetadata, ScalarField, VectorField
     from .grid import Grid
@@ -65,6 +66,7 @@ all_imports_by_origin = {
                                       "SpaceLike"],
     f"{base}.fields": ["ScalarField", "FieldMetadata",
                        "VectorField"],
+    f"{base}.coordinate_mapping": ["CoordinateMapping"],
     f"{base}.immersed_domain": ["ImmersedDomain", "Slip"],
     f"{base}.symbols": ["GridSymbols", "ModeChart", "rayleigh_dual"],
     f"{base}.space_patterns": [
