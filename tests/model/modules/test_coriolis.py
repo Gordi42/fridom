@@ -29,6 +29,8 @@ from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
     RotationCoriolis,
+    chart_rotation,
+    linear_rotation,
 )
 from fridom.model.params import CORIOLIS_F0
 
@@ -488,3 +490,40 @@ def test_metric_blind_coriolis_is_rejected_on_a_chart_grid(cls):
     with pytest.raises(ValueError, match="metric-blind"):
         make_chart_model(sphere_grid(), cls(),
                          coords=("lon", "lat"))
+
+
+# ================================================================
+#  The rotation expressions as shared functions (one owner)
+# ================================================================
+# The modules delegate their term bodies to `linear_rotation` /
+# `chart_rotation`; the shallow-water energy correction subtracts
+# exactly those functions, so the two can never drift apart.
+@pytest.mark.parametrize("weight", [None, "csqr"])
+def test_linear_rotation_is_the_module_term(weight):
+    # the module's term body IS the shared function (the shallow-water
+    # correction subtracts that function, so the two cannot drift)
+    module = FPlaneCoriolis(f0=F0, metric_weight=weight)
+    csqr = csqr_fn if weight is not None else 0.7
+    model = make_channel(csqr, module)
+    random_state(model, seed=3)
+    state = model.state
+    got = linear_rotation(state, metric_weight=weight)
+    term = model.module(FPlaneCoriolis).coriolis(state, ctx=None)
+    for name in ("u", "v"):
+        assert np.array_equal(np.asarray(got[name].data),
+                              np.asarray(term[name].data))
+
+
+@pytest.mark.parametrize("weight", [None, "csqr"])
+def test_chart_rotation_is_the_module_term(weight):
+    coords = ("lon", "lat")
+    module = RotationCoriolis(omega=(0.0, 0.0, 1.5), coords=coords,
+                              metric_weight=weight)
+    model = make_chart_model(sphere_grid(), module, coords=coords)
+    random_state(model, seed=4)
+    state = model.state
+    got = chart_rotation(state, coords=coords, metric_weight=weight)
+    term = model.module(RotationCoriolis).coriolis(state, ctx=None)
+    for name in ("u", "v"):
+        assert np.array_equal(np.asarray(got[name].data),
+                              np.asarray(term[name].data))

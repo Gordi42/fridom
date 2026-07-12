@@ -332,6 +332,22 @@ def test_bind_sees_the_merged_registry(grid):
     assert wide.seen_diff is WideDiff.override
 
 
+class SiblingReader(Module):
+
+    """bind() reads the module tuple (a cross-module check)."""
+
+    def bind(self, table):
+        self.siblings = tuple(type(m).__name__ for m in table.modules)
+
+
+def test_bind_sees_the_module_tuple(grid):
+    # the rare cross-module compatibility check (the shallow-water
+    # Coriolis routes: a conserving module refuses a linear sibling)
+    reader = SiblingReader()
+    make_artifacts(grid, modules=(Core(), reader))
+    assert reader.siblings == ("Core", "SiblingReader")
+
+
 def test_pattern_key_override_widens_the_traced_halo(grid):
     make_artifacts(grid, modules=(Core(), WideDiff()))
     # FiniteDifference(order=4) demands halo 2 through the trace

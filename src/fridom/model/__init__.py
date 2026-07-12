@@ -79,7 +79,11 @@ if TYPE_CHECKING:  # pragma: no cover
         RunTargetError,
     )
     from .stages import Stage, StageKind, self_update
-    from .term_predicates import linearize
+    from .term_predicates import (
+        linear_operator_gaps,
+        linearize,
+        require_linear_operator,
+    )
     from .terms import (
         EXPLICIT,
         IMPLICIT,
@@ -129,7 +133,9 @@ all_imports_by_origin = {
         "ChannelEigenbasis", "channel_eigenpairs"],
     f"{base}._eigenbasis": ["eigenbasis"],
     f"{base}.energy": ["EnergyMetric"],
-    f"{base}.term_predicates": ["linearize"],
+    f"{base}.term_predicates": [
+        "linearize", "require_linear_operator",
+        "linear_operator_gaps"],
     f"{base}.transforms.base": ["StateTransform"],
     f"{base}.transforms.propagator": ["Propagator"],
     f"{base}.transforms.time_average": ["TimeAverage"],

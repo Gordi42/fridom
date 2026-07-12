@@ -110,6 +110,110 @@ _U_HINT = ("velocities are declared by a dynamical-core module, "
            "e.g. nh.DynamicalCore or sw.DynamicalCore")
 
 
+def linear_rotation(
+    state: object, *, metric_weight: str | None = None,
+) -> dict:
+    r"""
+    Return the linear staggered rotation ``f v`` / ``-f u`` (flat).
+
+    Description
+    -----------
+    The **single source of truth** for the metric-blind (Cartesian)
+    rotation expression: the term of ``FPlaneCoriolis`` /
+    ``BetaPlaneCoriolis`` delegates here, and so does the
+    shallow-water energy correction (which must subtract *exactly*
+    this expression — see
+    ``fridom.shallowwater2.modules.coriolis``), so the two can never
+    drift apart. See the ``coriolis`` term docstring for the
+    discrete-skewness argument.
+
+    Parameters
+    ----------
+    state : VectorField
+        The model state; reads ``u``, ``v``, ``f_coriolis`` and (when
+        named) the metric-weight field.
+    metric_weight : str | None, optional
+        Name of the velocity energy-metric weight field ``w``;
+        ``None`` is the unweighted form (default: None).
+
+    Returns
+    -------
+    dict
+        The ``u`` / ``v`` increments.
+    """
+    u, v, f = state["u"], state["v"], state["f_coriolis"]
+    f_u = f.to(u)
+    if metric_weight is None:
+        return {
+            "u": f_u * v.to(u),
+            "v": -((f_u * u).to(v)),
+        }
+    w = state[metric_weight]
+    return {
+        "u": f_u * v.to(u),
+        "v": -((w.to(u) * f_u * u).to(v)) / w.to(v),
+    }
+
+
+def chart_rotation(
+    state: object,
+    *,
+    coords: tuple[str, str],
+    metric_weight: str | None = None,
+) -> dict:
+    r"""
+    Return the metric-aware rotation of ``RotationCoriolis`` (chart).
+
+    Description
+    -----------
+    The **single source of truth** for the chart rotation expression
+    (``RotationCoriolis.coriolis`` delegates here; the shallow-water
+    energy correction subtracts exactly this). The class docstring's
+    energy-conserving flux form: the flux weight
+    :math:`G = f\,g\,w` is sampled once at the ``u`` faces and
+    averaged back to the ``v`` faces *inside* the flux, so the pair is
+    exactly M-skew under :math:`\mathrm{diag}(W_1, W_2)`.
+
+    Parameters
+    ----------
+    state : VectorField
+        The model state; reads ``u``, ``v``, ``f_coriolis`` and (when
+        named) the metric-weight field.
+    coords : tuple[str, str]
+        The chart coordinate names, in the grid's factor order.
+    metric_weight : str | None, optional
+        Name of the velocity energy-metric weight field ``w``
+        (default: None).
+
+    Returns
+    -------
+    dict
+        The ``u`` / ``v`` increments (contravariant components).
+    """
+    u, v, f = state["u"], state["v"], state["f_coriolis"]
+    grid = u.grid
+    c_1, c_2 = coords
+    u_space = u.function_space.bare
+    v_space = v.function_space.bare
+    sqg_u = grid.metric(u_space, "sqrt_g")
+    sqg_v = grid.metric(v_space, "sqrt_g")
+    g_uu = grid.metric(u_space, f"g_{c_1}{c_1}")
+    g_vv = grid.metric(v_space, f"g_{c_2}{c_2}")
+    f_u = f.to(u)
+    flux_weight = f_u * (sqg_u * sqg_u)          # G = f g (w below)
+    w_1 = sqg_u * g_uu
+    w_2 = sqg_v * g_vv
+    if metric_weight is not None:
+        w = state[metric_weight]
+        flux_weight = flux_weight * w.to(u)
+        w_1 = w_1 * w.to(u)
+        w_2 = w_2 * w.to(v)
+    return {
+        "u": flux_weight * v.to(u) / w_1,
+        "v": -((flux_weight * u).to(v)) / w_2,
+    }
+
+
 @term(advances=("u", "v"), linear=True, name="coriolis")
 def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
     r"""``du/dt = f v``; ``dv/dt = -f u`` as pure field arithmetic.
@@ -141,19 +245,11 @@ def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
     1 ulp (bitwise-identical only for power-of-two ``w``), so the
     weighted form is the safe default whenever a weight field
     exists.
+
+    The expression itself lives in `linear_rotation` (one owner: the
+    shallow-water energy-correction module subtracts exactly this).
     """
-    u, v, f = state["u"], state["v"], state["f_coriolis"]
-    f_u = f.to(u)
-    if self._metric_weight is None:
-        return {
-            "u": f_u * v.to(u),
-            "v": -((f_u * u).to(v)),
-        }
-    w = state[self._metric_weight]
-    return {
-        "u": f_u * v.to(u),
-        "v": -((w.to(u) * f_u * u).to(v)) / w.to(v),
-    }
+    return linear_rotation(state, metric_weight=self._metric_weight)
 
 
 _WEIGHT_HINT = ("the velocity energy-metric weight field (e.g. the "
@@ -669,26 +765,10 @@ class RotationCoriolis(Module):
         (the shared modules' thickness-weighted pairing, with the
         metric folded into the weights) — exactly M-skew under
         :math:`\mathrm{diag}(W_1, W_2)`.
+
+        The expression itself lives in `chart_rotation` (one owner:
+        the shallow-water energy-correction module subtracts exactly
+        this).
         """
-        u, v, f = state["u"], state["v"], state["f_coriolis"]
-        grid = u.grid
-        c_1, c_2 = self._coords
-        u_space = u.function_space.bare
-        v_space = v.function_space.bare
-        sqg_u = grid.metric(u_space, "sqrt_g")
-        sqg_v = grid.metric(v_space, "sqrt_g")
-        g_uu = grid.metric(u_space, f"g_{c_1}{c_1}")
-        g_vv = grid.metric(v_space, f"g_{c_2}{c_2}")
-        f_u = f.to(u)
-        flux_weight = f_u * (sqg_u * sqg_u)      # G = f g (w below)
-        w_1 = sqg_u * g_uu
-        w_2 = sqg_v * g_vv
-        if self._metric_weight is not None:
-            w = state[self._metric_weight]
-            flux_weight = flux_weight * w.to(u)
-            w_1 = w_1 * w.to(u)
-            w_2 = w_2 * w.to(v)
-        return {
-            "u": flux_weight * v.to(u) / w_1,
-            "v": -((flux_weight * u).to(v)) / w_2,
-        }
+        return chart_rotation(state, coords=self._coords,
+                              metric_weight=self._metric_weight)
