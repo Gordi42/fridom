@@ -23,6 +23,36 @@ Ro-ignorant — D2 reconciliation 4). The flux for axis ``i`` lives on
   same odd orders (Jiang & Shu 1996; the old stack's
   ``weno_interpolation.py`` numerics via the framework kernel).
 
+**Formal order of the biased schemes (read before choosing one)**:
+the *reconstruction* converges at its design order (3rd / 5th), but
+the *composite tendency* is formally **2nd order whenever the
+advecting velocity varies along the flux axis** — on a periodic,
+uniform grid, with exact face velocities, no boundary in sight. The
+mechanism is the product rule, not the velocity interpolation: an FV
+reconstruction row is a deconvolution, so the two-point difference of
+face values is high-order only if the face value is the deconvolved
+*flux* :math:`R(v q)`. These schemes form ``v_face * R(q)`` instead,
+and the mismatch is the cross term :math:`\sim (h^2/24)\,2\,v'q'`,
+which vanishes identically for :math:`v' = 0`. A constant advecting
+velocity is therefore the only regime in which the design order is
+observable (and the only one a design-order test can use); with a
+varying velocity upwind-3, upwind-5 and weno-5 all measure rate 2
+(pinned in ``tests/nonhydro2/test_advection.py``). What the biased
+schemes are FOR is what they do deliver: dispersion control and the
+ENO / non-oscillatory property at fronts — not asymptotic order.
+
+This is a property of the C-grid flux form, not of FRIDOM: the same
+algebra runs in Oceananigans, MITgcm, MOM6 and ROMS. Reconstructing
+the flux :math:`v q` itself (the Shu-Osher FD form; Mishra,
+Pares-Pulido & Pressel, arXiv:1905.13665 — the reference the
+``WENOAdvection`` docstring already carries) restores the design
+order, and is deliberately NOT taken: it would cost the exact-zero
+wall flux (structural today through the Dirichlet-tagged flux space;
+truncation-level after) and constancy preservation (a constant ``q``
+gives :math:`q\,\nabla\cdot v = 0` exactly today; after, only if the
+pressure projection enforced the same wide reconstructed divergence —
+a different Poisson operator).
+
 The biased face values are ordinary operator applications (the
 module-private ``_BiasedFaceReconstruction`` wrapping the framework
 WENO kernel machinery) and the flux-sign selection is the framework
@@ -113,7 +143,8 @@ boundary_plan.md``). The wall itself stays impermeable *exactly*, not
 to truncation: the flux space still adopts the wall-normal velocity's
 Dirichlet tag, so the wall flux is a structural zero, and the reduced
 rows only ever produce the interior faces. The price is accuracy, not
-correctness: the interior keeps the design order while the ``K``
+correctness: the interior keeps the *reconstruction's* design order
+(the tendency's own ceiling is the 2nd order above) while the ``K``
 near-wall faces drop to their rung's, so the global rate on a walled
 axis is the near-wall rung's rate. Each walled axis needs at least
 ``order + 1`` cells (taught error at bind). The uniform-mesh refusal
@@ -1771,6 +1802,18 @@ class UpwindAdvection(_FluxFormAdvection):
     faces is order-coupled: ``order - 1`` symmetric points (the
     two-point mean at the default ``order=3``).
 
+    **Formal order**: the reconstruction converges at ``order``, but
+    the tendency this module contributes is formally **2nd order as
+    soon as the advecting velocity varies along the flux axis** — the
+    product-rule / deconvolution mismatch of the C-grid flux form
+    (module docstring): the high-order face quantity is the
+    deconvolved flux :math:`R(v q)`, while the scheme forms
+    ``v_face * R(q)``, leaving a cross term
+    :math:`\sim (h^2/24)\,2\,v'q'` that only vanishes for a constant
+    ``v``. Choose the scheme for its dispersion properties and its
+    upwind (non-oscillatory) behavior at fronts, not for its
+    asymptotic order.
+
     **Walled grids**: supported. On a grid carrying any bounded mesh
     factor ``bind`` swaps every biased reconstruction and every
     velocity interpolation for its ``boundary="graded"`` variant, so
@@ -1781,11 +1824,12 @@ class UpwindAdvection(_FluxFormAdvection):
     adopts the wall-normal velocity's Dirichlet tag (``_flux_space``),
     so the wall flux is a **structural exact zero** and the wall stays
     impermeable to machine precision, not to truncation. The interior
-    keeps the design order; the ``K`` near-wall faces per side
-    legitimately drop to the reduced rungs, so the *global* rate on a
-    walled axis is the near-wall rung's — the accuracy price of a
-    BC-free bounded closure (R1, ``boundary_plan.md``). Each walled
-    axis needs at least ``order + 1`` cells.
+    keeps the *reconstruction's* design order; the ``K`` near-wall
+    faces per side legitimately drop to the reduced rungs, so the
+    *global* rate on a walled axis is the near-wall rung's — the
+    accuracy price of a BC-free bounded closure (R1,
+    ``boundary_plan.md``). Each walled axis needs at least
+    ``order + 1`` cells.
 
     Mapped grids stay rejected at bind: the biased rows are
     uniform-offset (computational-coordinate) rows and lose their
@@ -2092,6 +2136,17 @@ class WENOAdvection(UpwindAdvection):
     the optimal ones and the scheme reduces to the linear upwind
     row; at discontinuities the smoothness indicators suppress the
     oscillatory candidates (the ENO property).
+
+    **Formal order**: as for `UpwindAdvection` — the WENO
+    reconstruction converges at ``order`` on smooth data, while the
+    tendency is formally 2nd order once the advecting velocity varies
+    along the flux axis (the product-rule / deconvolution mismatch of
+    the C-grid flux form; module docstring). WENO is used here for the
+    non-oscillatory property at fronts, not for asymptotic order. The
+    reference below is the route that would restore the design order
+    (reconstruct the flux :math:`v q` rather than ``q``); FRIDOM does
+    not take it, because it would cost the exact-zero wall flux and
+    constancy preservation (module docstring).
 
     References
     ----------
