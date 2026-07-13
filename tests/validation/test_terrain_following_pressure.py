@@ -407,6 +407,11 @@ def test_mapped_projection_is_device_count_invariant():
     # to per-shard fusion patterns whose last-ulp rounding differs
     # between the 1- and 4-device programs, and the CG dot products
     # reduce across shards in a different order.
+    #
+    # The solve is jitted: eagerly it costs ~85x more per call on
+    # forced-4 (16.4 s vs 194 ms). Jitting it was impossible before
+    # the lax.scan conversion (ROADMAP 3.6) -- the forced-4 program
+    # did not finish compiling.
     def run(device_ids):
         n = 16
         mx = IntervalMesh(n, (0.0, TWO_PI), periodic=True,
@@ -427,7 +432,7 @@ def test_mapped_projection_is_device_count_invariant():
             mx.center * ms.nodal(NodeSet.INNER, bc=BC.DIRICHLET),
             seed=5)
         div = solver.divergence({"x": u, "sigma": w})
-        p = solver.solve(div)
+        p = jax.jit(solver.solve)(div)
         corr = solver.velocity_correction(p)
         after = solver.divergence({
             "x": u - corr["x"].retag(u),
