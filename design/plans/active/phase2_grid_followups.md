@@ -5,6 +5,14 @@ date: 2026-07-13
 
 # Phase-2 reconciliation — grid-layer follow-up work items
 
+> **Sized 2026-07-13: SMALL (~2-3 days, ~300-450 LOC).** Roadmap: a
+> **next step** — the `cartesian.Grid` convenience constructor should land
+> *before* the docs rebuild writes Getting Started (the existing docs pages
+> use the old stack's equivalent). The coefficient-space product/power rows
+> are **deferred**: not a missing row but a semantics decision (elementwise
+> multiplication of Fourier coefficients is a convolution, not a product),
+> and they block nothing.
+
 Grid-layer follow-ups discovered while reconciling the Phase-2 model
 design ([`model/`](../../specs/model/00_overview.md), decisions D1–D5)
 against the merged Phase-1 grid implementation (2026-07-08). This is

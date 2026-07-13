@@ -5,6 +5,16 @@ date: 2026-07-13
 
 # Projection / eigenmode build roadmap (dependency-ordered)
 
+> **Sized 2026-07-13: phase I is MEDIUM (1-2 weeks) for the FD/nodal
+> vertical route, LARGE if the `Fourier x Chebyshev` headline is taken
+> literally — and DEFERRED: no consumer exists.** The walled nonhydro
+> pressure solve is already purely diagonal; variable-coefficient
+> wall-bounded eigenmodes are served by the shipped channel engine; the
+> terrain-mapped pressure has cross terms and so is not block-diagonal.
+> **Landmine:** `d/dz` in Chebyshev *coefficient* space is dense-triangular,
+> not banded — a real mixed solve needs the Shen/Galerkin basis and
+> Clenshaw-Curtis measures, neither of which is built.
+
 **Status (2026-07-13): phases A–H have landed; only phase I remains,
 and it is unscheduled.** The roadmap stays open as the tracker for that
 last tier — [`composition_refactor_plan.md`](../done/composition_refactor_plan.md)

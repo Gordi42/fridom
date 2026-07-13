@@ -5,6 +5,9 @@ date: 2026-07-13
 
 # Chart / sphere setup ergonomics
 
+> **Roadmap 2026-07-13: a next step.** E2 is the last item, and it is the
+> one standing between a user and a working bounded chart.
+
 Gaps found while building minimal spherical and torus shallow-water
 examples on the stage-C2 chart machinery
 ([`../done/coordinate_systems_plan.md`](../done/coordinate_systems_plan.md)),

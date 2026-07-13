@@ -5,6 +5,22 @@ date: 2026-07-13
 
 # High-order stencils on mapped grids
 
+> **Sized 2026-07-13. The SPIKE is a next step (~1 day, throwaway script,
+> no production edits); the FULL LIFT is deferred (medium, 1-2 weeks) —
+> held back on payoff, not difficulty.** The corrected payoff is
+> ENO/dispersion quality on stretched meshes plus honest order for
+> standalone `WenoReconstruction` and `FiniteDifference` order > 2 — *not*
+> asymptotic order for the advection modules, whose C-grid tendency is 2nd
+> order on any mesh once the advecting velocity varies.
+>
+> De-risking argument found while sizing: the refusals key on
+> `MappedIntervalMesh`, a per-axis monotone self-map, so the Jacobian is
+> **diagonal and separable** — no cross-derivative metric terms, which is
+> where multi-D curvilinear free-stream preservation actually bites. The
+> identity reduces to the 1D case the spike tests, so option (ii) is a
+> follow-up if a shock case shows ENO damage, not a fallback if the spike
+> fails.
+
 Not started; **unblocked**. The obstacle, the options, and the route for
 lifting the mapped-mesh refusals recorded in
 [`../../specs/grid/classes/operators_stencils.md`](../../specs/grid/classes/operators_stencils.md)

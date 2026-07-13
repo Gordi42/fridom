@@ -5,6 +5,22 @@ date: 2026-07-13
 
 # Boundary-closure plan — what is left
 
+> **Sized 2026-07-13: MEDIUM (1-2 weeks, ~400-700 LOC source), and
+> DEFERRED — nothing is waiting on it.** `BC.ROBIN` has no consumer:
+> it appears only in `bc.py`, two `NotImplementedError` raises, and the
+> tests asserting those raises. Both models use Dirichlet/Neumann walls
+> only, and no bottom-drag or flux-BC module exists or is planned. Promote
+> the moment a model needs one.
+>
+> Two design questions the plan does not yet answer are why this is not
+> days: **(1)** "seeded at assembly" fights "compiles once across an alpha
+> sweep" — `Grid` is not a pytree and the registry carries no dynamic
+> fields, so a row seeded at assembly makes alpha a captured constant and a
+> swept alpha *does* retrace; alpha/g must arrive as traced module params
+> read at apply time. **(2)** Under sharding the fill runs *inside*
+> `shard_map`, so an inhomogeneous `g` on a boundary face is a
+> transverse-sharded operand needing its own `in_specs`/masking.
+
 Most of this plan shipped on 2026-07-11 (merge `9a95202a`). What
 remains is **2e** (the Robin dynamic-data path) and **2f** (an
 optional halo-claim refinement). The governing principle and the
