@@ -223,6 +223,7 @@ def test_rejects_a_varying_csqr_model():
         grid=Grid((mx, my)),
         csqr=lambda y: 1.0 + 0.5 * np.sin(2 * np.pi * y),
         advection=False,
+        coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
         time_stepper=AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match=r"csqr.*channel"):
         numeric_eigenpairs(model)
@@ -234,6 +235,7 @@ def test_rejects_a_varying_stratification_model():
         for nm in ("x", "y", "z")))
     model = nh.Model(
         grid=grid, advection=False,
+        coriolis=FPlaneCoriolis(f0=1.0),
         stratification=nh.MeridionalStratification(
             n2=lambda y: 1.0 + y * y),
         time_stepper=AdamBashforth(5e-3, order=3))

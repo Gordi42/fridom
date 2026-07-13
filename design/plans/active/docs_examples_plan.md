@@ -1,6 +1,6 @@
 ---
 status: active
-date: 2026-07-11
+date: 2026-07-13
 ---
 
 # Docs & examples rebuild plan
@@ -11,218 +11,162 @@ The docs are rebuilt from scratch for the new stack; examples and code
 snippets **execute at doc build time** so they cannot diverge from the
 code.
 
+Normative inputs: the page tree and per-page scopes in
+[`../../specs/docs/structure.md`](../../specs/docs/structure.md), the
+writing/figure/citation rules in
+[`../../specs/docs/style_guide.md`](../../specs/docs/style_guide.md).
+This file only says how the pages are built and shipped.
+
 ## Settled decisions
 
-- **Build system:** keep sphinx-gallery, upgrade to ≥ 0.17
-  (`matplotlib_animations`, `parallel`, per-example `.md5` incremental
-  skip). Examples actually run at build time — `@skip_on_doc_build`
-  and the pre-rendered-media machinery (`custom_scraper.copy_media_files`,
-  git-LFS videos) are retired. Low resolution is the accepted price.
+- **Build system:** sphinx-gallery ≥ 0.17; examples run at build time.
+  `@skip_on_doc_build` and the pre-rendered-media machinery
+  (`custom_scraper.copy_media_files`, git-LFS videos) are retired as the
+  old examples are ported. Low resolution is the accepted price.
 - **Hosting:** GitHub Actions → GitHub Pages. RTD Community cannot do
-  executed examples (15 min/build, no cache between builds, no Julia).
-  Keep a thin RTD project (execution off via `SPHINX_QUICK_BUILD`)
-  purely for free PR previews of prose/API changes.
-- **Stills:** `f.xr.plot(...)` in the example; the stock sphinx-gallery
-  matplotlib scraper picks the figures up.
-- **Animations:** example writes zarr via `fr.io.Writer`; CDFViewer
-  renders the mp4 (`cdfviewer <store> ... --record`), embedded with
-  `sphinxcontrib-video`. The cdfviewer command is **visible in the
-  example** as a one-liner — it documents the real workflow and
-  showcases CDFViewer. Videos are rebuilt each full build and never
-  committed.
-- **CDFViewer in CI:** use the prebuilt Linux binaries from CDFViewer's
-  GitHub releases (being added, 2026-07-11). Until they exist:
-  `julia-actions/setup-julia` + `julia-actions/cache` + pinned CDFViewer
-  SHA (~3–5 min warm, ~19 min on cache miss; xvfb + Mesa software GL,
-  copy the recipe from CDFViewer's own CI).
+  executed examples (15 min/build, no cache between builds, no Julia);
+  the thin RTD project stays only for free rendered previews of
+  outside-contributor PRs (`SPHINX_QUICK_BUILD`, execution off).
+- **Stills:** `field.xr.plot(...)` in the example; the stock
+  sphinx-gallery matplotlib scraper picks the figures up, styled by
+  `docs/source/fridom_docs.mplstyle` via the gallery reset hook.
+- **Animations:** the example writes zarr via the writer, then runs a
+  **visible** `cdfviewer <store> ... --record` line
+  (`subprocess.run(..., shell=True, check=True)`); `video_scraper.py`
+  embeds the mp4. The command documents the real workflow. Videos are
+  rebuilt each full build and never committed.
+- **CDFViewer in CI:** the prebuilt Linux release binary
+  (`v2026.7.0`, `cdfviewer-linux-x86_64.tar.zst`), run under xvfb +
+  Mesa software GL. Install + smoke test ~35 s.
+- **Divergence guard:** `only_warn_on_example_error = False` — a raising
+  example fails the build.
+- **Budget rule:** an example stays under ~90 s locally to survive the
+  CI slowdown factor; `FRIDOM_EXAMPLES_FAST` selects a smoke-sized run.
 - **No hold on the swap:** examples/docs are written against the current
-  names (`fridom.nonhydro2` etc.) now; the Wave-C rename
-  (`nonhydro2 → nonhydro`, `framework2 → framework`) is a mechanical
-  find/replace pass over `examples/` and `docs/`.
+  names (`fridom.nonhydro2` etc.); the Wave-C rename is a mechanical
+  find/replace over `examples/` and `docs/`.
 
-## Review workflow (owner-mandated, 2026-07-11; made private same day)
+## Review workflow
 
 All reader-facing content (`docs/` pages, `examples/` scripts) is
-**100% owner-reviewed before it reaches dev**, and the review happens
-**off GitHub**: the repo is public, and review discussion must not be
-(this superseded a same-day PR-based design). Mechanics (also in
-AGENTS.md, git workflow):
+owner-reviewed **before** it reaches dev, and the review happens **off
+GitHub** (the repo is public; review discussion is not). The mechanics —
+local `docs/<topic>` branch, never pushed until approved; local preview
+build; handoff by projecting the branch onto the main checkout as
+unstaged changes (`git restore --source=docs/<topic> -- docs/
+examples/`); `REVIEW:` markers; merge gate of zero markers plus explicit
+approval — are binding and written down in **AGENTS.md** (git workflow).
+Owner review round-trips cost zero CI.
 
-- One local `docs/<topic>` branch per page or chapter, small enough to
-  review in one sitting; **never pushed until approved**, so the
-  public history shows clean merges only. The branch (with its
-  checkpoint commits) is the agent's safety net; the owner never has
-  to look at it.
-- Review handoff (owner preference, 2026-07-11): the agent builds a
-  local preview (`make html`, later `sphinx-autobuild` for live
-  reload) and **projects the branch onto the main checkout as
-  unstaged changes** — `git restore --source=docs/<topic> -- docs/
-  examples/` with the checkout on dev. Silvano reviews a plain
-  working-tree diff in his own tools (lazygit) next to the rendered
-  pages; nothing is committed or merged at this point.
-- Feedback channels, all inside the projected working tree: direct
-  edits and discarded hunks (authoritative), or anchored markers at
-  the exact spot — `.. REVIEW: sentence A should be B` in rst (a
-  comment, invisible in the rendered page), `# REVIEW: ...` in
-  example scripts, `<!-- REVIEW: ... -->` in Markdown. Agents sweep
-  with `grep -rn "REVIEW:" docs examples`, apply each marker, delete
-  it, fold generalizable corrections into the style guide, and
-  reconcile the reviewed tree back onto the branch (the tree state
-  wins).
-- **Merge gate:** zero open markers and an explicit approval from
-  Silvano in chat; the agent then does the mechanical merge onto dev,
-  push, branch cleanup, and clears the projection from the working
-  tree.
-- Purpose beyond quality: reviewing the docs is how the owner audits
-  the public API surface; expect review to produce upstream
-  change requests against `src/` semantics, which spin off as separate
-  branches, not as workarounds in the page under review.
+Two consequences worth keeping here:
 
-Docs *infrastructure* (conf.py, CI workflows, templates, scrapers) is
-exempt and follows the normal branch-merge workflow.
+- Docs *infrastructure* (conf.py, workflows, templates, scrapers) is
+  exempt and follows the normal branch-merge workflow.
+- Reviewing the docs is how the owner audits the public API surface;
+  expect review to produce change requests against `src/` semantics,
+  which spin off as separate branches, not as workarounds in the page.
 
-## Prerequisites (state, 2026-07-11)
+## Landed
 
-- CDFViewer zarr support: **done**, draft PR
-  [Gordi42/CDFViewer.jl#1](https://github.com/Gordi42/CDFViewer.jl/pull/1)
-  — merge, then tag/pin for CI. (Zarr v3 is detected-but-rejected;
-  blocked upstream on ZarrDatasets' `Zarr = "0.9"` cap, not needed here.)
-- Writer CF reference-date fix (whole seconds, DateTime-decodable):
-  **done**, draft PR
-  [Gordi42/fridom#1](https://github.com/Gordi42/fridom/pull/1) — merge.
-- CDFViewer Linux release binaries: **done** — `v2026.7.0` ships
-  `cdfviewer-linux-x86_64.tar.zst` (~750 MB; needs OpenGL via
-  xvfb + Mesa, glibc >= 2.35). Install + smoke test take ~35 s in CI.
+- **Prerequisites** — CDFViewer zarr support merged; CDFViewer Linux
+  release binaries shipped (`v2026.7.0`); the writer's CF reference-date
+  fix (whole seconds, DateTime-decodable) merged.
+- **Phase 1, CI skeleton** (2026-07-11) — `.github/workflows/docs.yml`
+  builds and deploys to <https://gordi42.github.io/fridom/> (~3.5 min);
+  CDFViewer release binary + ffmpeg leg; `actions/cache` on the gallery
+  output dir keyed on `uv.lock` + `examples/**`; weekly full build;
+  `timeout-minutes`. The PR leg is the quick build (`SPHINX_QUICK_BUILD`,
+  no gallery/autodoc). `tests.yml` skips docs-only changes. `conf.py`
+  mocks only *uninstalled* dependencies. Repo settings: Pages
+  `build_type=workflow`, `github-pages` deployment branch policy for
+  `dev`.
+- **Phase 2, pilot example** (merged to dev, review closed 2026-07-11) —
+  `examples/shallowwater/barotropic_instability.py` runs on the new
+  stack, writes zarr, renders its animation through the visible
+  `cdfviewer --record` line, and is embedded in the built gallery
+  (`afb39c9a`, reviews `2f52bb0d` / `a8deb61c`, infra `605e6698`,
+  `cc40d5f2`, `6fe39e48`, `c6c7a949`). It fixes the conventions every
+  later port follows: the budget rule, the visible cdfviewer line,
+  `video_scraper.py`, the mplstyle reset hook,
+  `# sphinx_gallery_thumbnail_number`, and the `examples/**` ruff
+  per-file ignores.
+- **Upstream fix from the pilot** — staggered coordinate names no longer
+  leak into user plotting; examples now plot and animate on plain `x` /
+  `y` (`477b80bc`).
 
-## Phase 1 — CI skeleton (done 2026-07-11)
+## Open upstream items (found while porting; fix in `src/`, not in the page)
 
-Landed as `.github/workflows/docs.yml`; the site is live at
-<https://gordi42.github.io/fridom/>. Items 1–4 are in as specified
-(CDFViewer via the release binary; the setup-julia fallback was never
-needed; full build job ~3.5 min). For item 5 the PR leg is the quick
-build (`SPHINX_QUICK_BUILD`, no gallery/autodoc); the changed-examples
-`filename_pattern` trick is deferred to Phase 2, when examples actually
-execute. Fixed on the way: `conf.py` now mocks only dependencies that
-are **not installed** (the blanket mock list broke full-env builds at
-`zarr_writer.py` import). One-time repo settings: Pages enabled with
-`build_type=workflow`; the `github-pages` environment got a deployment
-branch policy for `dev` (only `main` is allowed by default — deploys
-fail otherwise).
+- `fr.io` root alias missing: the io_ops spec spells `fr.io.Writer`, the
+  pilot writes `fr.model.io.Writer`.
+- `pot_vort` is not implemented on shallowwater2 (the pilot animates
+  `rel_vort` instead).
 
-New `.github/workflows/docs.yml`:
+## Phase 0.5 — Content-independent groundwork (partly done)
 
-1. Replicate today's RTD build on Actions and deploy to GitHub Pages
-   (uv env, `sphinx-build`, `actions/deploy-pages`). Green before any
-   content changes.
-2. Add the CDFViewer leg (release binary download, or setup-julia +
-   cache fallback) and ffmpeg.
-3. `actions/cache` on the gallery output dir. Key MUST include
-   `hashFiles('uv.lock', 'examples/**')` — sphinx-gallery's `.md5` skip
-   hashes only script content, so dependency bumps must bust the cache.
-4. Weekly scheduled full build (beats the 7-day cache eviction, catches
-   silent divergence) + job-level `timeout-minutes` (sphinx-gallery has
-   no per-example timeout).
-5. PR strategy: PRs execute only changed examples (git-diff →
-   `filename_pattern`, the MNE/scikit-learn trick) and/or a short-run
-   env flag; full execution on main and the weekly cron.
+Parallel to everything else; required by the style guide.
 
-Budget check: GHA public runners are 4 vCPU / 16 GB, 6 h/job, free;
-Pages site ≤ 1 GB (a dozen low-res mp4s at 5–20 MB is fine).
+- Shared mplstyle + palette — **done** (`fridom_docs.mplstyle`, wired
+  through the gallery reset hook).
+- `references.bib` and the citation workflow (style guide §11) — open.
+- docs-lint script for the **[lint]**-marked style rules — open.
 
-### CI cost (settled 2026-07-11)
+## Phase 3 — Port the remaining examples
 
-Owner review round-trips cost **zero CI**: the review loop is local
-(local branch, local preview build; see Review workflow above), so
-nothing runs on GitHub until the approved merge lands on dev. The
-remaining CI rules:
+Twelve old-stack scripts still import `fridom.nonhydro` /
+`fridom.shallowwater` and still carry `@skip_on_doc_build` plus
+committed LFS media: eleven under `examples/nonhydro/` (barotropic_jet,
+convection_and_closures, dancing_eddies, internal_wave_maker,
+multiple_wave_makers, rayleigh_bénard_convection,
+rayleigh_taylor_instability, single_internal_wave, symmetric_instability,
+tracers_and_eddies, wave_package) and `examples/shallowwater/
+equatorial_waves.py`. Plus one new gallery example: `sw.eigenbasis`
+(β slow-mode filtering, `projection_eigenmode_roadmap.md` §5).
 
-- `tests.yml` skips docs-only changes (`paths-ignore` on `docs/**`,
-  `examples/**`, `design/**`, `assets/**`, `**.md`; done 2026-07-11)
-  and cancels superseded runs per branch — this keeps docs-only
-  *merges to dev* from running the test suite.
-- `docs.yml` runs the full executed build on push to dev, the weekly
-  cron, and `workflow_dispatch`. Its PR trigger (paths-limited to
-  `docs/**`/`examples/**`, cheap leg only: quick build or
-  changed-examples per item 5) exists for **outside-contributor PRs**,
-  not for owner review.
-- The thin RTD project is likewise re-scoped: it provides rendered
-  previews for public PRs from outside contributors; the owner reviews
-  locally.
-
-## Phase 2 — Pilot example, end-to-end (built 2026-07-11, in review)
-
-Port **one** example — `shallowwater/barotropic_instability` (2D,
-cheap) — to the new stack at doc resolution, executing in CI:
-run → `fr.io.Writer` zarr → visible `cdfviewer --record` line → mp4 in
-the built page. Status: infra landed on dev (merge `48649ef9`); the
-example content sits on the local `docs/pilot-barotropic-instability`
-branch awaiting owner review. Conventions the pilot fixed:
-
-- **Budget**: 192² × runlen 120 runs ~60 s + ~15 s render locally
-  (cpu); `FRIDOM_EXAMPLES_FAST` in the environment selects a 96² ×
-  runlen 30 smoke run (~15 s). Budget rule of thumb: a full example
-  should stay under ~90 s locally to survive the CI slowdown factor.
-- **cdfviewer line**: an ordinary `subprocess.run(command, shell=True,
-  check=True)` in the example with the command string assembled
-  visibly right above it; CI wraps the whole build in `xvfb-run` for
-  GLMakie's GL context. No scraper magic executes the command.
-- **Video embedding**: `docs/source/video_scraper.py` moves any video
-  a block created from the example dir into the gallery page's
-  `videos/` and returns the `.. video::` rst (autoplay/muted/loop).
-  `copy_media_files` (pre-rendered LFS media) coexists until the last
-  old example is ported.
-- **Stills/thumbnail**: `field.xr.plot(x=...)` through the stock
-  matplotlib scraper, styled by `docs/source/fridom_docs.mplstyle`
-  via the gallery reset hook (the seed of the Phase 0.5 style file);
-  `# sphinx_gallery_thumbnail_number` picks the payoff figure.
-- **Divergence guard**: `only_warn_on_example_error = False` — a
-  raising example fails the build.
-- **Ruff**: gallery-script patterns (D400 titles, ERA001 config
-  comments, S602 visible shell line) are per-file-ignored for
-  `examples/**`.
-
-API awkwardness found while porting (feeds the framework fixes, not
-example workarounds): `fr.io` root alias missing (io_ops spec spells
-`fr.io.Writer`; today it is `fr.model.io.Writer`); staggered
-coordinate names leak into user plotting (`.xr.plot(x="x_right")` and
-the cdfviewer `-x x_right` flag); `pot_vort` is documented as a bound
-diagnostic in `sw.State`'s docstring but not implemented on
-shallowwater2 (the pilot animates `rel_vort` instead).
-
-## Phase 3 — Port all examples (parallel, agent-friendly)
-
-The remaining 12 examples plus the new `sw.eigenbasis` gallery example
-(β slow-mode filtering, `projection_eigenmode_roadmap.md` §5). This is
-the **parity shakedown** the cutover plan wants — API awkwardness found
-while porting feeds the framework2 fixes
+Parallelizable one example per branch, each following the pilot's
+conventions. This is the **parity shakedown** the cutover plan wants:
+API awkwardness found while porting feeds the framework2 fixes
 (`framework2-userfacing-awkwardness` audit), not workarounds in the
-examples.
+examples. A ported example drops its `figures/` and `videos/` LFS assets
+in the same branch.
 
 ## Phase 4 — Prose docs rewrite
 
-Getting started, installation, the 10 tutorials — rewritten for the new
-stack; tutorials containing code are authored as executed gallery
-scripts so one execution mechanism covers everything (tiny inline API
-snippets on non-gallery pages: `sphinx.ext.doctest`). API reference:
-adapt the custom autosummary/Jinja machinery (`load_modules.py`,
-`_templates/autosummary/`) to the new package layout.
+Nothing here has started: `docs/source/` is still the old tree
+(`getting_started.rst`, `installation.rst`, `tutorials/{using_models,
+creating_models,more_tutorials}`, `fridom_api.rst`), written against the
+old stack.
 
-Normative inputs (added 2026-07-11): the page tree and per-page scopes
-in [`../../specs/docs/structure.md`](../../specs/docs/structure.md),
-the writing/figure/citation rules in
-[`../../specs/docs/style_guide.md`](../../specs/docs/style_guide.md).
-The style guide adds a small Phase 0.5 to this program: docs-lint
-script, shared mplstyle + palette, references.bib workflow — all
-content-independent and parallel to Phase 1.
+Build out the page tree of `specs/docs/structure.md`: Home,
+Installation, Getting Started, the nine Guide chapters, the four starred
+Advanced chapters, both Models chapters, Verification (one component +
+one model case), References, Glossary. Pages containing code are
+authored as executed gallery scripts, so one execution mechanism covers
+everything; tiny inline API snippets on non-gallery pages use
+`sphinx.ext.doctest`. API reference: adapt the custom
+autosummary/Jinja machinery (`load_modules.py`,
+`_templates/autosummary/`) to the new package layout. Each Advanced
+chapter gets its own short planning note under `design/specs/docs/`
+before writing starts.
+
+**No stub pages** (structure.md): an unwritten chapter appears in no
+toctree; the backlog lives here, not in the reader's navigation. Old
+pages are deleted as their replacements land, not left orphaned.
 
 ## Phase 5 — Retirement
 
-- delete LFS video/figure assets, `copy_media_files`,
-  `@skip_on_doc_build` usage
+Blocked on Phases 3–4; nothing done yet.
+
+- delete the LFS video/figure assets, `custom_scraper.copy_media_files`
+  (still in the `image_scrapers` tuple in `conf.py`), and the
+  `@skip_on_doc_build` decorator plus its uses in
+  `framework/utils/decorators.py`
 - thin `.readthedocs.yaml` to the preview-only build (drop the git-lfs
   hack); old-stack doc pages go with Wave C
+- deferred from Phase 1 item 5: PRs execute only *changed* examples
+  (git-diff → `filename_pattern`, the MNE/scikit-learn trick) — worth
+  doing once many examples actually execute
 - versioning: none until the first stable release, then subdirectory
-  builds + theme version switcher (sphinx-multiversion is dead;
+  builds + a theme version switcher (sphinx-multiversion is dead;
   sphinx-polyversion if tooling is wanted)
 
 ## Reference numbers
@@ -232,6 +176,7 @@ content-independent and parallel to Phase 1.
 - sphinx-gallery ≥ 0.17: `matplotlib_animations = (True, "mp4")`
   (needs ffmpeg + sphinxcontrib-video), experimental `parallel`,
   `junit` per-example timing.
-- CDFViewer CI timings (measured, its own repo): cold ~19 min,
-  warm cache ~3–5 min, full docs render 3.4 min; binary route:
-  ~30–60 s download + seconds of startup.
+- GHA public runners: 4 vCPU / 16 GB, 6 h/job, free; Pages site ≤ 1 GB.
+- CDFViewer: release-binary route ~30–60 s download plus seconds of
+  startup (the setup-julia fallback, ~19 min cold / ~3–5 min warm, was
+  never needed).

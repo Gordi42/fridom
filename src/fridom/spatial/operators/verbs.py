@@ -25,3 +25,8 @@ interpolate = Dispatched("interpolate")
 #: weighted-integral verb: resolves ``("integrate", factor)``
 #: (the default ``Integral`` rows land in Wave 3)
 integrate = Dispatched("integrate")
+
+#: constant-physical-coordinate derivative verb on mapped grids:
+#: resolves the ``"physical_diff"`` builder the grid seeds when a
+#: ``CoordinateMapping`` couples coordinates (stage C1)
+physical_diff = Dispatched("physical_diff")

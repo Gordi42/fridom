@@ -11,6 +11,9 @@ from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators import weno as wk
 from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.fallback import (
@@ -37,6 +40,18 @@ def mx():
 @pytest.fixture
 def my():
     return IntervalMesh(8, (0.0, 2.0), periodic=False, name="y")
+
+
+def wavy_map(s):
+    """Smooth wavy stretching of the unit computational interval."""
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+@pytest.fixture
+def mz():
+    """Build a stretched (mapped) periodic mesh."""
+    return MappedIntervalMesh(8, (0.0, 1.0), wavy_map, periodic=True,
+                              name="z")
 
 
 def sin_averages(n):
@@ -134,6 +149,32 @@ def test_codomain_rejects_bounded_axes(my):
     # never a silent fallback
     with pytest.raises(SpaceMismatchError, match="designed-for"):
         WenoReconstruction().codomain(my.cell_avg)
+
+
+# ================================================================
+#  Stretched (mapped) meshes: the uniform-Shu-row refusal
+# ================================================================
+@pytest.mark.parametrize("order", [3, 5])
+@pytest.mark.parametrize("bias", ["left", "right"])
+def test_codomain_rejects_mapped_meshes(mz, order, bias):
+    # the uniform Shu rows are the WRONG FV reconstruction weights on
+    # a stretched CellAvg: refuse rather than silently drop to 2nd
+    # order (the FiniteDifference order > 2 precedent)
+    with pytest.raises(
+            SpaceMismatchError,
+            match=r"uniform-mesh only.*uniform-offset.*"
+                  r"silently drop to 2nd order.*LinearReconstruction"):
+        WenoReconstruction(order, bias=bias).codomain(mz.cell_avg)
+
+
+def test_apply_rejects_mapped_meshes(mz):
+    # the refusal fires through the application path too (the
+    # codomain is resolved on every apply)
+    grid = Grid((mz,))
+    grid.negotiate(halo=HaloSpec({"z": 3}))
+    f = grid.create_field(mz.cell_avg)
+    with pytest.raises(SpaceMismatchError, match="uniform-mesh only"):
+        WenoReconstruction(5, bias="left")["z"](f)
 
 
 # ================================================================

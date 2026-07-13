@@ -5,6 +5,12 @@ date: 2026-07-11
 
 # Boundary handling near walls: dev vs `framework2-boundaries`
 
+> **The decision this note grounded has since been made (2026-07-11):**
+> the `framework2-boundaries` R1 side won (merge `9a95202a`) — BC-free
+> bounded exterior reads raise, the dev extrapolation fill is gone, and
+> `boundary="one_sided"` rows are the sanctioned closure. Read the
+> "dev" column below as history, not as current code.
+
 A self-contained comparison of the two divergent designs for "what
 happens when a staggered operator needs a value outside a walled
 domain." Written 2026-07-11 to ground the owner decision recorded as

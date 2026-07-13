@@ -1,275 +1,142 @@
 ---
 status: active
-date: 2026-07-10
+date: 2026-07-13
 ---
 
 # Projection / eigenmode build roadmap (dependency-ordered)
 
-**Status: build-order synthesis, 2026-07-08.** Sequences the two
-untracked design notes —
-[`operator_symbols_plan.md`](operator_symbols_plan.md) (Symbol
-substrate S1/S2) and
-[`projection_eigenmode_plan.md`](projection_eigenmode_plan.md) (energy-
-metric ladder P1–P4) — against the committed wave plan
-([`../done/phase2_implementation_plan.md`](../done/phase2_implementation_plan.md), wave 7
-= ROADMAP 2.8). Grounded in a full audit of the current tree.
+> **Sized 2026-07-13: phase I is MEDIUM (1-2 weeks) for the FD/nodal
+> vertical route, LARGE if the `Fourier x Chebyshev` headline is taken
+> literally — and DEFERRED: no consumer exists.** The walled nonhydro
+> pressure solve is already purely diagonal; variable-coefficient
+> wall-bounded eigenmodes are served by the shipped channel engine; the
+> terrain-mapped pressure has cross terms and so is not block-diagonal.
+> **Landmine:** `d/dz` in Chebyshev *coefficient* space is dense-triangular,
+> not banded — a real mixed solve needs the Shen/Galerkin basis and
+> Clenshaw-Curtis measures, neither of which is built.
 
-## 0. Where we stand
+**Status (2026-07-13): phases A–H have landed; only phase I remains,
+and it is unscheduled.** The roadmap stays open as the tracker for that
+last tier — [`composition_refactor_plan.md`](../done/composition_refactor_plan.md)
+explicitly hands the `Banded` / mixed-representation work here — and as
+the record of which decisions the build confirmed and which it reversed.
 
-Between **wave 6 (ROADMAP 2.7 — model ports, done)** and **wave 7
-(ROADMAP 2.8 — state transforms, unstarted)**. Wave 6 shipped the
-pressure projection and eigenmode *data* **hand-rolled**, deliberately
-bypassing the not-yet-built Symbol layer.
+The energy-metric design it sequenced is in
+[`projection_eigenmode_plan.md`](../done/projection_eigenmode_plan.md) (P1–P4);
+the symbol substrate in
+[`operator_symbols_plan.md`](../done/operator_symbols_plan.md) (S1–S2) and
+[`../../decisions/symbol_stack_design.md`](../../decisions/symbol_stack_design.md).
 
-**Built & mature (reuse):** all four transform families
-(Fourier/Sine/Cosine/Chebyshev) in `grid/operators/` + dispatch;
-`grid.wavenumbers` / `grid.measure` (trapezoid-correct on bounded
-axes); all coefficient/nodal/average/constant spaces; the operator
-algebra with a **dormant** eigenvalue-composition path
-(`_chain_eigenvalues` product, `OperatorSum` sum, `ScaledOperator`
-scale — all coded, all waiting on a `Symbol`); the model layer
-(`model.parameters`, `TimeDependent`/`Ramp`, `resolve_at`,
-`advance`/`reset`); analytic eigenmode data ports; a dense banded solve
-in `model/implicit.py`; `ScalarField.integrate`/`conj`/`mean`.
+## Landed
 
-**Stub / missing / designed-only (build):** `symbol.py` (9-line stub —
-the one node blocking the whole spectral half); every per-operator
-`eigenvalues` (all raise); `SpectralSolve`; `grid/operators/banded`;
-`BlockSymbol` (`Block.__init__` raises); the whole `StateTransform`
-algebra (`transforms/` package empty); `Propagator`/`TimeAverage`/
-`OptimalBalance`; **any inner-product / norm / energy on State — the
-single load-bearing gap** (SW/nonhydro2 eigenmodes fake it with a bare
-mode-wise sum); SW energy diagnostics; non-`IntervalMesh` (Chebyshev)
-quadrature and Shen/Galerkin BC-structured Chebyshev.
+- **A — `EnergyMetric` + State inner product.** `model/energy.py`:
+  diagonal `M`, `apply`/`inner`/`norm`, `EnergyMetric.from_model`
+  sourcing the weights from the model energy (scalar *and* profile
+  weights). `258d5b09`
+- **C — scalar `Symbol` + per-operator `eigenvalues`.** `@final`
+  `spatial/operators/symbol.py` (`@ + * ** inverse conj __call__`,
+  `Symbol × field`); `eigenvalues` filled across the spectral, finite-
+  difference, interp and mapped operator families. `258d5b09`
+- **B — eigenmodes `p = M q`.** Hand-written `vec_p` gone from both
+  models; `p` is `fr.spatial.rayleigh_dual(q, metric)` under the model
+  energy metric (`nonhydro2/eigenmodes.py`, `shallowwater2/eigenmodes.py`).
+  `0002031b`
+- **D — `SpectralSolve` + banded primitive.** `spatial/operators/`
+  `spectral_solve.py` + `banded.py`; later refactored to the composition
+  `backward @ symbol.inverse() @ forward` (`0ce2663f`). `0002031b`
+- **D′ — the pressure solve rides the symbol layer.** The hand-rolled
+  `discrete_laplace_symbol` is retired; `nonhydro2/modules/pressure.py`
+  builds `∇² = Div @ Diag(1,1,1/dsqr) @ Grad` and inverts it through
+  `SpectralSolve`. `be036e7d`
+- **E — `StateTransform` algebra.** `model/transforms/`: base,
+  signature, info, `@`/`+`/`.complement`, `Identity`/`Shift`/
+  `FixedPoint`, `relative_l2`/`assert_idempotent`, plus the model hooks
+  (`fr.linearize`, `model.variant`, `model.tendency`). `0002031b`
+- **F — Tier-1 projections.** `EigenProjection`/`EigenFunction`/
+  `ProjectionFactory` (`model/transforms/projection.py`) and the
+  vortical / wave / kelvin / divergence builders in `nh.transforms` /
+  `sw.transforms`. `6f8c8556`
+- **G — Tier-2 dynamical transforms.** `Propagator`, `TimeAverage`,
+  `OptimalBalance` (ramping to the model's nominal rossby number,
+  `94c18579`). `6f8c8556`
+- **H0 — numeric eigenmodes `eigh(iML, M)`.** `model/eigen.py`:
+  transfer-function probe of `fr.linearize(model).tendency` on unit
+  impulses, Cholesky-whitened generalized Hermitian eigensolve. The
+  nonhydro constraint is handled by probing the Leray projection through
+  the public `model.constrain` matvec and forming `P S P` (`048a8356`).
+  `6f8c8556`
+- **Wall-bounded eigenmodes, numeric route.** `model/eigen_channel.py` +
+  `model/_eigenbasis.py`: the dense-column tier for a grid with exactly
+  one bounded axis — per periodic wavenumber a dense `(m·N)×(m·N)`
+  `eigh(iMS, M)`, serving coefficients that vary along the bounded axis
+  (β-plane `f(y)`, `csqr(y)`, `N²`). Wired as `fr.eigenbasis` with both
+  model ports (`3c17b94b`, `08368c03`, `5c8f7906`, `b16d294e`,
+  `c18ce537`); `numeric_eigenpairs` rejects walled grids with a taught
+  error (`f465401e`). This delivers most of what phase I was written for,
+  by the numeric path rather than the symbolic/banded one.
+- **NNMD, previously descoped, shipped.** `fr.transforms.BalanceExpansion`
+  (`86d807b0`, `0338f4e5`, `859eab32`); see
+  [`nnmd_rewrite_plan.md`](../done/nnmd_rewrite_plan.md).
+- **`variant`/`bind` lifecycle bug fixed** (2026-07-10) and the eigenmode
+  **frequency sign flipped to the standard convention** (positive `ω`
+  propagates along `+k`, `c9d2d606`).
 
-## 1. The dependency graph
+## Reversed
 
-Three **independent foundations** (parallelizable), then convergence:
+- **H1 — symbolic `BlockSymbol` L-assembly. Built, then deleted.**
+  Landed as `026f4c62` (BlockSymbol `L(k)`, Leray as a block symbol,
+  `BlockMatrix.eigenvalues`, the linear-block IR and `TendencyTerm.blocks`)
+  and removed wholesale by `d3309640`: nothing consumed it — both models
+  keep their analytic `eigenmodes.py`, the production pressure projection
+  is a hand-composed `Div @ Lap⁻¹ @ Grad`, and the numeric probe (H0)
+  covers the general case with no symbolic metadata at all. **Decision 4
+  of the design note (`L` from the operator-algebra `BlockSymbol`) is
+  therefore withdrawn**, and with it
+  [`../../decisions/blocksymbol_l_assembly.md`](../../decisions/blocksymbol_l_assembly.md)
+  and [`linear_term_blocks_plan.md`](../../archive/linear_term_blocks_plan.md) — both
+  describe work that was tried and rejected. Any future block algebra
+  starts from the `RealizedMap` protocol, not the deleted class.
 
-```
- Track M (metric)      Track S (symbol)        Track T (transforms)
- ────────────────      ────────────────        ────────────────────
- A EnergyMetric        C Symbol + eigenvalues  E StateTransform algebra
- + State inner prod    │  (lights the dormant  │  (transforms/ pkg,
- │                     │   base.py algebra)     │   @/+/complement,
- ▼                     ▼                        │   Identity/Shift/FixedPoint)
- B eigenmodes p = M q  D SpectralSolve          │
- │  (analytic Tier-0)  │  + banded (lift from   │
- │                     │    model/implicit.py)  │
- │                     │                        │
- └─────────┬───────────┴────────────┬───────────┘
-           ▼                        ▼
- F Tier-1 projections        H numeric BlockSymbol
-   (Vortical/Wave/Div         eigenmodes  eigh(H,M)
-    as StateTransforms)       needs C + A
-   needs B + E                        │
-           │                          ▼
-           ▼                  I non-periodic / vertical
- G Tier-2 dynamical            general eigenmodes
-   (Propagator, TimeAverage,   (structure fns / banded eigh;
-    OptimalBalance)            walls ⇒ Shen-Cheb + Cheb measure)
-   needs E (+ F for OB base)   needs H + D
-```
+Decisions 1–3 (`eigh(H,M)` never `eig`; `M` first-class with `p = M q`
+derived; analytic Tier 0 *and* numeric Tier 1 feeding one projector) are
+all confirmed in the shipped code.
 
-Edges that matter: **A blocks every projection** (nothing has an inner
-product today). **C blocks the entire spectral half** (D, H) and lights
-up the already-written composition algebra the moment it exists.
-**E blocks all transform-wrapped projections** (F, G). B needs only A;
-F needs B **and** E; H needs C **and** A.
+## Remaining — phase I: the banded / mixed-representation tier
 
-## 2. The phases
+Not scheduled. It waits on an actual demand for boundary-trapped or
+vertical-structure modes that the dense-column channel engine cannot
+serve; the numeric route above already covers a single bounded axis with
+variable coefficients. In dependency order:
 
-Each: what · depends · delivers · gates. Map column ties to the source
-notes.
+1. **`Banded` as a first-class `RealizedMap`.**
+   `spatial/operators/banded.py` is still free functions
+   (`second_difference_matrix`, `apply_along_axis`, `solve_along_axis`),
+   consumed only by `model/implicit.py`. Promote it to a
+   diagonal-in-transformed / banded-in-one-axis operator with matvec +
+   Thomas solve, on the realized-map layer
+   ([`composition_refactor_plan.md`](../done/composition_refactor_plan.md)
+   shipped that layer; its §4 design sketch, `git show e1e8e537`, is the
+   reference for the type).
+2. **Mixed `Fourier(x,y) ⊗ Chebyshev/Nodal(z)` solve.** The per-mode
+   banded z-solve that `SpectralSolve` documents as deferred. Needs (1);
+   the mixed transforms and `Symbol × field` it also needs are already in
+   (`d7802707`, `0ce2663f`).
+3. **General eigenmodes past the channel tier.** Two bounded axes, or a
+   spectral-vertical (Chebyshev) column, densified only at the `eigh`
+   boundary. Needs (1)+(2); the spectral-vertical variant additionally
+   needs Chebyshev quadrature + a Shen/Galerkin BC-structured basis —
+   which the FD-vertical / structure-function path does **not**.
 
-### Phase A — `EnergyMetric` + State inner product  · *(P1a)*
-- **What.** An `⟨a,b⟩_M` on `State`/`VectorField`: component sum of
-  measure-weighted `integrate(conj(a_c) · (w_c · b_c))`, in two forms —
-  physical (`grid.measure` + `integrate`) and spectral/Parseval (the
-  `norm="forward"` amplitude convention × interval length, since
-  `integrate` refuses coefficient factors). `EnergyMetric` holds the
-  per-field weights (`diag(1,1,δ²,1/N²)` nonhydro; `diag(1,1,1/c²)` SW),
-  sourced from the model energy. Port SW `ekin`/`epot` and nonhydro2
-  `epot` as bound diagnostics so the weights have one home.
-- **Depends.** Nothing new (`ScalarField.integrate`/`conj`,
-  `grid.measure`, `model.parameters` all exist).
-- **Delivers.** The missing load-bearing surface; norms for every
-  downstream phase.
-- **Gates.** Decision 2 (metric first-class).
+Smaller open items:
 
-### Phase B — eigenmodes `p = M q`  · *(P1b)*
-- **What.** Rewrite nonhydro2 `_vec_p`/`_pair` and SW `_p_arrays` to
-  *derive* `p = M(q)` via Phase A; keep the analytic `q`. Lift the
-  nonhydro2 projector from raw-dict to `State` (SW parity). Update the
-  biorthonormality tests to normalize under the energy inner product
-  (the SW test currently asserts the *unweighted* sum = 1).
-- **Depends.** A.
-- **Delivers.** No hand-written `p`; validated analytic Tier-0 projector.
-- **Gates.** Confirms decision 2 end-to-end; pure refactor, lowest risk.
-
-### Phase C — scalar `Symbol` + per-operator `eigenvalues`  · *(S1)*
-- **What.** Implement `Symbol` (`@final`) in `symbol.py`:
-  `@`,`+`,`*`,`**`,`inverse`,`conj`,`__call__` — the `@`/`+`/`*` contract
-  the dormant `base.py` composition already calls. Fill each operator's
-  `eigenvalues` (SpectralDerivative, FiniteDifference, PhaseShift,
-  SincShift, LinearInterp, flux/reconstruct family, `Fourier`
-  truncation mask) → the composition algebra and the Laplacian symbol
-  light up for free.
-- **Depends.** Existing wavenumber helpers only.
-- **Delivers.** Pure-diagonal spectral solve capability; the substrate
-  `BlockSymbol` extends.
-- **Gates.** Sign-offs A (`@final`), B (eager materialization), E
-  (`inverse` exact `== 0`).
-
-### Phase D — `SpectralSolve` + banded primitive  · *(S2; DONE, with a follow-up)*
-- **Done (round 2 / Wave 9B):** banded primitive lifted to
-  `grid/operators/banded.py`; `SpectralSolve` (pure-diagonal) built;
-  pressure inverts via `Symbol.inverse` bitwise-identical.
-- **Follow-up (D′ — the pressure-solver refinement,
-  [`../../decisions/symbol_stack_design.md`](../../decisions/symbol_stack_design.md)):** make
-  `eigenvalues` **layout-faithful** (read `grid.wavenumbers(space,
-  axis)`) + add `Symbol × field` (constant-in-transformed-axes) +
-  build the pressure `∇² = Div @ Diag(1,1,1/dsqr) @ Grad` so
-  `SpectralSolve(∇²)` **retires the hand-rolled `discrete_laplace_symbol`**
-  in `nonhydro2/modules/pressure.py`. Bounded, near-term. `dsqr` scales
-  at the symbol level (traced-but-constant leaf).
-- **Deferred:** mixed Fourier×Chebyshev via the diagonal/banded
-  partition (folds into Phase I's `Banded`).
-
-### Phase E — `StateTransform` algebra  · *(wave 7 A / ROADMAP 2.8-A)*
-- **What.** Populate `transforms/`: `StateTransform` base,
-  `StateSignature`, `TransformInfo`, `@`/`+`/`.complement`, the Tier-1
-  pytree vs Tier-2 host split, `Identity`/`Shift`/`FixedPoint`,
-  `relative_l2`/`assert_idempotent`. Plus the wave-7-A model hooks
-  (`model.tendency`, `model.variant`, `fr.linearize`, `fr.terms`) — all
-  currently stubs that raise "lands at wave 7."
-- **Depends.** State + model (exist). Independent of A–D.
-- **Delivers.** The composition algebra all projections compose in.
-
-### Phase F — Tier-1 projections  · *(wave 7 C / P4a)*
-- **What.** Wrap the Phase-B energy-metric projectors as
-  `StateTransform`s: `VorticalProjection`, `WaveProjection = P(+1) +
-  P(−1)`, `DivergenceProjection = (P_vortical + P_wave).complement`.
-  forward-transform → diagonal project → inverse-transform; expose
-  `nh.transforms` / `sw.transforms`.
-- **Depends.** B **and** E. (Not Symbol — wraps the analytic eigenmodes.)
-- **Delivers.** The user-facing analytic projections, composable.
-
-### Phase G — Tier-2 dynamical projections  · *(wave 7 B / P4b)*
-- **What.** `Propagator` (wrap `model.advance`), `TimeAverage`,
-  `OptimalBalance = forward @ base @ backward` (`Ramp.reversed` exists).
-  NNMD stays **descoped** (signed off).
-- **Depends.** E + `Ramp`/`Model` (exist); OB needs a Phase-F base
-  projection.
-- **Delivers.** The variable-coefficient / ramping fallback (Tier 2),
-  incl. the Rayleigh-quotient eigenvalue diagnostic.
-
-### Phase H — numeric eigenmodes `eigh(iML, M)`  · *(P2)*
-Decision 4 **resolved: assemble `L` from the operator-algebra
-`BlockSymbol`** (not a hand `linear_operator()`). Split into two
-backends behind one `Eigenmodes.from_operator(L, M, grid)` seam — see
-[`../../decisions/blocksymbol_l_assembly.md`](../../decisions/blocksymbol_l_assembly.md).
-- **H0 — numeric probe bootstrap.** `L(k)` by `jax.jvp` of
-  `fr.linearize(model).tendency(·, constraints=True)` on spectral unit
-  inputs (`constraints=True` applies the nonhydro Leray projection
-  numerically — pressure handled for free); `eigh(iML, M)`. Verify it
-  reproduces the analytic Tier-0 modes.
-  - **Depends.** A (metric `M`) + the wave-7 `linearize`/`tendency`
-    surface (Phase E hooks) + `jvp`. **Not** Symbol/BlockSymbol.
-- **H1 — symbolic `BlockSymbol` (committed target).** `BlockSymbol`
-  type + `BlockMatrix.eigenvalues()`; assemble `L(k)` from block-placed
-  per-term symbols; **for nonhydro compose the Leray `Symbol.inverse`.**
-  Swap behind the unchanged `from_operator` seam.
-  - **Depends.** SW: C. **Nonhydro: C → D** (the constraint elimination
-    is a scalar `Symbol.inverse` = the pressure Poisson solve). **Plus a
-    term-system change** — a `(writes, reads)`/block signature on
-    `TendencyTerm` + re-authoring the four linear terms as retained
-    block operators (the genuinely missing metadata; larger than the
-    `BlockSymbol` type itself).
-- **Gates.** Decision 1 (`eigh(iML, M)`, not `eig`).
-- **Delivers.** Numeric spectral eigenmodes where no closed form exists.
-
-### Phase I — variable-coefficient / wall-bounded eigenmodes  · *(P3; redesigned)*
-Now scoped by [`../../decisions/symbol_stack_design.md`](../../decisions/symbol_stack_design.md) — the
-`Banded` + nesting + mixed-representation tier (not "needs Chebyshev").
-**Realized as S3–S4 of
-[`composition_refactor_plan.md`](composition_refactor_plan.md)** (on the
-consolidated realized-map layer, after the S0–S2 composition-core work).
-- **What.** (a) The **`Banded`** operator type (promote
-  `grid/operators/banded.py` to a first-class diagonal-in-transformed /
-  banded-in-one-axis operator with matvec + Thomas solve). (b) The
-  **mixed `Fourier ⊗ Nodal`** representation + partial transforms (from
-  D′). (c) **`Symbol × field`** for variable coefficients (`f(y)`,
-  `N²(z)`; from D′). (d) **`BlockSymbol` of `Banded`** nesting for the
-  general system, densified only at the `eigh` boundary. Delivers the
-  β-plane / boundary-trapped / vertical-structure modes (the
-  `boundary_emission` / `Adiabatic-Coriolis-Ramping` generality).
-- **Depends.** H + D′ (layout-faithful `eigenvalues`, `Symbol × field`,
-  mixed transforms). Chebyshev/Shen is now just *one* `Banded` instance
-  (dense bandwidth); the earlier "Shen + Chebyshev quadrature"
-  prerequisites are needed only for the spectral-vertical variant, not
-  for the FD-vertical / structure-function path.
-- **Delivers.** The fully general eigen/projection reach.
-
-## 3. Recommended serialization
-
-Parallel-friendly (three foundations at once): **A · C · E** →
-then **B, D** → then **F** → **G, H** → **I**.
-
-If built by one hand, prioritizing the projection design first:
-
-1. **A** — inner product / `EnergyMetric` (smallest, unblocks all
-   projections, fixes the missing surface).
-2. **C** — scalar `Symbol` + eigenvalues (highest-leverage substrate;
-   lights the dormant algebra; unblocks D and H). Start alongside A.
-3. **B** — eigenmodes `p = M q` (the headline refactor; validates the
-   whole energy-metric idea against the existing regression tests).
-4. **E** — `StateTransform` algebra (the committed wave 7; gate for
-   F/G).
-5. **D** — `SpectralSolve` + banded (retires hand-rolled pressure code).
-6. **F** — Tier-1 projections in the algebra.
-7. **G** — Tier-2 dynamical (Propagator / OptimalBalance).
-8. **H** — numeric `BlockSymbol` eigenmodes (`eigh(H,M)`).
-9. **I** — non-periodic / vertical general eigenmodes.
-
-Phases **A–B–F–G** deliver the complete energy-metric projection story
-on the analytic (Fourier + sine/cosine collocated) path — the user's
-headline goal — **without** the Symbol substrate. **C–D** are the
-parallel substrate track that retires hand-rolled wave-6 code; **H–I**
-are the general (numeric, non-Fourier, wall-bounded) reach that build on
-both.
-
-## 4. Decision gates (sign-off before the phase that needs them)
-
-- Before **C/D**: `operator_symbols_plan.md` §7 A–E (Symbol `@final`,
-  eager materialization, banded lift across model/grid, separable-only,
-  exact-zero `inverse`).
-- Before **B**: decision 2 (metric first-class, `p = M q`).
-- Before **H**: decision 1 (`eigh(iML, M)` not `eig`). Decision 4
-  **resolved** → `BlockSymbol`-from-algebra
-  ([`../../decisions/blocksymbol_l_assembly.md`](../../decisions/blocksymbol_l_assembly.md)); the
-  `TendencyTerm` block-signature + linear-term re-authoring feeding H1
-  is scoped in
-  [`linear_term_blocks_plan.md`](linear_term_blocks_plan.md).
-- Before **F/G**: the wave-7 named oracles
-  (`model/implementation_plan.md:143-145` — bitwise-twin regression,
-  the info law, `assert_idempotent`, the three signed behavior deltas);
-  NNMD descoped.
-
-## 5. Post-build follow-ups (2026-07-10)
-
-- **Docs / gallery example for the eigenmode surface** — a
-  sphinx-gallery example built around `sw.eigenbasis` (β-plane
-  slow-mode filtering as the showcase), covering `em.mode` /
-  `eb.mode`, `random_vortical` / `random_waves` /
+- **Rayleigh-quotient frequency/growth diagnostic** for Tier 2
+  (`λ = ⟨Lz,z⟩_M / ⟨z,z⟩_M`). Sketched in the design note, never built;
+  `fr.spatial.rayleigh_dual` is the dual vector, not the quotient. A
+  handful of lines on top of `EnergyMetric.inner` whenever it is wanted.
+- **Docs / gallery example for the eigenmode surface** (deferred by owner
+  request; do when asked). A sphinx-gallery example around
+  `sw.eigenbasis` — β-plane slow-mode filtering as the showcase —
+  covering `em.mode` / `eb.mode`, `random_vortical` / `random_waves` /
   `random_state(..., spectral_energy_density=...)`, and the family
-  projections. Deferred by owner request; do when asked.
-- **`variant`/`bind` lifecycle bug — FIXED (2026-07-10).** Repeated
-  `fr.linearize(model)` / `model.variant(...)` on the same parent
-  raised `ImmutableParameterError`: `variant()` passed
-  `self._carry.modules` into the child assembly, which bound and
-  froze them in place on the parent's carry. Fix: `variant()` hands
-  the child fresh shallow clones (`Model._fresh_clone`, the
-  `_replace_leaf` copy pattern; the bind guard is identity-keyed).
-  Regression: `test_variant_leaves_the_parent_rebindable`. The
-  "linearize once, pass `eb` as source" workaround is obsolete.
+  projections. Tracked with the other gallery work in
+  [`docs_examples_plan.md`](docs_examples_plan.md).

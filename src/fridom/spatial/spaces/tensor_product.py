@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.interning import InternTable
-from fridom.spatial.scalars import Scalars
+from fridom.spatial.scalars import Scalars, Variance
 from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.function_space import FunctionSpace
 
@@ -52,31 +52,42 @@ class TensorProductSpace:
     layout : Layout | None, optional
         The negotiated device layout; None for a bare product
         (default: None).
+    variance : Variance | None, optional
+        The component variance of the whole product (validation
+        section 6.3); None means scalar/no-variance
+        (default: None).
     """
 
     # class-level weak intern table keyed on the factor-id tuple
-    # (plus the layout when set): unreferenced products are
+    # (plus the layout/variance when set): unreferenced products are
     # collected, meshes are not pinned, no state leaks across tests
     _table: ClassVar[InternTable] = InternTable()
 
     def __init__(self, factors: tuple[FunctionSpace, ...],
-                 *, layout: Layout | None = None) -> None:
+                 *, layout: Layout | None = None,
+                 variance: Variance | None = None) -> None:
         """Plumbing constructor; not interned — use ``of`` or ``*``."""
         self._factors: tuple[FunctionSpace, ...] = tuple(factors)
         self._layout: Layout | None = layout
+        self._variance: Variance | None = variance
 
     # ================================================================
     #  Interned construction
     # ================================================================
     @classmethod
     def _intern(cls, factors: tuple[FunctionSpace, ...],
-                layout: Layout | None) -> TensorProductSpace:
-        """Return the interned product for (factors, layout)."""
+                layout: Layout | None,
+                variance: Variance | None = None,
+                ) -> TensorProductSpace:
+        """Return the interned (factors, layout, variance) product."""
         key: tuple = factors
         if layout is not None:
-            key = (*factors, ("layout", layout))
+            key = (*key, ("layout", layout))
+        if variance is not None:
+            key = (*key, ("variance", variance))
         return cls._table.intern(
-            key, lambda: cls(factors, layout=layout))
+            key,
+            lambda: cls(factors, layout=layout, variance=variance))
 
     @classmethod
     def of(
@@ -191,11 +202,24 @@ class TensorProductSpace:
         return self._layout
 
     @property
+    def variance(self) -> Variance | None:
+        """Component variance of the whole product, or None.
+
+        Covariant/contravariant products are distinct interned
+        spaces (validation section 6.3); factors stay untagged —
+        the tag lives on the component's full space.
+        """
+        return self._variance
+
+    @property
     def bare(self) -> TensorProductSpace:
-        """The layout-free interned variant (self if bare)."""
+        """The layout-free interned variant (self if bare).
+
+        The variance tag is part of the bare identity and is kept.
+        """
         if self._layout is None:
             return self
-        return self._intern(self._factors, None)
+        return self._intern(self._factors, None, self._variance)
 
     def with_layout(
         self, layout: Layout | None,
@@ -213,7 +237,39 @@ class TensorProductSpace:
         TensorProductSpace
             The interned variant (grid-minted in normal operation).
         """
-        return self._intern(self._factors, layout)
+        return self._intern(self._factors, layout, self._variance)
+
+    def with_variance(
+        self, variance: Variance | None,
+    ) -> TensorProductSpace:
+        """
+        Return the interned variant carrying ``variance``.
+
+        Description
+        -----------
+        The product-space twin of
+        ``FunctionSpace.with_variance``: the tag is an attribute of
+        the component's *whole* space — the factors stay untagged,
+        so per-factor dispatch (``("diff", factor)``, ...) is
+        untouched by tagging. ``None`` strips the tag.
+
+        Parameters
+        ----------
+        variance : Variance | None
+            The component variance; None returns the untagged
+            variant.
+
+        Returns
+        -------
+        TensorProductSpace
+            The interned variant with the requested variance.
+        """
+        if variance is not None and not isinstance(variance,
+                                                   Variance):
+            raise TypeError(
+                f"variance must be a Variance member or None, got "
+                f"{variance!r}")
+        return self._intern(self._factors, self._layout, variance)
 
     # ================================================================
     #  Factor access and derived products
@@ -281,16 +337,18 @@ class TensorProductSpace:
                     f"replacement for {name!r} must live on the same "
                     "mesh as the factor it replaces")
             factors[index] = replacement.bare
-        return self._intern(tuple(factors), self._layout)
+        return self._intern(tuple(factors), self._layout,
+                            self._variance)
 
     def as_complex(self) -> TensorProductSpace:
         """Return the product of complexified factors.
 
-        ``factor.as_complex()`` for all factors; layout preserved.
+        ``factor.as_complex()`` for all factors; layout and variance
+        preserved.
         """
         return self._intern(
             tuple(factor.as_complex() for factor in self._factors),
-            self._layout)
+            self._layout, self._variance)
 
     def __iter__(self) -> Iterator[FunctionSpace]:
         """Iterate over the factor spaces."""
@@ -303,6 +361,10 @@ class TensorProductSpace:
     def __repr__(self) -> str:
         """Render as ``Center(x) ⊗ Center(y)``."""
         base = " ⊗ ".join(repr(factor) for factor in self._factors)
+        if self._variance is Variance.COVARIANT:
+            base = f"{base} [cov]"
+        elif self._variance is Variance.CONTRAVARIANT:
+            base = f"{base} [con]"
         if self._layout is None:
             return base
         return f"{base} [layout={self._layout!r}]"
@@ -323,6 +385,11 @@ def _flatten_bare(
             raise ValueError(
                 "products are minted bare: strip the layout "
                 "(space.bare) before combining laid-out spaces")
+        if space.variance is not None:
+            raise ValueError(
+                "products are minted variance-free: the tag lives "
+                "on the component's whole space — combine untagged "
+                "factors and tag the product (with_variance)")
         if isinstance(space, TensorProductSpace):
             factors.extend(space.factors)
         else:
@@ -470,6 +537,13 @@ def join(
     operands to it, and applies the operation there. Grid identity
     is checked by the caller *before* the join (fields own that).
 
+    Component variance joins like a claim with a sanctioned lift
+    from "no claim" (validation section 6.3): an untagged operand
+    adopts the partner's tag (a scalar coefficient scales a tensor
+    component without ceremony), while covariant vs contravariant is
+    genuine variance mixing and raises — the strict-algebra catch
+    the tags exist for.
+
     Parameters
     ----------
     a : SpaceLike
@@ -485,6 +559,11 @@ def join(
         The joined space (a lone factor for 1D operands).
     """
     require_same_layout(a, b, operation=operation)
+    variance = _join_variance(a, b, operation=operation)
+    if a.variance is not None:
+        a = a.with_variance(None)
+    if b.variance is not None:
+        b = b.with_variance(None)
     factors_a, factors_b = a.factors, b.factors
     suffix = f" ({operation})" if operation else ""
     if len(factors_a) != len(factors_b) or any(
@@ -520,6 +599,41 @@ def join(
     result_space: SpaceLike = (
         joined[0] if len(joined) == 1
         else TensorProductSpace.of(*joined))
+    if variance is not None:
+        result_space = result_space.with_variance(variance)
     if a.layout is not None:
         result_space = result_space.with_layout(a.layout)
     return result_space
+
+
+def _join_variance(
+    a: SpaceLike, b: SpaceLike, *, operation: str | None = None,
+) -> Variance | None:
+    """
+    Join the operands' variance claims (see ``join``).
+
+    Parameters
+    ----------
+    a : SpaceLike
+        The left operand's space.
+    b : SpaceLike
+        The right operand's space.
+    operation : str | None, optional
+        The offending operation, for error messages (default: None).
+
+    Returns
+    -------
+    Variance | None
+        The common claim (None when neither operand claims one).
+    """
+    va, vb = a.variance, b.variance
+    if va is vb or vb is None:
+        return va
+    if va is None:
+        return vb
+    suffix = f" ({operation})" if operation else ""
+    raise SpaceMismatchError(
+        f"cannot combine spaces{suffix}: variance mixing "
+        f"({a!r} vs {b!r}); raise/lower the index explicitly "
+        "(RaiseIndex/LowerIndex) before combining components",
+        left=a, right=b, operation=operation)

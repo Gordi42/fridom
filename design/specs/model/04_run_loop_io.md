@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Composition, the run loop, and IO
@@ -82,7 +82,12 @@ else. Normative test: preset and explicit assembly produce
 - **`model.blank_state()`** (PROGNOSTIC subset at declared
   defaults, born sharded) and **`model.state_space(name)`** — the
   State factory every IC recipe and transform builds on (used but
-  never named by D1.1).
+  never named by D1.1). **Not built**: the ported IC recipes compose
+  `grid.create_field(space, ...)` with spaces taken from
+  `model.field_table[name].space` or from the eigenmode surface. The
+  two methods are sugar over the field table, and remain the intended
+  spelling — build them or strike them
+  ([`07_open_threads.md`](07_open_threads.md) §9.1 item 1).
 - **`model.variant(term_filter=..., updates=..., name=...)`** — the
   derived-model constructor (full semantics in
   [`08_state_transforms.md`](08_state_transforms.md) §10.4); its
@@ -147,9 +152,14 @@ decomposition notes are explicit; an override's wider stencil must
 be what the tracer intercepts, and dry-run space validation must see
 the operator that will actually run) — hence merge at step 3, before
 bind, the dry run, and negotiate. ICs remain the post-assembly step,
-plus the opt-in one-shot `model.apply_constraints()` (initial
-projection of non-divergence-free ICs; optional because
-project-the-state self-corrects within one substage).
+plus the opt-in initial projection of non-divergence-free ICs
+(optional because project-the-state self-corrects within one
+substage). **Shipped spelling**: `model.constrain(state, *, t=None) ->
+State` — a pure, host-callable application of the CONSTRAINT stages to
+a state, rather than the in-place `apply_constraints()` this section
+originally named; the caller feeds the result back through
+`set_state`. The pure form is what `model.tendency(...,
+constraints=True)` and the transforms reuse.
 
 ## 6.3 The run loop
 
@@ -323,7 +333,8 @@ left untouched** — amended V-C12, so `rest="zero"`-trimmed
 transform outputs feed larger models cleanly),
 **`set_aux` (amended V-C1: the declaration-consented host write for
 module-owned AUX — the coupler exchange path; no rewarm by default;
-02_rules)**, `apply_constraints()`, `update_parameters`, `reset()`,
+02_rules)**, `constrain` (+ `set_state`), `update_parameters`,
+`reset()`,
 `snapshot`/`load_snapshot`, reads, `advance`/`run` — with the
 canonical per-point sweep order **`update_parameters → reset →
 set_fields`** (amended V-C7; safe because re-materialization at the
@@ -452,23 +463,25 @@ projections host-side; `from_model` needs f0/n2/dsqr, not Ro — no
 4. **Walltime spelling** (d4_2: `run(walltime=, on_walltime=)`;
    d4_3: inside `fr.io.Snapshots`): the Snapshots config owns it —
    one home for trigger + snapshot + resubmit.
-5. **`apply_constraints` naming** (d4_1 `enforce_constraints`):
-   `apply_constraints()` adopted.
+5. **Constraint-application naming** (d4_1 `enforce_constraints`):
+   `apply_constraints()` was adopted here, then superseded at
+   implementation by the **pure** `model.constrain(state, *, t=None)
+   -> State` (§6.2), which composes with `tendency` and the
+   transforms instead of mutating the carry.
 
 ## 6.9 Residual open points
 
-Carried in [`07_open_threads.md`](07_open_threads.md): the
-`state_type`-under-jaxify mechanics (kwarg fallback stands);
-donation vs `model.state` live views across a later `run()`
-(copy-on-read decision at implementation, with a benchmark); the
-GPU-conditional and S5-fusion cost claims (benchmark once in 2.4);
-post-assembly writer-attach API and the capture-stream variant
-(2.6); multi-process walltime/interrupt consensus (3.2/3.3);
-`truncate_after` for CSV sinks. **Amendments owed on sign-off**:
-the grid-notes merge-call-site amendment + the frozen-grid
-fingerprint/verify path (`../grid/classes/grid.md`, `../grid/02_rules.md` §3.4);
-D1.1's "declarations discarded" softened (AUX default closures
-retained in the static assembly record; `default=` accepts unbound
-owner methods); 02_rules entries (owner-leaves-only defaults +
-same-path rule; "no pickled models"; fingerprint-ignores-IC-leaves
-sentence).
+Settled at implementation: `state_type` ships (Module attribute +
+`Model(state_type=)` kwarg, linted hashable); **`model.state` is
+copy-on-read** — the carry's buffers are donated to the next
+`advance()`, so a live view would reference deleted buffers (the copy
+is one device-to-device pass per read); `truncate_after` ships on
+every sink, CSV included. The sign-off amendments (grid-notes merge
+call site, frozen-grid fingerprint/verify path, the D1.1 softening,
+the three 02_rules entries) are all applied.
+
+Still carried in [`07_open_threads.md`](07_open_threads.md): the
+GPU-conditional and S5-fusion cost claims (the NaN-cadence benchmark);
+the post-assembly writer-attach API and the capture-stream variant;
+multi-process walltime/interrupt consensus (3.2/3.3); the
+shared-jitted-runner lint and compilation-count regression test.

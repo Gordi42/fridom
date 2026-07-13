@@ -1,5 +1,5 @@
 r"""
-Shared Coriolis modules: the f-plane and beta-plane rotation.
+Shared Coriolis modules: f-plane, beta-plane, chart rotation.
 
 Description
 -----------
@@ -7,6 +7,27 @@ The framework's reusable Coriolis module library (D2.1 module-library
 sharing): both the nonhydrostatic and shallow-water ports consume
 ``fr.modules.FPlaneCoriolis`` / ``fr.modules.BetaPlaneCoriolis`` — one
 clean, field-based implementation instead of a per-package copy.
+``RotationCoriolis`` extends the family to chart-coupled grids
+(coordinate-systems plan, stage C2): it takes the **ambient rotation
+vector** :math:`\vec\Omega` and derives the Coriolis parameter from
+the chart's own geometry, :math:`f = 2\,\vec\Omega\cdot\hat n` (see
+its class docstring for the derivation). The lat-lon sphere with
+:math:`\vec\Omega = (0, 0, \Omega)` is its special case, for which
+the derived field is the familiar
+:math:`f = 2\,\Omega\sin(\varphi)`.
+
+**Rotation is opt-in.** The preset factories (``sw.Model``,
+``nh.Model``) take ``coriolis=None`` — the argument omitted — to mean
+**no Coriolis force at all**: no module, no ``f_coriolis`` field, no
+rotation term, and no ``coriolis.f0`` provide. A rotating run names
+its rotation explicitly. There is therefore no null "no-rotation"
+module: omitting the argument *is* the no-rotation option.
+
+**Metric-blindness is an error on chart grids**: ``FPlaneCoriolis``
+and ``BetaPlaneCoriolis`` rotate *Cartesian* components with no
+metric factors, so on a grid carrying an embedding chart they are
+almost always wrong physics; they reject such a grid at bind with a
+taught error naming ``RotationCoriolis``.
 
 Following R2 (01_concepts D2.2), the Coriolis parameter is
 *intrinsically spatial* — a constant on the f-plane, :math:`f(y)` on
@@ -69,7 +90,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.framework.utils import jaxify
+from fridom.framework.utils import dtype_real, jaxify
 from fridom.model.declarations import (
     FieldDeclaration,
     FieldReference,
@@ -79,6 +100,7 @@ from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
 from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
 from fridom.model.terms import term
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.space_patterns import Profile
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -86,6 +108,110 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _U_HINT = ("velocities are declared by a dynamical-core module, "
            "e.g. nh.DynamicalCore or sw.DynamicalCore")
+
+
+def linear_rotation(
+    state: object, *, metric_weight: str | None = None,
+) -> dict:
+    r"""
+    Return the linear staggered rotation ``f v`` / ``-f u`` (flat).
+
+    Description
+    -----------
+    The **single source of truth** for the metric-blind (Cartesian)
+    rotation expression: the term of ``FPlaneCoriolis`` /
+    ``BetaPlaneCoriolis`` delegates here, and so does the
+    shallow-water energy correction (which must subtract *exactly*
+    this expression — see
+    ``fridom.shallowwater2.modules.coriolis``), so the two can never
+    drift apart. See the ``coriolis`` term docstring for the
+    discrete-skewness argument.
+
+    Parameters
+    ----------
+    state : VectorField
+        The model state; reads ``u``, ``v``, ``f_coriolis`` and (when
+        named) the metric-weight field.
+    metric_weight : str | None, optional
+        Name of the velocity energy-metric weight field ``w``;
+        ``None`` is the unweighted form (default: None).
+
+    Returns
+    -------
+    dict
+        The ``u`` / ``v`` increments.
+    """
+    u, v, f = state["u"], state["v"], state["f_coriolis"]
+    f_u = f.to(u)
+    if metric_weight is None:
+        return {
+            "u": f_u * v.to(u),
+            "v": -((f_u * u).to(v)),
+        }
+    w = state[metric_weight]
+    return {
+        "u": f_u * v.to(u),
+        "v": -((w.to(u) * f_u * u).to(v)) / w.to(v),
+    }
+
+
+def chart_rotation(
+    state: object,
+    *,
+    coords: tuple[str, str],
+    metric_weight: str | None = None,
+) -> dict:
+    r"""
+    Return the metric-aware rotation of ``RotationCoriolis`` (chart).
+
+    Description
+    -----------
+    The **single source of truth** for the chart rotation expression
+    (``RotationCoriolis.coriolis`` delegates here; the shallow-water
+    energy correction subtracts exactly this). The class docstring's
+    energy-conserving flux form: the flux weight
+    :math:`G = f\,g\,w` is sampled once at the ``u`` faces and
+    averaged back to the ``v`` faces *inside* the flux, so the pair is
+    exactly M-skew under :math:`\mathrm{diag}(W_1, W_2)`.
+
+    Parameters
+    ----------
+    state : VectorField
+        The model state; reads ``u``, ``v``, ``f_coriolis`` and (when
+        named) the metric-weight field.
+    coords : tuple[str, str]
+        The chart coordinate names, in the grid's factor order.
+    metric_weight : str | None, optional
+        Name of the velocity energy-metric weight field ``w``
+        (default: None).
+
+    Returns
+    -------
+    dict
+        The ``u`` / ``v`` increments (contravariant components).
+    """
+    u, v, f = state["u"], state["v"], state["f_coriolis"]
+    grid = u.grid
+    c_1, c_2 = coords
+    u_space = u.function_space.bare
+    v_space = v.function_space.bare
+    sqg_u = grid.metric(u_space, "sqrt_g")
+    sqg_v = grid.metric(v_space, "sqrt_g")
+    g_uu = grid.metric(u_space, f"g_{c_1}{c_1}")
+    g_vv = grid.metric(v_space, f"g_{c_2}{c_2}")
+    f_u = f.to(u)
+    flux_weight = f_u * (sqg_u * sqg_u)          # G = f g (w below)
+    w_1 = sqg_u * g_uu
+    w_2 = sqg_v * g_vv
+    if metric_weight is not None:
+        w = state[metric_weight]
+        flux_weight = flux_weight * w.to(u)
+        w_1 = w_1 * w.to(u)
+        w_2 = w_2 * w.to(v)
+    return {
+        "u": flux_weight * v.to(u) / w_1,
+        "v": -((flux_weight * u).to(v)) / w_2,
+    }
 
 
 @term(advances=("u", "v"), linear=True, name="coriolis")
@@ -119,19 +245,11 @@ def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
     1 ulp (bitwise-identical only for power-of-two ``w``), so the
     weighted form is the safe default whenever a weight field
     exists.
+
+    The expression itself lives in `linear_rotation` (one owner: the
+    shallow-water energy-correction module subtracts exactly this).
     """
-    u, v, f = state["u"], state["v"], state["f_coriolis"]
-    f_u = f.to(u)
-    if self._metric_weight is None:
-        return {
-            "u": f_u * v.to(u),
-            "v": -((f_u * u).to(v)),
-        }
-    w = state[self._metric_weight]
-    return {
-        "u": f_u * v.to(u),
-        "v": -((w.to(u) * f_u * u).to(v)) / w.to(v),
-    }
+    return linear_rotation(state, metric_weight=self._metric_weight)
 
 
 _WEIGHT_HINT = ("the velocity energy-metric weight field (e.g. the "
@@ -149,6 +267,54 @@ def _rotation_references(
     if metric_weight is not None:
         refs += (FieldReference(metric_weight, hint=_WEIGHT_HINT),)
     return refs
+
+
+def _chart_coord_names(coords: object) -> tuple[str, str]:
+    """Validate the (first, second) chart coordinate names."""
+    coords = tuple(coords)
+    if (len(coords) != 2  # noqa: PLR2004 — a surface chart
+            or not all(isinstance(c, str) for c in coords)
+            or coords[0] == coords[1]):
+        raise TypeError(
+            "coords names the (zonal, meridional) chart "
+            f"coordinates: two distinct strings, got {coords!r}")
+    return coords
+
+
+def _rotation_vector(omega: object) -> jnp.ndarray:
+    """Validate the ambient rotation vector (three components)."""
+    vector = jnp.asarray(omega, dtype=dtype_real())
+    if vector.shape != (3,):
+        raise TypeError(
+            "omega is the AMBIENT rotation vector of the chart's "
+            "embedding space: three components, e.g. "
+            f"omega=(0.0, 0.0, 7.292e-5); got {omega!r}")
+    return vector
+
+
+def _reject_chart_grid(module: Module, table: object) -> None:
+    """Refuse a metric-blind rotation on a chart-coupled grid.
+
+    The f-plane and beta-plane terms rotate the velocity components
+    as if they were Cartesian (no ``sqrt(g)``, no ``g_ij``): on a
+    chart grid the prognostic velocities are *contravariant*
+    components, so the term would be silently wrong physics (and
+    would do work against the metric energy). Better a taught error
+    than a plausible-looking wrong answer.
+    """
+    chart = table.grid.chart_coords
+    if chart is None:
+        return
+    raise ValueError(
+        f"{type(module).__name__} is metric-blind (it rotates "
+        "Cartesian velocity components), but this grid carries an "
+        f"embedding chart on {chart}, whose velocities are "
+        "contravariant components: use "
+        "fr.modules.RotationCoriolis(omega=(0.0, 0.0, Omega), "
+        f"coords={chart!r}) — it derives f = 2 Omega . n_hat from "
+        "the chart itself, and the lat-lon sphere with a polar Omega "
+        "gives f = 2 Omega sin(lat) — or omit coriolis= entirely to "
+        "run without rotation")
 
 
 @partial(jaxify, dynamic=("f0",))
@@ -219,6 +385,16 @@ class FPlaneCoriolis(Module):
         return grid.create_field(
             space, data=jnp.full(space.shape, self.f0),
             name="f_coriolis")
+
+    def bind(self, table) -> None:  # noqa: ANN001
+        """Reject chart-coupled grids (metric-blind rotation).
+
+        Raises
+        ------
+        ValueError
+            If the grid carries an embedding chart.
+        """
+        _reject_chart_grid(self, table)
 
     #: ``du/dt = f v``; ``dv/dt = -f u`` (shared rotation term).
     coriolis = _coriolis
@@ -310,5 +486,289 @@ class BetaPlaneCoriolis(Module):
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="f_coriolis")
 
+    def bind(self, table) -> None:  # noqa: ANN001
+        """Reject chart-coupled grids (metric-blind rotation).
+
+        Raises
+        ------
+        ValueError
+            If the grid carries an embedding chart.
+        """
+        _reject_chart_grid(self, table)
+
     #: ``du/dt = f(y) v``; ``dv/dt = -f(y) u`` (shared rotation term).
     coriolis = _coriolis
+
+
+@partial(jaxify, dynamic=("omega",))
+class RotationCoriolis(Module):
+
+    r"""
+    Chart-generic rotation: :math:`f = 2\,\vec\Omega\cdot\hat n`.
+
+    Description
+    -----------
+    The Coriolis acceleration is :math:`-2\,\vec\Omega\times\vec u`.
+    For a fluid confined to a 2-D manifold embedded in
+    :math:`\mathbb{R}^3` — every chart grid (coordinate-systems
+    plan, stage C2) — split the ambient rotation vector at each
+    point into its surface-normal and tangential parts,
+    :math:`\vec\Omega = (\vec\Omega\cdot\hat n)\,\hat n +
+    \vec\Omega_t`. With :math:`\vec u` tangent to the surface,
+    :math:`\vec\Omega_t\times\vec u` is purely **normal** (a cross
+    product of two tangent vectors) and is removed by the tangential
+    projection — it is balanced by the constraint force that holds
+    the fluid on the surface. What survives is a *local* rotation
+    about the normal,
+
+    .. math::
+        \left(-2\,\vec\Omega\times\vec u\right)_{\rm tangential}
+            = -f\,(\hat n\times\vec u) , \qquad
+        f = 2\,\vec\Omega\cdot\hat n ,
+
+    with no sphere-specific assumption: **f is a derived scalar
+    field of the chart**, not a user formula. :math:`\hat n =
+    (X_1\times X_2)/|X_1\times X_2|` comes from the chart's own
+    tangent vectors (the ``normal_x``/``normal_y``/``normal_z``
+    metrics of ``CoordinateMapping``).
+
+    :math:`\hat n\times\vec u` is the 90-degree rotation in the
+    tangent plane. In **contravariant** components (the chart-grid
+    velocity convention: :math:`u^i = \dot u^i`), using
+    :math:`(X_1\times X_2)\times X_1 = g_{11} X_2 - g_{12} X_1` and
+    its partner, and :math:`|X_1\times X_2| = \sqrt g`:
+
+    .. math::
+        (\hat n\times\vec u)^1 = -\frac{u_2}{\sqrt g} , \qquad
+        (\hat n\times\vec u)^2 = +\frac{u_1}{\sqrt g} , \qquad
+        u_i = g_{ij}u^j ,
+
+    so the tendency :math:`\partial_t u^i = -f\,(\hat n\times\vec
+    u)^i` reads
+
+    .. math::
+        \partial_t u^1 = +\frac{f}{\sqrt g}
+            \left(g_{12}u^1 + g_{22}u^2\right) , \qquad
+        \partial_t u^2 = -\frac{f}{\sqrt g}
+            \left(g_{11}u^1 + g_{12}u^2\right) .
+
+    **Orthogonal charts only.** For a diagonal metric the cross
+    terms drop and the tendency is
+    :math:`\partial_t u^1 = f\,g_{22}u^2/\sqrt g =
+    f\sqrt g\,g^{11}u^2`, :math:`\partial_t u^2 = -f\sqrt g\,
+    g^{22}u^1` — exactly the (already validated) spherical form. The
+    off-diagonal terms cannot be discretized skew-symmetrically on a
+    staggered C-grid: the exact energy
+    :math:`\tfrac12\int\sqrt g\,w\,g_{ij}u^iu^j` then carries a
+    cross term :math:`g_{12}u^1u^2` whose two factors live at
+    *different* nodes, so no local pairing reproduces it and the
+    rotation would leak energy at O(1). Skew-symmetry is the
+    load-bearing property here, so a non-orthogonal chart is a taught
+    error at bind (this is also the condition the grid's
+    ``RaiseIndex(diagonal=True)`` / ``LowerIndex(diagonal=True)``
+    overrides already assume).
+
+    **Exact discrete skew-symmetry.** With the per-point flux weight
+    :math:`G = f\,g\,w` (:math:`g = \det g_{ij} = (\sqrt g)^2`,
+    sampled once at the ``u`` faces) and the energy weights
+    :math:`W_1 = \sqrt g\,g_{11}\,w`, :math:`W_2 = \sqrt g\,
+    g_{22}\,w`,
+
+    .. math::
+        \partial_t u^1 = \frac{G\,\overline{u^2}}{W_1} , \qquad
+        \partial_t u^2 = -\,\frac{\overline{G\,u^1}}{W_2} ,
+
+    the pair is exactly M-skew-adjoint under
+    :math:`\mathrm{diag}(W_1, W_2)` for **any** ``f`` and any
+    positive weight: the measure-weighted ``.to`` averages are
+    adjoints of each other, and the :math:`W` factors cancel against
+    the energy metric, so
+    :math:`\sum W_1 u^1\,\partial_t u^1 + \sum W_2 u^2\,\partial_t
+    u^2 = \sum (G u^1)\,\overline{u^2} - \sum \overline{(G u^1)}\,
+    u^2 = 0` (rotation does no work, to the rounding of the
+    pointwise :math:`W\,(G/W)` round-trip). This is why the metric
+    factors are sampled *inside* the flux rather than per target
+    face. The metric factors are derived per application via
+    ``grid.metric`` and never cached (rules 2.3/3.8).
+
+    Sanity checks (all covered by tests): the lat-lon sphere chart
+    with :math:`\vec\Omega = (0,0,\Omega)` gives
+    :math:`f = 2\Omega\sin\varphi` — **the classical spherical
+    Coriolis parameter is a derived special case**; the
+    flat identity chart :math:`X = (x, y, 0)` gives
+    :math:`f = 2\Omega` — **the f-plane is a derived special case**,
+    bitwise equal to ``FPlaneCoriolis(f0=2*Omega)``; a torus chart
+    gives the :math:`f` of its analytic normal.
+
+    Parameters
+    ----------
+    omega : tuple[float, float, float] | jax.Array, optional
+        The **ambient** rotation vector :math:`\vec\Omega` in the
+        chart's embedding coordinates, e.g. ``(0.0, 0.0, 7.292e-5)``
+        for Earth with the lat-lon chart (default:
+        ``(0.0, 0.0, 1.0)``).
+    coords : tuple[str, str], optional
+        The chart coordinate names in the grid's factor order; the
+        orientation of :math:`\hat n` follows their order
+        (default: ``("lon", "lat")``).
+    metric_weight : str | None, optional
+        Name of a state field weighting the velocity energy metric
+        (e.g. the variable-depth shallow-water ``"csqr"``)
+        (default: None).
+    """
+
+    #: relative size of ``g_12`` tolerated as rounding at bind
+    _ORTHOGONAL_TOL = 1e-10
+
+    def __init__(
+        self,
+        omega: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        *,
+        coords: tuple[str, str] = ("lon", "lat"),
+        metric_weight: str | None = None,
+    ) -> None:
+        """Store the rotation vector and the coordinate names."""
+        self.omega = leaf(_rotation_vector(omega))
+        self._coords: tuple[str, str] = _chart_coord_names(coords)
+        self._metric_weight = metric_weight
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def coords(self) -> tuple[str, str]:
+        """The chart coordinate names, in the grid's factor order."""
+        return self._coords
+
+    @property
+    def metric_weight(self) -> str | None:
+        """The velocity energy-metric weight field name (or None)."""
+        return self._metric_weight
+
+    # ================================================================
+    #  Declarations
+    # ================================================================
+    #: two interpolation hops per axis at most (v -> u and the flux
+    #: back); the metric fields multiply a traced flux (raw metric
+    #: data the halo tracer cannot follow), so the module declares
+    #: its stencil width and is halo-trace exempt (V-N2)
+    @property
+    def extra_halo(self) -> HaloSpec:
+        """One halo cell per chart axis (the ``.to`` averages)."""
+        return HaloSpec(dict.fromkeys(self._coords, 1))
+
+    @property
+    def field_references(self) -> tuple[FieldReference, ...]:
+        """u/v, plus the metric-weight field when configured."""
+        return _rotation_references(self._metric_weight)
+
+    @property
+    def field_declarations(self) -> tuple[FieldDeclaration, ...]:
+        r"""``f_coriolis`` on the chart's own two coordinates.
+
+        The derived :math:`f = 2\,\vec\Omega\cdot\hat n` varies
+        along **both** chart coordinates in general (it does not on
+        the sphere or the torus with a polar :math:`\vec\Omega`,
+        but it does for a tilted one), so the declared space is the
+        full chart profile; the interpolations in the term are
+        exact no-ops along a coordinate ``f`` is constant in.
+        """
+        return (
+            FieldDeclaration(
+                "f_coriolis", space=Profile(*self._coords),
+                lifecycle=Lifecycle.AUXILIARY,
+                default=self._f_default,
+                long_name="Coriolis parameter", units="1/s"),
+        )
+
+    def _f_default(self, grid: object, space: object) -> ScalarField:
+        """Owner-method default: ``f = 2 Omega . n_hat``.
+
+        The surface normal is a chart-derived metric of the grid's
+        ``CoordinateMapping`` (one owner of the derivation, rules
+        3.8), so the Coriolis parameter is assembled here as pure
+        field arithmetic on the ``normal_<x|y|z>`` metrics. No
+        pre-syncing (GAP-B).
+        """
+        omega = self.omega
+        normal = [grid.metric(space, f"normal_{c}")
+                  for c in ("x", "y", "z")]
+        f = 2.0 * (omega[0] * normal[0] + omega[1] * normal[1]
+                   + omega[2] * normal[2])
+        return grid.create_field(
+            space, data=jnp.broadcast_to(f.data, space.shape),
+            name="f_coriolis")
+
+    # ================================================================
+    #  Bind-time validation (taught errors)
+    # ================================================================
+    def bind(self, table) -> None:  # noqa: ANN001
+        """Require an **orthogonal** chart grid matching ``coords``.
+
+        Raises
+        ------
+        ValueError
+            If the grid carries no embedding chart, if the chart
+            coordinate family does not match ``coords`` in the
+            grid's factor order, or if the induced metric is not
+            diagonal (see the class docstring: the off-diagonal
+            rotation has no skew-symmetric staggered form).
+        """
+        name = type(self).__name__
+        grid = table.grid
+        chart = grid.chart_coords
+        if chart is None:
+            raise ValueError(
+                f"{name} needs a chart-coupled grid (a "
+                "CoordinateMapping with an embedding chart, e.g. "
+                "the lat-lon sphere); on flat Cartesian grids use "
+                "FPlaneCoriolis or BetaPlaneCoriolis")
+        expected = tuple(
+            member for member in grid.names if member in set(chart))
+        if self._coords != expected:
+            raise ValueError(
+                f"{name} coords={self._coords!r} do not "
+                f"match the grid's chart coordinates {expected!r} "
+                "(in factor order); pass coords matching the grid")
+        self._require_orthogonal(grid, table["u"].space)
+
+    def _require_orthogonal(self, grid: object,
+                            space: object) -> None:
+        """Reject a chart whose induced metric has cross terms."""
+        c_1, c_2 = self._coords
+        off = jnp.abs(grid.metric(space, f"g_{c_1}{c_2}").data)
+        scale = jnp.sqrt(grid.metric(space, f"g_{c_1}{c_1}").data
+                         * grid.metric(space, f"g_{c_2}{c_2}").data)
+        ratio = float(jnp.max(off / scale))
+        if ratio > self._ORTHOGONAL_TOL:
+            raise ValueError(
+                f"{type(self).__name__} needs an ORTHOGONAL chart "
+                f"(diagonal induced metric), but g_{c_1}{c_2} "
+                f"reaches {ratio:.3e} of sqrt(g_{c_1}{c_1} "
+                f"g_{c_2}{c_2}) on this grid: the off-diagonal "
+                "rotation terms have no energy-conserving staggered "
+                "form (the exact energy's cross term g_12 u^1 u^2 "
+                "pairs values living at different nodes), so the "
+                "module refuses rather than leak energy; use an "
+                "orthogonal chart (lat-lon, torus, conformal maps)")
+
+    # ================================================================
+    #  The rotation term (linear)
+    # ================================================================
+    @term(advances=("u", "v"), linear=True, name="coriolis")
+    def coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
+        r"""``du = G vbar / W_1``; ``dv = -(G u)bar / W_2``.
+
+        The class docstring's energy-conserving flux form: the flux
+        weight :math:`G = f\,g\,w` is sampled once at the ``u``
+        faces and averaged back to the ``v`` faces inside the flux
+        (the shared modules' thickness-weighted pairing, with the
+        metric folded into the weights) — exactly M-skew under
+        :math:`\mathrm{diag}(W_1, W_2)`.
+
+        The expression itself lives in `chart_rotation` (one owner:
+        the shallow-water energy-correction module subtracts exactly
+        this).
+        """
+        return chart_rotation(state, coords=self._coords,
+                              metric_weight=self._metric_weight)

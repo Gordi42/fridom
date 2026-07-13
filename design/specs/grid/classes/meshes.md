@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-06
+date: 2026-07-13
 ---
 
 # Grid abstraction redesign — Class designs: meshes and function spaces
@@ -824,9 +824,21 @@ Notes:
 One-line role: single 2D factor for spherical geometry, contributing
 two coordinate names and owning metric structure (validation 6.3).
 
+**Not what shipped.** Spherical geometry landed with ROADMAP 3.4 by a
+different route: a **chart embedding on a `CoordinateMapping`** over
+ordinary 1D interval factors (`grid.metric`, `grid.chart_coords`, the
+metric-aware vector calculus; spherical shallow water runs on it), so
+the metric lives in the mapping rather than in a bespoke 2D mesh
+class. `SphereMesh` remains **unbuilt** and stays specified here as
+the non-tensor-factor exemplar — the case the design must not preclude
+(and the one an unstructured/cubed-sphere factor would follow). Build
+it only if a genuinely non-separable spherical factor is needed;
+otherwise the chart is the answer.
+
 - Kind: concrete (final)
 - Static or dynamic: static
-- Iteration: designed-for
+- Iteration: designed-for (superseded in practice by the 3.4 chart
+  embedding, above)
 - Concept refs: sections 2.1, 2.3; validation 6.3
 
 ```python

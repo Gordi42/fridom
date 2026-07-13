@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — API sketches
@@ -203,7 +203,7 @@ vortical = nh.transforms.VorticalProjection(model)    # Tier 1; from_model valid
 average  = nh.transforms.TimeAverage(model, n_ave=4,  # Tier 2; owns a variant twin
     filter=fr.terms.linear & ~fr.terms.owned_by(fr.closures.ClosureBase))
 
-state_ini      = nh.initial_conditions.jet(model)     # builds on model.blank_state()
+state_ini      = nh.initial_conditions.jet(model)     # builds on grid.create_field
 state_vortical = vortical(state_ini)                  # dye -> 0 (rest="zero")
 state_residual = state_ini - state_vortical           # carries the full tracer
 model.set_state(average(state_ini))

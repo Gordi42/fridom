@@ -1,13 +1,24 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-08
+superseded_by: commits d06441d1 + d3309640 (2026-07-09)
 ---
 
 # Assembling `L` as a `BlockSymbol` from the operator algebra
 
+> **Superseded by the code, 2026-07-09.** The ruling below was
+> implemented in full (`85e865f2`, `026f4c62`) and then deliberately
+> removed (`d06441d1`, `d3309640`): nothing consumed the analytic block
+> spectral path. No `BlockSymbol` exists in `src/` today. `L` is instead
+> derived numerically by the impulse probe
+> (`fr.model.numeric_eigenpairs`) or from the per-model hand-written
+> `eigenmodes.py`. The ruling is kept verbatim, as the convention
+> requires; it is a record of a decision that was made and then reversed,
+> not a description of the system.
+
 **Status: research + decision record, 2026-07-08.** Resolves decision 4
 of [`../plans/active/projection_eigenmode_roadmap.md`](../plans/active/projection_eigenmode_roadmap.md)
-§4 / [`../plans/active/projection_eigenmode_plan.md`](../plans/active/projection_eigenmode_plan.md) §7:
+§4 / [`../plans/active/projection_eigenmode_plan.md`](../plans/done/projection_eigenmode_plan.md) §7:
 **`Eigenmodes.from_model` builds the linearized system operator `L`
 from the operator algebra (a `BlockSymbol`), not a hand-provided
 `linear_operator()`.** This note says what that requires and what it

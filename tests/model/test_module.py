@@ -122,6 +122,8 @@ def test_base_is_concrete_with_empty_menu():
     assert dict(module.dispatch) == {}
     assert module.extra_halo is None
     assert module.state_type is None
+    # an ordinary module declares no gap in the linear operator
+    assert module.linear_operator_gap is None
     assert module.stages == ()
     assert module.tendency_terms() == ()
     assert module.collected_stages() == ()

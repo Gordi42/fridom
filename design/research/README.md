@@ -1,9 +1,13 @@
 ---
 status: frozen
-date: 2026-07-07
+date: 2026-07-12
 ---
 
 # Design research reports
+
+The `c*` / `d*` table below is the per-decision research behind the
+model-layer design. The bucket also holds four standalone frozen
+inputs (audits and investigations), listed in the second table.
 
 Per-decision research reports produced during the model-layer design
 (deep option analysis + precedent research, AI-assisted). These are
@@ -41,3 +45,12 @@ keys are gated to PROGNOSTIC) — the concepts file is authoritative.
 | [`c1_coupling_precedents.md`](c1_coupling_precedents.md) | Coupling — production coupler survey (OASIS/ESMF/CESM/FMS/YAC/IFS-NEMO), irreducible problems, what evaporates under jax |
 | [`c2_coupled_walk.md`](c2_coupled_walk.md) | Coupling — adversarial concrete A–O walk (windowed accumulation gap, re-materialization contradiction, advance surface) |
 | [`c3_coupling_architecture.md`](c3_coupling_architecture.md) | Coupling — Phase-3 architecture pre-design (facade, dispatch-then-sync, mediator-as-model, product-state Schwarz, hooks H1–H11) |
+
+## Standalone frozen inputs
+
+| Report | Feeds |
+|--------|-------|
+| [`parity_audit.md`](parity_audit.md) | Cutover — the §8.8 cutover-parity claim → test map ([`../plans/active/cutover_parity_plan.md`](../plans/active/cutover_parity_plan.md)) |
+| [`boundary_design_explainer.md`](boundary_design_explainer.md) | Boundaries — dev extrapolation-fill vs the R1 flip, side by side (decision made 2026-07-11: R1 landed) |
+| [`nnmd_literature.md`](nnmd_literature.md) | NNMD — literature sweep, R1 of [`../plans/active/nnmd_rewrite_plan.md`](../plans/done/nnmd_rewrite_plan.md) |
+| [`xla_spmd_fft_fault.md`](xla_spmd_fft_fault.md) | Coordinate systems — the jitted-FFT-on-a-sharded-axis XLA fault; reproducer + fridom-side mitigation |

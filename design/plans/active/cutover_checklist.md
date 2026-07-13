@@ -1,159 +1,162 @@
 ---
 status: active
-date: 2026-07-08
+date: 2026-07-13
 ---
-
-> Salvaged 2026-07-11 from the retired sibling checkout (it was never
-> committed there). Written 2026-07-08, before the wave program and the
-> package split, so read with:
-> [`cutover_parity_plan.md`](cutover_parity_plan.md) is the live status
-> — Blockers 1 and 2 below are since CLOSED (waves A/A2/B/C: closures,
-> forcings, WENO/upwind, ICs, walled pressure solve, transforms/
-> projections, eigenmode tiers); only docs/examples and the swap remain.
-> Naming: `framework2` became `fridom.spatial` + `fridom.model`
-> (2026-07-11), so the swap step "rename framework2 -> framework" is
-> obsolete; the rename now only concerns `nonhydro2`/`shallowwater2`.
-> Open question the split adds: old `framework/utils` + `logger.py`
-> survive the cutover — decide their new home (e.g. `fridom.utils`).
-> The **mechanical swap** section is the enduring value here: the
-> consumer map (conftest, CI paths, pyproject coverage, test_init,
-> benchmarks, docs rst) still applies.
 
 # Cutover checklist — retire `framework` / `nonhydro` / `shallowwater`
 
-Goal: delete the old `src/fridom/{framework,nonhydro,shallowwater}` packages and
-rename `framework2`/`nonhydro2`/`shallowwater2` to the canonical names, per the
-[ROADMAP Cutover section](../../../ROADMAP.md).
+The mechanical swap: delete the old
+`src/fridom/{framework,nonhydro,shallowwater}` packages, rehome the two
+survivors (`framework/utils/`, `framework/logger.py`), and rename
+`nonhydro2`/`shallowwater2` to the canonical names.
+
+**Scope.** This file is the *executable* swap list — the consumer map and
+the order of operations. It does **not** track parity:
+
+- Is the new stack at parity? →
+  [`cutover_parity_plan.md`](cutover_parity_plan.md) (waves A–C, the
+  parity audit, the intentional-deltas table awaiting owner sign-off).
+- Docs and examples? → [`docs_examples_plan.md`](docs_examples_plan.md)
+  (they are rebuilt, not ported; steps 10–11 below are pointers only).
 
 Status legend: `[ ]` todo · `[~]` partial · `[x]` done.
+All counts below were re-verified against `dev` on 2026-07-13.
 
-Derived from a five-angle deep-research sweep (2026-07-08): model parity
-(nonhydro, shallowwater), framework-level parity, consumer map, and cutover
-mechanics.
+## Already settled (no action)
 
-## Key structural facts (why this is tractable)
+- [x] **Hydrostatic dropped** — `src/fridom/hydrostatic` + `tests/hydrostatic`
+      removed (a78ca3d3, 2026-07-08). ROADMAP 3.1 is a greenfield future
+      feature, not a cutover gate.
+- [x] **`framework2` rename is obsolete** — the package split (2026-07-11,
+      `plans/done/spatial_model_split_plan.md`) already landed the new
+      framework as `fridom.spatial` + `fridom.model`. Only
+      `nonhydro2`/`shallowwater2` still carry a `2`.
+- [x] **Blockers 1–2 closed** (waves A/A2/B/C, see the parity plan): initial
+      conditions, diagnostics, closures (`Harmonic/Biharmonic
+      Diffusion|Friction`, `SmagorinskyLilly`), forcings (`Relaxation`,
+      both wave makers), `Upwind`/`WENOAdvection`, walled pressure solve,
+      eigenmodes, and the whole `model/transforms/` package (projections,
+      `Propagator`, `TimeAverage`, `OptimalBalance`, `BalanceExpansion`).
+- [x] **Plotting / animation / NetCDF + old Zarr writers dropped**, not
+      ported (2026-07-08). Output goes through `fr.io.Writer` (zarr via
+      tensorstore) and `f.xr`.
 
-- **Coupling is already clean.** The *only* thing `framework2`/`nonhydro2`/
-  `shallowwater2` import from old `framework` is `framework.utils` (+ its
-  transitive `framework/logger.py`). No new code touches old grid/model/field/
-  module/projection code. ~24 import lines, listed in the research.
-- **Survivors at cutover:** `framework/utils/` and `framework/logger.py` stay;
-  everything else in old `framework/` is deletable once blockers below clear.
-- **Hydrostatic: dropped** (decided 2026-07-08). Old `src/fridom/hydrostatic`
-  + `tests/hydrostatic` removed; it was self-contained (never exported, never
-  imported outside its own tree). ROADMAP 3.1 is now a pure greenfield future
-  feature, **no longer a cutover gate**.
+## Gate (both must hold before step 1)
 
----
+- [ ] Parity sign-off: the intentional-deltas table in the parity audit
+      accepted by the owner; full suite + 95% coverage + ruff green.
+- [ ] Docs/examples rebuild far enough along that deleting the old
+      packages does not break the doc build (`docs_examples_plan.md`).
 
-## Blocker 1 — Finish the model ports (ROADMAP 2.7, the primary gate)
+## Step 1 — Rehome the survivors
 
-Shared work (do once, used by both nonhydro2 and shallowwater2):
+`framework/utils/` (10 modules: `array_ops`, `decorators`, `dtypes`,
+`filesystem`, `formatting`, `jax_utils`, `mpi`, `numpy_utils`,
+`printing`, `__init__`) and `framework/logger.py` are the only old-stack
+code the new stack uses. The coupling is utils-only and shallow.
 
-- [ ] **Initial conditions library.** No `*2` equivalent exists at all; all 13
-      example scripts depend on it. Port:
-  - [ ] nonhydro: `SingleWave`, `KelvinWave`, `WavePackage`, `BarotropicJet`,
-        `Jet`, `CoherentEddy`, `RandomGeostrophicSpectra`,
-        `geostrophic_energy_spectrum` (`src/fridom/nonhydro/initial_conditions/`)
-  - [ ] shallowwater: `Jet`, `SingleWave`, `CoherentEddy`, `EquatorialWave`,
-        the `geostrophic_spectra` family
-        (`src/fridom/shallowwater/initial_conditions/`)
-- [ ] **Diagnostics.** Restore parameterful diagnostics:
-  - [ ] nonhydro2: add `epot`, `etot`, `pot_vort` (full Ertel PV), `cfl`,
-        `local_rossby_number`, full `rel_vort`(x/y/vector) — currently only
-        `ekin` + `linear_pot_vort`
-  - [ ] shallowwater2: create `shallowwater2/diagnostics.py` and wire it into
-        `DynamicalCore` (mirror `nonhydro2/modules/core.py`). Its `state.py`
-        docstring already *promises* `ekin/epot/pot_vort` but none exist.
-- [ ] **Closures.** Port harmonic/biharmonic Mixing & Friction (+ Smagorinsky
-      for nonhydro). framework2 has only `ClosureBase` stub + IMEX
-      `VerticalDiffusion`. Needed by ~5 nonhydro examples. *(Or confirm
-      deliberately dropped.)*
-- [ ] **Forcings / wave-makers.** `GaussianWaveMaker`, `PolarizedWaveMaker`
-      (nonhydro). *(Or confirm dropped.)*
+- [ ] **Open decision:** new home. Proposal: a top-level `fridom.utils`
+      (+ `fridom.log`); no `src/fridom/utils` exists today.
+- [ ] Rewrite **45 import lines in 45 new-stack source files**
+      (spatial 14, model 25, nonhydro2 5, shallowwater2 1). 41 are
+      `from fridom.framework.utils import ...`; 4 are `import
+      fridom.framework as fr` in `spatial/operators/{base,realized,
+      registry,symbol}.py`, which touch **only** `fr.utils`.
+- [ ] Rewrite the same import in **16 new-stack test files**
+      (`tests/{spatial,model,nonhydro2,shallowwater2}`).
+- [ ] Cosmetic leftovers: the string tuples `("fridom.framework",
+      "fridom.spatial", "fridom.model")` in `model/_eigenbasis.py:1351`
+      and `model/transforms/balance_expansion.py:109`, the docstring
+      reference in `model/transforms/time_average.py:14`, and the
+      `import fridom.framework as fr` inside the `benchmarking/measure.py`
+      docstring example.
 
-nonhydro-specific:
+## Step 2 — Freeze or delete the old-stack cross-checks
 
-- [ ] **Non-periodic pressure solver.** Port `RFFTPressureSolver` (DCT, walled
-      boxes, multi-GPU). nonhydro2 ported only the periodic Fourier solver;
-      walled/convection configs can't run today.
-- [ ] **Advection schemes.** Port `UpwindAdvection`, `WENO` (only
-      `CenteredAdvection` ported).
-- [ ] **Eigenmode branches.** Add the divergent branch (`s="d"`) — nonhydro2
-      has `s=0,±1` only.
+Two new-stack tests import the old stack (`import fridom.framework as
+frold`) to regress against it:
 
-shallowwater-specific:
+- [ ] `tests/model/transforms/test_balance_expansion.py` (old NNMD).
+- [ ] `tests/nonhydro2/test_advection.py` (old tendency parity).
 
-- [ ] **Discrete eigenmodes.** Implement the discrete staggered-C-grid modes
-      (`use_discrete=True`, old default); shallowwater2 has continuous only.
-- [ ] Minor: `State.velocity` / `State.tracers` convenience accessors.
+Either delete them at the swap or freeze their reference values into
+static arrays first.
 
-Tests:
+## Step 3 — Delete the old packages
 
-- [ ] Mirrored tests for every ported item above, to hold the 95% patch-coverage
-      gate. New model tests live under `tests/framework2/{nonhydro2,shallowwater2}/`.
+- [ ] `src/fridom/framework` (85 modules), minus the survivors of step 1.
+- [ ] `src/fridom/nonhydro` (31 modules), `src/fridom/shallowwater`
+      (20 modules).
+- [ ] `tests/framework` (62 files), `tests/nonhydro` (28),
+      `tests/shallowwater` (17) — 107 test files.
 
-## Blocker 2 — State transforms / projections (ROADMAP 2.8, "wave 7", not started)
+## Step 4 — Rename
 
-`src/fridom/framework2/transforms/__init__.py` is an empty stub. Depends on the
-wave-6 eigenmode objects (themselves an open 2.7 item). Design is complete:
-[`design/specs/model/08_state_transforms.md`](../../specs/model/08_state_transforms.md).
+- [ ] `src/fridom/nonhydro2` → `nonhydro`, `shallowwater2` →
+      `shallowwater`; likewise `tests/nonhydro2` → `tests/nonhydro`,
+      `tests/shallowwater2` → `tests/shallowwater`.
 
-- [ ] `fr.StateTransform` + algebra (`@`, arithmetic, `FixedPoint`, `Shift`).
-- [ ] Vortical / Wave / Divergence projections.
-- [ ] `Propagator`, `TimeAverage`, `OptimalBalance`.
-- [ ] `model.variant(term_filter=...)` + term predicates + `fr.closures.ClosureBase`.
-- [ ] Mirrored tests.
-- **Deferred, NOT a blocker:** `nnmd.py` (descoped — future rewrite, no model
-      propagator).
+## Step 5 — Package exports
 
-## ~~Blocker 3 — Plotting / animation & writers~~ — RESOLVED (dropped, 2026-07-08)
+- [ ] `src/fridom/__init__.py` lists `benchmarking, framework, model,
+      nonhydro, shallowwater, spatial` in both the `TYPE_CHECKING` block
+      and `all_modules_by_origin` — drop `framework`, add the new home of
+      utils/logger if it is top-level.
+- [ ] `tests/test_init.py` parametrizes over those exports; it fails
+      until they are correct.
 
-Decided: **not a blocker.** No porting needed; these subsystems are dropped.
+## Step 6 — Test harness
 
-- [x] **Plotting** is handled by the xarray conversion (`f.xr` export) — no
-      plotting module in framework2 by design.
-- [x] **Live plotting during the run is dropped**: old
-      `framework/modules/animation/` (live animation, `video_writer.py`) and
-      `figure_saver.py` are not ported.
-- [x] **NetCDF and (old) Zarr writers dropped** in favor of the tensorstore
-      strategy: `framework/modules/{netcdf_writer,zarr_writer}.py` are not
-      ported; `fr.io.Writer` (zarr-format store via tensorstore, xarray/
-      xgcm-openable) is the sole output path.
-- [ ] Follow-through at cutover: drop the tutorial content that teaches live
-      animation / netCDF output (part of the docs sweep below).
+- [ ] `tests/conftest.py:18` — `import fridom.framework as fr`; the
+      `capture_logs` fixture uses `fr.log`. Repoint to the surviving
+      logger.
 
-## Cutover — mechanical swap (once Blockers 1–3 clear)
+## Step 7 — Benchmarks
 
-- [ ] Keep `framework/utils/` + `framework/logger.py`; delete the rest of old
-      `framework/`, plus old `nonhydro/`, `shallowwater/`.
-- [ ] Rename `framework2`→`framework`, `nonhydro2`→`nonhydro`,
-      `shallowwater2`→`shallowwater`.
-- [ ] Rewrite the ~24 `from fridom.framework.utils import ...` /
-      `import fridom.framework as fr` (utils-only) lines to the co-located utils.
-- [ ] `src/fridom/__init__.py`: exports currently list `framework`, `nonhydro`,
-      `shallowwater` (old) and do **not** list `nonhydro2`/`shallowwater2` — fix
-      both the `TYPE_CHECKING` block and `all_modules_by_origin`.
-- [ ] `tests/conftest.py:18` — `import fridom.framework as fr` (`capture_logs`
-      fixture uses `fr.log`); repoint to surviving logger.
-- [ ] Delete old test trees `tests/{framework,nonhydro,shallowwater}/`; move the
-      `tests/framework2/...` trees to `tests/framework/...` etc.
-- [ ] `examples/` — 13 scripts + 3 `GALLERY_HEADER.rst` import old packages;
-      rewrite to the new API (pulled into docs via sphinx-gallery,
-      `docs/source/conf.py:74`).
-- [ ] `benchmarks/bench_{nonhydro,shallowwater,operators,fields}.py` — import
-      old packages; CI smoke-runs them (`.github/workflows/tests.yml:80`).
-- [ ] `docs/` — `source/fridom_api.rst`, `source/tutorials/using_models/
-      fridom_api_names.rst`, and the ~10 tutorial `.rst` code-blocks.
-- [ ] CI — `.github/workflows/tests.yml:40` hard-codes the old
-      `tests/framework/domain_decomposition/...` multi-device path.
-- [ ] `pyproject.toml` — coverage `source_pkgs=["fridom"]` denominator shifts;
-      tidy the cosmetic `zarr_writer.py` comment.
-- [ ] `tests/test_init.py` iterates the top-level exports — will fail until they
-      are corrected.
-- [ ] Docs/meta prose: `README.md`, `AGENTS.md` (import-alias + layout sections).
+- [ ] Retire the four old-stack benchmarks
+      `benchmarks/bench_{nonhydro,shallowwater,operators,fields}.py`.
+      The new-stack suites already live in `benchmarks/model/` and
+      `benchmarks/spatial/`. CI smoke-runs the directory
+      (`python -m fridom.benchmarking run benchmarks`,
+      `.github/workflows/tests.yml:101`).
+- [ ] `benchmarks/nonhydro_shallowwater_new_vs_old.md` is a historical
+      comparison record — keep it, but it must stop being executable
+      input.
 
-## Done
+## Step 8 — CI
 
-- [x] **Drop hydrostatic** — removed `src/fridom/hydrostatic` + `tests/hydrostatic`
-      (2026-07-08). Self-contained; no external imports; not in package exports.
+- [ ] `.github/workflows/tests.yml:61` — the multi-device job hard-codes
+      `tests/framework/domain_decomposition/test_domain_decomposition.py`
+      next to `tests/spatial/decomposition`. Drop the old path.
+
+## Step 9 — pyproject
+
+- [ ] `pyproject.toml:81-84` — the `filterwarnings` comment points at
+      `fridom/framework/modules/zarr_writer.py`; check whether the
+      zarr-consolidated-metadata ignore (and the imageio/ffmpeg fork
+      ignore below it) is still needed at all once the old writers and
+      the video writer are gone.
+- [ ] Coverage `source_pkgs = ["fridom"]` — the denominator shifts when
+      ~136 old modules disappear; re-check `fail_under = 95`.
+
+## Step 10 — Examples (owned by `docs_examples_plan.md`)
+
+- [ ] 12 of 13 example scripts import the old packages (all of
+      `examples/nonhydro/*.py` and `examples/shallowwater/
+      equatorial_waves.py`; only `shallowwater/barotropic_instability.py`
+      is already on the new stack). The three `GALLERY_HEADER.rst` files
+      are clean.
+
+## Step 11 — Docs (owned by `docs_examples_plan.md`)
+
+- [ ] 13 `.rst` files reference the old packages: `source/fridom_api.rst`,
+      `source/getting_started.rst`, `source/tutorials/using_models/*`
+      (8 files), `source/tutorials/more_tutorials/{backend,precision}.rst`.
+
+## Step 12 — Prose
+
+- [ ] `AGENTS.md` — the layout section (the `2`-suffix note), the
+      import-alias section (`import fridom.nonhydro2 as nh`, "old-stack
+      code keeps ..."), and the `__init__.py` example that uses
+      `fridom.framework.grid.cartesian`. `README.md` has no old-stack
+      references.

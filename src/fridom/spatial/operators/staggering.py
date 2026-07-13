@@ -414,10 +414,12 @@ def uniform_spacing(factor: FunctionSpace) -> float:
 
     Description
     -----------
-    Iteration-1 stand-in for the ``grid.measure(space, name=...)``
-    accessor (not yet implemented): on a uniform ``IntervalMesh`` the
-    dual and primal measures collapse to the constant ``mesh.dx``,
-    read at trace time (never baked into operator state).
+    The constant special case of the ``grid.measure`` metric fields
+    (concepts section 2.7): on a uniform mesh the dual and primal
+    measures collapse to the constant ``mesh.dx``, read at trace
+    time (never baked into operator state) and folded by XLA.
+    Non-uniform meshes carry no ``dx`` descriptor; their spacing
+    enters through :func:`divide_by_codomain_measure` instead.
 
     Parameters
     ----------
@@ -438,8 +440,148 @@ def uniform_spacing(factor: FunctionSpace) -> float:
     if dx is None:
         raise NotImplementedError(
             f"{factor.mesh!r} has no uniform cell width; nonuniform "
-            "measure fields arrive with grid.measure")
+            "spacing enters through the grid.measure fields")
     return dx
+
+
+def mapped_mesh(mesh: object) -> bool:
+    """
+    Whether a 1D mesh carries a coordinate map (stretched axis).
+
+    Description
+    -----------
+    The mesh-level spelling of :func:`mapped_factor`, for callers
+    that hold the mesh rather than a factor space (the model-level
+    ``bind`` guards of the biased schemes, which vet
+    ``grid.factors``).
+
+    Parameters
+    ----------
+    mesh : object
+        A 1D mesh (``IntervalMesh``, ``MappedIntervalMesh``, ...).
+
+    Returns
+    -------
+    bool
+        True iff the mesh exposes a non-None ``coordinate_map``.
+    """
+    return getattr(mesh, "coordinate_map", None) is not None
+
+
+def mapped_factor(factor: FunctionSpace) -> bool:
+    """
+    Whether the factor's mesh carries a coordinate map.
+
+    Description
+    -----------
+    The routing predicate of the stencil spacing denominators
+    (concepts section 2.7): ``False`` selects the uniform
+    scalar-``dx`` fast path (the constant special case), ``True``
+    the measure-field division of
+    :func:`divide_by_codomain_measure`.
+
+    It is also the **refusal** predicate of every uniform-offset
+    stencil wider than two points (``FiniteDifference`` order > 2,
+    the biased WENO/upwind reconstructions): those rows are the
+    uniform-mesh weights, and the two-point measure field can only
+    ground a 2nd-order division — a wide row divided by it is
+    consistent but silently 2nd order, so the operators raise
+    instead (see :func:`mapped_order_hint`).
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        A bare 1D factor space.
+
+    Returns
+    -------
+    bool
+        True iff the mesh exposes a non-None ``coordinate_map``.
+    """
+    return mapped_mesh(factor.mesh)
+
+
+def mapped_order_hint(what: str) -> str:
+    """
+    Shared "why" clause of the mapped high-order refusals.
+
+    Description
+    -----------
+    The one sentence every mapped guard of a uniform-offset stencil
+    repeats (``FiniteDifference``'s order > 2 guard, the biased
+    reconstructions, the biased advection modules): the stencil is a
+    *computational-coordinate* row, so a mapped mesh needs the
+    computational-space chain rule with an order-matched discrete
+    Jacobian; the two-point measure field the grid materializes caps
+    the achievable order at 2.
+
+    Parameters
+    ----------
+    what : str
+        The refusing stencil, named in the message
+        (e.g. "the biased face reconstructions").
+
+    Returns
+    -------
+    str
+        The composed reason clause.
+    """
+    return (
+        f"{what} are uniform-offset (computational-coordinate) rows, "
+        "so on a stretched mesh they are not the design-order "
+        "weights: a mapped high-order stencil needs the "
+        "computational-space chain rule with an order-matched "
+        "discrete Jacobian, and the two-point measure field caps the "
+        "order at 2 — the scheme would silently drop to 2nd order "
+        "(deferred; coordinate-systems plan)")
+
+
+def divide_by_codomain_measure(
+    result: FieldLike, operand: FieldLike, axis: str,
+) -> FieldLike:
+    """
+    Divide a unit-spacing difference by its codomain measure field.
+
+    Description
+    -----------
+    The mapped-mesh spacing route of the two-point difference
+    kernels (rules sections 2.7, 3.9): the denominator of a
+    staggered difference is the **codomain's own measure** — the
+    primal cell width when landing on ``Center``/``CellAvg``, the
+    dual center-to-center spacing when landing on the face family —
+    materialized from the grid at trace time and divided in the
+    storage frame. The measure field is synced first, so on a
+    periodic axis the ghost slots the kernel computed stay valid
+    (the measure's wrap fill is its exact periodic extension) and
+    the result's halo-validity claim carries over unchanged; on
+    bounded axes the claim is already zero. Uniform meshes never
+    reach this route (scalar fast path, see
+    :func:`uniform_spacing`).
+
+    Parameters
+    ----------
+    result : FieldLike
+        The unit-spacing kernel result (bare codomain, storage
+        frame of the operand's layout).
+    operand : FieldLike
+        The operand field (supplies the grid and layout).
+    axis : str
+        The resolved coordinate axis.
+
+    Returns
+    -------
+    FieldLike
+        The measure-scaled result (halo-validity claim kept).
+    """
+    grid = operand.grid
+    space = result.function_space
+    # query in the operand's layout: grid.measure resolves a None
+    # layout to the default, matching the kernel's storage frame
+    query = space.with_layout(operand.function_space.layout)
+    measure = grid.sync(grid.measure(query, name=axis))
+    data = result._data / measure._data  # noqa: SLF001 — storage seam
+    return type(result)(grid, space, data, result.metadata,
+                        halo_valid=result.halo_valid)
 
 
 def apply_staggered(

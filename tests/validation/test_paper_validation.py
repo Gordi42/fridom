@@ -217,10 +217,13 @@ def test_mixed_grid_decomposition_keeps_z_local(
 
 def test_mixed_grid_designed_for_gaps(mixed):
     grid, mx, mz = mixed
-    # Chebyshev geometry accessors arrive in a later wave: no
-    # init=/evaluation_nodes/measure on the Lobatto factor yet
-    with pytest.raises(NotImplementedError, match="ChebyshevMesh"):
-        grid.evaluation_nodes(mz.lobatto)
+    # Lobatto nodes materialize through the coordinate-map seam
+    # (stage C0) ...
+    nodes = grid.evaluation_nodes(mz.lobatto)
+    assert np.allclose(np.asarray(nodes.data),
+                       lobatto_nodes(16, 0.0, 1.0))
+    # ... but the Clenshaw-Curtis quadrature weights are still a
+    # later wave: no measure on the Lobatto factor yet
     with pytest.raises(NotImplementedError, match="ChebyshevMesh"):
         grid.measure(mz.lobatto)
     # per-factor quadrature (Clenshaw-Curtis weights) is therefore

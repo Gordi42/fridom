@@ -14,7 +14,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
-from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.nonhydro2.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
@@ -37,6 +36,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     coriolis: fr.model.Module | None = None,
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
+    pressure_iterations: int = 30,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -54,7 +54,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     rossby_number : float | fr.model.Ramp, optional
         Rossby number (default: 1.0).
     coriolis : fr.model.Module | None, optional
-        The Coriolis module (default: ``FPlaneCoriolis(f0=1.0)``).
+        The Coriolis module. ``None`` — the argument omitted, the
+        default — means **no rotation at all**: no Coriolis module
+        is installed, so the model carries no ``f_coriolis`` field,
+        no rotation term and no ``coriolis.f0`` provide. Rotation is
+        opt-in: pass ``nh.FPlaneCoriolis(f0=...)`` /
+        ``nh.BetaPlaneCoriolis(...)`` on a flat grid, or
+        ``fr.modules.RotationCoriolis(omega=(0.0, 0.0, Omega),
+        coords=...)`` on a chart-coupled grid (default: None).
+
+        Note that a non-rotating **linear** nonhydrostatic model
+        (``advection=False``) leaves ``u``/``v`` advanced by no term
+        at all and is rejected by the D1.4 coverage lint — a linear
+        run needs a Coriolis module.
     stratification : fr.model.Module | None, optional
         The stratification module
         (default: ``ConstantStratification(n2=1.0)``).
@@ -62,6 +74,11 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The advection module: ``True`` uses the default
         ``CenteredAdvection()``, ``False`` omits advection (a linear
         model), and a module instance is used as given (default: True).
+    pressure_iterations : int, optional
+        The fixed PCG iteration budget of the mapped pressure solve,
+        forwarded to the dynamical core; consumed only on a
+        coordinate-mapped grid (the flat spectral solve is exact and
+        iterates nothing) (default: 30).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -82,8 +99,6 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     fr.model.Model
         The assembled model.
     """
-    if coriolis is None:
-        coriolis = FPlaneCoriolis(f0=1.0)
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
     if advection is True:
@@ -93,10 +108,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
 
     modules: list[fr.model.Module] = [
         DynamicalCore(dsqr=dsqr, rossby_number=rossby_number,
-                      single_precision_solve=single_precision_solve),
-        coriolis,
-        stratification,
+                      single_precision_solve=single_precision_solve,
+                      pressure_iterations=pressure_iterations),
     ]
+    # rotation is opt-in: coriolis=None installs no module at all
+    if coriolis is not None:
+        modules.append(coriolis)
+    modules.append(stratification)
     if advection is not False:
         modules.append(advection)
     modules.extend(modules_extra)

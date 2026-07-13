@@ -19,8 +19,13 @@ import fridom as fr
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
+    RotationCoriolis,
 )
 from fridom.shallowwater2.modules.core import DynamicalCore
+from fridom.shallowwater2.modules.coriolis import (
+    carries_linear_rotation,
+    check_rotation_modules,
+)
 from fridom.shallowwater2.modules.sadourny import SadournyAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -38,18 +43,61 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     rossby_number: float = 1.0,
     coriolis: fr.model.Module | None = None,
     advection: bool = True,
+    coords: tuple[str, str] = ("x", "y"),
     time_stepper: TimeStepper | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
-    """
+    r"""
     Assemble a shallow-water model (thin preset over ``fr.model.Model``).
+
+    Description
+    -----------
+    Works on flat Cartesian grids and on chart-coupled grids
+    (coordinate-systems plan, stage C2). The spherical recipe —
+    periodic-lon x bounded-lat interval meshes under an embedding
+    chart, with the diagonal (orthogonal-metric) index-move
+    overrides:
+
+    .. code-block:: python
+
+        mlon = fr.spatial.meshes.IntervalMesh(
+            nlon, (0.0, 2 * np.pi), name="lon")
+        mlat = fr.spatial.meshes.IntervalMesh(
+            nlat, (-lat_max, lat_max), periodic=False, name="lat")
+        mapping = fr.spatial.CoordinateMapping(chart={
+            "X": lambda lon, lat: (
+                a * jnp.cos(lat) * jnp.cos(lon),
+                a * jnp.cos(lat) * jnp.sin(lon),
+                a * jnp.sin(lat))})
+        grid = fr.spatial.Grid((mlon, mlat), mapping=mapping)
+        grid.merge_overrides({
+            "raise_index": fr.spatial.operators.RaiseIndex(
+                ("lon", "lat"), diagonal=True),
+            "lower_index": fr.spatial.operators.LowerIndex(
+                ("lon", "lat"), diagonal=True)})
+        model = sw.Model(
+            grid=grid, coords=("lon", "lat"), csqr=gh0,
+            rossby_number=1.0,
+            coriolis=sw.modules.RotationCoriolis(
+                omega=(0.0, 0.0, omega), coords=("lon", "lat"),
+                metric_weight="csqr"),
+            time_stepper=...)
+
+    On the lat-lon chart a polar ``omega=(0, 0, Omega)`` makes the
+    derived ``f = 2 Omega . n_hat`` the familiar
+    ``2 Omega sin(lat)``.
+
+    Prognostic velocities on chart grids are the contravariant
+    components (see ``sw.modules.DynamicalCore``); convert to
+    physical m/s components via ``state.u_physical`` /
+    ``state.v_physical``.
 
     Parameters
     ----------
     grid : Grid
-        The (periodic, 2-D) grid.
+        The (periodic, walled, or chart-coupled) 2-D grid.
     csqr : float | Callable, optional
         Squared gravity-wave phase speed :math:`c^2`: a float for
         constant depth, or a callable ``csqr(y)`` for variable
@@ -59,18 +107,43 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     rossby_number : float, optional
         Rossby number scaling the advection (default: 1.0).
     coriolis : fr.model.Module | None, optional
-        The Coriolis field provider; default
-        ``FPlaneCoriolis(f0=1.0, metric_weight="csqr")`` — the
-        thickness-weighted rotation is used **always** (it is
-        exactly M-skew for any ``f`` and any positive depth
-        profile, and coincides with the unweighted form for
-        constant depth to rounding — bitwise for power-of-two
-        ``csqr``). An explicit framework Coriolis module combined
-        with a callable ``csqr`` must carry
-        ``metric_weight="csqr"`` itself; the preset raises
-        otherwise.
+        The Coriolis field provider. ``None`` — the argument
+        omitted, the default — means **no rotation at all**: no
+        Coriolis module is installed, so the model carries no
+        ``f_coriolis`` field, no rotation term and no
+        ``coriolis.f0`` provide. Rotation is opt-in: pass
+        ``sw.modules.FPlaneCoriolis(f0=...)`` /
+        ``sw.modules.BetaPlaneCoriolis(...)`` on a flat grid, or
+        ``sw.modules.RotationCoriolis(omega=(0.0, 0.0, Omega),
+        coords=...)`` on a chart-coupled grid (default: None).
+
+        A Coriolis module combined with a callable ``csqr`` must
+        carry ``metric_weight="csqr"`` itself — the
+        thickness-weighted rotation, exactly M-skew for any ``f``
+        and any positive depth profile; the preset raises otherwise
+        (without it the rotation does work against the
+        :math:`c^2`-weighted energy metric).
+
+        **Exact energy conservation.** The linear rotation is skew
+        under the *linearized* metric, not under the
+        thickness-weighted energy the nonlinear scheme conserves
+        (``sw.diagnostics.etot_full``), which it therefore produces
+        at :math:`O(\mathrm{Ro})`. Two ways to fix that, both
+        exact (``sw.modules.coriolis``): add
+        ``modules_extra=(sw.modules.CoriolisEnergyCorrection(
+        coords=coords),)`` next to the linear module — the linear
+        operator ``L`` stays bit-for-bit unchanged, so eigenmodes /
+        projections / balance keep working — or pass the conserving
+        module itself (``coriolis=sw.modules.NonlinearFPlaneCoriolis(
+        f0=...)``), which is cheaper but leaves ``L`` without any
+        rotation (no eigenmodes, projections, balance).
     advection : bool, optional
         Include the Sadourny nonlinear advection (default: True).
+    coords : tuple[str, str], optional
+        The (zonal, meridional) coordinate names in the grid's
+        factor order, forwarded to the core and the advection —
+        ``("lon", "lat")`` on the standard sphere chart
+        (default: ``("x", "y")``).
     time_stepper : TimeStepper | None, optional
         The stepper; default ``AdamBashforth(dt=1.0, order=3)`` (the
         cutover package default — pass an explicit one for a real
@@ -91,21 +164,25 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     Raises
     ------
     ValueError
-        A callable ``csqr`` combined with an explicit framework
-        Coriolis module whose ``metric_weight`` is unset.
+        A callable ``csqr`` combined with a linear Coriolis module
+        whose ``metric_weight`` is unset; or a module tuple that
+        counts the rotation twice
+        (``sw.modules.coriolis.check_rotation_modules``).
     """
-    core = DynamicalCore(csqr=csqr, rossby_number=rossby_number)
-    if coriolis is None:
-        # always the thickness-weighted rotation: exactly M-skew for
-        # any f and any depth profile, and identical to the unweighted
-        # form for constant depth (to rounding; bitwise for
-        # power-of-two csqr)
-        cor = FPlaneCoriolis(f0=1.0, metric_weight="csqr")
-    else:
-        cor = coriolis
+    core = DynamicalCore(csqr=csqr, rossby_number=rossby_number,
+                         coords=coords)
+    modules: tuple[fr.model.Module, ...] = (core,)
+    # rotation is opt-in: coriolis=None installs no module at all
+    if coriolis is not None:
+        # the conserving (route B) modules weight the rotation by the
+        # thickness itself — exact for any depth profile, so the
+        # metric_weight requirement does not apply to them
         if (callable(csqr)
-                and isinstance(cor, FPlaneCoriolis | BetaPlaneCoriolis)
-                and cor.metric_weight is None):
+                and isinstance(coriolis,
+                               FPlaneCoriolis | BetaPlaneCoriolis
+                               | RotationCoriolis)
+                and carries_linear_rotation(coriolis)
+                and coriolis.metric_weight is None):
             raise ValueError(
                 "a variable-depth shallow-water model (callable "
                 "csqr) needs the thickness-weighted rotation: "
@@ -113,10 +190,13 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
                 "metric_weight='csqr' (without it the rotation "
                 "does work against the c^2-weighted energy metric "
                 "and the model no longer conserves energy exactly)")
-    modules: tuple[fr.model.Module, ...] = (core, cor)
+        modules += (coriolis,)
     if advection:
-        modules += (SadournyAdvection(),)
+        modules += (SadournyAdvection(coords=coords),)
     modules += tuple(modules_extra)
+    # the rotation must be counted exactly once (route A: linear +
+    # correction; route B: the conserving module alone)
+    check_rotation_modules(modules)
     if time_stepper is None:
         time_stepper = fr.model.time_steppers.AdamBashforth(dt=1.0, order=3)
     return fr.model.Model(grid=grid, modules=modules,

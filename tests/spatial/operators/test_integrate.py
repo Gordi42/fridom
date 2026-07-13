@@ -8,10 +8,16 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.coordinate_mapping import (
+    CoordinateMapping,
+)
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.registry import DispatchError
 from fridom.spatial.spaces.constant import ConstantSpace
@@ -124,10 +130,10 @@ def test_measure_drops_bc_constrained_boundary_dofs(my):
     assert jnp.allclose(w.data, my.dx)
 
 
-def test_measure_is_iteration_1_interval_only():
+def test_measure_on_chebyshev_awaits_clenshaw_curtis():
     cheb = ChebyshevMesh(8, (0.0, 1.0), name="s")
     grid = Grid((cheb,))
-    with pytest.raises(NotImplementedError, match="IntervalMesh"):
+    with pytest.raises(NotImplementedError, match="Clenshaw"):
         grid.measure(cheb.outer)
 
 
@@ -248,3 +254,125 @@ def test_mean_on_an_all_constant_space_is_identity(mx):
     grid = Grid((mx,))
     f = grid.create_field(mx.constant)
     assert f.mean() is f
+
+
+# ================================================================
+#  Mapped meshes: stretched quadrature weights (stage C0)
+# ================================================================
+def _tanh_map(s):
+    return jnp.tanh(2.0 * s) / jnp.tanh(2.0)
+
+
+def test_integral_is_exact_on_mapped_cell_averages():
+    mesh = MappedIntervalMesh(8, (0.0, 1.0), _tanh_map, name="v")
+    grid = Grid((mesh,))
+    # true cell averages of f(v) = v: antiderivative differences
+    # over the stretched primal cells, divided by the cell widths
+    faces = _tanh_map(jnp.arange(9) / 8)
+    w = grid.measure(mesh.cell_avg, name="v")
+    averages = jnp.diff(faces**2 / 2.0) / w.data
+    f = grid.create_field(mesh.cell_avg, data=averages)
+    assert jnp.allclose(f.integrate("v").data[0], 0.5)
+
+
+def test_stretched_outer_weights_tile_the_domain():
+    mesh = MappedIntervalMesh(8, (0.0, 1.0), _tanh_map, name="v")
+    grid = Grid((mesh,))
+    # the clipped dual measures tile [0, 1] exactly (telescoping),
+    # so constants integrate exactly; unlike the uniform trapezoid
+    # the stretched nodes are not dual-cell midpoints, so linears
+    # are only 2nd-order convergent (covered below)
+    f = grid.create_field(mesh.outer, init=lambda v: 3.0 + 0.0 * v)
+    assert jnp.allclose(f.integrate("v").data[0], 3.0)
+
+
+def test_nodal_integral_converges_on_a_mapped_mesh():
+    errors = []
+    for n in (16, 32):
+        mesh = MappedIntervalMesh(n, (0.0, 1.0), _tanh_map,
+                                  name="v")
+        grid = Grid((mesh,))
+        f = grid.create_field(mesh.center,
+                              init=lambda v: jnp.sin(jnp.pi * v))
+        errors.append(abs(float(f.integrate("v").data[0])
+                          - 2.0 / jnp.pi))
+    assert errors[0] / errors[1] > 3.0
+
+
+# ================================================================
+#  The sqrt_g Jacobian rows on chart grids (stage C2)
+# ================================================================
+def torus_grid(n=8, ring=2.0, minor=0.5):
+    mu = IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="u")
+    mv = IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="v")
+    mapping = CoordinateMapping(chart={"X": lambda u, v: (
+        (ring + minor * jnp.cos(v)) * jnp.cos(u),
+        (ring + minor * jnp.cos(v)) * jnp.sin(u),
+        minor * jnp.sin(v))})
+    return Grid((mu, mv), mapping=mapping), mu, mv
+
+
+def test_jacobian_constructor_validates():
+    with pytest.raises(TypeError, match="jacobian"):
+        Integral(jacobian=())
+    with pytest.raises(TypeError, match="jacobian"):
+        Integral(jacobian=(1, 2))
+
+
+def test_jacobian_families_intern_separately():
+    assert Integral() is Integral(jacobian=None)
+    assert Integral(jacobian=("u", "v")) is Integral(
+        jacobian=("u", "v"))
+    assert Integral(jacobian=("u", "v")) is not Integral()
+
+
+def test_area_integral_carries_sqrt_g_once():
+    # the torus area is 4 pi^2 R r, exact for the constant field:
+    # sqrt_g enters on the first chart reduction only
+    ring, minor = 2.0, 0.5
+    grid, mu, mv = torus_grid(ring=ring, minor=minor)
+    one = grid.create_field(
+        mu.center * mv.center, init=lambda u, v: 1.0 + 0 * u + 0 * v)
+    area = one.integrate()
+    exact = 4.0 * jnp.pi**2 * ring * minor
+    assert jnp.allclose(area.data.squeeze(), exact)
+
+
+def test_partial_chart_reduction_is_the_weighted_density():
+    # integrate("u") of f == int f sqrt_g du: a v-dependent density
+    ring, minor = 2.0, 0.5
+    grid, mu, mv = torus_grid(ring=ring, minor=minor)
+    f = grid.create_field(
+        mu.center * mv.center,
+        init=lambda u, v: jnp.cos(v) + 0 * u)
+    density = f.integrate("u")
+    v = grid.evaluation_nodes(density.function_space, "v").data
+    exact = (2.0 * jnp.pi * jnp.cos(v)
+             * minor * (ring + minor * jnp.cos(v)))
+    assert jnp.allclose(density.data, exact)
+
+
+def test_born_constant_chart_factor_gets_no_jacobian():
+    # a field constant along u cannot resolve sqrt_g: it contracts
+    # against the computational measure only (module docstring)
+    grid, mu, mv = torus_grid()
+    f = grid.create_field(
+        mu.constant * mv.center, init=lambda v: 1.0 + 0 * v)
+    total = f.integrate()
+    assert jnp.allclose(total.data.squeeze(), 2.0 * jnp.pi)
+
+
+def test_chartless_grids_keep_the_plain_integral(mx):
+    grid = Grid((mx,))
+    row = grid.dispatch.resolve("integrate", mx.center)
+    assert row is Integral()
+    assert row.jacobian is None
+
+
+def test_fields_off_the_chart_meshes_use_the_plain_measure():
+    # a lone-factor field cannot resolve the 2D sqrt_g: the chart
+    # row falls back to the computational measure
+    grid, mu, _mv = torus_grid()
+    f = grid.create_field(mu.center, init=lambda u: 1.0 + 0 * u)
+    assert jnp.allclose(f.integrate("u").data.squeeze(),
+                        2.0 * jnp.pi)

@@ -1164,24 +1164,38 @@ class _BindTable:
     frozen field table, including ``grid`` (which exposes the
     registry AS MERGED — step 3 runs before step 4, load-bearing).
 
+    ``modules`` is the assembled module tuple, for the rare
+    **cross-module compatibility check** a module must make against
+    its siblings and cannot express through the field table (the
+    shallow-water Coriolis routes, which must not double-count
+    rotation: a conserving Coriolis module refuses to bind next to a
+    linear one). Read-only, and read at bind only: the tuple is
+    supplied in assembly order and its entries may not be bound yet,
+    so a bind may inspect a sibling's *declared* configuration
+    (constructor arguments, class), never its bind-time state.
+
     Parameters
     ----------
     table : FieldTable
         The resolved, frozen field table (step 1).
     parameters : BindParameterView
         The gated bind-time parameter view (step 2 values).
+    modules : tuple, optional
+        The assembled module tuple, in module order (default: ()).
     """
 
-    __slots__ = ("_table", "parameters")
+    __slots__ = ("_table", "modules", "parameters")
 
     def __init__(
         self,
         table: FieldTable,
         parameters: BindParameterView,
+        modules: tuple = (),
     ) -> None:
         """Pair the frozen table with the gated parameter view."""
         self._table = table
         self.parameters = parameters
+        self.modules = tuple(modules)
 
     def __getattr__(self, name: str) -> object:
         """Delegate everything else to the field table."""
@@ -1651,7 +1665,7 @@ def assemble(
     # -- step 4: bind, module order ------------------------------
     bind_table = _BindTable(table, BindParameterView({
         str(entry.name): _read_leaf(entry, modules, time_stepper)
-        for entry in binding_table}))
+        for entry in binding_table}), modules)
     for module in modules:
         bind = getattr(module, "bind", None)
         if callable(bind):

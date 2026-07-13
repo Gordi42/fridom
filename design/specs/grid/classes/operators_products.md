@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-06
+date: 2026-07-13
 ---
 
 # Grid abstraction redesign — Class designs: pointwise, product and reduction operators
@@ -432,8 +432,9 @@ class Integral(SeparableOperator):
 Contracts the field against the space's quadrature-weight measure
 field (`grid.measure(space, name=...)`, doc 04, iteration 1; uniform
 `dx`, Clenshaw-Curtis, Jacobian weights — §3.13), read at trace time.
-The designed-for mapping-metric accessor `grid.metric` is *not* used
-here — measures and mapping metrics are distinct grid accessors.
+The mapping-metric accessor `grid.metric` (landed with ROADMAP 3.4) is
+*not* used here — measures and mapping metrics are distinct grid
+accessors.
 Exact on average spaces. The result broadcasts back via
 `ConstantSpace` (§3.3), so `f - f.integrate("x")` stays in the strict
 algebra. There is no unweighted `sum` operator (`f.data.sum()` is the

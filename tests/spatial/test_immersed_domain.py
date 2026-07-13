@@ -9,6 +9,7 @@ from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain, Slip
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 from fridom.spatial.spaces.nodal import NodeSet
 
 
@@ -323,7 +324,7 @@ def test_non_interval_mesh_raises():
     mz = ChebyshevMesh(8, (0.0, 1.0), name="z")
     dom = ImmersedDomain(lambda z: z < 0.5)
     grid = Grid((mz,), immersed=dom)
-    with pytest.raises(NotImplementedError, match="IntervalMesh"):
+    with pytest.raises(NotImplementedError, match="later wave"):
         grid.immersed.mask(mz.outer)
 
 
@@ -377,3 +378,72 @@ def test_masks_are_device_count_invariant(forced_devices):
         m_one = one.immersed.mask(space_one)
         assert np.array_equal(np.asarray(m_many.data),
                               np.asarray(m_one.data))
+
+
+# ================================================================
+#  Stretched meshes (MappedIntervalMesh geometry seam)
+# ================================================================
+def _square(s):
+    """Monotone stretch s -> s**2 on [0, 1] (bunched near x = 0)."""
+    return s ** 2
+
+
+def test_mapped_mesh_center_mask_follows_the_stretch():
+    # cell centers sit at s = (i + 0.5) / 4 = 0.125, 0.375, 0.625,
+    # 0.875; the s -> s**2 stretch maps them to physical
+    # 0.015625, 0.140625, 0.390625, 0.765625, so x < 0.3 wets the
+    # first two cells only.
+    mesh = MappedIntervalMesh(4, (0.0, 1.0), _square, name="x")
+    dom = ImmersedDomain(lambda x: x < 0.3)
+    grid = Grid((mesh,), immersed=dom)
+    mask = grid.immersed.mask(mesh.center)
+    assert mask.shape == (4,)
+    assert np.array_equal(np.asarray(mask.data).astype(int),
+                          [1, 1, 0, 0])
+    # the same indicator on a uniform mesh (centers 0.125, 0.375,
+    # 0.625, 0.875) would wet only the first cell: the mask genuinely
+    # tracks the stretched geometry, not the uniform placement.
+    umesh = IntervalMesh(4, (0.0, 1.0), periodic=False, name="x")
+    uniform = Grid((umesh,), immersed=ImmersedDomain(lambda x: x < 0.3))
+    umask = uniform.immersed.mask(umesh.center)
+    assert np.array_equal(np.asarray(umask.data).astype(int),
+                          [1, 0, 0, 0])
+    assert not np.array_equal(np.asarray(mask.data),
+                              np.asarray(umask.data))
+
+
+def test_mapped_mesh_staggered_and_fraction():
+    mesh = MappedIntervalMesh(4, (0.0, 1.0), _square, name="x")
+    dom = ImmersedDomain(lambda x: x < 0.3)
+    grid = Grid((mesh,), immersed=dom)
+    # cell mask [1, 1, 0, 0]; inner faces AND adjacent cells:
+    # (0,1)->1, (1,2)->0, (2,3)->0
+    inner = grid.immersed.mask(mesh.inner)
+    assert inner.shape == (3,)
+    assert np.array_equal(np.asarray(inner.data).astype(int),
+                          [1, 0, 0])
+    fraction = grid.immersed.fraction(mesh.center)
+    assert np.array_equal(np.asarray(fraction.data), [1.0, 1.0,
+                                                      0.0, 0.0])
+
+
+def test_affine_mapping_reproduces_the_uniform_mask():
+    # an affine map s -> x_min + s * (x_max - x_min) places the cells
+    # exactly where a uniform mesh does, so it must reproduce the
+    # uniform mask to rounding (booleans: bit-for-bit here).
+    n, extent = 6, (0.0, 2.0)
+    affine = MappedIntervalMesh(
+        n, extent, lambda s: extent[0] + s * (extent[1] - extent[0]),
+        periodic=False, name="y")
+    uniform = IntervalMesh(n, extent, periodic=False, name="y")
+
+    def below_one(y):
+        return y < 1.0
+
+    mapped_grid = Grid((affine,), immersed=ImmersedDomain(below_one))
+    uniform_grid = Grid((uniform,), immersed=ImmersedDomain(below_one))
+    for factory in ("center", "outer", "inner", "left"):
+        mapped = mapped_grid.immersed.mask(getattr(affine, factory))
+        plain = uniform_grid.immersed.mask(getattr(uniform, factory))
+        assert np.array_equal(np.asarray(mapped.data),
+                              np.asarray(plain.data))

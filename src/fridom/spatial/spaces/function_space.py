@@ -16,13 +16,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Self
 
-from fridom.spatial.scalars import Scalars
+from fridom.spatial.scalars import Scalars, Variance
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.bc import BCStructure
     from fridom.spatial.decomposition.layout import Layout
     from fridom.spatial.meshes.mesh import Mesh
-    from fridom.spatial.scalars import Variance
     from fridom.spatial.spaces.tensor_product import (
         TensorProductSpace,
     )
@@ -41,6 +40,7 @@ def space_key(
     cls: type[FunctionSpace],
     *descriptors: object,
     layout: Layout | None = None,
+    variance: Variance | None = None,
 ) -> tuple:
     """
     Build the mesh-registry interning key of a space.
@@ -49,9 +49,10 @@ def space_key(
     -----------
     The key is the tuple of the space's defining static descriptors
     — ``(type, node set / basis / origin, bc, scalars)`` per the
-    class doc — plus the layout *when set*, so bare (layout-free)
-    keys are unchanged by the layout protocol. Mesh identity is not
-    part of the key: the registry is mesh-owned.
+    class doc — plus the layout and the component variance *when
+    set*, so bare (layout-free, variance-free) keys are unchanged by
+    the layout and variance protocols. Mesh identity is not part of
+    the key: the registry is mesh-owned.
 
     Parameters
     ----------
@@ -62,6 +63,9 @@ def space_key(
     layout : Layout | None, optional
         The device layout; appended to the key only when not None
         (default: None).
+    variance : Variance | None, optional
+        The component variance; appended (as a tagged pair) only
+        when not None (default: None).
 
     Returns
     -------
@@ -69,9 +73,11 @@ def space_key(
         The value-hashable interning key.
     """
     key = (cls, *descriptors)
-    if layout is None:
-        return key
-    return (*key, layout)
+    if layout is not None:
+        key = (*key, layout)
+    if variance is not None:
+        key = (*key, ("variance", variance))
+    return key
 
 
 class FunctionSpace(ABC):
@@ -99,6 +105,9 @@ class FunctionSpace(ABC):
     layout : Layout | None, optional
         The negotiated device layout; None for a bare space
         (default: None).
+    variance : Variance | None, optional
+        The component variance of a vector component on a metric
+        mesh; None means scalar/no-variance (default: None).
     _token : object
         The owning mesh's private factory token; raises unless it is
         the module-private token (construction only through mesh
@@ -111,6 +120,7 @@ class FunctionSpace(ABC):
 
     def __init__(self, mesh: Mesh, scalars: Scalars, bc: BCStructure,
                  *, layout: Layout | None = None,
+                 variance: Variance | None = None,
                  _token: object = None) -> None:
         """Guarded constructor; see the class docstring."""
         if _token is not _FACTORY_TOKEN:
@@ -122,6 +132,7 @@ class FunctionSpace(ABC):
         self._scalars: Scalars = scalars
         self._bc: BCStructure = bc
         self._layout: Layout | None = layout
+        self._variance: Variance | None = variance
 
     # ================================================================
     #  Identity (explicit, see cluster rules)
@@ -173,11 +184,13 @@ class FunctionSpace(ABC):
 
     @property
     def variance(self) -> Variance | None:
-        """Component variance on metric meshes (designed-for).
+        """Component variance on metric meshes.
 
-        None means scalar/no-variance; iteration 1 never sets it.
+        None means scalar/no-variance; mesh factories always mint
+        variance-free spaces (``with_variance`` interns tagged
+        variants).
         """
-        return None
+        return self._variance
 
     # ================================================================
     #  Product protocol (shared with TensorProductSpace)
@@ -298,6 +311,42 @@ class FunctionSpace(ABC):
         return self._variant(layout=layout)
 
     # ================================================================
+    #  Variance protocol (section 6.3: variance is a space attribute)
+    # ================================================================
+    def with_variance(self, variance: Variance | None) -> Self:
+        """
+        Return the interned variant carrying ``variance``.
+
+        Description
+        -----------
+        Covariant and contravariant components of a vector field on
+        a metric mesh are distinct interned spaces (validation
+        section 6.3), so the strict algebra catches variance mixing;
+        the tag enters the interning key only when set, so untagged
+        keys are unchanged. ``None`` strips the tag (the scalar
+        variant). Mesh factories always mint variance-free spaces;
+        the metric-aware composed operators (grad tags covariant,
+        ``RaiseIndex``/``LowerIndex`` retag) own the transitions.
+
+        Parameters
+        ----------
+        variance : Variance | None
+            The component variance; None returns the untagged
+            variant.
+
+        Returns
+        -------
+        Self
+            The interned variant with the requested variance.
+        """
+        if variance is not None and not isinstance(variance,
+                                                   Variance):
+            raise TypeError(
+                f"variance must be a Variance member or None, got "
+                f"{variance!r}")
+        return self._variant(variance=variance)
+
+    # ================================================================
     #  Scalar variants (interning lookups, not relational properties)
     # ================================================================
     def as_complex(self) -> Self:
@@ -330,15 +379,17 @@ class FunctionSpace(ABC):
     #  Variant interning machinery (internal)
     # ================================================================
     def _variant(self, *, scalars: Scalars | None = None,
-                 layout: object = _KEEP) -> Self:
+                 layout: object = _KEEP,
+                 variance: object = _KEEP) -> Self:
         """
         Return the interned variant with the given overrides.
 
         Description
         -----------
-        Routes back through the owning mesh's registry, so scalar
-        and layout variants are interned exactly like factory-made
-        spaces (value-equal requests return the identical object).
+        Routes back through the owning mesh's registry, so scalar,
+        layout, and variance variants are interned exactly like
+        factory-made spaces (value-equal requests return the
+        identical object).
 
         Parameters
         ----------
@@ -348,6 +399,9 @@ class FunctionSpace(ABC):
         layout : object, optional
             The layout of the variant; the module sentinel keeps the
             current one (default: keep).
+        variance : object, optional
+            The variance of the variant; the module sentinel keeps
+            the current one (default: keep).
 
         Returns
         -------
@@ -356,25 +410,32 @@ class FunctionSpace(ABC):
         """
         scalars = self._scalars if scalars is None else scalars
         layout = self._layout if layout is _KEEP else layout
-        if scalars is self._scalars and layout == self._layout:
+        variance = (self._variance if variance is _KEEP
+                    else variance)
+        if (scalars is self._scalars and layout == self._layout
+                and variance is self._variance):
             return self
-        key = self._variant_key(scalars, layout)
+        key = self._variant_key(scalars, layout, variance)
         return self._mesh._intern(  # noqa: SLF001 — interning seam
-            key, lambda: self._construct(scalars, layout))
+            key, lambda: self._construct(scalars, layout, variance))
 
     def _variant_key(self, scalars: Scalars,
-                     layout: Layout | None) -> tuple:
-        """Return the interning key of a (scalars, layout) variant.
+                     layout: Layout | None,
+                     variance: Variance | None) -> tuple:
+        """Return the (scalars, layout, variance) variant's key.
 
         Must match the owning mesh factory's key format.
         """
-        return space_key(type(self), self._bc, scalars, layout=layout)
+        return space_key(type(self), self._bc, scalars,
+                         layout=layout, variance=variance)
 
     def _construct(self, scalars: Scalars,
-                   layout: Layout | None) -> Self:
-        """Build (not intern) the (scalars, layout) variant."""
+                   layout: Layout | None,
+                   variance: Variance | None) -> Self:
+        """Build (not intern) the requested variant."""
         return type(self)(self._mesh, scalars, self._bc,
-                          layout=layout, _token=_FACTORY_TOKEN)
+                          layout=layout, variance=variance,
+                          _token=_FACTORY_TOKEN)
 
     # ================================================================
     #  Repr
@@ -394,6 +455,10 @@ class FunctionSpace(ABC):
             parts.append(f"bc=({bc_names})")
         if self._scalars is Scalars.COMPLEX:
             parts.append("complex")
+        if self._variance is Variance.COVARIANT:
+            parts.append("cov")
+        elif self._variance is Variance.CONTRAVARIANT:
+            parts.append("con")
         if self._layout is not None:
             parts.append(f"layout={self._layout!r}")
         return f"{label}({', '.join(parts)})"

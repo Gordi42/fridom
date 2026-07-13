@@ -9,7 +9,7 @@ import shutil
 from unittest.mock import patch, MagicMock
 from jinja2.filters import FILTERS
 from custom_scraper import copy_media_files
-from video_scraper import VideoScraper
+from video_scraper import VideoScraper, purge_stray_videos
 
 src_base_path = "../../src"
 
@@ -94,7 +94,8 @@ sphinx_gallery_conf = {
     # copy_media_files (old-stack examples, retired with the last port);
     # build-time rendered videos (cdfviewer --record) via VideoScraper
     'image_scrapers': ("matplotlib", copy_media_files, VideoScraper()),
-    'reset_modules': ("matplotlib", apply_docs_mplstyle),
+    'reset_modules': ("matplotlib", apply_docs_mplstyle,
+                      purge_stray_videos),
     'show_signature': False,
     "notebook_extensions": {},
     "default_thumb_file": "_static/fridom-title.png",

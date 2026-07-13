@@ -5,6 +5,12 @@ date: 2026-07-06
 
 # Framework2 Phase-1 implementation plan
 
+> **SHIPPED.** All six waves (0–5) executed and merged; the grid layer
+> they built is today's `fridom.spatial` (ROADMAP 1.1–1.7 done, the
+> 1.7 validation gate recorded in
+> [`phase1_findings.md`](../../research/phase1_findings.md)). Kept as the record of
+> *how* the phase was run — the tense below is the original plan's.
+
 How ROADMAP Phase 1 (tasks 1.1–1.7) is executed with parallel
 subagents on one machine (8 cores, ~15 GB free). The class docs under
 [`classes/`](../../specs/grid/classes/README.md) are the normative contract; agents

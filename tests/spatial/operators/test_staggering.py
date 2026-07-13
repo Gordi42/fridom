@@ -11,11 +11,17 @@ from fridom.spatial.decomposition.tensor import (
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.spatial.operators.staggering import (
     first_node_offset,
+    mapped_factor,
+    mapped_mesh,
+    mapped_order_hint,
     uniform_spacing,
 )
 from fridom.spatial.spaces.nodal import NodeSet
@@ -78,6 +84,26 @@ def test_uniform_spacing_needs_a_uniform_mesh():
     cheb = ChebyshevMesh(8, (0.0, 1.0), name="s")
     with pytest.raises(NotImplementedError, match=r"grid\.measure"):
         uniform_spacing(cheb.outer)
+
+
+def test_mapped_factor_routes_on_the_coordinate_map(mx):
+    mapped = MappedIntervalMesh(
+        8, (0.0, 1.0), lambda s: s**2 / 2 + s / 2, name="v")
+    assert mapped_factor(mapped.center) is True
+    assert mapped_factor(mx.center) is False
+    # the mesh-level spelling (the bind guards of the model modules)
+    assert mapped_mesh(mapped) is True
+    assert mapped_mesh(mx) is False
+    # a mapped mesh deliberately has no scalar dx
+    with pytest.raises(NotImplementedError, match=r"grid\.measure"):
+        uniform_spacing(mapped.center)
+
+
+def test_mapped_order_hint_names_the_stencil_and_the_reason():
+    hint = mapped_order_hint("the biased face reconstructions")
+    assert "the biased face reconstructions" in hint
+    assert "uniform-offset" in hint
+    assert "silently drop to 2nd order" in hint
 
 
 def test_axis_missing_from_the_halo_spec_counts_as_width_zero(mx):

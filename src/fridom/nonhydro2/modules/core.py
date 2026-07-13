@@ -26,7 +26,11 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.modules.moving_geometry import mapping_params
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
+from fridom.nonhydro2.modules.mapped_pressure import (
+    MappedPressureSolver,
+)
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 from fridom.nonhydro2.params import DSQR, ROSSBY
 from fridom.nonhydro2.state import State
@@ -68,6 +72,11 @@ class DynamicalCore(fr.model.Module):
         value never retraces. Off by default (bitwise identical
         projection); on, the projected velocities carry the reduced
         solve round-off, an opt-in accuracy trade (default: False).
+    pressure_iterations : int, optional
+        The fixed PCG iteration budget of the mapped pressure solve
+        (CS-D2); consumed only on a grid whose coordinate mapping
+        declares a mapped column — the flat spectral solve is exact
+        and iterates nothing (default: 30).
     """
 
     state_type = State
@@ -81,6 +90,7 @@ class DynamicalCore(fr.model.Module):
         vertical: str = "z",
         coords: tuple[str, ...] = ("x", "y", "z"),
         single_precision_solve: bool = False,
+        pressure_iterations: int = 30,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
         self.dsqr = fr.model.leaf(dsqr)
@@ -88,6 +98,7 @@ class DynamicalCore(fr.model.Module):
         self._vertical = vertical
         self._coords = coords
         self._single_precision_solve = bool(single_precision_solve)
+        self._pressure_iterations = pressure_iterations
 
     # ================================================================
     #  Field declarations
@@ -165,7 +176,17 @@ class DynamicalCore(fr.model.Module):
         O(dt^2), inherent to projection methods. The velocity update
         subtracts the gradient of the RAW potential ``phi``; the
         normalization only rescales the stored diagnostic.
+
+        On a grid whose coordinate mapping declares a mapped column
+        (terrain-following / boundary-fitted, stage C3) the whole
+        stage routes to :meth:`_project_mapped`; a flat/unmapped
+        grid takes exactly the code path below (zero behavior
+        change).
         """
+        grid = state["u"].grid
+        mapping = getattr(grid, "mapping", None)
+        if mapping is not None and mapping.column_corrections:
+            return self._project_mapped(state, ctx)
         dsqr = ctx.params[DSQR]
         vel = VectorField({
             "u": state["u"], "v": state["v"], "w": state["w"]})
@@ -185,5 +206,59 @@ class DynamicalCore(fr.model.Module):
             "u": state["u"] - grad_u,
             "v": state["v"] - grad_v,
             "w": state["w"] - grad_w / dsqr,
+            "p": p / ctx.stage_dt,
+        }
+
+    def _project_mapped(
+        self, state: State, ctx: StepContext,
+    ) -> dict[str, object]:
+        r"""Project on a coordinate-mapped grid (stage C3, CS-D2).
+
+        Description
+        -----------
+        The mapped twin of :meth:`_project`: the divergence, the
+        elliptic operator, and the gradient subtraction all come
+        from one :class:`MappedPressureSolver` — the J-weighted
+        physical divergence in flux form, the SPD flux-form mapped
+        Laplacian solved by fixed-iteration PCG (the flat spectral
+        inverse at folded coefficients preconditions), and the
+        flux-consistent velocity corrections, so the projection
+        removes exactly the divergence the operator measures (to
+        the CG residual). The stored diagnostic keeps the
+        ``p = phi / ctx.stage_dt`` normalization; the vertical
+        weight ``1/dsqr`` rides the solver's ``weights`` seam
+        keyed by the vertical coordinate name.
+
+        Dynamic geometry (stage C4): the CURRENT mapping-parameter
+        fields — module-owned state named after the parameters
+        (``MovingGeometry``) — thread through the solver's
+        ``params=`` seam, so every metric derivation of the
+        operator, the preconditioner means, and the corrections
+        reads the substage's geometry; a static mapped grid finds
+        no parameter fields in the state and keeps the declaration
+        defaults (the exact C3 path).
+        """
+        dsqr = ctx.params[DSQR]
+        grid = state["u"].grid
+        vel = {
+            "x": state["u"],
+            "y": state["v"],
+            self._vertical: state["w"],
+        }
+        solver = MappedPressureSolver(
+            grid,
+            state["p"].function_space,
+            weights={self._vertical: 1.0 / dsqr},
+            iterations=self._pressure_iterations,
+            params=mapping_params(state, grid))
+        # one metric derivation for the whole projection: divergence,
+        # solve and correction share the solver's per-solve memo (it
+        # dies with the call, so the next step re-derives at the new
+        # geometry — MappedPressureSolver.project)
+        p, corr = solver.project(vel)
+        return {
+            "u": state["u"] - corr["x"].retag(state["u"]),
+            "v": state["v"] - corr["y"].retag(state["v"]),
+            "w": state["w"] - corr[self._vertical].retag(state["w"]),
             "p": p / ctx.stage_dt,
         }

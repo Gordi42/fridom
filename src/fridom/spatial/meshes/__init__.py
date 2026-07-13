@@ -30,6 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all classes
     from .chebyshev import ChebyshevMesh
     from .interval import IntervalMesh
+    from .mapped_interval import MappedIntervalMesh
     from .mesh import Mesh
     from .point import PointMesh
     from .structured_1d import StructuredMesh1D
@@ -56,6 +57,7 @@ all_imports_by_origin = {
     f"{base}.mesh": ["Mesh"],
     f"{base}.structured_1d": ["StructuredMesh1D"],
     f"{base}.interval": ["IntervalMesh"],
+    f"{base}.mapped_interval": ["MappedIntervalMesh"],
     f"{base}.point": ["PointMesh"],
     f"{base}.chebyshev": ["ChebyshevMesh"],
 }

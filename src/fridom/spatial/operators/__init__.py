@@ -28,6 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover
         flux_diff,
         fourier,
         interp,
+        krylov,
         mixed,
         movement,
         products,
@@ -62,7 +63,20 @@ if TYPE_CHECKING:  # pragma: no cover
         Zero,
         resolve_codomain,
     )
-    from .composed import Curl, Diag, Divergence, Gradient, Laplacian
+    from .composed import (
+        Curl,
+        Diag,
+        Divergence,
+        Gradient,
+        Laplacian,
+        LowerIndex,
+        MetricCurl,
+        MetricDivergence,
+        MetricGradient,
+        MetricLaplacian,
+        RaiseIndex,
+        VarianceRetag,
+    )
     from .distributed_solve import resolve_distributed_solve
     from .finite_difference import FiniteDifference
     from .flux_diff import (
@@ -73,6 +87,8 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .integrate import Integral
     from .interp import LinearInterp
+    from .krylov import ConjugateGradient
+    from .mapped import MappedDerivative, MetricScaled
     from .mixed import ComposedTransform, resolve_transform
     from .movement import Reshard, Sync
     from .realized import (
@@ -86,7 +102,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .select import Where
     from .spectral_solve import SpectralSolve
     from .symbol import Symbol
-    from .verbs import diff, integrate, interpolate
+    from .verbs import diff, integrate, interpolate, physical_diff
     from .weno import WenoReconstruction
 
 # ================================================================
@@ -105,6 +121,7 @@ all_modules_by_origin = {
         "spectral_solve",
         "finite_difference",
         "interp",
+        "krylov",
         "reconstruct",
         "weno",
         "select",
@@ -112,6 +129,7 @@ all_modules_by_origin = {
         "spectral",
         "transform",
         "mixed",
+        "mapped",
         "fourier",
         "trig",
         "chebyshev",
@@ -152,6 +170,7 @@ all_imports_by_origin = {
     ],
     f"{base}.finite_difference": ["FiniteDifference"],
     f"{base}.interp": ["LinearInterp"],
+    f"{base}.krylov": ["ConjugateGradient"],
     f"{base}.reconstruct": ["LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.select": ["Where"],
@@ -173,6 +192,7 @@ all_imports_by_origin = {
     # the class import "Integral" and the D3b verb "integrate"
     # coexist: only the verb owns the ``fr.operators.integrate`` slot
     f"{base}.integrate": ["Integral"],
+    f"{base}.mapped": ["MappedDerivative", "MetricScaled"],
     f"{base}.mixed": ["ComposedTransform", "resolve_transform"],
     f"{base}.composed": [
         "Gradient",
@@ -180,9 +200,17 @@ all_imports_by_origin = {
         "Curl",
         "Diag",
         "Laplacian",
+        "MetricGradient",
+        "MetricDivergence",
+        "MetricCurl",
+        "MetricLaplacian",
+        "RaiseIndex",
+        "LowerIndex",
+        "VarianceRetag",
     ],
     f"{base}.movement": ["Reshard", "Sync"],
-    f"{base}.verbs": ["diff", "interpolate", "integrate"],
+    f"{base}.verbs": ["diff", "interpolate", "integrate",
+                      "physical_diff"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

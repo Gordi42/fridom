@@ -8,6 +8,9 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.composed import Laplacian
 from fridom.spatial.operators.finite_difference import (
@@ -501,3 +504,85 @@ def test_trig_eigenvalues_thread_the_tagged_nodal_factor(
     assert nodal.space is coeff.space
     assert nodal.codomain is coeff.codomain
     assert jnp.array_equal(nodal.data, coeff.data)
+
+
+# ================================================================
+#  Mapped meshes: measure-field denominators (stage C0)
+# ================================================================
+def _tanh_map(s):
+    return jnp.tanh(2.0 * s) / jnp.tanh(2.0)
+
+
+def _wavy_map(s):
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+@pytest.fixture
+def mapped_bounded():
+    return MappedIntervalMesh(N, (0.0, 1.0), _tanh_map, name="v")
+
+
+@pytest.fixture
+def mapped_periodic():
+    return MappedIntervalMesh(N, (0.0, 1.0), _wavy_map,
+                              periodic=True, name="w")
+
+
+def test_mapped_diff_is_exact_on_linear_fields(fd, mapped_bounded):
+    mesh = mapped_bounded
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.center, init=lambda v: 3.0 * v + 1.0)
+    df = fd["v"](f)
+    assert df.function_space.bare is mesh.inner
+    # the two-point ratio (u_{i+1} - u_i) / (x_{i+1} - x_i) cancels
+    # the stretched dual spacing exactly
+    assert jnp.allclose(df.data, jnp.full(N - 1, 3.0))
+    g = grid.create_field(mesh.outer, init=lambda v: 3.0 * v + 1.0)
+    dg = fd["v"](g)
+    assert dg.function_space.bare is mesh.center
+    assert jnp.allclose(dg.data, jnp.full(N, 3.0))
+
+
+def test_mapped_periodic_diff_divides_the_wrap_measure(
+        fd, mapped_periodic):
+    mesh = mapped_periodic
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.center,
+                          init=lambda w: jnp.sin(2 * jnp.pi * w))
+    df = fd["w"](f)
+    assert df.function_space.bare is mesh.right
+    d = grid.measure(mesh.right, name="w").data
+    # the dual measure already wraps at the seam face
+    expected = (jnp.roll(f.data, -1) - f.data) / d
+    assert jnp.allclose(df.data, expected)
+
+
+def test_mapped_diff_converges_at_second_order():
+    errors = []
+    for n in (16, 32):
+        mesh = MappedIntervalMesh(n, (0.0, 1.0), _tanh_map,
+                                  name="v")
+        grid = Grid((mesh,))
+        f = grid.create_field(mesh.center,
+                              init=lambda v: jnp.sin(jnp.pi * v))
+        df = FiniteDifference()["v"](f)
+        x = grid.evaluation_nodes(mesh.inner).data
+        errors.append(
+            jnp.abs(df.data - jnp.pi * jnp.cos(jnp.pi * x)).max())
+    assert errors[0] / errors[1] > 3.0
+
+
+def test_mapped_diff_higher_orders_are_deferred(mapped_periodic):
+    mesh = mapped_periodic
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.center)
+    with pytest.raises(NotImplementedError, match="order 2"):
+        FiniteDifference(order=4)["w"](f)
+
+
+def test_mapped_diff_one_sided_closure_is_deferred(mapped_bounded):
+    mesh = mapped_bounded
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.inner)
+    with pytest.raises(NotImplementedError, match="one-sided"):
+        FiniteDifference(boundary="one_sided")["v"](f)

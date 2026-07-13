@@ -16,6 +16,7 @@ if TYPE_CHECKING:  # pragma: no cover
         BetaPlaneCoriolis,
         FPlaneCoriolis,
         Relaxation,
+        RotationCoriolis,
     )
 
     from .advection import (
@@ -25,6 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .core import DynamicalCore
     from .gaussian_wave_maker import GaussianWaveMaker
+    from .mapped_pressure import MappedPressureSolver
     from .polarized_wave_maker import PolarizedWaveMaker
     from .pressure import SpectralPressureSolver
     from .smagorinsky_lilly import SmagorinskyLilly
@@ -43,13 +45,15 @@ all_modules_by_origin: dict[str, list[str]] = {}
 # after the wave-6 consolidation.
 all_imports_by_origin = {
     "fridom.model.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis", "Relaxation"],
+        "FPlaneCoriolis", "BetaPlaneCoriolis",
+        "RotationCoriolis", "Relaxation"],
     f"{base}.core": ["DynamicalCore"],
     f"{base}.stratification": [
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.advection": [
         "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
+    f"{base}.mapped_pressure": ["MappedPressureSolver"],
     f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],
     f"{base}.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.smagorinsky_lilly": ["SmagorinskyLilly"],

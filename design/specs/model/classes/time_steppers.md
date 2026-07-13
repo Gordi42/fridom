@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Class designs: time steppers

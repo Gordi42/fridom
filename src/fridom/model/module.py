@@ -374,6 +374,24 @@ class Module:
     dry-run mode instead), and merges it into negotiation as
     trace-spec ``merge_max`` extra_halo (step 7)."""
 
+    linear_operator_gap: str | None = None
+    """Declared gap in the linear operator ``L``: a sentence saying
+    which physics this module keeps OUT of the ``linear=True`` terms
+    (and what to assemble instead). ``None`` — the default, and the
+    honest answer for every ordinary module — means the module's
+    linear physics is fully declared, so ``fr.model.linearize`` sees
+    it.
+
+    A module sets it when it carries physics that belongs in ``L``
+    inside a ``linear=False`` term (the shallow-water conserving
+    Coriolis family: rotation lives in a nonlinear thickness ratio).
+    Consumers of ``L`` — ``fr.model.linearize``, the eigenmode /
+    projection / balance machinery — call
+    ``fr.model.require_linear_operator(model, consumer=...)`` and
+    raise ``LinearOperatorGapError`` instead of silently building a
+    wrong operator. Class attribute: it stays out of the instance
+    ``__dict__`` and hence out of the pytree aux data."""
+
     state_type: type | None = None
     """The ``State`` vocabulary class supplied by the dynamical-core
     module (D1.3 commitment 4); more than one provider across the

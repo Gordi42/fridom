@@ -376,6 +376,14 @@ def test_module_lookup_typed_and_ambiguous(model):
         model.module(Provider)
 
 
+def test_modules_exposes_the_live_carry_tuple(model):
+    # the plural of model.module(): the whole list, in assembly order
+    modules = model.modules
+    assert isinstance(modules, tuple)
+    assert [type(m) for m in modules] == [Core, Background]
+    assert modules[1] is model.module(Background)
+
+
 def test_module_lookup_returns_the_live_module(model):
     model.update_parameters({"background.n2": 4e-5})
     live = model.module(Background)

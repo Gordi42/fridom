@@ -1,9 +1,14 @@
 ---
-status: done
+status: frozen
 date: 2026-07-07
 ---
 
 # Phase-1 validation findings (input to Phase 2)
+
+> Frozen input, refiled from `plans/done/` on 2026-07-13: this is the
+> ROADMAP-1.7 validation audit, not a plan — the same genre as
+> [`parity_audit.md`](parity_audit.md). Its findings were consumed by
+> the Phase-2 design; where it disagrees with a spec, the spec wins.
 
 From the ROADMAP 1.7 validation gate (2026-07-07): findings from
 driving the grid layer through hand-rolled PDEs the way a user would.
@@ -28,7 +33,7 @@ ergonomics, to be consumed by the Phase-2 design (ROADMAP 2.1/2.2).
    Candidate fixes for Phase 2: preserve metadata like VectorField
    does, or move metadata out of the treedef.
 3. **Sync amplification** is tracked separately
-   ([decomposition open questions](../../specs/grid/classes/decomposition.md#open-questions));
+   ([decomposition open questions](../specs/grid/classes/decomposition.md#open-questions));
    the 1.7 runs used eager stepping and per-operator sync throughout.
 
 ## API-gap backlog (ergonomics; report-only in 1.7)

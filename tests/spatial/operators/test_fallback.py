@@ -7,6 +7,9 @@ from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.fallback import (
     Fallback,
     UpwindOne,
@@ -27,6 +30,17 @@ def mx():
 @pytest.fixture
 def my():
     return IntervalMesh(16, (0.0, 1.0), periodic=False, name="y")
+
+
+def wavy_map(s):
+    """Smooth wavy stretching of the unit computational interval."""
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+@pytest.fixture
+def mz():
+    """Build a stretched (mapped) bounded mesh."""
+    return MappedIntervalMesh(16, (0.0, 1.0), wavy_map, name="z")
 
 
 def sin_cell_averages(a, b, n):
@@ -151,6 +165,54 @@ def test_codomain_rejects_complex(my):
     op = graded_reconstruction(5, "left")
     with pytest.raises(SpaceMismatchError, match="complex"):
         op.codomain(my.cell_avg.as_complex())
+
+
+# ================================================================
+#  Stretched (mapped) meshes: the graded ladder is uniform-only
+# ================================================================
+@pytest.mark.parametrize("order", [3, 5])
+def test_codomain_rejects_mapped_meshes(mz, order):
+    # the graded ladder retires the PERIODIC-only restriction, not
+    # the UNIFORM-mesh one: every rung of order >= 3 is a uniform-
+    # offset Shu row and would silently drop to 2nd order
+    op = graded_reconstruction(order, "left")
+    with pytest.raises(
+            SpaceMismatchError,
+            match=r"graded Fallback.*uniform-mesh only.*"
+                  r"silently drop to 2nd order"):
+        op.codomain(mz.cell_avg)
+
+
+def test_apply_rejects_mapped_meshes(mz):
+    grid = Grid((mz,))
+    grid.negotiate(halo=HaloSpec({"z": 3}))
+    f = grid.create_field(mz.cell_avg)
+    with pytest.raises(SpaceMismatchError, match="uniform-mesh only"):
+        graded_reconstruction(5, "left")["z"](f)
+
+
+def test_upwind_one_is_grounded_on_a_mapped_mesh():
+    # deliberately NOT guarded: the one-cell row has no offsets (its
+    # single coefficient is unity on any mesh), so its design order
+    # (1) survives the stretching — it is exact on constants and it
+    # is literally the upwind cell average on any spacing
+    rng = np.random.default_rng(7)
+    cells = jnp.asarray(rng.normal(size=16))
+
+    def faces(mesh):
+        grid = Grid((mesh,))
+        grid.negotiate(halo=HaloSpec({"z": 1}))
+        f = grid.create_field(mesh.cell_avg, data=cells)
+        out = UpwindOne("left")["z"](f)
+        assert out.function_space.bare is mesh.right
+        return np.asarray(out.data)
+
+    mapped = MappedIntervalMesh(16, (0.0, 1.0), wavy_map,
+                                periodic=True, name="z")
+    uniform = IntervalMesh(16, (0.0, 1.0), name="z")
+    # the row carries no offsets at all: the stretched result is
+    # BITWISE the uniform one (pure data movement, no weights)
+    assert np.array_equal(faces(mapped), faces(uniform))
 
 
 def test_requirements(my, mx):

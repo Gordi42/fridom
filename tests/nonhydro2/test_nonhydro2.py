@@ -18,11 +18,13 @@ from fridom.model.eigen import (
     _leray_projector,
     _rest_background,
 )
+from fridom.model.errors import AssemblyError
 from fridom.model.model import Model as FrModel
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
 )
+from fridom.model.modules.moving_geometry import MovingGeometry
 from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
@@ -40,6 +42,7 @@ from fridom.nonhydro2.modules.stratification import (
 from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -67,12 +70,21 @@ def grid_coords(n=N, length=2 * np.pi):
     return np.meshgrid(ax, ax, ax, indexing="ij")
 
 
+def fplane(f0=1.0):
+    """Name the f-plane rotation explicitly.
+
+    Rotation is opt-in: ``coriolis=None`` (the preset default) is no
+    rotation at all, so every rotating test names its rotation.
+    """
+    return FPlaneCoriolis(f0=f0)
+
+
 # ================================================================
 #  D4 preset test: preset == explicit assembly (identical treedef)
 # ================================================================
 def test_preset_equals_explicit_assembly_treedef():
     grid = make_grid()
-    preset = nh.Model(grid=grid, dt=DT)
+    preset = nh.Model(coriolis=fplane(), grid=grid, dt=DT)
     explicit = FrModel(
         grid=grid,
         modules=(
@@ -86,7 +98,7 @@ def test_preset_equals_explicit_assembly_treedef():
 
 
 def test_preset_is_a_plain_fr_model():
-    model = nh.Model(grid=make_grid(), dt=DT)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
     assert isinstance(model, FrModel)
     assert isinstance(model.state, State)
 
@@ -95,7 +107,8 @@ def test_preset_is_a_plain_fr_model():
 #  A treedef-stable, single-compile run
 # ================================================================
 def test_linear_run_is_treedef_stable():
-    model = nh.Model(grid=make_grid(), dt=DT, advection=False)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     advection=False)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     before = jax.tree_util.tree_structure(model._carry)
@@ -105,7 +118,8 @@ def test_linear_run_is_treedef_stable():
 
 
 def test_second_advance_compiles_nothing(compile_counter):
-    model = nh.Model(grid=make_grid(), dt=DT, advection=False)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     advection=False)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     model.advance(4)
@@ -115,7 +129,7 @@ def test_second_advance_compiles_nothing(compile_counter):
 
 
 def test_full_model_advances_treedef_stable():
-    model = nh.Model(grid=make_grid(), dt=DT)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
     _, y, z = grid_coords()
     model.set_fields(u=0.01 * np.sin(y), b=0.01 * np.cos(z))
     before = jax.tree_util.tree_structure(model._carry)
@@ -127,7 +141,8 @@ def test_full_model_advances_treedef_stable():
 #  The CONSTRAINT projection reduces div(u) to machine zero
 # ================================================================
 def test_projection_drives_divergence_to_machine_zero():
-    model = nh.Model(grid=make_grid(), dt=DT, advection=False)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     advection=False)
     x, y, z = grid_coords()
     # a non-divergence-free velocity IC
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
@@ -189,7 +204,8 @@ def test_single_precision_solve_model_still_projects():
 
 
 def test_energy_stays_bounded():
-    model = nh.Model(grid=make_grid(), dt=DT, advection=False)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     advection=False)
     _, y, z = grid_coords()
     model.set_fields(u=0.05 * np.sin(y), b=0.05 * np.cos(z))
     energies = []
@@ -569,7 +585,7 @@ def test_odd_grid_columns_are_bitwise_the_composed_formula():
 # ================================================================
 def test_fplane_provides_coriolis_f0_betaplane_does_not():
     grid = make_grid()
-    fp = nh.Model(grid=grid, dt=DT, advection=False)
+    fp = nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False)
     assert CORIOLIS_F0 in fp.parameters
     # from_model succeeds on the f-plane
     nh.eigenmodes.from_model(fp)
@@ -600,10 +616,37 @@ def test_betaplane_advances_with_a_profile_f_of_y():
     assert np.isfinite(np.asarray(model.state["u"].data)).all()
 
 
+def test_omitting_coriolis_runs_without_rotation():
+    # coriolis=None (the argument omitted) is the DEFAULT and means no
+    # rotation at all: no Coriolis module, hence no f_coriolis field
+    # and no coriolis.f0 provide (advection stays on: with neither
+    # rotation nor advection nothing would advance u/v and the D1.4
+    # coverage lint would fire, correctly — see the test below)
+    model = nh.Model(grid=make_grid(), dt=DT)
+    assert "f_coriolis" not in model.state
+    assert CORIOLIS_F0 not in model.parameters
+    assert not any(
+        isinstance(m, FPlaneCoriolis | BetaPlaneCoriolis)
+        for m in model._carry.modules)
+    _, y, z = grid_coords()
+    model.set_fields(u=0.01 * np.sin(y), b=0.01 * np.cos(z))
+    model.advance(4)
+    assert np.isfinite(np.asarray(model.state["u"].data)).all()
+
+
+def test_a_linear_model_without_rotation_trips_the_coverage_lint():
+    # the nonhydro core contributes no tendency terms, so with neither
+    # rotation nor advection u/v are advanced by nothing at all: the
+    # D1.4 coverage lint refuses the assembly (a taught error, not a
+    # silently frozen velocity)
+    with pytest.raises(AssemblyError, match="coverage lint"):
+        nh.Model(grid=make_grid(), dt=DT, advection=False)
+
+
 def test_coriolis_is_the_shared_framework_module():
     assert nh.FPlaneCoriolis is fr.model.modules.FPlaneCoriolis
     assert nh.BetaPlaneCoriolis is fr.model.modules.BetaPlaneCoriolis
-    model = nh.Model(grid=make_grid(), dt=DT)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
     coriolis_modules = [
         m for m in model._carry.modules
         if isinstance(m, fr.model.modules.FPlaneCoriolis)]
@@ -611,7 +654,7 @@ def test_coriolis_is_the_shared_framework_module():
 
 
 def test_velocity_roles_and_pressure_is_role_free():
-    table = nh.Model(grid=make_grid(), dt=DT).field_table
+    table = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT).field_table
     assert Velocity("x") in table["u"].roles
     assert Velocity("z") in table["w"].roles
     assert TRACER in table["b"].roles
@@ -623,7 +666,7 @@ def test_velocity_roles_and_pressure_is_role_free():
 
 
 def test_stratification_provides_n2_and_dsqr_lives_on_core():
-    model = nh.Model(grid=make_grid(), dt=DT)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
     assert STRATIFICATION_N2 in model.parameters
     assert DSQR in model.parameters
     assert float(model.parameters[STRATIFICATION_N2]) == 1.0
@@ -633,7 +676,7 @@ def test_stratification_provides_n2_and_dsqr_lives_on_core():
 #  The State vocabulary
 # ================================================================
 def test_state_accessors_and_missing_component_hint():
-    model = nh.Model(grid=make_grid(), dt=DT)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
     st = model.state
     assert st.u is st["u"]
     assert st.v is st["v"]
@@ -644,7 +687,7 @@ def test_state_accessors_and_missing_component_hint():
 
 
 def test_bound_diagnostics_evaluate_on_the_carry():
-    model = nh.Model(grid=make_grid(), dt=DT)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
     epot = model.diagnostics.epot()
     pv = model.diagnostics.linear_pot_vort()
     assert bool(np.all(np.isfinite(np.asarray(epot.data))))
@@ -689,12 +732,13 @@ def walled_coords(n=N, lz=LZ):
 
 def make_walled_model(**kwargs):
     grid, _ = make_walled_grid()
-    return nh.Model(grid=grid, dt=DT, advection=False, **kwargs)
+    return nh.Model(coriolis=fplane(), grid=grid, dt=DT,
+                    advection=False, **kwargs)
 
 
 def test_walled_grid_derives_the_wall_spaces():
     grid, (_, _, mz) = make_walled_grid()
-    model = nh.Model(grid=grid, dt=DT, advection=False)
+    model = nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False)
     # w: Dirichlet on its own bounded component axis (impermeability)
     w_z = model.state["w"].function_space.bare.factor("z")
     assert w_z is mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
@@ -762,7 +806,8 @@ def test_walled_default_model_assembles_with_advection():
     # assembles and steps on the rigid-lid grid; the biased schemes
     # keep their taught rejection (test_advection.py)
     grid, _ = make_walled_grid()
-    model = nh.Model(grid=grid, dt=DT)  # default advection module
+    # the default advection module
+    model = nh.Model(coriolis=fplane(), grid=grid, dt=DT)
     _, y, z = walled_coords()
     model.set_fields(u=0.05 * np.sin(y),
                      b=0.05 * np.cos(np.pi * z / LZ))
@@ -793,7 +838,7 @@ def test_meridional_stratification_declares_the_profile():
     # materialized from the callable; provides-implies-constancy
     # means the constant scalar is absent
     model = nh.Model(
-        grid=make_walled_y_grid(), dt=DT, advection=False,
+        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT, advection=False,
         stratification=MeridionalStratification(
             n2=lambda y: 1.0 + 2.0 * y * y))
     assert STRATIFICATION_N2 not in model.parameters
@@ -808,11 +853,11 @@ def test_meridional_constant_profile_tendency_matches_constant():
     # the coupling terms agree with ConstantStratification bitwise
     n0 = 3.0
     varying = nh.Model(
-        grid=make_walled_y_grid(), dt=DT, advection=False,
+        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT, advection=False,
         stratification=MeridionalStratification(
             n2=lambda y: n0 + 0.0 * y))
     constant = nh.Model(
-        grid=make_walled_y_grid(), dt=DT, advection=False,
+        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT, advection=False,
         stratification=ConstantStratification(n2=n0))
     rng = np.random.default_rng(7)
     fields = {c: rng.standard_normal(
@@ -942,3 +987,54 @@ def test_function_structural_zero_guard(function_setup):
     assert callable(em.function(lambda om: 1.0 / (1j * om), (1, -1)))
     with pytest.raises(ValueError, match="branches"):
         em.function(np.ones_like, 2)
+
+
+# ================================================================
+#  Dynamic geometry threads through the mapped projection (C4)
+# ================================================================
+def _make_terrain_model(init, *modules):
+    """Small terrain-following linear model, ``zp = z * H(x)``."""
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H}, params={"H": init})
+    grid = Grid((
+        IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
+        IntervalMesh(N, (0.0, 1.0), periodic=False, name="z"),
+    ), mapping=mapping)
+    return nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False,
+                    modules_extra=modules)
+
+
+def test_projection_reads_the_current_mapping_parameters():
+    # the stage-C4 seam of DynamicalCore._project_mapped: a
+    # MovingGeometry frozen at a depth DIFFERENT from the grid's
+    # static default drives the solve — the run matches a static
+    # grid built at that depth, and a static mapped grid (no
+    # parameter state) keeps the exact C3 declaration-default path
+    def default(x):
+        return 1.0 + 0.2 * jnp.sin(x)
+
+    def other(x):
+        return 1.0 + 0.1 * jnp.cos(2.0 * x)
+
+    moving = _make_terrain_model(
+        default,
+        MovingGeometry({"H": lambda x, t: other(x) + 0.0 * t}))
+    static = _make_terrain_model(other)
+    stale = _make_terrain_model(default)
+    hor = (np.arange(N) + 0.5) * (2 * np.pi / N)
+    ver = (np.arange(N) + 0.5) / N
+    x, _, z = np.meshgrid(hor, hor, ver, indexing="ij")
+    fields = {"u": 0.01 * np.sin(x) * np.cos(np.pi * z),
+              "b": 0.01 * np.cos(x) * np.cos(np.pi * z)}
+    for model in (moving, static, stale):
+        model.set_fields(**fields)
+        model.advance(5)
+    for c in ("u", "v", "w", "b", "p"):
+        a = np.asarray(static.state[c].data)
+        b = np.asarray(moving.state[c].data)
+        scale = max(np.abs(a).max(), 1e-30)
+        assert np.abs(a - b).max() <= 1e-12 * scale, c
+    # and the current values genuinely differ from the defaults
+    assert not np.allclose(np.asarray(moving.state["w"].data),
+                           np.asarray(stale.state["w"].data))

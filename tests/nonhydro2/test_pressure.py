@@ -276,6 +276,7 @@ def test_project_state_equals_project_tendency(sign):
     dsqr = 0.25  # non-unit so the 1/dsqr vertical weighting bites
     grid = make_grid()
     model = nh.Model(grid=grid, dt=dt, dsqr=dsqr, advection=False,
+                     coriolis=nh.FPlaneCoriolis(f0=1.0),
                      time_stepper=AdamBashforth(dt, order=1))
     ax = (np.arange(N) + 0.5) * (2 * np.pi / N)
     x, y, z = np.meshgrid(ax, ax, ax, indexing="ij")

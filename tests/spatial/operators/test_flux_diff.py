@@ -5,6 +5,9 @@ import pytest
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.base import (
     Dispatched,
     EigenbasisError,
@@ -245,3 +248,108 @@ def test_fv_diff_on_a_2d_average_product(mx, my):
         mx.cell_avg * my.cell_avg, name="x").data
     exact = 2 * jnp.pi * jnp.cos(2 * jnp.pi * x)
     assert jnp.abs(df.data - exact).max() < 1.0
+
+
+# ================================================================
+#  Mapped meshes: measure-field denominators (stage C0)
+# ================================================================
+def _tanh_map(s):
+    return jnp.tanh(2.0 * s) / jnp.tanh(2.0)
+
+
+def _wavy_map(s):
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+@pytest.fixture
+def mapped_bounded():
+    return MappedIntervalMesh(8, (0.0, 1.0), _tanh_map, name="v")
+
+
+@pytest.fixture
+def mapped_periodic():
+    return MappedIntervalMesh(8, (0.0, 1.0), _wavy_map,
+                              periodic=True, name="w")
+
+
+def test_mapped_flux_diff_telescopes_exactly(flux, mapped_bounded):
+    mesh = mapped_bounded
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.outer,
+                          init=lambda v: v**3 + 0.5 * v)
+    d = flux["v"](f)
+    # discrete Gauss: the measure-weighted sum telescopes to the
+    # boundary fluxes on the stretched mesh too
+    total = d.integrate("v").data.squeeze()
+    assert jnp.allclose(total, 1.5)
+
+
+def test_mapped_flux_diff_is_exact_on_linear_fluxes(
+        flux, mapped_bounded):
+    mesh = mapped_bounded
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.outer, init=lambda v: 3.0 * v)
+    d = flux["v"](f)
+    assert jnp.allclose(d.data, jnp.full(8, 3.0))
+
+
+def test_mapped_inner_flux_diff_pads_exact_zero_fluxes(
+        flux, mapped_bounded):
+    mesh = mapped_bounded
+    grid = Grid((mesh,))
+    f = grid.random.normal(mesh.inner, seed=7)
+    d = flux["v"](f)
+    # homogeneous no-normal-flow: conservation to the wall fluxes 0
+    assert jnp.allclose(d.integrate("v").data.squeeze(), 0.0)
+    # first/last cells divide the wall-adjacent flux by their own
+    # primal width
+    w = grid.measure(mesh.cell_avg, name="v").data
+    assert jnp.allclose(d.data[0], f.data[0] / w[0])
+    assert jnp.allclose(d.data[-1], -f.data[-1] / w[-1])
+
+
+def test_mapped_periodic_flux_diff_is_conservative(
+        flux, mapped_periodic):
+    mesh = mapped_periodic
+    grid = Grid((mesh,))
+    f = grid.random.normal(mesh.right, seed=11)
+    d = flux["w"](f)
+    assert jnp.allclose(d.integrate("w").data.squeeze(), 0.0)
+
+
+def test_mapped_face_diff_divides_by_the_dual_measure(
+        face, mapped_bounded):
+    mesh = mapped_bounded
+    grid = Grid((mesh,))
+    p = grid.create_field(mesh.cell_avg, init=lambda v: 3.0 * v)
+    g = face["v"](p)
+    assert g.function_space.bare is mesh.inner
+    # exact two-point gradient of a linear profile: the dual
+    # center-to-center spacing cancels
+    assert jnp.allclose(g.data, jnp.full(7, 3.0))
+
+
+def test_mapped_dual_flux_diff_exact_ftc(dual, mapped_bounded):
+    mesh = mapped_bounded
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.center, init=lambda v: 2.0 * v + 1.0)
+    d = dual["v"](f)
+    assert d.function_space.bare is mesh.face_avg
+    assert jnp.allclose(d.data, jnp.full(7, 2.0))
+
+
+def test_mapped_fv_diff_converges_at_second_order():
+    errors = []
+    for n in (16, 32):
+        mesh = MappedIntervalMesh(n, (0.0, 1.0), _wavy_map,
+                                  periodic=True, name="w")
+        grid = Grid((mesh,))
+        f = grid.create_field(
+            mesh.cell_avg,
+            init=lambda w: jnp.sin(2 * jnp.pi * w))
+        df = f.diff("w")
+        x = grid.evaluation_nodes(mesh.cell_avg).data
+        errors.append(
+            jnp.abs(df.data - 2 * jnp.pi
+                    * jnp.cos(2 * jnp.pi * x)).max())
+    assert errors[0] / errors[1] > 3.0

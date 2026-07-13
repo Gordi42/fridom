@@ -23,6 +23,36 @@ Ro-ignorant — D2 reconciliation 4). The flux for axis ``i`` lives on
   same odd orders (Jiang & Shu 1996; the old stack's
   ``weno_interpolation.py`` numerics via the framework kernel).
 
+**Formal order of the biased schemes (read before choosing one)**:
+the *reconstruction* converges at its design order (3rd / 5th), but
+the *composite tendency* is formally **2nd order whenever the
+advecting velocity varies along the flux axis** — on a periodic,
+uniform grid, with exact face velocities, no boundary in sight. The
+mechanism is the product rule, not the velocity interpolation: an FV
+reconstruction row is a deconvolution, so the two-point difference of
+face values is high-order only if the face value is the deconvolved
+*flux* :math:`R(v q)`. These schemes form ``v_face * R(q)`` instead,
+and the mismatch is the cross term :math:`\sim (h^2/24)\,2\,v'q'`,
+which vanishes identically for :math:`v' = 0`. A constant advecting
+velocity is therefore the only regime in which the design order is
+observable (and the only one a design-order test can use); with a
+varying velocity upwind-3, upwind-5 and weno-5 all measure rate 2
+(pinned in ``tests/nonhydro2/test_advection.py``). What the biased
+schemes are FOR is what they do deliver: dispersion control and the
+ENO / non-oscillatory property at fronts — not asymptotic order.
+
+This is a property of the C-grid flux form, not of FRIDOM: the same
+algebra runs in Oceananigans, MITgcm, MOM6 and ROMS. Reconstructing
+the flux :math:`v q` itself (the Shu-Osher FD form; Mishra,
+Pares-Pulido & Pressel, arXiv:1905.13665 — the reference the
+``WENOAdvection`` docstring already carries) restores the design
+order, and is deliberately NOT taken: it would cost the exact-zero
+wall flux (structural today through the Dirichlet-tagged flux space;
+truncation-level after) and constancy preservation (a constant ``q``
+gives :math:`q\,\nabla\cdot v = 0` exactly today; after, only if the
+pressure projection enforced the same wide reconstructed divergence —
+a different Poisson operator).
+
 The biased face values are ordinary operator applications (the
 module-private ``_BiasedFaceReconstruction`` wrapping the framework
 WENO kernel machinery) and the flux-sign selection is the framework
@@ -67,6 +97,63 @@ advecting velocity (background included) by the nonlinear scaling
 factor (``mset.tendencies.advection.scaling = rossby_number``), i.e.
 ``Ro * S(u' + U, q)`` — old users passed pre-scaled backgrounds.
 
+**Mapped grids (centered scheme, stage C4)**: on a grid whose
+``CoordinateMapping`` declares a mapped column ``m = M(b, params)``
+(terrain-following ``zp = z * H(x, y)``, boundary-fitted
+``yp = y * Y_N(x)``), the honest transport is the **physical** flux
+divergence :math:`-\sum_i \partial F_i/\partial x_i|_{\rm phys}` of
+the physical velocity fluxes :math:`F_i = v_i\,q`. The module
+assembles it per axis from the sketch-4.4 pieces at the module level
+(the flux spaces carry wall tags the registry-seeded
+``physical_diff`` builder cannot hop across):
+``d/dx_i|_phys F_i = d_i F_i - (Z_i/J) interp(d_b F_i)`` on the
+coupled axes and ``(1/J) d_b F_b`` along the column, every metric
+coefficient derived through ``grid.metric`` **at application** with
+the CURRENT dynamic parameter fields threaded through ``params=``
+(the ``MovingGeometry`` state; static mapped grids keep the
+declaration defaults). This is consistent (2nd order) but not the
+J-weighted telescoping conservative form — the mapped pressure
+operator keeps that exactness where it is load-bearing (SPD). On a
+FLAT grid the divergence helper is literally the pre-C4 expression
+``flux.diff(axis).retag(q)`` — zero behavior change. The biased
+schemes (``UpwindAdvection``/``WENOAdvection``) reject mapped
+geometry at bind with a taught error — **both** surfaces: a mapped
+column (``CoordinateMapping``) and a stretched mesh factor
+(``MappedIntervalMesh``, whose ``column_corrections`` are empty).
+Their order-wide windows are uniform-offset (computational-
+coordinate) rows: divided by a two-point measure they stay
+consistent but drop to 2nd order (measured: upwind-5 and weno-5 both
+5 -> 2 on a wavy-stretched mesh), so they refuse rather than
+silently under-deliver — a mapped-aware high-order reconstruction is
+future work.
+
+**Walled grids**: all three schemes support bounded mesh factors.
+``CenteredAdvection`` does so structurally (next paragraph); the
+biased schemes add the **graded near-wall closure** on top of exactly
+the same flux bookkeeping. At bind on a walled grid their face
+kernels swap to their ``boundary="graded"`` variants
+(``_BiasedFaceReconstruction`` / ``_CenteredFaceInterpolation``,
+driving the shared ``spatial.operators.graded`` ladder — the nodal
+twin of the average family's ``Fallback``): the wide interior windows
+stay, and at the ``K`` faces adjacent to each wall progressively
+narrower interior-only stencils take over (orders ``min(order, 2d-1)``
+at distance ``d``, down to the ``wall=`` bottom rung), so **no
+exterior value is ever read** (R1, ``design/plans/active/
+boundary_plan.md``). The wall itself stays impermeable *exactly*, not
+to truncation: the flux space still adopts the wall-normal velocity's
+Dirichlet tag, so the wall flux is a structural zero, and the reduced
+rows only ever produce the interior faces. The price is accuracy, not
+correctness: the interior keeps the *reconstruction's* design order
+(the tendency's own ceiling is the 2nd order above) while the ``K``
+near-wall faces drop to their rung's, so the global rate on a walled
+axis is the near-wall rung's rate — which is why the bottom rung is
+the user's choice: ``wall="upwind1"`` (default) is monotone and
+globally 1st order, ``wall="centered2"`` is globally 2nd order but
+undissipative on the wall-adjacent face (`UpwindAdvection`). Each
+walled axis needs at least ``order + 1`` cells (taught error at bind).
+The uniform-mesh refusal is untouched — mapped/stretched factors are
+still rejected at bind.
+
 **Walled grids (centered scheme)**: ``CenteredAdvection`` supports
 bounded mesh factors (channel walls, rigid lids, and their
 combinations) with **no boundary-condition physics choice** — no
@@ -85,15 +172,13 @@ stencils read no beyond-wall values at all: the only wall read is
 the wall-normal velocity's own interpolation onto the centers,
 whose Dirichlet fill *is* the impermeability zero. A genuine
 free-slip choice enters only for PV/vector-invariant schemes (the
-shallow-water Sadourny module), wide biased stencils, and viscous
-closures. Consequently ``UpwindAdvection`` / ``WENOAdvection``
-still reject walled grids at ``bind`` with a taught error: their
-order-wide biased windows reach across the wall and need a
-one-sided near-wall treatment — future work. With a background
-flow, ``bind`` additionally validates that the wall-normal
-background component vanishes on its walls (the sampled field is
-structurally impermeable, so the check runs on the user's input —
-the shallow-water background precedent).
+shallow-water Sadourny module) and viscous closures — and, notably,
+**not** for the biased schemes either: their graded closure needs no
+boundary-condition physics choice, because it reads no exterior value
+to begin with. With a background flow, ``bind`` additionally
+validates that the wall-normal background component vanishes on its
+walls (the sampled field is structurally impermeable, so the check
+runs on the user's input — the shallow-water background precedent).
 """
 from __future__ import annotations
 
@@ -104,6 +189,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, final
 import numpy as np
 
 import fridom as fr
+from fridom.model.modules.moving_geometry import mapping_params
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
@@ -114,11 +200,28 @@ from fridom.spatial.operators.base import (
     OperatorRequirements,
     SeparableOperator,
 )
+from fridom.spatial.operators.graded import (
+    WALL_RUNGS,
+    Rung,
+    RungSpec,
+    apply_graded_walls,
+    biased_offset,
+    biased_specs,
+    centered_ladder,
+    centered_offset,
+    min_cells,
+    spec_offset,
+)
 from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
 )
 from fridom.spatial.operators.select import Where
+from fridom.spatial.operators.staggering import (
+    mapped_factor,
+    mapped_mesh,
+    mapped_order_hint,
+)
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
     weno_reconstruct,
@@ -145,6 +248,12 @@ _WEIGHTINGS = ("linear", "weno")
 
 #: the odd formal orders grounded by the framework WENO tables
 _SUPPORTED_ORDERS = (3, 5)
+
+#: constructor ``boundary`` variants of the module-private nodal
+#: kernels (the ``WenoReconstruction`` vocabulary, decision R2):
+#: "none" is the periodic-only kernel (today's exact behavior),
+#: "graded" adds the bounded-legal graded near-wall closure
+_BOUNDARY_MODES = ("none", "graded")
 
 #: the velocity components' staggering axes (the nh C-grid)
 _VELOCITY_AXES = {"u": "x", "v": "y", "w": "z"}
@@ -428,19 +537,31 @@ def _centered_row(size: int) -> tuple[float, ...]:
 #  The face-value operators (module-private)
 # ================================================================
 def _face_codomain(
-    domain: FunctionSpace, label: str,
+    domain: FunctionSpace,
+    label: str,
+    boundary: Literal["none", "graded"] = "none",
 ) -> FunctionSpace:
     """
     Shared C-grid face signature of the module-private kernels.
 
     Description
     -----------
-    ``Center -> Right`` and ``Right -> Center`` on periodic real
-    nodal factors — exactly the two C-grid flux positions of the
-    flux-form advection modules. Everything else (average spaces,
-    bounded axes, complex scalars) raises: the biased modules that
-    hold these kernels reject walled grids at bind (module
-    docstring), so a bounded factor here is a genuine misuse.
+    ``Center -> Right`` and ``Right -> Center`` on periodic real nodal
+    factors of a **uniform** mesh — the two C-grid flux positions of
+    the flux-form advection modules — and, for ``boundary="graded"``,
+    their bounded twins ``Center -> Inner`` and ``Inner -> Center``.
+    The bounded pair is exactly the ``graded`` cell frame: a
+    ``Center`` operand's DOFs are the lattice cells (``shift = 0``, a
+    BC-free bounded space, nothing outside its true DOFs exists — R1);
+    an ``Inner`` operand's DOFs are the interior faces and the two wall
+    faces are its homogeneous-Dirichlet boundary values (``shift = 1``).
+    Consequently the ``Inner`` direction is grounded on a Dirichlet tag
+    only — the impermeable wall-normal velocity of the nh C-grid; any
+    other bounded ``Inner`` tag raises rather than inventing a wall
+    value.
+
+    Everything else (average spaces, stretched axes, complex scalars,
+    and — under ``boundary="none"`` — any bounded axis) raises.
 
     Parameters
     ----------
@@ -448,6 +569,8 @@ def _face_codomain(
         The bare 1D factor space.
     label : str
         The raising operator's name (error attribution).
+    boundary : Literal["none", "graded"], optional
+        The kernel's boundary variant (default: "none").
 
     Returns
     -------
@@ -459,20 +582,77 @@ def _face_codomain(
         raise SpaceMismatchError(
             f"{label} covers real nodal C-grid factors only, got "
             f"{domain!r}", left=domain, operation="reconstruct")
-    mesh = domain.mesh
-    if not mesh.periodic:
+    if mapped_factor(domain):
         raise SpaceMismatchError(
-            f"{label} is periodic-only (the biased advection "
-            f"modules reject walled grids at bind), got {domain!r}",
+            f"{label} is uniform-mesh only (the biased advection "
+            "modules reject stretched meshes at bind) — "
+            + mapped_order_hint(
+                "the biased face reconstruction rows and their "
+                "order-coupled velocity interpolation")
+            + f", got {domain!r}",
+            left=domain, operation="reconstruct")
+    mesh = domain.mesh
+    if mesh.periodic:
+        if domain.node_set is NodeSet.CENTER:
+            return mesh.right
+        if domain.node_set is NodeSet.RIGHT:
+            return mesh.center
+        raise SpaceMismatchError(
+            f"{label} maps Center -> Right and Right -> Center (the "
+            f"C-grid flux positions), got {domain!r}",
+            left=domain, operation="reconstruct")
+    if boundary != "graded":
+        raise SpaceMismatchError(
+            f"{label} is periodic-only in its boundary='none' "
+            "variant; the bounded signature is the graded near-wall "
+            f"closure (boundary='graded'), got {domain!r}",
             left=domain, operation="reconstruct")
     if domain.node_set is NodeSet.CENTER:
-        return mesh.right
-    if domain.node_set is NodeSet.RIGHT:
+        return mesh.inner
+    if domain.node_set is NodeSet.INNER:
+        if any(kind is not BC.DIRICHLET
+               for kind in domain.bc.components):
+            raise SpaceMismatchError(
+                f"the graded {label} reconstructs a bounded Inner "
+                "factor onto the cell centers only when its wall "
+                "faces are homogeneous-Dirichlet boundary values (the "
+                "impermeable wall-normal velocity): the near-wall "
+                "windows reach the wall face and read its exact zero, "
+                f"and no other tag defines one, got {domain!r}",
+                left=domain, operation="reconstruct")
         return mesh.center
     raise SpaceMismatchError(
-        f"{label} maps Center -> Right and Right -> Center (the "
-        f"C-grid flux positions), got {domain!r}",
+        f"the graded {label} maps Center -> Inner and Inner -> Center "
+        f"(the bounded C-grid flux positions), got {domain!r}",
         left=domain, operation="reconstruct")
+
+
+def _wall_shift(domain: FunctionSpace) -> int:
+    """
+    Cell-frame shift of a nodal C-grid factor (``graded`` vocabulary).
+
+    Description
+    -----------
+    1 on the dual (face-staggered) directions — ``Right -> Center``
+    (periodic) and ``Inner -> Center`` (bounded) — whose lattice cells
+    are the mesh faces, so the operand's true DOFs start one cell in;
+    0 on the primal ``Center -> Right`` / ``Center -> Inner``
+    directions, whose lattice cells are the operand's own DOFs. It is
+    both the window-alignment shift and (on a bounded axis) the count
+    of wall cells the graded ladder synthesizes per side.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D factor space.
+
+    Returns
+    -------
+    int
+        The cell-frame shift (0 or 1).
+    """
+    return 1 if domain.node_set in (
+        NodeSet.RIGHT, NodeSet.INNER) else 0
 
 
 @final
@@ -491,30 +671,55 @@ class _CenteredFaceInterpolation(SeparableOperator):
     calculus. At size 2 it coincides with the registered default
     two-point mean.
 
+    ``boundary="graded"`` grows the bounded signature (the walled
+    advection path): the interior pass is unchanged and the ``K =
+    size // 2 - 1 + shift`` faces adjacent to each wall are rebuilt
+    from the graded ladder ``min(size, 2 * d)`` (module ``graded``),
+    bottoming out at the two-point mean. On the primal direction
+    (``Center -> Inner``, ``shift = 0``) the two-point rung already
+    reads interior DOFs only, so ``K = 0`` at ``size = 2`` and the
+    walled two-point interpolation is literally the periodic kernel.
+
     Parameters
     ----------
     size : int
         The even stencil size (2 or 4 for orders 3 and 5).
+    boundary : Literal["none", "graded"], optional
+        The boundary variant (default: "none", periodic-only).
     """
 
     dispatch_kind: ClassVar[str | None] = None
 
-    def __init__(self, size: int) -> None:
-        """Validate the even stencil size and store it."""
+    def __init__(
+        self,
+        size: int,
+        boundary: Literal["none", "graded"] = "none",
+    ) -> None:
+        """Validate the even stencil size and the boundary variant."""
         if size not in (2, 4):
             raise ValueError(
                 f"the advective velocity interpolation grounds the "
                 f"even stencil sizes (2, 4), got {size}")
+        if boundary not in _BOUNDARY_MODES:
+            raise ValueError(
+                f"boundary must be one of {_BOUNDARY_MODES}, got "
+                f"{boundary!r}")
         self._size = size
+        self._boundary = boundary
 
     def _intern_key(self) -> tuple:
-        """Structural key: the stencil size (D6)."""
-        return (self._size,)
+        """Structural key: the stencil size and boundary variant (D6)."""
+        return (self._size, self._boundary)
 
     @property
     def size(self) -> int:
         """The even stencil size."""
         return self._size
+
+    @property
+    def boundary(self) -> Literal["none", "graded"]:
+        """The boundary variant: "none" or "graded"."""
+        return self._boundary
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """Resolve the C-grid face codomain (shared signature).
@@ -529,7 +734,8 @@ class _CenteredFaceInterpolation(SeparableOperator):
         FunctionSpace
             The flux-position codomain factor.
         """
-        return _face_codomain(domain, type(self).__name__)
+        return _face_codomain(domain, type(self).__name__,
+                              self._boundary)
 
     def requirements(
         self,
@@ -552,6 +758,14 @@ class _CenteredFaceInterpolation(SeparableOperator):
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """Interpolate along ``axis`` (midpoint-aligned window).
 
+        Description
+        -----------
+        The interior pass is the midpoint-aligned fused row; on a
+        bounded axis (``boundary="graded"`` only — the plain variant
+        has no bounded signature) the ``K`` wall faces per side are
+        then overwritten by the graded ladder, which reads interior
+        DOFs and the exact-zero Dirichlet wall values only.
+
         Parameters
         ----------
         f : FieldLike
@@ -570,9 +784,119 @@ class _CenteredFaceInterpolation(SeparableOperator):
         def kernel(arr: Array, axis_index: int) -> Array:
             return _weighted_windows(arr, axis_index, row)
 
-        return apply_fv_staggered(self, f, axis, size, kernel,
-                                  metadata=f.metadata)
+        interior = apply_fv_staggered(self, f, axis, size, kernel,
+                                      metadata=f.metadata)
+        domain = f.function_space.bare.factor(axis)
+        if self._boundary == "none" or domain.mesh.periodic:
+            return interior
+        shift = _wall_shift(domain)
+        rungs = tuple(
+            Rung(width, centered_offset(width),
+                 _centered_kernel(width))
+            for width in centered_ladder(size, shift))
+        return apply_graded_walls(f, axis, interior, rungs, shift)
 
+
+def _centered_kernel(size: int) -> Callable[[Array, int], Array]:
+    """
+    Array kernel of one centered graded rung (a fused static row).
+
+    Parameters
+    ----------
+    size : int
+        The rung's even window width.
+
+    Returns
+    -------
+    Callable[[Array, int], Array]
+        The ``(window, axis_index) -> face_value`` kernel.
+    """
+    row = _centered_row(size)
+
+    def kernel(arr: Array, axis_index: int) -> Array:
+        return _weighted_windows(arr, axis_index, row)
+
+    return kernel
+
+
+def _biased_kernel(
+    order: int,
+    bias: Literal["left", "right"],
+    weighting: Literal["linear", "weno"],
+) -> Callable[[Array, int], Array]:
+    """
+    Array kernel of one biased rung (or of the interior pass).
+
+    Description
+    -----------
+    Order 1 is the single upwind cell (the unit-coefficient Shu row),
+    so its kernel is the identity on the size-1 window — and it is the
+    same row under either weighting, which is why the wall-adjacent
+    rung of a WENO ladder is an ordinary 1st-order upwind value.
+
+    Parameters
+    ----------
+    order : int
+        The rung's odd formal order (1, or a table-grounded 3 / 5).
+    bias : Literal["left", "right"]
+        The upwind bias side.
+    weighting : Literal["linear", "weno"]
+        The stencil weighting of the holding scheme.
+
+    Returns
+    -------
+    Callable[[Array, int], Array]
+        The ``(window, axis_index) -> face_value`` kernel.
+    """
+    if order == 1:
+        return lambda arr, _axis: arr
+    if weighting == "weno":
+        def kernel(arr: Array, axis_index: int) -> Array:
+            return weno_reconstruct(arr, axis_index, order=order,
+                                    bias=bias)
+        return kernel
+    row = _linear_row(order, bias)
+
+    def linear(arr: Array, axis_index: int) -> Array:
+        return _weighted_windows(arr, axis_index, row)
+
+    return linear
+
+
+def _rung_kernel(
+    spec: RungSpec,
+    bias: Literal["left", "right"],
+    weighting: Literal["linear", "weno"],
+) -> Callable[[Array, int], Array]:
+    """
+    Array kernel of one graded rung spec (the ``wall=`` seam).
+
+    Description
+    -----------
+    A "biased" spec carries the odd formal order of its rung (the
+    weighted upwind row); a "centered" spec is the ``wall="centered2"``
+    bottom rung — the symmetric even-size row, identical under both
+    biases, so the module's ``Where`` select returns it whatever the
+    sign of the face velocity (the wall-adjacent face loses its upwind
+    bias, which is exactly the trade the option offers).
+
+    Parameters
+    ----------
+    spec : RungSpec
+        The ladder rung spec.
+    bias : Literal["left", "right"]
+        The upwind bias side (inert on a centered rung).
+    weighting : Literal["linear", "weno"]
+        The stencil weighting of the holding scheme.
+
+    Returns
+    -------
+    Callable[[Array, int], Array]
+        The ``(window, axis_index) -> face_value`` kernel.
+    """
+    if spec.family == "centered":
+        return _centered_kernel(spec.width)
+    return _biased_kernel(spec.width, bias, weighting)
 
 
 @final
@@ -596,6 +920,22 @@ class _BiasedFaceReconstruction(SeparableOperator):
     under a dispatch kind (the sign selection is the ``Where``
     select in the module).
 
+    ``boundary="graded"`` grows the bounded signature — the nodal twin
+    of the average family's ``Fallback`` (both drive the shared
+    ``operators.graded`` ladder): the wide interior pass is unchanged
+    and the ``K = order // 2 + shift`` output faces adjacent to each
+    wall are rebuilt from progressively narrower interior-only
+    stencils (orders ``min(order, 2*d - 1)`` at distance ``d``,
+    bottoming out at the ``wall=`` rung). It reads **no
+    exterior value**: on the primal direction (``Center -> Inner``,
+    ``shift = 0``) the operand is a BC-free bounded space and the
+    ladder stays inside its true DOFs; on the dual direction
+    (``Inner -> Center``, ``shift = 1``) the two wall faces are the
+    operand's homogeneous-Dirichlet boundary values and the ladder
+    synthesizes them as exact zeros rather than reading a ghost slot.
+    On a periodic factor the graded variant returns the interior pass
+    untouched, so it is bitwise the ``boundary="none"`` kernel there.
+
     Parameters
     ----------
     order : int
@@ -606,6 +946,16 @@ class _BiasedFaceReconstruction(SeparableOperator):
         "linear" applies the full optimal-weight row (the classic
         linear upwind scheme); "weno" applies the nonlinear WENO-JS
         weighting of the same window.
+    boundary : Literal["none", "graded"]
+        "none" is the periodic-only kernel; "graded" grows the bounded
+        signature by replacing the ``K`` faces adjacent to each wall
+        with the graded ladder (see the class Description).
+    wall : Literal["upwind1", "centered2"], optional
+        The ladder's bottom (wall-adjacent) rung under
+        ``boundary="graded"``; inert on the plain kernel (default:
+        "upwind1" — the 1st-order upwind cell; "centered2" is the
+        two-point mean, accurate but undissipative, see
+        ``operators.graded``).
     """
 
     dispatch_kind: ClassVar[str | None] = None
@@ -615,20 +965,32 @@ class _BiasedFaceReconstruction(SeparableOperator):
         order: int,
         bias: Literal["left", "right"],
         weighting: Literal["linear", "weno"],
+        boundary: Literal["none", "graded"] = "none",
+        wall: Literal["upwind1", "centered2"] = "upwind1",
     ) -> None:
         """Validate through the framework tables and store."""
         if weighting not in _WEIGHTINGS:
             raise ValueError(
                 f"weighting must be one of {_WEIGHTINGS}, got "
                 f"{weighting!r}")
+        if boundary not in _BOUNDARY_MODES:
+            raise ValueError(
+                f"boundary must be one of {_BOUNDARY_MODES}, got "
+                f"{boundary!r}")
+        if wall not in WALL_RUNGS:
+            raise ValueError(
+                f"wall must be one of {WALL_RUNGS}, got {wall!r}")
         weno_tables(order, bias)  # validates order and bias
         self._order = order
         self._bias = bias
         self._weighting = weighting
+        self._boundary = boundary
+        self._wall = wall
 
     def _intern_key(self) -> tuple:
-        """Structural key: order, bias side, and weighting (D6)."""
-        return (self._order, self._bias, self._weighting)
+        """Structural key: order, bias, weighting, boundary, wall (D6)."""
+        return (self._order, self._bias, self._weighting,
+                self._boundary, self._wall)
 
     # ------------------------------------------------------------
     #  Properties
@@ -648,6 +1010,16 @@ class _BiasedFaceReconstruction(SeparableOperator):
         """The stencil weighting: "linear" or "weno"."""
         return self._weighting
 
+    @property
+    def boundary(self) -> Literal["none", "graded"]:
+        """The boundary variant: "none" or "graded"."""
+        return self._boundary
+
+    @property
+    def wall(self) -> Literal["upwind1", "centered2"]:
+        """The ladder's bottom rung: "upwind1" or "centered2"."""
+        return self._wall
+
     # ------------------------------------------------------------
     #  Signature and requirements
     # ------------------------------------------------------------
@@ -664,7 +1036,8 @@ class _BiasedFaceReconstruction(SeparableOperator):
         FunctionSpace
             The flux-position codomain factor.
         """
-        return _face_codomain(domain, type(self).__name__)
+        return _face_codomain(domain, type(self).__name__,
+                              self._boundary)
 
     def requirements(
         self,
@@ -703,9 +1076,13 @@ class _BiasedFaceReconstruction(SeparableOperator):
         The WENO window alignment (kernel output ``t`` lands on the
         right face of window cell ``order // 2`` for the left bias,
         ``order // 2 - 1`` for the right bias), shifted by one slot
-        on the dual ``Right -> Center`` direction: the right face of
-        the dual cell around face ``j`` is center ``j + 1`` in the
-        shared storage frame.
+        on the dual ``Right -> Center`` / ``Inner -> Center``
+        directions: the right face of the dual cell around face ``j``
+        is center ``j + 1`` in the shared storage frame — exactly the
+        ``graded`` cell-frame shift. On a bounded axis the graded
+        variant then overwrites the ``K`` wall faces per side from the
+        ladder (interior DOFs and the exact-zero Dirichlet wall values
+        only).
 
         Parameters
         ----------
@@ -721,21 +1098,20 @@ class _BiasedFaceReconstruction(SeparableOperator):
         """
         order = self._order
         bias = self._bias
-        m0 = order // 2 if bias == "left" else order // 2 - 1
+        weighting = self._weighting
         domain = f.function_space.bare.factor(axis)
-        if domain.node_set is NodeSet.RIGHT:
-            m0 += 1
-        if self._weighting == "weno":
-            def kernel(arr: Array, axis_index: int) -> Array:
-                return weno_reconstruct(arr, axis_index,
-                                        order=order, bias=bias)
-        else:
-            row = _linear_row(order, bias)
-
-            def kernel(arr: Array, axis_index: int) -> Array:
-                return _weighted_windows(arr, axis_index, row)
-        return apply_fv_staggered(self, f, axis, order, kernel,
-                                  metadata=f.metadata, align=m0)
+        shift = _wall_shift(domain)
+        m0 = biased_offset(order, bias) + shift
+        kernel = _biased_kernel(order, bias, weighting)
+        interior = apply_fv_staggered(self, f, axis, order, kernel,
+                                      metadata=f.metadata, align=m0)
+        if self._boundary == "none" or domain.mesh.periodic:
+            return interior
+        rungs = tuple(
+            Rung(spec.width, spec_offset(spec, bias),
+                 _rung_kernel(spec, bias, weighting))
+            for spec in biased_specs(order, shift, self._wall))
+        return apply_graded_walls(f, axis, interior, rungs, shift)
 
 
 # ================================================================
@@ -755,8 +1131,8 @@ class _FluxFormAdvection(fr.model.Module):
     `_linear_face_value` hooks (centered by default) and declare
     wall capability through `_supports_walled`: the centered hooks
     work on walled grids through the structural-zero wall flux
-    (module docstring), the biased subclasses opt out (their wide
-    stencils need a one-sided near-wall treatment — future work).
+    (module docstring), and so do the biased subclasses, whose wide
+    stencils swap in their graded near-wall closure at bind.
 
     Without a background the module contributes the single
     Rossby-scaled ``advection`` term. With ``background=`` set it
@@ -776,8 +1152,18 @@ class _FluxFormAdvection(fr.model.Module):
     )
 
     #: whether the scheme's face values work on walled grids (the
-    #: centered hooks do; the biased subclasses override to False)
+    #: centered hooks do structurally; the biased subclasses do
+    #: through their graded near-wall closure, installed at bind)
     _supports_walled: ClassVar[bool] = True
+
+    #: whether the scheme is grounded on mapped geometry at all —
+    #: both surfaces: a stretched mesh factor (MappedIntervalMesh)
+    #: and a mapping-declared mapped column. The centered scheme is
+    #: (order-2 stencils over the measure fields / the physical flux
+    #: divergence); the biased subclasses opt out — their
+    #: uniform-offset windows need a mapped-aware reconstruction,
+    #: future work
+    _supports_mapped: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -790,6 +1176,10 @@ class _FluxFormAdvection(fr.model.Module):
             _check_background(background))
         self._background_axes: tuple[tuple[str, str], ...] = ()
         self._background_by_axis: dict[str, str] = {}
+        self._column: tuple[str, str] | None = None
+        self._corrections: dict[str, tuple[str, str]] = {}
+        self._halo_axes: tuple[str, ...] = ()
+        self._walled: tuple[str, ...] = ()
 
     # ------------------------------------------------------------
     #  Background declarations (AUXILIARY profile samples)
@@ -840,11 +1230,9 @@ class _FluxFormAdvection(fr.model.Module):
         ------
         NotImplementedError
             On a walled grid (any bounded mesh factor) when the
-            scheme opts out through `_supports_walled` (the biased
-            subclasses): the order-wide biased face stencils need a
-            one-sided near-wall treatment — future work — and the
-            natural downstream failure (an operator dispatch
-            mismatch deep in the flux chain) would be cryptic.
+            scheme opts out through `_supports_walled`: the natural
+            downstream failure (an operator dispatch mismatch deep in
+            the flux chain) would be cryptic.
         ValueError
             If a background sample does not resolve on its velocity
             component's own space (a component outside the nh
@@ -859,18 +1247,108 @@ class _FluxFormAdvection(fr.model.Module):
         if walled and not self._supports_walled:
             raise NotImplementedError(
                 f"{type(self).__name__} does not support walled "
-                f"grids (bounded coordinates: {walled}): its "
-                "order-wide biased face stencils reach across the "
-                "wall and need a one-sided near-wall treatment — "
-                "future work. Use CenteredAdvection (walled-"
-                "capable) or a linear model (advection=False in "
-                "nh.Model)")
+                f"grids (bounded coordinates: {walled}). Use "
+                "CenteredAdvection (walled-capable) or a linear "
+                "model (advection=False in nh.Model)")
+        self._walled = walled
+        self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
         self._axis_velocity = tuple(
             (axis, name) for name, axis in selector.labels)
         self._bind_background(table)
+
+    def _bind_mapping(self, grid: object) -> None:
+        """Freeze the mapped-column coupling table (stage C4).
+
+        Raises
+        ------
+        NotImplementedError
+            On a grid carrying a **stretched** mesh factor
+            (``MappedIntervalMesh``: a per-axis ``coordinate_map``)
+            or a mapping-declared **mapped column** when the scheme
+            opts out through `_supports_mapped` (the biased
+            subclasses — their order-wide uniform-offset windows need
+            a mapped-aware reconstruction, future work), or when the
+            mapping declares more than one column (mirroring the
+            stage-C3 pressure solver support).
+        """
+        self._require_uniform_factors(grid)
+        mapping = getattr(grid, "mapping", None)
+        corrections = (mapping.column_corrections
+                       if mapping is not None else {})
+        if not corrections:
+            return
+        if not self._supports_mapped:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support mapped "
+                "grids (the coordinate mapping declares a mapped "
+                "column): the biased face reconstructions are "
+                "computational-coordinate rows and would silently "
+                "misrepresent physical transport — future work. "
+                "Use CenteredAdvection (mapped-capable, stage C4) "
+                "or a linear model (advection=False in nh.Model)")
+        columns = set(corrections.values())
+        if len(columns) != 1:
+            raise NotImplementedError(
+                f"mapped advection supports exactly one mapped "
+                f"column, got {sorted(columns)} "
+                "(coordinate-systems plan, stage C4)")
+        self._column = next(iter(columns))
+        self._corrections = dict(corrections)
+        self._halo_axes = tuple(grid.names)
+
+    def _require_uniform_factors(self, grid: object) -> None:
+        """Reject stretched mesh factors when the scheme opts out.
+
+        Description
+        -----------
+        The second (and, for a plain stretched grid, the *only*)
+        mapped surface of a grid: a ``MappedIntervalMesh`` factor
+        carries its own ``coordinate_map`` and needs **no**
+        ``CoordinateMapping`` column, so ``column_corrections`` is
+        empty and the mapped-column guard below never fires. The
+        centered scheme is grounded here (its two-point stencils
+        divide by the codomain measure field, order 2); the biased
+        subclasses are not — their uniform-offset windows would bind
+        happily and silently lose their design order, the exact
+        silent-wrongness ``FiniteDifference`` refuses to commit at
+        order > 2.
+
+        Raises
+        ------
+        NotImplementedError
+            On a stretched mesh factor when `_supports_mapped` is
+            False.
+        """
+        if self._supports_mapped:
+            return
+        stretched = tuple(
+            name for mesh in getattr(grid, "factors", ())
+            for name in mesh.names if mapped_mesh(mesh))
+        if not stretched:
+            return
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support stretched "
+            f"(mapped) meshes (mapped coordinates: {stretched}): "
+            + mapped_order_hint(
+                "its biased face reconstructions and their "
+                "order-coupled velocity interpolation")
+            + ". Use CenteredAdvection (order 2, mapped-capable) or "
+            "a uniform mesh (IntervalMesh)")
+
+    #: on a mapped grid the flux divergence multiplies grid.metric
+    #: coefficients the halo tracer cannot follow (V-N2): declare
+    #: the stencil substitute (diff + interp chains, depth 2 — the
+    #: DynamicalCore precedent). None on flat grids: the flat path
+    #: stays fully halo-traced, exactly as before stage C4.
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """Two halo cells per coordinate on mapped grids only."""
+        if self._column is None:
+            return None
+        return HaloSpec(dict.fromkeys(self._halo_axes, 2))
 
     def _bind_background(self, table: object) -> None:
         """Freeze the axis -> background-sample mapping.
@@ -1007,11 +1485,91 @@ class _FluxFormAdvection(fr.model.Module):
             space = space.replace(**{axis: v_factor})
         return space
 
+    def _geometry_params(self, state: object) -> dict | None:
+        """Collect the CURRENT mapping-parameter fields (mapped)."""
+        if self._column is None:
+            return None
+        return mapping_params(state, state[self._advected[0]].grid)
+
+    def _flux_divergence(
+        self,
+        q: ScalarField,
+        flux: ScalarField,
+        axis: str,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""
+        Physical flux divergence of one axis, on ``q``'s space.
+
+        Description
+        -----------
+        Flat grids: literally the pre-C4 expression
+        ``flux.diff(axis).retag(q)`` (zero behavior change). On a
+        mapped column ``m = M(b, params)`` (module docstring):
+
+        - ``axis == b``: ``(1/J) d_b F_b`` — the derivative along
+          the column's physical image;
+        - coupled ``axis``: ``d_i F_i - (Z_i/J) interp(d_b F_i)``,
+          the correction interpolated onto the main term's
+          staggering (BC-sibling hops resolved through the
+          registry, wall tags re-adopted by ``retag``);
+        - uncoupled ``axis``: the plain computational derivative
+          (the physical and computational derivatives agree).
+
+        Every metric derives via ``grid.metric`` at application with
+        the current ``params`` — nothing cached (rules 2.3/3.8).
+
+        Parameters
+        ----------
+        q : ScalarField
+            The advected quantity (the divergence's target space).
+        flux : ScalarField
+            The advective flux on ``q``'s control-volume faces.
+        axis : str
+            The flux axis.
+        params : dict | None
+            The dynamic mapping-parameter fields (None on flat and
+            static-default mapped grids).
+
+        Returns
+        -------
+        ScalarField
+            The flux divergence on ``q``'s (wall-tagged) space.
+        """
+        if self._column is None:
+            return flux.diff(axis).retag(q)
+        mapped, base = self._column
+        grid = q.grid
+        div = flux.diff(axis)
+        if axis == base:
+            inv_j = grid.metric(
+                div.function_space, f"d{base}_d{mapped}",
+                params=params)
+            return (div * inv_j).retag(q)
+        if axis not in self._corrections:
+            return div.retag(q)
+        dcol = flux.diff(base)
+        space = dcol.function_space
+        coeff = (
+            grid.metric(space, f"d{mapped}_d{axis}", params=params)
+            / grid.metric(space, f"d{mapped}_d{base}",
+                          params=params))
+        corr = coeff * dcol
+        registry = grid.dispatch
+        for name in (base, axis):
+            src = corr.function_space.bare.factor(name)
+            dst = div.function_space.bare.factor(name)
+            if src is dst or _bc_siblings(src, dst):
+                continue
+            corr = registry.resolve("interpolate", src)[name](corr)
+        return (div - corr.retag(div)).retag(q)
+
     def _advect(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
         """Flux-form transport of every advected component (Ro-scaled)."""
         ro = ctx.params[fr.model.params.SCALING_ROSSBY]
+        params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
@@ -1022,9 +1580,10 @@ class _FluxFormAdvection(fr.model.Module):
                 v_face = self._velocity_face(v, flux_space)
                 flux = v_face * self._face_value(
                     q, v_face, axis, flux_space)
-                # the retag lands the self-advection divergence back
-                # on q's wall-tagged space (identity when periodic)
-                divergence = flux.diff(axis).retag(q)
+                # the divergence lands back on q's wall-tagged space
+                # (flat grids: literally flux.diff(axis).retag(q))
+                divergence = self._flux_divergence(
+                    q, flux, axis, params)
                 res = -divergence if res is None else res - divergence
             out[qname] = ro * res
         return out
@@ -1099,6 +1658,7 @@ class _FluxFormAdvection(fr.model.Module):
         ScalarField
             The full-velocity transport of ``q``.
         """
+        params = self._geometry_params(state)
         res = None
         for axis, vname in self._axis_velocity:
             v = ro * state[vname]
@@ -1109,7 +1669,8 @@ class _FluxFormAdvection(fr.model.Module):
             v_face = self._velocity_face(v, flux_space)
             flux = v_face * self._face_value(
                 q, v_face, axis, flux_space)
-            divergence = flux.diff(axis).retag(q)
+            divergence = self._flux_divergence(q, flux, axis,
+                                               params)
             res = -divergence if res is None else res - divergence
         return res
 
@@ -1138,13 +1699,15 @@ class _FluxFormAdvection(fr.model.Module):
         ScalarField
             The linear background transport of ``q``.
         """
+        params = self._geometry_params(state)
         res = None
         for axis, sample in self._background_axes:
             flux_space = self._flux_space(q, state[sample], axis)
             v_face = self._velocity_face(state[sample], flux_space)
             flux = v_face * self._linear_face_value(
                 q, v_face, axis, flux_space)
-            divergence = flux.diff(axis).retag(q)
+            divergence = self._flux_divergence(q, flux, axis,
+                                               params)
             res = -divergence if res is None else res - divergence
         return res
 
@@ -1297,10 +1860,69 @@ class UpwindAdvection(_FluxFormAdvection):
     faces is order-coupled: ``order - 1`` symmetric points (the
     two-point mean at the default ``order=3``).
 
-    Periodic grids only: the order-wide biased windows reach across
-    a wall and need a one-sided near-wall treatment (future work),
-    so ``bind`` rejects walled grids with a taught error — use
-    `CenteredAdvection` (walled-capable) instead.
+    **Formal order**: the reconstruction converges at ``order``, but
+    the tendency this module contributes is formally **2nd order as
+    soon as the advecting velocity varies along the flux axis** — the
+    product-rule / deconvolution mismatch of the C-grid flux form
+    (module docstring): the high-order face quantity is the
+    deconvolved flux :math:`R(v q)`, while the scheme forms
+    ``v_face * R(q)``, leaving a cross term
+    :math:`\sim (h^2/24)\,2\,v'q'` that only vanishes for a constant
+    ``v``. Choose the scheme for its dispersion properties and its
+    upwind (non-oscillatory) behavior at fronts, not for its
+    asymptotic order.
+
+    **Walled grids**: supported. On a grid carrying any bounded mesh
+    factor ``bind`` swaps every biased reconstruction and every
+    velocity interpolation for its ``boundary="graded"`` variant, so
+    the wide windows drop to progressively narrower interior-only
+    stencils at the faces adjacent to each wall and read no exterior
+    value (class ``_BiasedFaceReconstruction``). The walled flux
+    bookkeeping is the centered scheme's: along a walled axis the flux
+    adopts the wall-normal velocity's Dirichlet tag (``_flux_space``),
+    so the wall flux is a **structural exact zero** and the wall stays
+    impermeable to machine precision, not to truncation — under either
+    ``wall=`` rung, which only ever writes the *interior* faces. The
+    interior keeps the *reconstruction's* design order; the ``K``
+    near-wall faces per side legitimately drop to the reduced rungs, so
+    the *global* rate on a walled axis is the near-wall rung's — the
+    accuracy price of a BC-free bounded closure (R1,
+    ``boundary_plan.md``). Each walled axis needs at least
+    ``order + 1`` cells.
+
+    **The wall-adjacent rung** (``wall=``, walled grids only) is the
+    one genuine choice the closure leaves, and it is the classic
+    accuracy-vs-monotonicity trade:
+
+    - ``wall="upwind1"`` (default): the 1st-order upwind cell. Keeps
+      the upwind bias — and hence the numerical dissipation —
+      everywhere, including on the wall-adjacent face where a boundary
+      layer or a front is most likely to sit. Its :math:`O(h)` face
+      value costs a full order globally: measured on the walled
+      tracer-advection problem of the test suite the max-norm tendency
+      error converges at **~1.0** whatever the interior order (which
+      stays 3.00 / 5.00 — the interior is untouched).
+    - ``wall="centered2"``: the two-point mean of the two cells that
+      straddle the wall-adjacent face — the same cells the upwind
+      window is a subset of, so it is just as interior-only. Its
+      :math:`O(h^2)` face value lifts the global rate to **~2.0**
+      (measured), i.e. to the centered scheme's, without touching the
+      interior. The price: on that one face per side the left- and
+      right-biased reconstructions coincide, so there is **no upwind
+      dissipation at the wall**. On a smooth flow this is free
+      accuracy; on a front pressed against the wall it rings (measured
+      on a wall-adjacent step: ~2x the overshoot of ``upwind1``, and
+      WENO's ENO property no longer applies on that face).
+
+    Pick ``centered2`` when the near-wall flow is smooth and the global
+    order matters (a resolved boundary layer, a convergence study);
+    keep ``upwind1`` when fronts, steps, or under-resolved boundary
+    layers may reach the wall.
+
+    Mapped grids stay rejected at bind: the biased rows are
+    uniform-offset (computational-coordinate) rows and lose their
+    design order on a stretched mesh. Use `CenteredAdvection`
+    (mapped-capable, order 2) there.
 
     Parameters
     ----------
@@ -1313,19 +1935,30 @@ class UpwindAdvection(_FluxFormAdvection):
         ``background_advection`` term applies the linear upwind row
         of the same order, side-selected by the sign of the static
         background face velocity (default: None).
+    wall : Literal["upwind1", "centered2"], optional
+        The bottom rung of the graded near-wall ladder on a walled
+        grid; inert on a fully periodic one (default: "upwind1" — the
+        monotone, globally 1st-order choice; see the class
+        Description).
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "linear"
 
-    #: the order-wide biased windows need a one-sided near-wall
-    #: treatment — future work (taught rejection at bind)
-    _supports_walled: ClassVar[bool] = False
+    #: the order-wide biased windows are legal on a bounded axis
+    #: through their graded near-wall closure, installed at bind
+    _supports_walled: ClassVar[bool] = True
+
+    #: the biased reconstructions are computational-coordinate rows;
+    #: mapped columns need a mapped-aware variant — future work
+    #: (taught rejection at bind)
+    _supports_mapped: ClassVar[bool] = False
 
     def __init__(
         self,
         order: int = 3,
         *,
         background: Mapping[str, Callable | float] | None = None,
+        wall: Literal["upwind1", "centered2"] = "upwind1",
     ) -> None:
         """Build the biased reconstruction pairs for ``order``."""
         super().__init__(background=background)
@@ -1334,26 +1967,71 @@ class UpwindAdvection(_FluxFormAdvection):
                 f"{type(self).__name__} grounds the biased "
                 f"reconstruction orders {_SUPPORTED_ORDERS} (the "
                 f"framework WENO tables), got {order}")
-        weighting = self._weighting  # class-attribute lookup
+        if wall not in WALL_RUNGS:
+            raise ValueError(
+                f"{type(self).__name__} grounds the near-wall rungs "
+                f"{WALL_RUNGS}, got {wall!r}")
         self._order = order
-        self._left = _BiasedFaceReconstruction(order, "left",
-                                               weighting)
-        self._right = _BiasedFaceReconstruction(order, "right",
-                                                weighting)
-        # the linear-weight pair of the background transport (for
-        # weighting == "linear" these are the same interned objects)
-        self._lin_left = _BiasedFaceReconstruction(order, "left",
-                                                   "linear")
-        self._lin_right = _BiasedFaceReconstruction(order, "right",
-                                                    "linear")
-        self._interp = _CenteredFaceInterpolation(order - 1)
+        self._wall = wall
+        self._install_kernels("none")
 
-    def bind(self, table: object) -> None:
-        """Bind the flux form, then widen the provisional halo.
+    def _install_kernels(
+        self, boundary: Literal["none", "graded"],
+    ) -> None:
+        """
+        Build the face kernels in one boundary variant.
 
         Description
         -----------
-        The landed assembly validates every term over real
+        A fully periodic grid keeps the plain (``"none"``) kernels
+        built at construction — the periodic path is then literally
+        the pre-walled one, down to the interned operator objects.
+        ``bind`` re-installs the ``"graded"`` variants when the grid
+        carries a bounded factor; on the periodic axes of a mixed grid
+        the graded kernels return their (identical) interior pass
+        untouched, so the periodic numerics are bitwise unchanged
+        there too.
+
+        Parameters
+        ----------
+        boundary : Literal["none", "graded"]
+            The variant to install.
+        """
+        order = self._order
+        weighting = self._weighting  # class-attribute lookup
+        # the wall rung is inert on the plain kernel: normalized to the
+        # default so a periodic grid keeps the pre-``wall=`` interned
+        # objects whatever the user asked for (bitwise unchanged)
+        wall = self._wall if boundary == "graded" else "upwind1"
+        self._left = _BiasedFaceReconstruction(order, "left",
+                                               weighting, boundary,
+                                               wall)
+        self._right = _BiasedFaceReconstruction(order, "right",
+                                                weighting, boundary,
+                                                wall)
+        # the linear-weight pair of the background transport (for
+        # weighting == "linear" these are the same interned objects)
+        self._lin_left = _BiasedFaceReconstruction(order, "left",
+                                                   "linear", boundary,
+                                                   wall)
+        self._lin_right = _BiasedFaceReconstruction(order, "right",
+                                                    "linear", boundary,
+                                                    wall)
+        self._interp = _CenteredFaceInterpolation(order - 1, boundary)
+
+    def bind(self, table: object) -> None:
+        """Install the walled kernels, then widen the provisional halo.
+
+        Description
+        -----------
+        On a grid carrying any bounded mesh factor the plain kernels
+        are swapped for their ``boundary="graded"`` variants (the
+        near-wall closure), after checking that every walled axis is
+        wide enough to carry the ladder (``order + 1`` cells: the
+        widest rung's window must fit the lattice and the two sides'
+        reduced faces must not collide).
+
+        The landed assembly then validates every term over real
         zero-valued fields (step 6) *before* the final negotiation
         (step 7), on the grid's provisional halo — wide enough for
         the default registry only. The biased face kernels of
@@ -1369,10 +2047,18 @@ class UpwindAdvection(_FluxFormAdvection):
         ----------
         table : FieldTable
             The resolved field table (base contract).
+
+        Raises
+        ------
+        NotImplementedError
+            If a walled axis carries fewer than ``order + 1`` cells.
         """
         super().bind(table)
-        need = self._order // 2 + 1
         grid = table.grid
+        if self._walled:
+            self._check_walled_extent(grid)
+            self._install_kernels("graded")
+        need = self._order // 2 + 1
         current = dict(grid.decomposition.halo.widths)
         axes = tuple(axis for axis, _ in self._axis_velocity)
         if all(current.get(axis, 0) >= need for axis in axes):
@@ -1381,6 +2067,30 @@ class UpwindAdvection(_FluxFormAdvection):
             HaloSpec(dict.fromkeys(axes, need)))
         grid.negotiate(halo=demand)
 
+    def _check_walled_extent(self, grid: object) -> None:
+        """Reject walled axes too short to carry the graded ladder.
+
+        Raises
+        ------
+        NotImplementedError
+            If a walled axis carries fewer than ``min_cells(order)``
+            cells — the ladder's widest rung would then not fit, or
+            the two walls' reduced faces would collide, and the
+            downstream failure would be a cryptic index error.
+        """
+        need = min_cells(self._order)
+        short = tuple(
+            (name, mesh.n_cells)
+            for mesh in grid.factors for name in mesh.names
+            if name in self._walled and mesh.n_cells < need)
+        if short:
+            raise NotImplementedError(
+                f"{type(self).__name__}(order={self._order}) needs at "
+                f"least {need} cells on every walled axis (the graded "
+                "near-wall ladder must fit between the two walls), "
+                f"got {short}. Use a coarser order, more cells, or "
+                "CenteredAdvection")
+
     # ------------------------------------------------------------
     #  Properties
     # ------------------------------------------------------------
@@ -1388,6 +2098,11 @@ class UpwindAdvection(_FluxFormAdvection):
     def order(self) -> int:
         """Formal order of the biased face reconstruction."""
         return self._order
+
+    @property
+    def wall(self) -> Literal["upwind1", "centered2"]:
+        """Bottom rung of the graded near-wall ladder."""
+        return self._wall
 
     # ------------------------------------------------------------
     #  The upwind face values
@@ -1405,6 +2120,14 @@ class UpwindAdvection(_FluxFormAdvection):
         along every axis where its factor differs from the flux
         space (a genuine operator application on each axis, so the
         halo trace follows).
+
+        The trailing ``retag`` is the walled-grid seam: nodal operator
+        outputs are BC-free, so on a walled axis the interpolated
+        velocity lands on the BC-free sibling of the flux space's
+        wall-tagged factor and adopts the tag here (the exact-zero
+        wall flux the divergence closes on). On periodic axes the
+        factors are the same interned object and ``retag`` returns
+        ``self`` — the periodic path is bitwise unchanged.
 
         Parameters
         ----------
@@ -1424,14 +2147,14 @@ class UpwindAdvection(_FluxFormAdvection):
             if result.function_space.bare.factor(axis) is not (
                     bare.factor(axis)):
                 result = self._interp[axis](result)
-        return result
+        return result.retag(flux_space)
 
     def _face_value(
         self,
         q: ScalarField,
         v_face: ScalarField,
         axis: str,
-        flux_space: object,  # noqa: ARG002 — fixed by the operator pair
+        flux_space: object,
     ) -> ScalarField:
         """
         Upwind-selected biased face value of ``q``.
@@ -1443,7 +2166,9 @@ class UpwindAdvection(_FluxFormAdvection):
         left-biased reconstruction there and the right-biased one
         elsewhere (ties at zero velocity take the right-biased
         side, old-stack parity) — all operator applications, fully
-        visible to the halo-accounting trace.
+        visible to the halo-accounting trace. Both reconstructions
+        adopt the flux space's wall tag first (``retag``; a no-op on
+        periodic axes), so the three ``Where`` operands agree.
 
         Parameters
         ----------
@@ -1454,7 +2179,8 @@ class UpwindAdvection(_FluxFormAdvection):
         axis : str
             The advection axis.
         flux_space : object
-            The flux space (fixed by the operator pair here).
+            The flux (control-volume face) space of ``q`` along
+            ``axis``.
 
         Returns
         -------
@@ -1462,26 +2188,28 @@ class UpwindAdvection(_FluxFormAdvection):
             The upwind-biased face value of ``q``.
         """
         positive = v_face + abs(v_face)
-        return Where()(positive, self._left[axis](q),
-                       self._right[axis](q))
+        return Where()(positive,
+                       self._left[axis](q).retag(flux_space),
+                       self._right[axis](q).retag(flux_space))
 
     def _linear_face_value(
         self,
         q: ScalarField,
         v_face: ScalarField,
         axis: str,
-        flux_space: object,  # noqa: ARG002 — fixed by the operator pair
+        flux_space: object,
     ) -> ScalarField:
         """
         Linear-row upwind face value for the background transport.
 
         Description
         -----------
-        The same ``Where`` side selection as `_face_value`, but with
-        the linear (optimal-weight) reconstruction pair — the WENO
-        module's smooth-limit row — and the mask read from the
-        static background face velocity, so the value is exactly
-        linear in the state.
+        The same ``Where`` side selection (and the same wall-tag
+        ``retag``) as `_face_value`, but with the linear
+        (optimal-weight) reconstruction pair — the WENO module's
+        smooth-limit row — and the mask read from the static
+        background face velocity, so the value is exactly linear in
+        the state.
 
         Parameters
         ----------
@@ -1492,7 +2220,8 @@ class UpwindAdvection(_FluxFormAdvection):
         axis : str
             The advection axis.
         flux_space : object
-            The flux space (fixed by the operator pair here).
+            The flux (control-volume face) space of ``q`` along
+            ``axis``.
 
         Returns
         -------
@@ -1500,8 +2229,9 @@ class UpwindAdvection(_FluxFormAdvection):
             The linear upwind-biased face value of ``q``.
         """
         positive = v_face + abs(v_face)
-        return Where()(positive, self._lin_left[axis](q),
-                       self._lin_right[axis](q))
+        return Where()(positive,
+                       self._lin_left[axis](q).retag(flux_space),
+                       self._lin_right[axis](q).retag(flux_space))
 
 
 class WENOAdvection(UpwindAdvection):
@@ -1518,6 +2248,17 @@ class WENOAdvection(UpwindAdvection):
     the optimal ones and the scheme reduces to the linear upwind
     row; at discontinuities the smoothness indicators suppress the
     oscillatory candidates (the ENO property).
+
+    **Formal order**: as for `UpwindAdvection` — the WENO
+    reconstruction converges at ``order`` on smooth data, while the
+    tendency is formally 2nd order once the advecting velocity varies
+    along the flux axis (the product-rule / deconvolution mismatch of
+    the C-grid flux form; module docstring). WENO is used here for the
+    non-oscillatory property at fronts, not for asymptotic order. The
+    reference below is the route that would restore the design order
+    (reconstruct the flux :math:`v q` rather than ``q``); FRIDOM does
+    not take it, because it would cost the exact-zero wall flux and
+    constancy preservation (module docstring).
 
     References
     ----------
@@ -1541,6 +2282,14 @@ class WENOAdvection(UpwindAdvection):
         operator is not linear in the state; the nonlinear
         difference term keeps the full WENO weighting of the full
         advecting velocity (default: None).
+    wall : Literal["upwind1", "centered2"], optional
+        The bottom rung of the graded near-wall ladder on a walled
+        grid (see `UpwindAdvection`). Note that ``"centered2"``
+        gives up the ENO property on the wall-adjacent face — the
+        WENO weighting has nothing to weight there — so a front
+        pressed against the wall will ring; it buys the global 2nd
+        order the ``"upwind1"`` bottom cannot reach (default:
+        "upwind1").
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "weno"

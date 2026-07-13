@@ -1,11 +1,13 @@
 ---
 status: normative
-date: 2026-07-06
+date: 2026-07-13
 ---
 
 # Grid abstraction redesign
 
-Status: **implemented** (Phase 1 landed; kept as the normative reference)
+Status: **implemented** — the grid layer ships as `fridom.spatial`
+(Phase 1, plus the coordinate-system extensions of ROADMAP 3.4); this
+note set is kept as the normative reference.
 Author: Silvano Rosenau (with AI-assisted brainstorming)
 Date: 2026-07-05
 
@@ -99,6 +101,10 @@ cannot express at all:
 
 ## 8. Migration strategy
 
+*(Historical, with the landed outcome noted: the plan below was
+executed, except that the final package name changed — see the last
+bullet.)*
+
 - Build the new architecture as a **parallel package**
   `fridom.framework2` with its own mirrored tests (95% branch coverage
   applies from the start). It reuses `framework.utils` but does **not**
@@ -120,10 +126,32 @@ cannot express at all:
   built on top (Phase 2), then the existing model packages are ported
   (nonhydro first, as the most complete consumer), keeping the old
   `framework.grid` working throughout.
-- At cutover, `fridom.framework2` is **renamed to `fridom.framework`**
-  (dropping the "2"): `framework2.grid` becomes `framework.grid`, and
-  the old package is retired, together with `Position`, `bc_types`,
-  `topo`, `is_spectral`, and `FFTPadding` call sites.
+- **Landed differently, and this supersedes the rename plan**:
+  `framework2` was not renamed to `framework`. It was **split by
+  concern** (2026-07-11): the grid stack is now the standalone package
+  **`fridom.spatial`** (meshes, spaces, fields, operators,
+  decomposition, `Grid`) and the temporal layer is **`fridom.model`**.
+  There is no `framework2.grid` and no successor `framework.grid`; the
+  old `fridom.framework` package is legacy, retired at cutover together
+  with `Position`, `bc_types`, `topo`, `is_spectral`, and the
+  `FFTPadding` call sites. Read `framework2.grid` in the prose of these
+  notes as `fridom.spatial` (the naming map in
+  [`../../README.md`](../../README.md)).
+- **The flat `fr.*` namespace did not survive the split either.** The
+  notes spell the public surface `fr.Grid`, `fr.meshes`,
+  `fr.operators`, `fr.ScalarField` (and, model-side, `fr.Model`,
+  `fr.transforms`, `fr.ops`); the shipped root re-exports only the
+  *subpackages*, so the real spellings are `fr.spatial.Grid`,
+  `fr.spatial.meshes`, `fr.spatial.operators`,
+  `fr.spatial.ScalarField`, `fr.model.Model`, `fr.model.transforms`.
+  The one-level qualification is the deliberate price of the split
+  (`AGENTS.md` mandates `import fridom as fr` + `fr.spatial.*` /
+  `fr.model.*`). Everywhere below, read a bare `fr.X` as its
+  package-qualified spelling; the design intent — plural collection
+  namespaces, spaces produced only by mesh factories, no
+  function-space namespace — is unchanged. Whether the flat aliases
+  should be *added back* at the root is an open ergonomics question,
+  not a design one.
 
 ## 9. Precedents
 

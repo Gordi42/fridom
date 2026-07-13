@@ -65,6 +65,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from fridom.spatial.decomposition.layout import Layout
     from fridom.spatial.grid import Grid
+    from fridom.spatial.scalars import Variance
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
@@ -306,6 +307,36 @@ class ScalarField:
             for name in new_space.names})
         return ScalarField(self._grid, new_space, self._data,
                            self._metadata, halo_valid=halo_valid)
+
+    def with_variance(self, variance: Variance | None) -> ScalarField:
+        """
+        Return the field on the variance-tagged space variant.
+
+        Description
+        -----------
+        A variance tag is a pure claim about the component's role
+        (covariant/contravariant, validation section 6.3): the data,
+        the staggering, and the ghost validity are untouched — only
+        the interned space identity changes, so the strict algebra
+        distinguishes (and refuses to mix) differently-tagged
+        components. ``None`` strips the tag.
+
+        Parameters
+        ----------
+        variance : Variance | None
+            The component variance to claim; None strips the tag.
+
+        Returns
+        -------
+        ScalarField
+            The retagged field (``self`` when already tagged so).
+        """
+        space = self._function_space.with_variance(variance)
+        if space is self._function_space:
+            return self
+        return ScalarField(self._grid, space, self._data,
+                           self._metadata,
+                           halo_valid=self._halo_valid)
 
     # ================================================================
     #  Scalars (Körper) surface — section 3.1
@@ -551,6 +582,38 @@ class ScalarField:
         if total is None:
             return integral  # all-constant: identity
         return integral.with_data(integral.data / total)
+
+    def item(self) -> complex | float:
+        """
+        Return the single value of a one-DOF field (host scalar).
+
+        Description
+        -----------
+        The host read of a fully reduced field — the tidy end of an
+        integral: ``field.integrate().item()`` instead of
+        ``float(field.integrate().data.ravel()[0])``. Only defined
+        when the field carries exactly one DOF (every factor reduced
+        to a ``ConstantSpace``); a real dtype returns ``float``, a
+        complex one ``complex``. Forces the computation (a device
+        sync).
+
+        Returns
+        -------
+        complex | float
+            The single value.
+
+        Raises
+        ------
+        ValueError
+            If the field carries more than one DOF.
+        """
+        data = self.data
+        if data.size != 1:
+            raise ValueError(
+                f"item() needs a one-DOF field, got shape "
+                f"{tuple(data.shape)} on {self._function_space!r}; "
+                "reduce first (e.g. field.integrate())")
+        return data.ravel()[0].item()
 
     # ================================================================
     #  Grid accessor forwarders (a field carries its grid + space)
@@ -831,12 +894,14 @@ def _map_factors(
     space: SpaceLike,
     fn: Callable[[FunctionSpace], FunctionSpace],
 ) -> SpaceLike:
-    """Apply ``fn`` per factor and rebuild (layout preserved)."""
+    """Per-factor rebuild (layout and variance preserved)."""
     if isinstance(space, TensorProductSpace):
         new = TensorProductSpace.of(
             *(fn(factor) for factor in space.factors))
     else:
-        new = fn(space.bare)
+        new = fn(space.bare.with_variance(None))
+    if space.variance is not None:
+        new = new.with_variance(space.variance)
     if space.layout is not None:
         new = new.with_layout(space.layout)
     return new

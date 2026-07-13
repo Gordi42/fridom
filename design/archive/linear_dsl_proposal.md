@@ -1,9 +1,21 @@
 ---
-status: held
+status: superseded
 date: 2026-07-09
+superseded_by: commits d06441d1 + d3309640 (2026-07-09)
 ---
 
 # Readable linear-term DSL — proposal (HELD, not implemented)
+
+> **Superseded on its premise (2026-07-09, recorded 2026-07-13).** The
+> `LinearBlock`/`Coeff`/`Interp`/`Diff`/`Scale` IR this DSL lowers to
+> was deleted the same day the proposal was held (`d06441d1` +
+> `d3309640`); the four linear terms are now plain numeric
+> `@fr.term(linear=True)` methods (see
+> [`../plans/active/linear_term_blocks_plan.md`](linear_term_blocks_plan.md)).
+> The line-number references below point at files that no longer
+> exist. Kept for the front-end design and the flux-form-vs-scalar
+> coefficient argument, which would still apply to any future linear
+> DSL — but such a DSL would need a target IR built first.
 
 Status: **proposal only** (Silvano chose to hold, 2026-07-09). The current
 `LinearBlock` form stays. This note preserves the design + feasibility

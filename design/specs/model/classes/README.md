@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Class designs
@@ -8,9 +8,15 @@ date: 2026-07-07
 Part of the model redesign notes; see
 [`../00_overview.md`](../00_overview.md) for the document map.
 
-Status: **drafted** (opened and populated 2026-07-08; all six
-cluster files placed and cross-reconciled). Reconciliation notes
-from the drafting round:
+Status: **implemented** (drafted 2026-07-08; all six cluster files
+placed and cross-reconciled, then built out as `fridom.model`,
+ROADMAP 2.2–2.8). The class surfaces below are the normative
+reference; where the implementation deviated, the deviation is called
+out in the owning file, and the two surfaces the specs promise but the
+code never grew (`model.blank_state`/`state_space`,
+`fr.modules.WindowAccumulator`) are listed in
+[`../07_open_threads.md`](../07_open_threads.md) §9.1.
+Reconciliation notes from the drafting round:
 
 - **Package layout**: where the clusters' layout sketches disagree,
   the *owning* cluster's placement wins — `io/` and `ops/` sit

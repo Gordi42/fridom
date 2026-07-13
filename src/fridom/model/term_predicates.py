@@ -29,6 +29,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
+from fridom.model.errors import LinearOperatorGapError
 from fridom.model.terms import Treatment
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -369,6 +370,79 @@ def advancing(*fields: str) -> Advancing:
     return Advancing(fields)
 
 
+# ================================================================
+#  The linear-operator honesty gate
+# ================================================================
+def linear_operator_gaps(model: object) -> tuple[tuple[str, str], ...]:
+    """
+    Return the declared ``L`` gaps of an assembled model's modules.
+
+    Description
+    -----------
+    Collects ``(module type name, gap sentence)`` for every module
+    that declares a `Module.linear_operator_gap` — physics that
+    belongs in the linear operator but is carried inside a
+    ``linear=False`` term, so that ``L`` does not describe it.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled model.
+
+    Returns
+    -------
+    tuple[tuple[str, str], ...]
+        One ``(type name, reason)`` pair per declaring module, module
+        order; empty for an honest model.
+    """
+    return tuple(
+        (type(module).__name__, gap)
+        for module in getattr(model, "modules", ())
+        if (gap := getattr(module, "linear_operator_gap", None)))
+
+
+def require_linear_operator(model: object, *, consumer: str) -> None:
+    """
+    Refuse to hand a knowingly incomplete ``L`` to a consumer.
+
+    Description
+    -----------
+    The honesty gate every consumer of the linear operator calls
+    first (``fr.model.linearize``, the eigenmode / projection /
+    balance constructors): if any module declares a
+    `Module.linear_operator_gap`, the operator ``L`` assembled from
+    the ``linear=True`` terms is missing physics the model *does*
+    carry, so anything built on it is wrong rather than merely
+    inaccurate — the gap is raised, with the module's own sentence.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled model.
+    consumer : str
+        What is asking for ``L`` (named in the message), e.g.
+        ``"fr.model.linearize"`` or ``"sw.eigenmodes.from_model"``.
+
+    Raises
+    ------
+    LinearOperatorGapError
+        If any module declares a linear-operator gap.
+    """
+    gaps = linear_operator_gaps(model)
+    if not gaps:
+        return
+    reasons = "; ".join(
+        f"{name}: {reason}" for name, reason in gaps)
+    raise LinearOperatorGapError(
+        f"{consumer} needs the linear operator L (the linear=True "
+        "terms), but this model carries linear physics OUTSIDE them "
+        f"— {reasons}. L would describe a different system than the "
+        "model integrates, so eigenmodes, projections, optimal "
+        "balance and IMEX-by-linearity are invalid here, not merely "
+        "inaccurate; re-assemble the model with the linear module "
+        "(and its optional correction) if you need L")
+
+
 def linearize(model: object, *, name: str | None = None) -> object:
     """
     Build the linear variant ``model.variant(term_filter=linear)``.
@@ -381,6 +455,10 @@ def linearize(model: object, *, name: str | None = None) -> object:
     background-advection piece must be a separate ``linear=True`` term
     or ``linearize`` drops it).
 
+    Refuses a model whose modules declare a `Module.linear_operator_gap`
+    (`require_linear_operator`): dropping the nonlinear terms would
+    silently drop physics that belongs in ``L``.
+
     Parameters
     ----------
     model : Model
@@ -392,7 +470,13 @@ def linearize(model: object, *, name: str | None = None) -> object:
     -------
     Model
         The linear variant.
+
+    Raises
+    ------
+    LinearOperatorGapError
+        If a module declares a linear-operator gap.
     """
+    require_linear_operator(model, consumer="fr.model.linearize")
     if name is None:
         parent = getattr(model, "name", None)
         name = f"{parent}/linear" if parent else "linear"

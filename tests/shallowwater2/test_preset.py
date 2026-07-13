@@ -74,7 +74,13 @@ def csqr_profile(y):
     return 1.0 + 0.5 * np.sin(np.pi * y)
 
 
+def weighted_fplane(f0=1.0):
+    """Build the thickness-weighted f-plane variable depth needs."""
+    return sw.modules.FPlaneCoriolis(f0=f0, metric_weight="csqr")
+
+
 def make_varying(coriolis=None):
+    # coriolis=None is the preset default and means NO rotation
     return sw.Model(
         grid=make_grid(periodic_y=False), csqr=csqr_profile,
         rossby_number=0.2, coriolis=coriolis, advection=False,
@@ -101,16 +107,23 @@ def test_constant_csqr_still_provides_the_scalar():
     assert np.asarray(model.state["csqr"].data).size == 1
 
 
-def test_default_coriolis_is_always_thickness_weighted():
-    # the weighted rotation is exactly M-skew for any f and any
-    # depth profile and coincides with the unweighted form for
-    # constant depth (to rounding), so the preset always uses it
-    model = make_varying()
-    assert model.module(FPlaneCoriolis).metric_weight == "csqr"
-    constant = sw.Model(
+def test_the_default_is_no_rotation_at_all():
+    # coriolis=None (the argument omitted) installs NO Coriolis
+    # module: no f_coriolis field, no rotation term, no coriolis.f0
+    # provide. Rotation is opt-in.
+    model = sw.Model(
         grid=make_grid(), csqr=0.7,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
-    assert constant.module(FPlaneCoriolis).metric_weight == "csqr"
+    assert "f_coriolis" not in model.state
+    assert fr.model.params.CORIOLIS_F0 not in model.parameters
+    with pytest.raises(LookupError, match="no live module matches"):
+        model.module(FPlaneCoriolis)
+    # ... and a named rotation is simply installed as given
+    rotating = sw.Model(
+        grid=make_grid(), csqr=0.7,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.5),
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+    assert float(rotating.parameters[fr.model.params.CORIOLIS_F0]) == 1.5
 
 
 def test_varying_csqr_with_an_unweighted_coriolis_is_taught():
@@ -136,8 +149,10 @@ def test_varying_csqr_guard_skips_non_framework_modules():
 
 def test_varying_csqr_model_steps():
     # the tendency terms read the csqr FIELD, so the varying model
-    # integrates as-is (advection included via a separate test)
-    model = make_varying()
+    # integrates as-is (advection included via a separate test);
+    # the thickness-weighted f-plane the old implicit default
+    # installed, now named explicitly
+    model = make_varying(coriolis=weighted_fplane())
     rng = np.random.default_rng(5)
     model.set_fields(
         u=0.01 * rng.standard_normal(model.state["u"].shape),
@@ -145,3 +160,11 @@ def test_varying_csqr_model_steps():
         p=0.01 * rng.standard_normal(model.state["p"].shape))
     model.advance(3)
     assert not bool(model.state["p"].has_nan())
+
+
+def test_default_time_stepper_is_adam_bashforth():
+    # the preset's cutover default (pass an explicit one for a real
+    # run); assembly succeeds and the model advances
+    model = sw.Model(grid=make_grid())
+    assert isinstance(model._stepper,
+                      fr.model.time_steppers.AdamBashforth)

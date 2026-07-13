@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Class designs: module
@@ -649,8 +649,9 @@ Semantics, invariants, error behavior:
   span at most one chunk (~256 steps), and the chunk-boundary host
   read accumulates in float64 on the host. See the CS-17 resolution
   in [`declarations.md`](declarations.md)'s Open questions.
-  `fr.modules.WindowAccumulator` ships this as the preset (module
-  library, out of this doc's scope).
+  A `fr.modules.WindowAccumulator` preset over this idiom is
+  specified but **not built** (07_open_threads §9.1); the idiom itself
+  is normative and in use.
 - **ADVANCE stages** are the by-variable split (03 §5.4):
   module-owned, advancing named PROGNOSTIC subsets reading the
   latest state (Gauss-Seidel via the read rule); buffers are owned
@@ -763,23 +764,14 @@ declaration ruling (stage local), the `eps` scope (order-2-only,
 time_steppers.md), the ClosureBase-vs-category ruling (d5_2), and
 the write-gate table itself (03 §5.5).
 
-1. **`state_type`-under-jaxify mechanics** (07_open_threads, D1/D4
-   residual — the cluster's one live design point): a class
-   reference as a jaxify-*static* attribute is hashable and should
-   be mechanically fine, but the interaction with jaxify's
-   static-attribute registration (does the class reference enter
-   the treedef and thus the jit cache key? does subclass
-   inheritance of the attribute confuse the >1-provider check?)
-   needs a decision at implementation time. The
-   `fr.Model(state_type=...)` kwarg fallback stands regardless
-   (D1.3 commitment 4), so nothing downstream blocks on this.
-2. **The `self_update` declaration spelling**: this spec proposes
-   `@fr.self_update(reads=..., cadence=RESERVED)` mirroring
-   `@fr.term`, with the bare method equivalent to `reads=()`
-   (sketch 7.2 stays expressible). The notes fix the `reads=`
-   semantics and the reservation of `cadence=`, not the spelling —
-   confirm against declarations.md's decorator family before
-   implementation.
+1. ~~**`state_type`-under-jaxify mechanics**~~ — **closed by
+   implementation**: `Module.state_type` is a plain class attribute
+   (no jaxify involvement), the assembly record lints it as a
+   hashable static, and the `fr.Model(state_type=...)` kwarg is the
+   override (D1.3 commitment 4).
+2. ~~**The `self_update` declaration spelling**~~ — **closed**:
+   `@fr.self_update(reads=..., cadence=...)` shipped as proposed
+   (bare method ≡ `reads=()`; `cadence=` reserved, not built).
 3. **DIAGNOSTIC-chain ordering** (03 §5.9 residual): explicit
    `order=` now; topological sort by declared reads/writes is the
    recorded upgrade — revisit only if real DIAGNOSTIC dependency

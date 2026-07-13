@@ -1,20 +1,21 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — modules, model, time stepping
 
-Status: **draft** (design phase, no implementation yet)
+Status: **implemented** — the model layer ships as `fridom.model`
+(ROADMAP Phase 2); this note set is kept as the normative reference.
 Author: Silvano Rosenau (with AI-assisted brainstorming)
 Date: 2026-07-06
 
-This note set designs the model layer of `fridom.framework2` — the
-`Module` system, the `Model` composition root, the state-vector
-assembly, and the time steppers. It is the design reference for
-ROADMAP Phase 2 (tasks 2.1–2.6); the grid layer it builds on is
-designed in the sibling note set [`../grid/`](../grid/00_overview.md) and is
-being implemented (ROADMAP Phase 1) in parallel.
+This note set designs the model layer — the `Module` system, the
+`Model` composition root, the state-vector assembly, the time steppers,
+the IO seams, and the state-transform algebra. It is the design
+reference for ROADMAP Phase 2 (tasks 2.1–2.8); the grid layer it builds
+on is designed in the sibling note set
+[`../grid/`](../grid/00_overview.md) and ships as `fridom.spatial`.
 
 All code snippets are **illustrative, not normative**: names and exact
 signatures are expected to change during implementation.
@@ -148,9 +149,13 @@ module-owned mechanism.
 
 ## 3. Target picture (from the ROADMAP)
 
-- **No `ModelSettings`**: `Model(grid=..., tendencies=...,
-  diagnostics=..., time_stepper=...)` direct assembly; every
-  physical parameter lives in a module.
+- **No `ModelSettings`**: direct assembly from a grid and modules;
+  every physical parameter lives in a module. (The ROADMAP's
+  `tendencies=`/`diagnostics=` split did **not** survive D4: the
+  shipped constructor takes **one** `modules=` tuple plus
+  `time_stepper=`, `io=`, and `state_type=` — stage *kind*, not
+  constructor slot, is what orders the work; see
+  [`04_run_loop_io.md`](04_run_loop_io.md) §6.1.)
 - **Modules register state fields**: the nonhydrostatic core
   declares `u, v, w`; `ConstantStratification` adds `b`; tracers
   and auxiliary fields are the same mechanism.
@@ -163,15 +168,20 @@ module-owned mechanism.
 
 ## 4. Migration strategy
 
-- Design on paper now (this note set), in parallel with the Phase-1
+*(Executed. Kept because the reasoning still governs amendments.)*
+
+- Design on paper first (this note set), in parallel with the Phase-1
   grid implementation; the design consumes only seams the grid
-  notes already fix (section 2), so it does not block on code.
+  notes already fix (section 2), so it did not block on code.
 - Anything discovered here that changes a grid seam is fed back as
   a normative-note amendment, the same mechanism the class docs
   used.
-- Implementation follows the roadmap staging (2.1–2.6), nonhydro
-  ported first (2.7); the old `framework` stays untouched until
-  cutover.
+- Implementation followed the roadmap staging (2.1–2.8), nonhydro and
+  shallowwater ported (2.7) as `fridom.nonhydro2` /
+  `fridom.shallowwater2`. The code lives in **`fridom.model`** (the
+  2026-07-11 split of `framework2` into `fridom.spatial` +
+  `fridom.model`); the old `framework`/`nonhydro`/`shallowwater` stack
+  is legacy and retires with the cutover.
 
 ## 5. Precedents
 

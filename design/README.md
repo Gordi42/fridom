@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-11
+date: 2026-07-13
 ---
 
 # FRIDOM design records
@@ -16,26 +16,39 @@ option analyses, precedent surveys, audits — that fed the decisions;
 where research disagrees with a spec, the spec wins. **Archive**
 (`archive/`) holds proposals that were put on hold or superseded.
 
-[`ROADMAP.md`](../ROADMAP.md) at the repo root remains the single
-open-work tracker; it links into `design/` for the normative designs
-and plans behind each task.
+[`roadmap/open.md`](roadmap/open.md) is the single open-work tracker;
+[`roadmap/done.md`](roadmap/done.md) records the shipped phases. Both
+link into the design records behind each task.
 
-**Naming map:** the specs predate the 2026-07-11 package split
-([`plans/done/spatial_model_split_plan.md`](plans/done/spatial_model_split_plan.md)).
-Read `framework2.grid` as **`fridom.spatial`** and `framework2.model`
-/ `framework2.{transforms,io,ops,modules}` as **`fridom.model`**; the
-spec prose keeps the historical names.
+**Naming map.** The specs predate two renames and keep the historical
+spellings:
+
+1. The 2026-07-11 package split
+   ([`plans/done/spatial_model_split_plan.md`](plans/done/spatial_model_split_plan.md)):
+   read `framework2.grid` as **`fridom.spatial`**, and `framework2.model`
+   / `framework2.{transforms,io,ops,modules}` as **`fridom.model`**.
+2. The flat `fr.*` namespace the specs assume (`fr.Grid`, `fr.meshes`,
+   `fr.ScalarField`, `fr.Model`) **did not ship** — the root package
+   re-exports subpackages only. Read a bare `fr.X` as `fr.spatial.X` or
+   `fr.model.X`. Whether to re-add the flat aliases is an open
+   ergonomics question, not a design one.
 
 ## Conventions
 
-1. Every new note gets YAML front-matter with at least `status:` and
+1. Every note gets YAML front-matter with at least `status:` and
    `date:` (plus `supersedes:` / `superseded_by:` where applicable).
 2. A plan is never edited into "done" in place — its status flips to
    `done` and the file **moves** to `plans/done/`.
+3. `plans/active/` holds only work that is still ahead. Finished work
+   does not live there: it moves to `plans/done/`, and what remains in
+   an active plan is trimmed to the open items.
+4. Decision records are immutable. When landed code overtakes one, it
+   gets a `superseded_by:` pointer and a header note — the ruling itself
+   is never rewritten.
 
 ## `specs/` — living, normative design specs
 
-### `specs/grid/` — the grid abstraction (Phase 1, implemented)
+### `specs/grid/` — the grid abstraction (implemented as `fridom.spatial`)
 
 | File | Status | Description |
 |------|--------|-------------|
@@ -45,7 +58,7 @@ spec prose keeps the historical names.
 | [`03_api_sketches.md`](specs/grid/03_api_sketches.md) | normative | API sketches for the grid layer. |
 | [`04_decomposition.md`](specs/grid/04_decomposition.md) | normative | Domain decomposition: negotiation, halos, shard maps. |
 | [`05_validation.md`](specs/grid/05_validation.md) | normative | Paper validation — the numerical checks gating the grid layer. |
-| [`06_open_threads.md`](specs/grid/06_open_threads.md) | normative | Open threads from the grid design phase. |
+| [`06_open_threads.md`](specs/grid/06_open_threads.md) | normative | Grid threads: resolved map + the residuals that remain. |
 | [`07_iteration1_api.md`](specs/grid/07_iteration1_api.md) | normative | Iteration-1 public API surface. |
 
 ### `specs/grid/classes/` — grid-layer class designs
@@ -57,8 +70,8 @@ spec prose keeps the historical names.
 | [`spaces.md`](specs/grid/classes/spaces.md) | normative | Function spaces (nodal, average, coefficient, Galerkin, constant). |
 | [`product_spaces.md`](specs/grid/classes/product_spaces.md) | normative | TensorProductSpace and the Field cluster. |
 | [`fields.md`](specs/grid/classes/fields.md) | normative | Fields: ScalarField, vector/tensor fields, metadata. |
-| [`grid.md`](specs/grid/classes/grid.md) | normative | Grid assembly and decomposition entry points. |
-| [`decomposition.md`](specs/grid/classes/decomposition.md) | normative | Domain decomposition: traits, halo accounting, sync strategy. |
+| [`grid.md`](specs/grid/classes/grid.md) | normative | Grid assembly, decomposition entry points, the mapping/metric seams. |
+| [`decomposition.md`](specs/grid/classes/decomposition.md) | normative | Domain decomposition: traits, halo accounting, the consumption-side sync contract. |
 | [`operators_base.md`](specs/grid/classes/operators_base.md) | normative | Operator base hierarchy, binding, Symbol. |
 | [`operators_composed.md`](specs/grid/classes/operators_composed.md) | normative | Composed operators and the dispatch registry. |
 | [`operators_products.md`](specs/grid/classes/operators_products.md) | normative | Pointwise, product and reduction operators. |
@@ -74,7 +87,7 @@ spec prose keeps the historical names.
 | [`01_taxonomy_and_binding.md`](specs/operator_algebra/01_taxonomy_and_binding.md) | normative | Taxonomy and axis binding. |
 | [`02_algebra.md`](specs/operator_algebra/02_algebra.md) | normative | Algebra rules: composition, sums, scaling, blocks. |
 | [`03_api_sketches.md`](specs/operator_algebra/03_api_sketches.md) | normative | API sketches. |
-| [`04_open_threads.md`](specs/operator_algebra/04_open_threads.md) | normative | Open threads. |
+| [`04_open_threads.md`](specs/operator_algebra/04_open_threads.md) | normative | Resolved map + the two residuals (index-aware tensor blocks; `VectorField.map` vs `Block`). |
 
 ### `specs/docs/` — the documentation rebuild
 
@@ -83,7 +96,7 @@ spec prose keeps the historical names.
 | [`structure.md`](specs/docs/structure.md) | normative | The docs page tree: per-page scope, authoring format, v1 cut. |
 | [`style_guide.md`](specs/docs/style_guide.md) | normative | Docs style guide: voice, banned patterns, page anatomy, figures, citations, enforcement. |
 
-### `specs/model/` — the model layer (Phase 2)
+### `specs/model/` — the model layer (implemented as `fridom.model`)
 
 | File | Status | Description |
 |------|--------|-------------|
@@ -94,9 +107,9 @@ spec prose keeps the historical names.
 | [`04_run_loop_io.md`](specs/model/04_run_loop_io.md) | normative | Composition, the run loop, and IO. |
 | [`05_api_sketches.md`](specs/model/05_api_sketches.md) | normative | API sketches. |
 | [`06_validation.md`](specs/model/06_validation.md) | normative | Paper validation for the model layer. |
-| [`07_open_threads.md`](specs/model/07_open_threads.md) | normative | Open threads. |
+| [`07_open_threads.md`](specs/model/07_open_threads.md) | normative | Model threads: resolved map + the residuals that remain. |
 | [`08_state_transforms.md`](specs/model/08_state_transforms.md) | normative | The state-transform algebra. |
-| [`09_coupling_designfor.md`](specs/model/09_coupling_designfor.md) | normative | Coupled models — design-for constraints (CS-1..18). |
+| [`09_coupling_designfor.md`](specs/model/09_coupling_designfor.md) | normative | Coupled models — design-for constraints (CS-1..18); the pre-design for roadmap 3.2. |
 
 ### `specs/model/classes/` — model-layer class designs
 
@@ -114,43 +127,50 @@ spec prose keeps the historical names.
 
 | File | Status | Description |
 |------|--------|-------------|
-| [`nnmd_design_note.md`](specs/nnmd/nnmd_design_note.md) | normative | NNMD design note (P0 of the NNMD rewrite plan): the slaving recursion. |
+| [`nnmd_design_note.md`](specs/nnmd/nnmd_design_note.md) | normative | The slaving recursion; implemented as `fr.transforms.BalanceExpansion`. |
 
 ## `decisions/` — immutable decision records
 
 | File | Status | Description |
 |------|--------|-------------|
-| [`blocksymbol_l_assembly.md`](decisions/blocksymbol_l_assembly.md) | accepted | Assembling `L` as a `BlockSymbol` from the operator algebra (resolves eigenmode-roadmap decision 4). |
-| [`symbol_stack_design.md`](decisions/symbol_stack_design.md) | accepted | The symbol stack — dynamic symbols, mixed transforms, banded axes; refines the operator-symbols plan. |
+| [`symbol_stack_design.md`](decisions/symbol_stack_design.md) | accepted, partially superseded | The symbol stack — dynamic symbols, mixed transforms, banded axes. `SpectralSolve`, layout-faithful `eigenvalues` and the banded primitive landed; the `BlockSymbol` projector layer did not. |
+| [`blocksymbol_l_assembly.md`](decisions/blocksymbol_l_assembly.md) | superseded | Assembling `L` as a `BlockSymbol` from the operator algebra — built (`026f4c62`), then removed (`d3309640`) for want of a consumer; `L` is now derived by numeric probe or hand-written eigenmodes. |
 
 ## `plans/active/` — work in flight
 
 | File | Status | Description |
 |------|--------|-------------|
-| [`cutover_parity_plan.md`](plans/active/cutover_parity_plan.md) | active | Cutover-parity work plan: drop the old framework/nonhydro/shallowwater stack. |
-| [`cutover_checklist.md`](plans/active/cutover_checklist.md) | active | Cutover mechanics checklist (salvaged 2026-07-11): consumer map + mechanical-swap steps; parity blockers closed. |
-| [`docs_examples_plan.md`](plans/active/docs_examples_plan.md) | active | Docs & examples rebuild plan. |
-| [`fallback_operator_plan.md`](plans/active/fallback_operator_plan.md) | active | Graded-order boundary fallback operator — implementation plan. |
-| [`nnmd_rewrite_plan.md`](plans/active/nnmd_rewrite_plan.md) | active | NNMD rewrite plan for framework2. |
-| [`operator_symbols_plan.md`](plans/active/operator_symbols_plan.md) | active | Operator symbols — the spectral-solve substrate (superseded in part by the symbol-stack decision). |
-| [`composition_refactor_plan.md`](plans/active/composition_refactor_plan.md) | active | Composition refactor — realized-map category & one composition core. |
-| [`boundary_plan.md`](plans/active/boundary_plan.md) | active | Boundary-closure plan — 2a/2c'/2d LANDED (merge 9a95202a); only stage 2e (Robin dynamic data path) remains, gated on the model layer. |
-| [`projection_eigenmode_plan.md`](plans/active/projection_eigenmode_plan.md) | active | Projections & eigenmodes — the energy-metric design (research + plan). |
-| [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build roadmap (dependency-ordered). |
-| [`linear_term_blocks_plan.md`](plans/active/linear_term_blocks_plan.md) | active | Linear-term block signatures (the H1 pivot) — sub-plan. |
-| [`phase2_grid_followups.md`](plans/active/phase2_grid_followups.md) | active | Phase-2 reconciliation — grid-layer follow-up work items. |
-| [`distributed_transform_reconciliation.md`](plans/active/distributed_transform_reconciliation.md) | active | Reconcile the merged slab-FFT solve with the §5.1 layout-in-space / Reshard-in-the-transform-plan design — **gates the push**. |
+| [`cutover_parity_plan.md`](plans/active/cutover_parity_plan.md) | active | Cutover, parity half: physics parity is closed; awaits owner sign-off of the intentional-deltas table. |
+| [`cutover_checklist.md`](plans/active/cutover_checklist.md) | active | Cutover, mechanical half: the executable swap list — consumer map (45 source + 16 test imports, 136 modules, 107 test files), order of operations, gates. |
+| [`docs_examples_plan.md`](plans/active/docs_examples_plan.md) | active | Docs & examples rebuild: the CI skeleton and the pilot example landed; 12 example ports and the full prose tree remain. |
+| [`boundary_plan.md`](plans/active/boundary_plan.md) | active | Boundary closures: R1, the one-sided rows and `BC.ROBIN` structure landed 2026-07-11; open is stage 2e (the Robin dynamic `(α, g)` ghost-fill path) and the optional 2f halo-claim refinement. |
+| [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build order: phases A–H landed; tracks only the unscheduled phase-I `Banded` / mixed-representation tier. |
+| [`phase2_grid_followups.md`](plans/active/phase2_grid_followups.md) | active | Grid follow-ups from the Phase-2 reconciliation: every model-layer blocker landed; two ergonomics items open (the `cartesian.Grid` constructor, API shims). |
+| [`chart_ergonomics_plan.md`](plans/active/chart_ergonomics_plan.md) | active | Chart / sphere setup ergonomics: E1/E3/E4/E5 landed; open is E2 — auto-seed diagonal index moves on orthogonal charts. |
+| [`fv_nonhydro_scoping.md`](plans/active/fv_nonhydro_scoping.md) | active | Finite-volume nonhydro scoping (roadmap 3.5): the nine open operator gaps, decisions FV-D1..D4 (D2 = option A), the staged F0–F6 plan. No FV code written yet. |
+| [`high_order_mapped_plan.md`](plans/active/high_order_mapped_plan.md) | draft | High-order stencils on mapped grids: the four standing mapped refusals, the metric-identity obstacle, the option table. Walled prerequisite paid; blocked on the Jacobian spike. |
+| [`adiabatic_ramping.md`](plans/active/adiabatic_ramping.md) | idea | Generalized adiabatic ramping (roadmap 3.8) — an `AdiabaticRamping` base transform with `OptimalBalance` as a subclass. Planned, not scheduled; its dependency (2.8) has shipped. |
+| [`perf_geometry_merge_plan.md`](plans/active/perf_geometry_merge_plan.md) | active | Reconciling the performance line with the geometry line: stage 1 (the merge) landed; open are the perf-guard harness (none exists) and the optimization pass on the mapped PCG solve. |
+| [`distributed_transform_reconciliation.md`](plans/active/distributed_transform_reconciliation.md) | active | Reconcile the distributed spectral solve with the §5.1 layout-in-space design. Stages 1–4 landed (the transform planner); closes the push gate. |
+| [`distributed_transform_plan.md`](plans/active/distributed_transform_plan.md) | active | The distributed transform planner: layout-annotated stages, the fused `shard_map` lowering, and the A100 gate results. |
 
 ## `plans/done/` — shipped plans (kept as records)
 
 | File | Status | Description |
 |------|--------|-------------|
-| [`spatial_model_split_plan.md`](plans/done/spatial_model_split_plan.md) | done | Split framework2 into fridom.spatial + fridom.model — merged 2026-07-11 (639a935). |
-| [`bc_free_boundaries.md`](plans/done/bc_free_boundaries.md) | done | BC-free bounded spaces: resolved by the R1 landing — exterior reads raise; one_sided is the explicit closure. |
-| [`phase1_implementation_plan.md`](plans/done/phase1_implementation_plan.md) | done | Framework2 Phase-1 implementation plan (grid layer). |
-| [`phase2_implementation_plan.md`](plans/done/phase2_implementation_plan.md) | done | Framework2 Phase-2 implementation plan (model layer, wave execution). |
-| [`phase1_findings.md`](plans/done/phase1_findings.md) | done | Phase-1 validation findings (input to Phase 2). |
-| [`sync_redo_plan.md`](plans/done/sync_redo_plan.md) | done | Task 1.8 implementation plan — consumption-side sync. |
+| [`krylov_scan_plan.md`](plans/done/krylov_scan_plan.md) | done | Krylov scan (roadmap 3.6) — O(1) trace for the mapped pressure CG; HLO is now flat in the iteration count. Shipped 2026-07-13. |
+| [`coriolis_energy_correction.md`](plans/done/coriolis_energy_correction.md) | done | Exactly-conserving shallow-water Coriolis — the optional correction term (keeps `L`) and the full nonlinear module. Shipped 2026-07-13 (`fc0b61c8`). |
+| [`fallback_operator_plan.md`](plans/done/fallback_operator_plan.md) | done | Graded-order near-wall fallback operator — `Fallback` + the shared graded ladder, FV and nodal routes, sharded bounded axes. |
+| [`nnmd_rewrite_plan.md`](plans/done/nnmd_rewrite_plan.md) | done | NNMD rewrite — shipped 2026-07-11 as `fr.transforms.BalanceExpansion` (P0–P5, benchmarks included). |
+| [`operator_symbols_plan.md`](plans/done/operator_symbols_plan.md) | done | Operator symbols — the spectral-solve substrate; `Symbol` + `SpectralSolve` + banded shipped, the block layer withdrawn. |
+| [`projection_eigenmode_plan.md`](plans/done/projection_eigenmode_plan.md) | done | Projections & eigenmodes — the energy-metric design (`EnergyMetric`, `p = M q`, `eigh(iML, M)`, the channel eigenbasis). |
+| [`composition_refactor_plan.md`](plans/done/composition_refactor_plan.md) | done | Composition refactor — the realized-map category and one composition core. |
+| [`coordinate_systems_plan.md`](plans/done/coordinate_systems_plan.md) | done | Coordinate systems (roadmap 3.4) — mapped, spherical and boundary-fitted grids (CS-D1..D4); C0–C4 landed 2026-07-12. |
+| [`spatial_model_split_plan.md`](plans/done/spatial_model_split_plan.md) | done | Split framework2 into `fridom.spatial` + `fridom.model` — merged 2026-07-11. |
+| [`bc_free_boundaries.md`](plans/done/bc_free_boundaries.md) | done | BC-free bounded spaces — resolved by the R1 landing: exterior reads raise; `one_sided` is the explicit closure. |
+| [`phase1_implementation_plan.md`](plans/done/phase1_implementation_plan.md) | done | Phase-1 implementation (the grid layer, today's `fridom.spatial`). |
+| [`phase2_implementation_plan.md`](plans/done/phase2_implementation_plan.md) | done | Phase-2 implementation (the model layer, today's `fridom.model`); its Phase-2.9 wave 11 (symbolic `L`) was built and reverted. |
+| [`sync_redo_plan.md`](plans/done/sync_redo_plan.md) | done | Task 1.8 — consumption-side sync. |
 
 ## `research/` — frozen inputs to the decisions
 
@@ -184,12 +204,15 @@ are the per-decision research behind `specs/model/` (see
 | [`d5_1_algebra.md`](research/d5_1_algebra.md) | frozen | D5.1 — StateTransform: base surface, algebra semantics, laws. |
 | [`d5_2_variants.md`](research/d5_2_variants.md) | frozen | D5.2 — model.variant() and the term-predicate vocabulary. |
 | [`d5_3_family_ports.md`](research/d5_3_family_ports.md) | frozen | D5.3 — The ported projection family, walked end-to-end. |
-| [`nnmd_literature.md`](research/nnmd_literature.md) | frozen | NNMD literature sweep (R1 of the NNMD rewrite plan). |
-| [`parity_audit.md`](research/parity_audit.md) | frozen | framework2 §8.8 cutover-parity audit. |
-| [`boundary_design_explainer.md`](research/boundary_design_explainer.md) | frozen | Dev's extrapolation-fill vs the framework2-boundaries R1 flip — side-by-side explainer grounding the blocked boundary decision. |
+| [`phase1_findings.md`](research/phase1_findings.md) | frozen | Phase-1 validation findings (the roadmap-1.7 gate; input to Phase 2). |
+| [`parity_audit.md`](research/parity_audit.md) | frozen | The cutover-parity audit (23/23 rows covered). |
+| [`nnmd_literature.md`](research/nnmd_literature.md) | frozen | NNMD literature sweep. |
+| [`boundary_design_explainer.md`](research/boundary_design_explainer.md) | frozen | Extrapolation-fill vs the boundaries R1 flip — the side-by-side that grounded the R1 decision (made 2026-07-11). |
+| [`xla_spmd_fft_fault.md`](research/xla_spmd_fft_fault.md) | frozen | XLA SPMD-FFT fault: a jitted FFT on a sharded axis RET_CHECKs; reproducer, condition matrix, the fridom-side mitigation. |
 
 ## `archive/` — held / superseded
 
 | File | Status | Description |
 |------|--------|-------------|
-| [`linear_dsl_proposal.md`](archive/linear_dsl_proposal.md) | held | Readable linear-term DSL — proposal held by the owner (2026-07-09); the `LinearBlock` form stays. |
+| [`linear_term_blocks_plan.md`](archive/linear_term_blocks_plan.md) | superseded | Linear-term block signatures (the H1 pivot) — built in full, then deleted for want of a consumer (`d06441d1`, `d3309640`). |
+| [`linear_dsl_proposal.md`](archive/linear_dsl_proposal.md) | superseded | Readable linear-term DSL — superseded on its premise: the `LinearBlock` IR it lowers to was deleted the same day the proposal was held. |

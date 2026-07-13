@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-06
+date: 2026-07-13
 ---
 
 # Grid abstraction redesign — Class designs
@@ -103,9 +103,14 @@ The fixed seam anchors across the four docs are:
   (`fr.operators.Fourier(grid, axes=...)`, `.forward`/`.backward`);
   all other operators are grid-free until application;
 - halo/storage contract: `_data` is storage-shaped, `.data` the
-  true-shape view; iteration 1 syncs after every operator application
-  (kernels run per-shard under a decomposition-supplied `shard_map`);
-  sync-elision along traced chains is the designed-for optimization;
+  true-shape view; kernels run per-shard under a
+  decomposition-supplied `shard_map`. **Sync is consumption-side**
+  (ROADMAP 1.8, shipped): a field carries its per-name halo *validity*
+  as static aux, and an operator exchanges iff the operand's validity
+  is below the application's requirement — kernel authors never sync
+  and users never spell `Sync`. (The iteration-1 contract in the older
+  prose — sync after *every* application, elision "designed-for" — is
+  superseded; see [`decomposition.md`](decomposition.md).);
 - eigenvalues are per coefficient factor space:
   `op.eigenvalues(grid, coeff_space) -> Symbol`; a `Symbol` is a
   diagonal operator, never a `ScalarField`; its product broadcast is

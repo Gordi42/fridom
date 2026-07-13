@@ -72,14 +72,15 @@ def h_energy_terms(model):
 
 
 def h_energy(model):
-    """Evaluate the conserved discrete energy functional."""
-    z = model.state
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
-    u, v, p = z["u"], z["v"], z["p"]
-    h = z["csqr"].to(p) + ro * p
-    parts = (0.5 * u * u * h.to(u), 0.5 * v * v * h.to(v),
-             0.5 * p * p)
-    return sum(float(t.integrate().data.ravel()[0]) for t in parts)
+    """Evaluate the conserved discrete energy functional.
+
+    The **public** diagnostic (``sw.diagnostics.etot_full``): one
+    implementation of the invariant for the scheme and the user; it
+    reproduces the per-space sums of ``h_energy_terms`` above to
+    rounding, and its machine-zero production rate is pinned in
+    ``test_diagnostics.py``.
+    """
+    return model.diagnostics.etot_full().integrate().item()
 
 
 # ================================================================
