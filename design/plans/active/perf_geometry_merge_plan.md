@@ -306,6 +306,31 @@ Checked and cleared, so no one re-litigates them:
   exercised on 4 devices**.)
 
 
+## 3c. The moving-geometry gates: the blocker moved
+
+`tests/validation/test_moving_geometry.py::test_ale_keeps_the_physical_interpretation_in_place`
+and `::test_without_ale_the_field_stays_frozen_at_the_nodes` are marked
+`single_device` because the tall columns tripped *"a PRE-EXISTING XLA spmd fault
+in the mapped projection … (fft_thunk layout RET_CHECK)"*. The expectation
+recorded in §2 was that the transform planner's reshard stages would unblock
+them.
+
+**They do not — but the failure is no longer the XLA fault.** Un-skipped and run
+on forced-4, both now fail with:
+
+```
+MeshVelocityCorrection/mesh_velocity: one-sided boundary variants patch
+the physical edges at static indices, so 'z' must be undistributed
+(layout='local'); reshard first
+```
+
+That is a *layout-negotiation* limitation, not a compiler bug: the one-sided
+boundary variants need the `z` axis local, and negotiation sharded it. It is
+tractable (declare the layout requirement so negotiation keeps `z` local, or
+reshard at the module seam) where the `RET_CHECK` was not. The gates stay
+`single_device` for now; re-point their skip comments at this reason when the
+fix lands.
+
 ## 4. Stage 1 — land the merge (mechanical, low risk)
 
 Everything here is understood and rehearsed. No open design questions.
@@ -319,6 +344,7 @@ Everything here is understood and rehearsed. No open design questions.
 | 1.5 | ~~Gate `sw.DynamicalCore.extra_halo`~~ | **Attempted, reverted** — not mechanical (§1.3(2)). Moved to stage 3. |
 | 1.6 | Widen the forced-4 CI leg | `test_exchange_counts`, `test_halo_validity`, `test_step_chunk`, `test_run`, `test_end_to_end`, `test_model` — all verified passing on 4 devices. Closes the gap where multi-device-only bugs were guarded by single-device tests. |
 | 1.7 | Resolve the identity-chart failure | Root-caused (§3): bitwise under `jax.disable_jit()`, few-ULP under jit. |
+| 1.8 | Un-skip the two `single_device` moving-geometry gates | **Tried; they stay skipped — but the blocker changed.** See §3c. |
 
 **Status: LANDED 2026-07-13.** Gate met: `ruff check src tests` clean;
 **8043 passed, 0 failed** on 1 device; **297 passed** on the forced-4
