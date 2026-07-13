@@ -179,6 +179,99 @@ be asked to preserve in general. But do not relax the test before the cause is
 understood; a 1-ULP delta is also exactly what a genuine bug looks like.
 
 
+## 3a. Where their code was written against our *old* seam
+
+Three places where the merge is *correct* but the new geometry code does not get
+the benefit of (or actively fights) the new seams. None of these blocks the
+merge; all three are Stage-3 material.
+
+### 3a.1 The CG loop tears its iterates down to the true shape every iteration
+
+`operators/krylov.py`'s module docstring states the premise outright:
+
+> *"every carried iterate is the output of field arithmetic, which **routes
+> through the storage write path and hence claims zero ghost validity**. The
+> rebuild is consequently **exchange-neutral** — it re-declares the state the
+> iterates already had."*
+
+Our storage-frame arithmetic invalidated that sentence. Probed on the merged
+tree:
+
+```
+f.diff('x') claim    : {'x': 1, 'y': 2}
+(d + d) claim        : {'x': 1, 'y': 2}   <- arithmetic now PROPAGATES the claim
+d.with_data(d.data)  : {'x': 0, 'y': 0}   <- krylov's rebuild DESTROYS it
+```
+
+The result stays **correct** (`with_data` → `store` → `pad` at zero claims is
+always sound), but the teardown/rebuild is now a net cost: **3 × unpad + 3 × pad
+full-array round trips per CG iteration**, × 30 iterations. That is exactly the
+per-op round trip the storage-frame combine was built to remove (~9.5 ms of the
+62 ms 512³ linear step). Under the *old* semantics arithmetic paid it anyway, so
+this is an opportunity missed rather than a regression — the optimization simply
+does not reach inside the mapped pressure solve.
+
+Fix: carry the storage-frame arrays (`x._data`) through the `lax.scan` carry and
+rebuild at zero claims. The carry treedef stays trivially stable (raw arrays).
+Update the stale docstring either way.
+
+### 3a.2 `Grid.measure` is not memoized → one exchange per operator application
+
+`operators/staggering.py:576-584` does `grid.sync(grid.measure(query, name=axis))`
+on every mapped-axis application. `Grid.measure` has no cache, and the
+`_SYNC_CACHE` in `operators/base.py:1568` is identity-keyed on the field object —
+so a freshly built measure field misses it every time. Every `FiniteDifference` /
+flux-diff application on a mapped axis therefore emits its own `Grid.sync`: the
+"one exchange per operator application" pattern `tests/spatial/test_exchange_counts.py`
+exists to forbid, multiplied by the CG iteration count.
+
+Not yet proven to bite: the measure is a trace-time constant, so single-device
+sync constant-folds and multi-device collectives may CSE. **The existing
+exchange-count test does not cover it** — uniform `IntervalMesh` takes the
+scalar-`dx` fast path. Needs a mapped-mesh case added to that test, then
+measurement.
+
+### 3a.3 `single_precision_solve` is silently ignored on mapped grids
+
+`nonhydro2/modules/core.py` stores the flag and forwards it to
+`SpectralPressureSolver` on the flat path only; `_project_mapped` builds
+`MappedPressureSolver` with no precision option (it has none). So on a mapped
+grid the flag runs full f64 while **still changing the module treedef** — minting
+an extra compiled program with identical behavior. Either thread precision into
+the `SpectralSolve` preconditioner or raise/warn when the flag is set on a mapped
+grid.
+
+
+## 3b. Confirmed non-issues
+
+Checked and cleared, so no one re-litigates them:
+
+- **Variance does not break the storage-frame fast path.** Their `join`
+  re-applies the variance tag and `_intern` keys on it, so
+  `a.function_space is joined` still holds for same-variance operands.
+  Instrumented: chart run takes the fast path 32/32, flat 30/30. Only the
+  untagged ⊕ tagged lift falls back — correct and rare.
+- **Their operators declare halo requirements correctly.** The whole halo-validity
+  machinery predates the fork; neither side touched `operators/base.py`,
+  `products.py`, `reconstruct.py`. `graded`/`fallback` read only true DOFs, so
+  they are immune to the computed-garbage ghosts storage-frame arithmetic leaves
+  behind. `integrate.py` sums true-shape data.
+- **The ghost-fill vocabulary is unchanged** (`spatial/bc.py` untouched; no
+  inhomogeneous Dirichlet anywhere in their diff), so the linear-homogeneity
+  premise licensing our `merge_min` ghost claims still holds.
+- **`model/model.py`'s +12 lines are inert**: a host-side read-only `modules`
+  property. It never enters the jitted carry and cannot perturb the
+  `out_shardings` fixed point, the donated carry, the scan unroll, or the
+  zero-template builder.
+- **No three-way export collision** in `spatial/operators/__init__.py`; the
+  planner branch's hunks land on lines their diff never touches.
+- **Non-divisible sharding does not break their code**: no `% devices` /
+  `// devices` assumptions anywhere in `mapped/graded/krylov/composed/
+  coordinate_mapping/mapped_pressure/moving_geometry`, and `patch_physical_ends`
+  is already padded-even aware. (Reasoned + single-device tested; **not yet
+  exercised on 4 devices**.)
+
+
 ## 4. Stage 1 — land the merge (mechanical, low risk)
 
 Everything here is understood and rehearsed. No open design questions.
@@ -252,11 +345,19 @@ Ordered levers (to be confirmed by measurement from 2.1):
    this is where the 694× lives. Either make the preconditioner shard-local, or
    let the distributed transform plan carry it. Highest value, and the reason
    the two lines of work had to merge before either could finish.
-2. **Batch the 3 global reductions per iteration** into one all-reduce.
-3. **`MeshVelocityCorrection` has no metric memo** (unlike the pressure solver) —
+2. **Carry the CG iterates on the storage frame** (§3a.1) — removes 6 full-array
+   pad/unpad round trips per iteration, ×30.
+3. **Memoize `Grid.measure`** (§3a.2) — potentially removes one halo exchange per
+   mapped operator application, ×30 iterations. Measure before assuming.
+4. **Batch the 3 global reductions per iteration** into one all-reduce.
+5. **`MeshVelocityCorrection` has no metric memo** (unlike the pressure solver) —
    it re-derives `d{mapped}/d{p}` per corrected field.
-4. Re-tune `pressure_iterations` (30 was chosen under the old unrolled trace
+6. Re-tune `pressure_iterations` (30 was chosen under the old unrolled trace
    cost, for trace reasons, not convergence reasons).
+7. Thread precision into the mapped preconditioner, or reject the flag (§3a.3).
+
+Levers 2 and 3 are notable in that they are pure *reach* problems: our
+optimizations already exist, they simply do not extend inside the mapped solve.
 
 
 ## 7. Sequencing against the strong-model slot
