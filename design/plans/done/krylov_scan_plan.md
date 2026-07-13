@@ -74,16 +74,33 @@ zero, so `_guarded_ratio` divides tiny-by-tiny — finite forward, NaN in
 reverse. The unrolled recurrence NaNs at the same iteration counts. It
 is a property of the fixed-iteration design.
 
-## Remaining
+## The forced-4 gate — closed (measured 2026-07-13)
 
-The one gate not closed:
+The last open gate. It is met: a **jitted forced-4 mapped solve now
+compiles**, where before it did not finish in 10 minutes. Measured on
+cpu with `--xla_force_host_platform_device_count=4`, the 16x16 mapped
+solve of `test_mapped_projection_is_device_count_invariant` at 12
+iterations:
 
-- **The jitted forced-4 mapped solve was never re-measured.** The plan
-  asked whether it now compiles and runs, and if so, that the
-  multi-device gates stop solving eagerly (that is where the 74-87x
-  per-call blowup lives). Nothing in the merge tests this. The compile
-  cost that made it impossible is gone, so the outcome is likely, but
-  it is unverified.
+| | 1 device | forced 4 |
+|---|---|---|
+| jit compile | 0.7 s | **9.1 s** (was: never finished) |
+| eager per call | 426 ms | 16 399 ms |
+| jitted per call | 0.28 ms | 194 ms |
+| eager penalty | 1525x | **85x** |
+
+The predicted 74-87x eager penalty is confirmed at **84.6x** — that is
+what the multi-device gates still pay by solving eagerly. Jitted, the
+1- and 4-device solves agree to 6.2e-16 (the test's gate is 1e-11).
+
+The O(1) trace survives sharding: HLO is **52 200 lines at 12, 30, 60
+and 120 iterations alike**, with compile flat at ~8-10 s; only warm
+runtime scales with the iteration count (191 / 456 / 907 / 1798 ms), as
+it should — that is the arithmetic, not the trace.
+
+Consequence, not yet taken: `test_mapped_projection_is_device_count_invariant`
+(`tests/validation/test_terrain_following_pressure.py`) still calls
+`solver.solve` eagerly and so pays the 85x. It can be jitted now.
 
 Follow-ons (separate work, not this plan):
 

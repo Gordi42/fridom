@@ -102,9 +102,12 @@ specs make that the code does not keep:
 - `fr.modules.WindowAccumulator` — named as shipping in four places;
   does not exist.
 - `add_prognostic` — every stepper family's combine step wants it.
-- The jitted forced-4 mapped pressure solve was never re-measured after
-  the Krylov scan conversion (3.6); the multi-device gates may still
-  solve eagerly.
+- The multi-device mapped-pressure gates still solve **eagerly**, at a
+  measured **85x** per-call penalty (16.4 s vs 194 ms on forced-4). Since
+  3.6 the jitted forced-4 solve compiles (9.1 s, was: never), so
+  `test_mapped_projection_is_device_count_invariant` can be jitted —
+  numbers in
+  [`../plans/done/krylov_scan_plan.md`](../plans/done/krylov_scan_plan.md).
 
 ## Cross-cutting rules
 
