@@ -1,14 +1,15 @@
-"""Tests for the distributed slab-decomposed spectral pipeline.
+"""Tests for the fused distributed spectral solve (kernel + resolution).
 
-Unmarked tests compare an auto-negotiated grid (all available
-devices) against an explicit one-device grid or exercise the plan
-kernels on a one-device mesh, so they pass on any device count;
-under the forced-devices suite
+The resolution flows through the transform's ``distributed_forward_plan``
+(the layout-annotated planner) and drives the fused slab ``shard_map``
+kernel that now lives in ``distributed_solve``: same two ``all_to_all``,
+no gather, device-count invariant. The kernel tests build a ``SlabPlan``
+directly on a one-device mesh (device-count agnostic); the
+``SpectralSolve`` integration tests compare an auto-negotiated grid (all
+available devices) against an explicit one-device grid. ``multi_device``
+marked tests need the forced-4-device suite
 (``XLA_FLAGS=--xla_force_host_platform_device_count=4
-FRIDOM_TEST_FORCED_DEVICES=4``) the auto grid is genuinely sharded
-and the slab pipeline runs distributed. ``multi_device`` marked
-tests additionally inspect plan resolution, the compiled collectives
-and the compile-count stability of the distributed path.
+FRIDOM_TEST_FORCED_DEVICES=4``) to run genuinely sharded.
 """
 import jax
 import jax.numpy as jnp
@@ -16,8 +17,6 @@ import numpy as np
 import pytest
 
 import fridom as fr
-import fridom.spatial.operators.slab_fft as slab_mod
-from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.operators.composed import (
     Diag,
@@ -25,19 +24,20 @@ from fridom.spatial.operators.composed import (
     Gradient,
 )
 from fridom.spatial.operators.dealias import degree
-from fridom.spatial.operators.fourier import Fourier
-from fridom.spatial.operators.slab_fft import (
+from fridom.spatial.operators.distributed_solve import (
     SlabPlan,
     SlabSolve,
-    _internal_coeff,
-    _slab_geometry,
-    resolve_slab_plan,
+    build_distributed_plan,
+    resolve_distributed_plan,
+    resolve_distributed_solve,
     symbol_fits,
 )
+from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.operators.mixed import resolve_transform
 from fridom.spatial.operators.spectral import SpectralDerivative
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.operators.symbol import Symbol
-from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
 
 def make_grid(shape, device_ids=None, periodic=True):
@@ -58,6 +58,27 @@ def laplacian_on(grid, bare, dsqr=1.0):
     return (div @ diag @ grad).scalar()
 
 
+def rng_data(shape, seed=0):
+    return jnp.asarray(
+        np.random.default_rng(seed).standard_normal(shape))
+
+
+def _internal_coeff(bare, stage_names, half):
+    # the plan's internal coefficient space: the half axis keeps its
+    # real origin (Hermitian half spectrum), every other stage factor
+    # targets the complexified origin (full spectrum)
+    mapping = {}
+    for name in stage_names:
+        factor = bare.factor(name)
+        origin = factor if name == half else factor.as_complex()
+        mapping[name] = factor.mesh.fourier(origin=origin)
+    factors = tuple(
+        mapping.get(factor.names[0], factor)
+        if len(factor.names) == 1 else factor
+        for factor in bare.factors)
+    return TensorProductSpace.of(*factors)
+
+
 def one_device_plan(grid, half="z"):
     # plumbing construction on the grid's (possibly one-device)
     # mesh: the kernels are device-count agnostic
@@ -74,171 +95,122 @@ def one_device_plan(grid, half="z"):
         real=True)
 
 
-def rng_data(shape, seed=0):
-    return jnp.asarray(
-        np.random.default_rng(seed).standard_normal(shape))
-
-
-class _StubDecomp:
-
-    """Duck-typed decomposition for geometry-only checks."""
-
-    def __init__(self, layout, count):
-        self.default_layout = layout
-        self.device_count = count
-
-
 # ================================================================
-#  Plan resolution and fallback conditions
+#  Resolution and fallback conditions
 # ================================================================
-def test_single_device_grid_resolves_no_plan():
+def test_none_on_one_device():
     grid = make_grid((8, 8, 8), device_ids=(0,))
     bare = grid.create_field().function_space.bare
-    assert resolve_slab_plan(grid, bare) is None
-    # the resolution is memoized per (grid, bare space)
-    assert resolve_slab_plan(grid, bare) is None
+    transform = resolve_transform(grid, bare)
+    elliptic = laplacian_on(grid, bare)
+    assert resolve_distributed_solve(
+        elliptic, transform, grid, bare, 0.0) is None
 
 
 @pytest.mark.multi_device
-def test_plan_geometry_on_a_sharded_grid():
+def test_hlo_is_the_slab_baseline():
+    grid = make_grid((16, 16, 16))
+    rhs = grid.create_field(data=rng_data((16, 16, 16)))
+    bare = rhs.function_space.bare
+    transform = resolve_transform(grid, bare)
+    elliptic = laplacian_on(grid, bare, dsqr=1e-4)
+    dist = resolve_distributed_solve(
+        elliptic, transform, grid, bare, 0.0)
+    assert dist is not None
+    space = rhs.function_space
+
+    def run(storage):
+        return dist(ScalarField(grid, space, storage))._data
+
+    text = jax.jit(run).lower(rhs._data).compile().as_text()
+    # the golden profile: transposes, nothing gathers the cube
+    assert "all-to-all" in text
+    assert "all-gather" not in text
+    assert "all-reduce" not in text
+
+
+@pytest.mark.multi_device
+def test_matches_one_device_solve():
+    data = np.random.default_rng(5).standard_normal((16, 16, 16))
+    grid = make_grid((16, 16, 16))
+    rhs = grid.create_field(data=jnp.asarray(data))
+    bare = rhs.function_space.bare
+    transform = resolve_transform(grid, bare)
+    dist = resolve_distributed_solve(
+        laplacian_on(grid, bare, dsqr=1e-4), transform, grid, bare,
+        0.0)
+    assert dist is not None
+    p_many = np.asarray(dist(rhs).data)
+    # replicated one-device reference through the ordinary composite
+    one = make_grid((16, 16, 16), device_ids=(0,))
+    one_rhs = one.create_field(data=jnp.asarray(data))
+    one_bare = one_rhs.function_space.bare
+    one_solve = SpectralSolve(
+        laplacian_on(one, one_bare, dsqr=1e-4), one, one_bare)
+    assert one_solve.slab is None
+    assert np.allclose(p_many, np.asarray(one_solve(one_rhs).data),
+                       rtol=1e-12, atol=1e-14)
+
+
+def test_padded_fourier_falls_back():
+    # a padded (dealiasing) transform is not the plain unpadded
+    # Fourier the fused kernel supports; resolution declines it
     grid = make_grid((16, 16, 16))
     bare = grid.create_field().function_space.bare
-    plan = resolve_slab_plan(grid, bare)
-    assert plan is not None
-    assert resolve_slab_plan(grid, bare) is plan  # memoized
-    assert plan.domain is bare
-    assert plan.layout == grid.decomposition.default_layout
-    # internal spectral frame: the half spectrum sits on the local
-    # axis z (never the sharded x), x and y carry full spectra
-    assert plan.coeff.factor("z").scalars is Scalars.REAL
-    assert plan.coeff.factor("x").scalars is Scalars.COMPLEX
-    assert plan.coeff.factor("y").scalars is Scalars.COMPLEX
-    assert plan.coeff.shape == (16, 16, 9)
+    assert build_distributed_plan(
+        Fourier(grid, pad=degree(2)), grid, bare) is None
 
 
 @pytest.mark.multi_device
-def test_walled_grids_fall_back():
-    # bounded z composes trig families: not a plain Fourier
-    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
-    my = fr.spatial.meshes.IntervalMesh(16, (0.0, 2.0), name="y")
-    mz = fr.spatial.meshes.IntervalMesh(16, (0.0, 3.0),
-                                        periodic=False, name="z")
-    grid = fr.spatial.Grid((mx, my, mz))
+def test_two_axis_mesh_falls_back():
+    # a genuine 2-D device mesh (pencil) is the extension point; the
+    # fused 1-D-slab kernel needs a single-axis mesh
+    grid = make_grid((16, 16, 16))
     bare = grid.create_field().function_space.bare
-    assert resolve_slab_plan(grid, bare) is None
-
-
-@pytest.mark.multi_device
-def test_indivisible_partner_extents_fall_back():
-    # x divides the device count but no other axis does: no
-    # transpose partner exists (grid sizes divisible by the device
-    # count are the supported case)
-    grid = make_grid((16, 18, 18))
-    bare = grid.create_field().function_space.bare
-    assert dict(grid.decomposition.default_layout.device_axes) == {
-        "x": "devices"}
-    assert resolve_slab_plan(grid, bare) is None
-
-
-@pytest.mark.multi_device
-def test_single_stage_spaces_fall_back():
-    grid = make_grid((16,))
-    bare = grid.create_field().function_space.bare
-    assert resolve_slab_plan(grid, bare) is None
-
-
-def test_two_axis_device_mesh_is_the_pencil_extension_point():
-    # a genuine 2-D device mesh (pencil decomposition) is the
-    # documented extension point: iteration 1 realizes only 1-D
-    # meshes, so the plan resolves to None until a second all_to_all
-    # stage lands
-    grid = make_grid((16, 16, 16), device_ids=(0,))
-    bare = grid.create_field().function_space.bare
-    real_mesh = grid.decomposition.device_mesh
+    transform = resolve_transform(grid, bare)
 
     class _PencilMesh:
         axis_names = ("rows", "cols")
 
     class _PencilDecomp:
         device_mesh = _PencilMesh()
-        device_count = 4
-
-        def __getattr__(self, name):
-            return getattr(real_mesh, name)
 
     class _PencilGrid:
         decomposition = _PencilDecomp()
 
-    assert slab_mod._build_plan(_PencilGrid(), bare) is None
-
-
-def test_no_device_mesh_falls_back():
-    class _NoMeshDecomp:
-        device_count = 4
-
-    class _NoMeshGrid:
-        decomposition = _NoMeshDecomp()
-
-    grid = make_grid((16, 16, 16), device_ids=(0,))
-    bare = grid.create_field().function_space.bare
-    assert slab_mod._build_plan(_NoMeshGrid(), bare) is None
+    assert build_distributed_plan(transform, _PencilGrid(), bare) is None
 
 
 @pytest.mark.multi_device
-def test_unresolvable_transforms_fall_back():
-    # an all-Constant space carries no transform signature
-    grid = make_grid((16, 16))
-    constant = grid.factors[0].constant
-    assert resolve_slab_plan(grid, constant) is None
-
-
-@pytest.mark.multi_device
-def test_padded_transforms_fall_back(monkeypatch):
+def test_plan_is_memoized():
     grid = make_grid((16, 16, 16))
     bare = grid.create_field().function_space.bare
-    padded = Fourier(grid, pad=degree(2))
-    monkeypatch.setattr(slab_mod, "resolve_transform",
-                        lambda _grid, _bare: padded)
-    assert slab_mod._build_plan(grid, bare) is None
+    transform = resolve_transform(grid, bare)
+    plan = resolve_distributed_plan(transform, grid, bare)
+    assert plan is not None
+    assert resolve_distributed_plan(transform, grid, bare) is plan
 
 
-def test_geometry_rejects_unsuitable_layouts():
-    grid = make_grid((16, 16, 16), device_ids=(0,))
-    bare = grid.create_field().function_space.bare
-    transform = Fourier(grid)
-    # a replicated default layout shards nothing
-    stub = _StubDecomp(Layout({}), 4)
-    assert _slab_geometry(stub, transform, bare) is None
-    # the sharded coordinate is not a stage axis
-    stub = _StubDecomp(Layout({"q": "devices"}), 4)
-    assert _slab_geometry(stub, transform, bare) is None
-    # the sharded extent does not divide the device count
-    stub = _StubDecomp(Layout({"x": "devices"}), 5)
-    assert _slab_geometry(stub, transform, bare) is None
-    # no transpose partner divides the device count
-    grid_b = make_grid((16, 12, 12), device_ids=(0,))
-    bare_b = grid_b.create_field().function_space.bare
-    stub = _StubDecomp(Layout({"x": "devices"}), 8)
-    assert _slab_geometry(
-        stub, Fourier(grid_b), bare_b) is None
+@pytest.mark.multi_device
+def test_warm_solve_adds_zero_compiles(compile_counter):
+    grid = make_grid((16, 16, 16))
+    data = rng_data((16, 16, 16))
 
+    def solve_once():
+        rhs = grid.create_field(data=data)
+        bare = rhs.function_space.bare
+        transform = resolve_transform(grid, bare)
+        dist = resolve_distributed_solve(
+            laplacian_on(grid, bare, dsqr=1e-4), transform, grid,
+            bare, 0.0)
+        assert dist is not None
+        return dist(rhs)
 
-def test_geometry_picks_a_local_half_axis():
-    grid = make_grid((16, 16, 16), device_ids=(0,))
-    bare = grid.create_field().function_space.bare
-    stub = _StubDecomp(Layout({"x": "devices"}), 4)
-    geometry = _slab_geometry(stub, Fourier(grid), bare)
-    assert geometry == ("x", "y", "z", ("x", "y", "z"))
-    # 2-D real: no third axis exists, the plan runs fully complex
-    grid_2d = make_grid((16, 16), device_ids=(0,))
-    bare_2d = grid_2d.create_field().function_space.bare
-    geometry = _slab_geometry(stub, Fourier(grid_2d), bare_2d)
-    assert geometry == ("x", "y", None, ("x", "y"))
-    # complex storage: no Hermitian half axis
-    bare_c = bare.replace(
-        **{n: bare.factor(n).as_complex() for n in bare.names})
-    geometry = _slab_geometry(stub, Fourier(grid), bare_c)
-    assert geometry == ("x", "y", None, ("x", "y", "z"))
+    solve_once()
+    solve_once()
+    compile_counter.reset()
+    solve_once()
+    assert compile_counter.count == 0
 
 
 # ================================================================

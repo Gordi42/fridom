@@ -14,8 +14,9 @@ be pushed until the merged distributed solve is reconciled with the
 design (owner decision, 2026-07-12).
 
 This file is *findings + constraints* — the seed for the plan, not the
-plan. The plan (how exactly it works, staged, with acceptance gates) is
-authored next, in its own context.
+plan. The plan (how exactly it works, staged, with acceptance gates)
+is [`distributed_transform_plan.md`](distributed_transform_plan.md)
+(authored 2026-07-12; answers §6 and the §5 central question).
 
 ## 1. The deviation
 
@@ -180,6 +181,49 @@ composing the ordinary transform (no `SlabSolve` special case), so the
 performance-neutrality by HLO diff + re-benchmark against §4 before
 retiring the `SlabSolve` dispatch. Keep 1-D slab as the first
 parity-locked cut; N-D pencil is a scoped follow-on.
+
+## 8. Multi-host / at-scale execution (srun, GPUs across nodes)
+
+- **SPMD is the multi-host model; the transform lowering is unchanged.**
+  The reconciled design (typed plan -> per-stage `shard_map` kernels ->
+  `all_to_all` reshards) is topology-agnostic: the same jitted program
+  runs on every process, and XLA+NCCL route the collectives over the
+  interconnect (NVLink intra-node, InfiniBand across nodes). Nothing in
+  the transform algebra changes between one node and many. The mesh is
+  already built over the global `jax.devices()`
+  (`decomposition/tensor.py:174`), so it is multi-host-compatible at the
+  mesh level. (Probed: [[distributed-transform-gspmd-lowering]].)
+- **Validation gap.** The current win (20.97 ms, 4x A100) and the whole
+  test harness (`--xla_force_host_platform_device_count=4`) are
+  **single-controller, one node**. No test exercises multi-controller;
+  multi-host is unvalidated and needs a real >=2-node smoke test as its
+  acceptance gate.
+- **Decision: `jax.distributed.initialize()` stays manual (2026-07-12).**
+  fridom does **not** call it. Users who want to run models in parallel
+  provide the distributed init themselves in their launcher / run script
+  (it auto-detects from SLURM env under `srun`). Process bring-up is an
+  entrypoint concern, not library behaviour — by design.
+- **TODO (decomposition/field/IO layer): sharded array construction is
+  not multi-host-ready.** `zeros`/`pad` build storage via
+  `jax.device_put(arr, sharding)` (`tensor.py:574`), a single-controller
+  idiom: in multi-controller mode each process must supply only its
+  **addressable** shard (`make_array_from_process_local_data` /
+  `make_array_from_single_device_arrays`) so no host ever materializes
+  the global cube. Same constraint on initial conditions, the sharded
+  random draw, checkpoint/netCDF IO, and `decomposition.gather` (must
+  stay out of the step). Orthogonal to the transform reconciliation;
+  belongs with the decomposition/IO layer.
+- **Topology -> pencil.** A 1-D slab across all GPUs makes its single
+  `all_to_all` a global cross-node transpose (every device <-> every
+  device over IB) — it does not scale past ~1 node. A 2-D pencil mesh
+  maps one decomposition axis intra-node (NVLink) and one inter-node
+  (IB), so each transpose moves along a single mesh axis and the heavy
+  exchange stays intra-node (the jaxDecomp pattern). So **1-D slab =
+  single-node scope; multi-node scaling needs the pencil (2-D mesh)
+  generalization** (`tensor.py:206` is still `NotImplementedError` for
+  the 2-D mesh). Scope multi-host readiness (init docs + sharded IO +
+  topology-aware mesh mapping) **with** the pencil follow-on; the 2-node
+  smoke test is the gate.
 
 Related: [`phase2_grid_followups.md`](phase2_grid_followups.md),
 `specs/grid/04_decomposition.md` §5.1,
