@@ -84,11 +84,22 @@ mapping.column_corrections`), and their own docstring states the flat grid
    report a spurious speedup.**
 2. **`sw.DynamicalCore.extra_halo` is unconditionally 2 per coordinate**
    (`shallowwater2/modules/core.py:140-142`) — a "chart worst case" that is not
-   gated on `chart_coords`. Declaring it also exempts the module from the halo
-   trace. Masked on default shallow water (Sadourny already needs 2), but
-   **linear shallow water goes 1 → 2 halo cells per axis, ~2× the exchange
-   volume**. The correctly-gated form is next door in
-   `nonhydro2/modules/advection.py:1347-1351`. Two-line fix.
+   gated on `chart_coords`. Masked on default shallow water (Sadourny already
+   needs 2), but **linear shallow water goes 1 → 2 halo cells per axis, ~2× the
+   exchange volume**. The correctly-gated form appears to be next door in
+   `nonhydro2/modules/advection.py:1347-1351`.
+
+   **It is not a two-line fix — attempted and reverted in stage 1.** The
+   `extra_halo` declaration *doubles as a halo-trace exemption*: a module that
+   declares a width is skipped by the tracer. Returning `None` on flat grids
+   un-exempts the module, and the tracer then runs the gravity term against
+   `_TracerGrid` — a deliberately minimal stub exposing only `dispatch`
+   (`spatial/decomposition/halo.py:274-288`) — which has no `chart_coords`, so
+   the term raises. Fixing it properly means either teaching `_TracerGrid` to
+   carry `chart_coords` (and deciding what it should report, given the tracer
+   only reaches non-exempt modules) or making the term body tracer-safe.
+   Deferred to stage 3; note this is **their** pre-existing cost, not
+   merge-induced, so deferring it costs nothing against the status quo.
 
 ### 1.4 The performance wave has almost no automated guard
 
@@ -166,17 +177,40 @@ is involved — so the cause is almost certainly there.
 **This needs a root-cause session, not a guess.** It is bounded, well-isolated,
 and reproducible in 5 seconds. Deferred to the strong-model slot (§5).
 
-**Owner decision required.** Two defensible resolutions:
-- **(A)** Make the two graphs congruent so the identity chart stays bitwise flat.
-  Strongest invariant, but may cost the fast path on chart grids.
-- **(B)** Accept a few-ULP tolerance in that one assertion (`allclose` at
-  `rtol=1e-15`), documenting that the storage-frame arithmetic changes the fused
-  graph shape. Still an extremely strong statement; keeps the optimization.
+### Root cause — confirmed (2026-07-13)
 
-Recommendation: **(B)**, *if* the root cause confirms the hypothesis — a bitwise
-tie between two structurally different graphs is not something the optimizer can
-be asked to preserve in general. But do not relax the test before the cause is
-understood; a 1-ULP delta is also exactly what a genuine bug looks like.
+Decisive experiment: run the same comparison under `jax.disable_jit()`.
+
+```
+jit on              u: bitwise=False   maxdiff=3.55e-15
+jax.disable_jit()   u: bitwise=True    maxdiff=0.00e+00
+```
+
+**With the compiler out of the way the two paths are bitwise identical.** The
+Python arithmetic is exact — there is no algebraic difference, no stray term, no
+bug in either code path. The entire delta is created by XLA at compile time.
+
+Mechanism: the chart momentum tendency runs 2 extra field combines (metric terms
+that are algebraically neutral when `g = I`). Field operations used to round-trip
+through `unpad → op → pad`, and those round trips acted as **fusion barriers**.
+The storage-frame arithmetic deleted them, so XLA now fuses long elementwise
+chains and contracts multiply+add pairs into FMAs — and it makes those choices
+differently for the 32-op chart chain than for the 30-op flat chain. A contracted
+FMA rounds differently from a separate multiply-then-add. Hence one ULP.
+
+Forcing the two graphs to round identically would require reinstating the fusion
+barriers (= reverting the storage-frame optimization), or globally suppressing
+FMA contraction (= slowing everything down), or making the chart graph
+structurally identical to the flat one (impossible in general — the extra metric
+terms only vanish in the degenerate identity case).
+
+**Resolution taken (stage 1):** test the invariant where it is actually true.
+The tendency comparison is asserted **bitwise under `jax.disable_jit()`** — which
+pins the real invariant, that the chart path evaluates the same floating-point
+expression as the flat path — and to a few ULP under jit. Demanding bitwise
+agreement between two structurally different compiled programs would forbid the
+compiler from fusing them differently, i.e. it would forbid the optimization
+rather than test the physics.
 
 
 ## 3a. Where their code was written against our *old* seam
@@ -282,15 +316,18 @@ Everything here is understood and rehearsed. No open design questions.
 | 1.2 | Merge `origin/dev` → `dev` (`--no-ff`) | 4 conflicts, resolutions known: keep both kwargs in `nonhydro2/{model,modules/core}.py`; accept their `ROADMAP.md` deletion; take their `design/README.md` and re-add our plan rows. |
 | 1.3 | Fix our 2 test fixtures | Pass an explicit `coriolis=` in the two `nonhydro2` tests. |
 | 1.4 | Re-home the ROADMAP follow-up | The decomposed/gather-free TensorStore write (old ROADMAP 2.6) → `design/roadmap/open.md`. |
-| 1.5 | Gate `sw.DynamicalCore.extra_halo` | §1.3(2). Two lines; restores linear-SW exchange volume. |
-| 1.6 | Un-skip the two `single_device` validation gates | §2 — the reshard stages should fix them. If they still fail, they stay skipped and become a §5 item. |
-| 1.7 | Park the identity-chart failure | Mark `xfail` with a pointer to §3 so the suite is green and the signal is not lost. **Do not "fix" it by relaxing the assertion yet.** |
+| 1.5 | ~~Gate `sw.DynamicalCore.extra_halo`~~ | **Attempted, reverted** — not mechanical (§1.3(2)). Moved to stage 3. |
+| 1.6 | Widen the forced-4 CI leg | `test_exchange_counts`, `test_halo_validity`, `test_step_chunk`, `test_run`, `test_end_to_end`, `test_model` — all verified passing on 4 devices. Closes the gap where multi-device-only bugs were guarded by single-device tests. |
+| 1.7 | Resolve the identity-chart failure | Root-caused (§3): bitwise under `jax.disable_jit()`, few-ULP under jit. |
 
-**Gate:** full suite green on 1 device **and** under
-`XLA_FLAGS=--xla_force_host_platform_device_count=4 FRIDOM_TEST_FORCED_DEVICES=4`;
-`ruff check src tests` clean.
+**Status: LANDED 2026-07-13.** Gate met: `ruff check src tests` clean;
+**8043 passed, 0 failed** on 1 device; **297 passed** on the forced-4
+decomposition/transform leg; **138 passed** on the forced-4 model/field guard leg
+(which also clears the open question of whether their new `Variance` intern key
+breaks the re-block / transform-plan / solve caches — it does not).
 
-Stage 1 is deliberately *only* mechanical work. It is safe to do immediately.
+Stage 1 was deliberately *only* mechanical work; the one item that turned out not
+to be (1.5) was reverted rather than pushed through.
 
 
 ## 5. Stage 2 — prove the performance survived (needs care; do with the strong model)
@@ -355,6 +392,8 @@ Ordered levers (to be confirmed by measurement from 2.1):
 6. Re-tune `pressure_iterations` (30 was chosen under the old unrolled trace
    cost, for trace reasons, not convergence reasons).
 7. Thread precision into the mapped preconditioner, or reject the flag (§3a.3).
+8. Gate `sw.DynamicalCore.extra_halo` on the chart (§1.3(2)) — needs
+   `_TracerGrid` to carry `chart_coords`, or a tracer-safe term body.
 
 Levers 2 and 3 are notable in that they are pure *reach* problems: our
 optimizations already exist, they simply do not extend inside the mapped solve.

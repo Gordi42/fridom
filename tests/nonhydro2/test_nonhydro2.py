@@ -176,7 +176,7 @@ def test_second_advance_with_both_options_compiles_nothing(
     # zero-recompile on repeated advance with both reduced-precision
     # options on (the options are static: one program per value)
     model = nh.Model(
-        grid=make_grid(), advection=False,
+        coriolis=fplane(), grid=make_grid(), advection=False,
         single_precision_solve=True,
         time_stepper=AdamBashforth(
             DT, order=3, single_precision_history=True))
@@ -191,8 +191,8 @@ def test_second_advance_with_both_options_compiles_nothing(
 def test_single_precision_solve_model_still_projects():
     # a full single-precision-solve model runs and drives divergence
     # to the single-precision floor (well below the IC divergence)
-    model = nh.Model(grid=make_grid(), dt=DT, advection=False,
-                     single_precision_solve=True)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     advection=False, single_precision_solve=True)
     x, y, z = grid_coords()
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
                      w=0.2 * np.sin(z))

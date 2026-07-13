@@ -7,10 +7,13 @@ excluded), prognosing contravariant velocity components (the
 convention recorded in ``shallowwater2/modules/core.py``):
 
 - **Flat limit**: on the identity chart (X = (x, y)) the metric-aware
-  paths reproduce the chartless Cartesian model **bitwise** over a
-  50-step run (every metric factor is an exact 1.0 and each extra
-  multiplication/division is by 1.0 — measured exact, asserted
-  exact).
+  paths reproduce the chartless Cartesian model exactly — every metric
+  factor is an exact 1.0 and each extra multiplication/division is by
+  1.0, so the two evaluate the same floating-point expression and agree
+  **bitwise** unfused (asserted under ``jax.disable_jit``). Under jit
+  they agree to a few ULP, not bitwise: the chart is a structurally
+  different program (two extra neutral combines), and XLA fuses and
+  FMA-contracts it differently — see the comment in the test.
 - **Mass**: the flux-form metric divergence + structural cap
   impermeability conserve the sqrt(g)-weighted mass to rounding over
   600 steps (measured ~1e-16 relative).
@@ -27,6 +30,7 @@ convention recorded in ``shallowwater2/modules/core.py``):
 - Plus the C2 gates: compile-once across steps and forced-4
   device-count invariance (the ``test_chart_manifolds`` precedent).
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -146,17 +150,45 @@ def test_identity_chart_run_is_bitwise_flat():
     chart.set_fields(**fields)
     flat.set_fields(**fields)
 
+    # The chart path evaluates the *same floating-point expression* as
+    # the flat path: every metric factor is an exact 1.0 and each extra
+    # multiplication/division is by 1.0. With jit disabled — op by op,
+    # no XLA fusion — the two agree BITWISE. That is the invariant this
+    # test exists to pin, and it is asserted exactly.
+    with jax.disable_jit():
+        dzc = chart.tendency(chart.state)
+        dzf = flat.tendency(flat.state)
+        for name in ("u", "v", "p"):
+            assert np.array_equal(np.asarray(dzc[name].data),
+                                  np.asarray(dzf[name].data))
+
+    # Under jit the two are no longer *bitwise* equal, and cannot be
+    # asked to be. The chart graph carries two extra (algebraically
+    # neutral) metric combines, so it is a structurally different
+    # program; since the storage-frame field arithmetic removed the
+    # pad/unpad round trips that used to sit between field operations
+    # as fusion barriers, XLA now fuses long elementwise chains and
+    # contracts multiply+add pairs into FMAs — and it makes those
+    # choices differently for the 32-op chart chain than for the 30-op
+    # flat chain. A contracted FMA rounds differently from a separate
+    # multiply-then-add, so the momentum tendencies differ in the last
+    # bit (measured: 1 ULP, 1.3e-16 relative; p is still exact).
+    # Demanding bitwise agreement here would forbid the compiler from
+    # fusing two structurally different programs differently, i.e. it
+    # would forbid the optimization rather than test the physics.
     dzc = chart.tendency(chart.state)
     dzf = flat.tendency(flat.state)
     for name in ("u", "v", "p"):
-        assert np.array_equal(np.asarray(dzc[name].data),
-                              np.asarray(dzf[name].data))
+        assert np.allclose(np.asarray(dzc[name].data),
+                           np.asarray(dzf[name].data),
+                           rtol=1e-14, atol=1e-14)
 
     chart.advance(50)
     flat.advance(50)
     for name in ("u", "v", "p"):
-        assert np.array_equal(np.asarray(chart.state[name].data),
-                              np.asarray(flat.state[name].data))
+        assert np.allclose(np.asarray(chart.state[name].data),
+                           np.asarray(flat.state[name].data),
+                           rtol=1e-12, atol=1e-12)
 
 
 # ================================================================

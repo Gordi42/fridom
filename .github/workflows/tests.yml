@@ -52,7 +52,12 @@ jobs:
           --junitxml=junit.xml -o junit_family=legacy
 
     # the multi-device suite covers the distributed code paths of the
-    # domain decomposition; its coverage is appended to the report
+    # domain decomposition; its coverage is appended to the report.
+    # The model and field legs are here because the guards they carry
+    # (the chunk out_shardings fixed point, the cached re-blocking
+    # shard_maps, the ghost-claim exchange elision) protect bugs that
+    # only manifest on several devices — running them single-device
+    # only would leave those optimizations unguarded.
     - name: Run the tests (multiple devices)
       env:
         XLA_FLAGS: --xla_force_host_platform_device_count=4
@@ -62,7 +67,13 @@ jobs:
           tests/spatial/decomposition \
           tests/spatial/operators/test_distributed_solve.py \
           tests/spatial/operators/test_transform.py \
-          tests/spatial/operators/test_spectral_solve.py -q \
+          tests/spatial/operators/test_spectral_solve.py \
+          tests/spatial/test_exchange_counts.py \
+          tests/spatial/fields/test_halo_validity.py \
+          tests/model/test_step_chunk.py \
+          tests/model/test_run.py \
+          tests/model/test_end_to_end.py \
+          tests/model/test_model.py -q \
           --cov --cov-append --cov-report=
 
     - name: Generate the coverage report
