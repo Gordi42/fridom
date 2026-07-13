@@ -35,17 +35,18 @@ and the model layer is `fridom.model`.
 
 # Next steps
 
-## 3.10 — Performance optimization (in progress, elsewhere)
+## Performance optimization (in progress, elsewhere)
 
 Cross-cutting: single- and multi-device, compile and runtime, memory,
 cpu and gpu. **Being worked on outside this checkout.** The plan is to
 land the work in flight here first, then rebase the optimization pass on
 top, so that everything written here is optimized in the same sweep.
 
-Nothing else should start optimization work in parallel. **3.9 below is
-expected to be largely absorbed by this**, which is why it sits under it.
+Nothing else should start optimization work in parallel. **The
+multi-device cost below is expected to be largely absorbed by this**,
+which is why it sits under it.
 
-## 3.9 — Multi-device compile and execution cost
+## Multi-device compile and execution cost
 
 The mapped pressure solve is correct under decomposition but
 disproportionately expensive there. Measured 2026-07-13 (forced-4 host
@@ -107,6 +108,19 @@ functions (it is a convolution), so registering it under the same
 first; it blocks nothing.
 [`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md)
 
+## Finite-volume nonhydro
+
+Move the nonhydro model to the average family (`CellAvg` scalars,
+face-normal velocities — decision FV-D2 **option A**, owner 2026-07-12).
+**No FV code is written yet**; all nine operator gaps are open. Staged:
+the four FV symbol rows (the long pole — they block `SpectralSolve` and
+hence the pressure solve), the missing conversion rows, an FV tracer slice
+— which is where the payoff lands: **exact tracer-mass conservation and
+the cut-cell path** — then the C-grid profile with **bitwise parity** as
+the gate. Do **not** flip the default wholesale first: walls and mapped
+grids work today and would regress.
+[`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
+
 ## High-order stencils on mapped grids — **the spike only**
 
 *Spike: small (~1 day, a throwaway script, no production edits).* The
@@ -163,20 +177,7 @@ Records: [`../plans/active/cutover_parity_plan.md`](../plans/active/cutover_pari
 [`../plans/active/cutover_checklist.md`](../plans/active/cutover_checklist.md)
 (the executable swap list).
 
-## 3.5 — Finite-volume nonhydro
-
-Move the nonhydro model to the average family (`CellAvg` scalars,
-face-normal velocities — decision FV-D2 **option A**, owner 2026-07-12).
-**No FV code is written yet**; all nine operator gaps are open. Staged:
-the four FV symbol rows (the long pole — they block `SpectralSolve` and
-hence the pressure solve), the missing conversion rows, an FV tracer slice
-— which is where the payoff lands: **exact tracer-mass conservation and
-the cut-cell path** — then the C-grid profile with **bitwise parity** as
-the gate. Do **not** flip the default wholesale first: walls and mapped
-grids work today and would regress.
-[`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
-
-## 3.8 — Generalized adiabatic ramping
+## Generalized adiabatic ramping
 
 An `AdiabaticRamping` base transform that ramps declared parameters from a
 start to an end value over a ramp period (continuous stage-time `Ramp`
