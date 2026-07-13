@@ -102,12 +102,55 @@ is *not* the unrolled-loop cost: it is what SPMD partitioning of the
 sharded metric-scaled stencil chains and the CG's cross-shard
 dot-product reductions cost per iteration.
 
-**First task is to measure on real devices** (gpu / multi-host). Forced
-host devices exaggerate it — four "devices" contending for one cpu, with
-collectives over no interconnect — so it is not yet known how much is
-harness artifact. Then: count the collectives per CG iteration (the halo
-exchange plus two all-reduces), and see whether the reductions can be
-batched or the preconditioner made shard-local. Numbers and method:
+### Measured on real devices (2026-07-13, 4x A100-80GB)
+
+**The 694x was almost entirely a harness artifact**, as this section
+suspected. On real GPUs the mapped solve *scales*: 4 GPUs are **1.22x
+faster** than 1, not 694x slower. The forced-4-cpu figure was measuring
+four "devices" contending for one cpu with collectives over no
+interconnect, on a 16x16 toy.
+
+The real cost is not multi-device at all — it is the **per-iteration cost
+of the CG loop**, and it is the same on 1 and 4 GPUs:
+
+| nonhydro, ms/step | flat (walled z) | mapped, 30 it | mapped, 12 it |
+|---|---|---|---|
+| 128^3, 1 GPU | 1.33 | 28.6 (21.6x) | 12.3 (9.3x) |
+| 256^3, 1 GPU | 8.72 | 216.2 (24.8x) | 93.0 (10.7x) |
+| 128^3, 4 GPU | 1.45 | 37.6 (26.0x) | 16.4 (11.3x) |
+| 256^3, 4 GPU | 6.40 | 177.1 (27.7x) | 75.8 (11.8x) |
+
+Differencing the 30- and 12-iteration runs prices one CG iteration at
+**6.85 ms (1 GPU) / 5.63 ms (4 GPU) at 256^3** — against **8.72 ms for an
+entire flat timestep**. *One CG iteration costs roughly one whole flat
+model step.* Extrapolating to zero iterations leaves ~10.8 ms, i.e. the
+metric/measure machinery itself accounts for only ~25% over flat; **the
+other ~95% of the mapped step is the CG loop**. At the shipped default of
+30 iterations that is a 25x model.
+
+Compile cost is also real, though secondary: 16-18 s vs 2-3 s flat.
+
+So the levers are unchanged but their ordering is now measured: the
+preconditioner (a full FFT pair *per iteration*), the 6 pad/unpad round
+trips per iteration, the 3 global reductions per iteration, and the
+iteration count itself (30 is a trace-era default; the tests converge at
+12). Batching the reductions cannot matter much — this is not
+communication-bound. See
+[`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+§6.
+
+**Side finding — walled flat grids do not scale.** `flat_walled` gets only
+1.36x from 4 GPUs where `flat_periodic` gets 2.11x (256^3), because the
+distributed transform path bails on walled (trig) grids and falls back to
+the *replicated* solve. That fallback also caps what the mapped
+preconditioner can ever get from multi-GPU. It is a documented extension
+point, and it is now the top multi-device item after the CG loop.
+
+Method: `AdamBashforth(3)`, linear (advection off), f64, one chunk of 50
+steps (`_chunk_size = steps` — `advance(N)` with `N < chunk_size` runs N
+chunks of length 1 and reads 2-3x worse), `block_until_ready`, best of 3.
+4-GPU runs need `XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`
+(jax-ml/jax#39100). Prior numbers and the toy-solve method:
 [`../plans/done/krylov_scan_plan.md`](../plans/done/krylov_scan_plan.md).
 Gates the credibility of 3.3.
 

@@ -356,6 +356,66 @@ Stage 1 was deliberately *only* mechanical work; the one item that turned out no
 to be (1.5) was reverted rather than pushed through.
 
 
+## 4a. Where we stand — measured (2026-07-13, 4x A100-80GB)
+
+**The flat path is unchanged by the merge.** Measured against the numbers
+recorded pre-merge, at the same configs:
+
+| flat nonhydro, linear | recorded pre-merge | measured post-merge |
+|---|---|---|
+| 256^3, 1 GPU | 7.47 | **7.46** |
+| 256^3, 4 GPU | 3.54 | **3.54** |
+| 512^3, 1 GPU | 57.75 | **59.13** |
+| 512^3, 4 GPU | 20.97 | **21.17** |
+
+Within run-to-run noise on all four. The byte-for-byte no-op argument in §1.3
+is now also an empirical result, not just a structural one.
+
+**Mapped meshes.** 2D chart (lat-lon sphere) vs flat, and 3D
+terrain-following vs flat — ms/step:
+
+| | 1 GPU flat | 1 GPU mapped | 4 GPU flat | 4 GPU mapped |
+|---|---|---|---|---|
+| sw 1024^2 | 0.46 | 1.63 (3.6x) | 0.87 | 1.40 (1.6x) |
+| sw 2048^2 | 1.56 | 5.66 (3.6x) | 1.26 | 2.31 (1.8x) |
+| nh 128^3 | 1.33 | 28.6 (21.6x) | 1.45 | 37.6 (26.0x) |
+| nh 256^3 | 8.72 | 216.2 (24.8x) | 6.40 | 177.1 (27.7x) |
+
+(3D mapped at the shipped default `pressure_iterations=30`; at the 12 their
+own tests use, 10.7x / 11.8x.)
+
+Three results worth carrying forward:
+
+1. **The 694x multi-device blow-up was a harness artifact.** On real GPUs the
+   mapped solve *scales* — 4 GPUs are 1.22x faster than 1. The open question
+   the roadmap filed is answered, and the answer is that there is no
+   multi-device catastrophe. The mapped penalty is ~25x on **both** 1 and 4
+   GPUs: it is a *per-iteration* cost, not a communication cost.
+2. **One CG iteration costs roughly one entire flat model step**
+   (6.85 ms vs 8.72 ms at 256^3, 1 GPU — differencing the 30- and
+   12-iteration runs). Extrapolating to zero iterations leaves ~10.8 ms, so
+   the metric/measure machinery is only ~25% over flat and **the CG loop is
+   ~95% of the mapped step**. Every lever in §6 that touches the iteration
+   body is therefore worth ~30x its per-iteration saving.
+3. **2D chart cost parallelizes** (3.6x on 1 GPU -> 1.8x on 4): the metric
+   operators are fine multi-device. The 3D problem is the solver, not the
+   geometry.
+
+**Side finding, not previously recorded: walled flat grids do not scale
+multi-device.** `flat_walled` gets 1.36x from 4 GPUs where `flat_periodic`
+gets 2.11x (256^3), because the distributed transform path bails on walled
+(trig) grids and falls back to the replicated solve. This is a documented
+fallback, but it was never priced. It also caps what the mapped
+preconditioner can get from multi-GPU, so it is now the top multi-device
+item after the CG loop itself.
+
+Method: linear (advection off), AB3, f64, one chunk of 50 steps
+(`_chunk_size = steps`), `block_until_ready`, best of 3. Multi-GPU runs
+carry `XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`
+(jax-ml/jax#39100). Script: throwaway, not committed — building the
+reproducible harness is still §5 item 2.1.
+
+
 ## 5. Stage 2 — prove the performance survived (needs care; do with the strong model)
 
 Stage 1 proves the merged tree is *correct*. It proves nothing about *speed*,
