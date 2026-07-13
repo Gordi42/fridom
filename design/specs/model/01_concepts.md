@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Core concepts and load-bearing decisions
@@ -9,12 +9,12 @@ Part of the model redesign notes; see
 [`00_overview.md`](00_overview.md) for the document map, motivation,
 and the inherited grid constraints (section 2 there).
 
-Status: **skeleton for discussion.** Section 3 fixes the concept
-vocabulary; sections D1–D4 state the four load-bearing decisions as
-alternatives with trade-offs. Decisions are resolved in order
-(D1 → D2 → D3 → D4): each constrains the next. Once a decision is
-made, its section is rewritten as normative text and the alternatives
-move to a "rejected" note, following the grid-notes convention.
+Status: **normative.** Section 3 fixes the concept vocabulary; D1–D5
+are the load-bearing decisions, **all resolved and implemented**
+(`fridom.model`). Each section is the resolved decision plus the
+reasoning that produced it; the rejected alternatives live in the
+research reports ([`research/`](../../research/README.md)) and are not
+re-argued here.
 
 ---
 
@@ -369,14 +369,15 @@ coupling is a declared, assembly-checked dependency. A
 
 ### D1 residual open points
 
-Carried in [`07_open_threads.md`](07_open_threads.md):
-unstructured-factor tag vocabulary (`EDGE_NORMAL`); typo'd
-coordinate names in patterns (assembly resolution-table logging /
-optional `require=`); `state_type`-under-jaxify mechanics;
-`DIAGNOSTIC` vs module-private storage for `div`; multi-velocity
-futures (`table.velocity()` ambiguity under split-explicit /
-coupling); `set_fields` mutating-vs-functional spelling (D4);
-the `default`-staleness rule for 02_rules.
+Settled since sign-off: `state_type` ships as a `Module` attribute
+with the `Model(state_type=...)` kwarg as the escape hatch (the
+assembly record lints it as a hashable static); `set_fields` is
+functional; the `default`-staleness rule is in
+[`02_rules.md`](02_rules.md); `div` stays stage-local.
+
+Still carried in [`07_open_threads.md`](07_open_threads.md): the
+unstructured-factor tag vocabulary (`EDGE_NORMAL`) and the
+multi-velocity `group=` qualifier — both designed-for, no consumer.
 
 ---
 
@@ -609,15 +610,17 @@ empty** — even `ekin` carries `dsqr` (nh) / `Ro²·csqr` (sw); only
 
 ### D2 residual open points
 
-Carried in [`07_open_threads.md`](07_open_threads.md): the
-explicit-wins mechanism (constructor-set value suppressing a
-declared reference — `USE_PROVIDED` sentinel proposal); the
-`model.update_parameters` / re-materialization lifecycle hook (D4);
-restart-fingerprint treatment of parameter specs (Ramp shape =
-structure, endpoints = leaves); `cfl`'s access to the stepper `dt`
-(D3); `em.omega_at(k, s)` scalar accessor and non-Fourier eigenmode
-families (Phase 2.7); diagnostics-result metadata rule and the
-dotted-name lint (02_rules).
+Settled since sign-off: the explicit-wins mechanism ships as the
+`USE_PROVIDED` sentinel; `model.update_parameters` and the
+re-materialization table landed with D4; the restart-fingerprint
+treatment of parameter specs and the diagnostics-metadata rule are in
+[`02_rules.md`](02_rules.md); `dt` is a stepper-owned leaf published as
+`fr.params.TIME_STEP`, so `cfl` reads it like any parameter;
+non-Fourier eigenmode families ship (the channel tier).
+
+Still carried in [`07_open_threads.md`](07_open_threads.md): the
+`em.omega_at(k, s)` scalar accessor (unbuilt) and the dotted-name
+lint.
 
 ---
 

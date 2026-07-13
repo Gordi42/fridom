@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Grid abstraction redesign — Class designs: function spaces
@@ -547,22 +547,27 @@ complexified origins (full spectrum, `FourierSpace` note above), and
 the planner's schedule — free to reorder `axes` for speed — fixes the
 choice statically per grid.
 
+Former question 4 (**BC-free bounded spaces**) is **closed by the R1
+landing** (boundary plan, stages 2a/2c'/2d): `BC.NONE` on a bounded
+axis means *no operation may read beyond the boundary* — exterior
+reads raise instead of being silently extrapolation-filled, and a
+one-sided/graded closure (`Fallback`, `UpwindOne`, the graded-order
+rows) is the **explicit** opt-in. Record:
+[`../../../plans/done/bc_free_boundaries.md`](../../../plans/done/bc_free_boundaries.md).
+The Robin *structure* decision (question 1 below) landed with it.
+
 Still open:
 
-1. **Robin / mixed BCs** (stays open, owner directive; do not resolve
-   yet — a resolution is *proposed* as decision R3 of
-   [`../../../plans/active/boundary_plan.md`](../../../plans/active/boundary_plan.md), which supersedes
-   this directive only when signed). Constraints for the eventual decision: a float BC parameter
-   in the static interning key means a **full recompile per parameter
-   value** under the Phase-3 single jit, and it **forecloses
-   autodiff through — and module updates of — BC parameters**. The
-   candidate resolution is: only the DOF-count-changing *structure*
-   (a `BC.ROBIN` member) enters the space key, while the float
-   coefficients are dynamic data living where BC data already lives
-   (module-owned trace fields, section 3.6), consumed by
-   `ghost_fill`/basis assembly at trace time. That candidate ties
-   into the same static-structure-must-hold-no-values tension as the
-   unstructured-mesh question below; decide them coherently.
+1. **Robin / mixed BCs — the dynamic data path only.** The structural
+   half is **decided and landed**: only the DOF-count-changing
+   structure enters the space interning key (`BC.ROBIN` is a member of
+   `fr.BC`), while the float coefficients `alpha`/`g` stay **dynamic
+   data** — a float in the interning key would recompile per value and
+   foreclose autodiff through BC parameters. What remains is the
+   plumbing: the module-owned trace fields that carry `alpha`/`g` into
+   `ghost_fill`/basis assembly (boundary-plan stage 2e, gated on the
+   model layer). Until 2e lands, `BC.ROBIN` is a structure with no
+   data path.
 2. **Bulk geometry of unstructured meshes** (owner-flagged, requires
    a careful rethink before any unstructured work). Connectivity and
    vertex coordinates are bulk array data; the cluster rule forbids
@@ -579,19 +584,6 @@ Still open:
    `SphereMesh` notes) — `SphereMesh.boundary` needs pole-cap
    latitude circles as boundary curves too. Not designed here;
    `PointMesh` only covers the 1D-factor case iteration 1 needs.
-4. **BC-free bounded spaces: exterior values untouchable**
-   (owner-flagged, 2026-07-07). Should `BC.NONE` on a bounded axis
-   mean "no operation may read beyond the boundary" — replacing the
-   one-sided extrapolation ghost fill with per-row legality
-   (exterior-needing signatures exist only on BC-structured spaces)
-   plus explicit opt-in one-sided stencil rows? Full analysis,
-   motivation (the fill is inconsistent under composition), and
-   migration cost in
-   [`../../../plans/active/bc_free_boundaries.md`](../../../plans/active/bc_free_boundaries.md); decide
-   together with the Robin/mixed question above (both hinge on what
-   BC structure the space key carries vs what stays dynamic) — the
-   joint resolution is proposed in
-   [`../../../plans/active/boundary_plan.md`](../../../plans/active/boundary_plan.md) (R1-R4).
 4. **Dedicated unstructured space classes.** Vertex/edge/cell spaces
    are speced as `NodalSpace` instances with new `NodeSet` tags;
    whether dispatch ergonomics want dedicated classes (`Vertex`,

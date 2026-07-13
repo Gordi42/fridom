@@ -1,13 +1,28 @@
 ---
 status: accepted
 date: 2026-07-08
-supersedes: ../plans/active/operator_symbols_plan.md
+supersedes: ../plans/done/operator_symbols_plan.md
+partially_superseded_by: commit d3309640 (2026-07-09)
 ---
 
 # The symbol stack — dynamic symbols, mixed transforms, banded axes
 
+> **Partially superseded, 2026-07-09.** Decisions 1–3 shipped: the scalar
+> `Symbol` type, `SpectralSolve`
+> (`spatial/operators/spectral_solve.py`, carrying the nonhydro pressure
+> solve), layout-faithful `eigenvalues`, and the banded primitive
+> (`spatial/operators/banded.py`). What did **not** survive is the
+> `BlockSymbol` layer — the claim that eigenvectors/projectors *are*
+> symbols (a rank-1 `BlockSymbol`) died when the block IR was deleted in
+> `d3309640`; see
+> [`blocksymbol_l_assembly.md`](blocksymbol_l_assembly.md). Read the
+> `BlockSymbol`-of-`Banded` rung below as a proposal that no longer has a
+> substrate, not as a committed target. The `Banded` rung itself is still
+> live work, tracked as phase I of
+> [`../plans/active/projection_eigenmode_roadmap.md`](../plans/active/projection_eigenmode_roadmap.md).
+
 **Status: design decisions, 2026-07-08 (owner-driven discussion).**
-Refines [`../plans/active/operator_symbols_plan.md`](../plans/active/operator_symbols_plan.md) (§3-5 the
+Refines [`../plans/done/operator_symbols_plan.md`](../plans/done/operator_symbols_plan.md) (§3-5 the
 Symbol type + solver) and
 [`blocksymbol_l_assembly.md`](blocksymbol_l_assembly.md) (resolves its
 real-FFT/staggering boundary). Triggered by the nonhydro pressure
@@ -122,7 +137,7 @@ Consequences:
   maps, `backward @ symbol.inverse() @ forward`. The Phase-D′
   `SpectralPressureSolver` should become a thin constructor returning
   that value (a follow-up reframe, not a rewrite). **The implementation
-  path is [`../plans/active/composition_refactor_plan.md`](../plans/active/composition_refactor_plan.md)**
+  path is [`../plans/active/composition_refactor_plan.md`](../plans/done/composition_refactor_plan.md)**
   — the realized-map category + the shared composition core.
 - **Materialization is explicit (decision A, 2026-07-08).** A bare
   `symbol @ recipe` **raises** a taught error pointing at

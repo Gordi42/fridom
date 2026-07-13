@@ -1,74 +1,95 @@
 ---
 status: idea
-date: 2026-07-12
+date: 2026-07-13
 ---
 
 # Generalized adiabatic ramping (OptimalBalance as a subclass)
 
 Owner request, 2026-07-12. **Not scheduled** — recorded so the shape is
-not lost. Depends on ROADMAP 2.8 (state transforms) being in place.
+not lost. ROADMAP 3.8.
+
+## Where reality stands (2026-07-13)
+
+The dependency is discharged: ROADMAP 2.8 (state transforms) **ships**.
+`fridom.model.transforms` carries `StateTransform` and its algebra,
+`FixedPoint`, `Shift`, `Identity`, `Propagator`, `TimeAverage`, the
+projections, and a working `OptimalBalance`
+(`src/fridom/model/transforms/optimal_balance.py`, covered by
+`tests/model/transforms/test_optimal_balance.py`). Nothing named
+`AdiabaticRamping` exists.
+
+Two details of the shipped code correct the earlier sketch:
+
+- `OptimalBalance` ramps `scaling.rossby` from `0` to the **model's own
+  nominal Rossby value** (so `rossby_number=0.1` ramps `0 -> 0.1`), not
+  `0 -> 1`.
+- The ramp vocabulary is `Ramp(v0, v1, period=..., t0=..., curve=...)`
+  with `curve` in `{"linear", "cosine", "exp"}` or a callable with
+  `shape(0)=0, shape(1)=1` (`src/fridom/model/time_dependent.py`) — not
+  the old `ramp_type` names `exp`/`pow`/`cos`/`lin`. Evaluation is
+  continuous stage-time, branch-free, and already zero-recompile under
+  endpoint sweeps.
 
 ## The idea
 
-Today `OptimalBalance` is designed as a bespoke Tier-2 transform
-([`specs/model/08_state_transforms.md`](../../specs/model/08_state_transforms.md)):
-two owned model variants with a `Ramp`-valued `scaling.rossby` (up on
-the forward leg, down on the backward one), a sign-flipped `TIME_STEP`
-on the backward leg, and a `FixedPoint` around
+`OptimalBalance` is today a bespoke Tier-2 transform: two owned
+`Propagator` legs with a `Ramp`-valued `scaling.rossby` (up on the
+forward leg, `Ramp.reversed()` down on the backward one, `TIME_STEP`
+sign-flipped), wrapped in a `FixedPoint` around
 `Shift(z_base) @ (Identity - P) @ ramp_cycle`.
 
-Every one of those pieces except the *choice of what is ramped* is
-generic. So invert the hierarchy:
+Everything there except *the choice of what is ramped* is generic. So
+invert the hierarchy:
 
-- **`AdiabaticRamping`** — the base transform. It owns the general
-  procedure: take a model, adiabatically ramp one or more **declared
-  parameters** from a start value to an end value over a ramp period,
-  integrating the model as the parameter moves, with the ramp shape a
-  parameter of the transform (`"exp"`, `"pow"`, `"cos"`, `"lin"`, or a
-  user callable — the old `ramp_type` vocabulary, now continuous
-  stage-time `Ramp` evaluation rather than piecewise-constant
-  `theta = n/N`).
+- **`AdiabaticRamping`** — the base transform: take a model, ramp one or
+  more **declared parameters** from a start to an end value over a ramp
+  period, integrating the model as the parameter moves, ramp shape a
+  parameter of the transform.
 - **`OptimalBalance(AdiabaticRamping)`** — the special case: the ramped
-  parameter is the **Rossby number** (0 -> 1), the cycle is
-  forward-then-backward with the base-point exchange in between, and
-  the whole thing is wrapped in a `FixedPoint`. It contributes the
-  balancing-specific policy (the base point, the `(Identity - P)`
-  projection leg, the backward-leg term filter), not the ramping
-  machinery.
+  parameter is the Rossby number, the cycle is forward-then-backward
+  with the base-point exchange in between, and the whole thing sits in a
+  `FixedPoint`. It contributes only the balancing policy (the base
+  point, the `(Identity - P)` leg, the backward-leg term filter), not the
+  ramping machinery.
 
-## Why it generalizes cleanly
+## What it actually buys (and what it does not)
 
-The parameter-in-modules design (model D2) already makes any parameter
-a first-class, traceable thing that a transform can drive; the `Ramp`
-scaling machinery already exists for exactly this; and
-`model.variant(term_filter=...)` already builds the owned variants.
-So the base class is mostly a re-homing of code that has to exist for
-optimal balance anyway.
+The machinery is largely already there, which cuts both ways.
+`Propagator(model, steps=..., backward=..., updates={param: Ramp(...)},
+term_filter=...)` **already** drives any declared parameter with a ramp
+over an internal model run, and `resolve_at` makes every scalar
+parameter slot Ramp-able with no consumer changes. So a user can do
+adiabatic parameter continuation today by composing a `Propagator` by
+hand.
 
-Other members that fall out of the same base, and are the reason to
-build it:
+`AdiabaticRamping` is therefore an **ergonomics and naming layer plus a
+re-homing of OB's leg construction**, not new capability. Its value:
 
-- **adiabatic spin-up / parameter continuation** — ramp a forcing
-  amplitude, a stratification, or a topography parameter from a
-  regime where the balanced state is known into the target regime;
-- **slow-manifold initialization** other than optimal balance (e.g.
-  ramping the Coriolis parameter, or a nonlinearity switch);
-- **the sloped-to-flat geometry morph** of the C4 moving-geometry work
-  is itself an adiabatic ramp of a mapping parameter — worth checking
-  whether it should be expressed through this surface rather than its
-  own schedule module (`MovingGeometry`), or whether the two should
-  merely share the `Ramp` vocabulary.
+- a named, documented surface for **adiabatic spin-up / parameter
+  continuation** — ramp a forcing amplitude, a stratification, or a
+  Coriolis parameter from a regime where the balanced state is known
+  into the target regime;
+- **slow-manifold initialization** variants other than optimal balance;
+- one place where "how many steps does a ramp period snap to", ramp
+  reversal, and multi-parameter ramps are settled, instead of once
+  inside `OptimalBalance` and once in every user script.
+
+That is a real but modest payoff, and it is why the item stays
+unscheduled: build it when a second consumer (a continuation study, a
+spin-up example) actually appears.
 
 ## Open questions (for when this is picked up)
 
-- Does the base class ramp **parameters** only, or any traced quantity
-  (a field, a geometry schedule)? The C4 morph suggests the latter is
-  wanted; the model-D2 parameter surface suggests the former is the
-  clean seam. Decide before writing the base.
-- What is the honest interface for "integrate while the parameter
-  moves"? Optimal balance needs the *ramped* legs to be `Propagator`s
-  over a stage-time-dependent model; that is exactly what the
-  `Ramp`-valued scaling gives, so the base should expose it directly.
+- Does the base ramp **parameters** only, or any traced quantity? The
+  C4 answer is now in: `MovingGeometry`
+  (`src/fridom/model/modules/moving_geometry.py`) shipped with
+  user-supplied schedule callables over AUXILIARY parameter fields and
+  does **not** go through `Ramp`. So the geometry morph is *not* a
+  consumer of this surface; the clean seam is parameters only, and the
+  two merely share the "time-dependent scalar" idea.
 - Is the fixed-point iteration part of the base (some continuation
   methods want it) or purely optimal-balance policy? Current reading:
   **policy** — keep `FixedPoint` in the subclass.
+- Rewriting `OptimalBalance` as a subclass must not perturb its shipped
+  behaviour (base-point exchange, cost accounting, divergence policy);
+  the existing tests are the gate.

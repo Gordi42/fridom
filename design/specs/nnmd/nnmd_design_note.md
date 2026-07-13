@@ -1,13 +1,16 @@
 ---
 status: normative
-date: 2026-07-11
+date: 2026-07-13
 ---
 
 # NNMD design note (P0 of nnmd_rewrite_plan.md)
 
-**Status: draft for owner review, 2026-07-11.** Scope: formulation +
-user surface. Owner reviews these two; framework2 internals are not
-review material (standing preference).
+**Status: decided and implemented.** The formulation and user surface
+below are signed (owner, 2026-07-11) and ship as
+**`fr.transforms.BalanceExpansion`** over the private slaving core
+(`transforms/_slaving.py`, both schemes retained for tests and
+forensics). Scope of this note: formulation + user surface; internals
+are not review material (standing preference).
 
 ## 1. Formulation
 
@@ -87,7 +90,10 @@ eigenvalue ∓iλ on s = ±1, so L_w⁻¹ acts as ±i/λ — exactly the v1
 `-1j * sign * one_over_omega` factors, derivative recursion included.
 Same method, coordinate-free.
 
-### 1.4 Open math point — slow-tendency closure (owner Option D)
+### 1.4 Slow-tendency closure — RESOLVED (order-consistent ships)
+
+*(Resolved by the P1 toy data; see decision D in §2. The reasoning
+that produced it is kept below.)*
 
 The slow recursion in §1.2 drives all derivatives along the
 *leading-order* slow flow v̇ ≈ Lv + VB(v,v). This is what v1 and the

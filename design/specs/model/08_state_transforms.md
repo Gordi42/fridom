@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — The state-transform algebra
@@ -10,12 +10,15 @@ Part of the model redesign notes; see
 frame: decision D5 in [`01_concepts.md`](01_concepts.md); research
 reports in [`research/`](../../research/README.md) (d5_1–d5_3).
 
-Status: **resolved (signed off 2026-07-08), with one carve-out:
-NNMD is descoped** — it needs a proper rewrite anyway and the future
-version will *not* contain a model propagator (per sign-off); the
-§10.5 NNMD port spec is retained as archaeology only, and the old
-`nnmd.py` is not ported at cutover (2.7). This file is the full D5
-design; the D5 section of `01_concepts.md` is the summary.
+Status: **resolved (signed off 2026-07-08) and implemented**
+(`fr.transforms`). One carve-out at sign-off: **NNMD was descoped**
+from D5 — it needed a proper rewrite, which has since happened as its
+own design exercise and shipped as `fr.transforms.BalanceExpansion`
+([`../nnmd/nnmd_design_note.md`](../nnmd/nnmd_design_note.md)). The
+sign-off constraint held: it contains **no model propagator** — it is
+built from the eigenbasis operators (V/W, L, L_w⁻¹) and the model's
+nonlinear tendency. The old `nnmd.py` is not ported. This file is the
+full D5 design; the D5 section of `01_concepts.md` is the summary.
 Requirement (raised at D4 sign-off): first-class composable
 `State -> State` objects — projections, time-averaging, ramped
 propagation — with an algebra mirroring the operator algebra, e.g.
@@ -273,21 +276,24 @@ D1.3 commitment-4 channel); packages ship thin aliases
   `call_with_info`. Old piecewise-constant θ=n/N ramping becomes
   continuous stage-time Ramp evaluation (tolerance-based cutover,
   expected slight improvement).
-- **NNMD: descoped at sign-off** — the old `nnmd.py` is not ported;
-  a future rewrite (its own design exercise) will not contain a
-  model propagator. The d5_3 archaeology (eigenpair table, the
-  `N(z)`-via-variant-tendency mechanism, the quadraticity caveat)
-  is retained in the research report for that rewrite's benefit;
-  the `model.variant(term_filter=...).tendency(z)` spelling of a
-  restricted tendency remains generally available regardless.
+- **NNMD: descoped at sign-off, rewritten since** — the old `nnmd.py`
+  is not ported. Its successor is `fr.transforms.BalanceExpansion`
+  (design: [`../nnmd/nnmd_design_note.md`](../nnmd/nnmd_design_note.md)):
+  a `StateTransform` like any other, built from the eigenbasis
+  projectors and `L_w⁻¹` plus the model's nonlinear tendency via the
+  `model.variant(term_filter=...).tendency(z)` spelling this section
+  blesses — and, as required at sign-off, **containing no model
+  propagator**. The d5_3 archaeology (eigenpair table, the
+  `N(z)`-via-variant-tendency mechanism, the quadraticity caveat) fed
+  that rewrite.
 
 ## 10.6 Surface additions to resolved decisions
 
 | # | Addition | Owner | Consumers |
 |---|---|---|---|
 | S1 | **`model.tendency(state, *, t=None, filter=None, constraints=True) -> State`** — host-callable jitted read-only wrapper over the composed tendency (implicit terms via forward apply; constraints optional; never advances the carry) | D4 surface (**applied on sign-off**) | **per-term budget diagnostics** (`filter=fr.terms.named(...)`); term unit tests; linear-stability matvecs; the future TangentPropagator (jvp of exactly this). (NNMD dropped as a consumer — descoped.) |
-| S2 | **`model.blank_state()`** + `model.state_space(name)` | D4 surface (**applied on sign-off**) | every IC recipe (D1.1 never named the factory recipes build on); transforms |
-| S3 | `em.omega_field(s) -> Field` | ~~2.7 eigenmode surface~~ **deferred with the NNMD rewrite** (its only consumer) | — |
+| S2 | **`model.blank_state()`** + `model.state_space(name)` | D4 surface (signed, **not built** — recipes use `grid.create_field` + `model.field_table[name].space`; [`07_open_threads.md`](07_open_threads.md) §9.1) | every IC recipe (D1.1 never named the factory recipes build on); transforms |
+| S3 | `em.omega_field(s) -> Field` | 2.7 eigenmode surface — **still deferred**; the shipped `eb.function(f, sel)` makes it a two-liner once a consumer appears | — |
 | S4 | `variant(updates=)` may change value specs (assembly-time) | D5 normative text | OB |
 | S5 | the variant-verify ⊆ lemma | grid notes (verify wording) | all Tier-2 |
 | S6 | signature ≠ treedef | D5 normative text | all compose checking |

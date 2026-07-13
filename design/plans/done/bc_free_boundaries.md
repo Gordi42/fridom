@@ -7,11 +7,13 @@ date: 2026-07-07
 
 # BC-free bounded spaces: exterior values are untouchable
 
-**Owner-flagged open question (2026-07-07, raised during task 1.8).
-Not scheduled; needs an owner decision before the model layer
-registers BC-dependent modules on bounded meshes.** Cross-refs:
-work item 11 in [`phase2_grid_followups.md`](phase2_grid_followups.md);
-the BC-row API gap in [`../done/phase1_findings.md`](../done/phase1_findings.md);
+**Closed.** Raised as an owner-flagged open question on 2026-07-07
+(during task 1.8) and answered on 2026-07-11: the proposed rule below
+is the rule that landed (R1, merge `9a95202a`) — exterior reads on a
+BC-free bounded axis raise, and the extrapolation fill is gone. The
+text below is the original argument, kept as the record. Cross-refs:
+work item 11 in [`phase2_grid_followups.md`](../active/phase2_grid_followups.md);
+the BC-row API gap in [`../done/phase1_findings.md`](../../research/phase1_findings.md);
 the task-1.8 periodicity-gated validity claims in the
 [decomposition contract](../../specs/grid/classes/decomposition.md) (whose recorded
 mirror-commutation refinement this question subsumes).
@@ -125,4 +127,4 @@ single-consumption uses, where it is second-order correct. The
 decision should land before ROADMAP 2.2+ registers boundary-aware
 modules on bounded meshes. **Resolution proposed** (with the
 Robin/mixed question, one principle for both) in
-[`boundary_plan.md`](boundary_plan.md) — decisions R1/R2 there.
+[`boundary_plan.md`](../active/boundary_plan.md) — decisions R1/R2 there.

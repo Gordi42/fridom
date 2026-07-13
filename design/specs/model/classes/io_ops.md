@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Class designs: IO & ops
@@ -1107,9 +1107,9 @@ respec:
 Parked residuals only ([`../07_open_threads.md`](../07_open_threads.md)
 item 4 / §6.9); decided questions are not reopened.
 
-1. **`truncate_after` for CSV** (TimeSeries): the tail-rewrite
-   strategy keyed on the iteration column — pinned in the protocol
-   so the sink must answer it; concrete mechanics decided in 2.6.
+1. ~~**`truncate_after` for CSV**~~ (TimeSeries) — **closed**: the
+   tail-rewrite keyed on the iteration column shipped on every sink,
+   `TimeSeries` included.
 2. **Capture streams and post-assembly writer attach**: both are
    2.6 designed-fors behind the `OutputStream` protocol (the
    in-trace capture variant reuses the same output callables and

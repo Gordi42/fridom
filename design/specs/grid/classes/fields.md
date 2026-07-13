@@ -463,7 +463,7 @@ Semantics, invariants, error behavior:
   registered operator's output with default metadata where this
   document says "keep" — an annotational bug of the same class, no
   longer a structural one. Rationale:
-  [`../../../plans/done/phase1_findings.md`](../../../plans/done/phase1_findings.md) contract finding 2
+  [`../../../plans/done/phase1_findings.md`](../../../research/phase1_findings.md) contract finding 2
   (arithmetic on a *named* field changes the treedef; scan rejects
   named-field carries), widened by the Phase-2 reconciliation audit —
   `replace`/`map`/`add` and the model's replace-gated stage writes

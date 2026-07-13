@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Class designs: transforms
@@ -1250,13 +1250,12 @@ tests.
    sign-flipped (`TIME_STEP < 0`) variant — i.e. when
    `backward_filter` (or `filter`) leaves `ClosureBase` terms in a
    backward twin?
-2. **The blessed Ramp endpoint-reversal spelling**: *resolved in
-   this drafting round* — [`declarations.md`](declarations.md) pins
-   `Ramp.reversed()` (pure window reflection,
+2. **The blessed Ramp endpoint-reversal spelling**: *resolved and
+   shipped* — `Ramp.reversed()` (pure window reflection,
    `t0 -> -(t0 + period)`, values and curve unchanged), satisfying
-   the V-S2 retrace law for every curve. Residual there (its open
-   question 7): confirm the construction against the ported OB legs
-   in the 2.7 cutover tests.
+   the V-S2 retrace law for every curve. Residual: confirm the
+   construction against the ported OB legs in the tolerance-based
+   cutover tests.
 3. **OB memory** (two carries + the user's): the
    shared-internal-model alternative halves it but conflicts with
    exposing independent leg Propagators — revisit if it bites.

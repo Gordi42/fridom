@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Grid abstraction redesign — Class designs: domain decomposition
@@ -55,11 +55,15 @@ base); stated here because the decomposition defines the shapes.
   authors never sync, and users never spell `Sync`. `store` is
   pad-only: constructed fields (creation, arithmetic, transforms)
   claim zero validity and are exchanged at their first
-  ghost-consuming application. A triggered sync is **memoized** onto
-  the operand object (ghost slots only, semantically invisible;
-  guarded so a concrete field consumed inside someone else's trace
-  never swallows a tracer), so n consumers of one state component
-  pay one exchange. Kernel results carry their construction seam's
+  ghost-consuming application. A triggered sync is **memoized against
+  the operand object** — in an identity-keyed weak side table owned by
+  the operator base, *not* by writing the ghosts back onto the field —
+  so n consumers of one state component pay one exchange while the
+  operand's own leaves (and hence its treedef) are never mutated. The
+  side table, rather than write-back, is what keeps a carry-resident
+  field stable across a `lax.scan` and keeps a concrete field consumed
+  inside someone else's trace from swallowing a tracer. Kernel results
+  carry their construction seam's
   **validity claim**: the staggered/aligned window tails claim
   `valid_in − reach` on a *periodic* applied axis (stencils commute
   with the wrap fill — chains elide), zero on a *bounded* applied
@@ -800,9 +804,11 @@ order) is kept in §5.1.
   implementation refined the signed mechanism in three
   owner-relevant ways: (1) **memoization** — the pure consumption
   rule alone would re-sync per consumer (each sees the same
-  validity-zero object), so a triggered sync writes the ghosts back
-  onto the operand (tracer-guarded); this is what delivers one
-  exchange per component per step. (2) **Periodicity gating** — the
+  validity-zero object), so a triggered sync is cached against the
+  operand in an identity-keyed weak side table (never written back
+  into the field, which would break treedef stability under
+  `lax.scan`); this is what delivers one exchange per component per
+  step. (2) **Periodicity gating** — the
   `d − r` kernel claim is exact only where stencils commute with the
   ghost fill (periodic wrap, interior shard edges); on bounded axes
   the output ghosts are not the BC-consistent fill, so claims reset

@@ -1,37 +1,19 @@
 ---
-status: draft
-date: 2026-07-12
+status: active
+date: 2026-07-13
 ---
 
 # Chart / sphere setup ergonomics
 
-Not started. Gaps found while building minimal spherical and torus
-shallow-water examples on the stage-C2 chart machinery
+Gaps found while building minimal spherical and torus shallow-water
+examples on the stage-C2 chart machinery
 ([`../done/coordinate_systems_plan.md`](../done/coordinate_systems_plan.md)),
 each confirmed by ablation. The physics is right; the *setup surface*
-is not. Items are severity-ordered: E1 is silent wrong physics, the
-rest are papercuts.
+is not.
 
-## E1 — `FPlaneCoriolis` on a chart grid is silently wrong
-
-`sw.Model(coriolis=None)` installs `FPlaneCoriolis(f0=1.0,
-metric_weight="csqr")` (`shallowwater2/model.py:143`), the **flat**
-rotation term: a constant `f` on a `Profile()` and the Cartesian
-`du/dt = f v` pairing, with no metric factors anywhere.
-
-`FPlaneCoriolis` has **no `bind` override**
-(`model/modules/coriolis.py:160`), so nothing rejects it on a chart
-grid. `SphericalCoriolis` does check (it requires a chart grid whose
-coordinates match its `coords`), but the check only runs if you
-already knew to reach for it. A spherical run with a forgotten
-`coriolis=` argument therefore assembles, compiles, runs, conserves
-mass — and integrates the wrong rotation. There is no error, no
-warning, and no diagnostic that goes obviously wrong.
-
-**Fix:** `FPlaneCoriolis` (and `BetaPlaneCoriolis`) reject a grid with
-`grid.chart_coords is not None` at `bind`, with a taught error naming
-`SphericalCoriolis`. A user who genuinely wants a flat `f` on a chart
-grid opts in explicitly.
+Four of the five original items landed on 2026-07-12/13 (see Landed).
+One remains: the diagonal index-move overrides. It is the last thing
+standing between a user and a working bounded chart.
 
 ## E2 — the diagonal index-move overrides are undiscoverable
 
@@ -52,7 +34,7 @@ interpolation row. The failure is
 DispatchError: no operator registered for kind 'interpolate' on Inner(lat)
 ```
 
-(`spatial/operators/registry.py:354`), which never names the fix.
+(`spatial/operators/registry.py`), which never names the fix.
 
 Worse, whether the recipe is *required* depends on a property the user
 is never told about: on a fully periodic chart (torus) the same
@@ -60,6 +42,12 @@ overrides are **silently optional** — the cross terms interpolate
 fine, they are just multiplied by structurally zero metric entries.
 So the same chart code works or fails depending on the boundary
 condition of an axis.
+
+The recipe is currently propagated by documentation only: the
+`sw.Model` docstring spells it out, and every chart test
+(`tests/shallowwater2/test_spherical.py`,
+`tests/validation/test_spherical_shallowwater.py`,
+`tests/model/modules/test_coriolis.py`, ...) repeats it verbatim.
 
 **Fix (preferred):** seed the index moves with `diagonal=True`
 automatically when the derived off-diagonal metric is **structurally
@@ -73,58 +61,27 @@ row.
 missing interpolation row inside the index-move expansion and re-raise
 a taught error naming `RaiseIndex(..., diagonal=True)`.
 
-## E3 — `SphericalCoriolis` is misnamed
+Once the seeding is automatic, drop the recipe from the `sw.Model`
+docstring and from the chart tests.
 
-The **rotation term** is chart-generic: the metric-aware M-skew form
-(`model/modules/coriolis.py:323`) is correct on *any* chart and runs
-unmodified on a torus. Only two things are spherical:
+## Landed
 
-- the name and the `coords=("lon", "lat")` default, and
-- the `f_coriolis` **default field**, `f = 2 Omega sin(lat)`
-  (`coriolis.py:_f_default`) — the one genuinely sphere-specific bit.
-
-**Fix:** split the two. A chart-generic metric-aware rotation module
-(name TBD — `ChartCoriolis`?) taking an `f` provider, with
-`SphericalCoriolis` as the thin preset supplying `2 Omega sin(lat)`
-and the lat-lon defaults. Purely a naming/factoring change; the
-numerics stay.
-
-## E4 — the conserved energy invariant is not a diagnostic
-
-`sw.diagnostics.ekin`/`epot` are the **linearized quadratics**
-consistent with the energy metric `M = diag(1, 1, 1/c^2)`
-(`shallowwater2/diagnostics.py`). They are chart-aware (`ekin` carries
-`g_11`/`g_22`), but they are *not* the invariant the Sadourny scheme
-actually conserves: the metric, thickness-weighted total energy.
-
-So the natural check on a spherical run — "is energy conserved?" —
-measures the wrong quantity and drifts, and the quantity that does not
-drift has to be assembled by hand.
-
-**Fix:** add a chart-aware `diagnostics.energy()` returning the
-thickness-weighted invariant the scheme conserves (the C2 semi-discrete
-energy rate, measured 2.6e-17, is the gate that already knows the
-right expression — reuse it).
-
-## E5 — no scalar accessor on a field
-
-`ScalarField.integrate()` returns a `ScalarField`
-(`spatial/fields/scalar_field.py:512`); there is no way to get a
-python float out except
-
-```python
-float(field.integrate().data.ravel()[0])
-```
-
-Every diagnostic print in every example does this.
-
-**Fix:** a scalar accessor on `ScalarField` (`.item()`, or
-`float(field)` via `__float__`) that asserts the field is
-zero-dimensional / constant-space and gathers.
-
-## Ordering
-
-E1 first (it is the only correctness item). E2 next (it blocks every
-bounded chart at the front door). E3/E4/E5 are independent and can
-land in any order; E3 touches the same module as E1, so folding them
-into one change is natural.
+- **E1 — `FPlaneCoriolis` on a chart grid was silently wrong.** Closed
+  by 169e00ee (chart rejection at `bind`) and 715a0b0f: rotation is now
+  opt-in (`coriolis=None` installs no rotation term at all, rather than
+  a flat `f0=1.0`), and `FPlaneCoriolis` / `BetaPlaneCoriolis` reject an
+  embedding-chart grid at `bind` (`_reject_chart_grid`,
+  `model/modules/coriolis.py`).
+- **E3 — `SphericalCoriolis` was misnamed.** Closed by 169e00ee /
+  715a0b0f, and better than proposed: `SphericalCoriolis` is gone,
+  subsumed by the chart-generic `RotationCoriolis(omega=...)`, which
+  *derives* `f = 2 Omega . n_hat` from the chart normal instead of
+  taking a sphere formula. The f-plane and `2 Omega sin(lat)` are
+  special cases.
+- **E4 — the conserved energy invariant was not a diagnostic.** Closed
+  by daa75518: `sw.diagnostics.ekin_full` / `epot_full` / `etot_full`
+  expose the thickness-weighted invariant the Sadourny scheme conserves;
+  the validated test helpers now call the public diagnostic. (f70fad97
+  then made the Coriolis term conserve it exactly, both routes.)
+- **E5 — no scalar accessor on a field.** Closed by daa75518:
+  `ScalarField.item()` (`spatial/fields/scalar_field.py:586`).

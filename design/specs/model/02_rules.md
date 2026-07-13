@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Rules
@@ -8,10 +8,12 @@ date: 2026-07-07
 Part of the model redesign notes; see
 [`00_overview.md`](00_overview.md) for the document map.
 
-Status: **stub.** Filled in as D1–D4
-([`01_concepts.md`](01_concepts.md)) are resolved.
+Status: **complete** — the rules accumulated from the D1–D5 sign-offs,
+the validation walks, and the coupling design-for. They bind the
+implemented model layer (`fridom.model`); the first five entries name
+the section that carries each rule's full statement.
 
-## 4. Rules (planned scope)
+## 4. Rules
 
 - **Lifecycle / setup order**: the normative assembly pipeline
   (D4), including the dispatch-merge call site owed to the grid
@@ -131,8 +133,9 @@ Status: **stub.** Filled in as D1–D4
   multi-stage steppers (RK3: three unweighted stage-time samples
   per step — correct under AB3 only by accident). `cadence=STEP`
   is reserved on `self_update`, not built; the hazard is documented
-  in its docstring. `fr.modules.WindowAccumulator` ships as the
-  preset.
+  in its docstring. (A `fr.modules.WindowAccumulator` preset over this
+  idiom is **specified but not built** — see
+  [`07_open_threads.md`](07_open_threads.md) §9.1.)
 - **`extra_halo` mechanics** (validation sign-off, V-N2): a module
   declaring `Module.extra_halo` has its terms **exempted from the
   halo trace** (the declared spec substitutes); contribution-key
@@ -146,23 +149,18 @@ Status: **stub.** Filled in as D1–D4
 - **Sync cost is the grid's, never the modules'** (D3 corollary,
   2026-07-08): terms and stages are plain Python over fields; no
   hook sees, places, or elides a halo sync, and the term signature
-  `(self, state, ctx) -> dict` is sync-policy-neutral. Under the
-  landed iteration-1 sync-after-every-operator contract the
-  composed step pays one exchange per operator application
-  (including pointwise products on sharded nodal spaces and
-  true-shape field arithmetic) — the model layer neither adds nor
-  removes any. The reduction path is **grid-owned sync elision over
-  the composed step**: assembly step 7 already hands the full step
-  to `grid.negotiate(tendency=...)`, so the halo trace observes
-  every operator application in program order — the same placement
-  information a fused-operator lowering would have. The mechanism is
-  **decided** (owner sign-off 2026-07-08): consumption-side sync
-  with trace-time halo-validity tracking, ROADMAP task 1.8 —
-  decision record in
-  [`../grid/classes/decomposition.md`](../grid/classes/decomposition.md)
-  (open questions), work item 8 in
-  [`../../plans/active/phase2_grid_followups.md`](../../plans/active/phase2_grid_followups.md).
-  Results-neutral, so nothing model-side waits on it.
+  `(self, state, ctx) -> dict` is sync-policy-neutral. The placement
+  is **grid-owned**, and the shipped strategy is **consumption-side
+  sync with trace-time halo-validity tracking** (ROADMAP task 1.8):
+  an operator exchanges iff its operand's validity is below the
+  application's requirement, so the composed step pays roughly one
+  exchange per state component per step, and field arithmetic and
+  pointwise products exchange not at all. The model layer neither adds
+  nor removes any exchange — it only has to hand the *whole* step to
+  `grid.negotiate(tendency=...)` at assembly step 7, which it does, so
+  the halo trace observes every operator application in program order.
+  Contract:
+  [`../grid/classes/decomposition.md`](../grid/classes/decomposition.md).
 - **Provides implies constancy** (validation, V-S walk): a module
   *provides* a scalar parameter only when that scalar is the whole
   truth — `BetaPlaneCoriolis` holds an `f0` leaf but must **not**

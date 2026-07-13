@@ -5,6 +5,19 @@ date: 2026-07-08
 
 # Framework2 Phase-2 implementation plan
 
+> **SHIPPED.** Waves 0–8 (ROADMAP 2.2–2.8) landed and are today's
+> `fridom.model` + the `nonhydro2` / `shallowwater2` ports. The
+> Phase-2.9 scope extension below (waves 9–11, written "awaiting
+> sign-off") was signed off and executed **except its symbolic-`L`
+> half**: the scalar `Symbol` / `SpectralSolve` substrate, the banded
+> operators and the `EnergyMetric` shipped, but the operator-algebra
+> `BlockSymbol` assembly of `L` (wave 11A, with its `LinearBlock` IR)
+> was built and then deliberately removed on 2026-07-09
+> (`d06441d1` + `d3309640`) — nothing consumed it; the models keep
+> hand-written `eigenmodes.py` plus the numeric probe path in
+> `model/eigen.py`. Kept as the record of *how* the phase was run —
+> the tense below is the original plan's.
+
 How ROADMAP Phase 2 (tasks 2.2–2.8) is executed with parallel
 subagents on one machine — the Phase-2 analogue of
 [`phase1_implementation_plan.md`](phase1_implementation_plan.md). The class
@@ -16,11 +29,11 @@ surface; the design notes (01–09) are consulted for semantics, never
 reopened.
 
 **Scope extension (2026-07-08, awaiting sign-off).** The energy-metric
-projection design ([`../active/projection_eigenmode_plan.md`](../active/projection_eigenmode_plan.md),
+projection design ([`../active/projection_eigenmode_plan.md`](projection_eigenmode_plan.md),
 build order in [`../active/projection_eigenmode_roadmap.md`](../active/projection_eigenmode_roadmap.md))
-and the spectral/eigen substrate ([`../active/operator_symbols_plan.md`](../active/operator_symbols_plan.md),
+and the spectral/eigen substrate ([`../active/operator_symbols_plan.md`](operator_symbols_plan.md),
 [`../../decisions/blocksymbol_l_assembly.md`](../../decisions/blocksymbol_l_assembly.md),
-[`../active/linear_term_blocks_plan.md`](../active/linear_term_blocks_plan.md)) refine
+[`../active/linear_term_blocks_plan.md`](../../archive/linear_term_blocks_plan.md)) refine
 two things here: **wave 7's projections become energy-metric** (drop the
 biorthogonal `vec_p`; `p = M q` under a first-class `EnergyMetric`), and
 a new **Phase 2.9** (waves 9–11, below) adds the scalar-`Symbol` /

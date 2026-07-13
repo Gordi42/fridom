@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Model layer redesign — Class designs: Model
@@ -86,7 +86,7 @@ carry built functionally, reference swapped).
 |--------|-------|
 | Kind | concrete, final (presets are factories, never subclasses) |
 | Pytree | **host object, not a pytree** (a Model-as-pytree would double-flatten the carry — the D2 aliasing bug by construction) |
-| Task | 2.3 (assembly, lifecycle); 2.4 (advance/run/panic); 2.6 (snapshot/io binding); 2.7 (`blank_state`/`state_space`/`apply_constraints` consumers); 2.8 (`tendency`/`variant`) |
+| Task | 2.3 (assembly, lifecycle); 2.4 (advance/run/panic); 2.6 (snapshot/io binding); 2.7 (`constrain` and its consumers; `blank_state`/`state_space` **not built**); 2.8 (`tendency`/`variant`) |
 | Design refs | 04 §6.1–6.7; 01 D1.3/D1.5/D2.4; 02_rules (set_aux, exemptions, fingerprint scope, no-pickled-models); 08 §10.4; CS-2..13 |
 
 ```python
@@ -183,14 +183,19 @@ class Model:
     #  State factories (the surface IC recipes and transforms build on)
     # ================================================================
 
-    def blank_state(self) -> fr.VectorField:                   # 2.7
+    def blank_state(self) -> fr.VectorField:                   # NOT BUILT
         """PROGNOSTIC subset at declared defaults, born sharded
-        (D5 amendment S2)."""
+        (D5 amendment S2). Never implemented: IC recipes compose
+        ``grid.create_field(space, ...)`` with spaces read off
+        ``model.field_table[name].space``. Build or strike —
+        07_open_threads §9.1."""
         ...
 
-    def state_space(self, name: str) -> TensorProductSpace:    # 2.7
+    def state_space(self, name: str) -> TensorProductSpace:    # NOT BUILT
         """The negotiated (laid-out) space of a declared field —
-        feeds ``grid.create_field`` / ``grid.random`` (sketch 7.3)."""
+        feeds ``grid.create_field`` / ``grid.random`` (sketch 7.3).
+        Never implemented: read it off ``model.field_table[name].space``
+        (07_open_threads §9.1)."""
         ...
 
     # ================================================================
@@ -252,10 +257,16 @@ class Model:
         fresh assembly + ``set_state(z)``, bitwise."""
         ...
 
-    def apply_constraints(self) -> None:                       # 2.7
-        """Opt-in one-shot host-side CONSTRAINT pass (initial
-        projection of non-divergence-free ICs; optional because
-        project-the-state self-corrects within one substage)."""
+    def constrain(                                             # 2.7
+        self, state: fr.VectorField, *, t: float | None = None,
+    ) -> fr.VectorField:
+        """Apply the CONSTRAINT stages to a state and return it —
+        the opt-in initial projection of non-divergence-free ICs
+        (optional because project-the-state self-corrects within one
+        substage). Shipped *pure* rather than as the in-place
+        ``apply_constraints()`` this doc first named: the caller feeds
+        the result back through ``set_state``, and ``tendency(...,
+        constraints=True)`` and the transforms reuse the same path."""
         ...
 
     # ================================================================
@@ -543,7 +554,7 @@ Semantics, invariants, error behavior:
   `set_fields`/`set_state` do), never a bare `device_put`.
 - **Lifecycle table (§6.5)**, condensed: post-assembly host
   operations at chunk boundaries only — `set_fields`, `set_state`,
-  `set_aux`, `apply_constraints`, `update_parameters`, `reset`,
+  `set_aux`, `constrain`, `update_parameters`, `reset`,
   `snapshot`/`load_snapshot`, reads, `advance`/`run`. Canonical
   per-sweep-point order: **`update_parameters → reset →
   set_fields`** (V-C7; safe because re-materialization at the stale
@@ -1334,13 +1345,16 @@ Genuinely unresolved residuals only (owners as parked in
 [`../07_open_threads.md`](../07_open_threads.md)); decided questions
 are not reopened.
 
-1. **`state_type`-under-jaxify mechanics** — how the core module
-   publishes its State class through a jaxified pytree; the
-   `Model(state_type=...)` kwarg fallback stands and unblocks
-   implementation.
-2. **Donation vs live `model.state` views** — a view returned before
-   a later `run()` may reference donated buffers; copy-on-read
-   decision at implementation, with a benchmark (07 residual).
+1. ~~**`state_type`-under-jaxify mechanics**~~ — **closed by
+   implementation**: the core module publishes its State class as a
+   plain `Module.state_type` class attribute, the assembly record
+   lints it as a hashable static, and `Model(state_type=...)` is the
+   override. No jaxify interaction survived.
+2. ~~**Donation vs live `model.state` views**~~ — **closed by
+   implementation: copy-on-read**. The carry's buffers are donated to
+   the next `advance()`, so a live view would reference deleted
+   buffers; `model.state` copies its leaves (one device-to-device pass
+   per read). The cost benchmark is still nominally owed.
 3. **Shared-jitted-runner discipline** — the assembly lint for
    unhashable statics and the compilation-count regression test are
    implementation obligations (2.4), not yet designs; the

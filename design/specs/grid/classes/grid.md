@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-07
+date: 2026-07-13
 ---
 
 # Grid abstraction redesign — Class designs: grid assembly and decomposition
@@ -148,8 +148,13 @@ all mathematics lives in spaces and operators, and model physics
   necessary because fridom's `_values_equal` in `utils/jax_utils.py`
   deep-compares aux objects that keep the default `__eq__`.
 - Iteration: 1 (class, factory, coordinate accessors, negotiation);
-  `immersed` ships iteration 1 in its boolean subset only; `mapping` /
-  `metric` are designed-for.
+  `immersed` ships iteration 1 in its boolean subset only. `mapping` /
+  `metric` **landed with ROADMAP 3.4** (coordinate systems): the grid
+  takes a `CoordinateMapping`, exposes `grid.metric(space, name,
+  params=...)` and `grid.chart_coords`, and seeds the mapped operator
+  rows (`physical_diff`, the metric-aware vector calculus). Dynamic
+  metrics are module-owned (`fr.modules.MovingGeometry`), so the grid
+  stays leaf-free.
 - Concept refs: [§2.6](../01_concepts.md#26-grid--the-assembly-object),
   [§2.7](../01_concepts.md#27-where-coordinate-data-lives),
   [§3.4](../02_rules.md#34-generic-operator-dispatch),
@@ -305,7 +310,7 @@ class Grid:
         *,
         params: Mapping[str, fr.ScalarField] | None = None,
     ) -> fr.ScalarField:
-        """A named mapping metric on the requested space (designed-for)."""
+        """A named mapping metric on the requested space (ROADMAP 3.4)."""
         ...
 
     # ================================================================
