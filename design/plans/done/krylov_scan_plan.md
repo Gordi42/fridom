@@ -98,9 +98,17 @@ and 120 iterations alike**, with compile flat at ~8-10 s; only warm
 runtime scales with the iteration count (191 / 456 / 907 / 1798 ms), as
 it should — that is the arithmetic, not the trace.
 
-Consequence, not yet taken: `test_mapped_projection_is_device_count_invariant`
-(`tests/validation/test_terrain_following_pressure.py`) still calls
-`solver.solve` eagerly and so pays the 85x. It can be jitted now.
+Consequence, taken: `test_mapped_projection_is_device_count_invariant`
+(`tests/validation/test_terrain_following_pressure.py`) now jits the
+solve — 21.5 s -> 14.8 s on forced-4. The win is much smaller than the
+85x per-call figure because the test makes a single call, so the 9.1 s
+compile eats most of it.
+
+**What this exposed.** Even jitted, forced-4 costs 9.1 s to compile and
+194 ms per call — **694x** the single-device 0.28 ms, on a 4-way sharded
+problem. That is not the unrolled loop (this plan removed it); it is the
+SPMD partitioning and the CG's cross-shard reductions. Recorded as
+roadmap **3.9**, unscheduled.
 
 Follow-ons (separate work, not this plan):
 
