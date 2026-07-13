@@ -348,6 +348,71 @@ but the gate's intent (no regression vs the slab) holds by the solve's
 bitwise identity. A committed nonhydro2 512³ step benchmark is a useful
 follow-up before the release merge.
 
+### 4.1 Benchmark methodology and traps (2026-07-12)
+
+**Strategy: A/B against the slab, not against an absolute number.** The
+reconciled solve is provably the *same kernel* as the slab, so the gate
+was verified by a direct A/B on the real target: build **both** the new
+`SpectralSolve` (resolving through `resolve_distributed_solve`) and a
+reference slab solve on the same grid + elliptic operator, apply both to
+the same field, and assert (a) **bitwise-equal** results, (b) equal
+wall-time, (c) the same HLO collective profile. That turns "no
+regression" into a *proof* rather than a noisy timing comparison;
+absolute ms is then a sanity check, not the gate. Golden HLO baseline
+for the diff: **exactly 2 `all-to-all` opcodes, nothing else** (no
+`all-gather`/`all-reduce`/`collective-permute`).
+
+Results (4×A100-80GB, `--xla_disable_hlo_passes=multi_output_fusion`):
+
+| grid | new | slab | bitwise | fits |
+|---|---|---|---|---|
+| 256³ | 1.20 ms | 1.20 ms | yes | yes |
+| 512³ | 8.13 ms jitted / 15.4 ms eager | 8.12 / 15.3 | yes | yes |
+| 768³ | 48.1 ms eager | 59.6 ms eager | yes | **yes, no OOM** |
+
+(The 768³ spread is reps=8 ordering noise — same kernel, same HLO,
+bitwise-equal result.)
+
+**Traps — these cost real time; do not re-discover them:**
+
+1. **Never wrap the solve in an extra `jax.jit` to benchmark it.**
+   `SlabSolve` already jits internally and passes the inverse diagonal
+   as a **sliced `in_specs` argument**. An outer
+   `jax.jit(lambda x: solve(field(x))._data)` *closes over* the diagonal,
+   so jax captures it as a **constant** (3.63 GB of captured constants at
+   512³), and at 768³ that exceeds the **2 GiB HLO protobuf
+   serialization limit** — failing with `RESOURCE_EXHAUSTED: HLO program
+   serialization would require more than the max supported protobuff size
+   of 2 GiB`. This *looks* like an OOM/memory regression and is **not**:
+   it is a harness artifact (and a concrete manifestation of §1.5's
+   replicated-diagonal finding). Benchmark **eagerly** (the inner jit is
+   already cached) or thread the diagonal in as an explicit argument.
+2. **GPU emits *async* collectives.** `text.count("all-to-all(")` on the
+   compiled HLO returns **0 on GPU** even though the collective is there,
+   because XLA lowers it to `all-to-all-start` / `all-to-all-done`.
+   Assert **presence by substring** (`"all-to-all" in text`,
+   `"all-gather" not in text`) as the tests do, or count the async forms.
+   (On CPU the sync form appears, but a naive `text.count("all-to-all")`
+   over-counts ~6x — tuple-element reads plus `op_name` metadata. The
+   honest number is the **opcode** count: 2 for the fused solve.)
+3. **Eager and jitted timings differ, and neither is "ms/step."** The
+   eager solve includes the un-fused `unpad`/`with_data` round trip
+   (512³: 15.4 ms eager vs 8.13 ms inside one jit); the model's jitted
+   `scan` fuses those away, so the in-model cost is nearer the fused
+   figure. Always A/B new-vs-slab **in the same mode**; never compare
+   across modes.
+4. **There is no committed 512³ full-model benchmark.**
+   `benchmarks/bench_nonhydro.py` targets the **old** stack
+   (`fridom.nonhydro`) and caps at `n=256`; the §4 20.97 ms/step figure
+   was ad-hoc. **Follow-up:** commit a `nonhydro2` 512³ linear/advective
+   step benchmark so the full-step gate is reproducible.
+5. **GPU access is not guaranteed for a whole session.** The SLURM
+   allocation exposing 4×A100 vanished mid-session (`cuInit` → CUDA error
+   303, `nvidia-smi` gone) and jax **silently fell back to one CPU
+   device** — which makes `multi_device`-marked tests **skip, not fail**.
+   Print `jax.device_count()` and check the skip count before trusting a
+   "GPU" run.
+
 ## 5. Scope boundaries / follow-ons
 
 - **This plan:** 1-D slab (single-node), all-Fourier transforms. Delivers
