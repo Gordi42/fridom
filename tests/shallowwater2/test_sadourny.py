@@ -574,7 +574,13 @@ def test_background_run_is_stable():
         assert not bool(model.state[name].has_nan())
 
 
+@pytest.mark.single_device
 def test_old_stack_background_parity():
+    # single_device: the OLD stack's DomainDecomposition shards axis 0
+    # across all visible devices and hard-requires divisibility, so
+    # the parity reference cannot be built on a forced multi-device
+    # run (pre-existing; found 2026-07-14 when the sw suite first ran
+    # on forced-4)
     # the old module with disable_nonlinear=True and a background at
     # scaling=1 is exactly the new background term (the new term
     # carries no Rossby factor; the old stack multiplied the
