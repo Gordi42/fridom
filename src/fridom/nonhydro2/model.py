@@ -42,6 +42,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     dt: float = 1.0,
     single_precision_solve: bool = False,
     name: str | None = None,
+    **kwargs: object,
 ) -> _Model:
     """Assemble a nonhydrostatic model (preset over ``fr.model.Model``).
 
@@ -93,6 +94,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         Off by default (default: False).
     name : str | None, optional
         Model name (default: None).
+    **kwargs : object
+        Forwarded to ``fr.model.Model`` (e.g. ``chunk_size``).
 
     Returns
     -------
@@ -120,4 +123,4 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     modules.extend(modules_extra)
 
     return fr.model.Model(grid=grid, modules=tuple(modules),
-                    time_stepper=time_stepper, name=name)
+                          time_stepper=time_stepper, name=name, **kwargs)
