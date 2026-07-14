@@ -287,8 +287,9 @@ without contract changes.
   contract makes written zarr xarray/xgcm-openable (staggered dims
   from spaces, FieldMetadata attrs, CF time axis + iteration
   coordinate, fingerprint digest as provenance); **sinks receive
-  Fields, not numpy** (gather inside the it-1 sink; decomposed-slice
-  output is a sink swap keyed by `local_slice`). Resume contract:
+  Fields, not numpy** (the sink is decomposed-slice: per-shard
+  true-DOF tiles via `decomposition.shard_writes`, no gather —
+  shipped 2026-07-14). Resume contract:
   writers open `mode="a"` and **`truncate_after` keyed on the
   iteration coordinate** (amended, V-S1: monotone in both time
   directions — backward runs invert the time axis, and

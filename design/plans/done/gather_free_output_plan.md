@@ -92,15 +92,31 @@ Implementation (`TensorDecomposition`): iterate
 `arr.addressable_shards`, skip `shard.replica_id != 0` (this dedupes
 replicated factors and fully replicated arrays for free), and per axis
 record `(name, n, factor, shards, width, block, total)` from
-`_geometry(space, layout)`:
+`_geometry(space, layout)`, intersect the shard's **actual** storage
+window `[lo, hi)` (from `shard.index`, `None` bounds meaning the full
+axis) with the storage→true map:
 
-- `shards == 1` → target `slice(0, n)`, source `slice(width, width+n)`;
-- blocked → `s = shard.index[axis].start // block`, target
+- `shards == 1` → clip against the true region: target
+  `slice(max(lo,w)-w, min(hi,w+n)-w)`, source shifted by `lo`;
+- blocked → walk **every** covered block `s in [lo//block, hi//block)`
+  (raise if `lo`/`hi` are off the block grid — the array is not in
+  this space's storage frame), emitting per block target
   `slice(bounds[s], bounds[s+1])`, source
-  `slice(width, width + t_s)`.
+  `slice(s*block - lo + width, … + t_s)`; one tile per covered block
+  combination (cartesian across axes).
+
+Do **not** assume one block per shard: only canonically sharded
+arrays satisfy that. A derived output computed eagerly on the `Auto`
+mesh can legally come back **fully replicated** (verified live:
+`state.rel_vort.to(center)` returns `PartitionSpec()` — one replica-0
+shard covering the whole storage array), and the one-block assumption
+then silently writes only block 0's window (found as ¾-zeros in the
+store during end-to-end verification, 2026-07-14). The block-walk
+handles canonical, replicated, single-device, and coarser
+block-multiple shardings under one contract.
 
 `values = np.asarray(shard.data)[source]` — one contiguous D2H of the
-block, then a host view. (Per-axis overhead `(2*width+1)/cells` of
+block, then host views. (Per-axis overhead `(2*width+1)/cells` of
 transferred-but-dropped bytes is a few percent at production sizes;
 device-side pre-slicing is a rejected micro-optimization — it burns
 device memory and kernel launches to save PCIe bytes.)
@@ -158,7 +174,9 @@ their internal gather is trivial and stays.
   single-device and `forced_devices` multi-device, over
   divisible/mild-padded `n_cells` (e.g. 8, 7, 10 on P=4) × spaces
   center / outer / inner / bounded FaceAvg; replicated-factor dedupe
-  (each index yielded once); values-are-numpy; layout override.
+  (each index yielded once); values-are-numpy; layout override;
+  **fully replicated array** tiling (the multi-tile shard path) and
+  the misaligned-window `ValueError`.
 - `tests/model/io/test_writer.py`: the existing suite must pass
   unchanged (bitwise-equal slices, dims, coords, CF attrs — the file
   format is invariant under this change). Add: device-count invariance

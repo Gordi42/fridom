@@ -68,6 +68,17 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Decomposed / gather-free output** (2026-07-14) — the it-1 IO sink
+  `decomposition.gather`ed the whole true field to rank 0 / host
+  before writing, which cannot fit large grids (768³+). The Writer
+  now binds from the values-free `export_layout` and writes each
+  replica-0 jax shard's true-DOF tile straight into the zarr store
+  via `decomposition.shard_writes` (tensorstore, async per firing),
+  with `decomposition.chunk_hint` aligning the default chunk grid to
+  the per-shard cell blocks — no gather, no global array, and the
+  storage padding (halo ghosts, stagger reserve, cell padding) never
+  reaches the file. Independent of divisibility. Record:
+  [`../plans/done/gather_free_output_plan.md`](../plans/done/gather_free_output_plan.md).
 - **Boundary closures** (2026-07-11, merge `9a95202a`) — the R1 flip
   (exterior reads on a BC-free bounded axis raise; the extrapolation
   fill is gone), `BC.ROBIN` structure, and one-sided opt-in rows. The
