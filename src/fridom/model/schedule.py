@@ -121,6 +121,14 @@ class ScheduleEntry:
     implicit : ImplicitOperator | None
         The implicit-operator slot (wave-5 solve seam; carried as
         static data now).
+    linear : bool
+        The term's strict linear-in-state tag (``False`` for stages).
+        Mirrors ``TendencyTerm.linear`` onto the schedule so a
+        stepper that integrates the linear operator ITSELF — the
+        exponential family, whose ``exp(L dt)`` comes from an
+        eigenbasis rather than from the tendency — can verify at
+        trace time that those terms were filtered out of the
+        tendency, instead of silently double-counting them.
     """
 
     key: str
@@ -134,6 +142,7 @@ class ScheduleEntry:
     advances: tuple[str, ...] | None = None
     reads: tuple[str, ...] = ()
     implicit: ImplicitOperator | None = None
+    linear: bool = False
 
     @property
     def is_term(self) -> bool:

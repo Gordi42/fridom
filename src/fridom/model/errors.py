@@ -41,6 +41,7 @@ __all__ = [
     "ImmutableParameterError",
     "ImmutableStateError",
     "ImplicitCollisionError",
+    "LinearTermInTendencyError",
     "MissingFieldError",
     "MissingParameterError",
     "PanicError",
@@ -143,6 +144,49 @@ class TimeDependentParameterError(AssemblyError):
     message teaches the split: grid factors resolve at bind,
     parameter factors resolve in-step.
     """
+
+
+class LinearTermInTendencyError(AssemblyError):
+
+    """
+    Raised when an exponential stepper meets a linear tendency term.
+
+    Description
+    -----------
+    The exponential (ETD) family supplies the linear operator itself
+    — ``exp(L dt)`` comes from the model's eigenbasis, not from the
+    tendency. A model that ALSO evaluates its ``linear=True`` terms
+    in the tendency therefore integrates them **twice**: silently
+    wrong physics, never a crash. Raised host-side at trace time (the
+    schedule is static), so it fires on the first compile rather than
+    in the science.
+
+    The fix is the model contract: assemble with the linear terms
+    filtered out, and hand the stepper the eigenbasis of the
+    UNFILTERED model.
+
+    Parameters
+    ----------
+    terms : tuple[str, ...]
+        The offending ``"Module/term"`` attribution keys.
+    """
+
+    def __init__(self, terms: tuple[str, ...]) -> None:
+        """Compose the taught double-counting message."""
+        self.terms = tuple(terms)
+        listed = ", ".join(self.terms)
+        super().__init__(
+            f"the tendency still carries linear terms ({listed}), but "
+            "an exponential stepper integrates the linear operator "
+            "itself through exp(L dt) — they would be counted twice. "
+            "Assemble the model with the linear terms filtered out:\n"
+            "    from fridom.model import term_predicates as terms\n"
+            "    model = sw.Model(..., term_filter=~terms.linear,\n"
+            "                     time_stepper=fr.model.time_steppers"
+            ".ETDRK4(dt, basis))\n"
+            "and build `basis` from the UNFILTERED model "
+            "(sw.eigenbasis(full_model)), so exp(L dt) is the "
+            "operator those terms describe.")
 
 
 class LinearOperatorGapError(ValueError):

@@ -384,7 +384,7 @@ class TendencyComposer:
                 key=key, kind=None, slot=slot, order=0, index=index,
                 fn=fn, gate=gate, treatment=term.treatment,
                 advances=term.advances, reads=(),
-                implicit=term.implicit))
+                implicit=term.implicit, linear=term.linear))
         return tuple(entries)
 
     def _filter_terms(
