@@ -94,6 +94,15 @@ devices). On a uniform flat grid the measure is a constant XLA folds,
 so the weighting reduces to the plain Euclidean product up to a factor
 that cancels in the CG ratios.
 
+The three reductions of one iteration (``<p, Ap>``, ``<r, z>``, the
+nullspace mean) cannot be batched into one all-reduce: each is
+data-dependent on the previous one through the recurrence
+(``alpha`` needs ``<p, Ap>`` before ``r`` exists; ``z`` needs ``r``
+before ``<r, z>`` exists). Overlapping them is the defining
+restructure of pipelined/s-step CG variants, which trade numerical
+stability for latency and are deliberately out of scope (CS-D2
+keeps textbook PCG).
+
 Nullspace
 ---------
 ``project_mean`` handles the singular Neumann/periodic Poisson problem
