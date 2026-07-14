@@ -350,7 +350,7 @@ def test_hlo_size_is_constant_in_the_iteration_count():
     # the compile-cost gate: an unrolled loop grew the HLO linearly
     # (145 675 lines at 300 iterations, 28 s of compile); the scanned
     # body is emitted once, so the program size no longer depends on
-    # the iteration budget at all.
+    # the iteration budget.
     grid = build_grid()
     rhs = rich_rhs(grid)
     space = rhs.function_space
@@ -363,7 +363,14 @@ def test_hlo_size_is_constant_in_the_iteration_count():
             rhs.data)
         return lowered.as_text().count("\n")
 
-    assert hlo_lines(12) == hlo_lines(60) == hlo_lines(300)
+    lines = {k: hlo_lines(k) for k in (12, 60, 300)}
+    # the scanned body is emitted once: 5x the budget, zero growth
+    assert lines[300] == lines[60]
+    # small budgets may lower a few dozen lines differently — jax
+    # flips its constants-as-arguments choice on an estimated module
+    # size (inline dense<...> blobs vs %arg lifting), which is a
+    # representation change, not per-iteration growth; bound it
+    assert abs(lines[12] - lines[60]) < 100
 
 
 def test_grad_flows_through_a_long_scanned_solve():

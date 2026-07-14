@@ -81,6 +81,31 @@ def test_with_data_rejects_wrong_shape(f):
         f.with_data(jnp.zeros((4, 8)))
 
 
+def test_storage_is_the_padded_frame_no_copy(f):
+    assert f.storage is f._data
+    assert all(s >= t for s, t
+               in zip(f.storage.shape, f.data.shape, strict=True))
+
+
+def test_with_storage_round_trips_without_pad(f):
+    g = f.with_storage(f.storage)
+    assert g.grid is f.grid
+    assert g.function_space is f.function_space
+    assert g.metadata == f.metadata
+    assert g.storage is f.storage
+    assert jnp.array_equal(g.data, f.data)
+
+
+def test_with_storage_claims_zero_ghost_validity(grid, f):
+    # the canonical with_data state: claims are dropped, so the
+    # first ghost-consuming application re-syncs — always sound
+    synced = grid.sync(f)
+    g = synced.with_storage(synced.storage)
+    assert g.halo_valid == synced.halo_valid.zero(
+        tuple(f.function_space.names))
+    assert jnp.array_equal(g.data, synced.data)
+
+
 def test_with_metadata(f):
     g = f.with_metadata(name="q", units="m/s")
     assert g.name == "q"
