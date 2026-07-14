@@ -48,16 +48,20 @@ differentiable, ``fori_loop`` is not.
 treedef* (it drives sync placement, so it must key the jit cache), so
 carrying fields through a ``scan`` would impose treedef stability on
 a quantity that operators legitimately change. The carry is therefore
-a flat tuple of true-shape :class:`jax.Array`\ s (whose treedef is
-trivially stable) plus the 0-d ``rz``; the body rebuilds the fields
-through ``with_data``, which is the *canonical* halo state: zero
-valid ghost layers, synced at first consumption.
+a flat tuple of **storage-frame** :class:`jax.Array`\ s (whose
+treedef is trivially stable) plus the 0-d ``rz``; the body rebuilds
+the fields through ``with_storage``, which declares the *canonical*
+halo state — zero valid ghost layers, synced at first consumption.
 
-That canonical state is not a new convention but the fixed point the
-unrolled loop already sat in: every carried iterate is the output of
-field arithmetic, which routes through the storage write path and
-hence claims zero ghost validity. The rebuild is consequently
-exchange-neutral — it re-declares the state the iterates already had.
+Storage frame, not true shape: field arithmetic works directly on the
+padded storage (and propagates a ``merge_min`` ghost claim), so a
+true-shape carry would tear each iterate down through ``unpad`` and
+rebuild it through ``pad`` — six full-array round trips per
+iteration that the storage-frame combine was built to remove. The
+zero-claim declaration forgets the propagated claims, which is always
+sound (claiming fewer valid layers than the storage holds merely
+costs the sync the operators would place anyway) and keeps the body's
+sync placement identical to the true-shape form.
 
 **The first iteration is peeled** out of the scan and runs unrolled.
 The operator and preconditioner are opaque closures that may perform
@@ -89,6 +93,15 @@ would silently converge the solver to the wrong answer on several
 devices). On a uniform flat grid the measure is a constant XLA folds,
 so the weighting reduces to the plain Euclidean product up to a factor
 that cancels in the CG ratios.
+
+The three reductions of one iteration (``<p, Ap>``, ``<r, z>``, the
+nullspace mean) cannot be batched into one all-reduce: each is
+data-dependent on the previous one through the recurrence
+(``alpha`` needs ``<p, Ap>`` before ``r`` exists; ``z`` needs ``r``
+before ``<r, z>`` exists). Overlapping them is the defining
+restructure of pipelined/s-step CG variants, which trade numerical
+stability for latency and are deliberately out of scope (CS-D2
+keeps textbook PCG).
 
 Nullspace
 ---------
@@ -128,8 +141,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from fridom.spatial.operators.base import FieldLike
 
-    #: the scan carry: the true-shape ``x``, ``r`` and ``p`` arrays
-    #: plus the 0-d ``rz = <r, z>`` (module docstring)
+    #: the scan carry: the storage-frame ``x``, ``r`` and ``p``
+    #: arrays plus the 0-d ``rz = <r, z>`` (module docstring)
     Carry = tuple[jax.Array, jax.Array, jax.Array, jax.Array]
 
 
@@ -414,25 +427,26 @@ class ConjugateGradient:
         # lands in *this* trace and not in the scan body
         x, r, p, rz = self._step(x, r, p, rz)
 
-        # the iterates are now in the canonical halo state (zero valid
-        # ghosts) that field arithmetic always produces, so they can be
-        # torn down to raw arrays and rebuilt inside the body from
-        # these templates (grid, space and metadata are static there)
+        # the iterates stay in the storage frame across the carry —
+        # no unpad/pad round trips — and are rebuilt inside the body
+        # from these templates at the canonical zero-claim state
+        # (grid, space and metadata are static there)
         t_x, t_r, t_p = x, r, p
 
         def body(carry: Carry, _: None) -> tuple[Carry, None]:
             x_d, r_d, p_d, rz_c = carry
             new_x, new_r, new_p, new_rz = self._step(
-                t_x.with_data(x_d), t_r.with_data(r_d),
-                t_p.with_data(p_d), rz_c)
-            return (new_x.data, new_r.data, new_p.data, new_rz), None
+                t_x.with_storage(x_d), t_r.with_storage(r_d),
+                t_p.with_storage(p_d), rz_c)
+            return (new_x.storage, new_r.storage, new_p.storage,
+                    new_rz), None
 
-        carry: Carry = (x.data, r.data, p.data, rz)
+        carry: Carry = (x.storage, r.storage, p.storage, rz)
         carry, _ = lax.scan(
             body, carry, None, length=self._iterations - 1)
         x_d, r_d, _p_d, _rz = carry
-        x = self._project(t_x.with_data(x_d))
-        r = t_r.with_data(r_d)
+        x = self._project(t_x.with_storage(x_d))
+        r = t_r.with_storage(r_d)
         info: dict[str, object] = {
             "residual_norm": jnp.sqrt(self._dot(r, r)),
             "iterations": self._iterations,

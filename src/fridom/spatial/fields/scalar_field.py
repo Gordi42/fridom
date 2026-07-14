@@ -164,6 +164,23 @@ class ScalarField:
             self._data, self._function_space)
 
     @property
+    def storage(self) -> jax.Array:
+        """
+        Raw local array in the storage frame (halo/stagger-padded).
+
+        Description
+        -----------
+        The padded frame the field actually holds — no unpad slice is
+        taken. Ghost slots may contain garbage: only ``halo_valid``
+        layers of them are meaningful, and a consumer that needs more
+        must sync first. Pair with :meth:`with_storage` to round-trip
+        a field through a raw-array seam (e.g. a ``lax.scan`` carry)
+        without the ``unpad``/``pad`` copies of :attr:`data` /
+        :meth:`with_data`.
+        """
+        return self._data
+
+    @property
     def metadata(self) -> FieldMetadata:
         """Annotation metadata (name/units/nc-attrs)."""
         return self._metadata
@@ -225,6 +242,32 @@ class ScalarField:
         stored = store(self._grid.decomposition, space,
                        jnp.asarray(data))
         return ScalarField(self._grid, space, stored, self._metadata)
+
+    def with_storage(self, data: jax.Array) -> ScalarField:
+        """
+        Return the field with a new storage-frame array.
+
+        Description
+        -----------
+        The counterpart of :meth:`with_data` for arrays already in
+        the storage frame (:attr:`storage`): no pad is performed.
+        The result claims zero ghost validity — the canonical state
+        of :meth:`with_data`, and always sound, since claiming fewer
+        valid layers than the storage holds only costs a sync at the
+        first ghost-consuming application.
+
+        Parameters
+        ----------
+        data : jax.Array
+            A storage-shaped array on this field's space.
+
+        Returns
+        -------
+        ScalarField
+            The new field; ``self`` is unchanged.
+        """
+        return ScalarField(self._grid, self._function_space, data,
+                           self._metadata)
 
     def with_metadata(self, **changes: object) -> ScalarField:
         """

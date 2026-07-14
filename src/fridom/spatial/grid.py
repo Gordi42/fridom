@@ -281,6 +281,13 @@ class Grid:
         self._decomposition: Decomposition = negotiate(
             self, self._dispatch, device_ids=device_ids)
         self._random: RandomFieldFactory = RandomFieldFactory(self)
+        # measure fields are static mesh geometry (no params seam),
+        # so they are memoized per (laid-out space, factor name) —
+        # identity keys, the spaces are interned. A stable field
+        # object also lets the operator-level sync memo hit
+        # (operators/base.py), removing the per-application exchange
+        # of freshly built measures.
+        self._measures: dict[tuple[SpaceLike, str], ScalarField] = {}
 
     # ================================================================
     #  Identity
@@ -863,7 +870,10 @@ class Grid:
         mapped meshes the staggered differences of the mapped node
         positions. The result is tagged with the querying space,
         all other factors replaced by their ``ConstantSpace``, so
-        it broadcasts exactly (section 3.3).
+        it broadcasts exactly (section 3.3). Measures are static
+        mesh geometry (no ``params=`` seam), so repeated queries
+        return one memoized field per (space, name) — the same
+        object, which also keeps the operator-level sync memo warm.
 
         Parameters
         ----------
@@ -880,6 +890,9 @@ class Grid:
         """
         space = self._laid_out(space)
         name = _pick_factor_name(space, name)
+        cached = self._measures.get((space, name))
+        if cached is not None:
+            return cached
         factor = space.factor(name)
         if isinstance(factor, ConstantSpace):
             # a value error (bad name choice), not a type error
@@ -901,8 +914,10 @@ class Grid:
         result = result.with_layout(space.layout)
         data = weights.reshape(result.shape)
         stored = store(self._decomposition, result, data)
-        return ScalarField(self, result, stored,
-                           FieldMetadata.create(name=f"d{name}"))
+        field = ScalarField(self, result, stored,
+                            FieldMetadata.create(name=f"d{name}"))
+        self._measures[(space, name)] = field
+        return field
 
     def metric(
         self,

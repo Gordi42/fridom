@@ -183,6 +183,32 @@ def test_solve_converges_on_a_sloped_column():
     assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-12
 
 
+def test_single_precision_preconditioner_still_converges():
+    # mixed-precision PCG: the f32 preconditioner only steers the
+    # search directions — iterates, operator and residual arithmetic
+    # stay f64, so the attainable residual is not f32-limited, the
+    # convergence path is merely perturbed
+    grid, mx, ms = build_grid()
+    space = mx.center * ms.center
+    kw = {"iterations": 20, "weights": {"sigma": 1.0 / DSQR}}
+    full = MappedPressureSolver(grid, space, **kw)
+    mixed = MappedPressureSolver(grid, space, single_precision=True,
+                                 **kw)
+    rhs = grid.random.normal(space, seed=9)
+    rhs = rhs - rhs.mean()
+    p_full = full.solve(rhs)
+    p_mixed = mixed.solve(rhs)
+    residual = mixed.apply(p_mixed) - rhs
+    rel = (float(jnp.abs(residual.data).max())
+           / float(jnp.abs(rhs.data).max()))
+    assert rel < 1e-8
+    diff = float(jnp.abs((p_mixed - p_full).data).max())
+    scale = float(jnp.abs(p_full.data).max())
+    assert diff / scale < 1e-6
+    # the state precision is untouched
+    assert p_mixed.dtype == p_full.dtype
+
+
 def test_solve_accepts_an_initial_guess():
     solver, grid, mx, ms = build_solver(iterations=4)
     rhs = grid.random.normal(mx.center * ms.center, seed=10)
