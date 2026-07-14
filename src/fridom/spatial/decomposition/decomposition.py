@@ -32,6 +32,8 @@ from fridom.spatial.decomposition.traits import HaloStrategy
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
+    import numpy as np
+
 
 @runtime_checkable
 class SpaceLike(Protocol):
@@ -501,6 +503,83 @@ class Decomposition(ABC):
         -------
         jax.Array
             The global true-shape array.
+        """
+        ...
+
+    @abstractmethod
+    def shard_writes(
+        self,
+        arr: jax.Array,
+        space: SpaceLike,
+        layout: Layout | None = None,
+    ) -> tuple[tuple[tuple[slice, ...], np.ndarray], ...]:
+        """
+        Iterate the locally-owned true-DOF tiles of a storage array.
+
+        Description
+        -----------
+        The gather-free output seam (I/O): returns one
+        ``(index, values)`` pair per addressable, replica-0 shard
+        instead of forming the global array. ``index`` is a tuple of
+        slices (one per storage axis) in **global true-DOF**
+        coordinates; ``values`` is the matching **host numpy** block
+        with the halo ghosts, the stagger reserve, and the cell
+        padding stripped. Skipping the non-zero replicas dedupes
+        replicated factors and fully replicated arrays, so across all
+        processes every true DOF is yielded exactly once and writing
+        every tile into a true-shape buffer reproduces
+        ``gather(arr, space)`` tile-by-tile — without ever
+        materializing the global array on any device.
+
+        Parameters
+        ----------
+        arr : jax.Array
+            A storage-shaped array.
+        space : SpaceLike
+            The (product) space.
+        layout : Layout | None, optional
+            A negotiated layout; None resolves as in ``sharding``
+            (default: None).
+
+        Returns
+        -------
+        tuple[tuple[tuple[slice, ...], np.ndarray], ...]
+            One ``(index, values)`` pair per locally-owned tile:
+            ``index`` a per-axis slice tuple in global true-DOF
+            coordinates, ``values`` the host numpy block.
+        """
+        ...
+
+    @abstractmethod
+    def chunk_hint(
+        self,
+        space: SpaceLike,
+        layout: Layout | None = None,
+    ) -> tuple[int, ...]:
+        """
+        Return the write-aligned output chunk shape of `space`.
+
+        Description
+        -----------
+        The default I/O chunk grid that makes every ``shard_writes``
+        tile chunk-aligned: the per-shard cell count along a blocked
+        axis (so each shard writes whole chunks and no two writes
+        touch one chunk), the full true extent along an unblocked
+        axis. Consumers key it by coordinate name; an explicit user
+        chunking overrides it.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The (product) space.
+        layout : Layout | None, optional
+            A negotiated layout; None resolves as in ``sharding``
+            (default: None).
+
+        Returns
+        -------
+        tuple[int, ...]
+            One chunk length per storage axis.
         """
         ...
 

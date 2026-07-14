@@ -3,6 +3,7 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
@@ -488,3 +489,152 @@ def test_constant_factors_carry_no_halo_storage():
     mesh = IntervalMesh(8, (0.0, 1.0), name="x")
     decomp = _mesh_decomp(mesh, 2)
     assert decomp.storage_shape(mesh.constant) == (1,)
+
+
+# ================================================================
+#  Gather-free output: shard_writes / chunk_hint
+# ================================================================
+# These build a decomposition that shards ``x`` over *all* available
+# devices: a single shard in the default suite (device-count agnostic)
+# and a genuine 1-D sharding under the forced-devices suite
+# (XLA_FLAGS=--xla_force_host_platform_device_count=4), where the
+# padding / stagger-reserve / ghost stripping is actually exercised.
+def _sharded(n_cells, *, periodic=False, width=1):
+    """Build a decomposition sharding ``x`` over every device."""
+    mesh = IntervalMesh(n_cells, (0.0, 1.0), periodic=periodic,
+                        name="x")
+    decomp = TensorDecomposition(
+        meshes=(mesh,), names=("x",), halo=HaloSpec({"x": width}),
+        layouts=(Layout({"x": "devices"}),),
+        device_ids=tuple(range(jax.device_count())))
+    return mesh, decomp
+
+
+# every space family and divisibility class on P = 4: n_cells 8 is
+# divisible (center uniform, outer the +1 stagger surplus, inner/
+# face_avg a mild deficit); 7 and 10 are non-divisible (mild cell
+# padding, several inner/face_avg spaces empty their last shard).
+_SPACE_CASES = [
+    pytest.param(False, "center", id="bounded-center"),
+    pytest.param(False, "outer", id="bounded-outer"),
+    pytest.param(False, "inner", id="bounded-inner"),
+    pytest.param(False, "face_avg", id="bounded-face_avg"),
+    pytest.param(True, "center", id="periodic-center"),
+    pytest.param(True, "face_avg", id="periodic-face_avg"),
+]
+_N_CELLS = [pytest.param(7, id="ncells7"),
+            pytest.param(8, id="ncells8"),
+            pytest.param(10, id="ncells10")]
+
+
+@pytest.mark.parametrize("n_cells", _N_CELLS)
+@pytest.mark.parametrize(("periodic", "attr"), _SPACE_CASES)
+def test_shard_writes_tile_by_tile_equals_gather(
+        n_cells, periodic, attr, forced_devices):
+    # the core contract: writing every locally-owned tile into a
+    # true-shape buffer reproduces gather() exactly, every true index
+    # is covered exactly once, and the tiles are host numpy.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    mesh, decomp = _sharded(n_cells, periodic=periodic)
+    space = getattr(mesh, attr)
+    arr = jnp.arange(1.0, space.shape[0] + 1.0)
+    storage = decomp.pad(arr, space)
+    gathered = np.asarray(decomp.gather(storage, space))
+    out = np.zeros(space.shape)
+    counter = np.zeros(space.shape, dtype=int)
+    for target, values in decomp.shard_writes(storage, space):
+        assert isinstance(values, np.ndarray)  # host copy, not device
+        out[target] = values
+        counter[target] += 1
+    assert np.array_equal(out, gathered)
+    assert np.array_equal(counter, np.ones(space.shape, dtype=int))
+
+
+@pytest.mark.parametrize("n_cells", _N_CELLS)
+@pytest.mark.parametrize(("periodic", "attr"), _SPACE_CASES)
+def test_chunk_hint_is_cells_on_blocked_axis(
+        n_cells, periodic, attr, forced_devices):
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    mesh, decomp = _sharded(n_cells, periodic=periodic)
+    space = getattr(mesh, attr)
+    devices = jax.device_count()
+    # blocked axis -> ceil(n_cells / devices) cells; unblocked (single
+    # device) -> the full true extent n
+    expected = -(-n_cells // devices) if devices > 1 else space.shape[0]
+    assert decomp.chunk_hint(space) == (expected,)
+
+
+def test_shard_writes_dedupes_replicated_factor(forced_devices):
+    # a constant factor is replicated on every device: its storage has
+    # one true DOF held on all shards (replica_id 0..P-1), so the
+    # replica-0 skip must collapse it to a single tile covering the DOF
+    # exactly once.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    _mesh, decomp = _sharded(8)
+    const = decomp._meshes[0].constant
+    arr = decomp.zeros(const)
+    writes = decomp.shard_writes(arr, const)
+    assert len(writes) == 1
+    counter = np.zeros(const.shape, dtype=int)
+    for target, _values in writes:
+        counter[target] += 1
+    assert np.array_equal(counter, np.ones(const.shape, dtype=int))
+
+
+def test_shard_writes_2d_blocked_and_replicated_axis(forced_devices):
+    # blocked x (device axis) composed with an unblocked, replicated y:
+    # the per-axis source/target composition must still tile to gather,
+    # and chunk_hint is cells on x, full n on y.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    mx = IntervalMesh(8, (0.0, 1.0), name="x")
+    my = IntervalMesh(6, (0.0, 2.0), periodic=False, name="y")
+    decomp = TensorDecomposition(
+        meshes=(mx, my), names=("x", "y"),
+        halo=HaloSpec({"x": 1, "y": 1}),
+        layouts=(Layout({"x": "devices"}),),
+        device_ids=tuple(range(jax.device_count())))
+    space = mx.center * my.outer
+    arr = jnp.arange(
+        float(space.shape[0] * space.shape[1])).reshape(space.shape)
+    storage = decomp.pad(arr, space)
+    gathered = np.asarray(decomp.gather(storage, space))
+    out = np.zeros(space.shape)
+    counter = np.zeros(space.shape, dtype=int)
+    for target, values in decomp.shard_writes(storage, space):
+        out[target] = values
+        counter[target] += 1
+    assert np.array_equal(out, gathered)
+    assert np.array_equal(counter, np.ones(space.shape, dtype=int))
+    devices = jax.device_count()
+    x_chunk = -(-8 // devices) if devices > 1 else 8
+    assert decomp.chunk_hint(space) == (x_chunk, space.shape[1])
+
+
+def test_shard_writes_and_chunk_hint_honor_explicit_layout():
+    mesh, decomp = _sharded(8)
+    space = mesh.center
+    storage = decomp.pad(jnp.arange(1.0, 9.0), space)
+    # an explicit default layout resolves identically to None
+    default = decomp.shard_writes(storage, space)
+    explicit = decomp.shard_writes(storage, space, decomp.default_layout)
+    assert len(default) == len(explicit)
+    for (ta, va), (tb, vb) in zip(default, explicit, strict=True):
+        assert ta == tb
+        assert np.array_equal(va, vb)
+    assert decomp.chunk_hint(space) == decomp.chunk_hint(
+        space, decomp.default_layout)
+
+
+def test_shard_writes_and_chunk_hint_reject_foreign_layout():
+    mesh, decomp = _sharded(8)
+    space = mesh.center
+    storage = decomp.pad(jnp.arange(1.0, 9.0), space)
+    foreign = Layout({"x": "other"})
+    with pytest.raises(ValueError, match="vocabulary"):
+        decomp.shard_writes(storage, space, foreign)
+    with pytest.raises(ValueError, match="vocabulary"):
+        decomp.chunk_hint(space, foreign)
