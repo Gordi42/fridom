@@ -609,8 +609,11 @@ def test_divisible_reblock_hlo_is_byte_for_byte_unchanged():
     # golden captured from the pre-change tip (the padded-even branch is
     # gated on n_cells % P != 0, so divisible runs the identical path).
     # Regenerate deliberately with FRIDOM_REGEN_HLO_GOLDEN=1 and review
-    # the diff -- it must change ONLY on a jax/xla toolchain bump, never
-    # from this feature.
+    # the diff -- it must change ONLY on a jax/xla toolchain bump or a
+    # deliberate change to the lowering it captures, never from this
+    # feature. Re-captured once since: the halo write moved from
+    # arr.at[...] (a scatter) to dynamic_update_slice, so XLA's in-place
+    # emitter can reach it (2026-07-14); the collectives were unchanged.
     if jax.device_count() != 4:
         # the golden hard-codes the 4-device blocking (num_partitions,
         # shapes); it is captured for and only valid at 4 devices

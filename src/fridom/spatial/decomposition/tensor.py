@@ -1038,12 +1038,23 @@ def _take(arr: jax.Array, axis: int, index: slice) -> jax.Array:
     return arr[tuple(slices)]
 
 
-def _set(arr: jax.Array, axis: int, index: slice,
+def _set(arr: jax.Array, axis: int, start: int | jax.Array,
          values: jax.Array) -> jax.Array:
-    """Write ``values`` into ``arr`` at ``index`` along ``axis``."""
-    slices: list[slice] = [slice(None)] * arr.ndim
-    slices[axis] = index
-    return arr.at[tuple(slices)].set(values)
+    """
+    Write ``values`` into ``arr`` at ``start`` along ``axis``.
+
+    Description
+    -----------
+    Spelled as a ``dynamic_update_slice`` on purpose. XLA has an
+    in-place emitter for a DUS whose operand buffer has no other live
+    reader downstream of the write, so the update costs O(values); it
+    has none for ``concatenate`` (whose result is always a fresh
+    O(arr) buffer) and reaches the in-place path for ``arr.at[...]``
+    (a ``scatter``) only through a rewrite that is not guaranteed.
+    The in-place emitter only fires if every other read of ``arr`` is
+    upstream of the write — see the sequencing note in ``_fill_axis``.
+    """
+    return jax.lax.dynamic_update_slice_in_dim(arr, values, start, axis)
 
 
 def _boundary_geometry(
@@ -1243,6 +1254,23 @@ def _fill_axis(
     stagger padding, which on a single shard equals the ghost
     width, so every non-true slot is (re)written.
 
+    The ghost slots are **written into** ``arr`` (``_set``) rather
+    than the array being rebuilt around them by ``concatenate``. The
+    two spellings compute the same values, but only the write reaches
+    XLA's in-place emitter: a ``concatenate`` always allocates a fresh
+    O(field) buffer, so every synced field used to be copied whole to
+    deliver an O(halo) update (measured: ~22% of the flat nonhydro
+    step, a ~75x write amplification over the halo payload).
+
+    The sides are **sequenced**: the right-hand fill reads its source
+    out of the array as already updated on the left. The values are
+    unaffected (a ghost write never touches the true region, which is
+    all the sources read), but the dataflow is: with both sources read
+    from the *original* array, the two reads and the first write are
+    unordered, XLA's copy insertion sees the operand buffer as live
+    across the write, and it reinstates the full copy it was supposed
+    to remove. Do not "simplify" the reads back to a common ``true``.
+
     Parameters
     ----------
     arr : jax.Array
@@ -1257,23 +1285,30 @@ def _fill_axis(
         The factor space owning the axis (supplies mesh topology
         and BC structure).
     """
-    true = _take(arr, axis, slice(width, width + n))
     trail = arr.shape[axis] - n - width
     if factor.mesh.periodic:
         if width > n or trail > n:
             raise NotImplementedError(
                 f"periodic wrap with halo {width} wider than the "
                 f"axis length {n} is not supported")
-        left = _take(true, axis, slice(n - width, n))
-        right = _take(true, axis, slice(0, trail))
-    else:
-        left = _bounded_ghosts(true, axis, n, width, factor, 0)
-        right = _bounded_ghosts(true, axis, n, trail, factor, 1)
-        if left is None:  # BC-free side: slots stay as they are (R1)
-            left = _take(arr, axis, slice(0, width))
-        if right is None:
-            right = _take(arr, axis, slice(width + n, None))
-    return jnp.concatenate([left, true, right], axis=axis)
+        if width:
+            arr = _set(arr, axis, 0,
+                       _take(arr, axis, slice(n, n + width)))
+        if trail:
+            arr = _set(arr, axis, width + n,
+                       _take(arr, axis, slice(width, width + trail)))
+        return arr
+    true = _take(arr, axis, slice(width, width + n))
+    left = _bounded_ghosts(true, axis, n, width, factor, 0)
+    # a BC-free side defines no exterior values (R1): its slots are
+    # left exactly as they are, so nothing is written
+    if left is not None and width:
+        arr = _set(arr, axis, 0, left)
+        true = _take(arr, axis, slice(width, width + n))
+    right = _bounded_ghosts(true, axis, n, trail, factor, 1)
+    if right is not None and trail:
+        arr = _set(arr, axis, width + n, right)
+    return arr
 
 
 # ================================================================
@@ -1346,9 +1381,8 @@ def _exchange_block(
         bwd = [(i, i - 1) for i in range(1, shards)]
     from_left = jax.lax.ppermute(right_send, axis_name, fwd)
     from_right = jax.lax.ppermute(left_send, axis_name, bwd)
-    block = _set(block, axis, slice(0, width), from_left)
-    block = jax.lax.dynamic_update_slice_in_dim(
-        block, from_right, width + t, axis)
+    block = _set(block, axis, 0, from_left)
+    block = _set(block, axis, width + t, from_right)
 
     # ---- physical boundaries: BC-structured local fill ------------
     if not periodic:
@@ -1359,14 +1393,21 @@ def _exchange_block(
         left_fill = _bounded_ghosts(lead, axis, depth, width,
                                     factor, 0)
         if left_fill is not None:  # BC-free side: slots stay (R1)
-            with_left = _set(block, axis, slice(0, width), left_fill)
-            block = jnp.where(s == 0, with_left, block)
+            # the shard mask selects on the ghost slab, not on the
+            # whole block: masking the block would build a fresh
+            # O(block) buffer on every shard, boundary or not, and
+            # would put a second reader on the buffer the write wants
+            # in place (_set)
+            keep = _take(block, axis, slice(0, width))
+            block = _set(block, axis, 0,
+                         jnp.where(s == 0, left_fill, keep))
         trail_buf = jax.lax.dynamic_slice_in_dim(
             block, width + t - depth, depth, axis)
         right_fill = _bounded_ghosts(trail_buf, axis, depth, width,
                                      factor, 1)
         if right_fill is not None:
-            with_right = jax.lax.dynamic_update_slice_in_dim(
-                block, right_fill, width + t, axis)
-            block = jnp.where(s == shards - 1, with_right, block)
+            keep = jax.lax.dynamic_slice_in_dim(
+                block, width + t, width, axis)
+            block = _set(block, axis, width + t,
+                         jnp.where(s == shards - 1, right_fill, keep))
     return block

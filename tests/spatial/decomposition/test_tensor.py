@@ -300,6 +300,45 @@ def test_gather_returns_global_true_shape(space):
 
 
 # ================================================================
+#  The in-place halo write (a performance contract, not a value one)
+# ================================================================
+@pytest.mark.parametrize("periodic", [True, False], ids=["wrap", "bc"])
+def test_sync_writes_the_halo_in_place_and_never_copies_the_field(
+    periodic,
+):
+    # The ghost fill is a dynamic_update_slice INTO the array, not a
+    # concatenate that rebuilds it around new edges. Both spell the
+    # same values, so no value test can see the difference -- but only
+    # the DUS reaches XLA's in-place emitter, and the concatenate costs
+    # a full copy of every synced field (~22% of the flat nonhydro
+    # step). This is the guard for that: a donated sync must allocate
+    # O(halo) scratch, never a second full-size buffer.
+    width, n = 2, 4096
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=periodic, name="x")
+    space = (mesh.center if periodic
+             else mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    decomp = _mesh_decomp(mesh, width)
+    storage = decomp.pad(jnp.zeros(n), space)
+
+    compiled = jax.jit(
+        lambda s: decomp.sync(s, space), donate_argnums=0,
+    ).lower(storage).compile()
+
+    assert "dynamic-update-slice" in compiled.as_text()
+    # Scratch stays on the order of the ghost slabs (measured: 16 B
+    # wrapping, 72 B for the odd extension's negated slices) against a
+    # 32 kB field. This is the assertion that matters: a fill that
+    # rebuilds the array -- the concatenate this replaced -- cannot do
+    # so without a full-size buffer, and lands at temp >= field.
+    # (The bounded fill still concatenates its ghost SLAB, `width`
+    # values wide; that is O(halo) and fine. Only a field-sized
+    # allocation is the bug.)
+    field_bytes = storage.size * storage.dtype.itemsize
+    assert (compiled.memory_analysis().temp_size_in_bytes
+            < field_bytes // 8)
+
+
+# ================================================================
 #  Single-device BC-structured halo fill (real mesh spaces)
 # ================================================================
 def _mesh_decomp(mesh, width):
