@@ -808,6 +808,20 @@ def test_mapped_primal_measure_is_the_cell_width(mzm):
         assert float(w.data.sum()) == pytest.approx(1.0)
 
 
+def test_measure_is_memoized_per_space_and_name(mx, my):
+    # measures are static mesh geometry: repeated queries return the
+    # SAME field object (stable identity keeps the operator-level
+    # sync memo warm); distinct names key distinct entries
+    grid = Grid((mx, my))
+    space = mx.center * my.center
+    wx = grid.measure(space, name="x")
+    assert grid.measure(space, name="x") is wx
+    wy = grid.measure(space, name="y")
+    assert wy is not wx
+    assert grid.measure(space, name="y") is wy
+    assert jnp.allclose(wx.data, 1.0 / 8)
+
+
 def test_mapped_dual_measures_clip_at_the_walls(mzm):
     grid = Grid((mzm,))
     centers = tanh_map(_s_centers())
