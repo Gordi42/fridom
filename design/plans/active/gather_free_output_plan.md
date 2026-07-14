@@ -28,7 +28,12 @@ shard `s` occupy the in-block slice `[width, width + t_s)` where, with
 - `t_s = cells` for `s < shards-1`;
 - last shard: `n - (shards-1)*cells` — *smaller* under mild cell
   padding (non-divisible `n_cells`), or `cells + 1` for the staggered
-  `n = shards*cells + 1` spaces (`Outer`, periodic `FaceAvg`).
+  `n = shards*cells + 1` case (bounded `Outer` on a divisible cell
+  count; periodic meshes have no `outer`/`inner`, and periodic
+  `FaceAvg` sits at `n = n_cells`). Spaces with `n < n_cells`
+  (`Inner`, bounded `FaceAvg`) can leave the last shard *empty*
+  (`bounds[s] == bounds[s+1]`) on non-divisible counts — a legal
+  tile of zero extent; the sink skips it.
 - unblocked axis (`shards == 1`): single block `n + 2*width`, true
   region `[width, width + n)`.
 
@@ -134,6 +139,7 @@ their internal gather is trivial and stays.
       futures.append(var[(nt, *target)].write(values))
   ```
 
+  Zero-extent tiles (the empty last shard above) are skipped.
   All shards × all variables issue as async tensorstore writes; block
   on every future before returning (per-firing barrier — "partial
   output must survive" close semantics unchanged). Cross-boundary
