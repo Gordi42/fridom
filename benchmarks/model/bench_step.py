@@ -214,8 +214,12 @@ def sw_sphere(n):
                          omega=(0.0, 0.0, 1.0), coords=("lon", "lat"),
                          metric_weight="csqr"),
                      chunk_size=STEPS,
+                     # dt ~ 1/n keeps the zonal CFL ~0.09 at every n
+                     # (the cos(lat_max) squeeze shrinks the effective
+                     # spacing 6x; a fixed dt goes unstable at 2048^2
+                     # after ~300 steps and trips the finite guard)
                      time_stepper=fr.model.time_steppers.AdamBashforth(
-                         2e-3, order=3))
+                         1.0 / n, order=3))
     lon = (np.arange(n) + 0.5) * (TWO_PI / n)
     lat = -LAT_MAX + (np.arange(n) + 0.5) * (2 * LAT_MAX / n)
     lo, la = np.meshgrid(lon, lat, indexing="ij")
