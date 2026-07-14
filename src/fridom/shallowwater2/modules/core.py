@@ -135,10 +135,16 @@ class DynamicalCore(fr.model.Module):
     # module declares its stencil width and is halo-trace exempt
     # (V-N2, the Sadourny precedent): one staggered difference plus
     # at most one cross-term interpolation hop per axis (the
-    # non-diagonal raise_index worst case).
+    # non-diagonal raise_index worst case). None on flat grids
+    # (chartedness recorded by ``bind``): the flat gravity term is a
+    # plain staggered difference the tracer follows exactly — an
+    # unconditional 2 doubled the linear model's exchange volume
+    # (halo 1 -> 2 per axis) for a chart worst case it never runs.
     @property
-    def extra_halo(self) -> HaloSpec:
-        """Two halo cells per coordinate (chart worst case)."""
+    def extra_halo(self) -> HaloSpec | None:
+        """Two halo cells per coordinate on chart grids only."""
+        if not self._charted:
+            return None
         return HaloSpec(dict.fromkeys(self._coords, 2))
 
     def __init__(
@@ -163,6 +169,9 @@ class DynamicalCore(fr.model.Module):
         self._coords: tuple[str, str] = coords
         self._meridional = (coords[1] if meridional is None
                             else meridional)
+        # whether the bound grid is chart-coupled; set by bind()
+        # (assembly step 4, before the extra_halo merge of step 7)
+        self._charted: bool = False
 
     # ================================================================
     #  Properties
@@ -274,6 +283,7 @@ class DynamicalCore(fr.model.Module):
         """
         grid = table.grid
         chart = grid.chart_coords
+        self._charted = chart is not None
         if chart is None:
             return
         expected = tuple(

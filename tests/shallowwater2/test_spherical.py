@@ -96,6 +96,17 @@ def test_assembles_with_the_sphere_staggering():
     assert p_space.factor("lat") is mlat.center
 
 
+def test_chart_model_keeps_the_exempt_halo():
+    # on a chart grid the core's gravity term resolves metric-aware
+    # kinds the halo tracer cannot follow, so the module stays
+    # exempt through its extra_halo declaration: 2 per coordinate
+    # even without advection (the flat-gate must not leak here)
+    model = sphere_model(advection=False)
+    halo = model.grid.decomposition.halo
+    assert halo["lon"] == 2
+    assert halo["lat"] == 2
+
+
 def test_polar_cap_wall_has_no_normal_dof():
     model = sphere_model()
     # nlat centers but only nlat - 1 interior faces: the cap value

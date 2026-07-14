@@ -282,7 +282,16 @@ class _TracerGrid:
     ``Dispatched`` verbs resolve against tracers; everything else a
     real grid offers is deliberately absent (tracers never reach the
     decomposition).
+
+    ``chart_coords`` is the one geometry attribute term bodies may
+    branch on at trace time, and it is always ``None`` here: a module
+    whose grid *is* chart-coupled declares ``extra_halo`` and is
+    halo-trace exempt, so only flat-gated bodies ever run against
+    this stub — for them ``None`` is the true answer.
     """
+
+    #: tracers only reach flat-gated module bodies (class docstring)
+    chart_coords: None = None
 
     def __init__(self, dispatch: object) -> None:
         self.dispatch = dispatch
