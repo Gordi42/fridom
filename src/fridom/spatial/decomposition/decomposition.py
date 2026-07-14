@@ -518,18 +518,23 @@ class Decomposition(ABC):
 
         Description
         -----------
-        The gather-free output seam (I/O): returns one
-        ``(index, values)`` pair per addressable, replica-0 shard
-        instead of forming the global array. ``index`` is a tuple of
-        slices (one per storage axis) in **global true-DOF**
-        coordinates; ``values`` is the matching **host numpy** block
-        with the halo ghosts, the stagger reserve, and the cell
-        padding stripped. Skipping the non-zero replicas dedupes
-        replicated factors and fully replicated arrays, so across all
-        processes every true DOF is yielded exactly once and writing
-        every tile into a true-shape buffer reproduces
-        ``gather(arr, space)`` tile-by-tile — without ever
-        materializing the global array on any device.
+        The gather-free output seam (I/O): returns ``(index, values)``
+        tiles — one per storage block covered by each addressable,
+        replica-0 shard (cartesian across axes) — instead of forming
+        the global array. ``index`` is a tuple of slices (one per
+        storage axis) in **global true-DOF** coordinates; ``values``
+        is the matching **host numpy** block with the halo ghosts,
+        the stagger reserve, and the cell padding stripped. A
+        canonically sharded array yields one tile per shard; a
+        replicated or single-device array yields every tile from its
+        replica-0 shard, so any block-aligned sharding is written
+        correctly (a sharding off the storage-block grid raises).
+        Skipping the non-zero replicas dedupes replicated factors and
+        fully replicated arrays, so across all processes every true
+        DOF is yielded exactly once and writing every tile into a
+        true-shape buffer reproduces ``gather(arr, space)``
+        tile-by-tile — without ever materializing the global array on
+        any device.
 
         Parameters
         ----------

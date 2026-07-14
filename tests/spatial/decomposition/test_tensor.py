@@ -614,6 +614,79 @@ def test_shard_writes_2d_blocked_and_replicated_axis(forced_devices):
     assert decomp.chunk_hint(space) == (x_chunk, space.shape[1])
 
 
+# ================================================================
+#  Gather-free output: the fully-replicated / misaligned frames
+# ================================================================
+# non-divisible cell counts so the padded-even storage genuinely pads
+# (block > cells) and a replicated array must tile EVERY block, not just
+# block 0 (the fully-replicated output regression).
+_N_CELLS_PADDED = [pytest.param(7, id="ncells7"),
+                   pytest.param(10, id="ncells10")]
+
+
+@pytest.mark.parametrize("n_cells", _N_CELLS_PADDED)
+@pytest.mark.parametrize(("periodic", "attr"), _SPACE_CASES)
+def test_shard_writes_replicated_array_tiles_every_block(
+        n_cells, periodic, attr, forced_devices):
+    # regression: a fully replicated storage array (PartitionSpec()) has
+    # a single replica-0 shard whose window spans the whole blocked axis,
+    # so shard_writes must walk EVERY storage block to reproduce gather.
+    # Before the fix only block 0's window was written (3/4 of the domain
+    # came back silently zero). On one device this degenerates to the
+    # unblocked single-tile path; under the forced-4 suite it exercises
+    # the replicated multi-block tiling.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    mesh, decomp = _sharded(n_cells, periodic=periodic)
+    space = getattr(mesh, attr)
+    arr = jnp.arange(1.0, space.shape[0] + 1.0)
+    storage = decomp.pad(arr, space)
+    replicated = jax.device_put(
+        storage,
+        jax.sharding.NamedSharding(
+            decomp.device_mesh, jax.sharding.PartitionSpec()))
+    gathered = np.asarray(decomp.gather(storage, space))
+    out = np.zeros(space.shape)
+    counter = np.zeros(space.shape, dtype=int)
+    writes = decomp.shard_writes(replicated, space)
+    for target, values in writes:
+        assert isinstance(values, np.ndarray)  # host copy, not device
+        out[target] = values
+        counter[target] += 1
+    assert np.array_equal(out, gathered)
+    assert np.array_equal(counter, np.ones(space.shape, dtype=int))
+    if jax.device_count() > 1:
+        # the regression signal: the one replica-0 shard yielded a write
+        # per storage block along the blocked axis, not a single tile.
+        replica0 = [shard for shard in replicated.addressable_shards
+                    if shard.replica_id == 0]
+        assert len(replica0) == 1
+        assert len(writes) > 1
+
+
+def test_shard_writes_misaligned_window_raises(forced_devices):
+    # a shard window that does not fall on the storage-block grid is not
+    # in this space's storage frame and must raise. The 4-device storage
+    # has block = cells + 1 + 2 * width = 3 + 1 + 2 = 6 and total = 4 * 6
+    # = 24; resharding onto a 3-device subset gives 24 / 3 = 8 per shard,
+    # and 8 % 6 == 2, so the first window [0, 8) is off the block grid.
+    if jax.device_count() < 4:
+        pytest.skip("requires >= 4 jax devices for a 3-device subset")
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    mesh, decomp = _sharded(10, periodic=False)
+    space = mesh.center
+    arr = jnp.arange(1.0, space.shape[0] + 1.0)
+    storage = decomp.pad(arr, space)
+    subset = jax.sharding.Mesh(np.array(jax.devices()[:3]), ("d",))
+    misaligned = jax.device_put(
+        storage,
+        jax.sharding.NamedSharding(
+            subset, jax.sharding.PartitionSpec("d")))
+    with pytest.raises(ValueError, match="not aligned with the"):
+        decomp.shard_writes(misaligned, space)
+
+
 def test_shard_writes_and_chunk_hint_honor_explicit_layout():
     mesh, decomp = _sharded(8)
     space = mesh.center
