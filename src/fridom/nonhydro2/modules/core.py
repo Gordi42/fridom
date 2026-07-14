@@ -64,14 +64,19 @@ class DynamicalCore(fr.model.Module):
         Grid coordinate names, used to size the projection halo
         exemption (default: ``("x", "y", "z")``).
     single_precision_solve : bool, optional
-        Run the spectral pressure projection (the ``rfftn`` /
-        spectral divide / ``irfftn`` pipeline) in single precision
-        while the velocity state stays ``float64`` — a performance
-        option forwarded to :class:`SpectralPressureSolver`. Static
-        (a treedef aux, part of the module fingerprint), so a given
-        value never retraces. Off by default (bitwise identical
-        projection); on, the projected velocities carry the reduced
-        solve round-off, an opt-in accuracy trade (default: False).
+        Run the spectral machinery of the pressure projection in
+        single precision while the velocity state stays ``float64``
+        — a performance option. On a flat grid this is the whole
+        solve (the ``rfftn`` / spectral divide / ``irfftn``
+        pipeline, forwarded to :class:`SpectralPressureSolver`); on
+        a mapped grid it is the PCG *preconditioner* (forwarded to
+        :class:`MappedPressureSolver` — mixed-precision PCG: the
+        iterates, the operator and the inner products stay
+        ``float64``). Static (a treedef aux, part of the module
+        fingerprint), so a given value never retraces. Off by
+        default (bitwise identical projection); on, the result
+        carries the reduced round-off of the affected pipeline, an
+        opt-in accuracy trade (default: False).
     pressure_iterations : int, optional
         The fixed PCG iteration budget of the mapped pressure solve
         (CS-D2); consumed only on a grid whose coordinate mapping
@@ -250,6 +255,7 @@ class DynamicalCore(fr.model.Module):
             state["p"].function_space,
             weights={self._vertical: 1.0 / dsqr},
             iterations=self._pressure_iterations,
+            single_precision=self._single_precision_solve,
             params=mapping_params(state, grid))
         # one metric derivation for the whole projection: divergence,
         # solve and correction share the solver's per-solve memo (it

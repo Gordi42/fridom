@@ -86,11 +86,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     dt : float, optional
         Time step for the default stepper (default: 1.0).
     single_precision_solve : bool, optional
-        Run the spectral pressure projection in single precision
-        (``float32``/``complex64``) while the state stays
-        ``float64`` — a performance option forwarded to
-        ``DynamicalCore`` (see its ``single_precision_solve`` doc).
-        Off by default (default: False).
+        Run the spectral machinery of the pressure projection in
+        single precision (``float32``/``complex64``) while the state
+        stays ``float64`` — the whole solve on a flat grid, the PCG
+        preconditioner on a mapped one. A performance option
+        forwarded to ``DynamicalCore`` (see its
+        ``single_precision_solve`` doc). Off by default
+        (default: False).
     name : str | None, optional
         Model name (default: None).
 

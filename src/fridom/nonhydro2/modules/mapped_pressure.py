@@ -106,6 +106,14 @@ mapped-flat identity gate. The nullspace of the all-Neumann/periodic
 problem is the constants; the solve always projects the mean
 (``project_mean=True``).
 
+With ``single_precision=True`` the preconditioner's transform pair
+and spectral divide run in ``float32`` / ``complex64`` (mixed-
+precision PCG): the preconditioner only shapes the search
+directions, so its round-off perturbs the convergence path — the
+residual arithmetic, the iterates, and the operator stay
+``float64``. The preconditioner application is the dominant cost of
+a CG iteration, so this halves most of its bandwidth.
+
 Metric derivation: once per solve, never across steps
 -----------------------------------------------------
 Every metric coefficient is derived through ``grid.metric`` on the
@@ -204,6 +212,16 @@ class MappedPressureSolver:
         Dynamic mapping-parameter fields threaded through every
         ``grid.metric`` derivation (the stage-C4 seam)
         (default: None).
+    single_precision : bool, optional
+        Run the spectral *preconditioner* in single precision
+        (``float32`` / ``complex64``) while the CG iterates, the
+        operator applications and the inner products stay
+        ``float64`` — mixed-precision PCG: the preconditioner only
+        steers the search directions, so its reduced round-off
+        perturbs the convergence path without touching the residual
+        arithmetic. Forwarded to the preconditioner's
+        :class:`SpectralSolve` (see its ``single_precision`` doc).
+        Off by default (default: False).
     """
 
     def __init__(
@@ -214,6 +232,7 @@ class MappedPressureSolver:
         iterations: int,
         weights: Mapping[str, jax.Array | float] | None = None,
         params: Mapping[str, ScalarField] | None = None,
+        single_precision: bool = False,
     ) -> None:
         """Discover the mapped column and resolve the static rows."""
         mapping = getattr(grid, "mapping", None)
@@ -239,6 +258,7 @@ class MappedPressureSolver:
         self._space: SpaceLike = space.bare
         self._iterations = iterations
         self._params = params
+        self._single_precision = bool(single_precision)
         axes = self._space.active_axis_names
         if self._base not in axes:
             raise ValueError(
@@ -715,7 +735,8 @@ class MappedPressureSolver:
         div_block = Divergence().expand(mid, self._grid)
         diag = Diag(self._mean_coefficients(cache), axes=axes)
         lap = (div_block @ diag @ grad_block).scalar()
-        solve = SpectralSolve(lap, self._grid, solve_space)
+        solve = SpectralSolve(lap, self._grid, solve_space,
+                              single_precision=self._single_precision)
         if solve_space is self._space:
             return solve.solve
 
