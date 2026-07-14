@@ -162,6 +162,31 @@ def test_varying_csqr_model_steps():
     assert not bool(model.state["p"].has_nan())
 
 
+def test_flat_linear_model_negotiates_the_traced_halo():
+    # the core's chart-worst-case extra_halo (2 per axis) is gated
+    # on chartedness: the flat gravity term is a plain staggered
+    # difference the tracer follows exactly, so a linear flat model
+    # negotiates width 1 — an unconditional declaration doubled its
+    # exchange volume for a chart path it never runs
+    model = sw.Model(grid=make_grid(), csqr=1.0,
+                     coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+                     advection=False)
+    halo = model.grid.decomposition.halo
+    assert halo["x"] == 1
+    assert halo["y"] == 1
+
+
+def test_sadourny_model_keeps_its_declared_halo():
+    # the advective model is unaffected by the gate: Sadourny
+    # declares its own 2 (the corner chain), which masks the core's
+    model = sw.Model(grid=make_grid(), csqr=1.0,
+                     coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+                     advection=True)
+    halo = model.grid.decomposition.halo
+    assert halo["x"] == 2
+    assert halo["y"] == 2
+
+
 def test_default_time_stepper_is_adam_bashforth():
     # the preset's cutover default (pass an explicit one for a real
     # run); assembly succeeds and the model advances

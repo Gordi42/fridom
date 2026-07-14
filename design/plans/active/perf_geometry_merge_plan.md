@@ -416,7 +416,81 @@ carry `XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`
 reproducible harness is still §5 item 2.1.
 
 
-## 5. Stage 2 — prove the performance survived (needs care; do with the strong model)
+## 4b. Stages 2 and 3 — executed (2026-07-14, strong-model slot)
+
+Stage 2 is closed; stage 3's cheap levers are resolved — three
+landed, two closed as wontfix with the reason recorded, one
+**reverted by measurement** — and the expensive lever is quantified
+and scoped. Flat-path guard across all of it: every flat/sw suite
+case within ±1.6% of baseline on both device configs.
+
+### Stage 2 outcomes
+
+| # | outcome |
+|---|---|
+| 2.1 | LANDED — `benchmarks/model/bench_step.py` (17 trap-aware step cases), checked-in A100 baselines (`benchmarks/baselines/step-gpu{1,4}.json`), compare workflow in `benchmarks/README.md`, CI smoke of all three suite dirs. Reproduces the §4a ad-hoc numbers to <1%. Bonus catch: the ad-hoc sphere config was latently unstable (fixed dt blows up at 2048² after ~300 steps, past the ad-hoc horizon); the finite guard flagged it, the suite dt now scales 1/n. |
+| 2.2 | Closed by 2.1 — the baseline run IS the A/B; flat matches pre-merge. |
+| 2.3 | Closed in stage 1 (§3). |
+| 2.4 | LANDED — `tests/nonhydro2/test_distributed_projection.py` (forced-4 CI leg): the production projection must resolve the distributed solve on a periodic multi-device grid; the walled replicated fallback is asserted as documented-and-priced. The storage-frame arithmetic fast path was already guarded post-merge by the claim-propagation assertions in `tests/spatial/fields/test_halo_validity.py`. |
+| 2.5, 2.6 | Closed in stage 1. |
+
+### The CG iteration budget — measured (256³, 1 A100)
+
+Standalone mapped solve, marginal cost 6.15 ms/iteration:
+
+| piece | ms | share |
+|---|---|---|
+| preconditioner `M⁻¹ r` (mixed-transform SpectralSolve) | 3.59 | **58%** |
+| operator `A p` (mapped flux form) | 1.94 | 32% |
+| 3 weighted reductions | ~0.51 | 8% |
+
+(Unpreconditioned marginal 2.78 ms/it — consistent.)
+
+### Convergence vs iteration budget (the lever-6 data)
+
+Relative residual after k iterations (random mean-free rhs, 64³):
+
+| k | 20% slope | 4.5× depth ratio |
+|---|---|---|
+| 8 | 2.8e-08 | 3.7e-02 |
+| 12 | 3.1e-12 | 3.9e-03 |
+| 20 | 5.0e-18 | 5.7e-05 |
+| 30 | (floor) | 2.6e-07 |
+
+**Verdict: `pressure_iterations=30` stays.** It is not a trace-era
+artifact — steep terrain genuinely needs it (the folded-mean
+preconditioner degrades with slope). Mild-terrain users can halve
+the cost with 12; the durable fix is the preconditioner (below).
+
+### Stage 3 lever outcomes
+
+| lever | outcome |
+|---|---|
+| 2 (storage-frame CG carry) | **REVERTED by measurement** — the suite's first real catch. Standalone solve improved, but the in-model mapped step regressed +9.5–23.6% (n-dependent) on ONE GPU; 4-GPU neutral; peak memory *lower* (-7% at 256³). Probe: restoring the true-shape carry on the same tree puts `nh_mapped[n=256,iters=30]` back on the 10.81 s baseline bit-for-bit. Hypothesis (recorded in the krylov docstring with the re-attempt gate): the zero-copy carry couples buffer lifetimes across the scan boundary that the pad/unpad copies decouple, and XLA:GPU single-device buffer assignment loses more than the copies cost. The `ScalarField.storage`/`with_storage` API stays. |
+| 3 (Grid.measure memo) | LANDED. No step-time movement on uniform meshes (scalar-dx fast path; integrate's constants fold at trace time) — the win is stretched meshes and trace time, and the sync memo now hits on the stable field object. |
+| 4 (batch the reductions) | WONTFIX — chained by data dependence; fusing them is pipelined/s-step CG, out of scope under CS-D2. Recorded in the krylov docstring. |
+| 5 (MeshVelocityCorrection memo) | WONTFIX for nonhydro — u/v/w/b sit on distinct staggerings, so the per-field metric derivations do not repeat; only multi-tracer setups sharing a space would benefit. |
+| 6 (re-tune iterations) | KEEP 30 (measured above). |
+| 7 (precision into the preconditioner) | LANDED — `single_precision_solve` now selects a float32 preconditioner on mapped grids (mixed-precision PCG) instead of being silently ignored. Measured −10% on the 30-iteration solve (188.6 → 169.1 ms at 256³); the walled column re-widens the trig stages, so the gain is below the naive half-the-FFT estimate. Residual floor identical. |
+| 8 (gate `sw.DynamicalCore.extra_halo`) | LANDED — the stage-1 blocker was exactly `_TracerGrid.chart_coords`; the stub now answers `None`, which is always correct: a charted module is exempt through its declaration, so only flat-gated bodies reach the tracer. Flat linear shallow water negotiates halo 1 (was 2 — half the exchange volume); chart and Sadourny keep their declared 2. |
+
+### Lever 1 — quantified and scoped, not yet attacked
+
+58% of the iteration is the preconditioner; at 30 iterations that is
+~55% of the whole mapped step. Two follow-ups, in value order:
+
+1. **Algorithmic**: replace the folded-mean coefficients with a
+   per-column tridiagonal solve in the mapped column (spectral in
+   the coupled axes only). Exact for x-independent `H` at any column
+   stratification — kills the steep-terrain iteration count (the
+   4.5×-ratio column above), which multiplies every other saving.
+2. **Multi-device**: extend the distributed transform to mixed
+   (trig) plans — the replicated fallback caps walled flat scaling
+   at 1.36× and the mapped preconditioner inherits it
+   (`test_distributed_projection.py` documents the fallback).
+
+
+## 5. Stage 2 — prove the performance survived (CLOSED 2026-07-14, see §4b)
 
 Stage 1 proves the merged tree is *correct*. It proves nothing about *speed*,
 because (§1.4) nothing in the repo does.
@@ -431,7 +505,7 @@ because (§1.4) nothing in the repo does.
 | 2.6 | Widen the forced-4 CI leg to `tests/model/test_step_chunk.py`, `test_run.py`, `test_end_to_end.py`. | Their guards are multi-device bugs guarded by single-device tests. |
 
 
-## 6. Stage 3 — optimize the new geometry code (the actual second half)
+## 6. Stage 3 — optimize the new geometry code (cheap levers resolved 2026-07-14, see §4b; lever 1 scoped there)
 
 The cost centre is unambiguous: **the mapped PCG pressure solve**.
 
@@ -496,6 +570,12 @@ root-causing (§3), building a measurement harness that does not yet exist
 (§6.1). These are exactly the tasks that benefit from the stronger model, and
 none of them is urgent. **Defer them deliberately** rather than half-doing them
 today.
+
+*Executed in the strong-model slot 2026-07-14 (§4b). The deferral paid
+off concretely: the harness built first (2.1) caught the very next
+optimization (lever 2) regressing the mapped step — measured, probed,
+reverted same-day. Remaining open work: lever 1's two follow-ups
+(§4b), and the moving-geometry layout gates (§3c).*
 
 
 ## Non-goals
