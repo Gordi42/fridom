@@ -110,7 +110,11 @@ jobs:
       run: |
         uv sync --extra dev
 
-    - name: Smoke-run the benchmark suite
+    - name: Smoke-run the benchmark suites
       run: |
         uv run python -m fridom.benchmarking run benchmarks \
+          --first-only --reps 1 --warmup 1
+        uv run python -m fridom.benchmarking run benchmarks/spatial \
+          --first-only --reps 1 --warmup 1
+        uv run python -m fridom.benchmarking run benchmarks/model \
           --first-only --reps 1 --warmup 1
