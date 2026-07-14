@@ -1,4 +1,6 @@
 """Tests for the single-device TensorDecomposition."""
+import collections
+import re
 from dataclasses import dataclass
 
 import jax
@@ -300,19 +302,37 @@ def test_gather_returns_global_true_shape(space):
 
 
 # ================================================================
-#  The in-place halo write (a performance contract, not a value one)
+#  The halo fill's spelling (a performance contract, not a value one)
 # ================================================================
+def _opcodes(text: str) -> collections.Counter:
+    """Count HLO opcodes (an instruction is `%name = <shape> op(..)`)."""
+    return collections.Counter(
+        re.findall(r"= \S+ ([a-z][a-z0-9-]*)\(", text))
+
+
 @pytest.mark.parametrize("periodic", [True, False], ids=["wrap", "bc"])
-def test_sync_writes_the_halo_in_place_and_never_copies_the_field(
-    periodic,
-):
-    # The ghost fill is a dynamic_update_slice INTO the array, not a
-    # concatenate that rebuilds it around new edges. Both spell the
-    # same values, so no value test can see the difference -- but only
-    # the DUS reaches XLA's in-place emitter, and the concatenate costs
-    # a full copy of every synced field (~22% of the flat nonhydro
-    # step). This is the guard for that: a donated sync must allocate
-    # O(halo) scratch, never a second full-size buffer.
+def test_sync_spells_the_halo_fill_as_one_index_map(periodic):
+    # The ghost fill is an INDEX MAP: one gather (plus a sign flip on
+    # an odd extension), because every filled slot reads exactly one
+    # slot of the same array. Every spelling computes the same values,
+    # so no value test can see the difference -- but the spelling
+    # decides what the fill costs, and both alternatives lose:
+    #
+    #   * `concatenate` rebuilds the array. XLA makes it a fusion ROOT,
+    #     so an unabsorbed fill materializes a full O(field) buffer and
+    #     every synced field round-trips through HBM.
+    #   * `dynamic_update_slice` writes in place, but XLA ABSORBS the
+    #     write into the consuming kernel rather than materializing it,
+    #     and a chain of 2 * ndim DUS is an index-conditional read of an
+    #     index-conditional read: a wide stencil consumer re-evaluates
+    #     that nest at every offset it reads (+4% on the advective
+    #     nonhydro step, where two fusions swallowed 42 of them).
+    #
+    # The map is absorbed like the DUS and costs one indexed load to
+    # re-derive like the concatenate. This guards the spelling on both
+    # sides -- it bites on a concatenate rebuild AND on a DUS chain --
+    # standalone and, the case that actually matters, fused into a
+    # consumer that reads across the halo.
     width, n = 2, 4096
     mesh = IntervalMesh(n, (0.0, 1.0), periodic=periodic, name="x")
     space = (mesh.center if periodic
@@ -320,22 +340,22 @@ def test_sync_writes_the_halo_in_place_and_never_copies_the_field(
     decomp = _mesh_decomp(mesh, width)
     storage = decomp.pad(jnp.zeros(n), space)
 
-    compiled = jax.jit(
+    standalone = jax.jit(
         lambda s: decomp.sync(s, space), donate_argnums=0,
-    ).lower(storage).compile()
+    ).lower(storage).compile().as_text()
 
-    assert "dynamic-update-slice" in compiled.as_text()
-    # Scratch stays on the order of the ghost slabs (measured: 16 B
-    # wrapping, 72 B for the odd extension's negated slices) against a
-    # 32 kB field. This is the assertion that matters: a fill that
-    # rebuilds the array -- the concatenate this replaced -- cannot do
-    # so without a full-size buffer, and lands at temp >= field.
-    # (The bounded fill still concatenates its ghost SLAB, `width`
-    # values wide; that is O(halo) and fine. Only a field-sized
-    # allocation is the bug.)
-    field_bytes = storage.size * storage.dtype.itemsize
-    assert (compiled.memory_analysis().temp_size_in_bytes
-            < field_bytes // 8)
+    def stencil(s):
+        """Read across the filled halo (the case that actually matters)."""
+        s = decomp.sync(s, space)
+        return (s[2 * width:] + s[:-2 * width]).sum()
+
+    absorbed = jax.jit(stencil).lower(storage).compile().as_text()
+
+    for text in (standalone, absorbed):
+        ops = _opcodes(text)
+        assert ops["gather"] == 1
+        assert not ops["concatenate"]
+        assert not ops["dynamic-update-slice"]
 
 
 # ================================================================

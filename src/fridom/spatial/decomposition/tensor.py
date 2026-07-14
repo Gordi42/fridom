@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.decomposition import (
@@ -1045,14 +1046,15 @@ def _set(arr: jax.Array, axis: int, start: int | jax.Array,
 
     Description
     -----------
-    Spelled as a ``dynamic_update_slice`` on purpose. XLA has an
-    in-place emitter for a DUS whose operand buffer has no other live
-    reader downstream of the write, so the update costs O(values); it
-    has none for ``concatenate`` (whose result is always a fresh
-    O(arr) buffer) and reaches the in-place path for ``arr.at[...]``
-    (a ``scatter``) only through a rewrite that is not guaranteed.
-    The in-place emitter only fires if every other read of ``arr`` is
-    upstream of the write — see the sequencing note in ``_fill_axis``.
+    Spelled as a ``dynamic_update_slice`` rather than ``arr.at[...]``
+    (which jax lowers to a ``scatter``, and which reaches XLA's
+    in-place emitter only through a rewrite that is not guaranteed).
+
+    Used by the multi-device exchange, where the written slab is
+    *received* data (a ``ppermute`` result), so the write genuinely
+    delivers new values into the block. The single-shard fill does
+    NOT write: its slabs are a remap of the array's own contents, and
+    it spells that as an index map — see ``_fill_axis``.
     """
     return jax.lax.dynamic_update_slice_in_dim(arr, values, start, axis)
 
@@ -1168,6 +1170,82 @@ def _bounded_ghosts(
     return jnp.concatenate(ghosts, axis=axis)
 
 
+def _ghost_slot(
+    kind: BC,
+    distance: float,
+    k: int,
+    factor: FunctionSpace,
+) -> tuple[int, int]:
+    """
+    Return the (true-DOF rank, sign) one ghost slot reads.
+
+    Description
+    -----------
+    The single source of truth for the BC-structured fill: ghost slot
+    ``k`` (k = 1 adjacent to the true region, counting outward) takes
+    ``sign`` times the ``rank``-th true DOF counted from the same
+    side. Dirichlet-structured sides get the odd (zero-value)
+    extension (``sign = -1``), Neumann-structured sides the even
+    (mirror) extension (``sign = +1``). ``sign = 0`` marks the slot
+    the Dirichlet ``_VACANT`` geometry sets to exact zero — the ghost
+    slot *is* the constrained boundary DOF — and its rank is then
+    meaningless. BC-free sides never reach this helper (the callers
+    return early: R1, exterior values are undefined). ``BC.ROBIN``
+    fills are data-parameterized and raise, pointing at the stage-2e
+    ``("ghost_fill", space)`` data path.
+
+    Both the single-shard fill (``_axis_map``) and the multi-device
+    physical-boundary fill (``_ghost_values`` under ``_exchange_block``)
+    read the table from here, so the two paths cannot drift.
+
+    Parameters
+    ----------
+    kind : BC
+        The boundary component's BC kind.
+    distance : float
+        The nearest-true-DOF distance class (``_boundary_geometry``).
+    k : int
+        The ghost slot, counting outward from the true region (k = 1
+        is adjacent to the first true DOF).
+    factor : FunctionSpace
+        The factor space owning the axis (error messages only).
+
+    Returns
+    -------
+    tuple[int, int]
+        The (rank, sign) the slot reads; sign 0 means "exact zero".
+    """
+    if kind is BC.NONE:  # pragma: no cover — guarded by the callers
+        raise NotImplementedError(
+            "BC-free bounded sides have no ghost fill (R1, "
+            "boundary_plan.md): exterior values are undefined")
+    if kind is BC.DIRICHLET and distance == _OFFSET:
+        return k, -1
+    if kind is BC.DIRICHLET:
+        # _VACANT: the ghost slot k = 1 IS the (zero) boundary DOF;
+        # deeper slots odd-reflect about it
+        return (1, 0) if k == 1 else (k - 1, -1)
+    if kind is BC.NEUMANN and distance == _OFFSET:
+        return k, 1
+    if kind is BC.NEUMANN and distance == _MEMBER:
+        # the boundary node is a true DOF (Neumann keeps it): the
+        # even/mirror extension reflects about that node, which is
+        # excluded from the reflection — ghost slot k mirrors the
+        # interior node k cells inside, i.e. dof(k + 1)
+        # (decomposition.md even-extension contract)
+        return k + 1, 1
+    if kind is BC.ROBIN:
+        raise NotImplementedError(
+            "Robin ghost fills are data-parameterized (alpha, g are "
+            "dynamic) and arrive with the ('ghost_fill', space) "
+            "data path — boundary_plan.md stage 2e; Robin "
+            "derivatives are supported flux-form")
+    raise NotImplementedError(
+        "the Neumann (even) fill is grounded for node sets whose "
+        "nearest DOF is boundary-offset or on the boundary; got "
+        f"{factor!r} with a vacant lattice node on the boundary")
+
+
 def _ghost_values(
     kind: BC,
     distance: float,
@@ -1180,12 +1258,9 @@ def _ghost_values(
 
     Description
     -----------
-    Dirichlet-structured sides get the odd (zero-value) extension,
-    Neumann-structured sides the even (mirror) extension. BC-free
-    sides never reach this helper (the caller returns None: R1,
-    exterior values are undefined). ``BC.ROBIN`` fills are
-    data-parameterized and raise, pointing at the stage-2e
-    ``("ghost_fill", space)`` data path.
+    The value form of the ``_ghost_slot`` table, used by the
+    multi-device physical-boundary fill (a shard's block is filled
+    from received/local slabs, not by remapping an axis).
 
     Parameters
     ----------
@@ -1205,36 +1280,84 @@ def _ghost_values(
     list[jax.Array]
         The ``width`` ghost slices, adjacent-to-true first.
     """
-    if kind is BC.NONE:  # pragma: no cover — guarded by the caller
-        raise NotImplementedError(
-            "BC-free bounded sides have no ghost fill (R1, "
-            "boundary_plan.md): exterior values are undefined")
-    if kind is BC.DIRICHLET and distance == _OFFSET:
-        return [-dof(k) for k in range(1, width + 1)]
-    if kind is BC.DIRICHLET:
-        # _VACANT: the ghost slot k = 1 IS the (zero) boundary DOF;
-        # deeper slots odd-reflect about it
-        return [jnp.zeros_like(dof(1)) if k == 1 else -dof(k - 1)
-                for k in range(1, width + 1)]
-    if kind is BC.NEUMANN and distance == _OFFSET:
-        return [dof(k) for k in range(1, width + 1)]
-    if kind is BC.NEUMANN and distance == _MEMBER:
-        # the boundary node is a true DOF (Neumann keeps it): the
-        # even/mirror extension reflects about that node, which is
-        # excluded from the reflection — ghost slot k mirrors the
-        # interior node k cells inside, i.e. dof(k + 1)
-        # (decomposition.md even-extension contract)
-        return [dof(k + 1) for k in range(1, width + 1)]
-    if kind is BC.ROBIN:
-        raise NotImplementedError(
-            "Robin ghost fills are data-parameterized (alpha, g are "
-            "dynamic) and arrive with the ('ghost_fill', space) "
-            "data path — boundary_plan.md stage 2e; Robin "
-            "derivatives are supported flux-form")
-    raise NotImplementedError(
-        "the Neumann (even) fill is grounded for node sets whose "
-        "nearest DOF is boundary-offset or on the boundary; got "
-        f"{factor!r} with a vacant lattice node on the boundary")
+    values = []
+    for k in range(1, width + 1):
+        rank, sign = _ghost_slot(kind, distance, k, factor)
+        if not sign:
+            values.append(jnp.zeros_like(dof(rank)))
+        elif sign < 0:
+            values.append(-dof(rank))
+        else:
+            values.append(dof(rank))
+    return values
+
+
+def _axis_map(
+    size: int,
+    n: int,
+    width: int,
+    factor: FunctionSpace,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Return the ghost fill of one storage axis as a static index map.
+
+    Description
+    -----------
+    Returns ``(src, neg, zero)``, each of length ``size``: storage
+    slot ``i`` of the filled axis takes ``arr[src[i]]``, negated where
+    ``neg[i]``, replaced by exact zero where ``zero[i]``. True slots
+    map to themselves, and so do the ghost slots of a BC-free side
+    (R1: exterior values are undefined, the slot keeps what it holds).
+
+    Pure host-side structure — the arrays are jit constants.
+
+    Parameters
+    ----------
+    size : int
+        The storage extent of the axis (ghosts + true + padding).
+    n : int
+        The true DOF count along the axis.
+    width : int
+        The negotiated ghost width along the axis.
+    factor : FunctionSpace
+        The factor space owning the axis (mesh topology, BC structure).
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, np.ndarray]
+        The (source index, negate mask, zero mask) of the axis.
+    """
+    src = np.arange(size, dtype=np.int32)
+    neg = np.zeros(size, dtype=bool)
+    zero = np.zeros(size, dtype=bool)
+    trail = size - n - width
+    if factor.mesh.periodic:
+        if width > n or trail > n:
+            raise NotImplementedError(
+                f"periodic wrap with halo {width} wider than the "
+                f"axis length {n} is not supported")
+        src[:width] = np.arange(n, n + width)
+        src[width + n:] = np.arange(width, width + trail)
+        return src, neg, zero
+    for side, depth in ((0, width), (1, trail)):
+        if not depth:
+            continue
+        kind, distance = _boundary_geometry(factor, side)
+        if kind is BC.NONE:  # R1: nothing is filled (identity)
+            continue
+        for k in range(1, depth + 1):
+            slot = width - k if side == 0 else width + n + k - 1
+            rank, sign = _ghost_slot(kind, distance, k, factor)
+            if not sign:
+                zero[slot] = True
+                continue
+            if rank > n:
+                raise NotImplementedError(
+                    f"the bounded halo fill of width {depth} reaches "
+                    f"deeper than the {n} DOFs along the axis")
+            src[slot] = width + (rank - 1 if side == 0 else n - rank)
+            neg[slot] = sign < 0
+    return src, neg, zero
 
 
 def _fill_axis(
@@ -1254,22 +1377,41 @@ def _fill_axis(
     stagger padding, which on a single shard equals the ghost
     width, so every non-true slot is (re)written.
 
-    The ghost slots are **written into** ``arr`` (``_set``) rather
-    than the array being rebuilt around them by ``concatenate``. The
-    two spellings compute the same values, but only the write reaches
-    XLA's in-place emitter: a ``concatenate`` always allocates a fresh
-    O(field) buffer, so every synced field used to be copied whole to
-    deliver an O(halo) update (measured: ~22% of the flat nonhydro
-    step, a ~75x write amplification over the halo payload).
+    The fill is spelled as an **index map** (``_axis_map`` + one
+    ``take``), because the ghost fill is one: every filled slot reads
+    exactly one slot of the same array, up to a sign. That is the
+    whole reason for the spelling, and it is a performance contract,
+    not a stylistic one — a ghost fill is almost never *executed* on
+    its own. XLA fuses it into whatever kernel consumes the field, so
+    what the fill costs is what it costs to **re-derive one filled
+    element inside the consumer's loop**; a gather is one indexed load
+    and stays cheap under fusion.
 
-    The sides are **sequenced**: the right-hand fill reads its source
-    out of the array as already updated on the left. The values are
-    unaffected (a ghost write never touches the true region, which is
-    all the sources read), but the dataflow is: with both sources read
-    from the *original* array, the two reads and the first write are
-    unordered, XLA's copy insertion sees the operand buffer as live
-    across the write, and it reinstates the full copy it was supposed
-    to remove. Do not "simplify" the reads back to a common ``true``.
+    The two spellings this replaced both lose, and they lose in
+    opposite regimes (ms/step, 1 A100, flat nonhydro 256^3):
+
+    - ``concatenate`` rebuilds the array. XLA makes it a fusion ROOT,
+      so where a consumer does not absorb it the rebuild materializes
+      a fresh O(field) buffer — every synced field round-trips through
+      HBM. Linear step 7.46, advective 10.61.
+    - ``dynamic_update_slice`` writes the ghosts in place, which is
+      near-free *when it is materialized*. But XLA does not materialize
+      it: it absorbs the write into the consuming kernel, and a chain
+      of 2 * ndim in-place writes is expensive to **re-derive**, since
+      each DUS is an index-conditional read of the previous one and a
+      consumer re-evaluates that nest at every offset it reads. On the
+      linear step, whose consumers are narrow, this wins (6.04); on the
+      advective step, whose stencils are wide, two tendency fusions
+      swallow 42 DUS and cost 2.7 ms each — 11.03, worse than the
+      concatenate it replaced. It is not a launch-count effect: the DUS
+      build launches FEWER kernels (47 vs 81 top-level ops per step).
+
+    The map is the only spelling that is cheap in both regimes — it is
+    absorbed like the DUS (no HBM round-trip: linear 6.03) and costs
+    one indexed load to re-derive like the concatenate (advective
+    9.36). So do not "restore" the in-place write: it is a local
+    optimum that is only cheap while nothing fuses it, and what fuses
+    it is not a property this function can see.
 
     Parameters
     ----------
@@ -1285,30 +1427,26 @@ def _fill_axis(
         The factor space owning the axis (supplies mesh topology
         and BC structure).
     """
-    trail = arr.shape[axis] - n - width
-    if factor.mesh.periodic:
-        if width > n or trail > n:
-            raise NotImplementedError(
-                f"periodic wrap with halo {width} wider than the "
-                f"axis length {n} is not supported")
-        if width:
-            arr = _set(arr, axis, 0,
-                       _take(arr, axis, slice(n, n + width)))
-        if trail:
-            arr = _set(arr, axis, width + n,
-                       _take(arr, axis, slice(width, width + trail)))
-        return arr
-    true = _take(arr, axis, slice(width, width + n))
-    left = _bounded_ghosts(true, axis, n, width, factor, 0)
-    # a BC-free side defines no exterior values (R1): its slots are
-    # left exactly as they are, so nothing is written
-    if left is not None and width:
-        arr = _set(arr, axis, 0, left)
-        true = _take(arr, axis, slice(width, width + n))
-    right = _bounded_ghosts(true, axis, n, trail, factor, 1)
-    if right is not None and trail:
-        arr = _set(arr, axis, width + n, right)
-    return arr
+    size = arr.shape[axis]
+    src, neg, zero = _axis_map(size, n, width, factor)
+    if not (neg.any() or zero.any()
+            or (src != np.arange(size, dtype=np.int32)).any()):
+        return arr  # identity map: both sides are BC-free (R1)
+
+    # "clip" only to keep jnp.take from emitting the out-of-bounds
+    # select of its default "fill" mode; the map is in bounds by
+    # construction, so the clamp folds into the (constant) indices
+    out = jnp.take(arr, jnp.asarray(src), axis=axis, mode="clip")
+    shape = [1] * arr.ndim
+    shape[axis] = size
+    if neg.any():
+        out = jnp.where(jnp.asarray(neg).reshape(shape), -out, out)
+    if zero.any():
+        # a select, not a multiply by 0.0: the Dirichlet _VACANT slot
+        # is exactly +0.0, and 0.0 * x is -0.0 for negative x
+        out = jnp.where(jnp.asarray(zero).reshape(shape),
+                        jnp.zeros((), out.dtype), out)
+    return out
 
 
 # ================================================================
