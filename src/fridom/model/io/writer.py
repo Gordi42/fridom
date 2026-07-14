@@ -10,13 +10,14 @@ behind the seam). Owning class spec:
 A ``Writer`` is trigger-driven, human-facing gridded output: the
 store it writes is a **zarr-format** store that opens in xarray/xgcm
 with **no post-processing**. The layout contract is the grid
-cluster's ``f.xr`` export (``fridom.spatial.export``): this
-writer produces one ``xarray.DataArray`` per variable through
-``scalar_to_dataarray`` and reads the labels/coords/attrs straight off
-it — the xgcm-style staggered dim names, the ``c_grid_axis_shift``
-comodo attrs, the coordinate values from ``grid.evaluation_nodes``,
-and the per-variable ``FieldMetadata`` attrs are therefore never
-duplicated here. The writer only adds the time axis (a CF
+cluster's ``f.xr`` export (``fridom.spatial.export``): at bind this
+writer builds each variable's store from the **values-free**
+``export_layout`` (``ExportLayout``) and reads the labels/coords/attrs
+straight off it — the xgcm-style staggered dim names, the
+``c_grid_axis_shift`` comodo attrs, the coordinate values from
+``grid.evaluation_nodes``, and the per-variable ``FieldMetadata``
+attrs are therefore never duplicated here, and bind imports no
+``xarray``. The writer only adds the time axis (a CF
 ``seconds since <start_date>`` coordinate plus an ``iteration``
 coordinate) and the append/truncate mechanics.
 
@@ -31,11 +32,14 @@ pulls ``zarr`` under the hood — that is expected and lives on the
 reader, not this writer. Async / decomposed-slice / file-split writes
 stay designed-for behind this seam.
 
-The ``decomposition.gather`` to the global true shape happens inside
-``scalar_to_dataarray`` (the it-1 sink gathers to rank 0 and writes;
-single process here). Coefficient-space and complex fields raise,
-inheriting the ``f.xr`` iteration-1 restriction, with a pointer to
-``.data``.
+The bind/write split (``gather_free_output_plan.md`` phase 2): bind
+is layout-only (``export_layout`` — no gather, no ``xarray``); the
+write path is the values sink, gathering each firing to the global
+true shape via ``gathered_values`` (the it-1 sink gathers to rank 0
+and writes; single process here). The gather-inside-``write`` form is
+phase 3's swap seam (per-shard true-DOF tiles). Coefficient-space and
+complex fields raise at bind, inheriting the ``f.xr`` iteration-1
+restriction, with a pointer to ``.data``.
 """
 # Wave 5 C: Writer (tensorstore zarr-append gather sink behind it)
 from __future__ import annotations
@@ -53,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
     from fridom.model.io.triggers import Trigger
+    from fridom.spatial.export import ExportLayout
     from fridom.spatial.fields.scalar_field import ScalarField
 
 # nanoseconds per second (the CF reference-date conversion)
@@ -135,6 +140,8 @@ class Writer:
         self._iteration: Any = None
         self._vars: dict[str, Any] = {}
         self._spatial: dict[str, tuple[int, ...]] = {}
+        # values-free export layouts, keyed by output name (bind)
+        self._templates: dict[str, ExportLayout] = {}
         # ordered (out_name, evaluator) pairs, resolved at bind
         self._outputs: list[tuple[str, Callable]] = []
 
@@ -182,8 +189,9 @@ class Writer:
         model_state = self._model_state(model)
         self._outputs = self._resolve_outputs(model, model_state)
         templates = {
-            name: self._template(evaluate(model_state), name)
+            name: self._layout(evaluate(model_state), name)
             for name, evaluate in self._outputs}
+        self._templates = templates
         self._open_store(templates, model_state, model)
         self._bound = True
 
@@ -199,12 +207,13 @@ class Writer:
         """
         self._require_bound()
         clock = model_state.clock
-        # single process here: the decomposition.gather inside
-        # scalar_to_dataarray already lands rank-0 global arrays; the
-        # rank-0 write guard is the decomposed-slice sink swap's seam.
+        from fridom.spatial.export import gathered_values  # noqa: PLC0415
+        # single process here: gathered_values lands rank-0 global
+        # arrays (bind's ExportLayout supplies the true shape); the
+        # per-shard true-DOF write is phase 3's sink-swap seam.
         slices = {
-            name: np.asarray(self._template(
-                evaluate(model_state), name).values)
+            name: gathered_values(
+                evaluate(model_state), self._templates[name])
             for name, evaluate in self._outputs}
         nt = self._n
         self._time = _grow(self._time, (nt + 1,))
@@ -260,6 +269,7 @@ class Writer:
         self._iteration = None
         self._vars = {}
         self._spatial = {}
+        self._templates = {}
 
     # ================================================================
     #  Bind helpers — output resolution
@@ -321,8 +331,8 @@ class Writer:
         # lifecycle default: PROGNOSTIC + DIAGNOSTIC, AUXILIARY opt-in
         return tuple(table.prognostic) + tuple(table.diagnostic)
 
-    def _template(self, field: ScalarField, name: str) -> Any:
-        """Reject unwritable fields; return the ``f.xr`` DataArray."""
+    def _layout(self, field: ScalarField, name: str) -> ExportLayout:
+        """Reject unwritable fields; return the values-free layout."""
         space = field.function_space
         from fridom.spatial.scalars import (  # noqa: PLC0415
             Scalars,
@@ -341,16 +351,14 @@ class Writer:
                 f"Writer cannot write the complex output {name!r}: "
                 "zarr/CF has no complex layout in iteration 1 (write "
                 "field.real/field.imag, or read field.data directly)")
-        from fridom.spatial.export import (  # noqa: PLC0415
-            scalar_to_dataarray,
-        )
-        return scalar_to_dataarray(field)
+        from fridom.spatial.export import export_layout  # noqa: PLC0415
+        return export_layout(field)
 
     # ================================================================
     #  Bind helpers — store creation
     # ================================================================
     def _open_store(
-        self, templates: Mapping[str, Any], model_state: Any,
+        self, templates: Mapping[str, ExportLayout], model_state: Any,
         model: Any,
     ) -> None:
         """Create (or reopen for append) the tensorstore zarr store."""
@@ -372,19 +380,18 @@ class Writer:
         self._write_variables(templates)
         self._n = 0
 
-    def _reopen(self, templates: Mapping[str, Any]) -> None:
+    def _reopen(self, templates: Mapping[str, ExportLayout]) -> None:
         """Reopen an existing store for append (resume)."""
         self._time = _open_array(self._path / "time")
         self._iteration = _open_array(self._path / "iteration")
-        for name, da in templates.items():
+        for name, layout in templates.items():
             store = (self._path / name)
             if not store.exists():
                 raise ValueError(
                     f"cannot append to {self._path}: it has no "
                     f"variable {name!r} (schema mismatch on resume)")
             self._vars[name] = _open_array(store)
-            self._spatial[name] = tuple(
-                int(s) for s in np.asarray(da.values).shape)
+            self._spatial[name] = tuple(int(s) for s in layout.shape)
         self._n = int(self._time.domain[0].exclusive_max)
 
     def _write_group(self, model: Any) -> None:
@@ -401,21 +408,23 @@ class Writer:
         attrs.update(self._attrs)
         _write_json(self._path / ".zattrs", attrs)
 
-    def _write_coords(self, templates: Mapping[str, Any]) -> None:
+    def _write_coords(
+        self, templates: Mapping[str, ExportLayout],
+    ) -> None:
         """Write the static spatial coordinate arrays once."""
         seen: set[str] = set()
-        for da in templates.values():
-            for dim in da.dims:
+        for layout in templates.values():
+            for dim in layout.dims:
                 if dim in seen:
                     continue
                 seen.add(dim)
-                values = np.asarray(da.coords[dim].values)
+                values = np.asarray(layout.coords[dim])
                 store = _create_array(
                     self._path / dim, values.shape,
                     (max(1, values.shape[0]),), values.dtype)
                 store[...] = values
                 zattrs = {"_ARRAY_DIMENSIONS": [dim]}
-                zattrs.update(da.coords[dim].attrs)
+                zattrs.update(layout.coord_attrs[dim])
                 _write_json(self._path / dim / ".zattrs", zattrs)
 
     def _write_time_axis(self, model_state: Any) -> None:
@@ -433,21 +442,22 @@ class Writer:
             self._path / "iteration" / ".zattrs",
             {"_ARRAY_DIMENSIONS": ["time"], "long_name": "iteration"})
 
-    def _write_variables(self, templates: Mapping[str, Any]) -> None:
+    def _write_variables(
+        self, templates: Mapping[str, ExportLayout],
+    ) -> None:
         """Create the empty (time, *space) variable arrays."""
         time_chunk = max(1, int(self._chunks.get("time", 1)))
-        for name, da in templates.items():
-            values = np.asarray(da.values)
-            spatial = tuple(int(s) for s in values.shape)
+        for name, layout in templates.items():
+            spatial = tuple(int(s) for s in layout.shape)
             self._spatial[name] = spatial
             chunks = (time_chunk, *(
                 max(1, int(self._chunks.get(dim, size)))
-                for dim, size in zip(da.dims, spatial, strict=True)))
+                for dim, size in zip(layout.dims, spatial, strict=True)))
             self._vars[name] = _create_array(
                 self._path / name, (0, *spatial), chunks,
-                values.dtype)
-            zattrs = {"_ARRAY_DIMENSIONS": ["time", *da.dims]}
-            zattrs.update(da.attrs)
+                layout.dtype)
+            zattrs = {"_ARRAY_DIMENSIONS": ["time", *layout.dims]}
+            zattrs.update(layout.attrs)
             # CF auxiliary-coordinate promotion: xarray reads the
             # iteration variable back as a coordinate, no post-proc.
             zattrs["coordinates"] = "iteration"

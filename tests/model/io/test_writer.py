@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+import fridom.spatial.export as export_module
 from fridom.model.clock import Clock
 from fridom.model.io import writer as writer_module
 from fridom.model.io.triggers import every
@@ -359,3 +360,31 @@ def test_write_before_bind_raises(tmp_path, state):
 def test_writer_module_does_not_import_zarr():
     text = Path(writer_module.__file__).read_text()
     assert "import zarr" not in text
+
+
+# ================================================================
+#  The Writer is xarray-free at runtime (bind = layout, write = sink)
+# ================================================================
+def test_writer_bind_write_close_without_xarray(
+        tmp_path, model, state, monkeypatch):
+    # gather_free_output_plan.md phase 2: neither bind nor write may
+    # reach export's xarray import hook. Break it, then run the full
+    # cycle: if any path called scalar_to_dataarray it would raise.
+    def _no_xarray():
+        raise ImportError("xarray is banned for this test")
+
+    monkeypatch.setattr(export_module, "_import_xarray", _no_xarray)
+    path = tmp_path / "out.zarr"
+    writer = Writer(path, fields=["u", "p"], trigger=every(steps=1))
+    writer.bind(model)
+    for it in (0, 1):
+        writer.write(firing(state, it))
+    writer.truncate_after(0)
+    writer.write(firing(state, 1))
+    writer.close()
+    # the store is intact and bitwise-correct (read with the real
+    # xarray, which the monkeypatch does not touch)
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["iteration"].values.tolist() == [0, 1]
+    u_ref = np.asarray(state["u"].data)
+    np.testing.assert_array_equal(ds["u"].values[0], u_ref)
