@@ -460,7 +460,20 @@ Relative residual after k iterations (random mean-free rhs, 64³):
 **Verdict: `pressure_iterations=30` stays.** It is not a trace-era
 artifact — steep terrain genuinely needs it (the folded-mean
 preconditioner degrades with slope). Mild-terrain users can halve
-the cost with 12; the durable fix is the preconditioner (below).
+the cost with 12.
+
+And the budget is **resolution-independent**, which makes it a sound
+default rather than a tuned constant — iterations to `1e-10`:
+
+| n | mild 1.5× | steep 4.5× |
+|---|---|---|
+| 32 | 11 | 44 |
+| 64 | 11 | 45 |
+| 128 | 11 | 45 |
+| 192 | 11 | 45 |
+
+The iteration count does not grow with the grid: at 512³ or 1024³ the
+same budget holds and only the per-iteration cost scales.
 
 ### Stage 3 lever outcomes
 
@@ -474,20 +487,78 @@ the cost with 12; the durable fix is the preconditioner (below).
 | 7 (precision into the preconditioner) | LANDED — `single_precision_solve` now selects a float32 preconditioner on mapped grids (mixed-precision PCG) instead of being silently ignored. Measured −10% on the 30-iteration solve (188.6 → 169.1 ms at 256³); the walled column re-widens the trig stages, so the gain is below the naive half-the-FFT estimate. Residual floor identical. |
 | 8 (gate `sw.DynamicalCore.extra_halo`) | LANDED — the stage-1 blocker was exactly `_TracerGrid.chart_coords`; the stub now answers `None`, which is always correct: a charted module is exempt through its declaration, so only flat-gated bodies reach the tracer. Flat linear shallow water negotiates halo 1 (was 2 — half the exchange volume); chart and Sadourny keep their declared 2. |
 
-### Lever 1 — quantified and scoped, not yet attacked
+### Lever 1 — the preconditioner is 58% of the iteration, and it stays
 
 58% of the iteration is the preconditioner; at 30 iterations that is
-~55% of the whole mapped step. Two follow-ups, in value order:
+~55% of the whole mapped step. It is nonetheless **the right
+algorithm, and every cheaper alternative was measured and rejected**
+(2026-07-14). Do not re-propose these without reading this section.
 
-1. **Algorithmic**: replace the folded-mean coefficients with a
-   per-column tridiagonal solve in the mapped column (spectral in
-   the coupled axes only). Exact for x-independent `H` at any column
-   stratification — kills the steep-terrain iteration count (the
-   4.5×-ratio column above), which multiplies every other saving.
-2. **Multi-device**: extend the distributed transform to mixed
-   (trig) plans — the replicated fallback caps walled flat scaling
-   at 1.36× and the mapped preconditioner inherits it
-   (`test_distributed_projection.py` documents the fallback).
+**It earns its cost by >25× in wall time, and the margin grows with
+n.** Iterations to `1e-10`, mild terrain, vs unpreconditioned CG
+(which costs 2.78 ms/it against the preconditioned 6.15 — a 2.2×
+per-iteration discount, so it must save >2.2× in iterations to win):
+
+| n | preconditioned | unpreconditioned |
+|---|---|---|
+| 32 | 11 | >600 (only reached 9.7e-06) |
+| 64 | 11 | >600 (only reached 3.7e-03) |
+| 128 | 11 | >600 (only reached 1.2e-02) |
+
+The preconditioned system is **mesh-independent**; the unpreconditioned
+one is O(h⁻²)-conditioned and gets *worse* with resolution. Dropping
+the preconditioner is never right.
+
+**Rejected — per-column tridiagonal, horizontally-averaged
+coefficients.** The idea: keep the z-profile of `K^bb` (which the
+scalar mean destroys) and solve a tridiagonal per horizontal
+wavenumber. Measured: **zero change** (28/45 iterations either way).
+Reason: `K^bb = (w_x z²H′² + w_m)/H` is dominated by the vertical
+weight `w_m = 1/dsqr = 4`, while the `z²` slope term maxes at ~0.16 —
+so the column profile varies by **1.4%** (13.33 → 13.53) and is
+already effectively constant. The slope structure is real but
+negligible against the weight.
+
+**Rejected — per-column tridiagonal, LOCAL coefficients
+(block-Jacobi over vertical lines).** The corrected idea: capture the
+horizontal coefficient variation exactly, one tridiagonal per column,
+no FFT. Measured at 64³, iterations to `1e-10`:
+
+| terrain | spectral | line-Jacobi | additive (both) |
+|---|---|---|---|
+| mild 1.5× | 11 | 204 | 51 |
+| steep 4.5× | 45 | 221 | 72 |
+
+**4–20× worse**, and the additive combination is worse than the
+spectral solve alone. What buys the mesh-independence is the *global
+horizontal coupling* — inverting every horizontal mode, including the
+smooth ill-conditioned ones. A per-column solve has none, so those
+modes return unpreconditioned; local-coefficient accuracy is worth far
+less than the coupling it gives up.
+
+**Rejected on algebra — diagonal / Jacobi rescaling.** For any
+pointwise `D`, the scaled entry is `A_ij / sqrt(D_i D_j)`: at a cell
+the x- and z-couplings are divided by the same `D_i`, so their *ratio*
+is unchanged. And the ratio is exactly the error — `K^xx : K^bb =
+H : w_m/H = H²/w_m` varies ~20× for a 4.5× depth range. No diagonal
+scaling and no constant-coefficient transform can represent a
+horizontally-varying anisotropy.
+
+**The one family that could beat it: multigrid with vertical line
+smoothing** — coefficient-robust *and* mesh-independent. That is a
+real project (restriction/prolongation on the staggered mapped grid,
+smoothers, coarse solve, all under a static jit trace), justified only
+if steep bathymetry at 45 iterations becomes a real workload.
+
+**What survives is implementation, not algorithm.** The 3.59 ms is the
+mixed trig/FFT transform pair on the walled column:
+
+1. **Multi-device**: extend the distributed transform to mixed (trig)
+   plans — the replicated fallback caps walled flat scaling at 1.36×
+   and the mapped preconditioner inherits it
+   (`test_distributed_projection.py` documents the fallback). This is
+   the top remaining item.
+2. Reduced precision on the transform pair — landed (lever 7, −10%).
 
 
 ## 5. Stage 2 — prove the performance survived (CLOSED 2026-07-14, see §4b)
