@@ -187,3 +187,4 @@ cython_debug/
 
 # zarr stores written by executing gallery examples
 examples/**/*.zarr
+benchmarks/*/results/

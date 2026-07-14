@@ -73,7 +73,8 @@ jobs:
           tests/model/test_step_chunk.py \
           tests/model/test_run.py \
           tests/model/test_end_to_end.py \
-          tests/model/test_model.py -q \
+          tests/model/test_model.py \
+          tests/nonhydro2/test_distributed_projection.py -q \
           --cov --cov-append --cov-report=
 
     - name: Generate the coverage report
@@ -110,7 +111,11 @@ jobs:
       run: |
         uv sync --extra dev
 
-    - name: Smoke-run the benchmark suite
+    - name: Smoke-run the benchmark suites
       run: |
         uv run python -m fridom.benchmarking run benchmarks \
+          --first-only --reps 1 --warmup 1
+        uv run python -m fridom.benchmarking run benchmarks/spatial \
+          --first-only --reps 1 --warmup 1
+        uv run python -m fridom.benchmarking run benchmarks/model \
           --first-only --reps 1 --warmup 1

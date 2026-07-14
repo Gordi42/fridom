@@ -1,0 +1,483 @@
+{
+  "format_version": 1,
+  "metadata": {
+    "commit": "36474cdd4f69e921a5e0aad0db2ef5f949fcc6bd",
+    "dirty": true,
+    "branch": "perf/step-benchmark-harness",
+    "fridom_version": "0.0.5",
+    "jax_version": "0.10.2",
+    "python_version": "3.12.11",
+    "backend": "gpu",
+    "device_kind": "NVIDIA A100-SXM4-80GB",
+    "device_count": 1,
+    "hostname": "l50069.lvt.dkrz.de",
+    "timestamp": "2026-07-14T11:09:36.441997+00:00"
+  },
+  "results": [
+    {
+      "name": "nh_flat_periodic",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.0070354079944081604,
+        0.006890957010909915,
+        0.00693843699991703,
+        0.007028768013697118,
+        0.007005107996519655
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 24427008,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 1.6739942849962972
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_periodic",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.37317506701219827,
+        0.37324205797631294,
+        0.37320808705408126,
+        0.373532988014631,
+        0.37318188697099686
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4831840512,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 2.3185777639737353
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_periodic",
+      "params": {
+        "n": 512
+      },
+      "wall_times": [
+        2.8870357319829054,
+        2.8872368119773455,
+        2.8870333619997837,
+        2.8873551429715008,
+        2.8874287939979695
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 35991508736,
+      "extras": {
+        "points": 134217728.0,
+        "steps": 50.0,
+        "first_advance_s": 4.783821676974185
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.008223880955483764,
+        0.007983990013599396,
+        0.0074738190160132945,
+        0.007781490043271333,
+        0.007681229035370052
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 24133120,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 1.652691370982211
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.43683430802775547,
+        0.4363403170136735,
+        0.4366110060364008,
+        0.4362733659800142,
+        0.43643554602749646
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4986699520,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 2.2005543769919313
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped",
+      "params": {
+        "n": 32,
+        "iters": 30
+      },
+      "wall_times": [
+        0.18322211102349684,
+        0.18298345897346735,
+        0.18312783999135718,
+        0.1830734899849631,
+        0.1828664899803698
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 55592704,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 4.7129622180364095
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped",
+      "params": {
+        "n": 32,
+        "iters": 12
+      },
+      "wall_times": [
+        0.08113531302660704,
+        0.07852519705193117,
+        0.07867170800454915,
+        0.07831197697669268,
+        0.07811014598701149
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 55592704,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 4.596038844960276
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped",
+      "params": {
+        "n": 128,
+        "iters": 30
+      },
+      "wall_times": [
+        1.4260245920158923,
+        1.4256853319820948,
+        1.4263968620216474,
+        1.4257207309710793,
+        1.4261436220258474
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 748368896,
+      "extras": {
+        "points": 2097152.0,
+        "steps": 50.0,
+        "first_advance_s": 7.406536444963422
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped",
+      "params": {
+        "n": 128,
+        "iters": 12
+      },
+      "wall_times": [
+        0.618435762997251,
+        0.6182275830069557,
+        0.617994871980045,
+        0.6183827240020037,
+        0.6180077519966289
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 748368896,
+      "extras": {
+        "points": 2097152.0,
+        "steps": 50.0,
+        "first_advance_s": 6.381112299975939
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped",
+      "params": {
+        "n": 256,
+        "iters": 30
+      },
+      "wall_times": [
+        10.808678440982476,
+        10.809174811991397,
+        10.808183488959912,
+        10.808105669973884,
+        10.807828128978144
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 5528374528,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 16.523172625049483
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped",
+      "params": {
+        "n": 256,
+        "iters": 12
+      },
+      "wall_times": [
+        4.644961196987424,
+        4.644771927967668,
+        4.644586736976635,
+        4.644761536968872,
+        4.644254315993749
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 5528374528,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 10.554936603002716
+      },
+      "error": null
+    },
+    {
+      "name": "sw_flat",
+      "params": {
+        "n": 64
+      },
+      "wall_times": [
+        0.003996031009592116,
+        0.003849998989608139,
+        0.0036781689850613475,
+        0.0037131899734959006,
+        0.00392920000012964
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 1255424,
+      "extras": {
+        "points": 4096.0,
+        "steps": 50.0,
+        "first_advance_s": 2.237957092002034
+      },
+      "error": null
+    },
+    {
+      "name": "sw_flat",
+      "params": {
+        "n": 1024
+      },
+      "wall_times": [
+        0.023006126983091235,
+        0.022840577992610633,
+        0.022816307027824223,
+        0.022754386998713017,
+        0.022813537041656673
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 287320064,
+      "extras": {
+        "points": 1048576.0,
+        "steps": 50.0,
+        "first_advance_s": 1.2758876149891876
+      },
+      "error": null
+    },
+    {
+      "name": "sw_flat",
+      "params": {
+        "n": 2048
+      },
+      "wall_times": [
+        0.07934378902427852,
+        0.07793398603098467,
+        0.07809334597550333,
+        0.07810642704134807,
+        0.07810328697087243
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 1145055232,
+      "extras": {
+        "points": 4194304.0,
+        "steps": 50.0,
+        "first_advance_s": 1.3831078839721158
+      },
+      "error": null
+    },
+    {
+      "name": "sw_sphere",
+      "params": {
+        "n": 64
+      },
+      "wall_times": [
+        0.006014894985128194,
+        0.005938115005847067,
+        0.005971595004666597,
+        0.0059533449821174145,
+        0.005970854952465743
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 17806336,
+      "extras": {
+        "points": 4096.0,
+        "steps": 50.0,
+        "first_advance_s": 3.4349149580230005
+      },
+      "error": null
+    },
+    {
+      "name": "sw_sphere",
+      "params": {
+        "n": 1024
+      },
+      "wall_times": [
+        0.08268887700978667,
+        0.081478035019245,
+        0.08172357501462102,
+        0.0815671049640514,
+        0.08185848599532619
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 539110400,
+      "extras": {
+        "points": 1048576.0,
+        "steps": 50.0,
+        "first_advance_s": 3.53088708902942
+      },
+      "error": null
+    },
+    {
+      "name": "sw_sphere",
+      "params": {
+        "n": 2048
+      },
+      "wall_times": [
+        0.2838447029935196,
+        0.2836495320079848,
+        0.28352923202328384,
+        0.2836769120185636,
+        0.28375467302976176
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 2151951360,
+      "extras": {
+        "points": 4194304.0,
+        "steps": 50.0,
+        "first_advance_s": 3.815073442994617
+      },
+      "error": null
+    }
+  ]
+}
