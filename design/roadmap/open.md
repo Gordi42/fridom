@@ -64,17 +64,18 @@ Still open, and the next work:
 3. The optimizations do not yet **reach inside** the mapped PCG solve —
    see the section below.
 
-## Decomposed / gather-free output
-
-The iteration-1 IO sink `decomposition.gather`s the whole true field to
-rank 0 / host before writing. That does not fit for large grids (768³+),
-where the assembled field does not live on one device. The fix is the
-distributed, shard-wise TensorStore write (designed-for behind the sink
-seam; tensorstore supports it). Independent of divisibility. Surfaced by
-the uneven-shard padding work
-([`plans/done/uneven_shard_padding_plan.md`](../plans/done/uneven_shard_padding_plan.md)).
-
 ## Multi-device compile and execution cost
+
+*Note (2026-07-14, found verifying the gather-free writer): eager
+field ops on the `Auto` mesh can return **fully replicated** results —
+`state.rel_vort.to(center)` comes back `PartitionSpec()`, i.e. jax
+assembles the interpolated field on every device. Harmless for
+correctness (the decomposed-slice sink handles any block-aligned
+sharding), but it is an implicit all-gather plus P× device memory on
+every derived-output evaluation at write cadence. If derived outputs
+ever show up in profiles, a sharding constraint on the eager op
+results (or evaluating derived outputs inside a jitted, constrained
+wrapper) is the lever.*
 
 *Post-merge note (2026-07-13): the optimization line has landed, and the
 audit found three reasons this solve does not benefit from it — the CG

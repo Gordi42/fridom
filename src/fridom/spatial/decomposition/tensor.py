@@ -39,10 +39,12 @@ boundary-edge path.
 #    Wave 3: multi-device (blocking, ppermute exchange, redistribute)
 from __future__ import annotations
 
+from itertools import product
 from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.decomposition import (
@@ -998,6 +1000,106 @@ class TensorDecomposition(Decomposition):
             self._device_mesh,
             jax.sharding.PartitionSpec(*([None] * true.ndim)))
         return jax.device_put(true, replicated)
+
+    def shard_writes(
+        self,
+        arr: jax.Array,
+        space: SpaceLike,
+        layout: Layout | None = None,
+    ) -> tuple[tuple[tuple[slice, ...], np.ndarray], ...]:
+        """
+        Iterate the locally-owned true-DOF tiles (see the ABC).
+
+        Description
+        -----------
+        Walks ``arr.addressable_shards``, skipping every shard whose
+        ``replica_id`` is non-zero (dedupes replicated factors,
+        fully replicated arrays, and partial replication). Per storage
+        axis it intersects the shard's actual storage window with the
+        ground-truth storage->true mapping of ``unpad``/``_gather_axis``:
+        an unblocked axis clips the window against the true region
+        ``[width, width + n)``; a blocked axis walks **every** storage
+        block the window covers (a canonically sharded array covers
+        one block per shard, a replicated or single-device array
+        covers all of them) and maps ``[width, width + t_s)`` of block
+        ``s`` into ``[bounds[s], bounds[s + 1])`` globally (``t_s``
+        the block's true-DOF count — ``cells`` inside, the staggered
+        surplus/deficit on the last block). One tile is emitted per
+        covered block combination (cartesian across axes); a window
+        that does not fall on block boundaries is not in this space's
+        storage frame and raises. ``values`` are numpy views of one
+        contiguous host copy per shard — never an on-device
+        ``unpad``/``gather`` (which would reblock the padded-even
+        storage and can force a collective-permute; plan section
+        "The padding problem").
+        """
+        layout = self._resolve_layout(space, layout)
+        geometry = self._geometry(space, layout)
+        writes: list[tuple[tuple[slice, ...], np.ndarray]] = []
+        for shard in arr.addressable_shards:
+            if shard.replica_id != 0:
+                continue
+            # per axis: the (target, source) pairs of every storage
+            # block the shard's window covers
+            axis_pairs: list[list[tuple[slice, slice]]] = []
+            for axis, (name, n, factor, shards, width, block,
+                       total) in enumerate(geometry):
+                index = shard.index[axis]
+                lo = 0 if index.start is None else index.start
+                hi = total if index.stop is None else index.stop
+                if shards == 1:
+                    t_lo = max(lo, width)
+                    t_hi = min(hi, width + n)
+                    axis_pairs.append(
+                        [(slice(t_lo - width, t_hi - width),
+                          slice(t_lo - lo, t_hi - lo))]
+                        if t_hi > t_lo else [])
+                    continue
+                if lo % block or hi % block:
+                    msg = (
+                        f"shard_writes: the array's shard window "
+                        f"[{lo}, {hi}) on axis {name!r} is not "
+                        f"aligned with the {block}-sized storage "
+                        f"blocks of this space/layout — the array "
+                        f"is not in its storage frame")
+                    raise ValueError(msg)
+                cells = self._cells_per_shard(factor, shards)
+                bounds = self._block_bounds(n, shards, cells)
+                axis_pairs.append([
+                    (slice(bounds[s], bounds[s + 1]),
+                     slice(s * block - lo + width,
+                           s * block - lo + width
+                           + bounds[s + 1] - bounds[s]))
+                    for s in range(lo // block, hi // block)])
+            data: np.ndarray | None = None
+            for combo in product(*axis_pairs):
+                if data is None:
+                    data = np.asarray(shard.data)
+                writes.append((
+                    tuple(t for t, _ in combo),
+                    data[tuple(s for _, s in combo)]))
+        return tuple(writes)
+
+    def chunk_hint(
+        self,
+        space: SpaceLike,
+        layout: Layout | None = None,
+    ) -> tuple[int, ...]:
+        """
+        Return the write-aligned output chunk shape (see the ABC).
+
+        Description
+        -----------
+        Per storage axis: the per-shard cell capacity
+        (``_cells_per_shard``) on a blocked axis, the full true
+        extent ``n`` on an unblocked one — the chunk grid under which
+        every ``shard_writes`` window is chunk-aligned.
+        """
+        layout = self._resolve_layout(space, layout)
+        return tuple(
+            self._cells_per_shard(factor, shards) if shards > 1 else n
+            for _name, n, factor, shards, _w, _b, _t
+            in self._geometry(space, layout))
 
 
 # ================================================================
