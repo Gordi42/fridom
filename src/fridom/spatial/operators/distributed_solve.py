@@ -47,12 +47,18 @@ partner ``b``, local half axis ``h``, internal coefficient space) from
 the transform's ``distributed_forward_plan`` (the layout-annotated
 planner) rather than a solve-scoped geometry, then pairs the resolved
 :class:`SlabPlan` with the elliptic operator's inverse eigenvalue
-diagonal on the plan's internal coefficient space. The replicated
-composite path is kept whenever any of the fallback conditions fail (a
-non-1-D mesh, a padded or non-Fourier transform, an operand the planner
-declines, or eigenvalues that do not materialize as a broadcast-shaped
-diagonal on the internal space); the single-device program is bitwise
-unchanged.
+diagonal on the plan's internal coefficient space. Mixed (walled)
+transforms distribute through the same seam: the ``ComposedTransform``
+plans jointly across its families and the region lowers to the
+families' own 1-D stage kernels (Fourier rfft/fft and the trig
+DST/DCT kernels run per shard on locally-held axes; only the
+``all_to_all`` is collective). The replicated composite path is kept
+whenever any of the fallback conditions fail (a non-1-D mesh, a
+padded part, a family outside Fourier/Sine/Cosine — Chebyshev's
+block-diagonal solve stays replicated — an operand the planner
+declines, or eigenvalues that do not materialize as a
+broadcast-shaped diagonal on the internal space); the single-device
+program is bitwise unchanged.
 
 Trace stability: the jit-wrapped ``shard_map`` callables are built once
 per plan (plans are memoized per ``(grid, bare space)``; solve bodies
@@ -73,6 +79,8 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.storage import storage_dtype
 from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.operators.mixed import ComposedTransform
+from fridom.spatial.operators.trig import Cosine, Sine
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -80,8 +88,18 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.decomposition.layout import Layout
     from fridom.spatial.operators.base import FieldLike, Operator
     from fridom.spatial.operators.symbol import Symbol
-    from fridom.spatial.operators.transform import Transform
+    from fridom.spatial.operators.transform import (
+        Transform,
+        TransformStage,
+    )
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+#: transform families with distributable per-stage kernels: their
+#: unpadded 1-D stage kernels are pure per-axis functions, so they
+#: run per-shard inside the fused region on any locally-held axis.
+#: Chebyshev stays on the replicated composite (its solve is
+#: block-diagonal, not a diagonal eigenvalue divide).
+_STAGE_FAMILIES = (Fourier, Sine, Cosine)
 
 
 # ================================================================
@@ -130,6 +148,13 @@ class SlabPlan:
         All transformed array axes.
     real : bool
         Whether the domain storage is real (synthesis lands real).
+    stages : tuple[tuple[Transform, TransformStage], ...] | None, optional
+        The per-stage kernel schedule of a mixed (or homogeneous
+        trig) plan, pairing each layout-annotated stage with the
+        per-family transform whose 1-D kernels realize it, in
+        forward execution order (the sharded-axis stage last). None
+        selects the fused all-Fourier bodies — byte-for-byte the
+        original slab kernel (default: None).
     """
 
     def __init__(
@@ -144,6 +169,8 @@ class SlabPlan:
         h: int | None,
         fft_axes: tuple[int, ...],
         real: bool,
+        stages: tuple[
+            tuple[Transform, TransformStage], ...] | None = None,
     ) -> None:
         """Store the geometry and build the shard_map callables."""
         self._mesh: jax.sharding.Mesh = mesh
@@ -156,6 +183,8 @@ class SlabPlan:
         self._h: int | None = h
         self._fft_axes: tuple[int, ...] = fft_axes
         self._real: bool = real
+        self._stages: tuple[
+            tuple[Transform, TransformStage], ...] | None = stages
 
         ndim = len(domain.shape)
         nodal_spec: list[str | None] = [None] * ndim
@@ -220,6 +249,8 @@ class SlabPlan:
     # ================================================================
     def _forward_local(self, piece: jax.Array) -> jax.Array:
         """Analysis body: local FFTs, all-to-all, sharded-axis FFT."""
+        if self._stages is not None:
+            return self._forward_staged(piece)
         c = piece
         if self._h is not None:
             c = jnp.fft.rfft(c, axis=self._h, norm="forward")
@@ -232,6 +263,8 @@ class SlabPlan:
 
     def _backward_local(self, c: jax.Array) -> jax.Array:
         """Synthesis body: the exact mirror of the analysis."""
+        if self._stages is not None:
+            return self._backward_staged(c)
         c = jnp.fft.ifft(c, axis=self._a, norm="forward")
         c = jax.lax.all_to_all(
             c, self._axis_name, split_axis=self._a,
@@ -242,6 +275,53 @@ class SlabPlan:
             return jnp.fft.irfft(c, n=self._n_h, axis=self._h,
                                  norm="forward")
         return c.real if self._real else c
+
+    def _forward_staged(self, piece: jax.Array) -> jax.Array:
+        """
+        Mixed analysis body: per-stage family kernels.
+
+        Description
+        -----------
+        Runs each local stage's single-device 1-D kernel (rfft on
+        the Hermitian axis first, then the remaining local Fourier /
+        trig stages), one ``all_to_all``, and the sharded-axis stage
+        on the now-local axis — the per-stage lowering of
+        ``distributed_transform_plan.md`` section 2 A4. Every kernel
+        is exactly the family's single-device stage kernel, so the
+        internal spectrum matches the replicated composite's
+        convention per mode.
+        """
+        c = piece
+        for part, stage in self._stages[:-1]:
+            c = part._forward_kernel(c, stage)  # noqa: SLF001 — lowering seam
+        c = jax.lax.all_to_all(
+            c, self._axis_name, split_axis=self._b,
+            concat_axis=self._a, tiled=True)
+        part, stage = self._stages[-1]
+        return part._forward_kernel(c, stage)  # noqa: SLF001 — lowering seam
+
+    def _backward_staged(self, c: jax.Array) -> jax.Array:
+        """
+        Mixed synthesis body: the exact mirror of the analysis.
+
+        Description
+        -----------
+        The sharded-axis inverse stage first, the ``all_to_all``
+        back, then the local inverse stages in reverse order — the
+        Hermitian half stage (when present) last, landing real. A
+        real domain with no Hermitian stage synthesizes fully
+        complex and takes the real part.
+        """
+        part, stage = self._stages[-1]
+        c = part._backward_kernel(c, stage)  # noqa: SLF001 — lowering seam
+        c = jax.lax.all_to_all(
+            c, self._axis_name, split_axis=self._a,
+            concat_axis=self._b, tiled=True)
+        for part, stage in reversed(self._stages[:-1]):
+            c = part._backward_kernel(c, stage)  # noqa: SLF001 — lowering seam
+        if self._real and jnp.iscomplexobj(c):
+            return c.real
+        return c
 
     # ================================================================
     #  Application
@@ -464,8 +544,33 @@ def symbol_fits(plan: SlabPlan, symbol: Symbol) -> bool:
 _PLANS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
+def _owning_part(
+    parts: tuple[Transform, ...], stage: TransformStage,
+) -> Transform:
+    """
+    Return the part whose coefficient family produced ``stage``.
+
+    Parameters
+    ----------
+    parts : tuple[Transform, ...]
+        The candidate per-family transforms.
+    stage : TransformStage
+        One layout-annotated stage of the joint plan.
+
+    Returns
+    -------
+    Transform
+        The family transform whose kernels realize the stage.
+    """
+    return next(
+        part for part in parts
+        if isinstance(stage.coeff, part._space_family))  # noqa: SLF001
+
+
 def build_distributed_plan(
-    transform: Transform, grid: object, bare: SpaceLike,
+    transform: Transform | ComposedTransform,
+    grid: object,
+    bare: SpaceLike,
 ) -> SlabPlan | None:
     """
     Build the fused solve plan from the transform's layout plan.
@@ -475,16 +580,21 @@ def build_distributed_plan(
     Derives the slab kernel geometry (mesh, sharded axis ``a``,
     transpose partner ``b``, local Hermitian axis ``h``, transformed
     axes, internal coefficient space) from
-    ``transform.distributed_forward_plan(bare)``. Returns None when the
-    transform is not a plain unpadded :class:`Fourier`, the mesh is not
-    1-D, or the operand is single-device / ineligible (the planner
-    returns None) — the caller then keeps the replicated composite.
+    ``transform.distributed_forward_plan(bare)``. Eligible transforms
+    are the unpadded per-stage-kernel families — plain
+    :class:`Fourier`, :class:`Sine` / :class:`Cosine`, and their
+    mixed :class:`ComposedTransform` (the walled grid) — a pure
+    Fourier plan keeps the fused all-Fourier bodies (byte-for-byte
+    the original slab kernel), every other eligible plan lowers to
+    the per-stage kernels. Returns None when a part is outside those
+    families or padded, the mesh is not 1-D, or the operand is
+    single-device / ineligible (the planner returns None) — the
+    caller then keeps the replicated composite.
 
     Parameters
     ----------
-    transform : Transform
-        The transform resolved for ``bare`` (only a plain unpadded
-        ``Fourier`` is eligible).
+    transform : Transform | ComposedTransform
+        The transform resolved for ``bare``.
     grid : object
         The grid carrying the decomposition.
     bare : SpaceLike
@@ -495,7 +605,11 @@ def build_distributed_plan(
     SlabPlan | None
         The reusable slab pipeline, or None when ineligible.
     """
-    if not isinstance(transform, Fourier) or transform.pad is not None:
+    parts = (transform.parts
+             if isinstance(transform, ComposedTransform)
+             else (transform,))
+    if any(not isinstance(part, _STAGE_FAMILIES)
+           or part.pad is not None for part in parts):
         return None
     forward = transform.distributed_forward_plan(bare)
     if forward is None:
@@ -507,6 +621,7 @@ def build_distributed_plan(
     names = bare.names
     ((name_b, _),) = forward.codomain.layout.device_axes
     half = next((s for s in forward.stages if s.half), None)
+    all_fourier = all(isinstance(part, Fourier) for part in parts)
     return SlabPlan(
         mesh=mesh,
         axis_name=mesh.axis_names[0],
@@ -519,6 +634,9 @@ def build_distributed_plan(
         fft_axes=tuple(sorted(stage.index for stage in forward.stages)),
         real=not jnp.issubdtype(storage_dtype(bare),
                                 jnp.complexfloating),
+        stages=(None if all_fourier else tuple(
+            (_owning_part(parts, stage), stage)
+            for stage in forward.stages)),
     )
 
 

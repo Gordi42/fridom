@@ -30,9 +30,17 @@ from __future__ import annotations
 import weakref
 from typing import TYPE_CHECKING, final
 
+from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import GridMismatchError
 from fridom.spatial.operators.base import OperatorRequirements
 from fridom.spatial.operators.registry import DispatchError
+from fridom.spatial.operators.transform import (
+    _MIN_STAGES,
+    TransformPlan,
+    TransformStage,
+    _complex_storage,
+    _rebuild,
+)
 from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
@@ -42,6 +50,9 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.grid import Grid
     from fridom.spatial.operators.base import FieldLike
     from fridom.spatial.operators.transform import Transform
+    from fridom.spatial.spaces.function_space import (
+        FunctionSpace,
+    )
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
 
@@ -90,6 +101,10 @@ class ComposedTransform:
                     left=grid, right=part.grid,
                     operation="ComposedTransform")
         self._parts: tuple[Transform, ...] = parts
+        #: memoized joint distributed plans; stores None for
+        #: ineligible spaces, so membership (not ``.get``) is the
+        #: cache test (the ``Transform._dist_plans`` idiom)
+        self._dist_plans: dict[SpaceLike, TransformPlan | None] = {}
 
     # ================================================================
     #  Properties
@@ -205,6 +220,143 @@ class ComposedTransform:
             part's own declaration.
         """
         return OperatorRequirements(halo=0, layout="transpose")
+
+    # ================================================================
+    #  Distributed planning (multi-device; layout-annotated stages)
+    # ================================================================
+    def distributed_forward_plan(
+        self, domain: SpaceLike,
+    ) -> TransformPlan | None:
+        """
+        Return the joint layout-annotated forward schedule, or None.
+
+        Description
+        -----------
+        The mixed-product counterpart of
+        ``Transform.distributed_forward_plan`` (section 1.1 of
+        ``design/plans/active/distributed_transform_plan.md``),
+        planned jointly across the per-family parts: the
+        initially-local axes transform first under the operand's
+        nodal layout, one reshard makes the sharded axis local and
+        shards the transpose partner, and the sharded axis
+        transforms last. The joint geometry is family-aware where
+        the single-family planner need not be: the Hermitian
+        half-spectrum stage ``h`` must belong to the Hermitian
+        (Fourier) part, so the transpose partner ``b`` prefers a
+        divisible axis that leaves a Fourier axis local — the rfft
+        on that local axis halves every downstream stage. Returns
+        None when the operand is single-device or ineligible (a
+        padded part, a non-1-D device mapping, an indivisible
+        sharded extent, or no divisible partner axis); callers then
+        keep the replicated composite, leaving the single-device
+        program unchanged.
+
+        Parameters
+        ----------
+        domain : SpaceLike
+            The (nodal) operand space.
+
+        Returns
+        -------
+        TransformPlan | None
+            The distributed plan, or None when ineligible.
+        """
+        bare = domain.bare
+        if bare not in self._dist_plans:
+            self._dist_plans[bare] = (
+                self._build_distributed_forward(bare))
+        return self._dist_plans[bare]
+
+    def _build_distributed_forward(
+        self, bare: SpaceLike,
+    ) -> TransformPlan | None:
+        """Uncached build of the joint distributed plan (or None)."""
+        geometry = self._joint_geometry(bare)
+        if geometry is None:
+            return None
+        name_a, name_b, name_h, stage_names, part_of = geometry
+        default_layout = self.grid.decomposition.default_layout
+        axis_name = default_layout.device_axes[0][1]
+        spectral_layout = Layout({name_b: axis_name})
+        ordered = ((name_h,) if name_h is not None else ()) + tuple(
+            n for n in stage_names if n not in (name_a, name_h))
+        ordered += (name_a,)
+        stages: list[TransformStage] = []
+        mapping: dict[str, FunctionSpace] = {}
+        for axis in ordered:
+            part = part_of[axis]
+            factor = bare.factor(axis)
+            origin = part._coarse_origin(factor, axis)  # noqa: SLF001
+            half = axis == name_h
+            coeff = part._coefficient_factor(  # noqa: SLF001 — planner seam
+                origin, half=half)
+            layout = (spectral_layout if axis == name_a
+                      else default_layout)
+            stages.append(TransformStage(
+                axis=axis, index=bare.names.index(axis), half=half,
+                nodal=factor, coeff=coeff, layout=layout))
+            mapping[axis] = coeff
+        codomain = _rebuild(bare, mapping).with_layout(
+            spectral_layout)
+        return TransformPlan(
+            bare.with_layout(default_layout), codomain,
+            tuple(stages))
+
+    def _joint_geometry(
+        self, bare: SpaceLike,
+    ) -> tuple[str, str, str | None, tuple[str, ...],
+               dict[str, Transform]] | None:
+        """
+        Choose the joint slab axes, or None (ineligible).
+
+        Description
+        -----------
+        The family-aware counterpart of
+        ``Transform._distributed_geometry``: ``a`` is the single
+        default-layout-sharded coordinate, ``b`` the first divisible
+        partner that leaves a Hermitian (Fourier) axis local when one
+        exists, ``h`` the last such local Hermitian axis of a real
+        domain (None otherwise). Returns the axes together with the
+        stage-name order and the axis -> owning-part map.
+        """
+        decomposition = self.grid.decomposition
+        mapped = dict(decomposition.default_layout.device_axes)
+        if (any(part.pad is not None for part in self._parts)
+                or getattr(decomposition, "device_count", 1) <= 1
+                or len(mapped) != 1):
+            return None
+        (name_a,) = mapped
+        part_of: dict[str, Transform] = {}
+        for part in self._parts:
+            for axis in part._stage_axes(bare):  # noqa: SLF001 — planner seam
+                part_of[axis] = part
+        stage_names = tuple(n for n in bare.names if n in part_of)
+        shards = decomposition.device_count
+        if (len(stage_names) < _MIN_STAGES
+                or name_a not in stage_names
+                or any(len(bare.factor(n).shape) != 1
+                       for n in stage_names)
+                or bare.factor(name_a).shape[0] % shards):
+            return None
+        divisible = tuple(
+            n for n in stage_names
+            if n != name_a
+            and bare.factor(n).shape[0] % shards == 0)
+        if not divisible:
+            return None
+        hermitian: tuple[str, ...] = ()
+        if not _complex_storage(bare):
+            hermitian = tuple(
+                n for n in stage_names
+                if n != name_a
+                and part_of[n]._hermitian)  # noqa: SLF001 — family classvar
+        name_b = next(
+            (n for n in divisible
+             if any(m != n for m in hermitian)),
+            divisible[0])
+        remaining = tuple(n for n in hermitian if n != name_b)
+        name_h = remaining[-1] if remaining else None
+        return name_a, name_b, name_h, stage_names, part_of
 
 
 # ================================================================
