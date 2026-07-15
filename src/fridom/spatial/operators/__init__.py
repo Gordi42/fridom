@@ -63,6 +63,7 @@ if TYPE_CHECKING:  # pragma: no cover
         Zero,
         resolve_codomain,
     )
+    from .chebyshev import Chebyshev
     from .composed import (
         Curl,
         Diag,
@@ -85,6 +86,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FluxDifference,
         FVDerivative,
     )
+    from .fourier import Fourier
     from .integrate import Integral
     from .interp import LinearInterp
     from .krylov import ConjugateGradient
@@ -100,8 +102,10 @@ if TYPE_CHECKING:  # pragma: no cover
     from .reconstruct import LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .select import Where
+    from .spectral import PhaseShift, SpectralDerivative
     from .spectral_solve import SpectralSolve
     from .symbol import Symbol
+    from .trig import Cosine, Sine
     from .verbs import diff, integrate, interpolate, physical_diff
     from .weno import WenoReconstruction
 
@@ -194,6 +198,11 @@ all_imports_by_origin = {
     f"{base}.integrate": ["Integral"],
     f"{base}.mapped": ["MappedDerivative", "MetricScaled"],
     f"{base}.mixed": ["ComposedTransform", "resolve_transform"],
+    # transform classes (were reachable only via their leaf modules)
+    f"{base}.fourier": ["Fourier"],
+    f"{base}.trig": ["Sine", "Cosine"],
+    f"{base}.chebyshev": ["Chebyshev"],
+    f"{base}.spectral": ["SpectralDerivative", "PhaseShift"],
     f"{base}.composed": [
         "Gradient",
         "Divergence",

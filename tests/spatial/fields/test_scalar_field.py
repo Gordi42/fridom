@@ -3,9 +3,13 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from fridom.model.errors import (
+    ImmutableStateError as ModelImmutableStateError,
+)
 from fridom.spatial.bc import BC
 from fridom.spatial.errors import (
     GridMismatchError,
+    ImmutableStateError,
     SpaceMismatchError,
 )
 from fridom.spatial.fields.metadata import FieldMetadata
@@ -79,6 +83,21 @@ def test_with_data_keeps_grid_space_metadata(f):
 def test_with_data_rejects_wrong_shape(f):
     with pytest.raises(ValueError, match="true-shape"):
         f.with_data(jnp.zeros((4, 8)))
+
+
+def test_data_assignment_raises_a_taught_immutable_state_error(f):
+    with pytest.raises(ImmutableStateError, match="with_data"):
+        f.data = f.data * 2.0
+
+
+def test_data_inplace_op_raises_immutable_state_error(f):
+    with pytest.raises(ImmutableStateError):
+        f.data += 1.0
+
+
+def test_immutable_state_error_re_exported_from_model():
+    # the class moved to the grid cluster; model.errors re-exports it
+    assert ModelImmutableStateError is ImmutableStateError
 
 
 def test_storage_is_the_padded_frame_no_copy(f):

@@ -8,10 +8,13 @@ The concrete model-layer errors of
 errors subclass the common ``AssemblyError``; teaching shims
 subclass ``TypeError``-flavored bases so they read as API misuse.
 Errors owned by other clusters (``GridFrozenError``,
-``MissingComponentError``, ``SignatureMismatchError``,
-``IOCollisionError``, ``SnapshotMismatchError``, ``PanicError``,
-``RunTargetError``) live at their raise sites and are only
-re-exported or re-raised here. ``DispatchCollisionError`` is defined
+``ImmutableStateError``, ``MissingComponentError``,
+``SignatureMismatchError``, ``IOCollisionError``,
+``SnapshotMismatchError``, ``PanicError``, ``RunTargetError``) live at
+their raise sites and are only re-exported or re-raised here.
+``ImmutableStateError`` moved to the grid cluster
+(``fridom.spatial.errors``) with the raising ``ScalarField.data``
+setter. ``DispatchCollisionError`` is defined
 with the operator registry (its raise site is the merge call) and
 re-exported for the assembly surface.
 
@@ -27,7 +30,7 @@ from fridom.model.results import (
     PanicError,
     RunTargetError,
 )
-from fridom.spatial.errors import GridFrozenError
+from fridom.spatial.errors import GridFrozenError, ImmutableStateError
 from fridom.spatial.operators.registry import (
     DispatchCollisionError,
 )
@@ -225,19 +228,6 @@ class TermEvaluationError(RuntimeError):
     the original exception is chained, the message carries the
     ``"Module/term"`` attribution key; grid-layer space mismatches
     are re-raised with the same attribution.
-    """
-
-
-class ImmutableStateError(TypeError):
-
-    """
-    Raised by ``State``/``VectorField`` mutation attempts.
-
-    Description
-    -----------
-    Teaching shim on property setters and ``__setitem__``: state
-    updates are functional — the guidance points at ``replace`` and
-    ``add``.
     """
 
 

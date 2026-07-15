@@ -6,11 +6,13 @@ Description
 Owning class docs: ``design/specs/grid/classes/product_spaces.md``
 (``SpaceMismatchError``, ``GridMismatchError``) and
 ``design/specs/grid/classes/grid.md`` ("Merge call site" resolution,
-``GridFrozenError``). The mismatch errors subclass ``TypeError``: the
-operand *combination* is unsupported, the moral analogue of
-``unsupported operand type(s)``. ``GridFrozenError`` subclasses
-``RuntimeError``: the operation is fine, the grid's *lifecycle
-phase* is not.
+``GridFrozenError``), and ``design/specs/grid/classes/fields.md``
+(D1.5, ``ImmutableStateError``). The mismatch errors subclass
+``TypeError``: the operand *combination* is unsupported, the moral
+analogue of ``unsupported operand type(s)``. ``ImmutableStateError``
+is a ``TypeError`` too (a mutation attempt reads as API misuse).
+``GridFrozenError`` subclasses ``RuntimeError``: the operation is
+fine, the grid's *lifecycle phase* is not.
 """
 # Wave 0: SpaceMismatchError, GridMismatchError -- Phase 2:
 #    GridFrozenError
@@ -154,4 +156,23 @@ class GridFrozenError(RuntimeError):
     msg : str
         The error message (verify failures carry a diff-style
         listing of the demands exceeding the frozen record).
+    """
+
+
+class ImmutableStateError(TypeError):
+
+    """
+    Raised on an attempt to mutate an immutable field or state.
+
+    Description
+    -----------
+    Teaching shim on the raising ``ScalarField.data`` setter (and the
+    ``VectorField`` / model-``State`` setters and ``__setitem__``,
+    fields.md D1.5): a field and the model state are immutable
+    pytrees, so updates are functional. The guidance points at the
+    functional builders — ``f.with_data(...)`` /
+    ``grid.create_field(...)`` for a field, ``replace`` / ``add`` for
+    a vector or state. It subclasses ``TypeError`` so an
+    ``f.data += ...`` habit reads as API misuse, not a bare
+    ``AttributeError``.
     """

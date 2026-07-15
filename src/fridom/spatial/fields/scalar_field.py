@@ -35,6 +35,7 @@ from fridom.framework.utils import jaxify
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import (
     GridMismatchError,
+    ImmutableStateError,
     SpaceMismatchError,
 )
 from fridom.spatial.fields.metadata import FieldMetadata
@@ -162,6 +163,15 @@ class ScalarField:
         """Raw local array at true shape (halo/padding stripped)."""
         return self._grid.decomposition.unpad(
             self._data, self._function_space)
+
+    @data.setter
+    def data(self, value: object) -> None:  # noqa: ARG002 — raising stub
+        """Reject the write: a field is an immutable pytree (D1.5)."""
+        raise ImmutableStateError(
+            "ScalarField.data is read-only: a field is an immutable "
+            "pytree. Build a new field with f.with_data(new_array) "
+            "(or grid.create_field(...)); do not assign f.data = ... "
+            "or f.data += ...")
 
     @property
     def storage(self) -> jax.Array:
