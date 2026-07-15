@@ -29,6 +29,7 @@ from fridom.model.terms import (
 from fridom.model.time_steppers.adam_bashforth import (
     ABState,
     AdamBashforth,
+    _weighted,
 )
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -692,3 +693,36 @@ def test_dispersion_preserves_shape_and_is_complex():
     result = stepper.time_discretization_effect(np.ones((2, 3)))
     assert result.shape == (2, 3)
     assert result.dtype == np.complex128
+
+
+# ================================================================
+#  Storage-frame _weighted (indivisible-shard Phase 3)
+# ================================================================
+def _corrupt_ghosts(field):
+    """Return the field with NaN in every ghost slot (interior intact).
+
+    The slots ``unpad`` does not select are set to NaN, so any leak of
+    a scaled ghost lane into the true DOFs shows up as a NaN there.
+    """
+    probe = field.with_data(jnp.ones_like(field.data)).storage
+    stored = field.with_data(field.data).storage
+    return field.with_storage(jnp.where(probe == 0, jnp.nan, stored))
+
+
+def test_weighted_storage_frame_matches_true_frame(grid, mx):
+    # the committed _weighted scales the storage frame directly; the
+    # old spelling round-tripped unpad -> scale -> pad. They must give
+    # bitwise-identical TRUE DOFs even with garbage (NaN) ghost lanes:
+    # scaling commutes with the unpad slice and the scaled ghost lanes
+    # never reach a true DOF (the fresh field claims zero ghost
+    # validity, so they are re-synced before any consumer reads them).
+    field = _corrupt_ghosts(grid.create_field(
+        mx.center, data=jnp.linspace(0.5, 1.5, 8), name="u"))
+    assert field.storage.shape != field.data.shape  # ghosts exist
+    vec = VectorField({"u": field})
+    weight = jnp.asarray(-LAM * 0.02, dtype=dtype_real())
+    new = _weighted(vec, weight)
+    old = vec.map(lambda f: f.with_data(weight * f.data))
+    new_data = np.asarray(new["u"].data)
+    assert np.all(np.isfinite(new_data))  # no ghost NaN leaked
+    assert np.array_equal(new_data, np.asarray(old["u"].data))

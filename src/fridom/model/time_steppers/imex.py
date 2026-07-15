@@ -433,9 +433,15 @@ def _prognostic(
 
 
 def _zero_vector(vector: VectorField) -> VectorField:
-    """Zero twin of a PROGNOSTIC vector (stored-array zeros)."""
+    """Zero twin of a PROGNOSTIC vector (stored-array zeros).
+
+    Spelled on the storage frame: ``pad`` zero-fills the ghost lanes
+    of ``with_data(zeros(true))`` and ``zeros_like(storage)`` is zero
+    everywhere, so the two are bitwise-identical on every slot (not
+    just the true DOFs), without the ``unpad``/``pad`` round trip.
+    """
     return vector.map(
-        lambda field: field.with_data(jnp.zeros_like(field.data)))
+        lambda field: field.with_storage(jnp.zeros_like(field.storage)))
 
 
 def _forward_applies(
@@ -466,9 +472,13 @@ def _scaled(vector: VectorField, weight: jax.Array) -> VectorField:
 
     Description
     -----------
-    The traced-scalar scaling spelled on the true-shape data (field
-    dunders accept Python scalars only); the multiplication order is
+    The traced-scalar scaling spelled on the **storage frame**:
+    scaling commutes with the unpad slice, so the true DOFs are
+    bitwise-identical to ``with_data(weight * field.data)`` (probe P1)
+    while skipping the ``unpad``/``pad`` round trip; the fresh field
+    claims zero ghost validity, so its scaled ghost lanes are re-synced
+    before any consumer reads them. The multiplication order is
     ``weight * data`` — part of the parity op sequence.
     """
     return vector.map(
-        lambda field: field.with_data(weight * field.data))
+        lambda field: field.with_storage(weight * field.storage))

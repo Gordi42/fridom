@@ -543,8 +543,16 @@ def _weighted(
     Description
     -----------
     The traced-scalar scaling ``weights[j] * levels[j]`` of the
-    normative step body, spelled on the true-shape data (the field
-    dunders accept Python scalars only). The multiplication order is
+    normative step body, spelled on the **storage frame**: scaling is
+    elementwise and commutes with the unpad slice, so the true DOFs
+    are bitwise-identical to ``with_data(weight * field.data)`` (probe
+    P1, Intervention A), while the storage-frame spelling skips that
+    route's ``unpad``/``pad`` round trip — free on divisible configs,
+    and the collective the walled/indivisible sharded leg used to pay
+    per excursion. The fresh field claims zero ghost validity (as
+    ``with_data`` does), so the ghost lanes — scaled garbage here
+    rather than zero — are re-synced before any stencil consumer reads
+    them and never reach a true DOF. The multiplication order is
     ``weight * data`` — part of the bitwise-parity op sequence.
 
     Parameters
@@ -560,4 +568,4 @@ def _weighted(
         The scaled entry (metadata preserved by ``map``).
     """
     return vector.map(
-        lambda field: field.with_data(weight * field.data))
+        lambda field: field.with_storage(weight * field.storage))

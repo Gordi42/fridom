@@ -30,6 +30,7 @@ from fridom.model.time_steppers.runge_kutta import (
     ButcherTableau,
     ExplicitRungeKutta,
     LowStorageRK3,
+    _scaled,
     tableaus,
 )
 from fridom.spatial.fields.vector_field import VectorField
@@ -467,3 +468,30 @@ def test_time_discretization_effect_deferred():
     with pytest.raises(NotImplementedError, match="parity"):
         LowStorageRK3(0.1).time_discretization_effect(
             np.array([1.0]))
+
+
+# ================================================================
+#  Storage-frame _scaled (indivisible-shard Phase 3)
+# ================================================================
+def _corrupt_ghosts(field):
+    """Return the field with NaN in every ghost slot (interior intact)."""
+    probe = field.with_data(jnp.ones_like(field.data)).storage
+    stored = field.with_data(field.data).storage
+    return field.with_storage(jnp.where(probe == 0, jnp.nan, stored))
+
+
+def test_scaled_storage_frame_matches_true_frame(grid, mx):
+    # the committed _scaled scales the storage frame directly; the old
+    # spelling round-tripped unpad -> scale -> pad. Bitwise-identical
+    # TRUE DOFs even with garbage (NaN) ghost lanes (scaling commutes
+    # with the unpad slice; scaled ghost lanes never reach a true DOF).
+    field = _corrupt_ghosts(grid.create_field(
+        mx.center, data=jnp.linspace(0.5, 1.5, 8), name="u"))
+    assert field.storage.shape != field.data.shape  # ghosts exist
+    vec = VectorField({"u": field})
+    weight = jnp.asarray(0.3 * 0.02, dtype=jnp.float64)
+    new = _scaled(vec, weight)
+    old = vec.map(lambda f: f.with_data(weight * f.data))
+    new_data = np.asarray(new["u"].data)
+    assert np.all(np.isfinite(new_data))  # no ghost NaN leaked
+    assert np.array_equal(new_data, np.asarray(old["u"].data))
