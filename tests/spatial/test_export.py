@@ -1,12 +1,17 @@
 """Tests for fridom.spatial.export (the ``f.xr`` surface)."""
+import types
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 import xarray as xr
+from jax.experimental import multihost_utils
 
+import fridom.spatial.export as export_module
 from fridom.spatial.export import (
     ExportLayout,
+    _host_labels,
     export_layout,
     gathered_values,
     scalar_to_dataarray,
@@ -317,3 +322,48 @@ def test_spectral_export_is_device_count_invariant(forced_devices):
     assert np.array_equal(da_many.values, da_one.values)
     assert np.array_equal(da_many.coords["kx"].values,
                           da_one.coords["kx"].values)
+
+
+# ================================================================
+#  The multi-host coordinate gather (_host_labels)
+# ================================================================
+def test_host_labels_plain_for_addressable(grid):
+    # single-process / fully-addressable: a plain np.asarray, so the
+    # single-process labels are unchanged (no collective is fired).
+    field = grid.create_field(init=init, name="q")
+    vector = grid.evaluation_nodes(field.function_space, name="x")
+    out = _host_labels(vector.data)
+    assert isinstance(out, np.ndarray)
+    assert np.array_equal(out.reshape(-1),
+                          np.asarray(vector.data).reshape(-1))
+
+
+def test_host_labels_plain_for_ndarray():
+    # a plain numpy array is not a jax.Array: the plain branch again
+    out = _host_labels(np.array([4.0, 5.0]))
+    assert np.array_equal(out, np.array([4.0, 5.0]))
+
+
+def test_host_labels_gathers_non_addressable(monkeypatch):
+    # the genuine multi-process branch: a non-addressable jax.Array is
+    # gathered collectively (tiled). Simulate a non-addressable array
+    # and patch process_allgather so no real collective is needed.
+    class FakeArray:
+        is_fully_addressable = False
+
+    seen = {}
+
+    def fake_allgather(arr, *, tiled):
+        seen["tiled"] = tiled
+        seen["arr"] = arr
+        return np.array([1.0, 2.0, 3.0])
+
+    monkeypatch.setattr(
+        multihost_utils, "process_allgather", fake_allgather)
+    monkeypatch.setattr(
+        export_module, "jax", types.SimpleNamespace(Array=FakeArray))
+    fake = FakeArray()
+    out = _host_labels(fake)
+    assert seen["tiled"] is True  # tiled=True is mandatory for a shard
+    assert seen["arr"] is fake
+    assert np.array_equal(out, np.array([1.0, 2.0, 3.0]))
