@@ -26,6 +26,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
@@ -136,8 +137,6 @@ from fridom.spatial.spaces.tensor_product import (
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
-
-    import jax
 
     from fridom.spatial.coordinate_mapping import (
         CoordinateMapping,
@@ -874,6 +873,13 @@ class Grid:
         mesh geometry (no ``params=`` seam), so repeated queries
         return one memoized field per (space, name) — the same
         object, which also keeps the operator-level sync memo warm.
+        The memo holds **concrete** fields only: a query issued
+        under a jax trace (an integral kernel inside the eager-
+        operator jit, a traced model stage) returns an uncached
+        field, since caching that trace's tracer would leak it into
+        every later query (rules 3.8: caches hold static geometry,
+        never traced values); the traced query re-derives the
+        weights, an XLA constant either way.
 
         Parameters
         ----------
@@ -916,7 +922,8 @@ class Grid:
         stored = store(self._decomposition, result, data)
         field = ScalarField(self, result, stored,
                             FieldMetadata.create(name=f"d{name}"))
-        self._measures[(space, name)] = field
+        if not isinstance(stored, jax.core.Tracer):
+            self._measures[(space, name)] = field
         return field
 
     def metric(
