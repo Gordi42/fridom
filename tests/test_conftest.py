@@ -1,4 +1,6 @@
 """Self-tests for the suite fixtures (conftest.py)."""
+import types
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -61,6 +63,57 @@ def test_compile_counter_unregisters(compile_counter):
         == "CompileCounter"
     ]
     assert len(counter_listeners) == 1
+
+
+# ================================================================
+#  periodic cache eviction (pytest_runtest_teardown)
+# ================================================================
+@pytest.fixture
+def conftest_mod(request):
+    """Return the suite-level tests/conftest.py module object."""
+    for _name, plugin in request.config.pluginmanager.list_name_plugin():
+        path = (getattr(plugin, "__file__", "") or "").replace("\\", "/")
+        if path.endswith("tests/conftest.py"):
+            return plugin
+    pytest.fail("tests/conftest.py plugin not found")  # pragma: no cover
+    return None  # pragma: no cover
+
+
+@pytest.fixture
+def clear_spy(monkeypatch):
+    """Count jax.clear_caches() calls without really clearing."""
+    calls = []
+    monkeypatch.setattr(jax, "clear_caches", lambda: calls.append(1))
+    return calls
+
+
+def _item(module):
+    """Return a stand-in test item carrying just a ``.module`` attribute."""
+    return types.SimpleNamespace(module=module)
+
+
+def test_teardown_clears_on_file_boundary(clear_spy, conftest_mod,
+                                          monkeypatch):
+    monkeypatch.setattr(conftest_mod, "_clear_cache", True)
+    mod_a, mod_b = object(), object()
+    conftest_mod.pytest_runtest_teardown(_item(mod_a), _item(mod_b))
+    assert clear_spy == [1]
+
+
+def test_teardown_no_clear_within_file(clear_spy, conftest_mod,
+                                       monkeypatch):
+    monkeypatch.setattr(conftest_mod, "_clear_cache", True)
+    mod = object()
+    conftest_mod.pytest_runtest_teardown(_item(mod), _item(mod))
+    assert clear_spy == []
+
+
+def test_teardown_disabled_never_clears(clear_spy, conftest_mod,
+                                        monkeypatch):
+    monkeypatch.setattr(conftest_mod, "_clear_cache", False)
+    mod_a, mod_b = object(), object()
+    conftest_mod.pytest_runtest_teardown(_item(mod_a), _item(mod_b))
+    assert clear_spy == []
 
 
 # ================================================================
