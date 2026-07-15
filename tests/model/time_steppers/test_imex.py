@@ -42,6 +42,8 @@ from fridom.model.time_steppers.imex import (
     SBDF2,
     IMEXMultistep,
     IMEXState,
+    _scaled,
+    _zero_vector,
 )
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -453,3 +455,43 @@ def test_end_to_end_imex_model_advances(compile_counter):
 def test_time_discretization_effect_deferred():
     with pytest.raises(NotImplementedError, match="deferred"):
         CNAB2(0.1).time_discretization_effect(np.array([1.0]))
+
+
+# ================================================================
+#  Storage-frame _scaled / _zero_vector (indivisible-shard Phase 3)
+# ================================================================
+def _corrupt_ghosts(field):
+    """Return the field with NaN in every ghost slot (interior intact)."""
+    probe = field.with_data(jnp.ones_like(field.data)).storage
+    stored = field.with_data(field.data).storage
+    return field.with_storage(jnp.where(probe == 0, jnp.nan, stored))
+
+
+def test_scaled_storage_frame_matches_true_frame(grid, mz):
+    # storage-frame _scaled == old unpad -> scale -> pad on the TRUE
+    # DOFs, even with garbage (NaN) ghost lanes.
+    field = _corrupt_ghosts(grid.create_field(
+        mz.center, data=jnp.linspace(0.5, 1.5, COLUMN), name="b"))
+    assert field.storage.shape != field.data.shape  # ghosts exist
+    vec = VectorField({"b": field})
+    weight = jnp.asarray(0.75 * 0.02, dtype=jnp.float64)
+    new = _scaled(vec, weight)
+    old = vec.map(lambda f: f.with_data(weight * f.data))
+    new_data = np.asarray(new["b"].data)
+    assert np.all(np.isfinite(new_data))  # no ghost NaN leaked
+    assert np.array_equal(new_data, np.asarray(old["b"].data))
+
+
+def test_zero_vector_storage_frame_matches_true_frame(grid, mz):
+    # storage-frame _zero_vector is zero on EVERY slot (both spellings
+    # zero-fill the ghosts), and identical to the old spelling.
+    field = _corrupt_ghosts(grid.create_field(
+        mz.center, data=jnp.linspace(0.5, 1.5, COLUMN), name="b"))
+    vec = VectorField({"b": field})
+    new = _zero_vector(vec)
+    old = vec.map(lambda f: f.with_data(jnp.zeros_like(f.data)))
+    new_data = np.asarray(new["b"].data)
+    assert np.array_equal(new_data, np.zeros(COLUMN))
+    assert np.array_equal(new_data, np.asarray(old["b"].data))
+    # zeroed on the whole storage frame too (ghost NaNs are gone)
+    assert np.all(np.asarray(new["b"].storage) == 0.0)
