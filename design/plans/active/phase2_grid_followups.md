@@ -22,8 +22,8 @@ file fed implementation findings back into the design, this file fed
 design demands back to the grid implementers.
 
 Status (2026-07-13): **everything that gated the model layer has
-landed**. What is left are two ergonomics items, kept below. The file
-stays active only as the home of those two; it is also cited as the
+landed**. What is left is one ergonomics item, kept below. The file
+stays active only as the home of that one; it is also cited as the
 record of the `_halo_valid`/treedef failure mode (item R11), e.g. by
 [`krylov_scan_plan.md`](../done/krylov_scan_plan.md).
 
@@ -82,21 +82,17 @@ record of the `_halo_valid`/treedef failure mode (item R11), e.g. by
   the remaining boundary work (Robin dynamic data) lives in
   [`boundary_plan.md`](boundary_plan.md), which also owns the
   BC-nodal operator-row gap.
+- **R15 `fr.spatial.cartesian.Grid` constructor** — built 2026-07-15
+  (the decision was keep, not withdraw): the `shape=`/`extent=`/
+  `periodic=`/`names=` convenience subclass, filled from
+  [`../../specs/grid/classes/grid.md`](../../specs/grid/classes/grid.md),
+  alongside the new `fr.spatial.spherical.Grid` fast assemble and the
+  `fr.spatial.charts.lonlat_sphere` chart primitive. Record:
+  [`../done/grid_ergonomics_plan.md`](../done/grid_ergonomics_plan.md).
 
 ## Open work items
 
-1. **`fr.spatial.cartesian.Grid` constructor** — ergonomics, not
-   blocking. `src/fridom/spatial/cartesian/grid.py` is still a 9-line
-   stub; the day-one `shape=`/`extent=` convenience subclass of
-   [`../../specs/grid/classes/grid.md`](../../specs/grid/classes/grid.md)
-   was never written, so users (and every example) hand-build
-   `IntervalMesh` factors. Known since
-   [`../done/phase1_findings.md`](../../research/phase1_findings.md).
-   Blocker: none — needs a decision on whether the convenience
-   constructor is still wanted now that mapped/chart meshes exist, or
-   whether the spec entry should be withdrawn instead.
-
-2. **Teaching shims + remaining API gaps** — ergonomics, not
+1. **Teaching shims + remaining API gaps** — ergonomics, not
    blocking. What is left of the
    [`../done/phase1_findings.md`](../../research/phase1_findings.md) backlog:
    - `ImmutableStateError` on `.data` assignment

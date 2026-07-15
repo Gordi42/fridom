@@ -38,7 +38,6 @@ import pytest
 import fridom as fr
 import fridom.shallowwater2 as sw
 
-TWO_PI = float(2.0 * np.pi)
 LAT_MAX = float(np.deg2rad(80.0))
 
 #: TC2 parameters (nondimensional unit sphere, Ro = 1)
@@ -47,17 +46,9 @@ OMEGA, U0, GH0 = 2.0, 0.2, 2.0
 
 def sphere_grid(nlon, nlat, radius=1.0, device_ids=None):
     """Lat-lon sphere chart grid (the documented sw.Model recipe)."""
-    mlon = fr.spatial.meshes.IntervalMesh(nlon, (0.0, TWO_PI),
-                                          name="lon")
-    mlat = fr.spatial.meshes.IntervalMesh(
-        nlat, (-LAT_MAX, LAT_MAX), periodic=False, name="lat")
-    mapping = fr.spatial.CoordinateMapping(chart={
-        "X": lambda lon, lat: (
-            radius * jnp.cos(lat) * jnp.cos(lon),
-            radius * jnp.cos(lat) * jnp.sin(lon),
-            radius * jnp.sin(lat))}, orthogonal=True)
-    return fr.spatial.Grid((mlon, mlat), mapping=mapping,
-                           device_ids=device_ids)
+    return fr.spatial.spherical.Grid(
+        (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX),
+        device_ids=device_ids)
 
 
 def sphere_model(nlon=32, nlat=16, *, csqr=GH0, ro=1.0,

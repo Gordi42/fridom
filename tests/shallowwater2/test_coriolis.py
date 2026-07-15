@@ -32,7 +32,6 @@ CSQR = 0.7
 RO = 0.4
 F0 = 1.0
 OMEGA = 1.5
-TWO_PI = float(2.0 * np.pi)
 LAT_MAX = float(np.deg2rad(80.0))
 NAMES = ("u", "v", "p")
 
@@ -54,16 +53,8 @@ def flat_grid(*, periodic_y=True):
 
 def sphere_grid(nlon=16, nlat=8, radius=1.0):
     """Return the documented lat-lon sphere chart grid."""
-    mlon = fr.spatial.meshes.IntervalMesh(nlon, (0.0, TWO_PI),
-                                          name="lon")
-    mlat = fr.spatial.meshes.IntervalMesh(
-        nlat, (-LAT_MAX, LAT_MAX), periodic=False, name="lat")
-    mapping = fr.spatial.CoordinateMapping(chart={
-        "X": lambda lon, lat: (
-            radius * jnp.cos(lat) * jnp.cos(lon),
-            radius * jnp.cos(lat) * jnp.sin(lon),
-            radius * jnp.sin(lat))}, orthogonal=True)
-    return fr.spatial.Grid((mlon, mlat), mapping=mapping)
+    return fr.spatial.spherical.Grid(
+        (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX))
 
 
 def stepper():

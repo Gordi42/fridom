@@ -24,7 +24,6 @@ CSQR = 0.7
 RO = 0.4
 OMEGA = 1.5
 LAT_MAX = float(np.deg2rad(80.0))
-TWO_PI = float(2.0 * np.pi)
 
 ADVECT = fr.model.term_predicates.named("SadournyAdvection/advect")
 GRAVITY = fr.model.term_predicates.named("DynamicalCore/gravity")
@@ -32,16 +31,8 @@ GRAVITY = fr.model.term_predicates.named("DynamicalCore/gravity")
 
 def sphere_grid(nlon=2 * N, nlat=N, radius=1.0):
     """Lat-lon sphere chart grid, polar caps excluded (the recipe)."""
-    mlon = fr.spatial.meshes.IntervalMesh(nlon, (0.0, TWO_PI),
-                                          name="lon")
-    mlat = fr.spatial.meshes.IntervalMesh(
-        nlat, (-LAT_MAX, LAT_MAX), periodic=False, name="lat")
-    mapping = fr.spatial.CoordinateMapping(chart={
-        "X": lambda lon, lat: (
-            radius * jnp.cos(lat) * jnp.cos(lon),
-            radius * jnp.cos(lat) * jnp.sin(lon),
-            radius * jnp.sin(lat))}, orthogonal=True)
-    return fr.spatial.Grid((mlon, mlat), mapping=mapping)
+    return fr.spatial.spherical.Grid(
+        (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX))
 
 
 def sphere_model(grid=None, *, advection=True, omega=OMEGA,

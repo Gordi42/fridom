@@ -18,7 +18,6 @@ gates here:
   Cartesian / metric quadratics.
 """
 import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -29,7 +28,6 @@ from .conftest import make_grid, make_model
 
 CSQR = 0.7
 RO = 0.4
-TWO_PI = float(2.0 * np.pi)
 LAT_MAX = float(np.deg2rad(80.0))
 
 #: the exactly-conserving pair (the Coriolis term is skew under the
@@ -45,16 +43,8 @@ NAMES = ("u", "v", "p")
 # ================================================================
 def sphere_grid(nlon=16, nlat=8, radius=1.0):
     """Lat-lon sphere chart grid (the documented sw.Model recipe)."""
-    mlon = fr.spatial.meshes.IntervalMesh(nlon, (0.0, TWO_PI),
-                                          name="lon")
-    mlat = fr.spatial.meshes.IntervalMesh(
-        nlat, (-LAT_MAX, LAT_MAX), periodic=False, name="lat")
-    mapping = fr.spatial.CoordinateMapping(chart={
-        "X": lambda lon, lat: (
-            radius * jnp.cos(lat) * jnp.cos(lon),
-            radius * jnp.cos(lat) * jnp.sin(lon),
-            radius * jnp.sin(lat))}, orthogonal=True)
-    return fr.spatial.Grid((mlon, mlat), mapping=mapping)
+    return fr.spatial.spherical.Grid(
+        (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX))
 
 
 def sphere_model(*, ro=RO, omega=1.5):

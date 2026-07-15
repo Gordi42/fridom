@@ -1,10 +1,11 @@
 """
-Cartesian convenience grid.
+Spherical convenience grid.
 
 Description
 -----------
-Owning class doc: ``design/specs/grid/classes/grid.md``.
-Wave 2 re-exports the cartesian ``Grid`` class here.
+Owning class doc: ``design/specs/grid/classes/grid.md``. Re-exports the
+lat-lon sphere convenience ``Grid`` — two ``IntervalMesh`` factors under
+the orthogonal sphere chart.
 """
 from typing import TYPE_CHECKING
 
@@ -25,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 #  Setup lazy loading
 # ================================================================
-base = "fridom.spatial.cartesian"
+base = "fridom.spatial.spherical"
 
 all_modules_by_origin = {
     base: [

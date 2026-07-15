@@ -68,6 +68,20 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Grid setup ergonomics — the fast assemble** (2026-07-15) — building
+  a spherical grid was a 9-line copy-from-the-docstring incantation. Now
+  `fr.spatial.spherical.Grid((nlon, nlat), radius=a,
+  lat_extent=(-lat_max, lat_max))` is one call: it builds the
+  periodic-lon x bounded-lat interval meshes and attaches the orthogonal
+  lat-lon sphere chart (the extent-free `fr.spatial.charts.lonlat_sphere`
+  primitive). `lat_extent` is required (the poles are metric-singular; a
+  loud guard rejects `|lat| >= pi/2`) and asymmetric bands give a
+  hemisphere; an optional `lon_extent` closes the zonal walls (a
+  longitude sector — still orthogonal, so the diagonal index moves
+  assemble across it). The sibling `fr.spatial.cartesian.Grid`
+  (`shape=`/`extent=`/`periodic=`) landed alongside it, closing the last
+  open item of the Phase-2 grid follow-ups. Record:
+  [`../plans/done/grid_ergonomics_plan.md`](../plans/done/grid_ergonomics_plan.md).
 - **Chart / sphere setup ergonomics** (2026-07-15) — the E1–E5
   follow-ups to coordinate systems (3.4). The last, E2: a chart with a
   **bounded** axis no longer needs the undiscoverable
