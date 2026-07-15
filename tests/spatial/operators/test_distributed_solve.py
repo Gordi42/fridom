@@ -606,10 +606,12 @@ def test_warm_eager_walled_solve_adds_zero_compiles(compile_counter):
 
 
 @pytest.mark.multi_device
-def test_fully_walled_solve_has_no_half_stage():
-    # every axis bounded (Neumann): no Fourier axis, so the internal
-    # representation is fully complex (no Hermitian half stage) and the
-    # backward path takes the real part on synthesis
+def test_fully_walled_solve_stays_real():
+    # every axis bounded (Neumann): no Fourier axis, so no Hermitian
+    # half stage -- and because the trig kernels are real-to-real, the
+    # staged pipeline carries REAL data throughout (no complexify /
+    # take-real-part round trip). Lock that in: the forward coefficients
+    # of a real field are real.
     data = np.random.default_rng(3).standard_normal((16, 16, 16))
     many, rhs_m = walled_solve(
         (16, 16, 16), None, (False, False, False), BC.NEUMANN, data)
@@ -617,6 +619,7 @@ def test_fully_walled_solve_has_no_half_stage():
     plan = many.slab.plan
     assert plan._stages is not None
     assert plan._h is None
+    assert not jnp.iscomplexobj(plan.forward(rhs_m.data))
     # replicated one-device reference (the all-trig composite does not
     # partition cleanly on the multi-device mesh; the 1-device path is
     # the honest replicated baseline)

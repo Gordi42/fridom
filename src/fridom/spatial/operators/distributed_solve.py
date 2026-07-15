@@ -37,8 +37,9 @@ sharded one), every other transformed axis carries the full spectrum on
 the complexified origin, and the solve's eigenvalue diagonal is queried
 on exactly this internal space — honest per-mode values for negative
 wavenumbers included, no Hermitian mirroring of sharded axes. When no
-local half axis exists (the 2-D real case) the plan runs fully complex
-and takes the real part on synthesis.
+local half axis exists the all-Fourier 2-D real case runs fully complex
+and takes the real part on synthesis; an all-trig domain instead stays
+real throughout -- the real-to-real kernels never complexify.
 
 The resolution (:func:`resolve_distributed_solve`) is the seam that lets
 :class:`SpectralSolve` obtain distribution by composing the *ordinary*
@@ -231,8 +232,9 @@ class SlabPlan:
         Description
         -----------
         Half spectrum on the local axis ``h`` (when the domain is
-        real and a local axis exists), full complexified spectra on
-        every other transformed axis. This deliberately differs from
+        real and a local axis exists), the full complexified spectrum
+        on every other Fourier axis, and the real trig coefficient
+        space on the trig axes. This deliberately differs from
         the single-device codomain (half spectrum on the first stage
         axis): the representation is internal to the pipeline, and
         eigenvalue diagonals must be queried on it.
@@ -308,9 +310,10 @@ class SlabPlan:
         -----------
         The sharded-axis inverse stage first, the ``all_to_all``
         back, then the local inverse stages in reverse order — the
-        Hermitian half stage (when present) last, landing real. A
-        real domain with no Hermitian stage synthesizes fully
-        complex and takes the real part.
+        Hermitian half stage (when present) last, landing real. An
+        all-trig real domain (no Hermitian stage) carries real data
+        throughout -- the real-to-real kernels never complexify, so
+        the closing real-part guard is a no-op.
         """
         part, stage = self._stages[-1]
         c = part._backward_kernel(c, stage)  # noqa: SLF001 — lowering seam
