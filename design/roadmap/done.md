@@ -68,6 +68,16 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Chart / sphere setup ergonomics** (2026-07-15) — the E1–E5
+  follow-ups to coordinate systems (3.4). The last, E2: a chart with a
+  **bounded** axis no longer needs the undiscoverable
+  `merge_overrides(RaiseIndex(..., diagonal=True), ...)` incantation —
+  declare `CoordinateMapping(chart=..., orthogonal=True)` and the grid
+  seeds the diagonal index moves; a taught error names the fix
+  otherwise. Auto-detection was rejected (the induced metric is numeric
+  autodiff, so an orthogonal chart reads ~1e-16, not exact zero — a
+  tolerance would risk silently dropping real cross terms). Record:
+  [`../plans/done/chart_ergonomics_plan.md`](../plans/done/chart_ergonomics_plan.md).
 - **Decomposed / gather-free output** (2026-07-14) — the it-1 IO sink
   `decomposition.gather`ed the whole true field to rank 0 / host
   before writing, which cannot fit large grids (768³+). The Writer
