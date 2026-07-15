@@ -358,7 +358,7 @@ divergence on mapped grids (orders 1.93/1.98); biased schemes
   minimal spherical and torus examples, the first of which is silent
   wrong physics (`coriolis=None` installs the flat `FPlaneCoriolis`
   on a chart grid and nothing rejects it):
-  [`../active/chart_ergonomics_plan.md`](../active/chart_ergonomics_plan.md).
+  [`chart_ergonomics_plan.md`](chart_ergonomics_plan.md).
 - Eigenmode / state-transform machinery on mapped and chart grids.
 - `lax.fori_loop` CG variant if pressure iteration budgets exceed
   ~60 (unrolled compile cost is ~0.17 s/iteration).

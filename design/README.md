@@ -146,7 +146,6 @@ spellings:
 | [`boundary_plan.md`](plans/active/boundary_plan.md) | active | Boundary closures: R1, the one-sided rows and `BC.ROBIN` structure landed 2026-07-11; open is stage 2e (the Robin dynamic `(α, g)` ghost-fill path) and the optional 2f halo-claim refinement. |
 | [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build order: phases A–H landed; tracks only the unscheduled phase-I `Banded` / mixed-representation tier. |
 | [`phase2_grid_followups.md`](plans/active/phase2_grid_followups.md) | active | Grid follow-ups from the Phase-2 reconciliation: every model-layer blocker landed; two ergonomics items open (the `cartesian.Grid` constructor, API shims). |
-| [`chart_ergonomics_plan.md`](plans/active/chart_ergonomics_plan.md) | active | Chart / sphere setup ergonomics: E1/E3/E4/E5 landed; open is E2 — auto-seed diagonal index moves on orthogonal charts. |
 | [`fv_nonhydro_scoping.md`](plans/active/fv_nonhydro_scoping.md) | active | Finite-volume nonhydro scoping (roadmap 3.5): the nine open operator gaps, decisions FV-D1..D4 (D2 = option A), the staged F0–F6 plan. No FV code written yet. |
 | [`high_order_mapped_plan.md`](plans/active/high_order_mapped_plan.md) | draft | High-order stencils on mapped grids: the four standing mapped refusals, the metric-identity obstacle, the option table. Walled prerequisite paid; blocked on the Jacobian spike. |
 | [`adiabatic_ramping.md`](plans/active/adiabatic_ramping.md) | idea | Generalized adiabatic ramping (roadmap 3.8) — an `AdiabaticRamping` base transform with `OptimalBalance` as a subclass. Planned, not scheduled; its dependency (2.8) has shipped. |
@@ -158,6 +157,7 @@ spellings:
 
 | File | Status | Description |
 |------|--------|-------------|
+| [`chart_ergonomics_plan.md`](plans/done/chart_ergonomics_plan.md) | done | Chart / sphere setup ergonomics (E1–E5) — closed 2026-07-15 by `orthogonal=True` on `CoordinateMapping` (seeds the diagonal index moves) plus a taught-error safety net; auto-detect rejected (numeric metric → tolerance → silent-wrong-physics risk). |
 | [`krylov_scan_plan.md`](plans/done/krylov_scan_plan.md) | done | Krylov scan (roadmap 3.6) — O(1) trace for the mapped pressure CG; HLO is now flat in the iteration count. Shipped 2026-07-13. |
 | [`coriolis_energy_correction.md`](plans/done/coriolis_energy_correction.md) | done | Exactly-conserving shallow-water Coriolis — the optional correction term (keeps `L`) and the full nonlinear module. Shipped 2026-07-13 (`fc0b61c8`). |
 | [`fallback_operator_plan.md`](plans/done/fallback_operator_plan.md) | done | Graded-order near-wall fallback operator — `Fallback` + the shared graded ladder, FV and nodal routes, sharded bounded axes. |

@@ -163,19 +163,6 @@ chunks of length 1 and reads 2-3x worse), `block_until_ready`, best of 3.
 [`../plans/done/krylov_scan_plan.md`](../plans/done/krylov_scan_plan.md).
 Gates the credibility of 3.3.
 
-## Chart ergonomics (E2)
-
-*Small.* On a chart with a **bounded** axis a model does not assemble at
-all without an undiscoverable `merge_overrides` incantation for the
-diagonal index moves — the grid seeds `RaiseIndex`/`LowerIndex` with
-`diagonal=False`, so the expansion emits a cross-term interpolation chain
-that has no legal stencil across a wall. Fix: auto-seed `diagonal=True`
-when the derived off-diagonal metric is structurally zero (both target
-charts — the lat-lon sphere and the torus — are orthogonal), with a
-taught error as the fallback. Then drop the copied recipe from the
-`sw.Model` docstring and five chart test files. E1/E3/E4/E5 landed.
-[`../plans/active/chart_ergonomics_plan.md`](../plans/active/chart_ergonomics_plan.md)
-
 ## Grid follow-ups — the ergonomics half
 
 *Small (~2-3 days, ~300-450 LOC).* **Land this before the docs rebuild

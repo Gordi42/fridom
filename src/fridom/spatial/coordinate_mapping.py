@@ -618,6 +618,18 @@ class _ChartNormal:
         return cross[self.i] / norm
 
 
+def _reject_noncallable_declarations(
+    **tables: Mapping[str, object],
+) -> None:
+    """Reject a declaration table whose keys/values are not str->callable."""
+    for label, table in tables.items():
+        for key, fn in table.items():
+            if not isinstance(key, str) or not callable(fn):
+                raise TypeError(
+                    f"{label}= maps names to callables, got "
+                    f"{key!r}: {fn!r}")
+
+
 # ================================================================
 #  The public declaration class
 # ================================================================
@@ -654,6 +666,20 @@ class CoordinateMapping:
         Static parameter defaults as callables of physical
         coordinates, materialized on demand — nothing is stored
         (default: None).
+    orthogonal : bool, optional
+        Assert that the embedding ``chart=``'s induced metric is
+        diagonal (its coordinate directions are everywhere
+        orthogonal, so every off-diagonal ``g_<u><v>`` is
+        identically zero). The grid then seeds the
+        ``"raise_index"`` / ``"lower_index"`` kinds with
+        ``diagonal=True``, dropping the cross-term interpolation
+        chains — which is what lets an index move assemble across a
+        **bounded** chart axis (a wall has no interpolation row for
+        the cross term). Both standard charts are orthogonal (the
+        lat-lon sphere, the torus). Leave it ``False`` for a
+        genuinely non-orthogonal chart: the full expansion is kept,
+        and on a bounded axis it legitimately raises (default:
+        False). Requires a ``chart=`` declaration.
     """
 
     def __init__(
@@ -665,6 +691,7 @@ class CoordinateMapping:
             Mapping[str, Callable[..., jax.Array]] | None) = None,
         params: (
             Mapping[str, Callable[..., jax.Array]] | None) = None,
+        orthogonal: bool = False,
     ) -> None:
         """Declare the transform; see the class docstring."""
         maps = dict(maps or {})
@@ -675,14 +702,13 @@ class CoordinateMapping:
             raise ValueError(
                 "a CoordinateMapping declares at least one of "
                 "maps=, chart=, or metrics=")
-        for label, table in (("maps", maps), ("chart", chart),
-                             ("metrics", metrics),
-                             ("params", params)):
-            for key, fn in table.items():
-                if not isinstance(key, str) or not callable(fn):
-                    raise TypeError(
-                        f"{label}= maps names to callables, got "
-                        f"{key!r}: {fn!r}")
+        if orthogonal and not chart:
+            raise ValueError(
+                "orthogonal=True asserts the embedding chart's "
+                "induced metric is diagonal, but no chart= is "
+                "declared; it applies to chart index moves only")
+        _reject_noncallable_declarations(
+            maps=maps, chart=chart, metrics=metrics, params=params)
         self._params: dict[str, Callable[..., jax.Array]] = params
         self._param_coords: dict[str, tuple[str, ...]] = {
             name: tuple(inspect.signature(fn).parameters)
@@ -710,6 +736,7 @@ class CoordinateMapping:
         for name, fn in metrics.items():
             decl = _Declared(fn, param_names)
             self._add(name, _Supplied(decl, self._deps(decl)))
+        self._orthogonal: bool = bool(orthogonal)
         self._grid: Grid | None = None
 
     # ================================================================
@@ -1037,3 +1064,24 @@ class CoordinateMapping:
         for decl in self._charts.values():
             return decl.coords
         return None
+
+    @property
+    def orthogonal(self) -> bool:
+        """
+        Whether the embedding chart's induced metric is diagonal.
+
+        Description
+        -----------
+        The ``orthogonal=`` assertion (class docstring): when
+        ``True`` the grid seeds the chart ``"raise_index"`` /
+        ``"lower_index"`` kinds with ``diagonal=True``, dropping the
+        off-diagonal metric contractions so an index move assembles
+        across a bounded chart axis. Always ``False`` for a chartless
+        mapping (the constructor rejects ``orthogonal=True`` there).
+
+        Returns
+        -------
+        bool
+            The declared orthogonality of the embedding chart.
+        """
+        return self._orthogonal

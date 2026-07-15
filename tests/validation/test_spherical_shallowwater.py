@@ -55,15 +55,9 @@ def sphere_grid(nlon, nlat, radius=1.0, device_ids=None):
         "X": lambda lon, lat: (
             radius * jnp.cos(lat) * jnp.cos(lon),
             radius * jnp.cos(lat) * jnp.sin(lon),
-            radius * jnp.sin(lat))})
-    grid = fr.spatial.Grid((mlon, mlat), mapping=mapping,
+            radius * jnp.sin(lat))}, orthogonal=True)
+    return fr.spatial.Grid((mlon, mlat), mapping=mapping,
                            device_ids=device_ids)
-    grid.merge_overrides({
-        "raise_index": fr.spatial.operators.RaiseIndex(
-            ("lon", "lat"), diagonal=True),
-        "lower_index": fr.spatial.operators.LowerIndex(
-            ("lon", "lat"), diagonal=True)})
-    return grid
 
 
 def sphere_model(nlon=32, nlat=16, *, csqr=GH0, ro=1.0,
@@ -121,12 +115,8 @@ def test_identity_chart_run_is_bitwise_flat():
     mx, my = meshes()
     chart_grid = fr.spatial.Grid(
         (mx, my), mapping=fr.spatial.CoordinateMapping(
-            chart={"X": lambda x, y: (x, y, 0.0 * x)}))
-    chart_grid.merge_overrides({
-        "raise_index": fr.spatial.operators.RaiseIndex(
-            ("x", "y"), diagonal=True),
-        "lower_index": fr.spatial.operators.LowerIndex(
-            ("x", "y"), diagonal=True)})
+            chart={"X": lambda x, y: (x, y, 0.0 * x)},
+            orthogonal=True))
     fx, fy = meshes()
     flat_grid = fr.spatial.Grid((fx, fy))
 

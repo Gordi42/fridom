@@ -53,14 +53,8 @@ def sphere_grid(nlon=16, nlat=8, radius=1.0):
         "X": lambda lon, lat: (
             radius * jnp.cos(lat) * jnp.cos(lon),
             radius * jnp.cos(lat) * jnp.sin(lon),
-            radius * jnp.sin(lat))})
-    grid = fr.spatial.Grid((mlon, mlat), mapping=mapping)
-    grid.merge_overrides({
-        "raise_index": fr.spatial.operators.RaiseIndex(
-            ("lon", "lat"), diagonal=True),
-        "lower_index": fr.spatial.operators.LowerIndex(
-            ("lon", "lat"), diagonal=True)})
-    return grid
+            radius * jnp.sin(lat))}, orthogonal=True)
+    return fr.spatial.Grid((mlon, mlat), mapping=mapping)
 
 
 def sphere_model(*, ro=RO, omega=1.5):

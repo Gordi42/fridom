@@ -564,9 +564,9 @@ class RotationCoriolis(Module):
     *different* nodes, so no local pairing reproduces it and the
     rotation would leak energy at O(1). Skew-symmetry is the
     load-bearing property here, so a non-orthogonal chart is a taught
-    error at bind (this is also the condition the grid's
-    ``RaiseIndex(diagonal=True)`` / ``LowerIndex(diagonal=True)``
-    overrides already assume).
+    error at bind (this is the same condition the chart's
+    ``orthogonal=True`` declaration asserts to seed the grid's
+    ``RaiseIndex(diagonal=True)`` / ``LowerIndex(diagonal=True)``).
 
     **Exact discrete skew-symmetry.** With the per-point flux weight
     :math:`G = f\,g\,w` (:math:`g = \det g_{ij} = (\sqrt g)^2`,

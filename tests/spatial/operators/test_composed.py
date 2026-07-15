@@ -719,6 +719,32 @@ def test_raise_index_diagonal_flag_drops_cross_terms(chart_grid, mu,
     assert cross.numerator == "inv_g_uv"
 
 
+def test_bounded_chart_cross_term_teaches_the_diagonal_fix():
+    # across a wall there is no interpolation row for the cross term;
+    # the raw DispatchError never names the fix, so raise/lower re-
+    # raise a taught error pointing at orthogonal=True / diagonal=True
+    # (chart-ergonomics E2)
+    mlon = IntervalMesh(16, (0.0, float(TWO_PI)), name="lon")
+    mlat = IntervalMesh(8, (-1.0, 1.0), periodic=False, name="lat")
+    grid = Grid((mlon, mlat), mapping=CoordinateMapping(chart={
+        "X": lambda lon, lat: (jnp.cos(lat) * jnp.cos(lon),
+                               jnp.cos(lat) * jnp.sin(lon),
+                               jnp.sin(lat))}))
+    domains = tuple(
+        s.with_variance(Variance.COVARIANT) for s in (
+            (mlon.right * mlat.center).bare,
+            (mlon.center * mlat.right).bare))
+    with pytest.raises(DispatchError,
+                       match=r"orthogonal=True.*diagonal=True"):
+        RaiseIndex(("lon", "lat")).expand(domains, grid)
+    contra = tuple(
+        s.with_variance(Variance.CONTRAVARIANT) for s in (
+            (mlon.right * mlat.center).bare,
+            (mlon.center * mlat.right).bare))
+    with pytest.raises(DispatchError, match=r"lower_index.*lon<->lat"):
+        LowerIndex(("lon", "lat")).expand(contra, grid)
+
+
 def test_raise_lower_round_trip_is_identity(chart_grid, cov_vec):
     raised = chart_grid.dispatch.resolve(
         "raise_index", cov_vec[0].function_space.bare)(cov_vec)
