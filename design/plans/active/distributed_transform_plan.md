@@ -421,9 +421,50 @@ bitwise-equal result.)
   (`tensor.py:206` `NotImplementedError`), topology-aware mesh mapping,
   and multi-host (init docs + sharded-array construction/IO, findings §8)
   — gated by a ≥2-node smoke test.
-- **Enabled but not implemented here:** mixed transforms (`Fourier ⊗
-  Sine/Cosine/Chebyshev`). The lowering supports non-FFT stages (§2 A4);
-  wiring the trig/Chebyshev per-stage kernels is separate work.
+- **Mixed transforms — LANDED for `Fourier ⊗ Sine/Cosine`**
+  (2026-07-15, `perf/distributed-mixed-transform` 40dd4ea5), exactly
+  through the seam this plan reserved (§2 A4: the lowering supports
+  non-FFT stages). What shipped:
+  - `ComposedTransform.distributed_forward_plan` — the **joint**
+    planner across the per-family parts. Family-aware geometry where
+    the single-family rule need not be: ``h`` (the rfft half axis)
+    must belong to the Hermitian part, so the transpose partner
+    ``b`` *prefers* a divisible non-Fourier axis — keeping a Fourier
+    axis local halves every downstream stage (walled x/y-periodic
+    z-bounded, a = x: b = z(DCT), h = y). Memoized per bare space,
+    None cached for ineligible.
+  - `Transform._distributed_geometry` sets ``h`` only for
+    ``_hermitian`` families, so homogeneous trig (fully walled)
+    plans run fully complex and distribute too.
+  - `SlabPlan(stages=...)`: per-stage bodies run each family's own
+    single-device 1-D kernels (`_forward_kernel`/`_backward_kernel`)
+    around the one `all_to_all`; `stages=None` keeps the fused
+    all-Fourier bodies **byte-for-byte** (the §4 single-device and
+    all-Fourier gates hold by construction).
+  - Eligibility: unpadded `{Fourier, Sine, Cosine}` parts
+    (`_STAGE_FAMILIES`); Chebyshev stays replicated (block-diagonal
+    solve, not a diagonal divide), padded parts decline.
+  - Gates (4x A100): walled parity vs replicated composite
+    6.4e-16–6.9e-16 (64³/256³); 4-dev vs 1-dev drift ≤ 2.3e-15;
+    0 warm recompiles; HLO all-to-all only, no gather;
+    `nh_flat_walled[256]` 349.6 → 167.1 ms/chunk (−52.2%), 4-GPU
+    scaling 0.96× → 2.02×. The **mapped preconditioner** (a
+    walled-column solve inside the PCG `lax.scan`) inherits the
+    path with no per-iteration retrace or gather:
+    `nh_mapped[256]` −48% (30 and 12 iterations; scaling
+    1.21× → 2.34×), `nh_mapped[128]` −22%. Known crossover: at
+    32³ both walled (+5.6%) and mapped (+5.5–5.8%) pay the
+    unamortized collective latency — same accepted small-problem
+    tail as the carry seal; a size floor on the planner is the
+    lever if toy cases ever matter. periodic/advective and every
+    1-GPU program unchanged. Tests: `test_distributed_solve.py` (staged
+    resolution, parity, HLO, round-trip, recompiles, declines),
+    `test_mixed.py` (joint geometry), `test_distributed_projection.py`
+    (the walled fallback assertion flipped to the fast path).
+  - Follow-on it motivates: the Wave-4 native DCT kernel — the
+    length-2n complex-FFT spelling costs 2–4× a real DCT, now paid
+    per shard. Chebyshev distribution stays with the banded
+    block-diagonal work.
 - `decomposition/graph.py` stays a stub; the flat `layouts` vocabulary +
   `layout_for` are sufficient at slab scale.
 

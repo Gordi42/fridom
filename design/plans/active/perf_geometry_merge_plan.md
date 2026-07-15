@@ -554,11 +554,21 @@ if steep bathymetry at 45 iterations becomes a real workload.
 mixed trig/FFT transform pair on the walled column:
 
 1. **Multi-device**: extend the distributed transform to mixed (trig)
-   plans — the replicated fallback caps walled flat scaling at 1.36×
-   and the mapped preconditioner inherits it
-   (`test_distributed_projection.py` documents the fallback). This is
-   the top remaining item.
-2. Reduced precision on the transform pair — landed (lever 7, −10%).
+   plans — LANDED (2026-07-15, `perf/distributed-mixed-transform`,
+   40dd4ea5): the joint `ComposedTransform` planner + per-stage
+   kernel lowering distribute the walled solve; the mapped
+   preconditioner inherits the distributed path (measured 4x A100:
+   `nh_mapped[256]` −48% at 30 and 12 iterations, scaling
+   1.21x → 2.34x; `[128]` −22%; `[32]` +5.5% — the unamortized
+   small-problem crossover). Record: §8b fix 1
+   below and `distributed_transform_plan.md` (mixed transforms).
+   `test_distributed_projection.py` now asserts the walled fast
+   path. NOTE: `single_precision_solve` (lever 7) is a no-op on
+   multi-device walled/mapped solves now — the full-precision
+   distributed solve takes precedence; a single-precision
+   distributed solve stays future work.
+2. Reduced precision on the transform pair — landed (lever 7, −10%;
+   single-device only after 1., see note there).
 
 
 ## 5. Stage 2 — prove the performance survived (CLOSED 2026-07-14, see §4b)
@@ -747,29 +757,41 @@ re-measured at +1.9%, within its own noise (the earlier +6.5%
 overlapped its 75-77 ms jitter band) — same family by code path
 (bounded lat axis), not separately attributed.
 
-Fixes, in order of leverage:
-
-1. **Distribute the mixed (trig) transform plan** — already the top
-   §4b lever. Kills the root cause (the replicated operand) AND the
-   ~128 ms/chunk of replicated solve work (all-gather 30.9 + 4x
-   redundant FFT 64.8 + scal 32.1): worth roughly -25% on this case,
-   far more than the +9% regression it fixes in passing.
-   `distributed_transform_plan.md` (mixed transforms "enabled but not
-   implemented"): the per-stage lowering already supports non-FFT
-   stages; the work is wiring the DCT/DST kernels (`trig.py`) as
-   per-stage `shard_map` targets. Doing it also motivates the Wave-4
-   native DCT kernel — the current length-2n complex-FFT spelling
-   costs 2-4x a real DCT, redundantly on every device today.
-2. Targeted stopgap if 1. waits: materialize the fill once at the
-   projection boundary (a `materialize=True` sync on the solve output
-   before `Gradient`; the dead-operand contract of 8b holds there) —
-   turns 100+ full-field re-derivations into one buffer, the
-   concat-era cost shape without its write amplification.
-
-The re-recorded step-gpu4 baseline BAKES IN the regression as the new
-reference until a fix lands (recorded here so it is not forgotten).
-Profiling artifacts (2026-07-15 session scratchpad):
+**FIXED (2026-07-15, same day, `perf/distributed-mixed-transform`
+40dd4ea5) — the mixed (trig) transform plan distributes.** The
+`ComposedTransform` plans jointly across its families (the transpose
+partner prefers the trig axis so a Fourier axis stays local for the
+rfft half spectrum) and `SlabPlan` lowers non-Fourier stages to the
+families' own 1-D kernels inside the fused `shard_map` region; the
+all-Fourier bodies are byte-for-byte untouched. Measured (4x A100,
+best-of-5, std < 0.3 ms): `nh_flat_walled[256]` 349.6 -> **167.1
+ms/chunk (-52.2%)**, 4-GPU scaling 0.96x -> **2.02x** (now above
+periodic's 1.78x at this size) — beats the -25% estimate because
+the absorbed-fill re-derivation collapses with it (the projection's
+fill operand is the local slab, not the replicated cube; the +9%
+regression above is gone in passing). Walled solve parity vs the
+replicated composite 6.4e-16/6.9e-16 (64^3/256^3, GPU); 4-dev vs
+1-dev model drift <= 2.3e-15; 0 warm recompiles; HLO all-to-all
+only. `nh_flat_periodic`/`advective` unchanged (large sizes ~0%);
+1-GPU programs identical (memory delta +0.0% on every case). The
+walled stopgap (materialized sync at the projection boundary) is
+moot. Remaining from the analysis: the Wave-4 native DCT kernel
+(the length-2n complex-FFT spelling costs 2-4x a real DCT, now
+per-shard instead of 4x-redundant). The step-gpu4 baseline still
+records the regressed 349.6 reference — re-record after this branch
+lands. Profiling artifacts (2026-07-15 session scratchpad):
 `trace_{concat,map,head}_cboff/`, `{concat,map,head}_chunk_body.txt`.
+
+Collateral (found benchmarking the fix, bisected, fixed on dev the
+same day): dev's eager-operator kernel jit (6b14766f) broke every
+eager cold-cache integral on a multi-device grid — `Grid.measure`
+memoized a tracer created inside the kernel-jit trace and `mean`'s
+eager normalization query then used it (`UnexpectedTracerError`;
+first surfaced as `nh_mapped` failing to CONSTRUCT on 4 GPUs, at
+first misattributed to the mixed-transform commit until bisection
+cleared it). Fix: `fix/traced-measure-cache` (dev bfcc1dcb) — traced
+measure queries stay uncached. Record:
+`design/roadmap/open.md` (multi-device cost section).
 
 ### 8c. Paired finding: the spectral symbol k^2 is rebuilt per step
 
