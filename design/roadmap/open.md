@@ -67,15 +67,23 @@ Still open, and the next work:
 ## Multi-device compile and execution cost
 
 *Note (2026-07-14, found verifying the gather-free writer): eager
-field ops on the `Auto` mesh can return **fully replicated** results —
-`state.rel_vort.to(center)` comes back `PartitionSpec()`, i.e. jax
-assembles the interpolated field on every device. Harmless for
-correctness (the decomposed-slice sink handles any block-aligned
-sharding), but it is an implicit all-gather plus P× device memory on
-every derived-output evaluation at write cadence. If derived outputs
-ever show up in profiles, a sharding constraint on the eager op
-results (or evaluating derived outputs inside a jitted, constrained
-wrapper) is the lever.*
+field ops on the `Auto` mesh returned **fully replicated** results —
+`state.rel_vort.to(center)` came back `PartitionSpec()`, i.e. jax
+assembled the interpolated field on every device: an implicit
+all-gather plus P× device memory on every derived-output evaluation at
+write cadence.*
+*Resolved (2026-07-15, `fix/eager-operator-sharding`): the operator
+template (`operators/base._kernel_apply`) now runs the stencil kernel
+under one `jax.jit` trace whenever it is applied **eagerly** on a
+multi-device operand. GSPMD then partitions the whole slice/pad graph
+together, sees the reach fits the synced halo, and keeps the result
+sharded — bit-for-bit the same values, the same sharding the jitted
+step produces. The guard is a no-op under an enclosing trace (the
+operand is a tracer → the kernel folds into that one program, no
+nested jit) and on a single device, so the model loop is unchanged.
+Eager `.to` / `.diff` / reconstruct / average on a sharded field
+therefore stay sharded, and derived writer outputs no longer
+all-gather.*
 
 *Post-merge note (2026-07-13): the optimization line has landed, and the
 audit found three reasons this solve does not benefit from it — the CG
