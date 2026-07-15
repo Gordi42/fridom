@@ -108,6 +108,20 @@ XLA_FLAGS=--xla_force_host_platform_device_count=4 FRIDOM_TEST_FORCED_DEVICES=4 
     `tests/framework/utils`, falling back to `tests/framework`).
   - When editing an `__init__.py`, also run the sibling `test_init.py`.
   - When editing a test file, run that test file.
+  - **Oversized-module exception:** the one-test-module-per-source-module
+    rule bends when a single module's test file grows so large that it
+    both hurts readability and (because `--dist loadfile` cannot split one
+    file) pins a whole xdist worker as the suite's wall-clock floor. Such a
+    module may be covered by several **prefix-mirrored shards**
+    `test_<mod>_<aspect>.py` (e.g. `test_advection.py`,
+    `test_advection_walls.py`, `test_advection_background.py`,
+    `test_advection_mapped.py`) that together mirror the module. Keep the
+    `test_<mod>` prefix so the changed-file -> tests mapping still resolves
+    by glob (`test_advection*.py`), and split along cohesive concerns.
+    Prefer this to splitting a cohesive *source* module purely to speed
+    the tests. Because the suite uses `--import-mode=importlib` with no
+    shared-helper convention, each shard is self-contained: duplicate the
+    few small shared builders rather than importing across test files.
 - Changes to framework core machinery (`framework/utils/`, fields, the
   module system, `model.py`, `model_settings_base.py`, time steppers,
   grid base classes) affect all model packages. After the mirrored
