@@ -170,14 +170,8 @@ def sphere_grid(nlon=2 * N, nlat=N):
         "X": lambda lon, lat: (
             jnp.cos(lat) * jnp.cos(lon),
             jnp.cos(lat) * jnp.sin(lon),
-            jnp.sin(lat))})
-    grid = fr.spatial.Grid((mlon, mlat), mapping=mapping)
-    grid.merge_overrides({
-        "raise_index": fr.spatial.operators.RaiseIndex(
-            ("lon", "lat"), diagonal=True),
-        "lower_index": fr.spatial.operators.LowerIndex(
-            ("lon", "lat"), diagonal=True)})
-    return grid
+            jnp.sin(lat))}, orthogonal=True)
+    return fr.spatial.Grid((mlon, mlat), mapping=mapping)
 
 
 # ================================================================
@@ -191,17 +185,10 @@ TILTED = (0.3, -0.2, 1.1)
 
 
 def chart_grid(m_1, m_2, chart):
-    """Build a chart grid with the diagonal index moves."""
-    grid = fr.spatial.Grid(
+    """Build an orthogonal-chart grid (diagonal index moves)."""
+    return fr.spatial.Grid(
         (m_1, m_2), mapping=fr.spatial.CoordinateMapping(
-            chart={"X": chart}))
-    names = (m_1.names[0], m_2.names[0])
-    grid.merge_overrides({
-        "raise_index": fr.spatial.operators.RaiseIndex(
-            names, diagonal=True),
-        "lower_index": fr.spatial.operators.LowerIndex(
-            names, diagonal=True)})
-    return grid
+            chart={"X": chart}, orthogonal=True))
 
 
 def torus_grid(na=2 * N, nb=N):

@@ -1874,8 +1874,13 @@ def _default_registry(
         entries["div"] = MetricDivergence(chart)
         entries["curl"] = MetricCurl(chart)
         entries["laplacian"] = MetricLaplacian(chart)
-        entries["raise_index"] = RaiseIndex(chart)
-        entries["lower_index"] = LowerIndex(chart)
+        # an orthogonal chart drops the off-diagonal contractions:
+        # what lets an index move assemble across a bounded chart
+        # axis (chart-ergonomics E2). The default keeps the full
+        # expansion — correct-or-loud on a non-orthogonal chart.
+        diagonal = mapping.orthogonal
+        entries["raise_index"] = RaiseIndex(chart, diagonal=diagonal)
+        entries["lower_index"] = LowerIndex(chart, diagonal=diagonal)
     entries.setdefault("grad", Gradient())
     entries.setdefault("div", Divergence())
     entries.setdefault("curl", Curl())

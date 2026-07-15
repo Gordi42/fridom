@@ -57,8 +57,9 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     Works on flat Cartesian grids and on chart-coupled grids
     (coordinate-systems plan, stage C2). The spherical recipe —
     periodic-lon x bounded-lat interval meshes under an embedding
-    chart, with the diagonal (orthogonal-metric) index-move
-    overrides:
+    chart declared ``orthogonal=True`` (the lat-lon metric is
+    diagonal, so the grid drops the cross-term index moves that a
+    bounded axis cannot interpolate):
 
     .. code-block:: python
 
@@ -70,13 +71,8 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
             "X": lambda lon, lat: (
                 a * jnp.cos(lat) * jnp.cos(lon),
                 a * jnp.cos(lat) * jnp.sin(lon),
-                a * jnp.sin(lat))})
+                a * jnp.sin(lat))}, orthogonal=True)
         grid = fr.spatial.Grid((mlon, mlat), mapping=mapping)
-        grid.merge_overrides({
-            "raise_index": fr.spatial.operators.RaiseIndex(
-                ("lon", "lat"), diagonal=True),
-            "lower_index": fr.spatial.operators.LowerIndex(
-                ("lon", "lat"), diagonal=True)})
         model = sw.Model(
             grid=grid, coords=("lon", "lat"), csqr=gh0,
             rossby_number=1.0,

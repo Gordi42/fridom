@@ -587,6 +587,25 @@ def test_chart_coords_none_without_a_chart():
     assert mapping.chart_coords is None
 
 
+def test_orthogonal_defaults_to_false():
+    mapping = CoordinateMapping(chart={
+        "X": lambda u, v: (jnp.cos(u), jnp.sin(u), v)})
+    assert mapping.orthogonal is False
+
+
+def test_orthogonal_flag_is_recorded():
+    mapping = CoordinateMapping(chart={
+        "X": lambda u, v: (jnp.cos(u), jnp.sin(u), v)},
+        orthogonal=True)
+    assert mapping.orthogonal is True
+
+
+def test_orthogonal_without_a_chart_is_rejected():
+    with pytest.raises(ValueError, match="no chart"):
+        CoordinateMapping(maps={"z": lambda sigma: sigma**2},
+                          orthogonal=True)
+
+
 def test_grid_chart_coords_mirrors_the_seeding_condition():
     # the public grid twin: the chart coordinate family exactly when
     # the chart couples >= 2 coordinates (the metric-aware seeding

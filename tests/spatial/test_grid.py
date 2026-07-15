@@ -1074,6 +1074,27 @@ def test_chart_mapping_seeds_the_metric_calculus_rows(mx, my):
         assert registry.resolve(row, space).coords == ("x", "y")
 
 
+def test_chart_index_moves_default_to_the_dense_expansion(mx, my):
+    # the default keeps the full cross-term expansion (correct-or-loud
+    # on a non-orthogonal chart); orthogonal= is opt-in
+    registry = _chart_grid(mx, my).dispatch
+    space = mx.center * my.center
+    for kind in ("raise_index", "lower_index"):
+        assert registry.resolve(kind, space).diagonal is False
+
+
+def test_orthogonal_chart_seeds_diagonal_index_moves(mx, my):
+    # orthogonal=True drops the off-diagonal contractions so an index
+    # move assembles across a bounded chart axis (chart-ergonomics E2)
+    mapping = CoordinateMapping(chart={
+        "X": lambda x, y: (jnp.cos(x), jnp.sin(x), y)},
+        orthogonal=True)
+    registry = Grid((mx, my), mapping=mapping).dispatch
+    space = mx.center * my.center
+    for kind in ("raise_index", "lower_index"):
+        assert registry.resolve(kind, space).diagonal is True
+
+
 def test_chart_mapping_seeds_the_jacobian_integrate_rows(mx, my):
     grid = _chart_grid(mx, my)
     row = grid.dispatch.resolve("integrate", mx.center)

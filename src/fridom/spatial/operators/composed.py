@@ -1118,6 +1118,53 @@ def _expand_metric_curl(
     return BlockMatrix(((entry(1, 0, -1.0), entry(0, 1, 1.0)),))
 
 
+def _bounded_cross_term_error(
+    operation: str,
+    coords: tuple[str, ...],
+    axis_i: str,
+    axis_j: str,
+) -> DispatchError:
+    """
+    Teach the diagonal fix for a bounded chart's missing interp row.
+
+    Description
+    -----------
+    A non-diagonal index move interpolates the ``axis_j`` component
+    onto the ``axis_i`` component's space to contract the
+    off-diagonal metric; across a **bounded** chart axis there is no
+    such interpolation row (a wall has no legal interpolation), and
+    the raw ``DispatchError`` from the registry never names the fix.
+    On an orthogonal chart the off-diagonal metric is identically
+    zero, so the term is dropped rather than interpolated — declare
+    that once and the index move assembles (chart-ergonomics E2).
+
+    Parameters
+    ----------
+    operation : str
+        The consuming kind (``"raise_index"`` / ``"lower_index"``).
+    coords : tuple[str, ...]
+        The chart's base coordinates.
+    axis_i, axis_j : str
+        The target and source chart axes of the failing cross term.
+
+    Returns
+    -------
+    DispatchError
+        The taught error to re-raise from the original.
+    """
+    cls = operation.title().replace("_", "")
+    return DispatchError(
+        f"{operation} on a bounded chart axis has no interpolation "
+        f"row for the {axis_i}<->{axis_j} cross term (a wall has no "
+        "legal interpolation). If the chart is orthogonal (its "
+        "off-diagonal metric is identically zero — as for the "
+        "lat-lon sphere and the torus), declare it and the cross "
+        "terms are dropped: pass orthogonal=True to the "
+        "CoordinateMapping, or override the kind directly with "
+        f"grid.merge_overrides({{{operation!r}: {cls}({coords!r}, "
+        "diagonal=True)}}).")
+
+
 def _expand_index_move(
     domains: tuple[SpaceLike, ...],
     coords: tuple[str, ...],
@@ -1147,8 +1194,12 @@ def _expand_index_move(
                 row.append(zero)
                 continue
             else:
-                chain = _interp_onto(domains[j], domains[i],
-                                     registry, operation)
+                try:
+                    chain = _interp_onto(domains[j], domains[i],
+                                         registry, operation)
+                except DispatchError as exc:
+                    raise _bounded_cross_term_error(
+                        operation, coords, axes[i], axes[j]) from exc
                 op = MetricScaled(chain, numerator=name)
             row.append(VarianceRetag(op, target))
         rows.append(tuple(row))
