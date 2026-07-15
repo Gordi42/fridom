@@ -20,8 +20,10 @@ import pytest
 from fridom.framework.utils import dtype_real, jaxify
 from fridom.model.declarations import FieldDeclaration
 from fridom.model.model import (
+    _CHUNK_EXECUTABLES,
     Model,
     PanicState,
+    _seal_carry_ghosts,
     chunk_cache_size,
     step_chunk,
 )
@@ -306,3 +308,55 @@ def test_chunk_output_feeds_the_next_chunk():
     out = chunk(model, 2)
     out = chunk(model, 2, carry=out)     # donated hand-off
     assert int(out.clock.it) == 4
+
+
+# ================================================================
+#  The carry seal — production-side ghost fill
+# ================================================================
+class HaloGainForcing(GainForcing):
+
+    """The toy forcing on a width-1 negotiated halo (seal probe)."""
+
+    extra_halo = HaloSpec({"x": 1})
+
+
+def make_halo_model(**kwargs):
+    return Model(grid=make_grid(), modules=(HaloGainForcing(),),
+                 time_stepper=AdamBashforth(DT, order=1), **kwargs)
+
+
+def test_seal_syncs_zero_claim_fields_and_skips_sealed_ones():
+    # _seal_carry_ghosts is the production-side twin of the claim
+    # reset: a field with partial claims is synced to the full
+    # negotiated widths (same values as grid.sync); a field already
+    # claiming full validity passes through untouched (the identity
+    # keeps untouched AUXILIARY carry fields free)
+    model = make_halo_model()
+    field = model._carry.state["u"]
+    grid = field.grid
+    bare = type(field)(grid, field.function_space,
+                       field._data, field.metadata)   # zero claims
+    sealed = _seal_carry_ghosts((bare,))[0]
+    full = grid.decomposition.halo.over(
+        tuple(field.function_space.names))
+    assert sealed.halo_valid == full
+    assert jnp.array_equal(sealed._data, grid.sync(bare)._data)
+    assert _seal_carry_ghosts((sealed,))[0] is sealed
+
+
+def test_chunk_seals_the_carry_at_the_boundary():
+    # The compiled chunk carries the seal: the state's ghost fill
+    # happens at the carry boundary (where the buffers materialize
+    # anyway) as in-place DUS writes behind an optimization_barrier,
+    # NOT at consumption inside the next step's kernels. This is the
+    # perf contract that removed the advective fill cost (2026-07-15).
+    # On one device the lazy consumption fill is a pure gather, so a
+    # dynamic-update-slice in the compiled chunk exists if and only
+    # if the seal's write spelling is in place (the barrier itself is
+    # consumed during optimization and leaves no opcode behind).
+    model = make_halo_model()
+    before = chunk_cache_size()
+    chunk(model, 2)
+    assert chunk_cache_size() == before + 1
+    text = list(_CHUNK_EXECUTABLES.values())[-1].as_text()
+    assert "dynamic-update-slice" in text

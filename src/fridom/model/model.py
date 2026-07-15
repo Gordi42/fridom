@@ -430,6 +430,36 @@ def _reset_ghost_claims(tree: M) -> M:
     return jax.tree_util.tree_map(reset, tree, is_leaf=_is_field)
 
 
+def _seal_carry_ghosts(tree: M) -> M:
+    """
+    Sync every field of a carry (sub)tree to full ghost validity.
+
+    Description
+    -----------
+    The production-side twin of :func:`_reset_ghost_claims`: instead
+    of zeroing the claims at the carry boundary (which forces every
+    ghost consumer of the NEXT step to re-fill at consumption, where
+    the fill is absorbed into the consuming kernels and re-derived at
+    every offset they read), the state vector is synced ONCE at the
+    boundary — where its buffers materialize anyway (the scan carry
+    is a materialization point, so the fill fuses into the kernel
+    that writes the carry instead of into its many consumers).
+    Fields already claiming full validity (untouched AUXILIARY
+    fields riding the carry) pass through — the seal is a no-op for
+    them, so only fields the step actually rebuilt pay a fill.
+    """
+    def seal(leaf: object) -> object:
+        if isinstance(leaf, ScalarField):
+            full = leaf.grid.decomposition.halo.over(
+                tuple(leaf.function_space.names))
+            if leaf.halo_valid == full:
+                return leaf
+            return leaf.grid.sync(leaf, materialize=True)
+        return leaf
+
+    return jax.tree_util.tree_map(seal, tree, is_leaf=_is_field)
+
+
 def _scrub_ghost_storage(tree: M) -> M:
     """
     Re-store every field at the zero-ghost true-shape spelling.
@@ -562,18 +592,30 @@ def _chunk_body(
                                 stage_dt=stepper.dt)
             state = bound.diagnostics(state, ctx)
         # ghost-claim discipline: the scan carry keeps ONE treedef
-        # (halo_valid is static aux); reset the claims the step's
-        # arithmetic propagated — sound and free (metadata only)
-        return _reset_ghost_claims(
-            ModelState(state, carry.modules, stepper_state,
-                       clock, carry.panic)), None
+        # (halo_valid is static aux). The state vector is SEALED —
+        # synced at the carry boundary, where its buffers materialize
+        # anyway — so next step's consumers read valid ghosts instead
+        # of re-filling at consumption; everything else (AB ring,
+        # module state) gets the plain claim reset as before.
+        return ModelState(
+            _seal_carry_ghosts(state),
+            _reset_ghost_claims(carry.modules),
+            _reset_ghost_claims(stepper_state),
+            clock, carry.panic), None
 
     # unroll by the stepper's carry period (e.g. the AB tendency
     # ring): the structural ring shift becomes dataflow renaming
     # instead of per-step buffer copies (TimeStepper.scan_unroll)
     unroll = max(1, min(int(stepper.scan_unroll), n))
-    out, _ = jax.lax.scan(one_step, _reset_ghost_claims(model_state),
-                          xs=None, length=n, unroll=unroll)
+    # the scan init must carry the body's fixed-point treedef: state
+    # sealed to full validity, all other claims zeroed
+    init = ModelState(
+        _seal_carry_ghosts(model_state.state),
+        _reset_ghost_claims(model_state.modules),
+        _reset_ghost_claims(model_state.stepper_state),
+        model_state.clock, model_state.panic)
+    out, _ = jax.lax.scan(one_step, init, xs=None, length=n,
+                          unroll=unroll)
     # commit at the zero-ghost spelling (persistence contract)
     out = _scrub_ghost_storage(out)
     # ---- S5: one isfinite reduction into the sticky pair --------
