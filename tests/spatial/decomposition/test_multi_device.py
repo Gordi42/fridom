@@ -345,7 +345,13 @@ def test_pad_unpad_round_trip_all_block_shapes(forced_devices):
 
 
 @pytest.mark.multi_device
-def test_local_reblock_plan_exists_only_for_uniform_blocks():
+def test_local_reblock_plan_covers_uniform_and_deficit_blocks():
+    # 16 cells over P devices: n_cells % P == 0. center (n = cells * P,
+    # uniform) and inner (n = cells * P - 1, the staggered DEFICIT leg,
+    # e.g. the walled face velocity) both take the shard-local plan; the
+    # outer SURPLUS leg (n = cells * P + 1) still blocks unevenly (its
+    # true extent exceeds the padded-even frame) and falls back to the
+    # global re-assembly.
     my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
     grid = Grid((my,))
     decomp = grid.decomposition
@@ -360,10 +366,14 @@ def test_local_reblock_plan_exists_only_for_uniform_blocks():
     assert plan.true_slices == (slice(width, width + cells),)
     # the plan is cached on the interned (space, layout) key
     assert decomp._local_reblock(my.center, layout) is plan
-    # staggered spaces (n = cells * shards +- 1) block unevenly:
-    # no plan — pad/unpad fall back to the global re-assembly
+    # the divisible DEFICIT leg is admitted (surplus == 1, trailing
+    # trim wraps the same shard_map); the plan is cached too
+    deficit = decomp._local_reblock(my.inner, layout)
+    assert deficit is not None
+    assert deficit.pspec == jax.sharding.PartitionSpec("devices")
+    assert decomp._local_reblock(my.inner, layout) is deficit
+    # the divisible SURPLUS leg stays on the global path
     assert decomp._local_reblock(my.outer, layout) is None
-    assert decomp._local_reblock(my.inner, layout) is None
 
 
 @pytest.mark.multi_device
@@ -599,6 +609,85 @@ def test_padded_sync_ghosts_match_single_device():
         # right ghosts sit immediately after the t true DOFs
         assert np.array_equal(piece[width + t:2 * width + t],
                               extended[width + hi:2 * width + hi])
+
+
+# ================================================================
+#  Staggered DEFICIT leg: fast plan == global path, byte for byte
+# ================================================================
+# The n = cells * P - 1 face velocity (the walled staggered leg) is
+# admitted to the shard-local plan. This battery pins that the plan
+# places storage identically to the legacy global slice/concat path
+# and inverts exactly, across P, n_cells residue mod P, and ghost
+# width -- and that the divisible-deficit case (n_cells % P == 0, the
+# one the walled step actually hits) is collective-free.
+def _residue(base_residue, n_shards):
+    """Concrete residue mod P (``"P-1"`` -> P - 1)."""
+    return n_shards - 1 if base_residue == "P-1" else base_residue
+
+
+@pytest.mark.multi_device
+@pytest.mark.parametrize("width", [0, 1], ids=["no_halo", "halo1"])
+@pytest.mark.parametrize("base_residue", [0, 1, "P-1"],
+                         ids=["res0", "res1", "resP-1"])
+@pytest.mark.parametrize("n_shards", [2, 3, 4])
+def test_deficit_reblock_matches_global_path(
+        n_shards, base_residue, width, monkeypatch):
+    # the newly-admitted staggered DEFICIT leg (inner face, n =
+    # n_cells - 1) must place storage byte-for-byte identically to the
+    # legacy global slice/concat path, and unpad must invert pad
+    # exactly, at every P, every n_cells residue mod P, with and
+    # without ghost width. center (uniform / padded-even) rides along
+    # as the control.
+    if jax.device_count() < n_shards:
+        pytest.skip(f"needs >= {n_shards} devices")
+    ids = tuple(range(n_shards))
+    n_cells = 4 * n_shards + _residue(base_residue, n_shards)
+    mesh, decomp = _direct(n_cells, ids, width, periodic=False)
+    cases = []
+    for pick in (lambda m: m.center, lambda m: m.inner):
+        space = pick(mesh)
+        arr = jnp.arange(1.0, space.shape[0] + 1.0)
+        # fast path: the shard-local plan
+        fast_st = np.asarray(decomp.pad(arr, space))
+        fast_rt = np.asarray(decomp.unpad(decomp.pad(arr, space), space))
+        cases.append((space, np.asarray(arr), fast_st, fast_rt))
+    # force the legacy global slice/concat path (no shard-local plan)
+    monkeypatch.setattr(decomp, "_local_reblock", lambda *_a, **_k: None)
+    for space, arr_np, fast_st, fast_rt in cases:
+        arr = jnp.asarray(arr_np)
+        glob_st = np.asarray(decomp.pad(arr, space))
+        glob_rt = np.asarray(decomp.unpad(decomp.pad(arr, space), space))
+        # identical storage placement (bytes), and both invert exactly
+        assert np.array_equal(fast_st, glob_st), space
+        assert np.array_equal(fast_rt, arr_np), space
+        assert np.array_equal(glob_rt, arr_np), space
+
+
+@pytest.mark.multi_device
+def test_divisible_deficit_reblocking_compiles_without_collectives():
+    # H2 (indivisible_shard_probes.md): the divisible staggered deficit
+    # leg (inner face, n = n_cells - 1 at n_cells % P == 0) is admitted
+    # to the fast path AND is collective-free -- unlike the n_cells % P
+    # == 1 inner residue (test_padded_inner_reduction..., 1 permute),
+    # here the ceil-block frame of the n_cells - 1 true array coincides
+    # exactly with the cells-aligned storage blocks, so no reblock is
+    # needed. This is the per-op mechanism behind the whole-step
+    # collapse the nh2 regression test checks end to end.
+    devices = jax.device_count()
+    mesh, decomp = _direct(4 * devices, tuple(range(devices)),
+                           periodic=False)
+    space = mesh.inner   # n = 4 * devices - 1, the deficit leg
+    assert decomp._local_reblock(space, decomp.default_layout) is not None
+
+    def round_trip(storage):
+        return decomp.pad(decomp.unpad(storage, space), space)
+
+    storage = decomp.pad(jnp.arange(1.0, space.shape[0] + 1.0), space)
+    text = jax.jit(round_trip).lower(storage).compile().as_text()
+    for collective in ("all-to-all", "collective-permute",
+                       "all-gather", "all-reduce"):
+        assert collective not in text, collective
+    assert bitwise(round_trip(storage), storage)
 
 
 # ================================================================
