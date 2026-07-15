@@ -81,6 +81,7 @@ from fridom.spatial.fields.storage import storage_dtype
 from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.fourier import Fourier
 from fridom.spatial.operators.mixed import ComposedTransform
+from fridom.spatial.operators.transform import axis_slice
 from fridom.spatial.operators.trig import Cosine, Sine
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -101,6 +102,18 @@ if TYPE_CHECKING:  # pragma: no cover
 #: Chebyshev stays on the replicated composite (its solve is
 #: block-diagonal, not a diagonal eigenvalue divide).
 _STAGE_FAMILIES = (Fourier, Sine, Cosine)
+
+
+def _ceil_mult(n: int, shards: int) -> int:
+    """Round ``n`` up to the nearest multiple of ``shards``."""
+    return -(-n // shards) * shards
+
+
+def _tail_pad(arr: jax.Array, axis: int, count: int) -> jax.Array:
+    """Zero-pad ``count`` slots at the tail of ``axis`` (``count>=0``)."""
+    pads = [(0, 0)] * arr.ndim
+    pads[axis] = (0, count)
+    return jnp.pad(arr, pads)
 
 
 # ================================================================
@@ -202,6 +215,20 @@ class SlabPlan:
             i for i in fft_axes if i not in (a, h))
         self._n_h: int = 0 if h is None else domain.shape[h]
 
+        # padded balanced all-to-all extents: the sharded axis ``a``
+        # arrives on the padded-even nodal frame (``pad_a``) and the
+        # transpose partner ``b`` is padded to a divisible split extent
+        # (``pad_b``) before each ``all_to_all``, sliced back after. On
+        # a divisible axis the pad equals the true extent, so the
+        # pad/slice are statically elided and the kernel is byte-for-byte
+        # the un-padded slab (the ``distributed_transform_plan.md``
+        # byte-identity gate).
+        shards = int(mesh.shape[axis_name])
+        self._n_a: int = domain.shape[a]
+        self._pad_a: int = _ceil_mult(self._n_a, shards)
+        self._n_b: int = coeff.shape[b]
+        self._pad_b: int = _ceil_mult(self._n_b, shards)
+
         self._forward: Callable[[jax.Array], jax.Array] = jax.jit(
             jax.shard_map(
                 self._forward_local, mesh=mesh,
@@ -246,6 +273,24 @@ class SlabPlan:
         """The nodal layout the pipeline consumes and produces."""
         return self._layout
 
+    @property
+    def padded(self) -> bool:
+        """
+        Whether any split axis needs the padded balanced all-to-all.
+
+        Description
+        -----------
+        True when the sharded axis ``a`` or the transpose partner ``b``
+        has an indivisible extent (``pad != true``): the pipeline then
+        consumes/produces the **padded-even** nodal frame and
+        ``SlabSolve`` routes through ``decomposition.unpad_even`` /
+        ``pad_even`` instead of the true-frame ``unpad`` / ``pad``
+        (which would gather an indivisible sharded axis). False on every
+        divisible / single-device plan, keeping the true-frame path
+        byte-for-byte unchanged.
+        """
+        return self._pad_a != self._n_a or self._pad_b != self._n_b
+
     # ================================================================
     #  Per-shard kernels (run under jax.shard_map)
     # ================================================================
@@ -258,9 +303,13 @@ class SlabPlan:
             c = jnp.fft.rfft(c, axis=self._h, norm="forward")
         if self._pre:
             c = jnp.fft.fftn(c, axes=self._pre, norm="forward")
+        if self._pad_b != self._n_b:
+            c = _tail_pad(c, self._b, self._pad_b - self._n_b)
         c = jax.lax.all_to_all(
             c, self._axis_name, split_axis=self._b,
             concat_axis=self._a, tiled=True)
+        if self._pad_a != self._n_a:
+            c = axis_slice(c, self._a, 0, self._n_a)
         return jnp.fft.fft(c, axis=self._a, norm="forward")
 
     def _backward_local(self, c: jax.Array) -> jax.Array:
@@ -268,9 +317,13 @@ class SlabPlan:
         if self._stages is not None:
             return self._backward_staged(c)
         c = jnp.fft.ifft(c, axis=self._a, norm="forward")
+        if self._pad_a != self._n_a:
+            c = _tail_pad(c, self._a, self._pad_a - self._n_a)
         c = jax.lax.all_to_all(
             c, self._axis_name, split_axis=self._a,
             concat_axis=self._b, tiled=True)
+        if self._pad_b != self._n_b:
+            c = axis_slice(c, self._b, 0, self._n_b)
         if self._pre:
             c = jnp.fft.ifftn(c, axes=self._pre, norm="forward")
         if self._h is not None:
@@ -296,9 +349,13 @@ class SlabPlan:
         c = piece
         for part, stage in self._stages[:-1]:
             c = part._forward_kernel(c, stage)  # noqa: SLF001 — lowering seam
+        if self._pad_b != self._n_b:
+            c = _tail_pad(c, self._b, self._pad_b - self._n_b)
         c = jax.lax.all_to_all(
             c, self._axis_name, split_axis=self._b,
             concat_axis=self._a, tiled=True)
+        if self._pad_a != self._n_a:
+            c = axis_slice(c, self._a, 0, self._n_a)
         part, stage = self._stages[-1]
         return part._forward_kernel(c, stage)  # noqa: SLF001 — lowering seam
 
@@ -317,9 +374,13 @@ class SlabPlan:
         """
         part, stage = self._stages[-1]
         c = part._backward_kernel(c, stage)  # noqa: SLF001 — lowering seam
+        if self._pad_a != self._n_a:
+            c = _tail_pad(c, self._a, self._pad_a - self._n_a)
         c = jax.lax.all_to_all(
             c, self._axis_name, split_axis=self._a,
             concat_axis=self._b, tiled=True)
+        if self._pad_b != self._n_b:
+            c = axis_slice(c, self._b, 0, self._n_b)
         for part, stage in reversed(self._stages[:-1]):
             c = part._backward_kernel(c, stage)  # noqa: SLF001 — lowering seam
         if self._real and jnp.iscomplexobj(c):
@@ -379,16 +440,19 @@ class SlabPlan:
         Parameters
         ----------
         data : jax.Array
-            The true-shape nodal right-hand side, sharded along
-            ``a``.
+            The nodal right-hand side, sharded along ``a`` — the
+            true frame on a divisible plan, the padded-even frame
+            (``decomposition.even_shape``) on a ``padded`` one.
         diag : jax.Array
             The inverse-eigenvalue diagonal, broadcast-shaped over
-            ``coeff`` (every axis size 1 or full).
+            ``coeff`` (every axis size 1 or full); a full ``b`` axis is
+            zero-padded to the split extent per the plan's frame.
 
         Returns
         -------
         jax.Array
-            The true-shape nodal solution, sharded along ``a``.
+            The nodal solution in the same frame as ``data``, sharded
+            along ``a``.
         """
         key = tuple(diag.shape)
         fn = self._solve_cache.get(key)
@@ -410,18 +474,36 @@ class SlabPlan:
                 f"the internal coefficient space {spec_shape}, got "
                 f"{shape}")
         spec: list[str | None] = [None] * len(shape)
-        if shape[self._b] == spec_shape[self._b]:
+        shard_b = shape[self._b] == spec_shape[self._b]
+        if shard_b:
             spec[self._b] = self._axis_name
         diag_spec = jax.sharding.PartitionSpec(*spec)
+        # the spectral frame carries the transpose partner padded to
+        # ``pad_b``; a full (sharded) diagonal must match that frame, so
+        # pad its ``b`` axis with zeros. They multiply the spectral pad
+        # lanes -- themselves zero (the FFT of the padded partner) -- so
+        # the product is zero and no NaN/inf can leak; the backward
+        # transpose then slices the pad lanes off.
+        diag_pad = (self._pad_b - self._n_b
+                    if shard_b and self._pad_b != self._n_b else 0)
 
         def body(piece: jax.Array, dloc: jax.Array) -> jax.Array:
             return self._backward_local(
                 dloc * self._forward_local(piece))
 
-        return jax.jit(jax.shard_map(
+        region = jax.shard_map(
             body, mesh=self._mesh,
             in_specs=(self._nodal_spec, diag_spec),
-            out_specs=self._nodal_spec))
+            out_specs=self._nodal_spec)
+        if diag_pad == 0:
+            return jax.jit(region)
+
+        def solve_padded(
+            piece: jax.Array, diag: jax.Array,
+        ) -> jax.Array:
+            return region(piece, _tail_pad(diag, self._b, diag_pad))
+
+        return jax.jit(solve_padded)
 
 
 # ================================================================
@@ -492,6 +574,16 @@ class SlabSolve:
         """
         Solve on the distributed pipeline (never gathers the cube).
 
+        Description
+        -----------
+        A divisible plan runs on the true frame (``f.data`` /
+        ``with_data``), byte-for-byte the pre-padding path. A
+        ``padded`` plan runs on the **padded-even** frame: it reads
+        ``f.storage`` through ``decomposition.unpad_even`` (which keeps
+        an indivisible sharded axis at ``shards * cells`` rather than
+        trimming to the true extent -- the trim gathers the cube) and
+        writes the result back through ``pad_even`` / ``with_storage``.
+
         Parameters
         ----------
         f : FieldLike
@@ -502,6 +594,13 @@ class SlabSolve:
         FieldLike
             The solution on the same space and layout.
         """
+        if self._plan.padded:
+            decomposition = f.grid.decomposition
+            space = f.function_space
+            even = decomposition.unpad_even(f.storage, space)
+            out = self._plan.solve(even, self._inverse.data)
+            return f.with_storage(
+                decomposition.pad_even(out, space))
         out = self._plan.solve(jnp.asarray(f.data),
                                self._inverse.data)
         return f.with_data(out)

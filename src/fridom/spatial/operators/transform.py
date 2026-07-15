@@ -72,6 +72,35 @@ if TYPE_CHECKING:  # pragma: no cover
 _MIN_STAGES = 2
 
 
+def _paddable(n: int, shards: int) -> bool:
+    """
+    Whether an extent shards over ``shards`` devices via padding.
+
+    Description
+    -----------
+    The padded balanced all-to-all pads a split axis to
+    ``shards * ceil(n / shards)`` before the transpose; the last shard
+    must keep at least one true slot (heavy padding that would empty a
+    trailing shard is rejected, mirroring the decomposition's
+    ``_cells_per_shard`` and the negotiation shardability guard). An
+    extent already divisible by ``shards`` is trivially paddable.
+
+    Parameters
+    ----------
+    n : int
+        The (nodal) extent along the axis.
+    shards : int
+        The device count.
+
+    Returns
+    -------
+    bool
+        True iff the extent pads to ``shards`` non-empty blocks.
+    """
+    cells = -(-n // shards)
+    return (shards - 1) * cells < n
+
+
 # ================================================================
 #  Axis-generic array helpers (shared by the transform kernels)
 # ================================================================
@@ -770,14 +799,19 @@ class Transform(UnaryOperator, ABC):
         The slab axis roles are self-contained here (the fused kernel
         in ``operators/distributed_solve.py`` consumes them): ``a`` is
         the single coordinate the default layout shards, ``b`` the
-        first other stage coordinate whose extent divides the device
-        count (the transpose partner), ``h`` the last remaining stage
-        coordinate (the local Hermitian half axis of a real domain
-        under a ``_hermitian`` family; None otherwise — the trig
-        families are real-to-real and run their pipelines fully
-        complex). None on a non-1-D, indivisible, or
-        fewer-than-two-stage layout (the padded / single-device guards
-        live in the caller).
+        transpose partner (the first other stage coordinate whose
+        extent **divides** the device count — the byte-identical fast
+        path — else the first **paddable** other stage coordinate, run
+        through the padded balanced all-to-all), ``h`` the last
+        remaining stage coordinate (the local Hermitian half axis of a
+        real domain under a ``_hermitian`` family; None otherwise — the
+        trig families are real-to-real and run their pipelines fully
+        complex). None on a non-1-D or fewer-than-two-stage layout, or
+        when ``a`` / the only partner would pad too heavily (a trailing
+        shard empties); the padded / single-device guards live in the
+        caller. Indivisible-but-paddable ``a`` and ``b`` are accepted
+        (the padded transpose), so a prime domain keeps the distributed
+        solve.
         """
         decomposition = self._grid.decomposition
         mapped = dict(decomposition.default_layout.device_axes)
@@ -791,12 +825,18 @@ class Transform(UnaryOperator, ABC):
         if any(len(bare.factor(n).shape) != 1 for n in stage_names):
             return None
         shards = decomposition.device_count
-        if bare.factor(name_a).shape[0] % shards:
+        if not _paddable(bare.factor(name_a).shape[0], shards):
             return None
+        partners = tuple(n for n in stage_names if n != name_a)
+        # prefer a divisible partner (keeps the byte-identical fast
+        # path); else the first paddable one (the padded transpose)
         name_b = next(
-            (n for n in stage_names
-             if n != name_a and bare.factor(n).shape[0] % shards == 0),
-            None)
+            (n for n in partners
+             if bare.factor(n).shape[0] % shards == 0), None)
+        if name_b is None:
+            name_b = next(
+                (n for n in partners
+                 if _paddable(bare.factor(n).shape[0], shards)), None)
         if name_b is None:
             return None
         real = not _complex_storage(bare)

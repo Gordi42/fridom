@@ -17,6 +17,7 @@ from fridom.spatial.operators.transform import (
     Transform,
     TransformPlan,
     TransformStage,
+    _paddable,
 )
 from fridom.spatial.operators.trig import Cosine, Sine
 from fridom.spatial.scalars import Scalars
@@ -383,6 +384,47 @@ def test_distributed_geometry_rejects_unsuitable_layouts(monkeypatch):
         transform_b, "_grid",
         _StubGrid(_StubDecomp(Layout({"x": "devices"}), 8)))
     assert transform_b._distributed_geometry(bare_b) is None
+
+
+def test_paddable_helper():
+    # divisible extents are trivially paddable; an indivisible extent
+    # is paddable iff its last (ceil-block) shard keeps >= 1 true slot
+    assert _paddable(16, 4)          # divisible
+    assert _paddable(18, 4)          # ceil 5, last 3
+    assert _paddable(33, 4)          # prime, ceil 9, last 6
+    assert not _paddable(16, 5)      # ceil 4, last 0 (heavy)
+    assert not _paddable(6, 4)       # ceil 2, last 0 (heavy)
+    assert not _paddable(5, 4)       # ceil 2, last -1 (heavy)
+
+
+def test_distributed_geometry_accepts_paddable_indivisible(
+        monkeypatch):
+    # an indivisible-but-paddable domain (18 over 4) now yields a slab
+    # geometry (the padded balanced all-to-all) instead of declining
+    grid = _grid3d(shape=(18, 18, 18), device_ids=(0,))
+    bare = grid.create_field().function_space.bare
+    transform = resolve_transform(grid, bare)
+    monkeypatch.setattr(
+        transform, "_grid",
+        _StubGrid(_StubDecomp(Layout({"x": "devices"}), 4)))
+    geom = transform._distributed_geometry(bare)
+    assert geom is not None
+    # x sharded (a); no divisible partner, so the first paddable one (y)
+    assert geom[:3] == ("x", "y", "z")
+
+
+def test_distributed_geometry_prefers_divisible_partner(monkeypatch):
+    # with both a divisible (z=16) and an indivisible (y=18) partner,
+    # the planner picks the divisible one -- the byte-identical fast
+    # path -- even though y comes first in grid order
+    grid = _grid3d(shape=(16, 18, 16), device_ids=(0,))
+    bare = grid.create_field().function_space.bare
+    transform = resolve_transform(grid, bare)
+    monkeypatch.setattr(
+        transform, "_grid",
+        _StubGrid(_StubDecomp(Layout({"x": "devices"}), 4)))
+    name_a, name_b, _name_h, _ = transform._distributed_geometry(bare)
+    assert (name_a, name_b) == ("x", "z")
 
 
 @pytest.mark.multi_device
