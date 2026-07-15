@@ -799,6 +799,30 @@ def test_indivisible_solve_transposes_without_gathers():
 
 
 @pytest.mark.multi_device
+def test_warm_indivisible_solve_adds_zero_compiles(compile_counter):
+    # the padded plan caches its jit-wrapped shard_map solve callable
+    # and the even-frame reblock callables, so a warmed eager re-run of
+    # the prime-domain solve adds zero compiles
+    grid = make_grid((18, 18, 18))
+    data = rng_data((18, 18, 18))
+
+    def solve_once():
+        rhs = grid.create_field(data=data)
+        bare = rhs.function_space.bare
+        solve = SpectralSolve(
+            laplacian_on(grid, bare, dsqr=1e-4), grid, bare)
+        assert solve.slab is not None
+        assert solve.slab.plan.padded
+        return solve(rhs)
+
+    solve_once()
+    solve_once()
+    compile_counter.reset()
+    solve_once()
+    assert compile_counter.count == 0
+
+
+@pytest.mark.multi_device
 def test_indivisible_solve_has_no_pad_lane_leak():
     # the padded transpose zero-fills the split-axis pad lanes and the
     # diagonal is zero-padded to match; the eigenvalue divide must not
