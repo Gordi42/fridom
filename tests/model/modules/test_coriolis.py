@@ -162,16 +162,8 @@ LAT_MAX = float(np.deg2rad(80.0))
 
 def sphere_grid(nlon=2 * N, nlat=N):
     """Lat-lon sphere chart (unit radius, polar caps excluded)."""
-    mlon = fr.spatial.meshes.IntervalMesh(
-        nlon, (0.0, float(2.0 * np.pi)), name="lon")
-    mlat = fr.spatial.meshes.IntervalMesh(
-        nlat, (-LAT_MAX, LAT_MAX), periodic=False, name="lat")
-    mapping = fr.spatial.CoordinateMapping(chart={
-        "X": lambda lon, lat: (
-            jnp.cos(lat) * jnp.cos(lon),
-            jnp.cos(lat) * jnp.sin(lon),
-            jnp.sin(lat))}, orthogonal=True)
-    return fr.spatial.Grid((mlon, mlat), mapping=mapping)
+    return fr.spatial.spherical.Grid(
+        (nlon, nlat), lat_extent=(-LAT_MAX, LAT_MAX))
 
 
 # ================================================================

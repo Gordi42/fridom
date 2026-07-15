@@ -21,10 +21,12 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
         cartesian,
+        charts,
         decomposition,
         meshes,
         operators,
         space_patterns,
+        spherical,
     )
 
     # import all classes
@@ -53,8 +55,8 @@ base = "fridom.spatial"
 
 all_modules_by_origin = {
     base: [
-        "meshes", "operators", "cartesian", "decomposition",
-        "space_patterns"],
+        "meshes", "operators", "cartesian", "spherical", "charts",
+        "decomposition", "space_patterns"],
 }
 
 all_imports_by_origin = {

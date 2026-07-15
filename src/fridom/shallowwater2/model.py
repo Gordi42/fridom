@@ -55,24 +55,16 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     Description
     -----------
     Works on flat Cartesian grids and on chart-coupled grids
-    (coordinate-systems plan, stage C2). The spherical recipe —
-    periodic-lon x bounded-lat interval meshes under an embedding
-    chart declared ``orthogonal=True`` (the lat-lon metric is
-    diagonal, so the grid drops the cross-term index moves that a
-    bounded axis cannot interpolate):
+    (coordinate-systems plan, stage C2). The one-line spherical
+    assemble is ``fr.spatial.spherical.Grid`` — periodic-lon x
+    bounded-lat interval meshes under the orthogonal lat-lon sphere
+    chart (the metric is diagonal, so the grid drops the cross-term
+    index moves a bounded axis cannot interpolate):
 
     .. code-block:: python
 
-        mlon = fr.spatial.meshes.IntervalMesh(
-            nlon, (0.0, 2 * np.pi), name="lon")
-        mlat = fr.spatial.meshes.IntervalMesh(
-            nlat, (-lat_max, lat_max), periodic=False, name="lat")
-        mapping = fr.spatial.CoordinateMapping(chart={
-            "X": lambda lon, lat: (
-                a * jnp.cos(lat) * jnp.cos(lon),
-                a * jnp.cos(lat) * jnp.sin(lon),
-                a * jnp.sin(lat))}, orthogonal=True)
-        grid = fr.spatial.Grid((mlon, mlat), mapping=mapping)
+        grid = fr.spatial.spherical.Grid(
+            (nlon, nlat), radius=a, lat_extent=(-lat_max, lat_max))
         model = sw.Model(
             grid=grid, coords=("lon", "lat"), csqr=gh0,
             rossby_number=1.0,
