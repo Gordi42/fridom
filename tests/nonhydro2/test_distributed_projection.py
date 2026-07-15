@@ -101,6 +101,65 @@ def test_walled_projection_resolves_the_distributed_solve(
 
 
 @pytest.mark.multi_device
+def test_walled_x_projection_dodges_the_wall_and_distributes(
+        resolutions):
+    # x is walled but y, z are periodic and divisible: the staggering-
+    # aware default (spatial.decomposition ordering) shards the periodic
+    # y, never the walled x, so the deficit face leg stays off the
+    # storage-shard axis. The production projection still lands on the
+    # distributed fast path (a periodic Fourier axis is sharded, the
+    # trig axis is kept local).
+    grid = Grid(tuple(
+        IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
+        for name, periodic in (("x", False), ("y", True), ("z", True))))
+    model = nh.Model(grid=grid, dt=0.02, advection=False,
+                     coriolis=FPlaneCoriolis(f0=1.0))
+    default = grid.decomposition.default_layout
+    assert default.is_local("x")       # the walled axis is dodged
+    assert not default.is_local("y")   # a periodic axis is sharded
+    model.set_fields(u=np.ones(model.state["u"].data.shape))
+    model.advance(1)
+    assert resolutions
+    slabs = [s for s in resolutions if s is not None]
+    assert slabs, (
+        "the walled-x multi-device pressure solve fell back to the "
+        "replicated composite -- the staggering-aware default regressed")
+    assert all(isinstance(s, SlabSolve) for s in slabs)
+
+
+def test_walled_x_step_is_device_count_invariant():
+    # parity gate for the reordered walled-x geometry: the 4-device step
+    # (sharding periodic y, x trig local) vs the 1-device replicated step
+    # drift within the step gate over 20 steps -- the consistency check
+    # that reordering the default off the walled axis is exact.
+    def build(device_ids):
+        grid = Grid(tuple(
+            IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
+            for name, periodic in (("x", False), ("y", True),
+                                   ("z", True))),
+            device_ids=device_ids)
+        return nh.Model(grid=grid, dt=0.02, advection=False,
+                        coriolis=FPlaneCoriolis(f0=1.0))
+
+    one = build((0,))
+    rng = np.random.default_rng(0)
+    ic = {name: rng.standard_normal(one.state[name].data.shape)
+          for name in ("u", "v", "w", "b")}
+
+    def run(model):
+        model.set_fields(**ic)
+        model.advance(20)
+        return {name: np.asarray(model.state[name].data)
+                for name in ("u", "v", "w", "b")}
+
+    ref = run(one)
+    many = run(build(None))
+    for name, r in ref.items():
+        assert np.allclose(many[name], r, rtol=1e-10, atol=1e-11), (
+            name, np.abs(many[name] - r).max())
+
+
+@pytest.mark.multi_device
 def test_prime_projection_resolves_the_padded_distributed_solve(
         resolutions):
     # the Phase 2 gate: an indivisible (prime) triple-periodic domain
