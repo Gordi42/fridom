@@ -781,6 +781,7 @@ class TensorDecomposition(Decomposition):
         *,
         layout: Layout | None = None,
         fills: Mapping[str, jax.Array] | None = None,
+        materialize: bool = False,
     ) -> jax.Array:
         """
         Fill halos (see ``Decomposition.sync``).
@@ -796,24 +797,44 @@ class TensorDecomposition(Decomposition):
         skipped structurally; an all-width-0 space is returned
         unchanged. Local fills run first so the exchanged edges carry
         valid corner ghosts.
+
+        ``materialize=True`` is the caller's claim that the operand
+        array is DEAD after this sync — every later reader reads the
+        synced result. The local fill is then spelled as in-place
+        ghost writes (``_write_axis``) behind an
+        ``optimization_barrier``: the writes reach XLA's in-place DUS
+        emitter (an O(halo) update onto the operand's buffer, no
+        O(field) copy — the dead-operand claim is what makes the
+        in-place grant fire) and the barrier keeps consumers from
+        absorbing the write chain (an absorbed chain is re-derived
+        per consumer offset and loses badly under wide stencils —
+        the ``8c940666`` regression). The default index map is the
+        right spelling everywhere else: with the operand still live,
+        a materialized fill costs a full copy however it is spelled,
+        and an absorbed map costs one indexed load per read.
         """
         layout = self._resolve_layout(space, layout)
         if fills is not None:
             raise NotImplementedError(
                 "inhomogeneous ghost fill is designed-for; "
                 "iteration 1 is homogeneous only")
+        fill_axis = _write_axis if materialize else _fill_axis
         exchanged = []
         for axis, (name, n, factor, shards, width, _,
                    _) in enumerate(self._geometry(space, layout)):
             if not width:
                 continue
             if shards == 1:
-                arr = _fill_axis(arr, axis, n, width, factor)
+                arr = fill_axis(arr, axis, n, width, factor)
             else:
                 exchanged.append((axis, name, n, factor, width))
         for axis, name, n, factor, width in exchanged:
             arr = self._exchange_axis(
                 arr, axis, name, n, factor, width, layout)
+        if materialize:
+            # forces the write chain to materialize (see above); free
+            # at runtime — the writes are in place on the dead operand
+            arr = jax.lax.optimization_barrier(arr)
         return arr
 
     def _exchange_axis(
@@ -1447,6 +1468,78 @@ def _fill_axis(
         out = jnp.where(jnp.asarray(zero).reshape(shape),
                         jnp.zeros((), out.dtype), out)
     return out
+
+
+def _write_axis(
+    arr: jax.Array,
+    axis: int,
+    n: int,
+    width: int,
+    factor: FunctionSpace,
+) -> jax.Array:
+    """
+    Write the ghost slots of one storage axis in place.
+
+    Description
+    -----------
+    The ``materialize=True`` twin of ``_fill_axis``: the same values,
+    spelled as sequenced ``dynamic_update_slice`` ghost writes instead
+    of an index map. At a materialization boundary (the scan carry)
+    nothing fuse-absorbs the writes, so XLA's in-place DUS emitter
+    delivers an O(halo) update onto the buffer the boundary
+    materializes anyway; the index map would instead become a fresh
+    O(field) gather there. This spelling must never reach a synced
+    value that stencil kernels consume directly — an absorbed write
+    chain is re-derived per consumer offset (measured +2.8 ms/step on
+    the advective 256^3 case, the ``8c940666`` regression).
+
+    The sides are **sequenced**: the right-hand fill reads its source
+    out of the array as already updated on the left. The values are
+    unaffected (a ghost write never touches the true region, which is
+    all the sources read), but with both sources read from the
+    *original* array the reads and the first write are unordered,
+    XLA's copy insertion sees the operand buffer as live across the
+    write, and it reinstates the full copy the spelling exists to
+    remove. Do not "simplify" the reads back to a common ``true``.
+
+    Parameters
+    ----------
+    arr : jax.Array
+        The storage-shaped array.
+    axis : int
+        The storage axis to fill.
+    n : int
+        The true DOF count along ``axis``.
+    width : int
+        The negotiated ghost width along ``axis``.
+    factor : FunctionSpace
+        The factor space owning the axis (supplies mesh topology
+        and BC structure).
+    """
+    trail = arr.shape[axis] - n - width
+    if factor.mesh.periodic:
+        if width > n or trail > n:
+            raise NotImplementedError(
+                f"periodic wrap with halo {width} wider than the "
+                f"axis length {n} is not supported")
+        if width:
+            arr = _set(arr, axis, 0,
+                       _take(arr, axis, slice(n, n + width)))
+        if trail:
+            arr = _set(arr, axis, width + n,
+                       _take(arr, axis, slice(width, width + trail)))
+        return arr
+    true = _take(arr, axis, slice(width, width + n))
+    left = _bounded_ghosts(true, axis, n, width, factor, 0)
+    # a BC-free side defines no exterior values (R1): its slots are
+    # left exactly as they are, so nothing is written
+    if left is not None and width:
+        arr = _set(arr, axis, 0, left)
+        true = _take(arr, axis, slice(width, width + n))
+    right = _bounded_ghosts(true, axis, n, trail, factor, 1)
+    if right is not None and trail:
+        arr = _set(arr, axis, width + n, right)
+    return arr
 
 
 # ================================================================
