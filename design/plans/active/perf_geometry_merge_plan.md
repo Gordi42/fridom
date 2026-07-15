@@ -649,6 +649,89 @@ reverted same-day. Remaining open work: lever 1's two follow-ups
 (§4b), and the moving-geometry layout gates (§3c).*
 
 
+## 8. The halo-fill campaign (2026-07-14/15): spelling, then site
+
+Two levers, found by the "does the sync copy the field?" question
+(2026-07-14) and closed on `perf/halo-sync-fusion`.
+
+### 8a. The spelling of the lazy (consumption-side) fill — the index map
+
+`_fill_axis` is an **index map** (`_axis_map` + one `jnp.take`), commit
+`d726f999`. The mechanism, measured on 1x A100 (flat nonhydro 256^3,
+ms/step, against a no-fill floor of 5.86 linear / 8.18 advective):
+
+| spelling | linear | advective | why |
+|---|---|---|---|
+| `concatenate` | 7.46 | 10.61 | fusion ROOT: every unabsorbed fill
+  materializes a fresh O(field) buffer (~75x write amplification) |
+| `dynamic_update_slice` | 6.04 | 11.03 | ABSORBED into consumers; the
+  write chain is re-derived at every offset a wide stencil reads
+  (two 2.7 ms projection fusions swallowed 42 DUS each) |
+| index map (landed) | 6.03 | 9.36 | absorbed like the DUS (no HBM
+  round-trip), O(1) to re-derive like the concatenate |
+
+XLA never materializes a well-fused fill; the spelling decides what the
+*absorption* costs. The map is the only spelling cheap in both regimes
+— see the `_fill_axis` docstring, which is the contract.
+
+### 8b. The site of the state fill — the carry seal
+
+Even the absorbed map cost the advective step ~1.2 ms/step: the carry
+entered every step with ZERO ghost claims (`_reset_ghost_claims`, the
+scan-treedef fixed point), so every state field was re-filled at
+consumption, inside the step's widest kernels. The fix
+(2026-07-15): **seal the state vector at the carry boundary instead**
+(`_seal_carry_ghosts` in `model.py`) — sync each rebuilt state field
+where its buffer materializes anyway. The seal's fill is
+`sync(materialize=True)`: in-place DUS ghost writes behind an
+`optimization_barrier`. All three ingredients are load-bearing:
+
+- **write spelling**: at a materialization point an index map becomes
+  a fresh O(field) gather buffer (measured: sealing with the map cost
+  +1.3 ms on BOTH cases);
+- **barrier**: `scan_unroll` (the AB ring renaming) splices up to 3
+  steps into one trace, so 2 of 3 seals have live wide-stencil
+  consumers that would absorb a bare write chain (measured: +3.2 ms
+  advective, the `8c940666` mechanism);
+- **dead operand**: every reader (stencil AND elementwise, including
+  the next step's update) reads the sealed field, so the pre-seal
+  buffer's only user is the seal and XLA's in-place DUS emitter
+  patches O(halo) bytes with zero copies. This is why every earlier
+  barrier experiment at the CONSUMPTION site failed: there the
+  unsynced field stays live (the update reads it) and the barrier
+  forces ~18-21 full copies.
+
+Result (1x A100, 256^3, ms/step): linear 6.03 -> **5.79**, advective
+9.36 -> **8.66** — at/near the no-fill floor; the residual advective
+~0.5 ms is the mid-step lazy fill of the unprojected velocities
+(absorbed maps feeding the divergence — correctly spelled: their
+operand stays live through the projection's elementwise read).
+Chunked-vs-stepwise values are bitwise identical at unroll granularity
+(chunk 1 and 3); a while-looped chunk drifts by ~1e-15/50 steps
+(codegen-level FP contraction under changed kernel shapes — the
+`test_scan_chunk_matches_repeated_chunk1` tolerance precedent).
+
+Follow-up lever (open): seal the unprojected velocities too by making
+the projection consume the synced objects, killing the last absorbed
+fills of the advective step (~0.5 ms at 256^3).
+
+Known cost: the seal adds ~40 O(halo) kernel launches per step
+(~+77 us/step), a fixed latency invisible at production sizes but
++66% on the latency-bound 32^3 toy cases (5.83 -> 9.66 ms/50 steps;
+the map commit had made them FASTER than the concat baseline's 7.01).
+If tiny-case latency ever matters: seal only ghost-consumed fields
+(drops ~1/6), or group the per-field barriers into one per step.
+
+### 8c. Paired finding: the spectral symbol k^2 is rebuilt per step
+
+Confirmed (2026-07-14): the solver symbol is recomputed every step
+(XLA even sinks it into the mapped PCG loop on GPU); cost 0.7-1.4% of
+the step. Cheapest fix when it is picked up: build the 1-D k leaves in
+`spatial/operators/spectral.py` with numpy so they land as HLO
+constants. Full precompute (8 N^3 bytes persistent) is why XLA
+declines to hoist. Not part of this branch.
+
+
 ## Non-goals
 
 - The 2-D device mesh (pencil decomposition) stays out of scope.
