@@ -52,6 +52,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import jax
 import numpy as np
 
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
@@ -173,6 +174,42 @@ class ExportLayout:
     kept_axes: tuple[int, ...]
 
 
+def _host_labels(arr: object) -> np.ndarray:
+    """
+    Materialize a coordinate node vector on the host.
+
+    Description
+    -----------
+    The coordinate labels in :func:`export_layout` are small 1-D
+    vectors read off ``grid.evaluation_nodes`` / ``grid.wavenumbers``.
+    Under a single-controller run (one process addressing every device)
+    the vector is fully addressable and this is a plain ``np.asarray``,
+    so the single-process labels are unchanged. Under a real
+    multi-process run (``jax.distributed``) the vector is sharded across
+    processes and non-addressable; it is then gathered collectively with
+    ``multihost_utils.process_allgather(arr, tiled=True)`` — a
+    collective that fires only in that genuine multi-process context,
+    where :func:`export_layout` is already called symmetrically on every
+    rank. ``tiled=True`` is required (a bare ``process_allgather`` errors
+    on a sharded array).
+
+    Parameters
+    ----------
+    arr : object
+        The coordinate node vector (a ``jax`` array or array-like).
+
+    Returns
+    -------
+    np.ndarray
+        The host coordinate vector.
+    """
+    if isinstance(arr, jax.Array) and not arr.is_fully_addressable:
+        from jax.experimental import multihost_utils  # noqa: PLC0415
+        return np.asarray(
+            multihost_utils.process_allgather(arr, tiled=True))
+    return np.asarray(arr)
+
+
 def export_layout(
     field: ScalarField,
     *,
@@ -237,7 +274,7 @@ def export_layout(
                 attrs["c_grid_axis_shift"] = _AXIS_SHIFT[position]
             if isinstance(factor, CellAvg | FaceAvg):
                 attrs["representation"] = "cell_mean"
-        labels = np.asarray(vector.data).reshape(-1)
+        labels = _host_labels(vector.data).reshape(-1)
         if np.iscomplexobj(labels):
             # wavenumbers are real by construction; the accessor
             # stores them at the coefficient space's complex dtype
