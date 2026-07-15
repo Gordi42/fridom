@@ -5,7 +5,12 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from fridom.spatial.export import scalar_to_dataarray
+from fridom.spatial.export import (
+    ExportLayout,
+    export_layout,
+    gathered_values,
+    scalar_to_dataarray,
+)
 from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -211,6 +216,51 @@ def test_constant_axis_squeezed(grid):
     assert da.dims == ("y",)
     assert np.array_equal(da.values,
                           np.asarray(field.data).reshape(-1))
+
+
+# ================================================================
+#  The values-free layout helper (export_layout / gathered_values)
+# ================================================================
+def test_export_layout_shape_no_gather(grid, mx, my):
+    # values-free: dims/coords/attrs without touching the field data
+    space = mx.right * my.outer
+    field = grid.create_field(space, init=lambda x, y: x * y)
+    layout = export_layout(field)
+    assert isinstance(layout, ExportLayout)
+    assert layout.dims == ("x_right", "y_outer")
+    assert layout.shape == (8, 7)
+    assert layout.kept_axes == (0, 1)  # both storage axes exported
+    assert np.array_equal(layout.coords["x_right"],
+                          nodes(grid, space, "x"))
+    assert layout.coord_attrs["x_right"]["c_grid_axis_shift"] == 0.5
+    assert layout.dtype == np.asarray(field.data).dtype
+    # gathered_values reproduces the DataArray values exactly
+    values = gathered_values(field, layout)
+    assert np.array_equal(values, np.asarray(field.data))
+    assert np.array_equal(values, scalar_to_dataarray(field).values)
+
+
+def test_export_layout_squeezes_constant_axis(grid):
+    # a constant factor is dropped from dims but kept_axes records
+    # which storage axis survived (axis 1, the y factor)
+    field = grid.create_field(init=init).integrate("x")
+    layout = export_layout(field)
+    assert layout.dims == ("y",)
+    assert layout.kept_axes == (1,)
+    assert layout.shape == (6,)
+    values = gathered_values(field, layout)
+    assert values.shape == (6,)
+    assert np.array_equal(values,
+                          np.asarray(field.data).reshape(-1))
+
+
+def test_export_layout_plain_names(grid, mx, my):
+    # positions_in_names=False mirrors the ScalarField.xr default
+    space = mx.left * my.inner
+    field = grid.create_field(space, init=lambda x, y: x + y)
+    layout = export_layout(field, positions_in_names=False)
+    assert layout.dims == ("x", "y")
+    assert layout.coord_attrs["x"]["c_grid_axis_shift"] == -0.5
 
 
 # ================================================================

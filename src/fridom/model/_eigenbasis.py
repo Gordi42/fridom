@@ -588,7 +588,7 @@ def _signature(em: ChannelEigenmodesBase) -> StateSignature:
     return StateSignature(grid=em.grid, components=components)
 
 
-def _fourier_ops(em: ChannelEigenmodesBase) -> tuple[Fourier, ...]:
+def fourier_ops(em: ChannelEigenmodesBase) -> tuple[Fourier, ...]:
     """Per-axis Fourier transforms, the half-spectrum axis first.
 
     The engine's ``rfftn`` read-out halves the *last* periodic axis
@@ -697,7 +697,7 @@ def _contract_planes(
     contraction is an einsum of the replicated basis against the
     (decomposition-laid-out) coefficient planes — no host gather.
     """
-    ops = _fourier_ops(em)
+    ops = fourier_ops(em)
     bounded = em.grid.names.index(em.bounded_axis)
     coeff = {}
     for name in em.components:
@@ -1114,7 +1114,7 @@ def _synthesize_column(
     backward synthesis is exactly real.
     """
     grid = em.grid
-    ops = _fourier_ops(em)
+    ops = fourier_ops(em)
     periodic = tuple(
         n for n in grid.names if n != em.bounded_axis)
     half_n = _axis_cells(grid, em.periodic_axis)
@@ -1259,7 +1259,7 @@ def channel_random_state(
     gains = jnp.asarray(amp) * jnp.exp(1j * theta)
     z = jnp.einsum("...dj,...j->...d", jnp.asarray(em.q), gains)
     bounded_pos = grid.names.index(em.bounded_axis)
-    ops = _fourier_ops(em)
+    ops = fourier_ops(em)
     fields = {}
     for name in em.components:
         coeff = grid.create_field(em.spaces[name], name=name)

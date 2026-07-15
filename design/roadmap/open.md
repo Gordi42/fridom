@@ -64,17 +64,26 @@ Still open, and the next work:
 3. The optimizations do not yet **reach inside** the mapped PCG solve —
    see the section below.
 
-## Decomposed / gather-free output
-
-The iteration-1 IO sink `decomposition.gather`s the whole true field to
-rank 0 / host before writing. That does not fit for large grids (768³+),
-where the assembled field does not live on one device. The fix is the
-distributed, shard-wise TensorStore write (designed-for behind the sink
-seam; tensorstore supports it). Independent of divisibility. Surfaced by
-the uneven-shard padding work
-([`plans/done/uneven_shard_padding_plan.md`](../plans/done/uneven_shard_padding_plan.md)).
-
 ## Multi-device compile and execution cost
+
+*Note (2026-07-14, found verifying the gather-free writer): eager
+field ops on the `Auto` mesh returned **fully replicated** results —
+`state.rel_vort.to(center)` came back `PartitionSpec()`, i.e. jax
+assembled the interpolated field on every device: an implicit
+all-gather plus P× device memory on every derived-output evaluation at
+write cadence.*
+*Resolved (2026-07-15, `fix/eager-operator-sharding`): the operator
+template (`operators/base._kernel_apply`) now runs the stencil kernel
+under one `jax.jit` trace whenever it is applied **eagerly** on a
+multi-device operand. GSPMD then partitions the whole slice/pad graph
+together, sees the reach fits the synced halo, and keeps the result
+sharded — bit-for-bit the same values, the same sharding the jitted
+step produces. The guard is a no-op under an enclosing trace (the
+operand is a tracer → the kernel folds into that one program, no
+nested jit) and on a single device, so the model loop is unchanged.
+Eager `.to` / `.diff` / reconstruct / average on a sharded field
+therefore stay sharded, and derived writer outputs no longer
+all-gather.*
 
 *Post-merge note (2026-07-13): the optimization line has landed, and the
 audit found three reasons this solve does not benefit from it — the CG
@@ -258,6 +267,46 @@ Records: [`../plans/active/cutover_parity_plan.md`](../plans/active/cutover_pari
 (parity, sign-off) and
 [`../plans/active/cutover_checklist.md`](../plans/active/cutover_checklist.md)
 (the executable swap list).
+
+## Time-dependent parameters **and time-dependent fields**
+
+Requested by Silvano, 2026-07-14 (while landing `ETDRK4`).
+
+Today a `Ramp` reaches only the *scalar* parameter leaves. `f` and
+`csqr` are not scalars: they are materialized at assembly into
+AUXILIARY **fields** (`FPlaneCoriolis._f_default` /
+`DynamicalCore._csqr_default` call `jnp.full(space.shape, self.f0)`),
+so `FPlaneCoriolis(f0=Ramp(...))` raises a bare `TypeError` from
+`jnp.full`. Two levels are wanted, and the second is the real ask:
+
+1. **Time-dependent scalars** — `f0`, `csqr`, ... accept a
+   `TimeDependent` and resolve at stage time (`resolve_at`). Mostly a
+   matter of routing the declaration's `default=` through the
+   time-dependent path instead of freezing it once, plus a taught error
+   where a consumer needs a frozen snapshot.
+2. **Time-dependent fields** — `f(y, t)`, `csqr(y, t)`: a *profile* that
+   itself evolves. This is not just a leaf swap. An AUXILIARY field is
+   carry-resident and its treedef must stay scan-stable, so the
+   time-dependence has to enter either as a stage that rewrites the
+   field (a `SELF_UPDATE`/`DIAGNOSE` kind) or as a declaration-level
+   "recompute from `(coords, t)` each step" contract. Which of those is
+   right is the design question; the coverage lint and the halo/GAP-B
+   rules both bear on it.
+
+**Interaction with the exponential stepper** (the reason this surfaced):
+`ETDRK4` freezes `L` in an eigenbasis snapshot. Anything time-dependent
+that lives in `N` is already correct (the `Ramp` on `scaling.rossby`
+is tested). But a time-dependent `f`/`csqr` lives in **L**, and
+`L(t1)`/`L(t2)` do not commute, so `exp(L dt)` stops being the
+propagator — the stepper would silently integrate a stale operator. Any
+design here must say what `ETDRK4` does about it. The measured fallback
+is recorded in
+[`../research/exponential_stepper.md`](../research/exponential_stepper.md)
+§5: keep the stiff time-independent part (gravity) in the eigenbasis,
+leave the time-dependent part in the tendency — still 52.7x AB3, capped
+by the inertial rather than the gravity CFL. Note also that a
+time-dependent `L` has no fixed eigenbasis at all, so the discrete
+eigenanalysis is itself undefined in that regime.
 
 ## Generalized adiabatic ramping
 

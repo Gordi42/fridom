@@ -7,17 +7,21 @@ in-memory fields; mode="w-" fails loudly on an existing store; append
 continues the axis; truncate_after + append reproduce a fork-free
 axis; coefficient-space/complex outputs raise.
 """
+import json
 from pathlib import Path
 
+import jax
 import numpy as np
 import pytest
 import xarray as xr
 
+import fridom.spatial.export as export_module
 from fridom.model.clock import Clock
 from fridom.model.io import writer as writer_module
 from fridom.model.io.triggers import every
 from fridom.model.io.writer import Writer
-from fridom.spatial.export import scalar_to_dataarray
+from fridom.spatial.decomposition.tensor import TensorDecomposition
+from fridom.spatial.export import export_layout, scalar_to_dataarray
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -359,3 +363,289 @@ def test_write_before_bind_raises(tmp_path, state):
 def test_writer_module_does_not_import_zarr():
     text = Path(writer_module.__file__).read_text()
     assert "import zarr" not in text
+
+
+# ================================================================
+#  The Writer is xarray-free at runtime (bind = layout, write = sink)
+# ================================================================
+def test_writer_bind_write_close_without_xarray(
+        tmp_path, model, state, monkeypatch):
+    # gather_free_output_plan.md phase 2: neither bind nor write may
+    # reach export's xarray import hook. Break it, then run the full
+    # cycle: if any path called scalar_to_dataarray it would raise.
+    def _no_xarray():
+        raise ImportError("xarray is banned for this test")
+
+    monkeypatch.setattr(export_module, "_import_xarray", _no_xarray)
+    path = tmp_path / "out.zarr"
+    writer = Writer(path, fields=["u", "p"], trigger=every(steps=1))
+    writer.bind(model)
+    for it in (0, 1):
+        writer.write(firing(state, it))
+    writer.truncate_after(0)
+    writer.write(firing(state, 1))
+    writer.close()
+    # the store is intact and bitwise-correct (read with the real
+    # xarray, which the monkeypatch does not touch)
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["iteration"].values.tolist() == [0, 1]
+    u_ref = np.asarray(state["u"].data)
+    np.testing.assert_array_equal(ds["u"].values[0], u_ref)
+
+
+# ================================================================
+#  Gather-free write path (phase 3: shard-wise tensorstore writes)
+# ================================================================
+# These build the field's grid over *every* available device: a single
+# shard in the default suite (device-count agnostic) and a genuine 1-D
+# sharding under the forced-devices suite
+# (XLA_FLAGS=--xla_force_host_platform_device_count=4), where the
+# per-shard true-DOF tiling, cell padding, and the empty-tile skip are
+# actually exercised. n_cells 15 (periodic x) is non-divisible by 4 and
+# still shards under the default halo-2 negotiation (per-shard blocks
+# 4, 4, 4, 3 — the last one short), so the file's spatial shape proves
+# padding never reaches the store.
+class _EmptyRegistry:
+
+    """A halo-free dispatch: negotiate then shards at width 0."""
+
+    def items(self):
+        return iter(())
+
+
+def _staggered_model(device_ids):
+    """Build a non-divisible sharded grid with staggered outputs."""
+    mx = IntervalMesh(15, (0.0, 1.0), name="x")  # periodic
+    my = IntervalMesh(6, (0.0, 2.0), periodic=False, name="y")
+    grid = Grid((mx, my), device_ids=device_ids)
+    u = grid.create_field(mx.right * my.center,
+                          init=lambda x, y: x + 2.0 * y, name="u",
+                          units="m/s")
+    p = grid.create_field(init=lambda x, y: x * y, name="p", units="Pa")
+    state = VectorField({"u": u, "p": p})
+    table = FakeTable(prognostic=("u",), diagnostic=("p",))
+    model = FakeModel(state, clock_at(0), table=table, digest="beef")
+    return model, state
+
+
+def test_write_never_gathers(tmp_path, forced_devices, monkeypatch):
+    # phase 3: the write path writes each shard's own true-DOF tile and
+    # never forms the global array. Break both the export gather helper
+    # and the decomposition's gather after bind; the full cycle must
+    # still succeed and the store must be bitwise-correct.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    model, state = _staggered_model(None)
+    u_ref = np.asarray(state["u"].data)
+    p_ref = np.asarray(state["p"].data)
+    path = tmp_path / "nogather.zarr"
+    writer = Writer(path, fields=["u", "p"], trigger=every(steps=1))
+    writer.bind(model)
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("the write path must not gather")
+
+    monkeypatch.setattr(export_module, "gathered_values", _boom)
+    monkeypatch.setattr(TensorDecomposition, "gather", _boom)
+    for it in (0, 1):
+        writer.write(firing(state, it))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    for k in range(2):
+        np.testing.assert_array_equal(ds["u"].values[k], u_ref)
+        np.testing.assert_array_equal(ds["p"].values[k], p_ref)
+
+
+def test_chunk_default_is_write_aligned(tmp_path, forced_devices):
+    # default spatial chunks come from the decomposition's write-aligned
+    # grid (chunk_hint mapped through kept_axes), asserted through the
+    # public API so the same test is meaningful under the forced-4 suite
+    # (per-shard block chunks) and the single-device suite (full extent).
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    model, state = _staggered_model(None)
+    path = tmp_path / "chunks.zarr"
+    writer = Writer(path, fields=["u"], trigger=every(steps=1))
+    writer.bind(model)
+    writer.close()
+    zarray = json.loads((path / "u" / ".zarray").read_text())
+    field = state["u"]
+    layout = export_layout(field)
+    hint = field.grid.decomposition.chunk_hint(field.function_space)
+    expected = [hint[axis] for axis in layout.kept_axes]
+    assert zarray["chunks"] == [1, *expected]
+    assert zarray["chunks"][0] == 1  # time chunk stays 1
+
+
+def test_writer_is_device_count_invariant(tmp_path, forced_devices):
+    # the key padding test: the sharded store (all devices) is bitwise
+    # identical to the single-device store, the file's spatial shape is
+    # the true shape (padding provably absent), and the time/iteration
+    # axes agree — mirrors test_export.py's device-count invariance.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many_model, many_state = _staggered_model(None)
+    one_model, one_state = _staggered_model((0,))
+    stores = {}
+    for tag, model, state in (("many", many_model, many_state),
+                              ("one", one_model, one_state)):
+        path = tmp_path / f"{tag}.zarr"
+        writer = Writer(path, fields=["u", "p"], trigger=every(steps=1))
+        writer.bind(model)
+        for it in (0, 1):
+            writer.write(firing(state, it))
+        writer.close()
+        stores[tag] = xr.open_zarr(path, consolidated=False)
+    dm, do = stores["many"], stores["one"]
+    for name in ("u", "p"):
+        true_shape = np.asarray(many_state[name].data).shape
+        assert dm[name].shape == do[name].shape
+        assert dm[name].shape[1:] == true_shape  # no padding in the file
+        np.testing.assert_array_equal(dm[name].values, do[name].values)
+    np.testing.assert_array_equal(dm["time"].values, do["time"].values)
+    assert (dm["iteration"].values.tolist()
+            == do["iteration"].values.tolist())
+
+
+def test_empty_last_shard_tile_is_skipped(tmp_path, forced_devices):
+    # a bounded Inner space (n = n_cells - 1) over a halo-free width-0
+    # sharding: at n_cells=10 on P=4 the last of the four shards holds
+    # zero true DOFs (a legal empty tile), which the sink skips. The
+    # written values must still match the gathered reference exactly.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    ids = tuple(range(jax.device_count()))
+    mx = IntervalMesh(10, (0.0, 1.0), periodic=False, name="x")
+    my = IntervalMesh(6, (0.0, 2.0), periodic=False, name="y")
+    grid = Grid((mx, my), dispatch=_EmptyRegistry(), device_ids=ids)
+    q = grid.create_field(mx.inner * my.center,
+                          init=lambda x, y: x + y, name="q")
+    state = VectorField({"q": q})
+    model = FakeModel(state, clock_at(0))
+    ref = np.asarray(q.data)
+    path = tmp_path / "empty.zarr"
+    writer = Writer(path, fields=["q"], trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(firing(state, 0))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["q"].shape == (1, *ref.shape)
+    np.testing.assert_array_equal(ds["q"].values[0], ref)
+
+
+def test_replicated_derived_output_written_everywhere(
+        tmp_path, forced_devices):
+    # the end-to-end regression (gather_free_output_plan): a derived
+    # output whose evaluator returns a FULLY REPLICATED field. The
+    # production repro was state.rel_vort.to(center) coming back on a
+    # PartitionSpec() sharding — one replica-0 shard whose window spans
+    # every storage block, so the sink must write the whole domain, not
+    # just block 0 (3/4 of the file was silently zeros before the fix).
+    # On one device this degenerates; under forced-4 it is the repro and
+    # must execute (not skip).
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    model, state = _staggered_model(None)
+    p = state["p"]
+    decomp = p.grid.decomposition
+    replicated = jax.device_put(
+        p.storage,
+        jax.sharding.NamedSharding(
+            decomp.device_mesh, jax.sharding.PartitionSpec()))
+    ref = np.asarray(p.data)  # the original, non-replicated values
+
+    def _replicated(model_state):
+        return model_state.state["p"].with_storage(replicated)
+
+    path = tmp_path / "replicated.zarr"
+    writer = Writer(path, fields=[], derived={"pr": _replicated},
+                    trigger=every(steps=1))
+    writer.bind(model)
+    for it in (0, 1):
+        writer.write(firing(state, it))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["pr"].shape == (2, *ref.shape)
+    for k in range(2):
+        # equal everywhere — in particular beyond the first shard's
+        # window, which the pre-fix single-block write left zero.
+        np.testing.assert_array_equal(ds["pr"].values[k], ref)
+
+
+# ================================================================
+#  async_writes: deferred (overlapping) writes, one firing in flight
+# ================================================================
+def test_async_writes_match_sync(tmp_path, model, state):
+    # the deferred writer must produce a byte-identical store
+    fields = ["u", "p"]
+    firings = (0, 1, 2, 3)
+
+    def run(path, *, async_writes):
+        writer = Writer(path, fields=fields, trigger=every(steps=1),
+                        async_writes=async_writes)
+        writer.bind(model)
+        for it in firings:
+            writer.write(firing(state, it))
+        writer.close()
+        return xr.open_zarr(path, consolidated=False)
+
+    sync = run(tmp_path / "sync.zarr", async_writes=False)
+    lazy = run(tmp_path / "async.zarr", async_writes=True)
+    for name in (*fields, "time", "iteration"):
+        np.testing.assert_array_equal(
+            lazy[name].values, sync[name].values)
+
+
+def test_async_defers_writes_until_drained(tmp_path, model, state):
+    # the blocking default leaves nothing pending; async holds the
+    # last firing until the next one (or close) drains it.
+    sync = Writer(tmp_path / "s.zarr", fields=["p"],
+                  trigger=every(steps=1))
+    sync.bind(model)
+    sync.write(firing(state, 0))
+    assert sync._pending == []
+    sync.close()
+
+    lazy = Writer(tmp_path / "a.zarr", fields=["p"],
+                  trigger=every(steps=1), async_writes=True)
+    lazy.bind(model)
+    lazy.write(firing(state, 0))
+    assert lazy._pending
+    lazy.close()
+    assert lazy._pending == []
+    ds = xr.open_zarr(tmp_path / "a.zarr", consolidated=False)
+    np.testing.assert_array_equal(
+        ds["p"].values[0], np.asarray(state["p"].data))
+
+
+def test_async_backpressure_keeps_one_firing_in_flight(
+        tmp_path, model, state):
+    # each firing drains the previous one, so the outstanding-write
+    # count never grows across firings (bounded source buffers).
+    lazy = Writer(tmp_path / "bp.zarr", fields=["u", "p"],
+                  trigger=every(steps=1), async_writes=True)
+    lazy.bind(model)
+    lazy.write(firing(state, 0))
+    after_first = len(lazy._pending)
+    assert after_first  # something is genuinely in flight
+    for it in (1, 2, 3):
+        lazy.write(firing(state, it))
+        # constant: the previous firing was drained at the top of write
+        assert len(lazy._pending) == after_first
+    lazy.close()
+
+
+def test_async_truncate_after_is_forkfree(tmp_path, model, state):
+    # truncate_after drains before it resizes the arrays down
+    path = tmp_path / "trunc.zarr"
+    writer = Writer(path, fields=["p"], trigger=every(steps=1),
+                    async_writes=True)
+    writer.bind(model)
+    for it in (0, 1, 2):
+        writer.write(firing(state, it))
+    writer.truncate_after(1)
+    assert writer._pending == []
+    writer.write(firing(state, 2))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["iteration"].values.tolist() == [0, 1, 2]

@@ -10,13 +10,14 @@ behind the seam). Owning class spec:
 A ``Writer`` is trigger-driven, human-facing gridded output: the
 store it writes is a **zarr-format** store that opens in xarray/xgcm
 with **no post-processing**. The layout contract is the grid
-cluster's ``f.xr`` export (``fridom.spatial.export``): this
-writer produces one ``xarray.DataArray`` per variable through
-``scalar_to_dataarray`` and reads the labels/coords/attrs straight off
-it — the xgcm-style staggered dim names, the ``c_grid_axis_shift``
-comodo attrs, the coordinate values from ``grid.evaluation_nodes``,
-and the per-variable ``FieldMetadata`` attrs are therefore never
-duplicated here. The writer only adds the time axis (a CF
+cluster's ``f.xr`` export (``fridom.spatial.export``): at bind this
+writer builds each variable's store from the **values-free**
+``export_layout`` (``ExportLayout``) and reads the labels/coords/attrs
+straight off it — the xgcm-style staggered dim names, the
+``c_grid_axis_shift`` comodo attrs, the coordinate values from
+``grid.evaluation_nodes``, and the per-variable ``FieldMetadata``
+attrs are therefore never duplicated here, and bind imports no
+``xarray``. The writer only adds the time axis (a CF
 ``seconds since <start_date>`` coordinate plus an ``iteration``
 coordinate) and the append/truncate mechanics.
 
@@ -28,16 +29,23 @@ that make the store xarray-openable (``.zgroup``, the group and
 per-array ``.zattrs`` carrying ``_ARRAY_DIMENSIONS`` and the CF/xgcm
 attributes) are written here as plain JSON. xarray's read path still
 pulls ``zarr`` under the hood — that is expected and lives on the
-reader, not this writer. Async / decomposed-slice / file-split writes
-stay designed-for behind this seam.
+reader, not this writer. Cross-boundary async is opt-in
+(``async_writes``, see :meth:`Writer.write`); file-split writes stay
+designed-for behind this seam.
 
-The ``decomposition.gather`` to the global true shape happens inside
-``scalar_to_dataarray`` (the it-1 sink gathers to rank 0 and writes;
-single process here). Coefficient-space and complex fields raise,
-inheriting the ``f.xr`` iteration-1 restriction, with a pointer to
-``.data``.
+The bind/write split (``gather_free_output_plan.md``): bind is
+layout-only (``export_layout`` — no gather, no ``xarray``), and the
+default spatial chunks come from the decomposition's write-aligned
+grid (``chunk_hint``). The write path is the shard-wise sink: each
+firing writes its locally-owned true-DOF tiles straight into the
+store via ``decomposition.shard_writes`` (one contiguous host copy
+per shard, with the halo ghosts, stagger reserve, and cell padding
+stripped), so no gather happens anywhere in the writer and the global
+array is never formed on any device. Coefficient-space and complex
+fields raise at bind, inheriting the ``f.xr`` iteration-1 restriction,
+with a pointer to ``.data``.
 """
-# Wave 5 C: Writer (tensorstore zarr-append gather sink behind it)
+# Wave 5 C: Writer (tensorstore zarr-append decomposed-slice sink)
 from __future__ import annotations
 
 import json
@@ -53,6 +61,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
     from fridom.model.io.triggers import Trigger
+    from fridom.spatial.export import ExportLayout
     from fridom.spatial.fields.scalar_field import ScalarField
 
 # nanoseconds per second (the CF reference-date conversion)
@@ -104,6 +113,13 @@ class Writer:
         (spatial) or in single steps (``"time"``) (default: None).
     attrs : Mapping[str, str] | None, optional
         Extra global attributes merged into the store (default: None).
+    async_writes : bool, optional
+        Overlap the spatial disk writes with the model integration:
+        each firing defers its writes and drains the previous firing
+        first (one firing in flight — see :meth:`write`), instead of
+        blocking on every write before returning. The default blocks,
+        so an aborted run always leaves a complete final slice
+        (default: False).
     """
 
     def __init__(
@@ -116,6 +132,7 @@ class Writer:
         mode: str = "w-",
         chunks: Mapping[str, int] | None = None,
         attrs: Mapping[str, str] | None = None,
+        async_writes: bool = False,
     ) -> None:
         """Configure the stream; no file IO happens here."""
         if mode not in _MODES:
@@ -128,6 +145,7 @@ class Writer:
         self.mode = mode
         self._chunks = dict(chunks) if chunks else {}
         self._attrs = dict(attrs) if attrs else {}
+        self._async_writes = bool(async_writes)
         # bind state (all reset until bind)
         self._bound = False
         self._n = 0
@@ -135,8 +153,16 @@ class Writer:
         self._iteration: Any = None
         self._vars: dict[str, Any] = {}
         self._spatial: dict[str, tuple[int, ...]] = {}
+        # values-free export layouts, keyed by output name (bind)
+        self._templates: dict[str, ExportLayout] = {}
         # ordered (out_name, evaluator) pairs, resolved at bind
         self._outputs: list[tuple[str, Callable]] = []
+        # deferred (write_future, source) pairs of the last firing when
+        # async_writes is on (one firing in flight); drained at the next
+        # firing and at truncate_after / close. Empty in the blocking
+        # default. The source array is retained until its write commits
+        # (tensorstore requires the source valid until the copy is done).
+        self._pending: list[tuple[Any, Any]] = []
 
     # ================================================================
     #  Protocol slots
@@ -181,15 +207,37 @@ class Writer:
             self._trigger, stream=f"Writer({self._path})")
         model_state = self._model_state(model)
         self._outputs = self._resolve_outputs(model, model_state)
-        templates = {
-            name: self._template(evaluate(model_state), name)
-            for name, evaluate in self._outputs}
-        self._open_store(templates, model_state, model)
+        templates: dict[str, ExportLayout] = {}
+        hints: dict[str, tuple[int, ...]] = {}
+        for name, evaluate in self._outputs:
+            field = evaluate(model_state)
+            layout = self._layout(field, name)
+            templates[name] = layout
+            hints[name] = self._chunk_hint(field, layout)
+        self._templates = templates
+        self._open_store(templates, hints, model_state, model)
         self._bound = True
 
     def write(self, model_state: Any) -> None:
         """
         Append one time slice from the boundary-synced carry.
+
+        Description
+        -----------
+        The scalar time/iteration axes always write synchronously
+        (tiny, and :meth:`truncate_after` reads the iteration axis
+        back). The spatial variables write shard-wise true-DOF tiles
+        via ``shard_writes`` (no gather anywhere).
+
+        By default every write is blocked on before returning, so an
+        aborted run leaves a complete final slice. With
+        ``async_writes`` the tensorstore writes are **deferred**: this
+        firing drains the previous firing first (backpressure — one
+        firing in flight, so the source buffers cannot pile up) and
+        then queues its own writes, which commit in the background
+        while the model integrates toward the next firing. The
+        device->host copy in ``shard_writes`` is unaffected — it stays
+        on the calling thread; only the disk commit overlaps.
 
         Parameters
         ----------
@@ -199,23 +247,73 @@ class Writer:
         """
         self._require_bound()
         clock = model_state.clock
-        # single process here: the decomposition.gather inside
-        # scalar_to_dataarray already lands rank-0 global arrays; the
-        # rank-0 write guard is the decomposed-slice sink swap's seam.
-        slices = {
-            name: np.asarray(self._template(
-                evaluate(model_state), name).values)
-            for name, evaluate in self._outputs}
         nt = self._n
         self._time = _grow(self._time, (nt + 1,))
         self._time[nt] = float(np.asarray(clock.time))
         self._iteration = _grow(self._iteration, (nt + 1,))
         self._iteration[nt] = int(np.asarray(clock.it))
-        for name, values in slices.items():
+        if self._async_writes:
+            self._drain()  # finish the previous firing (one in flight)
+        writes: list[tuple[Any, Any]] = []
+        for name, evaluate in self._outputs:
             shape = (nt + 1, *self._spatial[name])
             self._vars[name] = _grow(self._vars[name], shape)
-            self._vars[name][nt] = values
+            self._write_shards(nt, name, evaluate(model_state), writes)
+        if self._async_writes:
+            self._pending = writes
+        else:
+            _block_writes(writes)
         self._n = nt + 1
+
+    def _drain(self) -> None:
+        """Block on the deferred writes of the previous firing."""
+        pending, self._pending = self._pending, []
+        _block_writes(pending)
+
+    def _write_shards(
+        self, nt: int, name: str, field: ScalarField,
+        writes: list[tuple[Any, Any]],
+    ) -> None:
+        """
+        Queue the async shard writes of one output at time index `nt`.
+
+        Description
+        -----------
+        Each locally-owned true-DOF tile (``decomposition.shard_writes``)
+        is mapped from storage axes to the exported dims through
+        ``layout.kept_axes``: the dropped (constant-factor) positions
+        are squeezed off ``values``, the same positions are dropped from
+        the target slices, and the surviving window is written into the
+        ``[nt]`` slice. Zero-extent tiles (the empty last shard of
+        ``Inner`` / bounded ``FaceAvg`` spaces on non-divisible cell
+        counts) are skipped.
+
+        Parameters
+        ----------
+        nt : int
+            The time index of this firing.
+        name : str
+            The output variable name.
+        field : ScalarField
+            The evaluated field to write.
+        writes : list
+            The per-firing accumulator of ``(write_future, source)``
+            pairs (blocked on in ``write`` or ``_drain``); the source
+            tile is retained so it stays valid until its write commits.
+        """
+        layout = self._templates[name]
+        space = field.function_space
+        decomp = field.grid.decomposition
+        var = self._vars[name]
+        for target, values in decomp.shard_writes(
+                field._data, space):  # noqa: SLF001 — storage seam
+            dropped = tuple(axis for axis in range(len(target))
+                            if axis not in layout.kept_axes)
+            block = np.squeeze(values, axis=dropped) if dropped else values
+            if block.size == 0:
+                continue  # empty last shard (Inner / bounded FaceAvg)
+            kept = tuple(target[axis] for axis in layout.kept_axes)
+            writes.append((var[(nt, *kept)].write(block), block))
 
     def truncate_after(self, iteration: int) -> None:
         """
@@ -234,6 +332,8 @@ class Writer:
             The snapshot iteration; slices past it are dropped.
         """
         self._require_bound()
+        # deferred writes must commit before the arrays are resized down
+        self._drain()
         stored = np.asarray(self._iteration.read().result())
         keep = int(np.searchsorted(stored, iteration, side="right"))
         self._time = _grow(self._time, (keep,))
@@ -249,17 +349,21 @@ class Writer:
 
         Description
         -----------
-        Idempotent. tensorstore writes commit synchronously, so an
-        abort mid-run leaves a readable store; ``close`` only drops
-        the in-memory handles.
+        Idempotent. Any deferred writes are drained first, so the
+        store on disk is complete before the handles drop; an abort
+        before ``close`` still leaves every already-committed slice
+        readable.
         """
         if not self._bound:
             return
+        self._drain()
         self._bound = False
         self._time = None
         self._iteration = None
         self._vars = {}
         self._spatial = {}
+        self._templates = {}
+        self._pending = []
 
     # ================================================================
     #  Bind helpers — output resolution
@@ -321,8 +425,8 @@ class Writer:
         # lifecycle default: PROGNOSTIC + DIAGNOSTIC, AUXILIARY opt-in
         return tuple(table.prognostic) + tuple(table.diagnostic)
 
-    def _template(self, field: ScalarField, name: str) -> Any:
-        """Reject unwritable fields; return the ``f.xr`` DataArray."""
+    def _layout(self, field: ScalarField, name: str) -> ExportLayout:
+        """Reject unwritable fields; return the values-free layout."""
         space = field.function_space
         from fridom.spatial.scalars import (  # noqa: PLC0415
             Scalars,
@@ -341,16 +445,37 @@ class Writer:
                 f"Writer cannot write the complex output {name!r}: "
                 "zarr/CF has no complex layout in iteration 1 (write "
                 "field.real/field.imag, or read field.data directly)")
-        from fridom.spatial.export import (  # noqa: PLC0415
-            scalar_to_dataarray,
-        )
-        return scalar_to_dataarray(field)
+        from fridom.spatial.export import export_layout  # noqa: PLC0415
+        return export_layout(field)
+
+    @staticmethod
+    def _chunk_hint(
+        field: ScalarField, layout: ExportLayout,
+    ) -> tuple[int, ...]:
+        """
+        Default per-dim spatial chunks from the decomposition.
+
+        Description
+        -----------
+        The decomposition's write-aligned chunk grid
+        (``chunk_hint`` — per-shard cells on a blocked axis, the full
+        extent on an unblocked one) mapped to the exported dims through
+        ``layout.kept_axes``. Under this default every
+        ``shard_writes`` tile is chunk-aligned, so no write reads a
+        chunk back. On a single device it equals the full spatial
+        shape (the previous default). Explicit user ``chunks=`` still
+        wins per dim.
+        """
+        hint = field.grid.decomposition.chunk_hint(
+            field.function_space)
+        return tuple(hint[axis] for axis in layout.kept_axes)
 
     # ================================================================
     #  Bind helpers — store creation
     # ================================================================
     def _open_store(
-        self, templates: Mapping[str, Any], model_state: Any,
+        self, templates: Mapping[str, ExportLayout],
+        hints: Mapping[str, tuple[int, ...]], model_state: Any,
         model: Any,
     ) -> None:
         """Create (or reopen for append) the tensorstore zarr store."""
@@ -369,22 +494,21 @@ class Writer:
         self._write_group(model)
         self._write_coords(templates)
         self._write_time_axis(model_state)
-        self._write_variables(templates)
+        self._write_variables(templates, hints)
         self._n = 0
 
-    def _reopen(self, templates: Mapping[str, Any]) -> None:
+    def _reopen(self, templates: Mapping[str, ExportLayout]) -> None:
         """Reopen an existing store for append (resume)."""
         self._time = _open_array(self._path / "time")
         self._iteration = _open_array(self._path / "iteration")
-        for name, da in templates.items():
+        for name, layout in templates.items():
             store = (self._path / name)
             if not store.exists():
                 raise ValueError(
                     f"cannot append to {self._path}: it has no "
                     f"variable {name!r} (schema mismatch on resume)")
             self._vars[name] = _open_array(store)
-            self._spatial[name] = tuple(
-                int(s) for s in np.asarray(da.values).shape)
+            self._spatial[name] = tuple(int(s) for s in layout.shape)
         self._n = int(self._time.domain[0].exclusive_max)
 
     def _write_group(self, model: Any) -> None:
@@ -401,21 +525,23 @@ class Writer:
         attrs.update(self._attrs)
         _write_json(self._path / ".zattrs", attrs)
 
-    def _write_coords(self, templates: Mapping[str, Any]) -> None:
+    def _write_coords(
+        self, templates: Mapping[str, ExportLayout],
+    ) -> None:
         """Write the static spatial coordinate arrays once."""
         seen: set[str] = set()
-        for da in templates.values():
-            for dim in da.dims:
+        for layout in templates.values():
+            for dim in layout.dims:
                 if dim in seen:
                     continue
                 seen.add(dim)
-                values = np.asarray(da.coords[dim].values)
+                values = np.asarray(layout.coords[dim])
                 store = _create_array(
                     self._path / dim, values.shape,
                     (max(1, values.shape[0]),), values.dtype)
                 store[...] = values
                 zattrs = {"_ARRAY_DIMENSIONS": [dim]}
-                zattrs.update(da.coords[dim].attrs)
+                zattrs.update(layout.coord_attrs[dim])
                 _write_json(self._path / dim / ".zattrs", zattrs)
 
     def _write_time_axis(self, model_state: Any) -> None:
@@ -433,21 +559,26 @@ class Writer:
             self._path / "iteration" / ".zattrs",
             {"_ARRAY_DIMENSIONS": ["time"], "long_name": "iteration"})
 
-    def _write_variables(self, templates: Mapping[str, Any]) -> None:
+    def _write_variables(
+        self, templates: Mapping[str, ExportLayout],
+        hints: Mapping[str, tuple[int, ...]],
+    ) -> None:
         """Create the empty (time, *space) variable arrays."""
         time_chunk = max(1, int(self._chunks.get("time", 1)))
-        for name, da in templates.items():
-            values = np.asarray(da.values)
-            spatial = tuple(int(s) for s in values.shape)
+        for name, layout in templates.items():
+            spatial = tuple(int(s) for s in layout.shape)
             self._spatial[name] = spatial
+            # default spatial chunks = the decomposition's write-aligned
+            # grid (chunk_hint); explicit user chunks= win per dim.
             chunks = (time_chunk, *(
-                max(1, int(self._chunks.get(dim, size)))
-                for dim, size in zip(da.dims, spatial, strict=True)))
+                max(1, int(self._chunks.get(dim, default)))
+                for dim, default in zip(
+                    layout.dims, hints[name], strict=True)))
             self._vars[name] = _create_array(
                 self._path / name, (0, *spatial), chunks,
-                values.dtype)
-            zattrs = {"_ARRAY_DIMENSIONS": ["time", *da.dims]}
-            zattrs.update(da.attrs)
+                layout.dtype)
+            zattrs = {"_ARRAY_DIMENSIONS": ["time", *layout.dims]}
+            zattrs.update(layout.attrs)
             # CF auxiliary-coordinate promotion: xarray reads the
             # iteration variable back as a coordinate, no post-proc.
             zattrs["coordinates"] = "iteration"
@@ -499,6 +630,21 @@ def _open_array(path: Path) -> Any:
 def _grow(store: Any, shape: tuple[int, ...]) -> Any:
     """Resize a tensorstore array to ``shape`` (grow or shrink)."""
     return store.resize(exclusive_max=list(shape)).result()
+
+
+def _block_writes(writes: list[tuple[Any, Any]]) -> None:
+    """
+    Block until every queued write has committed.
+
+    Description
+    -----------
+    Waits on each ``(write_future, source)`` pair's commit future; the
+    source tile is held only to keep it valid until the write is done
+    (tensorstore borrows the source until then) and is otherwise
+    unused here.
+    """
+    for future, _source in writes:
+        future.result()
 
 
 def _write_json(path: Path, obj: Mapping[str, Any]) -> None:

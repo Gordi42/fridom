@@ -1,9 +1,14 @@
 """Tests for the Operator base hierarchy (base.py, Wave 2)."""
 import dataclasses
 
+import jax
+import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.base import (
     BinaryOperator,
     Block,
@@ -164,3 +169,71 @@ def test_block_is_designed_for(whole_cls):
 def test_unsupported_domain_raises_space_mismatch(mx, stagger):
     with pytest.raises(SpaceMismatchError, match="unsupported"):
         stagger.codomain(mx.cell_avg)
+
+
+# ================================================================
+#  Eager multi-device kernel sharding (_kernel_apply / _jitted_apply)
+# ================================================================
+# a periodic mesh pair reused across grids (x is the sharded axis)
+_EAGER_MX = IntervalMesh(16, (0.0, 1.0), name="x")
+_EAGER_MY = IntervalMesh(16, (0.0, 2.0), name="y")
+
+
+def _eager_grid(device_ids=None):
+    return Grid((_EAGER_MX, _EAGER_MY), device_ids=device_ids)
+
+
+def _init(x, y):
+    return jnp.sin(2.0 * jnp.pi * x) + jnp.cos(y)
+
+
+def _sharded_axes(arr):
+    """Return the mesh axes the array's storage is partitioned over."""
+    return {name for name in arr.sharding.spec if name is not None}
+
+
+@pytest.mark.multi_device
+def test_eager_to_keeps_the_operand_sharding():
+    # eager .to on the Auto mesh replicated the kernel result (P())
+    # before the guard: an implicit all-gather. It must now come back
+    # sharded over the same device axis as its operand.
+    grid = _eager_grid()
+    f = grid.create_field(init=_init)
+    assert _sharded_axes(f._data)  # the operand really is sharded
+    g = f.to(_EAGER_MX.right)
+    assert _sharded_axes(g._data) == _sharded_axes(f._data)
+
+
+@pytest.mark.multi_device
+def test_eager_diff_keeps_the_operand_sharding():
+    # the same slice/pad stencil path via .diff
+    grid = _eager_grid()
+    f = grid.create_field(init=_init)
+    assert _sharded_axes(f.diff("x")._data) == _sharded_axes(f._data)
+
+
+@pytest.mark.multi_device
+def test_eager_kernel_is_device_count_invariant():
+    # the sharded eager kernel gathers to the one-device result
+    many, one = _eager_grid(), _eager_grid(device_ids=(0,))
+    gm = many.create_field(init=_init).to(_EAGER_MX.right)
+    go = one.create_field(init=_init).to(_EAGER_MX.right)
+    a = np.asarray(many.decomposition.gather(gm._data, gm.function_space))
+    b = np.asarray(one.decomposition.gather(go._data, go.function_space))
+    assert np.array_equal(a, b)
+
+
+def test_traced_application_runs_the_plain_kernel():
+    # the model-loop path: under an enclosing jit the operand data is
+    # a tracer, so _kernel_apply runs the kernel directly (no nested
+    # jit). Correct on any device count.
+    grid = _eager_grid(device_ids=(0,))
+    f = grid.create_field(init=_init)
+
+    @jax.jit
+    def apply(field):
+        return field.to(_EAGER_MX.right)
+
+    traced = np.asarray(apply(f).data)
+    eager = np.asarray(f.to(_EAGER_MX.right).data)
+    assert np.array_equal(traced, eager)

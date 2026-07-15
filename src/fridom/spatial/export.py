@@ -49,6 +49,7 @@ xarray is an optional (dev) dependency; it is imported lazily.
 # Wave 4: xarray export
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -115,24 +116,84 @@ def _position(factor: FunctionSpace) -> str:
         f"xarray export of {factor!r} is not defined in iteration 1")
 
 
-def scalar_to_dataarray(
-    field: ScalarField,
-    *,
-    positions_in_names: bool = True,
-) -> xr.DataArray:
+@dataclass(frozen=True)
+class ExportLayout:
+
     """
-    Export a ``ScalarField`` to an ``xarray.DataArray``.
+    Values-free export layout of a ``ScalarField``.
 
     Description
     -----------
-    Realizes the export rules in the module docstring; the entry
-    point is the ``ScalarField.xr`` property (which passes
-    ``positions_in_names=False``).
+    The label/coordinate/attribute skeleton of a field's ``xarray``
+    export, built by :func:`export_layout` **without gathering the
+    field data**. ``scalar_to_dataarray`` pairs it with the gathered
+    values; the ``fr.model.io.Writer`` builds its store from the
+    layout at bind, so bind needs neither ``decomposition.gather``
+    nor ``xarray`` (see ``gather_free_output_plan.md``).
+
+    Storage-axis mapping: ``dims``/``coords`` describe the *exported*
+    axes only. Constant factors (``ConstantSpace``, broadcast
+    placeholders) are squeezed out, so the exported axes are a subset
+    of the field's storage axes (one per ``space.factors`` entry).
+    ``kept_axes[i]`` is the storage-axis position of ``dims[i]``; the
+    dropped positions are exactly the squeezed constant factors, and
+    ``shape[i] == len(coords[dims[i]])`` is that axis' global true
+    length.
+
+    Parameters
+    ----------
+    name : str
+        The exported variable name (the field metadata ``name``).
+    dims : tuple[str, ...]
+        The exported dim names, in storage-axis order.
+    coords : dict[str, np.ndarray]
+        Per-dim 1-D coordinate node vector (real).
+    coord_attrs : dict[str, dict[str, object]]
+        Per-dim coordinate attributes (e.g. ``c_grid_axis_shift``,
+        ``representation``).
+    attrs : dict[str, object]
+        The variable attributes (``long_name``, ``units``, and the
+        ``nc_attrs`` pairs).
+    dtype : np.dtype
+        The stored value dtype (the field storage dtype).
+    shape : tuple[int, ...]
+        The global true shape of the exported axes.
+    kept_axes : tuple[int, ...]
+        The storage-axis position of each exported dim (constant
+        factors omitted).
+    """
+
+    name: str
+    dims: tuple[str, ...]
+    coords: dict[str, np.ndarray]
+    coord_attrs: dict[str, dict[str, object]]
+    attrs: dict[str, object]
+    dtype: np.dtype
+    shape: tuple[int, ...]
+    kept_axes: tuple[int, ...]
+
+
+def export_layout(
+    field: ScalarField,
+    *,
+    positions_in_names: bool = True,
+) -> ExportLayout:
+    """
+    Build the values-free export layout of a ``ScalarField``.
+
+    Description
+    -----------
+    Realizes the label/coordinate/attribute rules in the module
+    docstring without touching the field data (no
+    ``decomposition.gather``, no ``xarray``). Constant factors are
+    squeezed; the surviving storage-axis positions are recorded on
+    ``ExportLayout.kept_axes`` so callers can drop the same positions
+    from a gathered array (see :func:`gathered_values`).
 
     Parameters
     ----------
     field : ScalarField
-        The field to export.
+        The field whose layout to describe.
     positions_in_names : bool, optional
         Suffix staggered dims xgcm-style (``x_right``); False
         exports every position under the plain axis name, keeping
@@ -143,24 +204,21 @@ def scalar_to_dataarray(
 
     Returns
     -------
-    xr.DataArray
-        The global true-shape data with labeled coordinates.
+    ExportLayout
+        The dims/coords/attrs skeleton and the storage-axis mapping.
     """
-    xarray = _import_xarray()
     grid = field.grid
     space = field.function_space
-    values = np.asarray(grid.decomposition.gather(
-        field._data, space))  # noqa: SLF001 — storage seam
     dims: list[str] = []
-    coords: dict[str, tuple[str, np.ndarray, dict[str, object]]] = {}
-    squeeze: list[int] = []
+    coords: dict[str, np.ndarray] = {}
+    coord_attrs: dict[str, dict[str, object]] = {}
+    kept_axes: list[int] = []
     for axis, factor in enumerate(space.factors):
         if len(factor.shape) != 1:
             raise NotImplementedError(
                 f"xarray export of the multi-axis factor {factor!r} "
                 "is not defined in iteration 1")
         if isinstance(factor, ConstantSpace):
-            squeeze.append(axis)
             continue
         name = factor.names[0]
         attrs: dict[str, object] = {}
@@ -185,20 +243,107 @@ def scalar_to_dataarray(
             # stores them at the coefficient space's complex dtype
             labels = labels.real
         dims.append(dim)
-        coords[dim] = (dim, labels, attrs)
-    if squeeze:
-        values = np.squeeze(values, axis=tuple(squeeze))
+        coords[dim] = labels
+        coord_attrs[dim] = attrs
+        kept_axes.append(axis)
     metadata = field.metadata
-    return xarray.DataArray(
-        values,
+    return ExportLayout(
+        name=metadata.name,
         dims=tuple(dims),
         coords=coords,
-        name=metadata.name,
+        coord_attrs=coord_attrs,
         attrs={
             "long_name": metadata.long_name,
             "units": metadata.units,
             **dict(metadata.nc_attrs),
-        })
+        },
+        dtype=np.dtype(field._data.dtype),  # noqa: SLF001 — storage seam
+        shape=tuple(len(coords[dim]) for dim in dims),
+        kept_axes=tuple(kept_axes),
+    )
+
+
+def gathered_values(
+    field: ScalarField, layout: ExportLayout,
+) -> np.ndarray:
+    """
+    Gather a field to the global true shape of its layout.
+
+    Description
+    -----------
+    The values half of the export split: ``decomposition.gather`` to
+    the global true array (halo and padding never leave the
+    decomposition layer), then squeeze the constant-factor axes that
+    ``layout`` dropped. Requires no ``xarray`` — the
+    ``fr.model.io.Writer`` write path consumes it directly.
+
+    Parameters
+    ----------
+    field : ScalarField
+        The field to gather.
+    layout : ExportLayout
+        The field's layout (its ``kept_axes`` select the surviving
+        storage axes).
+
+    Returns
+    -------
+    np.ndarray
+        The host global true-shape values.
+    """
+    space = field.function_space
+    values = np.asarray(field.grid.decomposition.gather(
+        field._data, space))  # noqa: SLF001 — storage seam
+    dropped = tuple(axis for axis in range(values.ndim)
+                    if axis not in layout.kept_axes)
+    if dropped:
+        values = np.squeeze(values, axis=dropped)
+    return values
+
+
+def scalar_to_dataarray(
+    field: ScalarField,
+    *,
+    positions_in_names: bool = True,
+) -> xr.DataArray:
+    """
+    Export a ``ScalarField`` to an ``xarray.DataArray``.
+
+    Description
+    -----------
+    Realizes the export rules in the module docstring; the entry
+    point is the ``ScalarField.xr`` property (which passes
+    ``positions_in_names=False``). Composes the values-free
+    :func:`export_layout` with :func:`gathered_values` and the
+    ``xarray`` assembly.
+
+    Parameters
+    ----------
+    field : ScalarField
+        The field to export.
+    positions_in_names : bool, optional
+        Suffix staggered dims xgcm-style (``x_right``); False
+        exports every position under the plain axis name, keeping
+        the position in the ``c_grid_axis_shift`` attribute. Plain
+        names are only safe for a lone ``DataArray``; datasets
+        combining differently staggered variables need the suffixed
+        names (default: True).
+
+    Returns
+    -------
+    xr.DataArray
+        The global true-shape data with labeled coordinates.
+    """
+    xarray = _import_xarray()
+    layout = export_layout(field, positions_in_names=positions_in_names)
+    values = gathered_values(field, layout)
+    return xarray.DataArray(
+        values,
+        dims=layout.dims,
+        coords={
+            dim: (dim, layout.coords[dim], layout.coord_attrs[dim])
+            for dim in layout.dims},
+        name=layout.name,
+        attrs=layout.attrs)
 
 
 def vector_to_dataset(vector: VectorField) -> xr.Dataset:

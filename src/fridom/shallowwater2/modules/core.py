@@ -329,7 +329,14 @@ class DynamicalCore(fr.model.Module):
         carries the ``sqrt_g``-weighted geopotential flux; the final
         retags strip the variance claim and restore the velocities'
         wall tags. On the identity chart every metric factor is an
-        exact 1.0, reproducing the flat path bitwise.
+        exact 1.0, reproducing the flat path **to rounding** — not
+        bitwise: ``extra_halo`` is chart-conditional (2 cells per
+        axis on a chart, none on a flat grid), so the two pad their
+        storage differently and XLA fuses the stencil differently
+        (FMA contraction in one path, multiply-then-add in the
+        other). The results-neutrality gate that *is* bitwise is the
+        one that matters and is unaffected: a **flat** grid takes the
+        flat branch verbatim (module docstring).
         """
         u, v, p = state["u"], state["v"], state["p"]
         csqr = state["csqr"]

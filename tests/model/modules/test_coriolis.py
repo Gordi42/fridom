@@ -370,12 +370,30 @@ def test_rotation_on_the_sphere_is_the_physical_rotation():
 
 
 # ----------------------------------------------------------------
-#  Sanity check 2: the identity chart IS the f-plane (bitwise)
+#  Sanity check 2: the identity chart IS the f-plane
 # ----------------------------------------------------------------
 def test_rotation_on_the_identity_chart_is_the_f_plane():
     # X = (x, y, 0) -> n_hat = (0, 0, 1) exactly, so f = 2 Omega and
     # every metric factor is an exact 1.0: the chart-generic module
-    # reproduces FPlaneCoriolis(f0=2 Omega) BIT FOR BIT
+    # reproduces FPlaneCoriolis(f0=2 Omega) -- to rounding.
+    #
+    # NOT bitwise, and deliberately so. Since the extra-halo gate
+    # (`fix/sw-extra-halo-gate`, lever 8) `DynamicalCore.extra_halo`
+    # is chart-conditional: the chart core requests 2 halo cells per
+    # axis where the flat core requests none. The two models
+    # therefore pad their storage differently, XLA fuses the `.to`
+    # interpolation differently (FMA contraction in one path,
+    # multiply-then-add in the other), and `v` lands ~16 ulp apart
+    # (3e-15 relative). That is re-association, not physics:
+    #  - the interior INPUTS are bitwise equal, only the outputs move;
+    #  - the differences scatter across every interior column, not
+    #    the wall-adjacent ones a bad ghost fill would touch;
+    #  - equalising the two cores' `extra_halo` restores exact
+    #    bitwise equality (0 ulp on both components).
+    # `.data` is already halo-stripped, so narrowing to the interior
+    # does not recover the bitwise claim -- the tolerance is the
+    # honest assertion. It stays tight enough that any real error
+    # (which would be O(dx) or worse) still fails it.
     omega_z = 0.65
     chart = make_chart_model(
         identity_chart_grid(),
@@ -396,8 +414,9 @@ def test_rotation_on_the_identity_chart_is_the_f_plane():
     df = flat.tendency(flat.state, filter=(
         fr.model.term_predicates.named("FPlaneCoriolis/coriolis")))
     for comp in ("u", "v"):
-        assert np.array_equal(np.asarray(dc[comp].data),
-                              np.asarray(df[comp].data))
+        got = np.asarray(dc[comp].data)
+        want = np.asarray(df[comp].data)
+        assert np.allclose(got, want, rtol=1e-12, atol=1e-15)
 
 
 # ----------------------------------------------------------------

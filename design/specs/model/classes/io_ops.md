@@ -42,7 +42,7 @@ framework2/
         __init__.py     # fr.io namespace (lazypimp re-exports)
         triggers.py     # Trigger nodes, every/at factories, lower_trigger
         streams.py      # OutputStream protocol, binding helpers, IO errors
-        writer.py       # Writer (zarr-append gather sink behind it, 2.6)
+        writer.py       # Writer (zarr-append decomposed-slice sink, 2.6)
         timeseries.py   # TimeSeries (CSV sink, 2.6)
         snapshots.py    # Snapshots config, SnapshotManifest, store functions
         slurm.py        # fr.slurm helpers; resubmit
@@ -416,14 +416,23 @@ Semantics, invariants, error behavior:
   attrs including the **fingerprint digest + version** (provenance).
   Coefficient-space and complex fields raise (inheriting the `.xr`
   it-1 restriction, with a pointer to `.data`).
-- **Sinks receive Fields, not numpy** (§6.4): the gather
-  (`decomposition.gather`, rank 0 writes) happens *inside* the it-1
-  sink, so decomposed-slice output is a **sink swap** keyed by
-  `local_slice` in global true-DOF indices — an internal seam, not a
-  public kwarg in it-1. Behind the seam for 2.6: decomposed-slice
-  writes, async writes (serialize per store), file splitting
+- **Sinks receive Fields, not numpy** (§6.4): the sink is
+  **decomposed-slice** (shipped 2026-07-14,
+  [`../../../plans/done/gather_free_output_plan.md`](../../../plans/done/gather_free_output_plan.md)):
+  bind builds the store from the values-free `export_layout` (no
+  gather, no xarray), and `write` streams each replica-0 jax shard's
+  true-DOF tile straight into the store via
+  `decomposition.shard_writes` — halo ghosts, the stagger reserve,
+  and cell padding never leave the decomposition layer, and the
+  global array is never materialized. The default spatial chunking
+  is `decomposition.chunk_hint` (the per-shard cell grid), under
+  which every tile write is chunk-aligned: no read-modify-write, no
+  two writes on one chunk (user `chunks=` overrides stay correct,
+  possibly unaligned). Still behind the seam: cross-boundary async
+  (writes currently barrier per firing), file splitting
   (`split=fr.every(...)`), `sel=` subsetting (meanwhile: composition
-  on the callable).
+  on the callable), and the multi-host backend (`shard_writes`'
+  addressable/replica-0 contract is already the multi-host shape).
 - **Sink engine — tensorstore, amended (owner directive, wave 5,
   2026-07-08)**: the it-1 Writer sink is **tensorstore**, not the
   `zarr` Python package (the earlier plan had zarr as the it-1 sink
