@@ -87,13 +87,20 @@ root cause (`n % P ≠ 0` on the sharded axis):
 
 The pressure solve is *not* the bottleneck (byte-identical 2
 all-to-alls across all wall configs; the earlier "communication-bound
-fully-walled solve" reading was wrong and is corrected). Fix ladder:
-(1) shard-axis selection that respects staggering — rescues x/xy/xz for
-free but not primes; (2) collective-free reblock for the `n_cells±1`
-residue — covers fully-walled; (3) a distributed solve that tolerates
-an indivisible split axis — the only lever for prime domains; (4)
-pad-the-sharded-axis-to-`P` fallback. Full analysis, evidence tables,
-and the ranked fixes:
+fully-walled solve" reading was wrong and is corrected).
+
+**Root-caused and probe-validated 2026-07-15** (HLO forensics +
+monkeypatch A/B; evidence frozen in
+[`../research/indivisible_shard_probes.md`](../research/indivisible_shard_probes.md)):
+the walled explosion is hot-loop true-frame excursions (AB3
+`_weighted`, coriolis lifts) hitting the reblock gate at
+`tensor.py:525`, which excludes the staggered ±1 legs from the fast
+padded-even plan; the prime slowdown is the transform planner's
+divisibility decline. Phased fix plan — (1) reblock gate (collapses
+x-walled to the periodic baseline exactly in the A/B), (2) padded
+all-to-all transpose for indivisible split axes (validated spelling:
+local pad/slice, zero extra collectives, ~2× over replicating), (3)
+optional excursion/axis-selection hygiene — with tests and A100 gates:
 [`../plans/active/indivisible_shard_plan.md`](../plans/active/indivisible_shard_plan.md).
 
 ## Multi-device compile and execution cost

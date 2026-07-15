@@ -6,7 +6,7 @@ date: 2026-07-12
 # Design research reports
 
 The `c*` / `d*` table below is the per-decision research behind the
-model-layer design. The bucket also holds four standalone frozen
+model-layer design. The bucket also holds standalone frozen
 inputs (audits and investigations), listed in the second table.
 
 Per-decision research reports produced during the model-layer design
@@ -54,3 +54,4 @@ keys are gated to PROGNOSTIC) — the concepts file is authoritative.
 | [`boundary_design_explainer.md`](boundary_design_explainer.md) | Boundaries — dev extrapolation-fill vs the R1 flip, side by side (decision made 2026-07-11: R1 landed) |
 | [`nnmd_literature.md`](nnmd_literature.md) | NNMD — literature sweep, R1 of [`../plans/active/nnmd_rewrite_plan.md`](../plans/done/nnmd_rewrite_plan.md) |
 | [`xla_spmd_fft_fault.md`](xla_spmd_fft_fault.md) | Coordinate systems — the jitted-FFT-on-a-sharded-axis XLA fault; reproducer + fridom-side mitigation |
+| [`indivisible_shard_probes.md`](indivisible_shard_probes.md) | Indivisible-extent sharding — HLO forensics (per-op collective attribution, the `tensor.py:525` gate A/B), padded all-to-all transpose validation, pad-cost measurements, prior art ([`../plans/active/indivisible_shard_plan.md`](../plans/active/indivisible_shard_plan.md)) |
