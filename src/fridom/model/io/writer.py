@@ -70,6 +70,14 @@ _NS_PER_S = 1_000_000_000
 # the accepted create/append vocabulary (V-S1; "w-" is the default)
 _MODES = ("w", "w-", "a")
 
+# iteration fill for an un-committed slice. The iteration axis is
+# written last, after a firing's variable tiles commit, so a real
+# iteration value marks a fully-durable slice; an interrupted firing
+# keeps this sentinel and is dropped on reopen / truncate. It is out of
+# range for any real iteration (INT64_MIN), so it cannot collide with a
+# genuine step index (which may be negative for a backward run).
+_UNWRITTEN = int(np.iinfo(np.int64).min)
+
 
 # ================================================================
 #  Writer
@@ -117,9 +125,11 @@ class Writer:
         Overlap the spatial disk writes with the model integration:
         each firing defers its writes and drains the previous firing
         first (one firing in flight — see :meth:`write`), instead of
-        blocking on every write before returning. The default blocks,
-        so an aborted run always leaves a complete final slice
-        (default: False).
+        blocking on every write before returning. Every firing still
+        commits its ``iteration`` label last, so a hard kill leaves the
+        store crash-consistent (the interrupted tail slice is dropped
+        on reopen); the default additionally blocks, so no output at
+        all trails the model on a clean abort (default: False).
     """
 
     def __init__(
@@ -157,12 +167,14 @@ class Writer:
         self._templates: dict[str, ExportLayout] = {}
         # ordered (out_name, evaluator) pairs, resolved at bind
         self._outputs: list[tuple[str, Callable]] = []
-        # deferred (write_future, source) pairs of the last firing when
-        # async_writes is on (one firing in flight); drained at the next
-        # firing and at truncate_after / close. Empty in the blocking
-        # default. The source array is retained until its write commits
-        # (tensorstore requires the source valid until the copy is done).
-        self._pending: list[tuple[Any, Any]] = []
+        # the last firing's deferred work when async_writes is on (one
+        # firing in flight): (var_writes, nt, time_value, it_value),
+        # committed at the next firing and at truncate_after / close.
+        # None in the blocking default. The var-write source arrays are
+        # retained until their writes commit (tensorstore requires the
+        # source valid until the copy is done).
+        self._pending: tuple[list[tuple[Any, Any]], int, float, int]\
+            | None = None
 
     # ================================================================
     #  Protocol slots
@@ -224,20 +236,24 @@ class Writer:
 
         Description
         -----------
-        The scalar time/iteration axes always write synchronously
-        (tiny, and :meth:`truncate_after` reads the iteration axis
-        back). The spatial variables write shard-wise true-DOF tiles
-        via ``shard_writes`` (no gather anywhere).
+        The spatial variables write shard-wise true-DOF tiles via
+        ``shard_writes`` (no gather anywhere). Every firing commits in
+        a fixed order — **variable tiles first, then the time label,
+        then the iteration label last** (:meth:`_commit`) — so the
+        ``iteration`` axis is the durable commit marker: a real
+        iteration value implies its whole slice is on disk. An
+        interrupted slice keeps the iteration fill sentinel and is
+        dropped on reopen (:meth:`_reopen`) / :meth:`truncate_after`.
 
-        By default every write is blocked on before returning, so an
-        aborted run leaves a complete final slice. With
-        ``async_writes`` the tensorstore writes are **deferred**: this
-        firing drains the previous firing first (backpressure — one
-        firing in flight, so the source buffers cannot pile up) and
-        then queues its own writes, which commit in the background
-        while the model integrates toward the next firing. The
-        device->host copy in ``shard_writes`` is unaffected — it stays
-        on the calling thread; only the disk commit overlaps.
+        By default the whole firing commits before returning, so no
+        output trails the model. With ``async_writes`` the variable
+        writes are **deferred**: this firing commits the previous one
+        first (backpressure — one firing in flight, so the source
+        buffers cannot pile up), then issues its own variable writes,
+        which commit in the background while the model integrates
+        toward the next firing (where they, then its labels, commit).
+        The device->host copy in ``shard_writes`` is unaffected — it
+        stays on the calling thread; only the disk commit overlaps.
 
         Parameters
         ----------
@@ -248,27 +264,50 @@ class Writer:
         self._require_bound()
         clock = model_state.clock
         nt = self._n
+        # grow every axis up front (the new slot reads the iteration
+        # fill sentinel until its firing commits, keeping the store
+        # openable with consistent dims); the labels are written last.
         self._time = _grow(self._time, (nt + 1,))
-        self._time[nt] = float(np.asarray(clock.time))
         self._iteration = _grow(self._iteration, (nt + 1,))
-        self._iteration[nt] = int(np.asarray(clock.it))
         if self._async_writes:
-            self._drain()  # finish the previous firing (one in flight)
-        writes: list[tuple[Any, Any]] = []
+            self._drain()  # commit the previous firing (one in flight)
+        var_writes: list[tuple[Any, Any]] = []
         for name, evaluate in self._outputs:
             shape = (nt + 1, *self._spatial[name])
             self._vars[name] = _grow(self._vars[name], shape)
-            self._write_shards(nt, name, evaluate(model_state), writes)
+            self._write_shards(nt, name, evaluate(model_state), var_writes)
+        firing = (var_writes, nt, float(np.asarray(clock.time)),
+                  int(np.asarray(clock.it)))
         if self._async_writes:
-            self._pending = writes
+            self._pending = firing
         else:
-            _block_writes(writes)
+            self._commit(firing)
         self._n = nt + 1
 
+    def _commit(
+        self, firing: tuple[list[tuple[Any, Any]], int, float, int],
+    ) -> None:
+        """
+        Commit one firing: variable tiles, then labels (iteration last).
+
+        Description
+        -----------
+        Blocks on the firing's variable writes, then writes ``time``
+        and finally ``iteration`` — so the iteration label lands only
+        after everything it labels is durable. A crash before this
+        finishes leaves the slice's iteration at the fill sentinel,
+        which reopen/truncate treat as never-written.
+        """
+        var_writes, nt, time_value, it_value = firing
+        _block_writes(var_writes, self._path, nt)
+        self._time[nt] = time_value
+        self._iteration[nt] = it_value
+
     def _drain(self) -> None:
-        """Block on the deferred writes of the previous firing."""
-        pending, self._pending = self._pending, []
-        _block_writes(pending)
+        """Commit the deferred previous firing, if any (async)."""
+        pending, self._pending = self._pending, None
+        if pending is not None:
+            self._commit(pending)
 
     def _write_shards(
         self, nt: int, name: str, field: ScalarField,
@@ -335,7 +374,10 @@ class Writer:
         # deferred writes must commit before the arrays are resized down
         self._drain()
         stored = np.asarray(self._iteration.read().result())
-        keep = int(np.searchsorted(stored, iteration, side="right"))
+        # ignore a trailing un-committed slice (fill sentinel) from a
+        # prior crash — the store is trimmed to the committed prefix
+        n = _committed_length(stored)
+        keep = int(np.searchsorted(stored[:n], iteration, side="right"))
         self._time = _grow(self._time, (keep,))
         self._iteration = _grow(self._iteration, (keep,))
         for name in self._vars:
@@ -363,7 +405,7 @@ class Writer:
         self._vars = {}
         self._spatial = {}
         self._templates = {}
-        self._pending = []
+        self._pending = None
 
     # ================================================================
     #  Bind helpers — output resolution
@@ -509,7 +551,17 @@ class Writer:
                     f"variable {name!r} (schema mismatch on resume)")
             self._vars[name] = _open_array(store)
             self._spatial[name] = tuple(int(s) for s in layout.shape)
-        self._n = int(self._time.domain[0].exclusive_max)
+        # a prior async run may have died mid-firing, leaving a trailing
+        # slice whose iteration is the fill sentinel; drop it so the
+        # append is gap-free and every array shares one time length.
+        n = _committed_length(
+            np.asarray(self._iteration.read().result()))
+        self._time = _grow(self._time, (n,))
+        self._iteration = _grow(self._iteration, (n,))
+        for name in self._vars:
+            self._vars[name] = _grow(
+                self._vars[name], (n, *self._spatial[name]))
+        self._n = n
 
     def _write_group(self, model: Any) -> None:
         """Write ``.zgroup`` and the global ``.zattrs`` (provenance)."""
@@ -554,7 +606,7 @@ class Writer:
         _write_json(self._path / "time" / ".zattrs", time_attrs)
         self._iteration = _create_array(
             self._path / "iteration", (0,), (chunk,),
-            np.dtype(np.int64))
+            np.dtype(np.int64), fill_value=_UNWRITTEN)
         _write_json(
             self._path / "iteration" / ".zattrs",
             {"_ARRAY_DIMENSIONS": ["time"], "long_name": "iteration"})
@@ -600,18 +652,21 @@ class Writer:
 # ================================================================
 def _create_array(
     path: Path, shape: tuple[int, ...], chunks: tuple[int, ...],
-    dtype: np.dtype,
+    dtype: np.dtype, *, fill_value: float | None = None,
 ) -> Any:
     """Create (overwriting) a zarr-v2 array via tensorstore."""
     import tensorstore as ts  # noqa: PLC0415
+    metadata: dict[str, Any] = {
+        "shape": list(shape),
+        "chunks": list(chunks),
+        "dtype": np.dtype(dtype).str,
+    }
+    if fill_value is not None:
+        metadata["fill_value"] = fill_value
     return ts.open({
         "driver": "zarr",
         "kvstore": {"driver": "file", "path": str(path)},
-        "metadata": {
-            "shape": list(shape),
-            "chunks": list(chunks),
-            "dtype": np.dtype(dtype).str,
-        },
+        "metadata": metadata,
         "create": True,
         "delete_existing": True,
     }).result()
@@ -632,7 +687,9 @@ def _grow(store: Any, shape: tuple[int, ...]) -> Any:
     return store.resize(exclusive_max=list(shape)).result()
 
 
-def _block_writes(writes: list[tuple[Any, Any]]) -> None:
+def _block_writes(
+    writes: list[tuple[Any, Any]], path: Path, nt: int,
+) -> None:
     """
     Block until every queued write has committed.
 
@@ -641,10 +698,32 @@ def _block_writes(writes: list[tuple[Any, Any]]) -> None:
     Waits on each ``(write_future, source)`` pair's commit future; the
     source tile is held only to keep it valid until the write is done
     (tensorstore borrows the source until then) and is otherwise
-    unused here.
+    unused here. A failed write (deferred in ``async_writes`` mode)
+    surfaces at the drain that awaits it, so it is re-raised with the
+    store path and the step index it belongs to.
     """
     for future, _source in writes:
-        future.result()
+        try:
+            future.result()
+        except Exception as error:
+            msg = (f"Writer({path}) failed to commit an output write "
+                   f"at step {nt}")
+            raise RuntimeError(msg) from error
+
+
+def _committed_length(iterations: np.ndarray) -> int:
+    """
+    Count the committed slices in an ``iteration`` axis.
+
+    Description
+    -----------
+    Slices commit their iteration label last, so the committed prefix
+    runs up to the first fill sentinel (``_UNWRITTEN``) — the marker of
+    a firing interrupted by a crash. A clean store has no sentinel and
+    the whole axis counts.
+    """
+    unwritten = np.flatnonzero(iterations == _UNWRITTEN)
+    return int(unwritten[0]) if unwritten.size else int(iterations.size)
 
 
 def _write_json(path: Path, obj: Mapping[str, Any]) -> None:
