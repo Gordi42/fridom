@@ -67,6 +67,36 @@ jax.config.update("jax_persistent_cache_min_entry_size_bytes", 0)
 
 
 # ================================================================
+#  Bounded compilation cache (evict at file boundaries)
+# ================================================================
+# jax never evicts its in-process compilation cache, so over a long
+# xdist worker session the accumulated executables grow without bound.
+# On the full suite that peaks at ~20 GB across four workers -- enough
+# to OOM (and drop the connection on) a 16 GB CI runner, which is the
+# cause of the intermittent single-device CI failures. Evicting the
+# caches at every test-file boundary caps the suite at ~13 GB with no
+# wall-time cost: a new file almost always traces a fresh family of
+# shapes, so little live reuse is lost, and the persistent on-disk cache
+# above turns any genuine reuse back into a cheap disk read. (Clearing
+# *within* a file is deliberately avoided -- it forces recompiles on the
+# worker that is already the critical path for barely any memory gain;
+# split an oversized file instead.) Set FRIDOM_TEST_CLEAR_CACHE=0 to
+# disable.
+_clear_cache = os.environ.get("FRIDOM_TEST_CLEAR_CACHE", "1") != "0"
+
+
+def pytest_runtest_teardown(item, nextitem):
+    """Evict jax's unbounded compile cache when the test file changes."""
+    if not _clear_cache:
+        return
+    module_boundary = (
+        getattr(nextitem, "module", None)
+        is not getattr(item, "module", None))
+    if module_boundary:
+        jax.clear_caches()
+
+
+# ================================================================
 #  Device-count markers
 # ================================================================
 def pytest_runtest_setup(item):

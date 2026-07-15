@@ -60,6 +60,24 @@ XLA_FLAGS=--xla_force_host_platform_device_count=4 FRIDOM_TEST_FORCED_DEVICES=4 
   disable). The cache is keyed on HLO + jaxlib version + backend, so it is
   safe across code changes.
 
+- `tests/conftest.py` also **evicts jax's in-process compilation cache at
+  every test-file boundary** (`pytest_runtest_teardown`). jax never evicts
+  that cache on its own, so over a long xdist worker session it grows
+  without bound and peaks near ~20 GB across four workers on the full
+  suite — enough to OOM a 16 GB CI runner (the cause of the intermittent
+  "lost connection" single-device CI failures). Boundary eviction caps the
+  suite at ~13 GB at no wall-time cost (a new file traces fresh shapes, so
+  little live reuse is lost, and the persistent on-disk cache turns any
+  genuine reuse back into a cheap disk read). This is **standing test
+  infrastructure** — keep it on; new tests inherit it automatically and
+  need do nothing. Do not disable it (`FRIDOM_TEST_CLEAR_CACHE=0`) except
+  for a deliberate memory experiment. Two caveats: the eviction fires only
+  *between* files, so a single very large test file keeps its whole
+  footprint on one worker (split such a file rather than clearing within
+  it — clearing mid-file forces recompiles on the critical-path worker for
+  little gain); and `jax.clear_caches()` returns memory well only when
+  called often, which the many-file boundaries of the full suite provide.
+
 - The suite runs on the gpu out of the box: `conftest.py` sets
   `XLA_PYTHON_CLIENT_PREALLOCATE=false` so pytest-xdist workers share the
   single device instead of each preallocating ~75% of its memory (which
