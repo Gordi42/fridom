@@ -722,6 +722,20 @@ the map commit had made them FASTER than the concat baseline's 7.01).
 If tiny-case latency ever matters: seal only ghost-consumed fields
 (drops ~1/6), or group the per-field barriers into one per step.
 
+**Open (predates the seal, blocks calling the 4-GPU story closed):**
+`nh_flat_walled[256]` on 4 GPUs regresses vs the concat baseline
+(320.9 -> 342.9 ms at the map commit -> 349.3 sealed, +8.9%), while
+the same case on 1 GPU improves 22.8%. Ruled out already: collective
+counts (identical), the sign select, the bounded-axis spelling.
+The case runs the REPLICATED composite solve fallback (the
+distributed transform declines the mixed trig plan), so the suspect
+is the fill interacting with that fallback, not the halo exchange.
+`sw_sphere[1024]` on 4 GPUs (+6.5%, bounded lat axis) looks like the
+same family. Next step: the command-buffers-off xprof profile of the
+4-GPU walled chunk. The re-recorded step-gpu4 baseline BAKES IN this
+regression as the new reference — it is recorded here so it is not
+forgotten.
+
 ### 8c. Paired finding: the spectral symbol k^2 is rebuilt per step
 
 Confirmed (2026-07-14): the solver symbol is recomputed every step
