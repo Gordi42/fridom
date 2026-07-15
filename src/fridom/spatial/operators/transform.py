@@ -772,8 +772,10 @@ class Transform(UnaryOperator, ABC):
         the single coordinate the default layout shards, ``b`` the
         first other stage coordinate whose extent divides the device
         count (the transpose partner), ``h`` the last remaining stage
-        coordinate (the local Hermitian half axis of a real domain,
-        None otherwise). None on a non-1-D, indivisible, or
+        coordinate (the local Hermitian half axis of a real domain
+        under a ``_hermitian`` family; None otherwise — the trig
+        families are real-to-real and run their pipelines fully
+        complex). None on a non-1-D, indivisible, or
         fewer-than-two-stage layout (the padded / single-device guards
         live in the caller).
         """
@@ -800,7 +802,8 @@ class Transform(UnaryOperator, ABC):
         real = not _complex_storage(bare)
         local = tuple(n for n in stage_names
                       if n not in (name_a, name_b))
-        name_h = local[-1] if (real and local) else None
+        name_h = (local[-1] if (real and local and self._hermitian)
+                  else None)
         return name_a, name_b, name_h, stage_names
 
     def _distributed_layouts(

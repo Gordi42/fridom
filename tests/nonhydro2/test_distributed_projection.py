@@ -16,6 +16,7 @@ import fridom.spatial.operators.spectral_solve as spectral_solve_mod
 from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.distributed_solve import SlabSolve
 
 # a distinctive domain length so the interned spaces (and with them
 # the chunk executable) cannot be shared with another test's model —
@@ -66,15 +67,19 @@ def test_periodic_projection_resolves_the_distributed_solve(
 
 
 @pytest.mark.multi_device
-def test_walled_projection_falls_back_to_the_replicated_solve(
+def test_walled_projection_resolves_the_distributed_solve(
         resolutions):
-    # documents the KNOWN gap, it is priced, not aspired to: the
-    # distributed transform declines mixed (trig) plans, so a walled
-    # column keeps the replicated composite (measured 2026-07-13:
-    # walled flat scales 1.36x on 4 gpus vs periodic's 2.11x). When
-    # the mixed-transform distribution lands, flip this assertion.
+    # the gap is closed: the walled column now distributes through the
+    # joint ComposedTransform plan (the trig axis is the transpose
+    # partner, so a Fourier axis stays local for the rfft half
+    # spectrum), so the production projection lands on the distributed
+    # fast path instead of the replicated composite it used to keep.
     model = _make_model(periodic_z=False)
     model.advance(1)
     assert resolutions, (
         "the projection never consulted the distributed resolution")
-    assert all(s is None for s in resolutions)
+    assert any(s is not None for s in resolutions), (
+        "the walled multi-device pressure solve fell back to the "
+        "replicated composite — the mixed distributed path regressed")
+    assert all(isinstance(s, SlabSolve)
+               for s in resolutions if s is not None)

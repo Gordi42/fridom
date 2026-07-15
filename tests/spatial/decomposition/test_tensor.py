@@ -1,4 +1,6 @@
 """Tests for the single-device TensorDecomposition."""
+import collections
+import re
 from dataclasses import dataclass
 
 import jax
@@ -301,6 +303,105 @@ def test_gather_returns_global_true_shape(space):
 
 
 # ================================================================
+#  The halo fill's spelling (a performance contract, not a value one)
+# ================================================================
+def _opcodes(text: str) -> collections.Counter:
+    """Count HLO opcodes (an instruction is `%name = <shape> op(..)`)."""
+    return collections.Counter(
+        re.findall(r"= \S+ ([a-z][a-z0-9-]*)\(", text))
+
+
+@pytest.mark.parametrize("periodic", [True, False], ids=["wrap", "bc"])
+def test_sync_spells_the_halo_fill_as_one_index_map(periodic):
+    # The ghost fill is an INDEX MAP: one gather (plus a sign flip on
+    # an odd extension), because every filled slot reads exactly one
+    # slot of the same array. Every spelling computes the same values,
+    # so no value test can see the difference -- but the spelling
+    # decides what the fill costs, and both alternatives lose:
+    #
+    #   * `concatenate` rebuilds the array. XLA makes it a fusion ROOT,
+    #     so an unabsorbed fill materializes a full O(field) buffer and
+    #     every synced field round-trips through HBM.
+    #   * `dynamic_update_slice` writes in place, but XLA ABSORBS the
+    #     write into the consuming kernel rather than materializing it,
+    #     and a chain of 2 * ndim DUS is an index-conditional read of an
+    #     index-conditional read: a wide stencil consumer re-evaluates
+    #     that nest at every offset it reads (+4% on the advective
+    #     nonhydro step, where two fusions swallowed 42 of them).
+    #
+    # The map is absorbed like the DUS and costs one indexed load to
+    # re-derive like the concatenate. This guards the spelling on both
+    # sides -- it bites on a concatenate rebuild AND on a DUS chain --
+    # standalone and, the case that actually matters, fused into a
+    # consumer that reads across the halo.
+    width, n = 2, 4096
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=periodic, name="x")
+    space = (mesh.center if periodic
+             else mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    decomp = _mesh_decomp(mesh, width)
+    storage = decomp.pad(jnp.zeros(n), space)
+
+    standalone = jax.jit(
+        lambda s: decomp.sync(s, space), donate_argnums=0,
+    ).lower(storage).compile().as_text()
+
+    def stencil(s):
+        """Read across the filled halo (the case that actually matters)."""
+        s = decomp.sync(s, space)
+        return (s[2 * width:] + s[:-2 * width]).sum()
+
+    absorbed = jax.jit(stencil).lower(storage).compile().as_text()
+
+    for text in (standalone, absorbed):
+        ops = _opcodes(text)
+        assert ops["gather"] == 1
+        assert not ops["concatenate"]
+        assert not ops["dynamic-update-slice"]
+
+
+@pytest.mark.parametrize("periodic", [True, False], ids=["wrap", "bc"])
+def test_materialized_sync_writes_the_ghosts_in_place(periodic):
+    # sync(materialize=True) is the CALLER's claim that the operand is
+    # dead after the sync (the model's carry seal): the fill is then
+    # spelled as in-place DUS ghost writes behind an
+    # optimization_barrier. The barrier keeps consumers from absorbing
+    # the write chain (an absorbed chain is re-derived per consumer
+    # offset -- the 8c940666 advective regression) and the dead
+    # operand lets XLA's in-place emitter patch O(halo) bytes onto the
+    # buffer instead of copying O(field). Values are identical to the
+    # default index-map spelling by construction; this guards the
+    # spelling and the memory bound.
+    width, n = 2, 4096
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=periodic, name="x")
+    space = (mesh.center if periodic
+             else mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    decomp = _mesh_decomp(mesh, width)
+    storage = decomp.pad(jnp.arange(1.0, n + 1.0), space)
+
+    assert jnp.array_equal(
+        decomp.sync(storage, space, materialize=True),
+        decomp.sync(storage, space))
+
+    lowered = jax.jit(
+        lambda s: decomp.sync(s, space, materialize=True),
+        donate_argnums=0,
+    ).lower(storage)
+    # the barrier is consumed during optimization (it exists to block
+    # fusion, then disappears), so it is guarded on the lowered module
+    assert "optimization_barrier" in lowered.as_text()
+    compiled = lowered.compile()
+    ops = _opcodes(compiled.as_text())
+    assert ops["dynamic-update-slice"] >= 2  # one write per side
+    assert not ops["gather"]
+    # (no concatenate assertion: the bounded fill legitimately
+    # concatenates the O(halo) ghost slab; the memory bound below is
+    # what forbids an O(field) rebuild)
+    field_bytes = storage.size * storage.dtype.itemsize
+    memory = compiled.memory_analysis()
+    assert memory.temp_size_in_bytes < field_bytes // 8
+
+
+# ================================================================
 #  Single-device BC-structured halo fill (real mesh spaces)
 # ================================================================
 def _mesh_decomp(mesh, width):
@@ -475,6 +576,21 @@ def test_periodic_wrap_wider_than_the_axis_raises():
     decomp = _mesh_decomp(mesh, 3)
     with pytest.raises(NotImplementedError, match="wider"):
         _filled(decomp, mesh.center, [1.0, 2.0])
+
+
+def test_materialized_sync_mirrors_the_map_edge_cases(bounded):
+    # the write spelling honors the same contracts as the map: R1
+    # (BC-free sides stay untouched) and the too-wide wrap refusal
+    decomp = _mesh_decomp(bounded, 1)
+    padded = decomp.pad(jnp.asarray([1.0, 2.0, 3.0, 4.0]),
+                        bounded.center)
+    assert jnp.array_equal(
+        decomp.sync(padded, bounded.center, materialize=True), padded)
+    mesh = IntervalMesh(2, (0.0, 1.0), name="x")
+    wide = _mesh_decomp(mesh, 3)
+    with pytest.raises(NotImplementedError, match="wider"):
+        wide.sync(wide.pad(jnp.asarray([1.0, 2.0]), mesh.center),
+                  mesh.center, materialize=True)
 
 
 def test_coefficient_factors_carry_no_halo_storage():

@@ -2,6 +2,7 @@
 import jax.numpy as jnp
 import pytest
 
+from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import (
     GridMismatchError,
@@ -17,8 +18,9 @@ from fridom.spatial.operators.transform import (
     TransformPlan,
     TransformStage,
 )
-from fridom.spatial.operators.trig import Sine
+from fridom.spatial.operators.trig import Cosine, Sine
 from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.nodal import NodeSet
 
 TWO_PI = 2.0 * jnp.pi
 
@@ -303,6 +305,39 @@ def test_distributed_forward_plan_geometry_and_coeff_frame():
     assert coeff.factor("z").scalars is Scalars.REAL
     assert coeff.factor("x").scalars is Scalars.COMPLEX
     assert coeff.factor("y").scalars is Scalars.COMPLEX
+
+
+def _bounded_grid3d(shape=(16, 16, 16), device_ids=None):
+    names = ("x", "y", "z")
+    lengths = (1.0, 2.0, 3.0)
+    meshes = tuple(
+        IntervalMesh(n, (0.0, ln), periodic=False, name=nm)
+        for n, ln, nm in zip(shape, lengths, names, strict=True))
+    grid = Grid(meshes, device_ids=device_ids)
+    space = None
+    for mesh in meshes:
+        factor = mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+        space = factor if space is None else space * factor
+    return grid, space
+
+
+@pytest.mark.multi_device
+def test_distributed_trig_plan_has_no_half_stage():
+    # a real-to-real trig family (all axes Neumann-bounded) is not
+    # Hermitian: its distributed plan runs fully complex with no
+    # half-spectrum stage (the _distributed_geometry _hermitian guard)
+    grid, space = _bounded_grid3d()
+    transform = resolve_transform(grid, space)
+    assert isinstance(transform, Cosine)
+    assert not transform._hermitian
+    name_a, name_b, name_h, _ = transform._distributed_geometry(space)
+    assert name_h is None
+    plan = transform.distributed_forward_plan(space)
+    assert plan is not None
+    assert not any(stage.half for stage in plan.stages)
+    # the sharded axis (a) still transforms last, under the pencil
+    assert plan.stages[-1].axis == name_a
+    assert name_b != name_a
 
 
 class _StubDecomp:

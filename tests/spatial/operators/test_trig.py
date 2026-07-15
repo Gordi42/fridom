@@ -182,6 +182,35 @@ def test_dct2_round_trip(bounded):
     assert jnp.allclose(back.data, f.data, atol=1e-13)
 
 
+def test_dct2_complex_data(bounded):
+    # complex input takes the Makhoul pack forward and the length-2n
+    # backward; the analysis is complex-linear, so a single mode keeps
+    # its complex weight.
+    grid, mesh = bounded
+    space = _neumann_center(mesh).as_complex()
+    x = grid.evaluation_nodes(space).data
+    data = (1 + 2j) * jnp.cos(3 * jnp.pi * x)
+    f = grid.create_field(space, data=data)
+    op = Cosine(grid)
+    coeff = op.forward(f)
+    assert jnp.issubdtype(coeff.dtype, jnp.complexfloating)
+    expected = jnp.zeros(N, dtype=complex).at[3].set(1 + 2j)
+    assert jnp.allclose(coeff.data, expected, atol=1e-14)
+    assert jnp.allclose(op.backward(coeff).data, data, atol=1e-14)
+
+
+def test_dct2_odd_length_uses_the_extension_fallback():
+    # an odd column has no even/odd interleave, so both directions
+    # keep the length-2n extension spelling; the round trip still holds.
+    mesh = IntervalMesh(7, (0.0, 1.0), periodic=False, name="x")
+    grid = Grid((mesh,))
+    space = mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    f = grid.random.normal(space, seed=17)
+    op = Cosine(grid)
+    back = op.backward(op.forward(f))
+    assert jnp.allclose(back.data, f.data, atol=1e-13)
+
+
 # ================================================================
 #  DCT-I (Neumann Outer origin, n + 1 modes k = 0..n)
 # ================================================================

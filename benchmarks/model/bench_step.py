@@ -110,8 +110,14 @@ def _depth(x):
 
 
 def _nh_model(n: int, *, mapped: bool, periodic_z: bool = False,
-              iters: int = 30):
-    """Linear nonhydrostatic f-plane model with a jet-like IC."""
+              iters: int = 30, advection: bool = False):
+    """Nonhydrostatic f-plane model with a jet-like IC.
+
+    ``advection`` switches the momentum/buoyancy advection on. It also
+    switches ``dt`` to a CFL-scaled value: centered advection carries no
+    dissipation, so the linear cases' fixed ``dt = 0.02`` goes
+    non-finite at 512^3 and the model panics mid-timing.
+    """
     mx = fr.spatial.meshes.IntervalMesh(n, (0.0, TWO_PI), periodic=True,
                                         name="x")
     my = fr.spatial.meshes.IntervalMesh(n, (0.0, TWO_PI), periodic=True,
@@ -124,7 +130,10 @@ def _nh_model(n: int, *, mapped: bool, periodic_z: bool = False,
             maps={"zp": lambda z, H: z * H},  # noqa: N803 — H(x), math name
             params={"H": _depth})
     grid = fr.spatial.Grid((mx, my, mz), mapping=mapping)
-    model = nh.Model(grid=grid, dt=0.02, advection=False,
+    # |u| ~ 1 and dx = 2*pi/n, so 0.25 * dx keeps the advective cases
+    # finite at every n; the linear cases keep their original dt.
+    dt = 0.25 * TWO_PI / n if advection else 0.02
+    model = nh.Model(grid=grid, dt=dt, advection=advection,
                      coriolis=nh.FPlaneCoriolis(f0=1.0), dsqr=0.25,
                      pressure_iterations=iters, chunk_size=STEPS)
     hor = (np.arange(n) + 0.5) * (TWO_PI / n)
@@ -140,6 +149,24 @@ def _nh_model(n: int, *, mapped: bool, periodic_z: bool = False,
 def nh_flat_periodic(n):
     """Linear step on the triply periodic flat grid (spectral solve)."""
     model = _nh_model(n, mapped=False, periodic_z=True)
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_FLAT}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_advective(n):
+    """Advective step on the triply periodic flat grid.
+
+    The production configuration, and the one every other nonhydro case
+    here is blind to: they all run ``advection=False``. That gap let a
+    4% advective regression pass a green suite (2026-07-14, the
+    in-place halo write), because the advective step's cost structure is
+    genuinely different -- its stencil consumers can absorb a ghost fill
+    into their own fusion, which the spectral solve's FFT cannot. Any
+    change that moves a fusion boundary must be priced HERE, not only on
+    the linear cases.
+    """
+    model = _nh_model(n, mapped=False, periodic_z=True, advection=True)
     return _stepping_case(model, float(n) ** 3)
 
 

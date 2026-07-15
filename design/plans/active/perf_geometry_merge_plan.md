@@ -554,11 +554,21 @@ if steep bathymetry at 45 iterations becomes a real workload.
 mixed trig/FFT transform pair on the walled column:
 
 1. **Multi-device**: extend the distributed transform to mixed (trig)
-   plans — the replicated fallback caps walled flat scaling at 1.36×
-   and the mapped preconditioner inherits it
-   (`test_distributed_projection.py` documents the fallback). This is
-   the top remaining item.
-2. Reduced precision on the transform pair — landed (lever 7, −10%).
+   plans — LANDED (2026-07-15, `perf/distributed-mixed-transform`,
+   40dd4ea5): the joint `ComposedTransform` planner + per-stage
+   kernel lowering distribute the walled solve; the mapped
+   preconditioner inherits the distributed path (measured 4x A100:
+   `nh_mapped[256]` −48% at 30 and 12 iterations, scaling
+   1.21x → 2.34x; `[128]` −22%; `[32]` +5.5% — the unamortized
+   small-problem crossover). Record: §8b fix 1
+   below and `distributed_transform_plan.md` (mixed transforms).
+   `test_distributed_projection.py` now asserts the walled fast
+   path. NOTE: `single_precision_solve` (lever 7) is a no-op on
+   multi-device walled/mapped solves now — the full-precision
+   distributed solve takes precedence; a single-precision
+   distributed solve stays future work.
+2. Reduced precision on the transform pair — landed (lever 7, −10%;
+   single-device only after 1., see note there).
 
 
 ## 5. Stage 2 — prove the performance survived (CLOSED 2026-07-14, see §4b)
@@ -647,6 +657,150 @@ off concretely: the harness built first (2.1) caught the very next
 optimization (lever 2) regressing the mapped step — measured, probed,
 reverted same-day. Remaining open work: lever 1's two follow-ups
 (§4b), and the moving-geometry layout gates (§3c).*
+
+
+## 8. The halo-fill campaign (2026-07-14/15): spelling, then site
+
+Two levers, found by the "does the sync copy the field?" question
+(2026-07-14) and closed on `perf/halo-sync-fusion`.
+
+### 8a. The spelling of the lazy (consumption-side) fill — the index map
+
+`_fill_axis` is an **index map** (`_axis_map` + one `jnp.take`), commit
+`d726f999`. The mechanism, measured on 1x A100 (flat nonhydro 256^3,
+ms/step, against a no-fill floor of 5.86 linear / 8.18 advective):
+
+| spelling | linear | advective | why |
+|---|---|---|---|
+| `concatenate` | 7.46 | 10.61 | fusion ROOT: every unabsorbed fill
+  materializes a fresh O(field) buffer (~75x write amplification) |
+| `dynamic_update_slice` | 6.04 | 11.03 | ABSORBED into consumers; the
+  write chain is re-derived at every offset a wide stencil reads
+  (two 2.7 ms projection fusions swallowed 42 DUS each) |
+| index map (landed) | 6.03 | 9.36 | absorbed like the DUS (no HBM
+  round-trip), O(1) to re-derive like the concatenate |
+
+XLA never materializes a well-fused fill; the spelling decides what the
+*absorption* costs. The map is the only spelling cheap in both regimes
+— see the `_fill_axis` docstring, which is the contract.
+
+### 8b. The site of the state fill — the carry seal
+
+Even the absorbed map cost the advective step ~1.2 ms/step: the carry
+entered every step with ZERO ghost claims (`_reset_ghost_claims`, the
+scan-treedef fixed point), so every state field was re-filled at
+consumption, inside the step's widest kernels. The fix
+(2026-07-15): **seal the state vector at the carry boundary instead**
+(`_seal_carry_ghosts` in `model.py`) — sync each rebuilt state field
+where its buffer materializes anyway. The seal's fill is
+`sync(materialize=True)`: in-place DUS ghost writes behind an
+`optimization_barrier`. All three ingredients are load-bearing:
+
+- **write spelling**: at a materialization point an index map becomes
+  a fresh O(field) gather buffer (measured: sealing with the map cost
+  +1.3 ms on BOTH cases);
+- **barrier**: `scan_unroll` (the AB ring renaming) splices up to 3
+  steps into one trace, so 2 of 3 seals have live wide-stencil
+  consumers that would absorb a bare write chain (measured: +3.2 ms
+  advective, the `8c940666` mechanism);
+- **dead operand**: every reader (stencil AND elementwise, including
+  the next step's update) reads the sealed field, so the pre-seal
+  buffer's only user is the seal and XLA's in-place DUS emitter
+  patches O(halo) bytes with zero copies. This is why every earlier
+  barrier experiment at the CONSUMPTION site failed: there the
+  unsynced field stays live (the update reads it) and the barrier
+  forces ~18-21 full copies.
+
+Result (1x A100, 256^3, ms/step): linear 6.03 -> **5.79**, advective
+9.36 -> **8.66** — at/near the no-fill floor; the residual advective
+~0.5 ms is the mid-step lazy fill of the unprojected velocities
+(absorbed maps feeding the divergence — correctly spelled: their
+operand stays live through the projection's elementwise read).
+Chunked-vs-stepwise values are bitwise identical at unroll granularity
+(chunk 1 and 3); a while-looped chunk drifts by ~1e-15/50 steps
+(codegen-level FP contraction under changed kernel shapes — the
+`test_scan_chunk_matches_repeated_chunk1` tolerance precedent).
+
+Follow-up lever (open): seal the unprojected velocities too by making
+the projection consume the synced objects, killing the last absorbed
+fills of the advective step (~0.5 ms at 256^3).
+
+Known cost: the seal adds ~40 O(halo) kernel launches per step
+(~+77 us/step), a fixed latency invisible at production sizes but
++66% on the latency-bound 32^3 toy cases (5.83 -> 9.66 ms/50 steps;
+the map commit had made them FASTER than the concat baseline's 7.01).
+If tiny-case latency ever matters: seal only ghost-consumed fields
+(drops ~1/6), or group the per-field barriers into one per step.
+
+**RESOLVED (2026-07-15) — the 4-GPU walled regression, kernel-attributed.**
+`nh_flat_walled[256]` on 4 GPUs: concat 320.2 -> map 343.4 -> sealed
+349.8 ms/chunk (fresh best-of-5, std < 0.25 ms; command-buffers-off
+profiler medians 322/343/353 agree — cb-off distorts ~1%). It is NOT
+communication: the replicated-fallback all-gather is flat
+(+0.3 ms/chunk), halo SendRecv +2.4, FFT unchanged (64.7 -> 64.8),
+cublas scal unchanged. The whole gap is elementwise fusion compute:
+the projection's velocity-correction subtract/add fusions grow
++26.1/+16.1 ms/chunk because they ABSORB the index-map fill
+(`jit(_take)` gather) and re-derive it per consumer — 154 distinct
+fused computations at the map commit (101 sealed) each carry their
+own copy of the fill (76 in `DynamicalCore/projection`, 47 coriolis,
+31 stratification). On this path the gather's operand is
+`pad(dynamic-slice(replicated f64[256^3]))` — the REPLICATED solve
+output being resharded — so each re-derivation walks a full-field
+chain; the removed concatenate machinery gives back only ~20 ms (net
++21 at the map commit), and the seal adds ~+10 more (its DUS/slice
+writes buy nothing here). Same mechanism as 8a, opposite sign:
+1-GPU/sharded fill operands are small in-frame arrays, so absorption
+wins (-22.8% same case, 1 GPU); only the walled REPLICATED projection
+makes the re-derived operand full-field. `sw_sphere[1024]`
+re-measured at +1.9%, within its own noise (the earlier +6.5%
+overlapped its 75-77 ms jitter band) — same family by code path
+(bounded lat axis), not separately attributed.
+
+**FIXED (2026-07-15, same day, `perf/distributed-mixed-transform`
+40dd4ea5) — the mixed (trig) transform plan distributes.** The
+`ComposedTransform` plans jointly across its families (the transpose
+partner prefers the trig axis so a Fourier axis stays local for the
+rfft half spectrum) and `SlabPlan` lowers non-Fourier stages to the
+families' own 1-D kernels inside the fused `shard_map` region; the
+all-Fourier bodies are byte-for-byte untouched. Measured (4x A100,
+best-of-5, std < 0.3 ms): `nh_flat_walled[256]` 349.6 -> **167.1
+ms/chunk (-52.2%)**, 4-GPU scaling 0.96x -> **2.02x** (now above
+periodic's 1.78x at this size) — beats the -25% estimate because
+the absorbed-fill re-derivation collapses with it (the projection's
+fill operand is the local slab, not the replicated cube; the +9%
+regression above is gone in passing). Walled solve parity vs the
+replicated composite 6.4e-16/6.9e-16 (64^3/256^3, GPU); 4-dev vs
+1-dev model drift <= 2.3e-15; 0 warm recompiles; HLO all-to-all
+only. `nh_flat_periodic`/`advective` unchanged (large sizes ~0%);
+1-GPU programs identical (memory delta +0.0% on every case). The
+walled stopgap (materialized sync at the projection boundary) is
+moot. Remaining from the analysis: the Wave-4 native DCT kernel
+(the length-2n complex-FFT spelling costs 2-4x a real DCT, now
+per-shard instead of 4x-redundant). The step-gpu4 baseline still
+records the regressed 349.6 reference — re-record after this branch
+lands. Profiling artifacts (2026-07-15 session scratchpad):
+`trace_{concat,map,head}_cboff/`, `{concat,map,head}_chunk_body.txt`.
+
+Collateral (found benchmarking the fix, bisected, fixed on dev the
+same day): dev's eager-operator kernel jit (6b14766f) broke every
+eager cold-cache integral on a multi-device grid — `Grid.measure`
+memoized a tracer created inside the kernel-jit trace and `mean`'s
+eager normalization query then used it (`UnexpectedTracerError`;
+first surfaced as `nh_mapped` failing to CONSTRUCT on 4 GPUs, at
+first misattributed to the mixed-transform commit until bisection
+cleared it). Fix: `fix/traced-measure-cache` (dev bfcc1dcb) — traced
+measure queries stay uncached. Record:
+`design/roadmap/open.md` (multi-device cost section).
+
+### 8c. Paired finding: the spectral symbol k^2 is rebuilt per step
+
+Confirmed (2026-07-14): the solver symbol is recomputed every step
+(XLA even sinks it into the mapped PCG loop on GPU); cost 0.7-1.4% of
+the step. Cheapest fix when it is picked up: build the 1-D k leaves in
+`spatial/operators/spectral.py` with numpy so they land as HLO
+constants. Full precompute (8 N^3 bytes persistent) is why XLA
+declines to hoist. Not part of this branch.
 
 
 ## Non-goals

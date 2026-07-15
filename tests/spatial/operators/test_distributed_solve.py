@@ -17,7 +17,9 @@ import numpy as np
 import pytest
 
 import fridom as fr
+from fridom.spatial.bc import BC
 from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.operators.composed import (
     Diag,
     Divergence,
@@ -33,10 +35,16 @@ from fridom.spatial.operators.distributed_solve import (
     symbol_fits,
 )
 from fridom.spatial.operators.fourier import Fourier
-from fridom.spatial.operators.mixed import resolve_transform
+from fridom.spatial.operators.mixed import (
+    ComposedTransform,
+    resolve_transform,
+)
 from fridom.spatial.operators.spectral import SpectralDerivative
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.operators.trig import Cosine
+from fridom.spatial.spaces.coefficient import CosineSpace, SineSpace
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
 
@@ -61,6 +69,70 @@ def laplacian_on(grid, bare, dsqr=1.0):
 def rng_data(shape, seed=0):
     return jnp.asarray(
         np.random.default_rng(seed).standard_normal(shape))
+
+
+def make_walled_grid(shape, device_ids=None,
+                     periodic=(True, True, False)):
+    # the smoke-script walled column: per-axis periodicity (x, y
+    # periodic + z bounded by default), so a bounded axis resolves a
+    # trig transform and the product is the mixed Fourier x trig case
+    names = ("x", "y", "z")[:len(shape)]
+    lengths = (1.0, 2.0, 3.0)[:len(shape)]
+    meshes = tuple(
+        fr.spatial.meshes.IntervalMesh(
+            n, (0.0, ln), periodic=p, name=nm)
+        for n, ln, p, nm in zip(shape, lengths, periodic, names,
+                                strict=True))
+    return fr.spatial.Grid(meshes, device_ids=device_ids)
+
+
+def _bc_sibling(bare, bc):
+    # retag every bounded nodal factor to its BC-tagged sibling (the
+    # trig-transform origin of the pressure parity); periodic factors
+    # pass through (the _neumann_sibling idiom of nonhydro2.pressure)
+    replacements = {
+        factor.names[0]: factor.mesh.nodal(factor.node_set, bc=bc)
+        for factor in bare.factors
+        if isinstance(factor, NodalSpace)
+        and not getattr(factor.mesh, "periodic", True)}
+    return bare.replace(**replacements) if replacements else bare
+
+
+def _dirichlet_mid(space, axis):
+    # the wall-normal gradient of an even (Neumann) pressure vanishes
+    # at the wall: the Dirichlet claim on the staggered faces, keying
+    # the divergence legs on the BC-structured rows
+    factor = space.factor(axis)
+    if (isinstance(factor, NodalSpace)
+            and not getattr(factor.mesh, "periodic", True)
+            and factor.bc.is_free):
+        return space.replace(**{axis: factor.mesh.nodal(
+            factor.node_set, bc=BC.DIRICHLET)})
+    return space
+
+
+def walled_laplacian_on(grid, solve_space, dsqr=0.25):
+    # the parity-even Div @ Diag @ Grad on the retagged solve space,
+    # with the Dirichlet-tagged mid legs (the smoke-script chain)
+    grad = Gradient().expand(solve_space, grid)
+    axes = solve_space.active_axis_names
+    mid = tuple(_dirichlet_mid(s, a) for a, s in
+                zip(axes, grad.codomains(solve_space), strict=True))
+    div = Divergence().expand(mid, grid)
+    diag = Diag({axes[-1]: 1.0 / jnp.asarray(dsqr)}, axes=axes)
+    return (div @ diag @ grad).scalar()
+
+
+def walled_solve(shape, device_ids, periodic, bc, data):
+    # a SpectralSolve on the retagged walled solve space, paired with
+    # the retagged right-hand side (the operand the slab applies to)
+    grid = make_walled_grid(shape, device_ids=device_ids,
+                            periodic=periodic)
+    rhs = grid.create_field(data=jnp.asarray(data))
+    solve_space = _bc_sibling(rhs.function_space.bare, bc)
+    solve = SpectralSolve(
+        walled_laplacian_on(grid, solve_space), grid, solve_space)
+    return solve, rhs.retag(solve_space)
 
 
 def _internal_coeff(bare, stage_names, half):
@@ -427,3 +499,199 @@ def test_mismatched_layouts_fall_back_to_the_composite():
     assert np.allclose(np.asarray(solve(moved).data),
                        np.asarray(solve(rhs).data),
                        rtol=1e-12, atol=1e-14)
+
+
+# ================================================================
+#  Mixed (walled) distributed solve: the staged slab schedule
+# ================================================================
+@pytest.mark.multi_device
+def test_walled_mixed_resolves_to_a_staged_slab_solve():
+    # the walled column (x, y periodic + z Neumann) distributes
+    # through the joint ComposedTransform plan: the trig axis z is the
+    # transpose partner (b), a Fourier axis (y) stays local as the
+    # rfft half axis (h), and the internal z factor is a Cosine space
+    grid = make_walled_grid((16, 16, 16))
+    rhs = grid.create_field(data=rng_data((16, 16, 16)))
+    bare = rhs.function_space.bare
+    solve_space = _bc_sibling(bare, BC.NEUMANN)
+    transform = resolve_transform(grid, solve_space)
+    assert isinstance(transform, ComposedTransform)
+    dist = resolve_distributed_solve(
+        walled_laplacian_on(grid, solve_space), transform, grid,
+        solve_space, 0.0)
+    assert isinstance(dist, SlabSolve)
+    plan = dist.plan
+    # geometry: x sharded (a), the trig axis z the transpose partner
+    # (b), the Fourier axis y the local Hermitian half axis (h)
+    assert (plan._a, plan._b, plan._h) == (0, 2, 1)
+    assert plan._stages is not None
+    assert isinstance(plan.coeff.factor("z"), CosineSpace)
+
+
+@pytest.mark.multi_device
+def test_walled_mixed_solve_matches_the_replicated_composite():
+    grid = make_walled_grid((16, 16, 16))
+    rhs = grid.create_field(data=rng_data((16, 16, 16), seed=1))
+    solve_space = _bc_sibling(rhs.function_space.bare, BC.NEUMANN)
+    solve = SpectralSolve(
+        walled_laplacian_on(grid, solve_space), grid, solve_space)
+    assert solve.slab is not None
+    operand = rhs.retag(solve_space)
+    # the fused slab (solve.__call__) vs the replicated composite on
+    # the same operand — the walled column keeps a Fourier axis, so
+    # the composite gathers cleanly on the multi-device mesh
+    assert np.allclose(np.asarray(solve(operand).data),
+                       np.asarray(solve.composite(operand).data),
+                       rtol=1e-11, atol=1e-13)
+
+
+@pytest.mark.multi_device
+def test_walled_mixed_solve_transposes_without_gathers():
+    grid = make_walled_grid((16, 16, 16))
+    rhs = grid.create_field(data=rng_data((16, 16, 16)))
+    solve_space = _bc_sibling(rhs.function_space.bare, BC.NEUMANN)
+    solve = SpectralSolve(
+        walled_laplacian_on(grid, solve_space), grid, solve_space)
+    assert solve.slab is not None
+    operand = rhs.retag(solve_space)
+    space = operand.function_space
+
+    def run(storage):
+        return solve(ScalarField(grid, space, storage))._data
+
+    text = jax.jit(run).lower(operand._data).compile().as_text()
+    # the staged schedule is one all_to_all around the family kernels;
+    # nothing gathers the spectral cube
+    assert "all-to-all" in text
+    assert "all-gather" not in text
+    assert "all-reduce" not in text
+
+
+@pytest.mark.multi_device
+def test_walled_mixed_plan_round_trips():
+    grid = make_walled_grid((16, 16, 16))
+    rhs = grid.create_field(data=rng_data((16, 16, 16), seed=2))
+    solve_space = _bc_sibling(rhs.function_space.bare, BC.NEUMANN)
+    transform = resolve_transform(grid, solve_space)
+    plan = resolve_distributed_plan(transform, grid, solve_space)
+    assert plan is not None
+    x = jnp.asarray(rhs.retag(solve_space).data)
+    # the model-free kernel: forward then backward reproduces the real
+    # walled operand (synthesis lands real: the Hermitian stage last)
+    back = plan.backward(plan.forward(x))
+    assert not jnp.iscomplexobj(back)
+    assert float(jnp.abs(back - x).max()) < 1e-13
+
+
+@pytest.mark.multi_device
+def test_warm_eager_walled_solve_adds_zero_compiles(compile_counter):
+    # the staged mixed pipeline caches its jit-wrapped shard_map
+    # callables per plan, exactly like the all-Fourier path
+    grid = make_walled_grid((16, 16, 16))
+    data = rng_data((16, 16, 16))
+
+    def solve_once():
+        rhs = grid.create_field(data=data)
+        solve_space = _bc_sibling(rhs.function_space.bare, BC.NEUMANN)
+        solve = SpectralSolve(
+            walled_laplacian_on(grid, solve_space), grid, solve_space)
+        assert solve.slab is not None
+        return solve(rhs.retag(solve_space))
+
+    solve_once()
+    solve_once()
+    compile_counter.reset()
+    solve_once()
+    assert compile_counter.count == 0
+
+
+@pytest.mark.multi_device
+def test_fully_walled_solve_stays_real():
+    # every axis bounded (Neumann): no Fourier axis, so no Hermitian
+    # half stage -- and because the trig kernels are real-to-real, the
+    # staged pipeline carries REAL data throughout (no complexify /
+    # take-real-part round trip). Lock that in: the forward coefficients
+    # of a real field are real.
+    data = np.random.default_rng(3).standard_normal((16, 16, 16))
+    many, rhs_m = walled_solve(
+        (16, 16, 16), None, (False, False, False), BC.NEUMANN, data)
+    assert many.slab is not None
+    plan = many.slab.plan
+    assert plan._stages is not None
+    assert plan._h is None
+    assert not jnp.iscomplexobj(plan.forward(rhs_m.data))
+    # replicated one-device reference (the all-trig composite does not
+    # partition cleanly on the multi-device mesh; the 1-device path is
+    # the honest replicated baseline)
+    one, rhs_o = walled_solve(
+        (16, 16, 16), (0,), (False, False, False), BC.NEUMANN, data)
+    assert one.slab is None
+    assert np.allclose(np.asarray(many(rhs_m).data),
+                       np.asarray(one(rhs_o).data),
+                       rtol=1e-11, atol=1e-13)
+
+
+@pytest.mark.multi_device
+def test_mixed_sine_solve_matches_one_device():
+    # x periodic (Fourier) + y, z Dirichlet (Sine): the internal y, z
+    # factors are Sine spaces, and the only Fourier axis is the sharded
+    # one, so there is no local Hermitian half axis
+    data = np.random.default_rng(4).standard_normal((16, 16, 16))
+    many, rhs_m = walled_solve(
+        (16, 16, 16), None, (True, False, False), BC.DIRICHLET, data)
+    assert many.slab is not None
+    plan = many.slab.plan
+    assert plan._stages is not None
+    assert plan._h is None
+    assert isinstance(plan.coeff.factor("z"), SineSpace)
+    one, rhs_o = walled_solve(
+        (16, 16, 16), (0,), (True, False, False), BC.DIRICHLET, data)
+    assert one.slab is None
+    assert np.allclose(np.asarray(many(rhs_m).data),
+                       np.asarray(one(rhs_o).data),
+                       rtol=1e-11, atol=1e-13)
+
+
+# ================================================================
+#  Mixed resolution: the decline conditions
+# ================================================================
+def test_padded_trig_part_falls_back():
+    # a padded trig part is not the plain unpadded kernel the fused
+    # region supports; the composed plan declines it (any-padded guard)
+    grid = make_walled_grid((16, 16, 16))
+    bare = grid.create_field().function_space.bare
+    solve_space = _bc_sibling(bare, BC.NEUMANN)
+    padded = ComposedTransform((Fourier(grid, axes=("x", "y")),
+                                Cosine(grid, axes="z", pad=degree(2))))
+    assert build_distributed_plan(padded, grid, solve_space) is None
+    # the planner itself also declines (its own padded-part guard)
+    assert padded.distributed_forward_plan(solve_space) is None
+
+
+def test_chebyshev_column_falls_back():
+    # a Chebyshev bounded column resolves a ComposedTransform with a
+    # Chebyshev part, outside the per-stage-kernel families: the block
+    # -diagonal Chebyshev solve stays on the replicated composite
+    grid = fr.spatial.Grid((
+        fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x"),
+        fr.spatial.meshes.IntervalMesh(16, (0.0, 2.0), name="y"),
+        ChebyshevMesh(16, (0.0, 3.0), name="z")))
+    space = (grid.factors[0].center * grid.factors[1].center
+             * grid.factors[2].nodal(NodeSet.OUTER))
+    transform = resolve_transform(grid, space)
+    assert isinstance(transform, ComposedTransform)
+    assert build_distributed_plan(transform, grid, space) is None
+    assert resolve_distributed_plan(transform, grid, space) is None
+
+
+@pytest.mark.multi_device
+def test_indivisible_partners_fall_back():
+    # x (16) shards, but no other stage axis (18, 18) divides four
+    # devices, so the joint geometry finds no transpose partner
+    grid = make_walled_grid((16, 18, 18))
+    bare = grid.create_field().function_space.bare
+    solve_space = _bc_sibling(bare, BC.NEUMANN)
+    transform = resolve_transform(grid, solve_space)
+    assert transform._joint_geometry(solve_space) is None
+    assert resolve_distributed_plan(
+        transform, grid, solve_space) is None

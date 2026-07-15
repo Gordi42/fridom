@@ -329,6 +329,7 @@ class Decomposition(ABC):
         *,
         layout: Layout | None = None,
         fills: Mapping[str, jax.Array] | None = None,
+        materialize: bool = False,
     ) -> jax.Array:
         """
         Exchange halos; fill bounded edges.
@@ -353,6 +354,13 @@ class Decomposition(ABC):
             (default: None).
         fills : Mapping[str, jax.Array] | None, optional
             Per-name inhomogeneous ghost data (default: None).
+        materialize : bool, optional
+            The caller's claim that the synced array is consumed at
+            a materialization boundary (a scan carry, a donation
+            edge), letting the realization spell the local fill as
+            in-place ghost writes — O(halo) there — instead of the
+            fuse-absorbable remap a stencil consumer wants
+            (default: False).
 
         Returns
         -------

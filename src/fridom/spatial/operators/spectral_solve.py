@@ -213,10 +213,11 @@ class SpectralSolve:
     masking); Helmholtz ``(nabla^2 - lambda)`` with ``lambda != 0`` has
     no nullspace and inverts everywhere.
 
-    On a multi-device grid an eligible solve (pure unpadded Fourier
-    transform, divisible extents) additionally resolves a distributed
-    fused solve **through the ordinary transform's layout plan** (see
-    ``operators/distributed_solve.py``): the whole
+    On a multi-device grid an eligible solve (unpadded
+    Fourier/Sine/Cosine transforms — including the mixed walled
+    product — and divisible extents) additionally resolves a
+    distributed fused solve **through the ordinary transform's layout
+    plan** (see ``operators/distributed_solve.py``): the whole
     ``backward @ inverse @ forward`` runs slab-decomposed inside one
     ``jax.shard_map`` region, with the eigenvalue diagonal materialized
     on the plan's internal coefficient space and sliced per shard.
@@ -258,10 +259,12 @@ class SpectralSolve:
         their storage boundary — so the win is largest on a fully
         periodic (all-Fourier) solve. Applies to the replicated
         composite only: on a multi-device grid the distributed slab
-        solve (full precision) takes precedence, so this flag is a
-        no-op there (a single-precision distributed solve is future
-        work). Off by default (bitwise identical to the
-        full-precision solve); on, the solution carries the reduced
+        solve (full precision) takes precedence — since the mixed
+        (walled) transform distributes too, the flag is a no-op on
+        any eligible multi-device solve (a single-precision
+        distributed solve is future work). Off by default (bitwise
+        identical to the full-precision solve); on, the solution
+        carries the reduced
         round-off, an opt-in accuracy trade (default: False).
     """
 

@@ -306,6 +306,17 @@ def test_sync_boundary_data_not_implemented(grid):
         grid.sync(f, boundary_data={})
 
 
+def test_materialized_sync_matches_the_default_spelling(grid):
+    # materialize=True changes the fill's SPELLING (in-place writes
+    # for a dead operand at a materialization boundary), never its
+    # values or claims
+    f = grid.create_field(data=jnp.arange(32.0).reshape(8, 4),
+                          name="f")
+    synced = grid.sync(f, materialize=True)
+    assert jnp.array_equal(synced._data, grid.sync(f)._data)
+    assert synced.halo_valid == grid.sync(f).halo_valid
+
+
 # ================================================================
 #  create_field — spaces and layout
 # ================================================================

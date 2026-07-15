@@ -116,6 +116,16 @@ nested jit) and on a single device, so the model loop is unchanged.
 Eager `.to` / `.diff` / reconstruct / average on a sharded field
 therefore stay sharded, and derived writer outputs no longer
 all-gather.*
+*Regression + fix (2026-07-15, `fix/traced-measure-cache`): the
+kernel jit broke every eager cold-cache integral on multi-device —
+`Integral._apply` queries `Grid.measure` as a side effect, so the
+first query landed inside the kernel-jit trace and the per-grid memo
+cached that trace's tracer; `mean`'s eager normalization query then
+used the leaked tracer (`UnexpectedTracerError`; first surfaced as
+the mapped model failing to construct on 4 GPUs). `Grid.measure` now
+skips the memo when the stored weights are a tracer — traced queries
+re-derive (an XLA constant), the concrete memo contract is
+unchanged.*
 
 *Post-merge note (2026-07-13): the optimization line has landed, and the
 audit found three reasons this solve does not benefit from it — the CG

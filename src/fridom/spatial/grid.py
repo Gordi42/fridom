@@ -588,6 +588,8 @@ class Grid:
         self,
         field: ScalarField,
         boundary_data: Mapping[str, ScalarField] | None = None,
+        *,
+        materialize: bool = False,
     ) -> ScalarField:
         """
         Fill the field's halos (wrap / BC fill / shard exchange).
@@ -599,6 +601,10 @@ class Grid:
         boundary_data : Mapping[str, ScalarField] | None, optional
             Inhomogeneous ghost-fill data (designed-for; must be
             None in iteration 1) (default: None).
+        materialize : bool, optional
+            The caller's claim that the synced field is consumed at
+            a materialization boundary (``Decomposition.sync``)
+            (default: False).
 
         Returns
         -------
@@ -612,7 +618,8 @@ class Grid:
                 "iteration 1 is homogeneous only")
         space = field.function_space
         synced = self._decomposition.sync(
-            field._data, space)  # noqa: SLF001 — storage seam
+            field._data, space,  # noqa: SLF001 — storage seam
+            materialize=materialize)
         return ScalarField(
             self, space, synced, field.metadata,
             halo_valid=self._decomposition.halo.over(
