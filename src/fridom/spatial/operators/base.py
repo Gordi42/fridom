@@ -466,7 +466,7 @@ class UnaryOperator(Operator, ABC):
             return trace(self)
         codomain = resolve_codomain(self, f.function_space)
         f = _ensure_valid(f, _required_halo(self, f.function_space))
-        result = self._apply(f)
+        result = _kernel_apply(self, f)
         return _finalize(f, result, codomain)
 
     @abstractmethod
@@ -1420,6 +1420,85 @@ def _resolve_axis(op: SeparableOperator, space: SpaceLike) -> str:
     raise ValueError(
         f"ambiguous axis on {space!r}: bind explicitly (op[axis]) "
         f"among {candidates}")
+
+
+@fr.utils.jaxjit
+def _jitted_apply(op: Operator, f: FieldLike) -> FieldLike:
+    """
+    Run the operator kernel under one ``jax.jit`` trace.
+
+    Description
+    -----------
+    Kernel hook of :func:`_kernel_apply`, isolated at module level so
+    it is one stable callable: ``op`` and ``f`` are jaxified pytrees,
+    so ``jax.jit`` caches on their structure and a warmed application
+    re-run adds zero compiles.
+    """
+    return op._apply(f)  # noqa: SLF001 — the template's kernel hook
+
+
+def _multi_device(f: FieldLike) -> bool:
+    """
+    Whether the operand's grid shards over more than one device.
+
+    Description
+    -----------
+    Defensive against the duck-typed operand contract (module
+    docstring): a grid that exposes no ``decomposition`` (e.g. a
+    lightweight test double) is single-device, so the kernel takes
+    the plain eager path — exactly as it did before the sharding
+    guard.
+    """
+    decomposition = getattr(
+        getattr(f, "grid", None), "decomposition", None)
+    return decomposition is not None and decomposition.device_count > 1
+
+
+def _kernel_apply(op: UnaryOperator, f: FieldLike) -> FieldLike:
+    r"""
+    Run the operator kernel, jitted on an eager multi-device operand.
+
+    Description
+    -----------
+    Applied **eagerly** on the ``AxisType.Auto`` device mesh, the
+    kernel's slice/pad stencil is partitioned op-by-op and GSPMD
+    gives up and **replicates** the result — an implicit all-gather
+    plus ``P`` x device memory on every eager ``.to`` / ``.diff`` /
+    reconstruct / average (measured: a sharded ``P('devices', None)``
+    operand comes back ``P()``). One ``jax.jit`` trace lets GSPMD
+    partition the whole stencil graph together, see its reach fits
+    the (already synced) halo, and keep the result sharded — the same
+    sharding the jitted model step produces, bit-for-bit the same
+    values.
+
+    The jit wraps the **eager path only**. Under an enclosing trace —
+    every application inside the jitted model loop — the operand data
+    is a tracer, so the kernel runs directly and folds into that one
+    outer program: no nested ``jit``, and the loop compiles to a
+    single executable exactly as it did before this guard. A
+    single-device eager operand also takes the plain kernel (no mesh,
+    nothing to replicate, no compile on the common path). Only an
+    eager operand on a real multi-device mesh is wrapped. The exchange
+    in ``_ensure_valid`` ran first and stays eager regardless (a
+    ``shard_map``, sharded by construction, its cross-consumer
+    memoisation intact).
+
+    Parameters
+    ----------
+    op : UnaryOperator
+        The operator being applied.
+    f : FieldLike
+        The (validity-ensured) operand field.
+
+    Returns
+    -------
+    FieldLike
+        The kernel result (bare codomain), sharded on multi-device.
+    """
+    data = f._data  # noqa: SLF001 — documented storage seam
+    if not isinstance(data, jax.core.Tracer) and _multi_device(f):
+        return _jitted_apply(op, f)
+    return op._apply(f)  # noqa: SLF001 — the template's kernel hook
 
 
 def _finalize(
