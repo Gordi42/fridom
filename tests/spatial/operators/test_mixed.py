@@ -3,9 +3,11 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import GridMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.dealias import degree
 from fridom.spatial.operators.fourier import Fourier
 from fridom.spatial.operators.mixed import (
     ComposedTransform,
@@ -265,3 +267,144 @@ def test_parts_on_different_grids_are_rejected(walled):
     other = Grid((IntervalMesh(N, (0.0, 1.0), name="x"),))
     with pytest.raises(GridMismatchError, match="share one grid"):
         ComposedTransform((Fourier(grid, axes="x"), Fourier(other)))
+
+
+# ================================================================
+#  Distributed planning: distributed_forward_plan / _joint_geometry
+# ================================================================
+def _walled_grid_space(shape, periodic, device_ids=None):
+    # a walled grid with its Neumann solve space: periodic axes take
+    # the cell centers (Fourier), bounded axes the Neumann centers
+    # (Cosine), so the product is the mixed Fourier x trig case
+    names = ("x", "y", "z")[:len(shape)]
+    lengths = (1.0, 2.0, 3.0)[:len(shape)]
+    meshes = tuple(
+        IntervalMesh(n, (0.0, ln), periodic=p, name=nm)
+        for n, ln, p, nm in zip(shape, lengths, periodic, names,
+                                strict=True))
+    grid = Grid(meshes, device_ids=device_ids)
+    space = None
+    for mesh, per in zip(meshes, periodic, strict=True):
+        factor = (mesh.center if per
+                  else mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN))
+        space = factor if space is None else space * factor
+    return grid, space
+
+
+class _StubDecomp:
+
+    """Duck-typed decomposition for geometry-only checks."""
+
+    def __init__(self, layout, count):
+        self.default_layout = layout
+        self.device_count = count
+
+
+class _StubGrid:
+
+    """Duck-typed grid exposing only a decomposition."""
+
+    def __init__(self, decomposition):
+        self.decomposition = decomposition
+
+
+@pytest.mark.multi_device
+def test_joint_geometry_prefers_the_trig_transpose_partner():
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False))
+    tf = resolve_transform(grid, space)
+    assert isinstance(tf, ComposedTransform)
+    name_a, name_b, name_h, stage_names, part_of = (
+        tf._joint_geometry(space))
+    # x shards; both y (Fourier) and z (trig) divide the device count,
+    # and b prefers the trig axis so a Fourier axis (y) stays local as
+    # the rfft half axis h
+    assert (name_a, name_b, name_h) == ("x", "z", "y")
+    assert stage_names == ("x", "y", "z")
+    assert not part_of["z"]._hermitian
+    assert part_of["y"]._hermitian
+    plan = tf.distributed_forward_plan(space)
+    assert [s.axis for s in plan.stages if s.half] == ["y"]
+    assert plan.stages[-1].axis == "x"
+    assert isinstance(plan.codomain.factor("z"), CosineSpace)
+
+
+@pytest.mark.multi_device
+def test_joint_geometry_has_no_half_when_fourier_axis_is_sharded():
+    # a 2-D lon-Fourier / lat-trig product: the only Fourier axis is the
+    # sharded one (a), so no Fourier axis stays local and the plan runs
+    # with no Hermitian half stage (h = None, fully complex internally)
+    grid, space = _walled_grid_space((16, 16), (True, False))
+    tf = resolve_transform(grid, space)
+    name_a, name_b, name_h, _, _ = tf._joint_geometry(space)
+    assert (name_a, name_b, name_h) == ("x", "y", None)
+    plan = tf.distributed_forward_plan(space)
+    assert not any(s.half for s in plan.stages)
+
+
+@pytest.mark.multi_device
+def test_joint_geometry_has_no_half_on_a_complex_domain():
+    # a complex-storage mixed domain carries no real half spectrum, so
+    # the Hermitian block is skipped and h = None even though a Fourier
+    # axis (y) stays local
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False))
+    complexified = space.replace(
+        **{name: space.factor(name).as_complex()
+           for name in space.names})
+    tf = resolve_transform(grid, complexified)
+    assert isinstance(tf, ComposedTransform)
+    _name_a, _name_b, name_h, _, _ = tf._joint_geometry(complexified)
+    assert name_h is None
+
+
+@pytest.mark.multi_device
+def test_distributed_forward_plan_is_memoized():
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False))
+    tf = resolve_transform(grid, space)
+    plan = tf.distributed_forward_plan(space)
+    assert plan is not None
+    assert tf.distributed_forward_plan(space) is plan
+
+
+def test_distributed_forward_plan_is_none_on_one_device():
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False), device_ids=(0,))
+    tf = resolve_transform(grid, space)
+    assert tf.distributed_forward_plan(space) is None
+    # the ineligible result is cached (membership test, not .get)
+    assert tf.distributed_forward_plan(space) is None
+
+
+def test_padded_part_declines_the_joint_plan():
+    # a padded trig part is not the plain unpadded kernel the fused
+    # region lowers to; the joint planner declines the whole chain
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False))
+    padded = ComposedTransform((Fourier(grid, axes=("x", "y")),
+                                Cosine(grid, axes="z", pad=degree(2))))
+    assert padded.distributed_forward_plan(space) is None
+
+
+def test_joint_geometry_rejects_unsuitable_layouts(monkeypatch):
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False), device_ids=(0,))
+    tf = resolve_transform(grid, space)
+
+    def with_decomp(layout, count):
+        # the composed transform reads its decomposition through the
+        # shared grid of its first part
+        monkeypatch.setattr(
+            tf.parts[0], "_grid",
+            _StubGrid(_StubDecomp(layout, count)))
+
+    # a replicated default layout shards nothing (len(mapped) != 1)
+    with_decomp(Layout({}), 4)
+    assert tf._joint_geometry(space) is None
+    # the sharded coordinate is not a stage axis
+    with_decomp(Layout({"q": "devices"}), 4)
+    assert tf._joint_geometry(space) is None
+    # the sharded extent does not divide the device count
+    with_decomp(Layout({"x": "devices"}), 5)
+    assert tf._joint_geometry(space) is None
