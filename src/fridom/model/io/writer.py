@@ -29,8 +29,9 @@ that make the store xarray-openable (``.zgroup``, the group and
 per-array ``.zattrs`` carrying ``_ARRAY_DIMENSIONS`` and the CF/xgcm
 attributes) are written here as plain JSON. xarray's read path still
 pulls ``zarr`` under the hood — that is expected and lives on the
-reader, not this writer. Cross-boundary async and file-split writes
-stay designed-for behind this seam.
+reader, not this writer. Cross-boundary async is opt-in
+(``async_writes``, see :meth:`Writer.write`); file-split writes stay
+designed-for behind this seam.
 
 The bind/write split (``gather_free_output_plan.md``): bind is
 layout-only (``export_layout`` — no gather, no ``xarray``), and the
@@ -112,6 +113,13 @@ class Writer:
         (spatial) or in single steps (``"time"``) (default: None).
     attrs : Mapping[str, str] | None, optional
         Extra global attributes merged into the store (default: None).
+    async_writes : bool, optional
+        Overlap the spatial disk writes with the model integration:
+        each firing defers its writes and drains the previous firing
+        first (one firing in flight — see :meth:`write`), instead of
+        blocking on every write before returning. The default blocks,
+        so an aborted run always leaves a complete final slice
+        (default: False).
     """
 
     def __init__(
@@ -124,6 +132,7 @@ class Writer:
         mode: str = "w-",
         chunks: Mapping[str, int] | None = None,
         attrs: Mapping[str, str] | None = None,
+        async_writes: bool = False,
     ) -> None:
         """Configure the stream; no file IO happens here."""
         if mode not in _MODES:
@@ -136,6 +145,7 @@ class Writer:
         self.mode = mode
         self._chunks = dict(chunks) if chunks else {}
         self._attrs = dict(attrs) if attrs else {}
+        self._async_writes = bool(async_writes)
         # bind state (all reset until bind)
         self._bound = False
         self._n = 0
@@ -147,6 +157,12 @@ class Writer:
         self._templates: dict[str, ExportLayout] = {}
         # ordered (out_name, evaluator) pairs, resolved at bind
         self._outputs: list[tuple[str, Callable]] = []
+        # deferred (write_future, source) pairs of the last firing when
+        # async_writes is on (one firing in flight); drained at the next
+        # firing and at truncate_after / close. Empty in the blocking
+        # default. The source array is retained until its write commits
+        # (tensorstore requires the source valid until the copy is done).
+        self._pending: list[tuple[Any, Any]] = []
 
     # ================================================================
     #  Protocol slots
@@ -206,6 +222,23 @@ class Writer:
         """
         Append one time slice from the boundary-synced carry.
 
+        Description
+        -----------
+        The scalar time/iteration axes always write synchronously
+        (tiny, and :meth:`truncate_after` reads the iteration axis
+        back). The spatial variables write shard-wise true-DOF tiles
+        via ``shard_writes`` (no gather anywhere).
+
+        By default every write is blocked on before returning, so an
+        aborted run leaves a complete final slice. With
+        ``async_writes`` the tensorstore writes are **deferred**: this
+        firing drains the previous firing first (backpressure — one
+        firing in flight, so the source buffers cannot pile up) and
+        then queues its own writes, which commit in the background
+        while the model integrates toward the next firing. The
+        device->host copy in ``shard_writes`` is unaffected — it stays
+        on the calling thread; only the disk commit overlaps.
+
         Parameters
         ----------
         model_state : object
@@ -215,25 +248,31 @@ class Writer:
         self._require_bound()
         clock = model_state.clock
         nt = self._n
-        # scalar time/iteration axes write synchronously; the spatial
-        # variables write shard-wise true-DOF tiles via shard_writes
-        # (no gather anywhere) and block on every future before return.
         self._time = _grow(self._time, (nt + 1,))
         self._time[nt] = float(np.asarray(clock.time))
         self._iteration = _grow(self._iteration, (nt + 1,))
         self._iteration[nt] = int(np.asarray(clock.it))
-        futures: list[Any] = []
+        if self._async_writes:
+            self._drain()  # finish the previous firing (one in flight)
+        writes: list[tuple[Any, Any]] = []
         for name, evaluate in self._outputs:
             shape = (nt + 1, *self._spatial[name])
             self._vars[name] = _grow(self._vars[name], shape)
-            self._write_shards(nt, name, evaluate(model_state), futures)
-        for future in futures:
-            future.result()
+            self._write_shards(nt, name, evaluate(model_state), writes)
+        if self._async_writes:
+            self._pending = writes
+        else:
+            _block_writes(writes)
         self._n = nt + 1
+
+    def _drain(self) -> None:
+        """Block on the deferred writes of the previous firing."""
+        pending, self._pending = self._pending, []
+        _block_writes(pending)
 
     def _write_shards(
         self, nt: int, name: str, field: ScalarField,
-        futures: list[Any],
+        writes: list[tuple[Any, Any]],
     ) -> None:
         """
         Queue the async shard writes of one output at time index `nt`.
@@ -257,9 +296,10 @@ class Writer:
             The output variable name.
         field : ScalarField
             The evaluated field to write.
-        futures : list
-            The per-firing write-future accumulator (blocked in
-            ``write``).
+        writes : list
+            The per-firing accumulator of ``(write_future, source)``
+            pairs (blocked on in ``write`` or ``_drain``); the source
+            tile is retained so it stays valid until its write commits.
         """
         layout = self._templates[name]
         space = field.function_space
@@ -273,7 +313,7 @@ class Writer:
             if block.size == 0:
                 continue  # empty last shard (Inner / bounded FaceAvg)
             kept = tuple(target[axis] for axis in layout.kept_axes)
-            futures.append(var[(nt, *kept)].write(block))
+            writes.append((var[(nt, *kept)].write(block), block))
 
     def truncate_after(self, iteration: int) -> None:
         """
@@ -292,6 +332,8 @@ class Writer:
             The snapshot iteration; slices past it are dropped.
         """
         self._require_bound()
+        # deferred writes must commit before the arrays are resized down
+        self._drain()
         stored = np.asarray(self._iteration.read().result())
         keep = int(np.searchsorted(stored, iteration, side="right"))
         self._time = _grow(self._time, (keep,))
@@ -307,18 +349,21 @@ class Writer:
 
         Description
         -----------
-        Idempotent. tensorstore writes commit synchronously, so an
-        abort mid-run leaves a readable store; ``close`` only drops
-        the in-memory handles.
+        Idempotent. Any deferred writes are drained first, so the
+        store on disk is complete before the handles drop; an abort
+        before ``close`` still leaves every already-committed slice
+        readable.
         """
         if not self._bound:
             return
+        self._drain()
         self._bound = False
         self._time = None
         self._iteration = None
         self._vars = {}
         self._spatial = {}
         self._templates = {}
+        self._pending = []
 
     # ================================================================
     #  Bind helpers — output resolution
@@ -585,6 +630,21 @@ def _open_array(path: Path) -> Any:
 def _grow(store: Any, shape: tuple[int, ...]) -> Any:
     """Resize a tensorstore array to ``shape`` (grow or shrink)."""
     return store.resize(exclusive_max=list(shape)).result()
+
+
+def _block_writes(writes: list[tuple[Any, Any]]) -> None:
+    """
+    Block until every queued write has committed.
+
+    Description
+    -----------
+    Waits on each ``(write_future, source)`` pair's commit future; the
+    source tile is held only to keep it valid until the write is done
+    (tensorstore borrows the source until then) and is otherwise
+    unused here.
+    """
+    for future, _source in writes:
+        future.result()
 
 
 def _write_json(path: Path, obj: Mapping[str, Any]) -> None:
