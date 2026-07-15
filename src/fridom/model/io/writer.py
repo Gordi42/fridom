@@ -53,6 +53,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import jax
 import numpy as np
 
 from fridom.model.io.streams import reject_walltime_trigger
@@ -77,6 +78,40 @@ _MODES = ("w", "w-", "a")
 # range for any real iteration (INT64_MIN), so it cannot collide with a
 # genuine step index (which may be negative for a backward run).
 _UNWRITTEN = int(np.iinfo(np.int64).min)
+
+
+# ================================================================
+#  Multi-process seams (mockable; single-process no-ops)
+# ================================================================
+def _process_index() -> int:
+    """Return this process's index in the jax group (0 if single)."""
+    return jax.process_index()
+
+
+def _process_count() -> int:
+    """Return the jax process-group size (1 in a single process)."""
+    return jax.process_count()
+
+
+def _barrier(tag: str) -> None:
+    """
+    Synchronize the process group at a named point (multi-process).
+
+    Description
+    -----------
+    Orders rank 0's metadata mutations against the other ranks' shard
+    writes. A no-op when ``_process_count() == 1``, so the
+    single-controller path takes no synchronization and its store
+    output stays byte-for-byte identical.
+
+    Parameters
+    ----------
+    tag : str
+        A label identifying the barrier; must match across processes.
+    """
+    if _process_count() > 1:
+        from jax.experimental import multihost_utils  # noqa: PLC0415
+        multihost_utils.sync_global_devices(tag)
 
 
 # ================================================================
@@ -129,7 +164,11 @@ class Writer:
         commits its ``iteration`` label last, so a hard kill leaves the
         store crash-consistent (the interrupted tail slice is dropped
         on reopen); the default additionally blocks, so no output at
-        all trails the model on a clean abort (default: False).
+        all trails the model on a clean abort. Ignored under a real
+        multi-process run (``jax.process_count() > 1``): deferring
+        writes past the per-firing barriers would break the
+        one-firing-in-flight invariant, so a distributed writer always
+        blocks (single-process async is unchanged) (default: False).
     """
 
     def __init__(
@@ -159,6 +198,12 @@ class Writer:
         # bind state (all reset until bind)
         self._bound = False
         self._n = 0
+        # multi-process coordination (resolved at bind): rank 0 owns
+        # every metadata mutation, and async falls back to blocking
+        # when distributed (see :meth:`write`).
+        self._rank0 = True
+        self._distributed = False
+        self._async_effective = self._async_writes
         self._time: Any = None
         self._iteration: Any = None
         self._vars: dict[str, Any] = {}
@@ -217,6 +262,10 @@ class Writer:
                 "Writer for a second store)")
         reject_walltime_trigger(
             self._trigger, stream=f"Writer({self._path})")
+        self._rank0 = _process_index() == 0
+        self._distributed = _process_count() > 1
+        self._async_effective = (
+            self._async_writes and not self._distributed)
         model_state = self._model_state(model)
         self._outputs = self._resolve_outputs(model, model_state)
         templates: dict[str, ExportLayout] = {}
@@ -264,12 +313,32 @@ class Writer:
         self._require_bound()
         clock = model_state.clock
         nt = self._n
+        if self._distributed:
+            self._write_distributed(nt, model_state, clock)
+        else:
+            self._write_local(nt, model_state, clock)
+        self._n = nt + 1
+
+    def _write_local(
+        self, nt: int, model_state: Any, clock: Any,
+    ) -> None:
+        """
+        Single-process append (the default blocking/async path).
+
+        Description
+        -----------
+        The original single-controller write: one process owns every
+        array, grows each axis up front (the new slot reads the
+        iteration fill sentinel until its firing commits), issues the
+        shard writes, and commits — blocking, or deferring one firing
+        when ``async_writes`` is on.
+        """
         # grow every axis up front (the new slot reads the iteration
         # fill sentinel until its firing commits, keeping the store
         # openable with consistent dims); the labels are written last.
         self._time = _grow(self._time, (nt + 1,))
         self._iteration = _grow(self._iteration, (nt + 1,))
-        if self._async_writes:
+        if self._async_effective:
             self._drain()  # commit the previous firing (one in flight)
         var_writes: list[tuple[Any, Any]] = []
         for name, evaluate in self._outputs:
@@ -278,11 +347,43 @@ class Writer:
             self._write_shards(nt, name, evaluate(model_state), var_writes)
         firing = (var_writes, nt, float(np.asarray(clock.time)),
                   int(np.asarray(clock.it)))
-        if self._async_writes:
+        if self._async_effective:
             self._pending = firing
         else:
             self._commit(firing)
-        self._n = nt + 1
+
+    def _write_distributed(
+        self, nt: int, model_state: Any, clock: Any,
+    ) -> None:
+        """
+        Coordinated blocking append across a multi-process group.
+
+        Description
+        -----------
+        Rank 0 owns every metadata mutation: it grows ``time``,
+        ``iteration`` and each variable to ``nt + 1``, then a barrier
+        lets the non-rank-0 recheck handles observe the grown shape.
+        Every rank then writes and blocks on its own disjoint shard
+        tiles; a second barrier orders that data before rank 0 writes
+        the ``time`` then ``iteration`` labels (the commit marker,
+        last), so the ``iteration`` axis stays the durable marker for a
+        fully-committed slice across the whole group.
+        """
+        if self._rank0:
+            self._time = _grow(self._time, (nt + 1,))
+            self._iteration = _grow(self._iteration, (nt + 1,))
+            for name in self._vars:
+                self._vars[name] = _grow(
+                    self._vars[name], (nt + 1, *self._spatial[name]))
+        _barrier("writer-resized")
+        var_writes: list[tuple[Any, Any]] = []
+        for name, evaluate in self._outputs:
+            self._write_shards(nt, name, evaluate(model_state), var_writes)
+        _block_writes(var_writes, self._path, nt)
+        _barrier("writer-data")
+        if self._rank0:
+            self._time[nt] = float(np.asarray(clock.time))
+            self._iteration[nt] = int(np.asarray(clock.it))
 
     def _commit(
         self, firing: tuple[list[tuple[Any, Any]], int, float, int],
@@ -378,11 +479,19 @@ class Writer:
         # prior crash — the store is trimmed to the committed prefix
         n = _committed_length(stored)
         keep = int(np.searchsorted(stored[:n], iteration, side="right"))
-        self._time = _grow(self._time, (keep,))
-        self._iteration = _grow(self._iteration, (keep,))
-        for name in self._vars:
-            shape = (keep, *self._spatial[name])
-            self._vars[name] = _grow(self._vars[name], shape)
+        # ``keep`` is derived identically on every rank (shared
+        # filesystem, process-local read). Only rank 0 performs the
+        # down-resize; the read barrier keeps no rank reading across
+        # rank 0's trim, and the trim barrier makes the shorter length
+        # visible (the non-rank-0 recheck handles) before any append.
+        _barrier("writer-truncate-read")
+        if self._rank0:
+            self._time = _grow(self._time, (keep,))
+            self._iteration = _grow(self._iteration, (keep,))
+            for name in self._vars:
+                shape = (keep, *self._spatial[name])
+                self._vars[name] = _grow(self._vars[name], shape)
+        _barrier("writer-truncate-trim")
         self._n = keep
 
     def close(self) -> None:
@@ -399,6 +508,8 @@ class Writer:
         if not self._bound:
             return
         self._drain()
+        # no rank races ahead of another's final commit before handles drop
+        _barrier("writer-close")
         self._bound = False
         self._time = None
         self._iteration = None
@@ -522,6 +633,9 @@ class Writer:
     ) -> None:
         """Create (or reopen for append) the tensorstore zarr store."""
         exists = self._path.exists()
+        # The existence check + mode decision is evaluated identically
+        # on every rank (shared filesystem) before any rank mutates the
+        # store, so all ranks agree on the branch taken below.
         if self.mode == "w-" and exists:
             raise FileExistsError(
                 f"Writer({self._path}) is mode='w-' and the store "
@@ -530,37 +644,74 @@ class Writer:
         if self.mode == "a" and exists:
             self._reopen(templates)
             return
-        if self.mode == "w" and exists:
-            shutil.rmtree(self._path)
-        self._path.mkdir(parents=True, exist_ok=True)
-        self._write_group(model)
-        self._write_coords(templates)
-        self._write_time_axis(model_state)
-        self._write_variables(templates, hints)
+        # every rank has evaluated ``exists``; barrier before rank 0
+        # mutates so no rank's check races rank 0's create/clobber.
+        _barrier("writer-exists")
+        if self._rank0:
+            if self.mode == "w" and exists:
+                shutil.rmtree(self._path)
+            self._path.mkdir(parents=True, exist_ok=True)
+            self._write_group(model)
+            self._write_coords(templates)
+            self._write_time_axis(model_state)
+            self._write_variables(templates, hints)
+        _barrier("writer-skeleton")
+        if not self._rank0:
+            self._open_skeleton(templates)
         self._n = 0
+
+    def _open_skeleton(
+        self, templates: Mapping[str, ExportLayout],
+    ) -> None:
+        """
+        Open the rank-0-created skeleton on a non-rank-0 process.
+
+        Description
+        -----------
+        Rank 0 owns store creation; the other ranks open (never create)
+        the ``time``/``iteration``/variable arrays with
+        ``recheck_cached_metadata`` so they observe rank 0's later
+        resizes, and record the spatial shapes locally off the layouts.
+        """
+        self._time = _open_array(self._path / "time", recheck=True)
+        self._iteration = _open_array(
+            self._path / "iteration", recheck=True)
+        for name, layout in templates.items():
+            self._vars[name] = _open_array(
+                self._path / name, recheck=True)
+            self._spatial[name] = tuple(int(s) for s in layout.shape)
 
     def _reopen(self, templates: Mapping[str, ExportLayout]) -> None:
         """Reopen an existing store for append (resume)."""
-        self._time = _open_array(self._path / "time")
-        self._iteration = _open_array(self._path / "iteration")
+        # non-rank-0 handles recheck so they see rank 0's down-resize
+        recheck = self._distributed and not self._rank0
+        self._time = _open_array(self._path / "time", recheck=recheck)
+        self._iteration = _open_array(
+            self._path / "iteration", recheck=recheck)
         for name, layout in templates.items():
             store = (self._path / name)
             if not store.exists():
                 raise ValueError(
                     f"cannot append to {self._path}: it has no "
                     f"variable {name!r} (schema mismatch on resume)")
-            self._vars[name] = _open_array(store)
+            self._vars[name] = _open_array(store, recheck=recheck)
             self._spatial[name] = tuple(int(s) for s in layout.shape)
         # a prior async run may have died mid-firing, leaving a trailing
         # slice whose iteration is the fill sentinel; drop it so the
-        # append is gap-free and every array shares one time length.
+        # append is gap-free and every array shares one time length. The
+        # committed length is read identically on every rank; only rank
+        # 0 down-resizes, bracketed by barriers (no rank reads across
+        # the trim; the trimmed length is visible before any append).
         n = _committed_length(
             np.asarray(self._iteration.read().result()))
-        self._time = _grow(self._time, (n,))
-        self._iteration = _grow(self._iteration, (n,))
-        for name in self._vars:
-            self._vars[name] = _grow(
-                self._vars[name], (n, *self._spatial[name]))
+        _barrier("writer-reopen-read")
+        if self._rank0:
+            self._time = _grow(self._time, (n,))
+            self._iteration = _grow(self._iteration, (n,))
+            for name in self._vars:
+                self._vars[name] = _grow(
+                    self._vars[name], (n, *self._spatial[name]))
+        _barrier("writer-reopen-trim")
         self._n = n
 
     def _write_group(self, model: Any) -> None:
@@ -672,14 +823,38 @@ def _create_array(
     }).result()
 
 
-def _open_array(path: Path) -> Any:
-    """Open an existing zarr-v2 array via tensorstore (append/read)."""
+def _open_array(path: Path, *, recheck: bool = False) -> Any:
+    """
+    Open an existing zarr-v2 array via tensorstore (append/read).
+
+    Description
+    -----------
+    ``recheck`` sets ``recheck_cached_metadata: true`` so the handle
+    re-reads the ``.zarray`` metadata on every operation. Non-rank-0
+    handles open with it in a multi-process run so they observe rank
+    0's resizes; the single-process default keeps the cached metadata.
+
+    Parameters
+    ----------
+    path : Path
+        The zarr array directory.
+    recheck : bool, optional
+        Re-read the array metadata on each access (default: False).
+
+    Returns
+    -------
+    Any
+        The opened tensorstore handle.
+    """
     import tensorstore as ts  # noqa: PLC0415
-    return ts.open({
+    spec: dict[str, Any] = {
         "driver": "zarr",
         "kvstore": {"driver": "file", "path": str(path)},
         "open": True,
-    }).result()
+    }
+    if recheck:
+        spec["recheck_cached_metadata"] = True
+    return ts.open(spec).result()
 
 
 def _grow(store: Any, shape: tuple[int, ...]) -> Any:

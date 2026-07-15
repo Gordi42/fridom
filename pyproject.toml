@@ -67,6 +67,7 @@ addopts = [
 markers = [
   "multi_device: requires more than one jax device",
   "single_device: requires exactly one jax device",
+  "multi_process: spawns several jax.distributed OS processes",
 ]
 filterwarnings = [
   "error",

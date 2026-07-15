@@ -14,6 +14,7 @@ import jax
 import numpy as np
 import pytest
 import xarray as xr
+from jax.experimental import multihost_utils
 
 import fridom.spatial.export as export_module
 from fridom.model.clock import Clock
@@ -696,3 +697,260 @@ def test_block_writes_reports_the_step_on_failure(tmp_path):
 
     with pytest.raises(RuntimeError, match="at step 7"):
         writer_module._block_writes([(Boom(), None)], tmp_path, 7)
+
+
+# ================================================================
+#  Multi-process seams (_barrier is a no-op single-process)
+# ================================================================
+def test_barrier_is_noop_single_process(monkeypatch):
+    # count == 1: no collective is fired (single-process stays plain)
+    monkeypatch.setattr(writer_module, "_process_count", lambda: 1)
+    writer_module._barrier("noop")  # must not raise / touch jax
+
+
+def test_barrier_syncs_when_distributed(monkeypatch):
+    # count > 1: the jax collective fires with the given tag
+    monkeypatch.setattr(writer_module, "_process_count", lambda: 2)
+    called = []
+    monkeypatch.setattr(multihost_utils, "sync_global_devices",
+                        called.append)
+    writer_module._barrier("sync-tag")
+    assert called == ["sync-tag"]
+
+
+# ================================================================
+#  Multi-process coordination (simulated ranks via the seams)
+# ================================================================
+# These monkeypatch the process seams and the tensorstore/JSON layer to
+# drive one simulated rank of a multi-process world in a single real
+# process: rank 0 owns every metadata mutation (create, resize, the
+# time/iteration labels); every other rank opens (not creates) the
+# skeleton and writes only its own disjoint shard tiles. The real
+# collective coordination is exercised by the subprocess test
+# (test_writer_multiprocess.py) and the srun hardware check.
+class _FakeDone:
+
+    """A resolved tensorstore future."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def result(self):
+        return self._value
+
+
+class _FakeSlice:
+
+    """A ``store[index]`` view recording its ``.write``."""
+
+    def __init__(self, array, index):
+        self._array = array
+        self._index = index
+
+    def write(self, block):
+        self._array.writes.append((self._index, block))
+        return _FakeDone(None)
+
+
+class _FakeArray:
+
+    """In-memory stand-in for a tensorstore zarr array handle."""
+
+    def __init__(self, read_value=None):
+        self.shape = (0,)
+        self.labels = {}   # index -> scalar label write (__setitem__)
+        self.writes = []   # (index, block) shard writes (.write)
+        self._read_value = (np.array([], np.int64)
+                            if read_value is None else read_value)
+
+    def resize(self, *, exclusive_max):
+        self.shape = tuple(exclusive_max)
+        return _FakeDone(self)
+
+    def read(self):
+        return _FakeDone(self._read_value)
+
+    def __getitem__(self, index):
+        return _FakeSlice(self, index)
+
+    def __setitem__(self, index, value):
+        self.labels[index] = value
+
+
+def _simulate(monkeypatch, *, index, count):
+    """Patch the process seams + tensorstore/JSON layer for one rank."""
+    barriers, created, opened = [], [], []
+    monkeypatch.setattr(writer_module, "_process_index", lambda: index)
+    monkeypatch.setattr(writer_module, "_process_count", lambda: count)
+    monkeypatch.setattr(writer_module, "_barrier", barriers.append)
+
+    def fake_create(path, *_args, **_kwargs):
+        created.append(Path(path).name)
+        return _FakeArray()
+
+    def fake_open(path, *, recheck=False):
+        opened.append((Path(path).name, recheck))
+        return _FakeArray()
+
+    monkeypatch.setattr(writer_module, "_create_array", fake_create)
+    monkeypatch.setattr(writer_module, "_open_array", fake_open)
+    monkeypatch.setattr(writer_module, "_write_json",
+                        lambda *_a, **_k: None)
+    return barriers, created, opened
+
+
+def test_distributed_rank0_creates_skeleton(tmp_path, model, monkeypatch):
+    barriers, created, opened = _simulate(monkeypatch, index=0, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["u", "p"],
+                    trigger=every(steps=1))
+    writer.bind(model)
+    assert writer._rank0
+    assert writer._distributed
+    assert opened == []  # rank 0 opens nothing; it creates the skeleton
+    for name in ("time", "iteration", "u", "p", "x_right", "y", "x"):
+        assert name in created
+    assert "writer-exists" in barriers  # check-then-mutate ordering
+    assert "writer-skeleton" in barriers
+
+
+def test_distributed_nonrank0_opens_not_creates(
+        tmp_path, model, monkeypatch):
+    barriers, created, opened = _simulate(monkeypatch, index=3, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["u", "p"],
+                    trigger=every(steps=1))
+    writer.bind(model)
+    assert not writer._rank0
+    assert writer._distributed
+    assert created == []  # non-rank-0 creates nothing
+    assert {name for name, _ in opened} == {"time", "iteration", "u", "p"}
+    assert all(recheck for _, recheck in opened)  # recheck handles
+    assert "writer-skeleton" in barriers
+    # the spatial shapes are recorded locally off the layouts
+    assert set(writer._spatial) == {"u", "p"}
+
+
+def test_distributed_rank0_writes_the_labels(
+        tmp_path, model, state, monkeypatch):
+    barriers, _, _ = _simulate(monkeypatch, index=0, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["u", "p"],
+                    trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(firing(state, 5))
+    # rank 0 writes the time then iteration labels for slot nt=0
+    assert writer._time.labels == {0: 5 * DT}
+    assert writer._iteration.labels == {0: 5}
+    assert writer._vars["u"].writes  # rank 0 also wrote its shard tile
+    assert "writer-resized" in barriers
+    assert "writer-data" in barriers
+
+
+def test_distributed_nonrank0_skips_the_labels(
+        tmp_path, model, state, monkeypatch):
+    _simulate(monkeypatch, index=3, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["u", "p"],
+                    trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(firing(state, 5))
+    # a non-rank-0 rank never touches the time/iteration labels ...
+    assert writer._time.labels == {}
+    assert writer._iteration.labels == {}
+    # ... but it does write its own disjoint shard tile
+    assert writer._vars["u"].writes
+
+
+def test_distributed_async_falls_back_to_blocking(
+        tmp_path, model, state, monkeypatch):
+    _simulate(monkeypatch, index=0, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["p"],
+                    trigger=every(steps=1), async_writes=True)
+    writer.bind(model)
+    assert writer._async_effective is False  # distributed -> blocking
+    writer.write(firing(state, 0))
+    assert writer._pending is None  # nothing deferred; committed inline
+
+
+def test_distributed_close_barriers(tmp_path, model, monkeypatch):
+    barriers, _, _ = _simulate(monkeypatch, index=0, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["p"],
+                    trigger=every(steps=1))
+    writer.bind(model)
+    writer.close()
+    assert "writer-close" in barriers
+    assert not writer._bound
+
+
+def test_distributed_truncate_rank0_resizes(
+        tmp_path, model, monkeypatch):
+    barriers, _, _ = _simulate(monkeypatch, index=0, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["p"],
+                    trigger=every(steps=1))
+    writer.bind(model)
+    writer._iteration = _FakeArray(read_value=np.array([0, 1, 2, 3]))
+    writer.truncate_after(1)
+    assert writer._n == 2  # keep iterations <= 1 -> [0, 1]
+    assert writer._iteration.shape == (2,)  # rank 0 resized down
+    assert "writer-truncate-read" in barriers
+    assert "writer-truncate-trim" in barriers
+
+
+def test_distributed_truncate_nonrank0_does_not_resize(
+        tmp_path, model, monkeypatch):
+    _simulate(monkeypatch, index=3, count=4)
+    writer = Writer(tmp_path / "d.zarr", fields=["p"],
+                    trigger=every(steps=1))
+    writer.bind(model)
+    writer._iteration = _FakeArray(read_value=np.array([0, 1, 2, 3]))
+    writer.truncate_after(1)
+    assert writer._n == 2  # the kept length agrees on every rank ...
+    assert writer._time.shape == (0,)  # ... but only rank 0 resizes
+
+
+def test_distributed_reopen_rank0_trims(tmp_path, model, monkeypatch):
+    path = tmp_path / "d.zarr"
+    (path / "u").mkdir(parents=True)
+    (path / "p").mkdir()
+    barriers, _, opened = _simulate(monkeypatch, index=0, count=4)
+    writer = Writer(path, fields=["u", "p"], mode="a",
+                    trigger=every(steps=1))
+    writer.bind(model)
+    assert writer._n == 0  # empty iteration -> committed length 0
+    # rank 0 reopens without recheck (it owns the trim)
+    assert opened
+    assert all(recheck is False for _, recheck in opened)
+    assert "writer-reopen-read" in barriers
+    assert "writer-reopen-trim" in barriers
+
+
+def test_distributed_reopen_nonrank0_rechecks(
+        tmp_path, model, monkeypatch):
+    path = tmp_path / "d.zarr"
+    (path / "u").mkdir(parents=True)
+    (path / "p").mkdir()
+    _barriers, _, opened = _simulate(monkeypatch, index=3, count=4)
+    writer = Writer(path, fields=["u", "p"], mode="a",
+                    trigger=every(steps=1))
+    writer.bind(model)
+    assert writer._n == 0
+    # a non-rank-0 rank reopens with recheck (to see rank 0's trim)
+    assert opened
+    assert all(recheck for _, recheck in opened)
+
+
+def test_open_array_recheck_flag_opens_and_sees_resize(
+        tmp_path, model, state):
+    # the real recheck handle (the non-rank-0 read path): it opens an
+    # existing array and re-reads metadata, so a resize performed
+    # through a second handle becomes visible.
+    path = tmp_path / "r.zarr"
+    writer = Writer(path, fields=["p"], trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(firing(state, 0))
+    writer.close()
+    handle = writer_module._open_array(path / "time", recheck=True)
+    assert tuple(handle.shape) == (1,)
+    assert float(np.asarray(handle.read().result())[0]) == 0.0
+    # grow via a second handle; a fresh recheck handle sees the new len
+    writer_module._open_array(path / "time").resize(
+        exclusive_max=[3]).result()
+    reread = writer_module._open_array(path / "time", recheck=True)
+    assert tuple(reread.shape) == (3,)
