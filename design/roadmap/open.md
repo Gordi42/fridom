@@ -165,14 +165,13 @@ Gates the credibility of 3.3.
 
 ## Grid follow-ups — the ergonomics half
 
-*Small (~2-3 days, ~300-450 LOC).* **Land this before the docs rebuild
-writes Getting Started**, which is what makes it a next step rather than
-a nicety:
+*Small (~1-2 days).* The convenience constructors **landed 2026-07-15**
+(see [done.md](done.md)) — `fr.spatial.cartesian.Grid(shape=, extent=,
+periodic=)`, the `fr.spatial.spherical.Grid` fast assemble, and the
+`fr.spatial.charts.lonlat_sphere` chart primitive — so Getting Started
+no longer has to open with hand-built `IntervalMesh` factors. What
+remains are the API shims:
 
-- **`cartesian.Grid(shape=, extent=, periodic=)`** — still a 9-line stub.
-  The old stack had this convenience constructor and the *existing docs
-  pages use it*; without a new-stack equivalent, Getting Started opens
-  with two deep imports and a generator expression over `IntervalMesh`.
 - `ImmutableStateError` on `.data` assignment (today: a bare
   `AttributeError`; the error class already exists in `model/errors.py`).
 - Re-export the transform classes and `NodeSet` from `fr.spatial`; type
