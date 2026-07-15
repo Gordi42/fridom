@@ -722,19 +722,54 @@ the map commit had made them FASTER than the concat baseline's 7.01).
 If tiny-case latency ever matters: seal only ghost-consumed fields
 (drops ~1/6), or group the per-field barriers into one per step.
 
-**Open (predates the seal, blocks calling the 4-GPU story closed):**
-`nh_flat_walled[256]` on 4 GPUs regresses vs the concat baseline
-(320.9 -> 342.9 ms at the map commit -> 349.3 sealed, +8.9%), while
-the same case on 1 GPU improves 22.8%. Ruled out already: collective
-counts (identical), the sign select, the bounded-axis spelling.
-The case runs the REPLICATED composite solve fallback (the
-distributed transform declines the mixed trig plan), so the suspect
-is the fill interacting with that fallback, not the halo exchange.
-`sw_sphere[1024]` on 4 GPUs (+6.5%, bounded lat axis) looks like the
-same family. Next step: the command-buffers-off xprof profile of the
-4-GPU walled chunk. The re-recorded step-gpu4 baseline BAKES IN this
-regression as the new reference — it is recorded here so it is not
-forgotten.
+**RESOLVED (2026-07-15) — the 4-GPU walled regression, kernel-attributed.**
+`nh_flat_walled[256]` on 4 GPUs: concat 320.2 -> map 343.4 -> sealed
+349.8 ms/chunk (fresh best-of-5, std < 0.25 ms; command-buffers-off
+profiler medians 322/343/353 agree — cb-off distorts ~1%). It is NOT
+communication: the replicated-fallback all-gather is flat
+(+0.3 ms/chunk), halo SendRecv +2.4, FFT unchanged (64.7 -> 64.8),
+cublas scal unchanged. The whole gap is elementwise fusion compute:
+the projection's velocity-correction subtract/add fusions grow
++26.1/+16.1 ms/chunk because they ABSORB the index-map fill
+(`jit(_take)` gather) and re-derive it per consumer — 154 distinct
+fused computations at the map commit (101 sealed) each carry their
+own copy of the fill (76 in `DynamicalCore/projection`, 47 coriolis,
+31 stratification). On this path the gather's operand is
+`pad(dynamic-slice(replicated f64[256^3]))` — the REPLICATED solve
+output being resharded — so each re-derivation walks a full-field
+chain; the removed concatenate machinery gives back only ~20 ms (net
++21 at the map commit), and the seal adds ~+10 more (its DUS/slice
+writes buy nothing here). Same mechanism as 8a, opposite sign:
+1-GPU/sharded fill operands are small in-frame arrays, so absorption
+wins (-22.8% same case, 1 GPU); only the walled REPLICATED projection
+makes the re-derived operand full-field. `sw_sphere[1024]`
+re-measured at +1.9%, within its own noise (the earlier +6.5%
+overlapped its 75-77 ms jitter band) — same family by code path
+(bounded lat axis), not separately attributed.
+
+Fixes, in order of leverage:
+
+1. **Distribute the mixed (trig) transform plan** — already the top
+   §4b lever. Kills the root cause (the replicated operand) AND the
+   ~128 ms/chunk of replicated solve work (all-gather 30.9 + 4x
+   redundant FFT 64.8 + scal 32.1): worth roughly -25% on this case,
+   far more than the +9% regression it fixes in passing.
+   `distributed_transform_plan.md` (mixed transforms "enabled but not
+   implemented"): the per-stage lowering already supports non-FFT
+   stages; the work is wiring the DCT/DST kernels (`trig.py`) as
+   per-stage `shard_map` targets. Doing it also motivates the Wave-4
+   native DCT kernel — the current length-2n complex-FFT spelling
+   costs 2-4x a real DCT, redundantly on every device today.
+2. Targeted stopgap if 1. waits: materialize the fill once at the
+   projection boundary (a `materialize=True` sync on the solve output
+   before `Gradient`; the dead-operand contract of 8b holds there) —
+   turns 100+ full-field re-derivations into one buffer, the
+   concat-era cost shape without its write amplification.
+
+The re-recorded step-gpu4 baseline BAKES IN the regression as the new
+reference until a fix lands (recorded here so it is not forgotten).
+Profiling artifacts (2026-07-15 session scratchpad):
+`trace_{concat,map,head}_cboff/`, `{concat,map,head}_chunk_body.txt`.
 
 ### 8c. Paired finding: the spectral symbol k^2 is rebuilt per step
 
