@@ -453,17 +453,20 @@ class TensorDecomposition(Decomposition):
         stability: a warmed model re-run must add zero compiles).
 
         ``shard_map`` requires equal per-shard shapes, so the plan
-        runs it on a uniform frame: for a **divisible** blocked axis
-        the true shape already is uniform (``n == shards * cells``);
-        for a **non-divisible** (padded-even) axis the shard_map runs
-        on the padded-true frame ``shards * cells`` (evenly split, the
-        last shard's surplus cells inert), and the plan's callables
-        wrap a trailing trim (``true <-> padded-true``) around it. The
-        divisible **staggered** surplus/deficit spaces
-        (``n == shards * cells +- 1`` on an evenly-divisible cell
-        count) still return None — the ``+1`` capacity cannot be
-        expressed as a uniform per-shard slice — and, with fully
-        unblocked geometries, fall back to the global re-blocking
+        runs it on a uniform frame: for a **divisible-uniform** axis
+        the true shape already is uniform (``n == shards * cells``, no
+        trim); every other admitted axis runs the shard_map on the
+        padded-true frame ``shards * cells`` (evenly split, the last
+        shard's surplus cells inert) and the plan's callables wrap a
+        trailing trim (``true <-> padded-true``) around it. This
+        admits the non-divisible (padded-even) axes AND the divisible
+        staggered **deficit** leg (``n == shards * cells - 1``, the
+        walled face velocity, ``surplus == 1``). The divisible
+        staggered **surplus** leg (``n == shards * cells + 1``,
+        Neumann outer) still returns None: its true extent exceeds the
+        padded-even frame, so it needs a distinct ``shards *
+        (cells + 1)`` frame plus a realigning collective-permute (a
+        separate path), and falls back to the global re-blocking
         path.
 
         Parameters
@@ -501,7 +504,7 @@ class TensorDecomposition(Decomposition):
         outer_slice: list[slice] = []
         blocked = False
         cell_padded = False
-        for axis, (name, n, factor, shards, width, block,
+        for axis, (name, n, _factor, shards, width, block,
                    _) in enumerate(geometry):
             if shards == 1:
                 # per-shard == global on an unblocked axis; the
@@ -512,17 +515,33 @@ class TensorDecomposition(Decomposition):
                 outer_slice.append(slice(0, n))
                 continue
             cells = block - 1 - 2 * width
-            n_cells = getattr(factor.mesh, "n_cells", None)
-            divisible = n_cells is not None and n_cells % shards == 0
-            # A divisible axis is shard-local only in the uniform case
-            # (``n == shards * cells``); a non-divisible mild axis runs
-            # the shard_map on the padded-true frame ``shards * cells``
-            # (the last shard's surplus cells inert) and wraps a
-            # trailing trim. The divisible staggered surplus
-            # (``n == shards * cells + 1``) needs ``n > shards * cells``
-            # and falls back to the global path. Heavy padding is
-            # already excluded upstream (_cells_per_shard, negotiation).
-            if n > shards * cells or (divisible and n != shards * cells):
+            # The shard_map runs on the padded-true frame
+            # ``shards * cells`` (evenly split into ``cells``-chunks,
+            # the last shard's surplus cells inert) and the plan wraps
+            # a trailing trim. This covers the divisible-uniform case
+            # (``n == shards * cells``, surplus 0, no trim), the
+            # non-divisible mild axes, AND the divisible staggered
+            # **deficit** leg (``n == shards * cells - 1``, the walled
+            # face velocity): its true frame is one short of the padded
+            # frame, so ``surplus == 1`` and the trim drops one inert
+            # trailing slot -- storage byte-for-byte identical to the
+            # global path, and collective-free (at ``n_cells % shards
+            # == 0`` the ceil-block frame of the ``n_cells - 1`` true
+            # array coincides with the ``cells``-aligned storage
+            # blocks; H2, indivisible_shard_probes.md).
+            #
+            # The divisible staggered **surplus** leg
+            # (``n == shards * cells + 1``, Neumann outer) still falls
+            # back to the global path: its true extent EXCEEDS the
+            # padded-even frame, so it is unrepresentable as a
+            # ``(0, surplus)`` pad of a ``shards * cells`` even split
+            # (surplus would be negative). Admitting it needs a
+            # distinct ``shards * (cells + 1)`` frame plus a realigning
+            # collective-permute -- a separate path, not this
+            # machinery; deferred (no hot-loop consumer in the linear
+            # step, and unvalidated). Heavy padding is already excluded
+            # upstream (_cells_per_shard, negotiation).
+            if n > shards * cells:
                 return None
             surplus = shards * cells - n
             cell_padded = cell_padded or bool(surplus)
@@ -655,11 +674,12 @@ class TensorDecomposition(Decomposition):
         Description
         -----------
         With a shard-local plan (``_local_reblock``, covering the
-        divisible-uniform and the non-divisible padded-even axes) this
-        is one ``jax.shard_map`` region padding every shard's true
-        piece into its block locally — zero collectives. Unblocked
-        geometries pad globally; the divisible staggered spaces fall
-        back to the global per-block re-assembly.
+        divisible-uniform, the non-divisible padded-even, and the
+        divisible deficit axes) this is one ``jax.shard_map`` region
+        padding every shard's true piece into its block locally — zero
+        collectives. Unblocked geometries pad globally; the divisible
+        surplus (Neumann-outer) spaces fall back to the global
+        per-block re-assembly.
         """
         layout = self._resolve_layout(space, layout)
         if tuple(arr.shape) != tuple(space.shape):
@@ -742,14 +762,15 @@ class TensorDecomposition(Decomposition):
         Description
         -----------
         With a shard-local plan (``_local_reblock``, covering the
-        divisible-uniform and the non-divisible padded-even axes) this
-        is one ``jax.shard_map`` region slicing every block's interior
-        locally — zero collectives on the perf-critical (center /
-        outer) spaces; the divisible output is evenly sharded on the
-        blocked axes (shard ``s`` holds exactly its block's true DOFs,
-        so a following ``pad`` stays local too). Unblocked geometries
-        slice globally; the divisible staggered spaces fall back to
-        the global per-block gather.
+        divisible-uniform, the non-divisible padded-even, and the
+        divisible deficit axes) this is one ``jax.shard_map`` region
+        slicing every block's interior locally — zero collectives on
+        the perf-critical (center / staggered-deficit) spaces; the
+        divisible-uniform output is evenly sharded on the blocked axes
+        (shard ``s`` holds exactly its block's true DOFs, so a
+        following ``pad`` stays local too). Unblocked geometries slice
+        globally; the divisible surplus (Neumann-outer) spaces fall
+        back to the global per-block gather.
         """
         layout = self._resolve_layout(space, layout)
         storage = self.storage_shape(space, layout)
