@@ -603,16 +603,16 @@ def test_async_defers_writes_until_drained(tmp_path, model, state):
                   trigger=every(steps=1))
     sync.bind(model)
     sync.write(firing(state, 0))
-    assert sync._pending == []
+    assert sync._pending is None
     sync.close()
 
     lazy = Writer(tmp_path / "a.zarr", fields=["p"],
                   trigger=every(steps=1), async_writes=True)
     lazy.bind(model)
     lazy.write(firing(state, 0))
-    assert lazy._pending
+    assert lazy._pending is not None
     lazy.close()
-    assert lazy._pending == []
+    assert lazy._pending is None
     ds = xr.open_zarr(tmp_path / "a.zarr", consolidated=False)
     np.testing.assert_array_equal(
         ds["p"].values[0], np.asarray(state["p"].data))
@@ -626,12 +626,12 @@ def test_async_backpressure_keeps_one_firing_in_flight(
                   trigger=every(steps=1), async_writes=True)
     lazy.bind(model)
     lazy.write(firing(state, 0))
-    after_first = len(lazy._pending)
+    after_first = len(lazy._pending[0])  # queued var writes of one firing
     assert after_first  # something is genuinely in flight
     for it in (1, 2, 3):
         lazy.write(firing(state, it))
         # constant: the previous firing was drained at the top of write
-        assert len(lazy._pending) == after_first
+        assert len(lazy._pending[0]) == after_first
     lazy.close()
 
 
@@ -644,8 +644,55 @@ def test_async_truncate_after_is_forkfree(tmp_path, model, state):
     for it in (0, 1, 2):
         writer.write(firing(state, it))
     writer.truncate_after(1)
-    assert writer._pending == []
+    assert writer._pending is None
     writer.write(firing(state, 2))
     writer.close()
     ds = xr.open_zarr(path, consolidated=False)
     assert ds["iteration"].values.tolist() == [0, 1, 2]
+
+
+def test_async_crash_leaves_uncommitted_tail_and_reopen_drops_it(
+        tmp_path, model, state):
+    # a hard kill (no close, no final drain) must never leave a real
+    # iteration label on the in-flight slice: it keeps the fill
+    # sentinel, and reopen trims it so the append is gap-free.
+    path = tmp_path / "crash.zarr"
+    writer = Writer(path, fields=["p"], trigger=every(steps=1),
+                    async_writes=True)
+    writer.bind(model)
+    writer.write(firing(state, 0))
+    writer.write(firing(state, 1))  # firing 1 is now in flight
+    del writer  # simulate the process dying before the next drain
+
+    # firing 0 committed its label; firing 1's is the sentinel, so the
+    # slice reads as never-written rather than real-label-on-garbage.
+    it_store = writer_module._open_array(path / "iteration")
+    raw = np.asarray(it_store.read().result())
+    assert raw.tolist() == [0, writer_module._UNWRITTEN]
+
+    resumed = Writer(path, fields=["p"], mode="a",
+                     trigger=every(steps=1), async_writes=True)
+    resumed.bind(model)
+    assert resumed._n == 1  # the crashed tail was dropped on reopen
+    resumed.write(firing(state, 1))
+    resumed.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["iteration"].values.tolist() == [0, 1]
+    np.testing.assert_array_equal(
+        ds["p"].values[0], np.asarray(state["p"].data))
+
+
+def test_committed_length_counts_up_to_the_sentinel():
+    assert writer_module._committed_length(np.array([], np.int64)) == 0
+    assert writer_module._committed_length(np.array([0, 1, 2])) == 3
+    tail = np.array([0, 1, writer_module._UNWRITTEN])
+    assert writer_module._committed_length(tail) == 2
+
+
+def test_block_writes_reports_the_step_on_failure(tmp_path):
+    class Boom:
+        def result(self):
+            raise OSError("disk full")
+
+    with pytest.raises(RuntimeError, match="at step 7"):
+        writer_module._block_writes([(Boom(), None)], tmp_path, 7)
