@@ -685,13 +685,163 @@ def test_chebyshev_column_falls_back():
 
 
 @pytest.mark.multi_device
-def test_indivisible_partners_fall_back():
-    # x (16) shards, but no other stage axis (18, 18) divides four
-    # devices, so the joint geometry finds no transpose partner
+def test_indivisible_partners_pad():
+    # x (16) shards; the partners (18, 18) are indivisible but paddable,
+    # so the joint geometry now picks a padded transpose partner (the
+    # trig axis z, keeping the Fourier axis y local as the half axis)
+    # instead of declining -- the prime-domain fix (Phase 2)
     grid = make_walled_grid((16, 18, 18))
+    bare = grid.create_field().function_space.bare
+    solve_space = _bc_sibling(bare, BC.NEUMANN)
+    transform = resolve_transform(grid, solve_space)
+    geom = transform._joint_geometry(solve_space)
+    assert geom is not None
+    assert geom[:3] == ("x", "z", "y")
+    plan = resolve_distributed_plan(transform, grid, solve_space)
+    assert plan is not None
+    # the padded balanced all-to-all engages (indivisible partner z)
+    assert plan.padded
+
+
+@pytest.mark.multi_device
+def test_unpaddable_partner_falls_back():
+    # x (16) shards, but the only partners (5, 5) pad so heavily over
+    # four devices that a trailing shard empties -- unpaddable, so the
+    # joint geometry declines and keeps the replicated composite
+    grid = make_walled_grid((16, 5, 5))
     bare = grid.create_field().function_space.bare
     solve_space = _bc_sibling(bare, BC.NEUMANN)
     transform = resolve_transform(grid, solve_space)
     assert transform._joint_geometry(solve_space) is None
     assert resolve_distributed_plan(
         transform, grid, solve_space) is None
+
+
+# ================================================================
+#  Indivisible split axes: the padded balanced all-to-all (Phase 2)
+# ================================================================
+def test_divisible_plan_is_not_padded():
+    # a divisible / single-device plan needs no padded transpose: it
+    # runs the true-frame path byte-for-byte
+    grid = make_grid((8, 8, 8), device_ids=(0,))
+    assert not one_device_plan(grid).padded
+
+
+@pytest.mark.multi_device
+@pytest.mark.parametrize("n", [18, 33], ids=["n18", "n33-prime"])
+def test_indivisible_periodic_solve_matches_one_device(n):
+    # a triple-periodic indivisible / prime domain keeps the
+    # distributed solve (the padded transpose) instead of replicating;
+    # the result matches the one-device reference to machine precision
+    data = np.random.default_rng(3).standard_normal((n, n, n))
+
+    def solve_on(device_ids):
+        grid = make_grid((n, n, n), device_ids=device_ids)
+        rhs = grid.create_field(data=jnp.asarray(data))
+        bare = rhs.function_space.bare
+        solve = SpectralSolve(
+            laplacian_on(grid, bare, dsqr=1e-4), grid, bare)
+        return solve, np.asarray(solve(rhs).data)
+
+    many, p_many = solve_on(None)
+    one, p_one = solve_on((0,))
+    assert one.slab is None
+    if many._grid.decomposition.device_count > 1:
+        assert many.slab is not None
+        # indivisible extents engage the padded balanced all-to-all
+        assert many.slab.plan.padded
+    assert not np.isnan(p_many).any()
+    assert not np.isinf(p_many).any()
+    assert np.allclose(p_many, p_one, rtol=1e-12, atol=1e-13)
+
+
+@pytest.mark.multi_device
+def test_indivisible_mixed_solve_matches_one_device():
+    # a walled column with an indivisible Fourier axis (y=18) and an
+    # indivisible trig axis (z=18): the mixed distributed solve pads
+    # both the sharded axis (x) and the trig transpose partner (z)
+    data = np.random.default_rng(7).standard_normal((16, 18, 18))
+    many, rhs_m = walled_solve(
+        (16, 18, 18), None, (True, True, False), BC.NEUMANN, data)
+    assert many.slab is not None
+    assert many.slab.plan.padded
+    p_many = np.asarray(many(rhs_m).data)
+    one, rhs_o = walled_solve(
+        (16, 18, 18), (0,), (True, True, False), BC.NEUMANN, data)
+    assert one.slab is None
+    p_one = np.asarray(one(rhs_o).data)
+    assert not np.isnan(p_many).any()
+    assert np.allclose(p_many, p_one, rtol=1e-11, atol=1e-13)
+
+
+@pytest.mark.multi_device
+def test_indivisible_solve_transposes_without_gathers():
+    # the prime-domain solve compiles to transposes only -- nothing
+    # gathers the spectral cube (the diagnosed replication pathology)
+    grid = make_grid((18, 18, 18))
+    rhs = grid.create_field(data=rng_data((18, 18, 18)))
+    bare = rhs.function_space.bare
+    solve = SpectralSolve(
+        laplacian_on(grid, bare, dsqr=1e-4), grid, bare)
+    assert solve.slab is not None
+    assert solve.slab.plan.padded
+    space = rhs.function_space
+
+    def run(storage):
+        return solve(ScalarField(grid, space, storage))._data
+
+    text = jax.jit(run).lower(rhs._data).compile().as_text()
+    # the padded transpose is still an all_to_all; the local pad/slice
+    # and the reblock lower shard-local (no cube gather)
+    assert "all-to-all" in text
+    assert "all-gather" not in text
+    assert "all-reduce" not in text
+
+
+@pytest.mark.multi_device
+def test_warm_indivisible_solve_adds_zero_compiles(compile_counter):
+    # the padded plan caches its jit-wrapped shard_map solve callable
+    # and the even-frame reblock callables, so a warmed eager re-run of
+    # the prime-domain solve adds zero compiles
+    grid = make_grid((18, 18, 18))
+    data = rng_data((18, 18, 18))
+
+    def solve_once():
+        rhs = grid.create_field(data=data)
+        bare = rhs.function_space.bare
+        solve = SpectralSolve(
+            laplacian_on(grid, bare, dsqr=1e-4), grid, bare)
+        assert solve.slab is not None
+        assert solve.slab.plan.padded
+        return solve(rhs)
+
+    solve_once()
+    solve_once()
+    compile_counter.reset()
+    solve_once()
+    assert compile_counter.count == 0
+
+
+@pytest.mark.multi_device
+def test_indivisible_solve_has_no_pad_lane_leak():
+    # the padded transpose zero-fills the split-axis pad lanes and the
+    # diagonal is zero-padded to match; the eigenvalue divide must not
+    # turn them into NaN/inf. An identity (all-ones) diagonal on a prime
+    # domain must round-trip finite and reproduce the input through the
+    # padded-even frame.
+    grid = make_grid((33, 33, 33))
+    rhs = grid.create_field(data=rng_data((33, 33, 33)))
+    space = rhs.function_space
+    bare = space.bare
+    transform = resolve_transform(grid, bare)
+    plan = resolve_distributed_plan(transform, grid, bare)
+    assert plan is not None
+    assert plan.padded
+    decomp = grid.decomposition
+    even = decomp.unpad_even(rhs.storage, space)
+    out = plan.solve(even, jnp.ones(plan.coeff.shape))
+    result = rhs.with_storage(decomp.pad_even(out, space))
+    r = np.asarray(result.data)
+    assert not np.isnan(r).any()
+    assert not np.isinf(r).any()
+    assert np.allclose(r, np.asarray(rhs.data), rtol=1e-12, atol=1e-13)

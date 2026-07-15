@@ -71,6 +71,10 @@ ON_GPU = jax.default_backend() == "gpu"
 SIZES_NH_FLAT = [32] + ([256, 512] if ON_GPU else [])
 SIZES_NH_WALLED = [32] + ([256] if ON_GPU else [])
 SIZES_NH_MAPPED = [32] + ([128, 256] if ON_GPU else [])
+#: prime (indivisible) extents: 257 shards over no device count, so
+#: this prices the padded balanced all-to-all against the 256 divisible
+#: step (the CI cpu smoke uses the small prime 31).
+SIZES_NH_PRIME = [31] + ([257] if ON_GPU else [])
 SIZES_SW = [64] + ([1024, 2048] if ON_GPU else [])
 
 TWO_PI = 2.0 * np.pi
@@ -148,6 +152,24 @@ def _nh_model(n: int, *, mapped: bool, periodic_z: bool = False,
                 measure_compile=False)
 def nh_flat_periodic(n):
     """Linear step on the triply periodic flat grid (spectral solve)."""
+    model = _nh_model(n, mapped=False, periodic_z=True)
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_PRIME}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_prime(n):
+    """Linear step on a triply periodic PRIME flat grid (257^3).
+
+    The indivisible-extent guard: a prime domain shards over no device
+    count, so before the padded balanced all-to-all (Phase 2) the
+    distributed solve declined and replicated the spectral cube (~2.8x
+    the divisible step on 4 GPUs, 257 vs 256). This case prices the
+    padded distributed solve so the prime path cannot regress silently;
+    it lands near the 260 divisible step (the residual gap is the cuFFT
+    Bluestein cost of a prime length, which the 1-GPU run pays too).
+    Baseline recorded post-merge on the A100 nodes.
+    """
     model = _nh_model(n, mapped=False, periodic_z=True)
     return _stepping_case(model, float(n) ** 3)
 

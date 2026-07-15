@@ -216,6 +216,41 @@ def test_unpad_rejects_non_storage_shape(space):
         decomp.unpad(jnp.zeros(space.shape), space)
 
 
+def test_even_shape_equals_true_shape_single_device(space):
+    # single device: nothing is blocked, so the padded-even frame is
+    # the true frame
+    decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
+    assert decomp.even_shape(space) == space.shape
+
+
+def test_unpad_even_equals_unpad_single_device(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
+    arr = jnp.arange(40.0).reshape(space.shape)
+    storage = decomp.pad(arr, space)
+    assert bool(jnp.all(decomp.unpad_even(storage, space) == arr))
+
+
+def test_pad_even_roundtrips_single_device(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
+    arr = jnp.arange(40.0).reshape(space.shape)
+    even = decomp.unpad_even(decomp.pad(arr, space), space)
+    storage = decomp.pad_even(even, space)
+    assert storage.shape == decomp.storage_shape(space)
+    assert bool(jnp.all(decomp.unpad(storage, space) == arr))
+
+
+def test_unpad_even_rejects_non_storage_shape(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
+    with pytest.raises(ValueError, match="storage-shaped"):
+        decomp.unpad_even(jnp.zeros(space.shape), space)
+
+
+def test_pad_even_rejects_non_even_shape(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
+    with pytest.raises(ValueError, match="padded-even"):
+        decomp.pad_even(jnp.zeros((3, 3)), space)
+
+
 def test_zeros_pad_sync_unpad_preserves_values(space):
     decomp = make_decomp(halo=HaloSpec({"x": 1, "y": 1}))
     zeros = decomp.unpad(decomp.zeros(space), space)

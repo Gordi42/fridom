@@ -39,6 +39,7 @@ from fridom.spatial.operators.transform import (
     TransformPlan,
     TransformStage,
     _complex_storage,
+    _paddable,
     _rebuild,
 )
 from fridom.spatial.spaces.constant import ConstantSpace
@@ -313,11 +314,14 @@ class ComposedTransform:
         -----------
         The family-aware counterpart of
         ``Transform._distributed_geometry``: ``a`` is the single
-        default-layout-sharded coordinate, ``b`` the first divisible
-        partner that leaves a Hermitian (Fourier) axis local when one
-        exists, ``h`` the last such local Hermitian axis of a real
-        domain (None otherwise). Returns the axes together with the
-        stage-name order and the axis -> owning-part map.
+        default-layout-sharded coordinate, ``b`` the transpose partner
+        that leaves a Hermitian (Fourier) axis local when one exists —
+        preferring a **divisible** partner (the byte-identical fast
+        path), else a **paddable** one (the padded transpose) — and
+        ``h`` the last such local Hermitian axis of a real domain (None
+        otherwise). Returns the axes together with the stage-name order
+        and the axis -> owning-part map, or None when ``a`` / the only
+        partner would pad too heavily (a trailing shard empties).
         """
         decomposition = self.grid.decomposition
         mapped = dict(decomposition.default_layout.device_axes)
@@ -336,13 +340,18 @@ class ComposedTransform:
                 or name_a not in stage_names
                 or any(len(bare.factor(n).shape) != 1
                        for n in stage_names)
-                or bare.factor(name_a).shape[0] % shards):
+                or not _paddable(bare.factor(name_a).shape[0], shards)):
             return None
+        partners = tuple(n for n in stage_names if n != name_a)
         divisible = tuple(
-            n for n in stage_names
-            if n != name_a
-            and bare.factor(n).shape[0] % shards == 0)
-        if not divisible:
+            n for n in partners
+            if bare.factor(n).shape[0] % shards == 0)
+        # prefer divisible partners (byte-identical fast path); else the
+        # paddable ones (the padded balanced all-to-all)
+        candidates = divisible or tuple(
+            n for n in partners
+            if _paddable(bare.factor(n).shape[0], shards))
+        if not candidates:
             return None
         hermitian: tuple[str, ...] = ()
         if not _complex_storage(bare):
@@ -351,9 +360,9 @@ class ComposedTransform:
                 if n != name_a
                 and part_of[n]._hermitian)  # noqa: SLF001 — family classvar
         name_b = next(
-            (n for n in divisible
+            (n for n in candidates
              if any(m != n for m in hermitian)),
-            divisible[0])
+            candidates[0])
         remaining = tuple(n for n in hermitian if n != name_b)
         name_h = remaining[-1] if remaining else None
         return name_a, name_b, name_h, stage_names, part_of

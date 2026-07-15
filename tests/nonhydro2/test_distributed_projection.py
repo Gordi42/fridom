@@ -36,6 +36,21 @@ def _make_model(*, periodic_z):
     return model
 
 
+# an indivisible (prime) triple-periodic domain: shards over no device
+# count, so it exercises the Phase 2 padded balanced all-to-all (19 is
+# the smallest prime whose last ceil-block shard clears the model's
+# width-2 halo over four devices)
+N_PRIME = 19
+
+
+def _make_prime_model(*, device_ids=None):
+    grid = Grid(tuple(
+        IntervalMesh(N_PRIME, (0.0, LENGTH), periodic=True, name=name)
+        for name in ("x", "y", "z")), device_ids=device_ids)
+    return nh.Model(grid=grid, dt=0.02, advection=False,
+                    coriolis=FPlaneCoriolis(f0=1.0))
+
+
 @pytest.fixture
 def resolutions(monkeypatch):
     """Spy on ``resolve_distributed_solve``, collecting its results."""
@@ -83,3 +98,44 @@ def test_walled_projection_resolves_the_distributed_solve(
         "replicated composite — the mixed distributed path regressed")
     assert all(isinstance(s, SlabSolve)
                for s in resolutions if s is not None)
+
+
+@pytest.mark.multi_device
+def test_prime_projection_resolves_the_padded_distributed_solve(
+        resolutions):
+    # the Phase 2 gate: an indivisible (prime) triple-periodic domain
+    # keeps the distributed projection through the padded balanced
+    # all-to-all instead of replicating the spectral cube. The spy sees
+    # a padded SlabSolve, not a None fallback.
+    model = _make_prime_model()
+    model.set_fields(u=np.ones((N_PRIME, N_PRIME, N_PRIME)))
+    model.advance(1)
+    assert resolutions
+    slabs = [s for s in resolutions if s is not None]
+    assert slabs, (
+        "the prime multi-device pressure solve fell back to the "
+        "replicated composite -- the indivisible fast path regressed")
+    assert all(isinstance(s, SlabSolve) for s in slabs)
+    assert all(s.plan.padded for s in slabs)
+
+
+def test_prime_step_is_device_count_invariant():
+    # the production step at a prime N stays device-count invariant:
+    # the 4-device padded distributed solve vs the 1-device replicated
+    # solve drift within the usual step gate over 20 steps
+    rng = np.random.default_rng(0)
+    ic = {name: rng.standard_normal((N_PRIME,) * 3)
+          for name in ("u", "v", "w", "b")}
+
+    def run(device_ids):
+        model = _make_prime_model(device_ids=device_ids)
+        model.set_fields(**ic)
+        model.advance(20)
+        return {name: np.asarray(model.state[name].data)
+                for name in ("u", "v", "w", "b")}
+
+    many = run(None)
+    one = run((0,))
+    for name, ref in one.items():
+        assert np.allclose(many[name], ref, rtol=1e-10, atol=1e-11), (
+            name, np.abs(many[name] - ref).max())

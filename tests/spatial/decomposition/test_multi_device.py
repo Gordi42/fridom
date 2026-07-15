@@ -577,6 +577,77 @@ def test_warm_padded_reblocking_adds_zero_compiles(compile_counter):
     assert bitwise(out, arr)
 
 
+# ================================================================
+#  Padded-even true frame (unpad_even / pad_even; distributed solve)
+# ================================================================
+@pytest.mark.multi_device
+def test_unpad_even_keeps_the_padded_frame():
+    # unpad_even keeps a blocked axis at shards*cells (the last shard's
+    # inert cells stay, zero-filled) instead of trimming to the true
+    # extent -- the representable frame the slab transform consumes
+    devices = jax.device_count()
+    mesh, decomp = _direct(_NON_DIV, tuple(range(devices)))
+    space = mesh.center
+    cells = -(-_NON_DIV // devices)
+    arr = jnp.arange(1.0, space.shape[0] + 1.0)
+    even = decomp.unpad_even(decomp.pad(arr, space), space)
+    assert even.shape == (devices * cells,)
+    assert decomp.even_shape(space) == (devices * cells,)
+    # true DOFs occupy [0, n); the ceil-block pad lanes are zero-filled
+    assert bitwise(even[:_NON_DIV], arr)
+    assert bool(jnp.all(even[_NON_DIV:] == 0))
+
+
+@pytest.mark.multi_device
+def test_pad_even_inverts_unpad_even():
+    # storage -> even -> storage reproduces the true DOFs, and
+    # even -> storage -> even is the identity on the padded-even frame
+    devices = jax.device_count()
+    mesh, decomp = _direct(_NON_DIV, tuple(range(devices)))
+    for pick in (lambda m: m.center, lambda m: m.outer, lambda m: m.inner):
+        space = pick(mesh)
+        arr = jnp.arange(1.0, space.shape[0] + 1.0)
+        even = decomp.unpad_even(decomp.pad(arr, space), space)
+        back = decomp.pad_even(even, space)
+        assert back.shape == decomp.storage_shape(space)
+        assert bitwise(decomp.unpad(back, space), arr)
+        assert bitwise(decomp.unpad_even(back, space), even)
+
+
+@pytest.mark.multi_device
+def test_unpad_even_equals_unpad_on_divisible():
+    # on a divisible axis the padded-even frame is the true frame, so
+    # unpad_even / pad_even coincide with unpad / pad byte-for-byte
+    devices = jax.device_count()
+    mesh, decomp = _direct(devices * 8, tuple(range(devices)))
+    space = mesh.center
+    arr = jnp.arange(1.0, space.shape[0] + 1.0)
+    storage = decomp.pad(arr, space)
+    assert decomp.even_shape(space) == space.shape
+    assert bitwise(decomp.unpad_even(storage, space),
+                   decomp.unpad(storage, space))
+    even = decomp.unpad_even(storage, space)
+    assert bitwise(decomp.pad_even(even, space), storage)
+
+
+@pytest.mark.multi_device
+def test_even_reblock_compiles_without_collectives():
+    # the even-frame reblock lowers shard-local: the storage <-> even
+    # round trip on a center space must not gather (the whole point of
+    # the padded frame is a gather-free transform input)
+    mesh, decomp = _direct(_NON_DIV, tuple(range(jax.device_count())))
+    space = mesh.center
+
+    def round_trip(storage):
+        return decomp.pad_even(decomp.unpad_even(storage, space), space)
+
+    storage = decomp.pad(jnp.arange(1.0, space.shape[0] + 1.0), space)
+    text = jax.jit(round_trip).lower(storage).compile().as_text()
+    for collective in ("all-to-all", "collective-permute",
+                       "all-gather", "all-reduce"):
+        assert collective not in text, collective
+
+
 @pytest.mark.multi_device
 def test_padded_sync_ghosts_match_single_device():
     # the sharded halo exchange on a padded-even axis must fill the same

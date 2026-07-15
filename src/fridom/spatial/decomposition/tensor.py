@@ -81,6 +81,12 @@ class _ReblockPlan(NamedTuple):
     function identity, so repeated eager calls hit jax's tracing
     cache); ``pspec``, ``pad_widths`` and ``true_slices`` are the
     static structure they close over (per-shard values).
+    ``even_scatter``/``even_gather`` are the **inner** (un-wrapped)
+    callables that ``pad_even``/``unpad_even`` apply: they map between
+    padded storage and the uniform padded-even true frame
+    (``shards * cells`` on a blocked axis, the last shard's inert
+    cells kept) without the trailing trim to/from the true extent.
+    On a divisible axis they coincide with ``scatter``/``gather``.
     """
 
     pspec: jax.sharding.PartitionSpec
@@ -88,6 +94,8 @@ class _ReblockPlan(NamedTuple):
     true_slices: tuple[slice, ...]
     scatter: Callable[[jax.Array], jax.Array]
     gather: Callable[[jax.Array], jax.Array]
+    even_scatter: Callable[[jax.Array], jax.Array]
+    even_gather: Callable[[jax.Array], jax.Array]
 
 
 class TensorDecomposition(Decomposition):
@@ -572,13 +580,16 @@ class TensorDecomposition(Decomposition):
         if not cell_padded:
             # divisible geometry: no trailing trim, so pad/unpad drive
             # the shard_map callables directly (byte-for-byte identical
-            # to the pre-padding path)
+            # to the pre-padding path). The even-frame callables are the
+            # same inner ones (divisible: padded-even frame == true).
             return _ReblockPlan(pspec, pad_widths, true_slices,
-                                scatter, gather)
+                                scatter, gather, scatter, gather)
         # padded-even: wrap the shard_map callables with the trailing
         # trim (true -> padded-true before scatter; padded-true -> true
         # after gather). The wrappers are built once and jit-cached, so
-        # eager pad/unpad stays compile-count stable.
+        # eager pad/unpad stays compile-count stable. The inner
+        # (un-wrapped) callables are exposed as the even-frame pair for
+        # ``pad_even``/``unpad_even``.
         pre_pad = tuple(outer_pad)
         post_slice = tuple(outer_slice)
 
@@ -590,7 +601,8 @@ class TensorDecomposition(Decomposition):
 
         return _ReblockPlan(pspec, pad_widths, true_slices,
                             jax.jit(scatter_padded),
-                            jax.jit(gather_padded))
+                            jax.jit(gather_padded),
+                            scatter, gather)
 
     # ================================================================
     #  Shapes and shardings
@@ -791,6 +803,139 @@ class TensorDecomposition(Decomposition):
                     arr, axis, n, factor, shards, width, block)
                 slices.append(slice(0, n))
         return arr[tuple(slices)]
+
+    # ================================================================
+    #  Padded-even true frame (uniform reblock, gather-free)
+    # ================================================================
+
+    def even_shape(
+        self,
+        space: SpaceLike,
+        layout: Layout | None = None,
+    ) -> tuple[int, ...]:
+        """
+        Return the padded-even true-frame shape under `layout`.
+
+        Description
+        -----------
+        The uniform reblock frame :meth:`unpad_even` produces: the
+        true extent ``n`` on an unblocked axis, ``shards * cells`` on a
+        blocked one (the last shard's inert cells kept, not trimmed).
+        Equals ``space.shape`` whenever no axis pads (every divisible
+        or single-device layout).
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The (product) space.
+        layout : Layout | None, optional
+            A negotiated layout; None resolves as in ``sharding``
+            (default: None).
+
+        Returns
+        -------
+        tuple[int, ...]
+            The padded-even true-frame shape.
+        """
+        layout = self._resolve_layout(space, layout)
+        shape = []
+        for _name, n, _factor, shards, width, block, _ in (
+                self._geometry(space, layout)):
+            shape.append(n if shards == 1
+                         else shards * (block - 1 - 2 * width))
+        return tuple(shape)
+
+    def unpad_even(
+        self,
+        arr: jax.Array,
+        space: SpaceLike,
+        layout: Layout | None = None,
+    ) -> jax.Array:
+        """
+        Map padded storage to the padded-even true frame (gather-free).
+
+        Description
+        -----------
+        Like :meth:`unpad` but keeps a blocked axis at the uniform
+        ``shards * cells`` extent (the last shard's inert cells stay,
+        zero-filled) rather than trimming to the true extent. Trimming
+        an indivisible sharded axis to its true extent is unrepresentable
+        in jax and forces an all-gather; the padded-even frame is the
+        representable one and the frame the slab-decomposed transform
+        consumes. On a divisible axis this is exactly :meth:`unpad`.
+        Zero collectives on a shard-local plan.
+
+        Parameters
+        ----------
+        arr : jax.Array
+            A storage-shaped array.
+        space : SpaceLike
+            The (product) space.
+        layout : Layout | None, optional
+            A negotiated layout; None resolves as in ``sharding``
+            (default: None).
+
+        Returns
+        -------
+        jax.Array
+            The padded-even true-frame array (``even_shape``).
+        """
+        layout = self._resolve_layout(space, layout)
+        storage = self.storage_shape(space, layout)
+        if tuple(arr.shape) != storage:
+            raise ValueError(
+                f"unpad_even expects a storage-shaped array {storage}, "
+                f"got {tuple(arr.shape)}")
+        plan = self._local_reblock(space, layout)
+        if plan is not None:
+            return plan.even_gather(arr)
+        # no shard-local plan (unblocked / global-fallback geometry):
+        # the true frame is the even frame
+        return self.unpad(arr, space, layout)
+
+    def pad_even(
+        self,
+        arr: jax.Array,
+        space: SpaceLike,
+        layout: Layout | None = None,
+    ) -> jax.Array:
+        """
+        Map a padded-even true frame back to padded storage.
+
+        Description
+        -----------
+        The inverse of :meth:`unpad_even`: routes a ``even_shape`` array
+        (a blocked axis at ``shards * cells``) into halo/stagger-padded
+        storage without the true-extent trim of :meth:`pad`. On a
+        divisible axis this is exactly :meth:`pad`. Zero collectives on
+        a shard-local plan.
+
+        Parameters
+        ----------
+        arr : jax.Array
+            A padded-even true-frame array (``even_shape``).
+        space : SpaceLike
+            The (product) space.
+        layout : Layout | None, optional
+            A negotiated layout; None resolves as in ``sharding``
+            (default: None).
+
+        Returns
+        -------
+        jax.Array
+            The storage-shaped array (pad slots zero-filled).
+        """
+        layout = self._resolve_layout(space, layout)
+        even = self.even_shape(space, layout)
+        if tuple(arr.shape) != even:
+            raise ValueError(
+                f"pad_even expects a padded-even array {even}, "
+                f"got {tuple(arr.shape)}")
+        plan = self._local_reblock(space, layout)
+        if plan is not None:
+            return jax.device_put(
+                plan.even_scatter(arr), self.sharding(space, layout))
+        return self.pad(arr, space, layout)
 
     # ================================================================
     #  Data movement
