@@ -40,7 +40,39 @@ uv run pre-commit install                  # install the ruff pre-commit hook
 # multi-device suite (reruns the decomposition tests on 4 forced host devices)
 XLA_FLAGS=--xla_force_host_platform_device_count=4 FRIDOM_TEST_FORCED_DEVICES=4 \
   uv run pytest tests/framework/domain_decomposition/test_domain_decomposition.py
+
+# multi-process (multi-host) run: N OS processes, one GPU each, via SLURM.
+# The script must call jax.distributed.initialize() BEFORE importing fridom.
+JAX_PLATFORMS=cuda srun -n 4 --gpu-bind=none .venv/bin/python your_script.py
 ```
+
+- **Forced host devices vs. real multi-process.** Two different
+  parallelisms, do not conflate them. `XLA_FLAGS=--xla_force_host_platform_device_count=4`
+  gives **one process** N devices (single-controller GSPMD): the whole
+  global array is addressable by that one process, so host fetches
+  (`np.asarray`, `.xr`) and single-writer I/O just work. This is what the
+  test suite and CI use. **Real multi-process** (`srun -n N` +
+  `jax.distributed.initialize()`) gives **N processes** one device each:
+  every array is sharded across processes and each process addresses only
+  its own shard. Code that host-fetches a *global* array
+  (`np.asarray(distributed_array)`) raises `Fetching value for jax.Array
+  that spans non-addressable devices` — gather it with
+  `jax.experimental.multihost_utils.process_allgather(arr, tiled=True)`
+  instead, and coordinate any shared-file writes across ranks
+  (`process_index()` + `multihost_utils.sync_global_devices(tag)`).
+  A path that passes forced-4 can still be multi-process-broken; verify
+  multi-host behaviour under a real `srun -n N` launch.
+
+- **Multi-process launch recipe (DKRZ A100 nodes).** Use
+  `--gpu-bind=none`, **not** `--gpus-per-task=1`: the latter makes each
+  task's cgroup expose one GPU as local index 0, while jax's SLURM
+  auto-detection binds local index = `SLURM_LOCALID`, so ranks 1..N-1 get
+  "no supported devices found for platform CUDA" and the coordinator
+  hangs. With `--gpu-bind=none` all tasks see all GPUs and
+  `jax.distributed.initialize()` (called before importing fridom, which
+  touches the backend) assigns one GPU per local rank. Guard a run under
+  `timeout` — a rank that dies leaves the others blocked at the
+  coordination barrier until the heartbeat times out.
 
 - For full-suite runs use pytest-xdist with `--dist loadfile`: tests in the
   same file share jit-compilation caches, so grouping by file minimizes

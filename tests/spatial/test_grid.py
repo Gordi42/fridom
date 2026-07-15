@@ -1,4 +1,5 @@
 """Tests for fridom.spatial.grid."""
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -831,6 +832,44 @@ def test_measure_is_memoized_per_space_and_name(mx, my):
     assert wy is not wx
     assert grid.measure(space, name="y") is wy
     assert jnp.allclose(wx.data, 1.0 / 8)
+
+
+def test_measure_under_a_trace_is_not_cached(mx, my):
+    # a query issued under a jax trace yields that trace's tracer;
+    # caching it would leak it into every later query (the eager-
+    # operator kernel jit surfaced this: integrate queries the
+    # measure inside its jit, then mean's eager normalization query
+    # hit the cached tracer). The traced query stays uncached; the
+    # first eager query re-derives concrete weights and memoizes.
+    grid = Grid((mx, my))
+    space = mx.center * my.center
+
+    @jax.jit
+    def traced():
+        return grid.measure(space, name="x").data.sum()
+
+    traced()
+    weight = grid.measure(space, name="x")
+    assert not isinstance(weight._data, jax.core.Tracer)
+    assert grid.measure(space, name="x") is weight
+    assert jnp.allclose(weight.data, 1.0 / 8)
+
+
+@pytest.mark.multi_device
+def test_eager_mean_on_a_cold_multi_device_grid():
+    # regression (2026-07-15): on a multi-device operand the eager
+    # operator kernel runs under one jax.jit trace, so a cold-cache
+    # integral computed its measures inside that trace; mean's
+    # eager normalization query then used the leaked tracer and
+    # raised UnexpectedTracerError (first seen as the mapped model
+    # failing to construct on 4 devices)
+    meshes = tuple(
+        IntervalMesh(16, (0.0, 1.0), periodic=True, name=n)
+        for n in ("x", "y", "z"))
+    grid = Grid(meshes)
+    field = grid.create_field(data=jnp.ones((16, 16, 16)))
+    mean = field.mean()
+    assert float(mean.data.ravel()[0]) == pytest.approx(1.0)
 
 
 def test_mapped_dual_measures_clip_at_the_walls(mzm):
