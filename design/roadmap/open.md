@@ -165,17 +165,16 @@ Gates the credibility of 3.3.
 
 ## Grid follow-ups — the ergonomics half
 
-*Small (~1-2 days).* The convenience constructors **landed 2026-07-15**
-(see [done.md](done.md)) — `fr.spatial.cartesian.Grid(shape=, extent=,
-periodic=)`, the `fr.spatial.spherical.Grid` fast assemble, and the
-`fr.spatial.charts.lonlat_sphere` chart primitive — so Getting Started
-no longer has to open with hand-built `IntervalMesh` factors. What
-remains are the API shims:
-
-- `ImmutableStateError` on `.data` assignment (today: a bare
-  `AttributeError`; the error class already exists in `model/errors.py`).
-- Re-export the transform classes and `NodeSet` from `fr.spatial`; type
-  `Grid.dispatch`.
+*Landed 2026-07-15 (see [done.md](done.md)).* The convenience
+constructors — `fr.spatial.cartesian.Grid(shape=, extent=, periodic=)`,
+the `fr.spatial.spherical.Grid` fast assemble, and the
+`fr.spatial.charts.lonlat_sphere` chart primitive — and the API shims —
+`ImmutableStateError` on `.data` assignment (a raising setter guiding to
+`with_data`), the transform classes re-exported at
+`fr.spatial.operators.*` and `NodeSet` at `fr.spatial.*`, and
+`Grid.dispatch` typed — all shipped. Getting Started no longer opens with
+hand-built `IntervalMesh` factors. One item stays open, and it is
+deferred:
 
 **Deferred, not next:** coefficient-space product/power rows. That is not
 a missing row but a semantics decision — elementwise multiplication of two

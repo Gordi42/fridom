@@ -317,7 +317,7 @@ class Grid:
     #  operators cluster; the grid owns the instance)
     # ================================================================
     @property
-    def dispatch(self) -> object:
+    def dispatch(self) -> OperatorRegistry:
         """The operator dispatch registry (defaults + overrides)."""
         return self._dispatch
 

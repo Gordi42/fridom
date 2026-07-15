@@ -92,22 +92,21 @@ record of the `_halo_valid`/treedef failure mode (item R11), e.g. by
 
 ## Open work items
 
-1. **Teaching shims + remaining API gaps** — ergonomics, not
-   blocking. What is left of the
-   [`../done/phase1_findings.md`](../../research/phase1_findings.md) backlog:
-   - `ImmutableStateError` on `.data` assignment
-     ([`../../specs/grid/classes/fields.md`](../../specs/grid/classes/fields.md)
-     D1.5): `.data` is a bare read-only property today, so an
-     assignment raises an unhelpful `AttributeError`.
-   - Transform classes (`Fourier`, `Sine`, `Cosine`, `Chebyshev`,
-     `SpectralDerivative`, `PhaseShift`) and `NodeSet` are not
-     re-exported at the `fr.spatial.*` level; `grid.dispatch` is
-     typed `object`.
-   - Coefficient-space fields have no product/power rows, and
-     constant→coefficient broadcast is blocked, so spectral operator
-     coefficients still drop to `.data`.
+1. **Coefficient-space product/power rows** — ergonomics, not blocking,
+   and **deferred**: not a missing row but a semantics decision.
+   Coefficient-space fields have no product/power rows, and
+   constant→coefficient broadcast is blocked, so spectral operator
+   coefficients still drop to `.data`. Elementwise multiplication of two
+   Fourier-coefficient fields is a convolution, not the product of the
+   represented functions, so it cannot share the `("multiply", space)`
+   kind; it needs an owner semantics call first and blocks nothing.
 
-   Landed from that backlog and no longer tracked here:
+   Landed from that backlog and no longer tracked here: the
+   `ImmutableStateError` `.data` setter (2026-07-15;
+   [`fields.md`](../../specs/grid/classes/fields.md) D1.5 — the class
+   moved to `fridom.spatial.errors`, re-exported from `model/errors.py`),
+   the transform-class + `NodeSet` re-exports (`fr.spatial.operators.*` /
+   `fr.spatial.*`) and the `Grid.dispatch` -> `OperatorRegistry` typing;
    `MissingComponentError` and the `_component` hint path,
    `ScalarField.to` metadata preservation (operator application
    carries `result.metadata`), `.item()`, biased nodal stencils
