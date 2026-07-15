@@ -570,3 +570,82 @@ def test_replicated_derived_output_written_everywhere(
         # equal everywhere — in particular beyond the first shard's
         # window, which the pre-fix single-block write left zero.
         np.testing.assert_array_equal(ds["pr"].values[k], ref)
+
+
+# ================================================================
+#  async_writes: deferred (overlapping) writes, one firing in flight
+# ================================================================
+def test_async_writes_match_sync(tmp_path, model, state):
+    # the deferred writer must produce a byte-identical store
+    fields = ["u", "p"]
+    firings = (0, 1, 2, 3)
+
+    def run(path, *, async_writes):
+        writer = Writer(path, fields=fields, trigger=every(steps=1),
+                        async_writes=async_writes)
+        writer.bind(model)
+        for it in firings:
+            writer.write(firing(state, it))
+        writer.close()
+        return xr.open_zarr(path, consolidated=False)
+
+    sync = run(tmp_path / "sync.zarr", async_writes=False)
+    lazy = run(tmp_path / "async.zarr", async_writes=True)
+    for name in (*fields, "time", "iteration"):
+        np.testing.assert_array_equal(
+            lazy[name].values, sync[name].values)
+
+
+def test_async_defers_writes_until_drained(tmp_path, model, state):
+    # the blocking default leaves nothing pending; async holds the
+    # last firing until the next one (or close) drains it.
+    sync = Writer(tmp_path / "s.zarr", fields=["p"],
+                  trigger=every(steps=1))
+    sync.bind(model)
+    sync.write(firing(state, 0))
+    assert sync._pending == []
+    sync.close()
+
+    lazy = Writer(tmp_path / "a.zarr", fields=["p"],
+                  trigger=every(steps=1), async_writes=True)
+    lazy.bind(model)
+    lazy.write(firing(state, 0))
+    assert lazy._pending
+    lazy.close()
+    assert lazy._pending == []
+    ds = xr.open_zarr(tmp_path / "a.zarr", consolidated=False)
+    np.testing.assert_array_equal(
+        ds["p"].values[0], np.asarray(state["p"].data))
+
+
+def test_async_backpressure_keeps_one_firing_in_flight(
+        tmp_path, model, state):
+    # each firing drains the previous one, so the outstanding-write
+    # count never grows across firings (bounded source buffers).
+    lazy = Writer(tmp_path / "bp.zarr", fields=["u", "p"],
+                  trigger=every(steps=1), async_writes=True)
+    lazy.bind(model)
+    lazy.write(firing(state, 0))
+    after_first = len(lazy._pending)
+    assert after_first  # something is genuinely in flight
+    for it in (1, 2, 3):
+        lazy.write(firing(state, it))
+        # constant: the previous firing was drained at the top of write
+        assert len(lazy._pending) == after_first
+    lazy.close()
+
+
+def test_async_truncate_after_is_forkfree(tmp_path, model, state):
+    # truncate_after drains before it resizes the arrays down
+    path = tmp_path / "trunc.zarr"
+    writer = Writer(path, fields=["p"], trigger=every(steps=1),
+                    async_writes=True)
+    writer.bind(model)
+    for it in (0, 1, 2):
+        writer.write(firing(state, it))
+    writer.truncate_after(1)
+    assert writer._pending == []
+    writer.write(firing(state, 2))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["iteration"].values.tolist() == [0, 1, 2]
