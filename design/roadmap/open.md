@@ -64,6 +64,38 @@ Still open, and the next work:
 3. The optimizations do not yet **reach inside** the mapped PCG solve —
    see the section below.
 
+## Indivisible-extent sharding — **fix now** (owner-flagged 2026-07-15)
+
+An **important active case**, escalated by the owner. When a field's
+extent along the **sharded** axis is not divisible by the device count
+`P`, the whole step pays collectives on nearly every operation —
+measured **2.8×–4.8× slower** at nh 256³ on 4×A100. Two triggers, one
+root cause (`n % P ≠ 0` on the sharded axis):
+
+- **Walled sharded axis** — the face-staggered velocity leg becomes
+  `n_cells−1` (e.g. 255), mismatches the cell block layout, and the
+  reblock machinery explodes (all-to-all 10→245, +20 all-gather per
+  step). The decomposition *defaults* to sharding axis 0, so this is
+  the default whenever axis 0 is walled. The 4-GPU wall sweep is
+  bimodal purely on whether x is walled (x/xy/xz/xyz ~15.7–16.8 ms;
+  none/y/z/yz ~3.3–4.8 ms); the 1-GPU control has no such asymmetry.
+- **Indivisible domain size** — any `n` with `n % P ≠ 0`, e.g. a prime.
+  Triple-periodic N=257 is 2.8× slower than N=256 (the distributed
+  solve declines and all-gathers the cube); N=260=4·65 is fast, so it
+  is divisibility by `P`, not powers of two. A `(p, p, p)` prime domain
+  has no divisible axis, so **no choice of sharding escapes it**.
+
+The pressure solve is *not* the bottleneck (byte-identical 2
+all-to-alls across all wall configs; the earlier "communication-bound
+fully-walled solve" reading was wrong and is corrected). Fix ladder:
+(1) shard-axis selection that respects staggering — rescues x/xy/xz for
+free but not primes; (2) collective-free reblock for the `n_cells±1`
+residue — covers fully-walled; (3) a distributed solve that tolerates
+an indivisible split axis — the only lever for prime domains; (4)
+pad-the-sharded-axis-to-`P` fallback. Full analysis, evidence tables,
+and the ranked fixes:
+[`../plans/active/indivisible_shard_plan.md`](../plans/active/indivisible_shard_plan.md).
+
 ## Multi-device compile and execution cost
 
 *Note (2026-07-14, found verifying the gather-free writer): eager
@@ -154,6 +186,14 @@ distributed transform path bails on walled (trig) grids and falls back to
 the *replicated* solve. That fallback also caps what the mapped
 preconditioner can ever get from multi-GPU. It is a documented extension
 point, and it is now the top multi-device item after the CG loop.
+
+*Update (2026-07-15): the transform-side half of this shipped — the
+mixed distributed transform now distributes walled/trig solves (see
+`distributed_transform_plan.md`). Re-measuring exposed that the real
+residual cost is **not** the solve at all but indivisible-extent
+sharding of the state fields (a walled sharded axis, or an indivisible
+domain size) — see the "Indivisible-extent sharding" item above, now
+the top multi-device item.*
 
 Method: `AdamBashforth(3)`, linear (advection off), f64, one chunk of 50
 steps (`_chunk_size = steps` — `advance(N)` with `N < chunk_size` runs N
