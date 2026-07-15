@@ -894,11 +894,11 @@ def _shardable_names(
     devices: int,
 ) -> tuple[str, ...]:
     """
-    Coordinate names admissible for ghost-sharding over `devices`.
+    Coordinate names admissible for ghost-sharding, best axis first.
 
     Description
     -----------
-    A name qualifies when its mesh's ghost family declares the
+    A name **qualifies** when its mesh's ghost family declares the
     ``GHOST`` strategy and the per-shard extent satisfies the
     negotiation constraints. A possibly non-divisible cell count is
     padded to ``cells = ceil(n_cells / devices)`` per shard, with the
@@ -909,8 +909,38 @@ def _shardable_names(
     full exchange edge plus BC-fill depth). On a divisible axis
     ``last`` equals ``cells = n_cells // devices``, so the check is
     identical to the divisible negotiation.
+
+    The qualifying set is then **ordered by staggering cost** so that
+    ``layouts[0]`` (the default sharded axis) is the cheapest to
+    shard. Sharding an axis whose cell count is not divisible by
+    ``devices``, or that carries a wall, leaves some field extent
+    indivisible: a periodic axis keeps every leg at ``n_cells``, but a
+    walled axis has ``n_cells - 1`` face-staggered legs and a divisible
+    cell count still costs residual BC-fill (and the reblock is only
+    collective-free after the Phase 1 gate fix). So names rank by:
+
+    0. periodic axes with ``n_cells % devices == 0`` -- every field
+       extent stays ``devices``-divisible, so the reblock is fully
+       collective-free;
+    1. other divisible axes (walled, or a mesh that does not declare
+       periodicity) -- the deficit leg is collective-free post-Phase-1
+       but carries residual local BC-fill work;
+    2. the rest -- an indivisible cell count, still qualified (the
+       distributed solve's Phase 2 padded transpose handles it), but
+       every excursion pays the padded-even reblock.
+
+    Grid order (x before y before z) breaks ties within a rank, so a
+    fully-periodic divisible grid keeps its first axis as the default
+    and its program is byte-identical to grid-order selection. The
+    periodicity signal is the mesh's honest ``periodic`` topology flag
+    (``StructuredMesh1D.periodic``); a mesh that does not expose it is
+    treated conservatively as rank 1 when divisible.
+
+    The returned **set** is exactly the qualifying set (nothing is
+    added or dropped): only the order changes, so every layout the
+    negotiation would otherwise offer stays available as a pencil.
     """
-    shardable: list[str] = []
+    ranked: list[tuple[int, str]] = []
     for mesh in meshes:
         n_cells = getattr(mesh, "n_cells", None) or 0
         # ceil/last-shard padding: cells = ceil(n_cells / devices)
@@ -935,11 +965,44 @@ def _shardable_names(
                 min_local = max(min_local, traits.min_local_size)
         if not ghost:
             continue
+        rank = _shard_rank(mesh, n_cells, devices)
         for name in mesh.names:
             try:
                 width = halo[name]
             except KeyError:
                 width = 0
             if last >= max(min_local, width + 1):
-                shardable.append(name)
-    return tuple(shardable)
+                ranked.append((rank, name))
+    # a stable sort by rank keeps grid order within each rank
+    return tuple(name for _, name in sorted(ranked, key=lambda r: r[0]))
+
+
+def _shard_rank(mesh: object, n_cells: int, devices: int) -> int:
+    """
+    Staggering-cost rank of one mesh's axis (lower shards cheaper).
+
+    Description
+    -----------
+    0 for a periodic axis with a ``devices``-divisible cell count
+    (every field extent stays divisible), 1 for any other divisible
+    axis (walled, or a mesh not declaring periodicity -- treated
+    conservatively), 2 for an indivisible cell count. See
+    ``_shardable_names`` for the reasoning.
+
+    Parameters
+    ----------
+    mesh : object
+        The 1-D mesh factor (its ``periodic`` flag is the signal).
+    n_cells : int
+        The mesh's primal cell count.
+    devices : int
+        The device count of the 1-D realization.
+
+    Returns
+    -------
+    int
+        The rank in ``{0, 1, 2}``.
+    """
+    if n_cells % devices != 0:
+        return 2
+    return 0 if getattr(mesh, "periodic", None) is True else 1

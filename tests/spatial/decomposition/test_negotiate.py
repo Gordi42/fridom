@@ -5,6 +5,7 @@ import pytest
 from fridom.spatial.decomposition.decomposition import (
     _cap_for_sharding,
     _registry_halo,
+    _shard_rank,
     _shardable_names,
     negotiate,
 )
@@ -243,6 +244,91 @@ def test_shardable_names_skip_meshes_without_ghost_traits():
                             HaloSpec({"q": 0}), 4) == ()
 
 
+# ================================================================
+#  Shardable-name ordering (staggering-aware default selection)
+# ================================================================
+def test_shard_rank_classifies_by_periodicity_and_divisibility():
+    # rank 0: periodic + divisible; rank 1: walled + divisible;
+    # rank 2: indivisible (periodicity irrelevant)
+    periodic = IntervalMesh(16, (0.0, 1.0), name="x")
+    walled = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
+    indivisible = IntervalMesh(23, (0.0, 1.0), name="x")
+    assert _shard_rank(periodic, 16, 4) == 0
+    assert _shard_rank(walled, 16, 4) == 1
+    assert _shard_rank(indivisible, 23, 4) == 2
+
+    # a mesh that does not declare periodicity is treated
+    # conservatively: rank 1 when divisible, rank 2 when not
+    class NoPeriodicity:
+        pass
+
+    assert _shard_rank(NoPeriodicity(), 16, 4) == 1
+    assert _shard_rank(NoPeriodicity(), 23, 4) == 2
+
+
+def test_shardable_order_prefers_periodic_divisible_over_walled():
+    # both divisible by 4; the periodic axis keeps every field extent
+    # divisible, so it ranks ahead of the walled one even though the
+    # walled x is first in grid order
+    mx = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")  # walled
+    my = IntervalMesh(16, (0.0, 2.0), name="y")                  # periodic
+    halo = HaloSpec({"x": 1, "y": 1})
+    assert _shardable_names((mx, my), halo, 4) == ("y", "x")
+
+
+def test_shardable_order_prefers_divisible_over_indivisible():
+    # walled-divisible (rank 1) beats periodic-indivisible (rank 2): a
+    # divisible cell count keeps the reblock collective-free, while an
+    # indivisible one pays the padded-even reblock on every excursion
+    mx = IntervalMesh(23, (0.0, 1.0), name="x")  # periodic, 23 % 4 != 0
+    my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")  # walled
+    halo = HaloSpec({"x": 1, "y": 1})
+    assert _shardable_names((mx, my), halo, 4) == ("y", "x")
+
+
+def test_shardable_order_grid_order_breaks_ties_within_a_rank():
+    # two periodic divisible axes stay in grid order (rank-0 tie), so a
+    # fully-periodic divisible grid keeps its first axis as the default
+    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    my = IntervalMesh(16, (0.0, 2.0), name="y")
+    mz = IntervalMesh(16, (0.0, 3.0), name="z")
+    halo = HaloSpec({"x": 1, "y": 1, "z": 1})
+    assert _shardable_names((mx, my, mz), halo, 4) == ("x", "y", "z")
+    # all walled divisible -> rank-1 tie -> grid order preserved
+    wx = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
+    wy = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+    assert _shardable_names((wx, wy), halo, 4) == ("x", "y")
+    # both indivisible -> rank-2 tie -> grid order (no residue overfit)
+    ix = IntervalMesh(23, (0.0, 1.0), name="x")  # 23 % 4 == 3
+    iy = IntervalMesh(17, (0.0, 2.0), name="y")  # 17 % 4 == 1
+    assert _shardable_names((ix, iy), halo, 4) == ("x", "y")
+
+
+def test_shardable_order_single_axis_is_unchanged():
+    # one qualifying axis: the order is trivially itself, walled or not
+    walled = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
+    assert _shardable_names((walled,), HaloSpec({"x": 1}), 4) == ("x",)
+
+
+def test_shardable_order_reorders_but_keeps_the_full_set():
+    # reordering never adds or drops a name: the walled-x + periodic-y
+    # grid still offers both pencils, only the default (first) changes
+    mx = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
+    my = IntervalMesh(16, (0.0, 2.0), name="y")
+    halo = HaloSpec({"x": 1, "y": 1})
+    names = _shardable_names((mx, my), halo, 4)
+    assert set(names) == {"x", "y"}
+    assert names[0] == "y"  # periodic default
+
+
+def test_shardable_order_heavy_padding_still_rejected():
+    # ordering does not resurrect a rejected axis: 8 cells over 5
+    # devices empties a trailing shard, so neither axis qualifies
+    mx = IntervalMesh(8, (0.0, 1.0), name="x")
+    my = IntervalMesh(8, (0.0, 2.0), periodic=False, name="y")
+    assert _shardable_names((mx, my), HaloSpec({"x": 0, "y": 0}), 5) == ()
+
+
 def test_explicit_devices_with_nothing_shardable_raise():
     mesh = IntervalMesh(5, (0.0, 1.0), name="x")  # 5 % 4 != 0
     grid = Grid((mesh,))
@@ -291,6 +377,62 @@ def test_default_layout_shards_a_mild_non_divisible_factor():
     decomp = negotiate(grid, grid.dispatch, device_ids=ids)
     assert dict(decomp.default_layout.device_axes) == {"x": "devices"}
     assert decomp._device_mesh.size == jax.device_count()
+
+
+@pytest.mark.multi_device
+def test_default_layout_dodges_a_walled_axis_for_a_periodic_one():
+    # walled x + periodic y, both divisible: the staggering-aware order
+    # shards the periodic y so the walled deficit leg never lands on the
+    # storage-shard axis. The walled x is still an available pencil.
+    n = jax.device_count() * 4
+    mx = IntervalMesh(n, (0.0, 1.0), periodic=False, name="x")
+    my = IntervalMesh(n, (0.0, 2.0), name="y")
+    decomp = Grid((mx, my)).decomposition
+    assert dict(decomp.default_layout.device_axes) == {"y": "devices"}
+    assert Layout({"x": "devices"}) in decomp.layouts
+    assert decomp._device_mesh.size == jax.device_count()
+
+
+@pytest.mark.multi_device
+def test_default_layout_shards_the_walled_axis_when_alone():
+    # fully-walled xyz: no periodic (rank-0) axis qualifies, so the
+    # grid-first walled axis is still the default -- behaviour unchanged
+    # from grid-order selection (there is no escape from the wall).
+    n = jax.device_count() * 4
+    meshes = tuple(
+        IntervalMesh(n, (0.0, 1.0 + i), periodic=False, name=nm)
+        for i, nm in enumerate(("x", "y", "z")))
+    decomp = Grid(meshes).decomposition
+    assert dict(decomp.default_layout.device_axes) == {"x": "devices"}
+
+
+@pytest.mark.multi_device
+def test_fully_periodic_divisible_keeps_grid_order_default():
+    # the byte-identity guarantee: a fully-periodic divisible grid is
+    # all rank 0, so grid order is preserved -- the default shards x and
+    # the full pencil vocabulary matches grid-order selection, so the
+    # compiled program is unchanged from before the reordering.
+    n = jax.device_count() * 4
+    meshes = tuple(IntervalMesh(n, (0.0, 1.0 + i), name=nm)
+                   for i, nm in enumerate(("x", "y", "z")))
+    decomp = Grid(meshes).decomposition
+    assert dict(decomp.default_layout.device_axes) == {"x": "devices"}
+    assert decomp.layouts == (
+        Layout({"x": "devices"}), Layout({"y": "devices"}),
+        Layout({"z": "devices"}), Layout({}))
+
+
+@pytest.mark.multi_device
+def test_default_layout_shards_indivisible_only_when_alone():
+    # an indivisible periodic axis (rank 2) loses to a divisible walled
+    # axis (rank 1): the divisible axis reblocks collective-free, so it
+    # is the better default despite the wall.
+    nx = jax.device_count() * 4 + 1  # indivisible
+    ny = jax.device_count() * 4      # divisible
+    mx = IntervalMesh(nx, (0.0, 1.0), name="x")                  # periodic
+    my = IntervalMesh(ny, (0.0, 2.0), periodic=False, name="y")  # walled
+    decomp = Grid((mx, my)).decomposition
+    assert dict(decomp.default_layout.device_axes) == {"y": "devices"}
 
 
 @pytest.mark.multi_device

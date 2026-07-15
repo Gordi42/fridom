@@ -177,11 +177,13 @@ def test_one_sided_rows_hold_on_the_local_axis(grids):
 
 @pytest.mark.multi_device
 def test_one_sided_rows_refuse_a_distributed_axis():
-    # a bounded first factor is the sharded axis of the default
-    # layout: the one-sided patch must refuse it loudly (the
-    # layout="local" requirement, boundary_plan.md 2d)
+    # both axes are walled, so no periodic axis can win the
+    # staggering-aware order and the grid-first bounded factor (y) is
+    # the sharded axis of the default layout: the one-sided patch must
+    # refuse it loudly (the layout="local" requirement, boundary_plan.md
+    # 2d)
     my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
-    mx = IntervalMesh(16, (0.0, 1.0), name="x")
+    mx = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
     grid = Grid((my, mx))
     assert dict(grid.decomposition.default_layout.device_axes) == {
         "y": "devices"}
@@ -832,9 +834,14 @@ def test_non_divisible_grid_is_device_count_invariant():
     # a real Grid must be bitwise device-count invariant across the full
     # create -> sync/diff -> gather path, the guarantee the divisible
     # battery checks, extended to the padded-even blocking
+    # both axes are indivisible over 4 devices (rank 2), so the
+    # staggering-aware order keeps grid-first x as the default and the
+    # padded-even blocking on the sharded x is what this gate exercises;
+    # y stays an unsharded bounded passenger.
     def build(device_ids):
         mx = IntervalMesh(23, (0.0, 1.0), name="x")  # 23 % 4 != 0
-        my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
+        my = IntervalMesh(22, (0.0, 2.0), periodic=False,  # 22 % 4 != 0
+                          name="y")
         return Grid((mx, my), device_ids=device_ids)
 
     many, one = build(None), build((0,))
