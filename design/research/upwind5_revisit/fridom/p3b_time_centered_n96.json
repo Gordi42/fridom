@@ -1,0 +1,32 @@
+{
+  "variant": "centered",
+  "scheme": "centered",
+  "n": 96,
+  "steps": 50,
+  "n_timed_chunks": 6,
+  "first_chunk_compile_s": 2.3812164859991753,
+  "ms_per_step_median": 5.249581649841275,
+  "ms_per_step_min": 5.1574565601185896,
+  "ms_per_step_all": [
+    5.1574565601185896,
+    5.23533938016044,
+    5.249968599819113,
+    5.478338400134817,
+    5.260390499897767,
+    5.249194699863438
+  ],
+  "finite": true,
+  "patch_trace_calls": 0,
+  "chunk": {
+    "divides": {
+      "total": 15,
+      "f64": 13,
+      "f32": 0,
+      "c128": 2
+    },
+    "hlo_path": "/tmp/claude-1000/-home-silvano-Projects-fridom/84ef5624-971a-4abb-a5b0-6cbecbfad680/scratchpad/fridom_bench/results/hlo/p3b_centered_n96.txt",
+    "temp_bytes": 119151520,
+    "peak_bytes": 223146605
+  },
+  "fridom_file": "/home/silvano/Projects/fridom/src/fridom/__init__.py"
+}

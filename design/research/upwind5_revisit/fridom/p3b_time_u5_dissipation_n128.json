@@ -1,0 +1,32 @@
+{
+  "variant": "u5_dissipation",
+  "scheme": "upwind5",
+  "n": 128,
+  "steps": 50,
+  "n_timed_chunks": 6,
+  "first_chunk_compile_s": 2.06501420699351,
+  "ms_per_step_median": 25.258970160066383,
+  "ms_per_step_min": 25.08813940017717,
+  "ms_per_step_all": [
+    25.08813940017717,
+    25.228899719950277,
+    25.257082440075465,
+    25.36447763995966,
+    25.298237620154396,
+    25.2608578800573
+  ],
+  "finite": true,
+  "patch_trace_calls": 24,
+  "chunk": {
+    "divides": {
+      "total": 15,
+      "f64": 13,
+      "f32": 0,
+      "c128": 2
+    },
+    "hlo_path": "/tmp/claude-1000/-home-silvano-Projects-fridom/84ef5624-971a-4abb-a5b0-6cbecbfad680/scratchpad/fridom_bench/results/hlo/p3b_u5_dissipation_n128.txt",
+    "temp_bytes": 418190752,
+    "peak_bytes": 0
+  },
+  "fridom_file": "/home/silvano/Projects/fridom/src/fridom/__init__.py"
+}

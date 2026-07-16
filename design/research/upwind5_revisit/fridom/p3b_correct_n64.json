@@ -1,0 +1,118 @@
+{
+  "n": 64,
+  "steps": 20,
+  "variants": {
+    "u5_baseline": {
+      "chunk_divides": null,
+      "temp_bytes": null
+    },
+    "u5_selected": {
+      "diffs": {
+        "u": {
+          "max_abs": 1.529332216421153e-14,
+          "max_rel": 7.250144666683615e-12,
+          "finite": true
+        },
+        "v": {
+          "max_abs": 3.1183389204159084e-14,
+          "max_rel": 2.662302653241783e-11,
+          "finite": true
+        },
+        "w": {
+          "max_abs": 4.438723694155655e-16,
+          "max_rel": 7699.925432012742,
+          "finite": true
+        },
+        "b": {
+          "max_abs": 3.857049228617182e-17,
+          "max_rel": 1.1999956704686124e-12,
+          "finite": true
+        }
+      },
+      "patch_trace_calls": 24,
+      "chunk_divides": null
+    },
+    "u5_dissipation": {
+      "diffs": {
+        "u": {
+          "max_abs": 2.09277040141842e-14,
+          "max_rel": 1.2220630176843826e-11,
+          "finite": true
+        },
+        "v": {
+          "max_abs": 4.2396641752873165e-14,
+          "max_rel": 5.603336198982522e-11,
+          "finite": true
+        },
+        "w": {
+          "max_abs": 4.759647537211364e-16,
+          "max_rel": 15436.183599486712,
+          "finite": true
+        },
+        "b": {
+          "max_abs": 4.164691595059944e-17,
+          "max_rel": 1.2696901075100278e-12,
+          "finite": true
+        }
+      },
+      "patch_trace_calls": 24,
+      "chunk_divides": null
+    },
+    "w5_baseline": {
+      "chunk_divides": null,
+      "temp_bytes": null
+    },
+    "w5_selected": {
+      "diffs": {
+        "u": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        },
+        "v": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        },
+        "w": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        },
+        "b": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        }
+      },
+      "patch_trace_calls": 0,
+      "chunk_divides": null
+    },
+    "w5_selected_f32w": {
+      "diffs": {
+        "u": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        },
+        "v": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        },
+        "w": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        },
+        "b": {
+          "max_abs": 0.0,
+          "max_rel": 0.0,
+          "finite": true
+        }
+      },
+      "patch_trace_calls": 0,
+      "chunk_divides": null
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+ "per_step_cost_cs1": {
+  "centered_n128": {
+   "flops_G": 6.61,
+   "bytes_MB": 2605.8,
+   "temp_peak_MB": 294.3,
+   "temp_write_MB": 478.3,
+   "obs_ms": 12.17,
+   "eff_GBs": 214
+  },
+  "u5_baseline_n128": {
+   "flops_G": 7.374,
+   "bytes_MB": 3286.9,
+   "temp_peak_MB": 402.5,
+   "temp_write_MB": 781.7,
+   "obs_ms": 22.7,
+   "eff_GBs": 145
+  },
+  "u5_selected_n128": {
+   "flops_G": 7.193,
+   "bytes_MB": 3286.9,
+   "temp_peak_MB": 402.5,
+   "obs_ms": 22.14
+  },
+  "centered_n192": {
+   "flops_G": 22.268,
+   "bytes_MB": 8562.3,
+   "temp_peak_MB": 903.5,
+   "obs_ms": 42.7,
+   "eff_GBs": 201
+  },
+  "u5_baseline_n192": {
+   "flops_G": 24.684,
+   "bytes_MB": 11008.6,
+   "temp_peak_MB": 1149.1,
+   "obs_ms": 77.85,
+   "eff_GBs": 141
+  }
+ },
+ "temp_size_cs50_benchmarked": {
+  "centered": {
+   "128": 274.5,
+   "192": 900.2
+  },
+  "u5_baseline": {
+   "128": 418.6,
+   "192": 1335.3
+  },
+  "u5_selected": {
+   "128": 418.6
+  }
+ },
+ "runtime_delta_decomp": {
+  "n128": {
+   "observed_ms": 10.53,
+   "extra_bytes_ms": 3.18,
+   "efficiency_loss_ms": 7.35,
+   "arithmetic_ms": 0.0,
+   "bytes_delta_MB": 681
+  },
+  "n192": {
+   "observed_ms": 35.15,
+   "extra_bytes_ms": 12.2,
+   "efficiency_loss_ms": 22.95,
+   "arithmetic_ms": 0.0,
+   "bytes_delta_MB": 2446
+  }
+ },
+ "field_shapes": {
+  "centered_padded": "n+4 (132^3 @128, 196^3 @192)",
+  "u5_padded": "n+8 (136^3 @128, 200^3 @192)"
+ }
+}

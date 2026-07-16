@@ -1,0 +1,132 @@
+{
+  "protocol": "n=160, fresh process per run, 1 warmup+4 timed chunks of 50 steps, fully-bracketed interleave (empty-flags baseline before AND after every candidate); delta = candidate_median - mean(bracketing baselines), which cancels monotonic thermal drift",
+  "jaxlib": "0.10.2",
+  "gpu": "RTX 3060 Laptop 6GB",
+  "fridom_file": "/tmp/claude-1000/-home-silvano-Projects-fridom/84ef5624-971a-4abb-a5b0-6cbecbfad680/scratchpad/wt-flags/src/fridom/__init__.py",
+  "rejected_flags": [
+    "--xla_gpu_graph_level=0",
+    "--xla_gpu_enable_priority_fusion=true",
+    "--xla_gpu_enable_triton_softmax_fusion=true",
+    "--xla_gpu_enable_address_computation_fusion=false",
+    "--xla_gpu_enable_dynamic_update_slice_fusion=true",
+    "--xla_gpu_enable_while_loop_unrolling=true"
+  ],
+  "results": {
+    "u5_baseline": {
+      "f1_dblbuf": {
+        "flags": "--xla_gpu_enable_while_loop_double_buffering=true",
+        "median": 46.79983914014883,
+        "delta_pct_median": 0.08,
+        "delta_pct_min": -0.03,
+        "temp_MB": 790
+      },
+      "f2_nomof": {
+        "flags": "--xla_disable_hlo_passes=multi_output_fusion",
+        "median": 47.59683801996289,
+        "delta_pct_median": 0.14,
+        "delta_pct_min": 0.1,
+        "temp_MB": 266
+      },
+      "f3_lhs": {
+        "flags": "--xla_gpu_enable_latency_hiding_scheduler=true",
+        "median": 48.22996737988433,
+        "delta_pct_median": 0.13,
+        "delta_pct_min": 0.12,
+        "temp_MB": 790
+      },
+      "f4_slop95": {
+        "flags": "--xla_gpu_memory_limit_slop_factor=95",
+        "median": 48.74287439000909,
+        "delta_pct_median": 0.02,
+        "delta_pct_min": 0.14,
+        "temp_MB": 790
+      },
+      "f5_autotune4": {
+        "flags": "--xla_gpu_autotune_level=4",
+        "median": 49.13003937996109,
+        "delta_pct_median": 0.19,
+        "delta_pct_min": 0.11,
+        "temp_MB": 790
+      },
+      "f6_notriton": {
+        "flags": "--xla_gpu_enable_triton_gemm=false",
+        "median": 49.40968705006526,
+        "delta_pct_median": 0.05,
+        "delta_pct_min": 0.02,
+        "temp_MB": 790
+      },
+      "x1_nocmdbuf": {
+        "flags": "--xla_gpu_enable_command_buffer=",
+        "median": 49.704442960064625,
+        "delta_pct_median": -0.03,
+        "delta_pct_min": 0.1,
+        "temp_MB": 790
+      },
+      "x2_aliasscope": {
+        "flags": "--xla_llvm_enable_alias_scope_metadata=true",
+        "median": 49.95977919010329,
+        "delta_pct_median": -0.07,
+        "delta_pct_min": 0.17,
+        "temp_MB": 790
+      }
+    },
+    "centered": {
+      "f1_dblbuf": {
+        "flags": "--xla_gpu_enable_while_loop_double_buffering=true",
+        "median": 25.514679470070405,
+        "delta_pct_median": -0.02,
+        "delta_pct_min": 0.03,
+        "temp_MB": 527
+      },
+      "f2_nomof": {
+        "flags": "--xla_disable_hlo_passes=multi_output_fusion",
+        "median": 26.89891276007984,
+        "delta_pct_median": 4.72,
+        "delta_pct_min": 5.3,
+        "temp_MB": 245
+      },
+      "f3_lhs": {
+        "flags": "--xla_gpu_enable_latency_hiding_scheduler=true",
+        "median": 25.811773439927492,
+        "delta_pct_median": 0.31,
+        "delta_pct_min": 0.25,
+        "temp_MB": 527
+      },
+      "f4_slop95": {
+        "flags": "--xla_gpu_memory_limit_slop_factor=95",
+        "median": 25.64200084991171,
+        "delta_pct_median": -0.09,
+        "delta_pct_min": -0.09,
+        "temp_MB": 527
+      },
+      "f5_autotune4": {
+        "flags": "--xla_gpu_autotune_level=4",
+        "median": 25.51922236001701,
+        "delta_pct_median": -0.18,
+        "delta_pct_min": -0.07,
+        "temp_MB": 527
+      },
+      "f6_notriton": {
+        "flags": "--xla_gpu_enable_triton_gemm=false",
+        "median": 25.43237282996415,
+        "delta_pct_median": -0.04,
+        "delta_pct_min": -0.05,
+        "temp_MB": 527
+      },
+      "x1_nocmdbuf": {
+        "flags": "--xla_gpu_enable_command_buffer=",
+        "median": 25.366334910067962,
+        "delta_pct_median": 0.12,
+        "delta_pct_min": 0.15,
+        "temp_MB": 527
+      },
+      "x2_aliasscope": {
+        "flags": "--xla_llvm_enable_alias_scope_metadata=true",
+        "median": 25.236575650051236,
+        "delta_pct_median": -0.05,
+        "delta_pct_min": 0.05,
+        "temp_MB": 527
+      }
+    }
+  }
+}

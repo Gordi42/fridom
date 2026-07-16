@@ -1,0 +1,67 @@
+{
+ "note": "attribution of upwind5 vs centered temp/traffic delta",
+ "variants": {
+  "centered_n128": {
+   "temp_MB": 274.5,
+   "peak_liveness_MB": 274.5,
+   "peak_t": 294,
+   "n_live_fields_ge4MB": 15,
+   "peak_bucket_MB": {
+    "add": 165.60000000000002,
+    "advection": 55.199999999999996,
+    "dynamic_update_slice": 18.4,
+    "coriolis": 18.26,
+    "projection/FFT": 17.04
+   }
+  },
+  "centered_n192": {
+   "temp_MB": 900.2,
+   "peak_liveness_MB": 900.2,
+   "peak_t": 294,
+   "n_live_fields_ge4MB": 15,
+   "peak_bucket_MB": {
+    "add": 542.16,
+    "advection": 180.72,
+    "dynamic_update_slice": 60.24,
+    "coriolis": 59.93,
+    "projection/FFT": 57.21
+   }
+  },
+  "u5_baseline_n128": {
+   "temp_MB": 418.6,
+   "peak_liveness_MB": 416.8,
+   "peak_t": 327,
+   "n_live_fields_ge4MB": 21,
+   "peak_bucket_MB": {
+    "advection": 299.16,
+    "add": 80.48,
+    "dynamic_update_slice": 20.12,
+    "projection/FFT": 17.04
+   }
+  },
+  "u5_baseline_n192": {
+   "temp_MB": 1335.3,
+   "peak_liveness_MB": 1331.5,
+   "peak_t": 327,
+   "n_live_fields_ge4MB": 21,
+   "peak_bucket_MB": {
+    "advection": 954.2399999999998,
+    "add": 256.0,
+    "dynamic_update_slice": 64.0,
+    "projection/FFT": 57.21
+   }
+  },
+  "u5_selected_n128": {
+   "temp_MB": 418.6,
+   "peak_liveness_MB": 416.8,
+   "peak_t": 327,
+   "n_live_fields_ge4MB": 21,
+   "peak_bucket_MB": {
+    "advection": 299.16,
+    "add": 80.48,
+    "dynamic_update_slice": 20.12,
+    "projection/FFT": 17.04
+   }
+  }
+ }
+}

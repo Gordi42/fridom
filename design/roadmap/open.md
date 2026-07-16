@@ -91,8 +91,18 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   roundoff flip — see
   [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md)).
   Negative results are recorded in
-  [`../research/stencil_lowering.md`](../research/stencil_lowering.md) —
-  do not revisit them without reading it.
+  [`../research/stencil_lowering.md`](../research/stencil_lowering.md)
+  and — for upwind5: one-path spellings, XLA flags, Pallas — in
+  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
+  (the 2026-07-17 RTX 3060 re-baseline; entry in
+  [`done.md`](done.md)) — do not revisit them without reading both.
+- **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
+  per axis where the nominal reach needs `n+6` (centered: `n+4` vs
+  `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step
+  @192³ on RTX-3060-class hardware. A core staggering-policy
+  question, parity-sensitive, unprobed
+  ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
+  §6).
 
 ## Channel eigenmodes are broken on multi-device
 
@@ -121,6 +131,24 @@ every unmapped, unimmersed grid** — periodic and walled (owner ruling
 2026-07-16; entries in [`done.md`](done.md)). Only mapped/immersed
 grids remain nodal-only (taught error). Open:
 
+- **Blocker: biased advection does not assemble on the FV default**
+  (found 2026-07-16 by the upwind5 benchmark campaign, re-verified at
+  `cf633de1`). `nh.Model` with `UpwindAdvection`/`WENOAdvection` on
+  any FV-default grid fails at dry-run with `SpaceMismatchError`
+  (`Center` vs `CellAvg` retag in `_face_value`) — velocity
+  self-advection: `u`'s x-factor is nodal `Right`, so `_flux_space`
+  derives `CellAvg` (via `diff`) while `_biased_pair` picks the nodal
+  reconstruction pair (codomain `Center`), bridged only by a BC-only
+  `retag`. Present since the F3 default flip (`cb752b85`);
+  `CenteredAdvection` survives through `_velocity_face`'s real `.to`
+  conversion. Coverage gap: the FV advection tests drive raw
+  `fr.model.Model` (nodal-default grid) with a `CellAvg` tracer only —
+  FV velocity self-advection through the biased path is never
+  assembled; `test_fv_default.py` is centered-only. Repro:
+  [`../research/upwind5_revisit/fv_repro.py`](../research/upwind5_revisit/fv_repro.py),
+  details in
+  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
+  §7.
 - **F5** mapped/chart FV — the metric-aware rows on averages (C1/C2
   chain) and `MappedPressureSolver` (hard-wired nodal). Handoff notes
   from F4 in the scoping §11 (measure-weighted wall reconstruction,
