@@ -66,6 +66,7 @@ jobs:
         uv run pytest tests/framework/domain_decomposition/test_domain_decomposition.py \
           tests/spatial/decomposition \
           tests/spatial/operators/test_distributed_solve.py \
+          tests/spatial/operators/test_cumulative.py \
           tests/spatial/operators/test_transform.py \
           tests/spatial/operators/test_spectral_solve.py \
           tests/spatial/test_exchange_counts.py \
