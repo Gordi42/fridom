@@ -96,6 +96,7 @@ from fridom.model.declarations import (
     FieldReference,
     Lifecycle,
 )
+from fridom.model.field_blend import BlendIngredient, FieldBlend
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
 from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
@@ -116,6 +117,7 @@ def linear_rotation(
     *,
     metric_weight: str | None = None,
     f_override: object = None,
+    f_field: object = None,
 ) -> dict:
     r"""
     Return the linear staggered rotation ``f v`` / ``-f u`` (flat).
@@ -144,9 +146,18 @@ def linear_rotation(
         the ``f_coriolis`` field — the f-plane time-dependent path
         (AR-D7 / R1): when a ``TimeDependent`` ``f0`` drives the
         rotation, the term reads ``f0(t)`` at stage time rather than
-        the assembly-frozen field. ``None`` keeps the field path, so
-        the static (plain-float) case is bit-identical (default:
-        None).
+        the assembly-frozen field. Already constant in space, so the
+        field lift ``.to(u)`` is skipped. ``None`` keeps the field
+        path, so the static (plain-float) case is bit-identical
+        (default: None).
+    f_field : object, optional
+        A **stage-time f(y) field** (a ``ScalarField`` on the
+        ``f_coriolis`` space) to use in place of the assembly-frozen
+        ``f_coriolis`` field — the beta-plane ``FieldBlend`` path (AR-D2
+        / R2): the ramped ``f(y,t) = f0(t) + beta(t)*y`` blended from
+        the ingredient profiles at stage time, lifted onto the ``u``
+        faces exactly like the frozen field. ``None`` keeps the frozen
+        field (default: None).
 
     Returns
     -------
@@ -155,8 +166,14 @@ def linear_rotation(
     """
     u, v = state["u"], state["v"]
     # a scalar override is already constant in space (the f-plane), so
-    # the field lift ``.to(u)`` is a no-op broadcast and is skipped
-    f_u = state["f_coriolis"].to(u) if f_override is None else f_override
+    # the field lift ``.to(u)`` is a no-op broadcast and is skipped; a
+    # blended f(y) field (beta-plane) is lifted like the frozen field
+    if f_override is not None:
+        f_u = f_override
+    elif f_field is not None:
+        f_u = f_field.to(u)
+    else:
+        f_u = state["f_coriolis"].to(u)
     if metric_weight is None:
         return {
             "u": f_u * v.to(u),
@@ -266,15 +283,19 @@ def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001
     When the module carries a **time-dependent** constant-in-space
     ``f0`` (the f-plane R1 path), ``_stage_scalar_f`` returns the
     stage-time value ``f0(t)`` and the term reads it instead of the
-    assembly-frozen field; a plain-float ``f0`` (and every beta-plane
-    profile) leaves ``f_override`` ``None`` and the field path runs
-    bit-identically.
+    assembly-frozen field. When it carries a ramped ``f(y,t)`` (the
+    beta-plane ``FieldBlend`` path, R2), ``_stage_blend_f`` returns the
+    stage-time blended field. A fully static module (plain-float ``f0``
+    and ``beta``) leaves both overrides ``None`` and the assembly-frozen
+    field path runs bit-identically.
     """
     stage_f = getattr(self, "_stage_scalar_f", None)
     f_override = stage_f(ctx) if stage_f is not None else None
+    stage_blend = getattr(self, "_stage_blend_f", None)
+    f_field = stage_blend(state, ctx) if stage_blend is not None else None
     return linear_rotation(
         state, metric_weight=self._metric_weight,
-        f_override=f_override)
+        f_override=f_override, f_field=f_field)
 
 
 _WEIGHT_HINT = ("the velocity energy-metric weight field (e.g. the "
@@ -317,26 +338,54 @@ def _rotation_vector(omega: object) -> jnp.ndarray:
     return vector
 
 
-def _reject_time_dependent_profile(**values: object) -> None:
-    """Refuse a time-dependent parameter that drives an ``f(y)`` field.
+def _f_const_ingredient(
+    self: object, grid: object, space: object,  # noqa: ARG001
+) -> ScalarField:
+    """Owner-method default: the constant unit profile (all ones).
 
-    The beta-plane ``f(y) = f0 + beta*y`` is a spatial *field*, so a
-    time-dependent ``f0``/``beta`` is a field-valued blend
-    (``FieldBlend``, roadmap stage R2), not the R1 scalar path. Better
-    a taught error than the bare ``Ramp``-times-array failure the
-    materializer would raise.
+    The ``f0``-weighted ingredient of the beta-plane ``FieldBlend``:
+    ``f(y,t) = f0(t) * 1 + beta(t) * y``. Materialized once at assembly
+    on the meridional profile; the pointwise blend scales it by the
+    stage-time ``f0(t)``.
     """
-    for name, value in values.items():
-        if isinstance(value, TimeDependent):
-            raise TypeError(
-                f"BetaPlaneCoriolis {name}={value!r} is time-dependent, "
-                "but its Coriolis parameter is the spatially varying "
-                "field f(y) = f0 + beta*y; ramping it is a field-valued "
-                "blend (a FieldBlend of two profiles), not yet available "
-                "(roadmap 'Generalized adiabatic ramping', stage R2). "
-                "On the f-plane a time-dependent f0 IS supported: "
-                "fr.model.modules.FPlaneCoriolis(f0=Ramp(...)); or ramp "
-                "the nonlinear scaling scaling.rossby instead")
+    return grid.create_field(
+        space, data=jnp.ones(space.shape), name="f_coriolis_const")
+
+
+def _f_grad_ingredient(
+    self: object, grid: object, space: object,
+) -> ScalarField:
+    """Owner-method default: the meridional coordinate profile ``y``.
+
+    The ``beta``-weighted ingredient of the beta-plane ``FieldBlend``;
+    the ``init`` signature is stamped dynamically to name the module's
+    own meridional coordinate (mirrors ``BetaPlaneCoriolis._f_default``).
+    Materialized once at assembly; the pointwise blend scales it by the
+    stage-time ``beta(t)``.
+    """
+    mer = self._meridional
+
+    def init(**coords: object) -> object:
+        return coords[mer]
+
+    init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        [inspect.Parameter(
+            mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
+    return grid.create_field(space, init=init, name="f_coriolis_grad")
+
+
+#: the beta-plane Coriolis blend ``f(y,t) = f0(t)*1 + beta(t)*y`` — two
+#: assembly-materialized profiles (the constant unit and the meridional
+#: coordinate) weighted by the module's own ``f0`` / ``beta`` leaves,
+#: read at stage time (AR-D2). The two-endpoint paper form
+#: ``f0 + rho(t/tau)*beta*y`` is the special case ``f0`` static, ``beta``
+#: a ``Ramp`` (its ``0 -> beta`` ramp is ``rho(t/tau)*beta``).
+_BETA_BLEND = FieldBlend((
+    BlendIngredient("f_coriolis_const", weight="f0",
+                    build=_f_const_ingredient),
+    BlendIngredient("f_coriolis_grad", weight="beta",
+                    build=_f_grad_ingredient),
+))
 
 
 def _reject_chart_grid(module: Module, table: object) -> None:
@@ -504,11 +553,22 @@ class BetaPlaneCoriolis(Module):
     ``coriolis.f0`` (its Coriolis parameter is the ``f(y)`` field, not
     a constant — 02_rules).
 
+    A time-dependent ``f0`` and/or ``beta`` (an ``fr.Ramp``, or a
+    ``Ramp``-valued ``updates=`` on ``coriolis.f0`` / ``coriolis.beta``)
+    drives the adiabatic-ramping ``FieldBlend`` (AR-D2 / R2):
+    :math:`f(y,t) = f_0(t)\cdot 1 + \beta(t)\,y` is blended at stage
+    time from two assembly-materialized profiles (the constant unit
+    field and the meridional coordinate), so ramp-endpoint sweeps never
+    recompile and the pointwise blend adds no halo traffic. The state
+    then also carries the two ingredient fields ``f_coriolis_const`` /
+    ``f_coriolis_grad``, and ``f_coriolis`` is materialized as the
+    ``t = 0`` snapshot; the rotation term reads the fresh blend.
+
     Parameters
     ----------
-    f0 : float, optional
+    f0 : float | fr.Ramp, optional
         Reference Coriolis parameter at ``y = 0`` (default: 1.0).
-    beta : float, optional
+    beta : float | fr.Ramp, optional
         Meridional gradient :math:`\beta = \mathrm{d}f/\mathrm{d}y`
         (default: 0.0).
     meridional : str, optional
@@ -526,16 +586,14 @@ class BetaPlaneCoriolis(Module):
     ) -> None:
         r"""Store the leaves and the meridional coordinate name.
 
-        Raises
-        ------
-        TypeError
-            If ``f0`` or ``beta`` is time-dependent: the beta-plane
-            Coriolis parameter is the spatially varying field
-            :math:`f(y) = f_0 + \beta y`, so ramping it is a
-            field-valued blend (``FieldBlend``, roadmap stage R2), not
-            a scalar parameter (R1).
+        A time-dependent ``f0`` and/or ``beta`` (an ``fr.Ramp``) is
+        supported through the beta-plane ``FieldBlend`` (AR-D2 / R2):
+        the Coriolis parameter is the spatially varying field
+        :math:`f(y,t) = f_0(t) + \beta(t)\,y`, blended at stage time
+        from the assembly-materialized unit and meridional-coordinate
+        profiles (see :data:`_BETA_BLEND`). The static (plain-float)
+        path is untouched.
         """
-        _reject_time_dependent_profile(f0=f0, beta=beta)
         self.f0 = leaf(f0)
         self.beta = leaf(beta)
         self._meridional = meridional
@@ -553,30 +611,63 @@ class BetaPlaneCoriolis(Module):
         return self._metric_weight
 
     @property
+    def _blend_active(self) -> bool:
+        """Whether a ramped ``f0``/``beta`` drives the ``FieldBlend``.
+
+        Computed from the *current* leaves rather than cached in
+        ``__init__``: ``model.variant(updates=...)`` seeds a
+        ``Ramp``-valued ``coriolis.beta`` via ``object.__setattr__``
+        (bypassing ``__init__``), so the ramping ``Propagator`` legs
+        must see a freshly re-evaluated predicate at re-assembly.
+        Reads only the leaf *types* (structural, host-side).
+        """
+        return _BETA_BLEND.is_active(self)
+
+    @property
     def field_references(self) -> tuple[FieldReference, ...]:
         """u/v, plus the metric-weight field when configured."""
         return _rotation_references(self._metric_weight)
 
     @property
     def field_declarations(self) -> tuple[FieldDeclaration, ...]:
-        """The ``f(y)`` field on a meridional profile."""
-        return (
-            FieldDeclaration(
-                "f_coriolis", space=Profile(self._meridional),
-                lifecycle=Lifecycle.AUXILIARY,
-                default=self._f_default,
-                long_name="Coriolis parameter", units="1/s"),
-        )
+        """The ``f(y)`` field, plus the blend ingredients when ramped.
+
+        The static (plain-float) path declares the single ``f_coriolis``
+        profile exactly as before. A ramped ``f0``/``beta`` additionally
+        declares the two ``FieldBlend`` ingredient profiles
+        (``f_coriolis_const``, ``f_coriolis_grad``); ``f_coriolis``
+        itself stays declared as the ``t = 0`` snapshot (so downstream
+        consumers and I/O keep a valid field), while the rotation term
+        reads the fresh stage-time blend.
+        """
+        f_coriolis = FieldDeclaration(
+            "f_coriolis", space=Profile(self._meridional),
+            lifecycle=Lifecycle.AUXILIARY, default=self._f_default,
+            long_name="Coriolis parameter", units="1/s")
+        if not self._blend_active:
+            return (f_coriolis,)
+        return (f_coriolis, *_BETA_BLEND.field_declarations(
+            space=Profile(self._meridional),
+            long_name="Coriolis parameter blend ingredient",
+            units="1/s"))
 
     def _f_default(self, grid: object, space: object) -> ScalarField:
-        """Owner-method default: materialize ``f0 + beta*y``.
+        """Owner-method default: materialize ``f0 + beta*y`` at ``t=0``.
 
         The meridional profile carries a single non-constant
         coordinate, so ``init`` names exactly that coordinate; the
         signature is stamped dynamically to match ``self._meridional``.
-        No pre-syncing (GAP-B) — see ``FPlaneCoriolis._f_default``.
+        A time-dependent ``f0``/``beta`` (an ``fr.Ramp``) is resolved at
+        ``t = 0`` (``resolve_at``) so the AUXILIARY field keeps a valid
+        static treedef; the rotation term then reads the stage-time
+        blend, so this frozen value is never used on the ramped path. A
+        plain-float ``f0``/``beta`` is ``resolve_at``-identity, so this
+        line is bit-identical to the static case. No pre-syncing
+        (GAP-B) — see ``FPlaneCoriolis._f_default``.
         """
-        f0, beta, mer = self.f0, self.beta, self._meridional
+        f0 = resolve_at(self.f0, 0.0)
+        beta = resolve_at(self.beta, 0.0)
+        mer = self._meridional
 
         def init(**coords: object) -> object:
             return f0 + beta * coords[mer]
@@ -585,6 +676,42 @@ class BetaPlaneCoriolis(Module):
             [inspect.Parameter(
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="f_coriolis")
+
+    def _stage_blend_f(self, state: object, ctx: object) -> object | None:
+        r"""Return the stage-time blended ``f(y,t)`` when ramped (AR-D2).
+
+        Description
+        -----------
+        The beta-plane counterpart of ``FPlaneCoriolis._stage_scalar_f``:
+        a ramped ``f0``/``beta`` makes ``f`` a field-valued blend
+        :math:`f(y,t) = f_0(t) + \beta(t)\,y`, evaluated from the
+        assembly-materialized ingredient profiles and the module's own
+        leaves resolved at the stage clock time (``ctx.clock.time`` in a
+        run, the bare dry-run/tendency scalar otherwise — the
+        ``eval_params``-consistent seam). Returns ``None`` on the static
+        (plain-float) path (host-side dispatch on the leaf types), so the
+        rotation term reads the frozen field bit-identically and the
+        branch never dereferences ``ctx`` there.
+        """
+        if not self._blend_active:
+            return None
+        time = getattr(ctx.clock, "time", ctx.clock)
+        return _BETA_BLEND.evaluate(self, state, time)
+
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """Report a ramped ``f0``/``beta`` feeding the linear rotation.
+
+        A time-dependent ``f0`` or ``beta`` lives inside this module's
+        ``linear=True`` rotation term, so a frozen-``L`` (exponential)
+        stepper must refuse it (AR-D7); a fully plain-float module
+        reports nothing.
+        """
+        names: list[str] = []
+        if isinstance(self.f0, TimeDependent):
+            names.append(str(CORIOLIS_F0))
+        if isinstance(self.beta, TimeDependent):
+            names.append(str(CORIOLIS_BETA))
+        return tuple(names)
 
     def bind(self, table) -> None:  # noqa: ANN001
         """Reject chart-coupled grids (metric-blind rotation).

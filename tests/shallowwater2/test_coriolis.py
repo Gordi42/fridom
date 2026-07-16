@@ -490,3 +490,226 @@ def test_the_conserving_f_plane_rejects_a_chart_grid():
             coriolis=sw.modules.NonlinearFPlaneCoriolis(
                 f0=F0, coords=("lon", "lat")),
             time_stepper=stepper())
+
+
+# ================================================================
+#  R2: the ramped beta-plane FieldBlend end to end (AR-D2)
+# ================================================================
+# The conserving rotation reads f its own way (state["f_coriolis"]);
+# route B (NonlinearBetaPlaneCoriolis) inherits the beta-plane blend, so
+# the conserving channel supports a ramped beta end to end. Route A (the
+# correction) under a ramped f, and the conserving f-plane under a ramped
+# f0, are taught follow-ups (no field blend to honor them).
+RAMP_DT = 2e-3
+
+
+def _conserving_beta_channel(beta, f0=F0):
+    """Return a conserving (route B) beta channel; float/Ramp beta."""
+    return sw.Model(
+        grid=flat_grid(periodic_y=False), csqr=CSQR, rossby_number=RO,
+        coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=f0, beta=beta),
+        advection=True,
+        time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
+
+
+@pytest.mark.parametrize("t", [0.0, 0.02, 0.05])
+def test_conserving_ramped_beta_tendency_equals_static_at_stage(t):
+    """Route-B conserving rotation reads the stage-time f(y) blend.
+
+    ramped.tendency(z, t) == static conserving model at beta = ramp(t):
+    the conserving (f/h_bar)(h v)_bar term consumes the fresh blend, so
+    the sw2 channel supports a ramped beta end to end.
+    """
+    ramp = fr.model.Ramp(0.0, 2.0, period=0.05, curve="exp")
+    ramped = _conserving_beta_channel(ramp)
+    set_random(ramped)
+    z = sw.State({c: ramped.state[c] for c in NAMES})
+    got = ramped.tendency(z, t=t)
+
+    const = _conserving_beta_channel(float(ramp.at_time(t)))
+    const.set_fields(**{c: np.asarray(z[c].data) for c in NAMES})
+    z_const = sw.State({c: const.state[c] for c in NAMES})
+    want = const.tendency(z_const)
+    for c in NAMES:
+        np.testing.assert_allclose(
+            np.asarray(got[c].data), np.asarray(want[c].data),
+            rtol=1e-12, atol=1e-13)
+
+
+def test_conserving_ramped_beta_declares_the_blend_ingredients():
+    model = _conserving_beta_channel(fr.model.Ramp(0.0, 2.0, period=1.0))
+    for name in ("f_coriolis", "f_coriolis_const", "f_coriolis_grad"):
+        assert name in model.state
+    # route B carries the rotation in N, so it reports no time-dependent
+    # LINEAR parameter (unlike the linear beta module)
+    module = model.module(sw.modules.NonlinearBetaPlaneCoriolis)
+    assert module.time_dependent_linear_parameters() == ()
+
+
+def test_conserving_f_plane_rejects_a_ramped_f0():
+    # the conserving f-plane carries no field blend, so a ramped f0
+    # would silently freeze -- a taught error instead
+    with pytest.raises(TypeError, match="conserving f-plane"):
+        sw.modules.NonlinearFPlaneCoriolis(
+            f0=fr.model.Ramp(0.0, 1.0, period=1.0))
+
+
+def test_correction_rejects_a_ramped_beta_linear_module():
+    # route A subtracts the frozen f_coriolis snapshot; pairing it with a
+    # ramped (blend-active) linear module double-counts the ramp
+    with pytest.raises(ValueError, match="ramped f\\(y\\) FieldBlend"):
+        sw.Model(
+            grid=flat_grid(periodic_y=False), csqr=CSQR, rossby_number=RO,
+            coriolis=sw.modules.BetaPlaneCoriolis(
+                f0=F0, beta=fr.model.Ramp(0.0, 2.0, period=1.0)),
+            modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
+            advection=True, time_stepper=stepper())
+
+
+@pytest.mark.multi_device
+def test_conserving_ramped_beta_is_device_count_invariant(forced_devices):
+    """Gate (d): the conserving f(y) blend is halo-neutral (forced-4)."""
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    ramp = fr.model.Ramp(0.0, 2.0, period=5e-2, curve="exp")
+
+    def build(device_ids):
+        mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+        my = fr.spatial.meshes.IntervalMesh(
+            16, (0.0, 1.0), periodic=False, name="y")
+        return sw.Model(
+            grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
+            csqr=CSQR, rossby_number=RO,
+            coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=ramp),
+            advection=True,
+            time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
+
+    rng = np.random.default_rng(4)
+    fields = {"u": rng.standard_normal((16, 16)),
+              "v": rng.standard_normal((16, 15)),
+              "p": rng.standard_normal((16, 16))}
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        model = build(device_ids)
+        model.set_fields(**fields)
+        model.advance(4)
+        results[tag] = {c: np.asarray(model.state[c].data) for c in NAMES}
+        if tag == "many":
+            assert model.state["u"]._data.sharding.spec[0] == "devices"
+    assert max(
+        float(np.abs(results["many"][c] - results["one"][c]).max())
+        for c in NAMES) < 1e-11
+
+
+# ================================================================
+#  R2 physics gate: adiabatic beta ramp -> exponentially small leakage
+# ================================================================
+# The acceptance demo of the FieldBlend on the linearized sw2 channel.
+# A vortical (slow) state of the reference system stays slow as beta is
+# ramped adiabatically to the target, so the relative imbalance eta
+# = ||(I - P_slow) z|| / ||z|| (a volume-weighted energy norm) at the
+# far end DECREASES as the ramp period tau lengthens. Parameters:
+# f0=1, c^2=1, beta=2 (well below the 2k^2 Rossby/Kelvin edge, k>=2pi
+# so 2k^2 >~ 79); dt=1e-2 stays inside the AB3 stability limit for the
+# high-k gravity waves (omega_max ~ 25); tau in {0.5, 1, 2} spans the
+# adiabatic onset while keeping the step counts (50/100/200) small.
+# Both ramp directions are tested. The slow subspace is the labeled
+# VORTICAL (geostrophic/Rossby) family. The reduction is finite (a
+# small-grid / finite-tau leakage floor, plan risk 5.1), so the gate
+# asserts a monotone decrease and a conservative minimum reduction.
+_AD_F0 = 1.0
+_AD_CSQR = 1.0
+_AD_BETA = 2.0
+_AD_DT = 1e-2
+_AD_TAUS = (0.5, 1.0, 2.0)
+
+
+def _adiabatic_norm(eb, state):
+    """Volume-weighted physical energy under diag(1, 1, 1/c^2)."""
+    weights = {"u": 1.0, "v": 1.0, "p": 1.0 / _AD_CSQR}
+    total = 0.0
+    for c in NAMES:
+        mu = np.asarray(state[c].measure(eb.bounded_axis).data).ravel()
+        total += weights[c] * float(
+            np.sum(np.asarray(state[c].data) ** 2 * mu[None, :]))
+    return total
+
+
+def _imbalance(eb, projection, state):
+    """Eta = ||(I - P) z|| / ||z|| under the volume-weighted norm."""
+    residual = state - projection(state)
+    return float(np.sqrt(_adiabatic_norm(eb, residual)
+                         / _adiabatic_norm(eb, state)))
+
+
+@pytest.fixture(scope="module")
+def adiabatic_channel():
+    """Build reference (beta=0) + target channels and slow projectors.
+
+    Built on ONE shared grid (the reference is a variant of the target)
+    so the eigenmode projections and the ramped Propagator legs all
+    carry the same grid identity.
+    """
+    mx = fr.spatial.meshes.IntervalMesh(8, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(8, (0.0, 1.0), periodic=False,
+                                        name="y")
+    target = sw.Model(
+        grid=fr.spatial.Grid((mx, my)), csqr=_AD_CSQR, rossby_number=0.2,
+        coriolis=sw.modules.BetaPlaneCoriolis(f0=_AD_F0, beta=_AD_BETA),
+        advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(_AD_DT, order=3))
+    reference = target.variant(updates={"coriolis.beta": 0.0})
+    eb_ref = sw.eigenbasis(reference)
+    eb_tgt = sw.eigenbasis(target)
+    return {
+        "target": target, "reference": reference,
+        "eb_ref": eb_ref, "eb_tgt": eb_tgt,
+        "P_ref": sw.transforms.VorticalProjection(eb_ref),
+        "P_tgt": sw.transforms.VorticalProjection(eb_tgt)}
+
+
+def _slow_state(model, projection, seed):
+    """Return a random state projected onto the labeled slow subspace."""
+    rng = np.random.default_rng(seed)
+    model.set_fields(**{
+        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in NAMES})
+    return projection(sw.State({c: model.state[c] for c in NAMES}))
+
+
+@pytest.mark.parametrize("direction", ["up", "down"])
+def test_ramped_beta_leakage_decays_with_tau(adiabatic_channel, direction):
+    ch = adiabatic_channel
+    target = ch["target"]
+    if direction == "up":
+        # slow state of the reference; ramp 0 -> beta; project at target
+        z0 = _slow_state(ch["reference"], ch["P_ref"], seed=3)
+        endpoints = (0.0, _AD_BETA)
+        eb_far, p_far = ch["eb_tgt"], ch["P_tgt"]
+    else:
+        # slow state of the target; ramp beta -> 0; project at reference
+        z0 = _slow_state(target, ch["P_tgt"], seed=5)
+        endpoints = (_AD_BETA, 0.0)
+        eb_far, p_far = ch["eb_ref"], ch["P_ref"]
+
+    # the initial state is (numerically) purely slow
+    eb_near = ch["eb_ref"] if direction == "up" else ch["eb_tgt"]
+    p_near = ch["P_ref"] if direction == "up" else ch["P_tgt"]
+    assert _imbalance(eb_near, p_near, z0) < 1e-10
+
+    etas = []
+    for tau in _AD_TAUS:
+        prop = fr.model.Propagator(
+            target, steps=round(tau / _AD_DT),
+            updates={"coriolis.beta": fr.model.Ramp(
+                *endpoints, period=tau, curve="exp")},
+            term_filter=fr.model.term_predicates.linear)
+        etas.append(_imbalance(eb_far, p_far, prop(z0)))
+
+    # monotone decrease across the doubling tau sequence, and a
+    # conservative net reduction (tolerance set away from the classifi-
+    # cation edge and above the small-grid leakage floor)
+    assert etas[0] > etas[1] > etas[2], etas
+    assert etas[-1] < 0.75 * etas[0], etas
+    # the leakage is real but small: the slow state stays mostly slow
+    assert etas[0] < 0.2, etas
